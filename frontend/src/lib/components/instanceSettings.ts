@@ -331,6 +331,16 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hiddenIfEmpty: true
+		},
+		{
+			label: 'Disable Hub',
+			description:
+				'Disable the Windmill Hub integration entirely. Enable this if your instance runs in a closed environment without internet access and you do not have a private hub setup.',
+			key: 'disable_hub',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			requiresReloadOnChange: true
 		}
 	],
 	SMTP: [

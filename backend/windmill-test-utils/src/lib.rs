@@ -380,7 +380,7 @@ pub fn spawn_test_worker(
 
     std::fs::DirBuilder::new()
         .recursive(true)
-        .create(windmill_worker::GO_BIN_CACHE_DIR)
+        .create(&*windmill_worker::GO_BIN_CACHE_DIR)
         .expect("could not create initial worker dir");
 
     let (tx, rx) = KillpillSender::new(1);

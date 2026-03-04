@@ -7,6 +7,8 @@
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import { loadHubApps } from '$lib/hub'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { Alert } from '$lib/components/common'
+	import { disableHubStore } from '$lib/stores'
 
 	interface Props {
 		filter?: string
@@ -30,11 +32,22 @@
 
 	const dispatch = createEventDispatcher()
 
+	let hubNotAvailable = $state(false)
+
 	onMount(async () => {
-		hubApps = await loadHubApps()
+		if ($disableHubStore) return
+		const result = await loadHubApps()
+		if (result === undefined) {
+			hubNotAvailable = true
+		} else {
+			hubApps = result
+		}
 	})
 </script>
 
+{#if $disableHubStore}
+	<!-- Hub disabled, show nothing -->
+{:else}
 <SearchItems
 	{filter}
 	items={prefilteredItems}
@@ -54,7 +67,11 @@
 </div>
 <ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 
-{#if hubApps}
+{#if hubNotAvailable}
+	<Alert type="warning" title="Hub not available">
+		Could not connect to the Windmill Hub. If you are in a closed environment, you can disable the Hub in the <a href="/#superadmin-settings?tab=private_hub">instance settings</a>.
+	</Alert>
+{:else if hubApps}
 	{#if filteredItems.length == 0}
 		<NoItemFound />
 	{:else}
@@ -92,4 +109,5 @@
 	{#each Array(10).fill(0) as _}
 		<Skeleton layout={[[4], 0.5]} />
 	{/each}
+{/if}
 {/if}

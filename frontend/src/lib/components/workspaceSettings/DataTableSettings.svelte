@@ -62,7 +62,7 @@
 	import { random_adj } from '../random_positive_adjetive'
 	import { sendUserToast } from '$lib/toast'
 	import { SettingService, WorkspaceService, type GetSettingsResponse } from '$lib/gen'
-	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { resource } from 'runed'
@@ -141,7 +141,6 @@
 	}
 
 	let confirmationModal = createAsyncConfirmationModal()
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let dirtyMap = $derived.by(() => {
 		const map: Record<string, boolean> = {}
 		for (let i = 0; i < tempSettings.dataTables.length; i++) {
@@ -245,7 +244,6 @@
 								<CustomInstanceDbSelect
 									class="flex-1"
 									{confirmationModal}
-									{dbManagerDrawer}
 									{customInstanceDbs}
 									bind:value={dataTable.database.resource_path}
 									tag="datatable"
@@ -265,7 +263,6 @@
 								<ExploreAssetButton
 									class="h-9"
 									asset={{ kind: 'datatable', path: dataTable.name }}
-									{dbManagerDrawer}
 									disabled
 								/>
 							</svelte:fragment>
@@ -275,7 +272,6 @@
 						<ExploreAssetButton
 							class="h-9"
 							asset={{ kind: 'datatable', path: dataTable.name }}
-							{dbManagerDrawer}
 						/>
 					{/if}
 				</Cell>

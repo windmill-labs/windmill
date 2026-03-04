@@ -43,6 +43,7 @@ use windmill_common::runnable_settings::{ConcurrencySettings, DebouncingSettings
 use windmill_common::scripts::ScriptRunnableSettingsHandle;
 use windmill_common::utils::require_admin;
 use windmill_common::variables::decrypt;
+use windmill_common::worker::WINDMILL_DIR;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
@@ -372,7 +373,7 @@ pub(crate) async fn tarball_workspace(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let tmp_dir = TempDir::new_in("/tmp/windmill/")?;
+    let tmp_dir = TempDir::new_in(&*WINDMILL_DIR)?;
 
     let name = match archive_type.as_deref() {
         Some("tar") | None => Ok(format!("windmill-{w_id}.tar")),

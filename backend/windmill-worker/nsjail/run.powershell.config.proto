@@ -127,7 +127,7 @@ iface_no_lo: true
 
 mount {
     src: "{CACHE_DIR}"
-    dst: "/tmp/windmill/cache/powershell"
+    dst: "{CACHE_DIR}"
     is_bind: true
     rw: false
     mandatory: false
