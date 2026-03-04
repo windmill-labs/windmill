@@ -39,7 +39,16 @@ type LayoutResult = {
 	positions: Map<string, { x: number; y: number }>
 	bbox: { width: number; height: number }
 	wrappers: WrapperInfo[]
+	contentMinX: number
 }
+
+/**
+ * ----- DEBUG -----
+ * Flip to `true` to compute and visualize compound-layout wrapper boxes.
+ * When enabled, the layout returns WrapperInfo[] objects that FlowGraphV2
+ * renders as colored dashed/dotted rectangles around groups and branches.
+ */
+export const SHOW_DEBUG_WRAPPERS = false
 
 const LOOP_INDENT = 25
 
@@ -285,28 +294,20 @@ function layoutLevel(
 	constants: LayoutConstants,
 	depth = 0
 ): LayoutResult {
-	const prefix = '  '.repeat(depth)
-	console.log(`${prefix}[layoutLevel] depth=${depth} nodeIds=`, nodeIds)
-
 	const positions = new Map<string, { x: number; y: number }>()
 	const nodeIdSet = new Set(nodeIds)
 
 	if (nodeIds.length === 0) {
-		console.log(`${prefix}[layoutLevel] empty → returning`)
-		return { positions, bbox: { width: constants.nodeWidth, height: 0 }, wrappers: [] }
+		return {
+			positions,
+			bbox: { width: constants.nodeWidth, height: 0 },
+			wrappers: [],
+			contentMinX: 0
+		}
 	}
 
 	// Step 1: detect compound groups at this level
 	const groups = detectGroups(nodeIdSet, allNodes)
-	console.log(
-		`${prefix}[layoutLevel] detected groups:`,
-		groups.map((g) => ({
-			type: g.type,
-			headId: g.headId,
-			endId: g.endId,
-			branches: g.branches.map((b) => ({ labelId: b.labelId, innerIds: b.innerIds }))
-		}))
-	)
 
 	// Build a set of all IDs that belong to groups (to exclude from top-level layout)
 	const groupOwnedIds = new Set<string>()
@@ -343,12 +344,6 @@ function layoutLevel(
 		}
 	}
 
-	console.log(
-		`${prefix}[layoutLevel] topLevelGroups:`,
-		topLevelGroups.map((g) => g.headId)
-	)
-	console.log(`${prefix}[layoutLevel] groupOwnedIds:`, [...groupOwnedIds])
-
 	// Step 2-3: Recursively lay out each group and compute wrapper sizes
 	type GroupLayout = {
 		group: CompoundGroup
@@ -371,18 +366,8 @@ function layoutLevel(
 		for (const branch of group.branches) {
 			const branchNodeIds = [branch.labelId, ...branch.innerIds]
 
-			console.log(
-				`${prefix}  [group ${group.headId}] laying out branch labelId=${branch.labelId} nodes=`,
-				branchNodeIds
-			)
 			// Find sub-groups within this branch
 			const result = layoutLevel(branchNodeIds, allNodes, constants, depth + 1)
-			console.log(
-				`${prefix}  [group ${group.headId}] branch result bbox=`,
-				result.bbox,
-				'positions=',
-				Object.fromEntries(result.positions)
-			)
 
 			branchLayouts.push({
 				labelId: branch.labelId,
@@ -408,9 +393,6 @@ function layoutLevel(
 			const maxBranchHeight = Math.max(0, ...branchLayouts.map((bl) => bl.bbox.height))
 			// head row + branch content + end row
 			wrapperHeight = rowHeight + maxBranchHeight + rowHeight
-			console.log(
-				`${prefix}  [group ${group.headId}] BRANCH wrapper: totalBranchWidth=${totalBranchWidth} gaps=${gaps} maxBranchHeight=${maxBranchHeight} → ${wrapperWidth}x${wrapperHeight}`
-			)
 		} else {
 			// Loop: body is indented
 			const bodyWidth = branchLayouts[0]?.bbox.width ?? constants.nodeWidth
@@ -418,9 +400,6 @@ function layoutLevel(
 			wrapperWidth = Math.max(bodyWidth + LOOP_INDENT * 2, constants.nodeWidth)
 			// head row + start row + body + end row
 			wrapperHeight = rowHeight + bodyHeight + rowHeight
-			console.log(
-				`${prefix}  [group ${group.headId}] LOOP wrapper: bodyWidth=${bodyWidth} bodyHeight=${bodyHeight} rowHeight=${rowHeight} → ${wrapperWidth}x${wrapperHeight}`
-			)
 		}
 
 		groupLayouts.set(group.headId, {
@@ -488,20 +467,8 @@ function layoutLevel(
 		fn.parentIds = newParents
 	}
 
-	console.log(
-		`${prefix}[layoutLevel] flatNodes for sugiyama:`,
-		flatNodes.map((n) => ({ id: n.id, parentIds: n.parentIds }))
-	)
-	console.log(`${prefix}[layoutLevel] wrapperSizes:`, Object.fromEntries(wrapperSizes))
-
 	// Step 5: Run sugiyama on flattened nodes
 	const sugResult = runSugiyama(flatNodes, constants, wrapperSizes)
-
-	console.log(
-		`${prefix}[layoutLevel] sugiyama result: box=${sugResult.width}x${sugResult.height}`,
-		'positions=',
-		Object.fromEntries(sugResult.positions)
-	)
 
 	// Step 6: Resolve absolute positions
 	// First, set positions for regular (non-group) nodes
@@ -576,94 +543,90 @@ function layoutLevel(
 		}
 	}
 
-	// Collect wrappers: group-level + per-branch + recursive child wrappers
+	// ----- DEBUG: wrapper visualization data -----
 	const wrappers: WrapperInfo[] = []
-	for (const [headId, gl] of groupLayouts) {
-		const wrapperPos = sugResult.positions.get(headId)
-		if (!wrapperPos) continue
+	if (SHOW_DEBUG_WRAPPERS) {
+		for (const [headId, gl] of groupLayouts) {
+			const wrapperPos = sugResult.positions.get(headId)
+			if (!wrapperPos) continue
 
-		// Overall group wrapper
-		wrappers.push({
-			id: `__wrapper__${headId}`,
-			headId,
-			type: gl.group.type,
-			level: 'group',
-			label: `${gl.group.type} (${headId})`,
-			x: wrapperPos.x,
-			y: wrapperPos.y,
-			width: gl.wrapperWidth,
-			height: gl.wrapperHeight
-		})
+			// Overall group wrapper
+			wrappers.push({
+				id: `__wrapper__${headId}`,
+				headId,
+				type: gl.group.type,
+				level: 'group',
+				label: `${gl.group.type} (${headId})`,
+				x: wrapperPos.x,
+				y: wrapperPos.y,
+				width: gl.wrapperWidth,
+				height: gl.wrapperHeight
+			})
 
-		const rowHeight = constants.nodeHeight + constants.gapV
-		const isBranch = gl.group.type === 'branchall' || gl.group.type === 'branchone'
-		if (isBranch) {
-			const branchWidths = gl.branchLayouts.map((bl) =>
-				Math.max(bl.bbox.width, constants.nodeWidth)
-			)
-			const totalWidth =
-				branchWidths.reduce((s, w) => s + w, 0) +
-				Math.max(0, branchWidths.length - 1) * constants.gapH
-			let cx = wrapperPos.x - totalWidth / 2
-			for (let bi = 0; bi < gl.branchLayouts.length; bi++) {
-				const bl = gl.branchLayouts[bi]
-				const bw = branchWidths[bi]
-				const branchCenterX = cx + bw / 2
+			const rowHeight = constants.nodeHeight + constants.gapV
+			const isBranch = gl.group.type === 'branchall' || gl.group.type === 'branchone'
+			if (isBranch) {
+				const branchWidths = gl.branchLayouts.map((bl) =>
+					Math.max(bl.bbox.width, constants.nodeWidth)
+				)
+				const totalWidth =
+					branchWidths.reduce((s, w) => s + w, 0) +
+					Math.max(0, branchWidths.length - 1) * constants.gapH
+				let cx = wrapperPos.x - totalWidth / 2
+				for (let bi = 0; bi < gl.branchLayouts.length; bi++) {
+					const bl = gl.branchLayouts[bi]
+					const bw = branchWidths[bi]
+					const branchCenterX = cx + bw / 2
 
-				// Per-branch wrapper
-				wrappers.push({
-					id: `__wrapper__${headId}__branch_${bi}`,
-					headId,
-					type: gl.group.type,
-					level: 'branch',
-					label: `branch ${bi} (${bl.labelId})`,
-					x: branchCenterX,
-					y: wrapperPos.y + rowHeight,
-					width: bw,
-					height: bl.bbox.height
-				})
-
-				// Child wrappers from recursive layout
-				for (const cw of bl.result.wrappers) {
-					wrappers.push({ ...cw, x: branchCenterX + cw.x, y: wrapperPos.y + rowHeight + cw.y })
-				}
-				cx += bw + constants.gapH
-			}
-		} else {
-			const bl = gl.branchLayouts[0]
-			if (bl) {
-				// Loop body wrapper
-				wrappers.push({
-					id: `__wrapper__${headId}__body`,
-					headId,
-					type: gl.group.type,
-					level: 'loop-body',
-					label: `loop body (${bl.labelId})`,
-					x: wrapperPos.x + LOOP_INDENT,
-					y: wrapperPos.y + rowHeight,
-					width: bl.bbox.width,
-					height: bl.bbox.height
-				})
-
-				// Child wrappers from recursive layout
-				for (const cw of bl.result.wrappers) {
+					// Per-branch wrapper
 					wrappers.push({
-						...cw,
-						x: wrapperPos.x + LOOP_INDENT + cw.x,
-						y: wrapperPos.y + rowHeight + cw.y
+						id: `__wrapper__${headId}__branch_${bi}`,
+						headId,
+						type: gl.group.type,
+						level: 'branch',
+						label: `branch ${bi} (${bl.labelId})`,
+						x: branchCenterX,
+						y: wrapperPos.y + rowHeight,
+						width: bw,
+						height: bl.bbox.height
 					})
+
+					// Child wrappers from recursive layout
+					for (const cw of bl.result.wrappers) {
+						wrappers.push({ ...cw, x: branchCenterX + cw.x, y: wrapperPos.y + rowHeight + cw.y })
+					}
+					cx += bw + constants.gapH
+				}
+			} else {
+				const bl = gl.branchLayouts[0]
+				if (bl) {
+					// Loop body wrapper
+					wrappers.push({
+						id: `__wrapper__${headId}__body`,
+						headId,
+						type: gl.group.type,
+						level: 'loop-body',
+						label: `loop body (${bl.labelId})`,
+						x: wrapperPos.x + LOOP_INDENT,
+						y: wrapperPos.y + rowHeight,
+						width: bl.bbox.width,
+						height: bl.bbox.height
+					})
+
+					// Child wrappers from recursive layout
+					for (const cw of bl.result.wrappers) {
+						wrappers.push({
+							...cw,
+							x: wrapperPos.x + LOOP_INDENT + cw.x,
+							y: wrapperPos.y + rowHeight + cw.y
+						})
+					}
 				}
 			}
 		}
 	}
 
-	console.log(`${prefix}[layoutLevel] final positions:`, Object.fromEntries(positions))
-	console.log(
-		`${prefix}[layoutLevel] wrappers:`,
-		wrappers.map((w) => ({ id: w.id, type: w.type, x: w.x, y: w.y, w: w.width, h: w.height }))
-	)
-
-	// Compute overall bbox (nodes + wrappers)
+	// Compute overall bbox (nodes + group wrapper extents)
 	let minX = Infinity
 	let maxX = -Infinity
 	let maxY = 0
@@ -672,12 +635,16 @@ function layoutLevel(
 		maxX = Math.max(maxX, pos.x + constants.nodeWidth / 2)
 		maxY = Math.max(maxY, pos.y + constants.nodeHeight)
 	}
-	// Wrappers (e.g. forloop with LOOP_INDENT padding) may extend beyond node positions
-	for (const w of wrappers) {
-		minX = Math.min(minX, w.x - w.width / 2)
-		maxX = Math.max(maxX, w.x + w.width / 2)
-		maxY = Math.max(maxY, w.y + w.height)
+	// Account for group wrapper extents in bbox (e.g. LOOP_INDENT makes wrappers wider than nodes)
+	for (const [headId, gl] of groupLayouts) {
+		const pos = sugResult.positions.get(headId)
+		if (!pos) continue
+		minX = Math.min(minX, pos.x - gl.wrapperWidth / 2)
+		maxX = Math.max(maxX, pos.x + gl.wrapperWidth / 2)
+		maxY = Math.max(maxY, pos.y + gl.wrapperHeight)
 	}
+
+	const contentMinX = minX === Infinity ? 0 : minX
 
 	const bboxWidth = maxX - minX
 	const bboxHeight =
@@ -687,13 +654,7 @@ function layoutLevel(
 		width: Math.max(bboxWidth, constants.nodeWidth),
 		height: Math.max(bboxHeight, 0)
 	}
-	console.log(
-		`${prefix}[layoutLevel] returning bbox=`,
-		finalBbox,
-		`(minX=${minX} maxX=${maxX} maxY=${maxY} bboxWidth=${bboxWidth} bboxHeight=${bboxHeight})`
-	)
-
-	return { positions, bbox: finalBbox, wrappers }
+	return { positions, bbox: finalBbox, wrappers, contentMinX }
 }
 
 /**
@@ -714,11 +675,6 @@ export function compoundLayout(
 		gapV: constants?.gapV ?? NODE.gap.vertical
 	}
 
-	console.log(
-		'[compoundLayout] input nodes:',
-		nodes.map((n) => ({ id: n.id, parentIds: n.parentIds }))
-	)
-
 	// Build node map
 	const allNodes = new Map<string, LayoutNode>()
 	for (const n of nodes) {
@@ -728,8 +684,22 @@ export function compoundLayout(
 	const nodeIds = nodes.map((n) => n.id)
 	const result = layoutLevel(nodeIds, allNodes, c)
 
-	console.log('[compoundLayout] FINAL positions:', Object.fromEntries(result.positions))
-	console.log('[compoundLayout] FINAL bbox:', result.bbox)
+	// Shift positions so minX=0 (left-aligned).
+	// FlowGraphV2 centers with: xCenter = viewport/2 - bbox.width/2
+	// which assumes positions start at x=0.
+	if (result.positions.size > 0) {
+		const minX = result.contentMinX
+		if (minX !== 0 && minX !== Infinity) {
+			for (const pos of result.positions.values()) {
+				pos.x -= minX
+			}
+			if (SHOW_DEBUG_WRAPPERS) {
+				for (const w of result.wrappers) {
+					w.x -= minX
+				}
+			}
+		}
+	}
 
 	// Check for missing nodes
 	const missing = nodes.filter((n) => !result.positions.has(n.id))
@@ -741,4 +711,38 @@ export function compoundLayout(
 	}
 
 	return result
+}
+
+/** Build SvelteFlow nodes for debug wrappers. Returns [] when SHOW_DEBUG_WRAPPERS is false. */
+export function buildDebugWrapperNodes(
+	wrappers: WrapperInfo[],
+	xCenter: number
+): {
+	id: string
+	type: string
+	position: { x: number; y: number }
+	data: Record<string, unknown>
+	selectable: boolean
+	draggable: boolean
+	zIndex: number
+	style: string
+}[] {
+	if (!SHOW_DEBUG_WRAPPERS) return []
+	return wrappers.map((w) => ({
+		id: w.id,
+		type: 'debugWrapper',
+		position: { x: w.x + xCenter - w.width / 2, y: w.y },
+		data: {
+			headId: w.headId,
+			type: w.type,
+			level: w.level,
+			label: w.label,
+			wrapperWidth: w.width,
+			wrapperHeight: w.height
+		},
+		selectable: false,
+		draggable: false,
+		zIndex: w.level === 'group' ? -10 : -5,
+		style: `width: ${w.width}px; height: ${w.height}px;`
+	}))
 }

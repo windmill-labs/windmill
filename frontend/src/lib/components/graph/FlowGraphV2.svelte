@@ -70,7 +70,7 @@
 	import type { MoveManager } from './moveManager.svelte'
 	import DragCoordinator from './DragCoordinator.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
-	import { compoundLayout, type WrapperInfo } from './compoundLayout'
+	import { compoundLayout, buildDebugWrapperNodes, type WrapperInfo } from './compoundLayout'
 	import DebugWrapperNode from './renderers/nodes/DebugWrapperNode.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
@@ -617,35 +617,12 @@
 			}))
 		}
 
-		// Build debug wrapper nodes from compound layout
-		// compoundLayout positions use x as CENTER of each node.
-		// layoutNodes transforms: screenX = compoundX + lastXCenter - NODE.width/2
-		// For wrappers: screenX = w.x + lastXCenter - w.width/2
-		const wrapperNodes: Node[] = lastWrappers.map((w) => {
-			return {
-				id: w.id,
-				type: 'debugWrapper',
-				position: {
-					x: w.x + lastXCenter - w.width / 2,
-					y: w.y
-				},
-				data: {
-					headId: w.headId,
-					type: w.type,
-					level: w.level,
-					label: w.label,
-					wrapperWidth: w.width,
-					wrapperHeight: w.height
-				},
-				selectable: false,
-				draggable: false,
-				zIndex: w.level === 'group' ? -10 : -5,
-				style: `width: ${w.width}px; height: ${w.height}px;`
-			} satisfies Node
-		})
-
 		// update nodes
-		nodes = [...finalNodes, ...wrapperNodes, ...(noteNodesResult?.noteNodes ?? [])]
+		nodes = [
+			...finalNodes,
+			...buildDebugWrapperNodes(lastWrappers, lastXCenter),
+			...(noteNodesResult?.noteNodes ?? [])
+		]
 
 		edges = [
 			...(assetNodesResult?.newAssetEdges ?? []),
@@ -994,7 +971,7 @@
 						{@render leftHeader()}
 					</div>
 				{:else}
-					<Controls position="top-right" orientation="horizontal" showLock={false}>
+					<Controls position="top-right" orientation="horizontal" showLock={false} fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'debugWrapper' && n.type !== 'note') }}>
 						{#if multiSelectEnabled}
 							<div class="flex items-center gap-2">
 								<Tooltip>
