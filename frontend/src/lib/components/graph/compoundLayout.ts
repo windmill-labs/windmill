@@ -341,12 +341,9 @@ function layoutLevel(
 
 		if (isBranch) {
 			// Place branches side by side horizontally
-			branchWidths = branchLayouts.map((bl) =>
-				Math.max(bl.bbox.width, constants.nodeWidth)
-			)
+			branchWidths = branchLayouts.map((bl) => Math.max(bl.bbox.width, constants.nodeWidth))
 			const gaps = Math.max(0, branchWidths.length - 1) * constants.gapH
-			totalWidth =
-				branchWidths.reduce((s, w) => s + w, 0) + gaps
+			totalWidth = branchWidths.reduce((s, w) => s + w, 0) + gaps
 			wrapperWidth = Math.max(totalWidth, constants.nodeWidth)
 
 			maxBranchHeight = Math.max(0, ...branchLayouts.map((bl) => bl.bbox.height))

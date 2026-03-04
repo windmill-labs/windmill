@@ -361,8 +361,7 @@
 		})
 
 		// Center horizontally
-		const xCenter =
-			(fullSize ? fullWidth : width) / 2 - bbox.width / 2 - (width - fullWidth) / 2
+		const xCenter = (fullSize ? fullWidth : width) / 2 - bbox.width / 2 - (width - fullWidth) / 2
 		const newNodes = nodes.map((n) => ({
 			id: n.id,
 			position: {
@@ -926,7 +925,12 @@
 		<SvelteFlowProvider>
 			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
 			{#if moveManager}
-				<DragCoordinator {moveManager} eventHandlers={eventHandler} {edges} nodes={nodesWithOffset} />
+				<DragCoordinator
+					{moveManager}
+					eventHandlers={eventHandler}
+					{edges}
+					nodes={nodesWithOffset}
+				/>
 			{/if}
 			{#if sharedViewport && onViewportChange}
 				<ViewportSynchronizer
@@ -990,8 +994,8 @@
 
 				{#if multiSelectEnabled}
 					<SelectionBoundingBox
-						selectedNodes={selectionManager.selectedIds.filter(id =>
-							nodesWithOffset.some(n => n.id === id)
+						selectedNodes={selectionManager.selectedIds.filter((id) =>
+							nodesWithOffset.some((n) => n.id === id)
 						)}
 						allNodes={nodesWithOffset as (Node & { type: string })[]}
 						onDeleteSelected={() => onDeleteMultiple?.(resolvedModuleIds)}
@@ -1012,7 +1016,12 @@
 						{@render leftHeader()}
 					</div>
 				{:else}
-					<Controls position="top-right" orientation="horizontal" showLock={false} fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'note') }}>
+					<Controls
+						position="top-right"
+						orientation="horizontal"
+						showLock={false}
+						fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'note') }}
+					>
 						{#if multiSelectEnabled}
 							<div class="flex items-center gap-2">
 								<Tooltip>
