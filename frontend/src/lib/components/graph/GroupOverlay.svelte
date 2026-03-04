@@ -2,7 +2,7 @@
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
 	import { calculateNodesBoundsWithOffset } from './util'
 	import { getGroupEditorContext, type FlowGroup } from './groupEditor.svelte'
-	import { NoteColor } from './noteColors'
+	import { NoteColor, NOTE_COLORS } from './noteColors'
 	import GroupActionBar from './GroupActionBar.svelte'
 	import StepCountTab from './StepCountTab.svelte'
 	import type { CollapsedSubflowN } from './graphBuilder.svelte'
@@ -163,26 +163,15 @@
 				></div>
 			</ViewportPortal>
 
-			<!-- StepCountTab + ellipsis menu (above nodes) -->
+			<!-- StepCountTab (left) + summary + ellipsis menu (right) -->
 			<ViewportPortal target="front">
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
-					class="absolute"
-					style="pointer-events: auto; transform: translate({bounds.x + 16}px, {bounds.y}px);"
+					class="absolute flex items-start justify-between"
+					style="pointer-events: auto; transform: translate({bounds.x}px, {bounds.y}px); width: {bounds.width}px;"
 					style:z-index="4"
-					onpointerenter={() => {
-						actionBarHovered = true
-						visibleGroup = group
-						if (hideTimeout) {
-							clearTimeout(hideTimeout)
-							hideTimeout = undefined
-						}
-					}}
-					onpointerleave={() => {
-						actionBarHovered = false
-					}}
 				>
-					<div class="relative flex items-center">
+					<div class="relative" style="margin-left: 16px;">
 						<StepCountTab
 							stepCount={group.module_ids.length}
 							color={group.color}
@@ -192,15 +181,18 @@
 						/>
 						{#if group.summary}
 							<span
-								class="absolute text-3xs font-medium truncate max-w-[150px] opacity-60"
+								class="absolute text-3xs font-medium truncate max-w-[150px] opacity-60 {NOTE_COLORS[(group.color as NoteColor) ?? NoteColor.BLUE]?.text ?? ''}"
 								style="top: -14px; left: 80px;"
 							>{group.summary}</span>
 						{/if}
-						{#if editMode && visibleGroup?.id === group.id}
+					</div>
+					{#if editMode}
+						<div class="relative" style="margin-top: -20px;">
 							<GroupActionBar
 								note={group.note}
 								color={group.color}
 								collapsedByDefault={group.collapsed_by_default ?? false}
+								visible
 								bind:menuOpen
 								onAddNote={() => groupEditorContext?.groupEditor.addNote(group.id)}
 								onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(group.id)}
@@ -212,8 +204,8 @@
 									visibleGroup = undefined
 								}}
 							/>
-						{/if}
-					</div>
+						</div>
+					{/if}
 				</div>
 			</ViewportPortal>
 		{/if}
