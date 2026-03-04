@@ -230,6 +230,8 @@ pub struct GlobalSettings {
     pub no_default_maven: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_tags_per_workspace: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_hub: Option<bool>,
 
     // String settings
     #[serde(skip_serializing_if = "Option::is_none")]
