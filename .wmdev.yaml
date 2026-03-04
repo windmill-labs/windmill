@@ -2,6 +2,8 @@ name: Windmill
 
 startupEnvs:
   CARGO_FEATURES: "quickjs"
+  WM_CLONE_DB: false
+  USE_RUST_PLUGIN: false
 
 services:
   - name: BE
