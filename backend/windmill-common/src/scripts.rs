@@ -206,12 +206,12 @@ pub async fn get_full_hub_script_by_path(
     let version = path_iterator
         .next()
         .ok_or_else(|| Error::internal_err(format!("expected hub path to have version number")))?;
-    let cache_path = format!("{HUB_CACHE_DIR}/{version}");
+    let cache_path = format!("{}/{version}", *HUB_CACHE_DIR);
     let script;
     if tokio::fs::metadata(&cache_path).await.is_err() {
         script = get_full_hub_script_by_path_inner(path, http_client, db).await?;
         if let Err(e) = crate::worker::write_file(
-            HUB_CACHE_DIR,
+            &HUB_CACHE_DIR,
             &version,
             &serde_json::to_string(&script).map_err(to_anyhow)?,
         ) {

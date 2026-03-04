@@ -737,7 +737,7 @@ async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCode
 
     let bun_cache_path = format!(
         "{}/{}.{}",
-        windmill_common::worker::ROOT_CACHE_NOMOUNT_DIR,
+        *windmill_common::worker::ROOT_CACHE_NOMOUNT_DIR,
         path,
         if is_tar { "tar" } else { "js" }
     );
@@ -921,7 +921,7 @@ pub async fn compute_bundle_local_and_remote_path(
     };
 
     let hash = windmill_common::utils::calculate_hash(&input_src);
-    let local_path = format!("{BUN_BUNDLE_CACHE_DIR}/{hash}");
+    let local_path = format!("{}/{hash}", *BUN_BUNDLE_CACHE_DIR);
 
     #[cfg(windows)]
     let local_path = local_path.replace("/tmp", r"C:\tmp").replace("/", r"\");
@@ -1495,7 +1495,7 @@ try {{
                         },
                     ),
                 )
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
 

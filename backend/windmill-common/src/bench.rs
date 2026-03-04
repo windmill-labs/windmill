@@ -1,5 +1,5 @@
 use crate::{
-    worker::{write_file, TMP_DIR},
+    worker::{write_file, WINDMILL_DIR},
     DB,
 };
 use serde::Serialize;
@@ -113,7 +113,8 @@ impl BenchmarkInfo {
             "Writing benchmark {path}, duration of benchmark: {total_duration}ms and RPS: {}{pool_info}",
             self.iters as f64 / total_duration as f64 * 1000.0
         );
-        write_file(TMP_DIR, path, &serde_json::to_string(&self).unwrap()).expect("write profiling");
+        write_file(&WINDMILL_DIR, path, &serde_json::to_string(&self).unwrap())
+            .expect("write profiling");
         Ok(())
     }
 }

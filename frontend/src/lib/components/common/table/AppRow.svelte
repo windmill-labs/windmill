@@ -34,6 +34,7 @@
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
 		app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
@@ -114,7 +115,7 @@
 						</Button>
 					</div>
 				{/if}
-				{#if !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !app.canWrite)}
+				{#if !isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !app.canWrite)}
 					<div>
 						<Button
 							variant={!showEditButton ? 'default' : 'subtle'}
@@ -179,7 +180,7 @@
 						displayName: 'Edit in workspace fork',
 						icon: GitFork,
 						href: buildForkEditUrl(app.raw_app ? 'raw_app' : 'app', path),
-						hide: $userStore?.operator || isRuleActive('DisableWorkspaceForking')
+						hide: $userStore?.operator || isCloudHosted() || isRuleActive('DisableWorkspaceForking')
 					},
 					{
 						displayName: 'Move/Rename',
