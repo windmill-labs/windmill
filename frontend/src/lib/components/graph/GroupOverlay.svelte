@@ -160,8 +160,8 @@
 					<!-- Header card (inside the border) -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="absolute top-0 left-0 right-0"
-						style="pointer-events: auto;"
+						class="absolute top-0"
+						style="pointer-events: auto; left: 16px;"
 						onpointerenter={() => {
 							actionBarHovered = true
 							visibleGroup = group
