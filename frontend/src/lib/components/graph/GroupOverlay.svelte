@@ -184,7 +184,6 @@
 							summary={group.summary}
 							stepCount={group.module_ids.length}
 							color={group.color}
-							fullWidth
 							note={group.note}
 							showNote={showNotes && group.note != null}
 							{editMode}

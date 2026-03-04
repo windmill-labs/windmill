@@ -13,7 +13,6 @@
 		summary?: string
 		selected?: boolean
 		stepCount?: number
-		fullWidth?: boolean
 		color?: string
 		note?: string
 		showNote?: boolean
@@ -29,7 +28,6 @@
 		summary,
 		selected = false,
 		stepCount,
-		fullWidth = false,
 		color,
 		note,
 		showNote = false,
@@ -89,15 +87,15 @@
 <div
 	class={twMerge(
 		'w-full module cursor-pointer max-w-full',
-		fullWidth ? 'rounded-t-md' : 'shadow-sm rounded-md  overflow-clip',
+		'shadow-sm rounded-md overflow-clip',
 		'bg-surface-tertiary'
 	)}
-	style={fullWidth ? '' : 'width: 275px;'}
+	style="width: 275px;"
 >
 	<div
 		class={twMerge(
 			'absolute z-0 outline-offset-0 inset-0',
-			fullWidth ? 'rounded-t-md' : 'rounded-md',
+			'rounded-md',
 			noteColorConfig ? noteColorConfig.outline : defaultColorClasses.outline
 		)}
 	></div>
