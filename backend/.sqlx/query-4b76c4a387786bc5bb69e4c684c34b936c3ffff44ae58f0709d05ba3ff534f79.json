@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM token WHERE token = $1",
+  "query": "DELETE FROM token WHERE token_hash = $1",
   "describe": {
     "columns": [],
     "parameters": {
@@ -10,5 +10,5 @@
     },
     "nullable": []
   },
-  "hash": "66e0968fe9f757755945a7010153821cf73ace9d6692750ccc4cca37701ed77a"
+  "hash": "4b76c4a387786bc5bb69e4c684c34b936c3ffff44ae58f0709d05ba3ff534f79"
 }

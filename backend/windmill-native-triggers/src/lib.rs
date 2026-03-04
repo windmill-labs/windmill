@@ -719,24 +719,14 @@ async fn update_oauth_token_resource(
     }
 }
 
-/// Look up the full token from the token table using its prefix
+/// Look up the full token from the token table using its prefix.
+/// With hashed token storage, plaintext tokens are no longer stored in the DB,
+/// so this always returns None, forcing callers to create a new token.
 pub async fn get_token_by_prefix<'c, E: sqlx::Executor<'c, Database = Postgres>>(
-    db: E,
-    token_prefix: &str,
+    _db: E,
+    _token_prefix: &str,
 ) -> Result<Option<String>> {
-    let token = sqlx::query_scalar!(
-        r#"
-        SELECT token
-        FROM token
-        WHERE token LIKE concat($1::text, '%')
-        LIMIT 1
-        "#,
-        token_prefix
-    )
-    .fetch_optional(db)
-    .await?;
-
-    Ok(token)
+    Ok(None)
 }
 
 /// Delete a token from the token table using its prefix
@@ -747,7 +737,7 @@ pub async fn delete_token_by_prefix<'c, E: sqlx::Executor<'c, Database = Postgre
     let deleted = sqlx::query!(
         r#"
         DELETE FROM token
-        WHERE token LIKE concat($1::text, '%')
+        WHERE token_prefix = $1
         "#,
         token_prefix
     )

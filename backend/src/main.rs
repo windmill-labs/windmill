@@ -1563,7 +1563,7 @@ async fn process_notify_event(
         }
         "notify_token_invalidation" => {
             tracing::info!(
-                "Token invalidation detected for token: {}...",
+                "Token invalidation detected for prefix: {}...",
                 payload.get(..8).unwrap_or(payload)
             );
             windmill_api::auth::invalidate_token_from_cache(payload);

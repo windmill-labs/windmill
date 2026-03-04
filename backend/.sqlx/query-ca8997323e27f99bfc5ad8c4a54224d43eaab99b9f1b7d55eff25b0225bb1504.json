@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM token WHERE token = $1 RETURNING email",
+  "query": "SELECT job FROM token WHERE token_hash = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "email",
-        "type_info": "Varchar"
+        "name": "job",
+        "type_info": "Uuid"
       }
     ],
     "parameters": {
@@ -18,5 +18,5 @@
       true
     ]
   },
-  "hash": "97e364c703bdcdfb5345810659cbe0477a28b8199ef0b297f9a22c88a43b6b5c"
+  "hash": "ca8997323e27f99bfc5ad8c4a54224d43eaab99b9f1b7d55eff25b0225bb1504"
 }

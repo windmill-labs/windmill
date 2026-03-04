@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT token\n        FROM token\n        WHERE token LIKE concat($1::text, '%')\n        LIMIT 1\n        ",
+  "query": "DELETE FROM token WHERE workspace_id = $1 AND label IS DISTINCT FROM 'session' RETURNING token_prefix",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "token",
+        "name": "token_prefix",
         "type_info": "Varchar"
       }
     ],
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "90092c0b3f7612373fcc8fb7a966200118ab308430d4a0cbb5cb16c397246492"
+  "hash": "52379713a1f7312127bcd13c9a8027a85270c25c5a0f0d4d7670bd602bd3cebf"
 }

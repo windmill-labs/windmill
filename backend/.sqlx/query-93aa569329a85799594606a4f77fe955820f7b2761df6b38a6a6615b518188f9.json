@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE token SET last_used_at = now() WHERE\n                        token = $1\n                        AND (expiration > NOW() OR expiration IS NULL)\n                        AND (workspace_id IS NULL OR workspace_id = $2)\n                    RETURNING owner, email, super_admin, scopes, label",
+  "query": "UPDATE token SET last_used_at = now() WHERE\n                        token_hash = $1\n                        AND (expiration > NOW() OR expiration IS NULL)\n                        AND (workspace_id IS NULL OR workspace_id = $2)\n                    RETURNING owner, email, super_admin, scopes, label",
   "describe": {
     "columns": [
       {
@@ -43,5 +43,5 @@
       true
     ]
   },
-  "hash": "c7d595d2a12228c49359440ca3a9622f1de5f5ee4bbe5d2b23f6fdb6379cebf3"
+  "hash": "93aa569329a85799594606a4f77fe955820f7b2761df6b38a6a6615b518188f9"
 }

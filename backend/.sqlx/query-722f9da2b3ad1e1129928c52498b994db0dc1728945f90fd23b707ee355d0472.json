@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM token WHERE workspace_id = $1 AND label IS DISTINCT FROM 'session' RETURNING token",
+  "query": "DELETE FROM token WHERE token_hash = $1 RETURNING email",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "token",
+        "name": "email",
         "type_info": "Varchar"
       }
     ],
@@ -15,8 +15,8 @@
       ]
     },
     "nullable": [
-      false
+      true
     ]
   },
-  "hash": "2d6607b3c38fe72b5663c32de58dacbabed4c5ae28101e3ae2694f96fd055a91"
+  "hash": "722f9da2b3ad1e1129928c52498b994db0dc1728945f90fd23b707ee355d0472"
 }

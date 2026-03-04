@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::FromRow;
 use windmill_common::{
+    auth::{hash_token, TOKEN_PREFIX_LEN},
     error::{Error, Result},
     utils::rd_string,
     BASE_URL, DB,
@@ -383,16 +384,19 @@ async fn handle_authorization_code_grant(
     }
 
     let access_token = rd_string(32);
+    let access_token_hash = hash_token(&access_token);
+    let access_token_prefix = &access_token[..TOKEN_PREFIX_LEN];
     let refresh_token = rd_string(32);
     let token_family = sqlx::types::Uuid::new_v4();
     let scopes = auth_code.scopes;
 
     // Create access token (rejects archived workspaces inline)
     let rows = sqlx::query!(
-        "INSERT INTO token (token, email, label, expiration, scopes, workspace_id)
-         SELECT $1::varchar, $2::varchar, $3::varchar, now() + ($4 || ' seconds')::interval, $5::text[], $6::varchar
-         WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $6 AND deleted = true)",
-        access_token,
+        "INSERT INTO token (token_hash, token_prefix, email, label, expiration, scopes, workspace_id)
+         SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, now() + ($5 || ' seconds')::interval, $6::text[], $7::varchar
+         WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $7 AND deleted = true)",
+        access_token_hash,
+        access_token_prefix,
         auth_code.user_email,
         format!("mcp-oauth-{}", auth_code.client_id),
         MCP_OAUTH_TOKEN_EXPIRATION_SECS.to_string(),
@@ -411,13 +415,13 @@ async fn handle_authorization_code_grant(
         ));
     }
 
-    // Create refresh token
+    // Create refresh token — store the hash of the access token so we can delete it later
     let refresh_token_result = sqlx::query!(
         "INSERT INTO mcp_oauth_refresh_token
          (refresh_token, access_token, client_id, user_email, workspace_id, scopes, token_family, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval)",
         refresh_token,
-        access_token,
+        access_token_hash,
         auth_code.client_id,
         auth_code.user_email,
         auth_code.workspace_id,
@@ -504,10 +508,13 @@ async fn handle_refresh_token_grant(
         }
     };
 
-    // Delete old access token
-    if let Err(e) = sqlx::query!("DELETE FROM token WHERE token = $1", token_row.access_token)
-        .execute(db)
-        .await
+    // Delete old access token — access_token column in mcp_oauth_refresh_token now stores the hash
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM token WHERE token_hash = $1",
+        token_row.access_token
+    )
+    .execute(db)
+    .await
     {
         tracing::error!("Failed to delete old access token: {}", e);
         // Non-fatal, continue with token creation
@@ -515,15 +522,18 @@ async fn handle_refresh_token_grant(
 
     // Generate new tokens
     let new_access_token = rd_string(32);
+    let new_access_token_hash = hash_token(&new_access_token);
+    let new_access_token_prefix = &new_access_token[..TOKEN_PREFIX_LEN];
     let new_refresh_token = rd_string(32);
     let scopes = token_row.scopes;
 
     // Create new access token (rejects archived workspaces inline)
     let rows = sqlx::query!(
-        "INSERT INTO token (token, email, label, expiration, scopes, workspace_id)
-         SELECT $1::varchar, $2::varchar, $3::varchar, now() + ($4 || ' seconds')::interval, $5::text[], $6::varchar
-         WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $6 AND deleted = true)",
-        new_access_token,
+        "INSERT INTO token (token_hash, token_prefix, email, label, expiration, scopes, workspace_id)
+         SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, now() + ($5 || ' seconds')::interval, $6::text[], $7::varchar
+         WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $7 AND deleted = true)",
+        new_access_token_hash,
+        new_access_token_prefix,
         token_row.user_email,
         format!("mcp-oauth-{}", token_row.client_id),
         MCP_OAUTH_TOKEN_EXPIRATION_SECS.to_string(),
@@ -542,13 +552,13 @@ async fn handle_refresh_token_grant(
         ));
     }
 
-    // Create new refresh token (same token family for tracking)
+    // Create new refresh token (same token family for tracking) — store hash of access token
     if let Err(e) = sqlx::query!(
         "INSERT INTO mcp_oauth_refresh_token
          (refresh_token, access_token, client_id, user_email, workspace_id, scopes, token_family, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval)",
         new_refresh_token,
-        new_access_token,
+        new_access_token_hash,
         token_row.client_id,
         token_row.user_email,
         token_row.workspace_id,
