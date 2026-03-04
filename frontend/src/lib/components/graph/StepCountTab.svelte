@@ -30,7 +30,7 @@
 	onclick={onExpand ? stopPropagation(preventDefault(onExpand)) : undefined}
 	onpointerdown={onExpand ? stopPropagation(preventDefault(() => {})) : undefined}
 >
-	<div class="flex items-center gap-1 py-0.5">
+	<div class="flex items-center gap-1 py-0.5 whitespace-nowrap">
 		{#if label}{label}{:else}{stepCount} step{stepCount !== 1 ? 's' : ''}{/if}
 		{#if onExpand}
 			{#if collapsed}<Maximize2 size={10} class="-my-1" />{:else}<Minimize2
