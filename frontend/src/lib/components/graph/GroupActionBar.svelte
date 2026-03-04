@@ -59,20 +59,8 @@
 		{/snippet}
 		{#snippet menu()}
 			<div class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none py-1">
-				<!-- Add / Remove note -->
-				<button
-					class="px-4 py-2 text-primary font-normal hover:bg-surface-hover cursor-pointer text-xs w-full flex flex-row gap-2 items-center rounded-sm"
-					onclick={() => { note == null ? onAddNote() : onRemoveNote(); menuOpen = false }}
-				>
-					<StickyNote size={14} class="shrink-0" />
-					<p class="truncate grow min-w-0 whitespace-nowrap text-left">{note == null ? 'Add note' : 'Remove note'}</p>
-				</button>
-
-				<div class="my-1 border-t border-border-light"></div>
-
 				<!-- Color picker -->
 				<div class="px-4 py-2">
-					<p class="text-2xs text-secondary mb-1.5">Color</p>
 					<div class="grid grid-cols-5 gap-1">
 						{#each Object.values(NoteColor) as c (c)}
 							<button
@@ -95,6 +83,17 @@
 						on:change={(e) => onUpdateCollapsedDefault(e.detail)}
 					/>
 				</div>
+
+				<div class="my-1 border-t border-border-light"></div>
+
+				<!-- Add / Remove note -->
+				<button
+					class="px-4 py-2 text-primary font-normal hover:bg-surface-hover cursor-pointer text-xs w-full flex flex-row gap-2 items-center rounded-sm"
+					onclick={() => { note == null ? onAddNote() : onRemoveNote(); menuOpen = false }}
+				>
+					<StickyNote size={14} class="shrink-0" />
+					<p class="truncate grow min-w-0 whitespace-nowrap text-left">{note == null ? 'Add note' : 'Remove note'}</p>
+				</button>
 
 				{#if onDeleteGroup}
 					<div class="my-1 border-t border-border-light"></div>
