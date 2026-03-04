@@ -8,6 +8,7 @@
 		getContextMenuContainerClass,
 		CONTEXT_MENU_ITEM_BASE_CLASS,
 		CONTEXT_MENU_ITEM_HOVER_MELT_CLASS,
+		CONTEXT_MENU_ITEM_DELETE_CLASS,
 		CONTEXT_MENU_ITEM_DISABLED_CLASS,
 		CONTEXT_MENU_DIVIDER_CLASS,
 		CONTEXT_MENU_ANIMATION_CLASSES
@@ -20,6 +21,8 @@
 		disabled?: boolean
 		onClick?: () => void
 		divider?: boolean
+		type?: 'action' | 'delete'
+		shortcut?: string
 	}
 
 	interface Props {
@@ -111,18 +114,23 @@
 						CONTEXT_MENU_ITEM_BASE_CLASS,
 						menuItem.disabled
 							? CONTEXT_MENU_ITEM_DISABLED_CLASS
-							: CONTEXT_MENU_ITEM_HOVER_MELT_CLASS
+							: menuItem.type === 'delete'
+								? CONTEXT_MENU_ITEM_DELETE_CLASS
+								: CONTEXT_MENU_ITEM_HOVER_MELT_CLASS
 					)}
 					use:melt={$item}
 					onclick={() => handleItemClick(menuItem)}
 				>
 					{#if menuItem.icon}
-						<menuItem.icon size={14} class="mr-2" />
+						<menuItem.icon size={14} class="mr-2 shrink-0" />
 					{/if}
 					{#if menu}
 						{@render menu({ item: menuItem })}
 					{:else}
-						<span>{menuItem.label}</span>
+						<span class="grow">{menuItem.label}</span>
+					{/if}
+					{#if menuItem.shortcut}
+						<span class="ml-auto pl-4 text-2xs text-secondary shrink-0">{menuItem.shortcut}</span>
 					{/if}
 				</div>
 			{/if}
