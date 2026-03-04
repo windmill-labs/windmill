@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE workspace_settings\n        SET success_handler = NULL\n        WHERE workspace_id = 'test-workspace'\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "2c2ed5c91a4893966e94305df8b9f8ac904c8d0781a83fdea66c918320fb5601"
+}

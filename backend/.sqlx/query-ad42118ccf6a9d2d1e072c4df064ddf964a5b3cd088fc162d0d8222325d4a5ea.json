@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE healthchecks SET healthy = true WHERE check_type = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ad42118ccf6a9d2d1e072c4df064ddf964a5b3cd088fc162d0d8222325d4a5ea"
+}

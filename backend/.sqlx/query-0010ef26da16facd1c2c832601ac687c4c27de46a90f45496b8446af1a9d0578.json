@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            oauth_data as \"oauth_data: sqlx::types::Json<WorkspaceOAuthConfig>\",\n            service_name as \"service_name!: ServiceName\",\n            resource_path\n        FROM\n            workspace_integrations\n        WHERE\n            workspace_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "oauth_data: sqlx::types::Json<WorkspaceOAuthConfig>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "service_name!: ServiceName",
+        "type_info": {
+          "Custom": {
+            "name": "native_trigger_service",
+            "kind": {
+              "Enum": [
+                "nextcloud",
+                "google"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "resource_path",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "0010ef26da16facd1c2c832601ac687c4c27de46a90f45496b8446af1a9d0578"
+}

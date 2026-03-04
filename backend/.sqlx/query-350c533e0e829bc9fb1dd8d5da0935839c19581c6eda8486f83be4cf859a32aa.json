@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO token\n                    (token_hash, token_prefix, label, super_admin, email)\n                    VALUES ($1, $2, $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "350c533e0e829bc9fb1dd8d5da0935839c19581c6eda8486f83be4cf859a32aa"
+}
