@@ -12,6 +12,7 @@ import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { execSync } from "node:child_process";
 import { setNonDottedPaths } from "../utils/resource_folders.ts";
+import type { PermissionedAsRule } from "./permissioned_as.ts";
 
 export let showDiffs = false;
 export function setShowDiffs(value: boolean) {
@@ -102,6 +103,7 @@ export interface SyncOptions {
   promotion?: string;
   lint?: boolean;
   locksRequired?: boolean;
+  defaultPermissionedAs?: PermissionedAsRule[];
 }
 
 export interface Codebase {
@@ -556,22 +558,35 @@ export async function getEffectiveSettings(
         `No promotion or regular overrides found for branch '${promotion}', using top-level settings`
       );
     }
+    // Branch-level defaultPermissionedAs takes priority over root-level
+    if (targetBranch.defaultPermissionedAs) {
+      effective.defaultPermissionedAs = targetBranch.defaultPermissionedAs;
+    }
   }
   // Otherwise use current branch overrides (existing behavior)
   else if (
     currentBranch &&
     gitBranches &&
-    gitBranches[currentBranch] &&
-    gitBranches[currentBranch].overrides
+    gitBranches[currentBranch]
   ) {
-    Object.assign(effective, gitBranches[currentBranch].overrides);
-    if (!suppressLogs) {
-      const extraLog = originalBranchIfForked
-        ? ` (because it is the origin of the workspace fork branch \`${rawGitBranch}\`)`
-        : "";
-      log.info(
-        `Applied settings for Git branch: ${currentBranch}${extraLog}`
+    if (gitBranches[currentBranch].overrides) {
+      Object.assign(effective, gitBranches[currentBranch].overrides);
+      if (!suppressLogs) {
+        const extraLog = originalBranchIfForked
+          ? ` (because it is the origin of the workspace fork branch \`${rawGitBranch}\`)`
+          : "";
+        log.info(
+          `Applied settings for Git branch: ${currentBranch}${extraLog}`
+        );
+      }
+    } else {
+      log.debug(
+        `No branch-specific overrides found for '${currentBranch}', using top-level settings`
       );
+    }
+    // Branch-level defaultPermissionedAs takes priority over root-level
+    if (gitBranches[currentBranch].defaultPermissionedAs) {
+      effective.defaultPermissionedAs = gitBranches[currentBranch].defaultPermissionedAs;
     }
   } else if (currentBranch) {
     log.debug(

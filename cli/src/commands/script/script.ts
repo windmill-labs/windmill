@@ -52,6 +52,8 @@ import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
 
 import { execSync } from "node:child_process";
 import { NewScript, Script } from "../../../gen/types.gen.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { resolvePermissionedAsEmail } from "../../core/permissioned_as.ts";
 import {
   isRawAppBackendPath as isRawAppBackendPathInternal,
   isAppInlineScriptPath as isAppInlineScriptPathInternal,
@@ -186,7 +188,8 @@ export async function handleScriptMetadata(
   message: string | undefined,
   rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[],
-  opts: GlobalOptions
+  opts: GlobalOptions,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<boolean> {
   if (
     path.endsWith(".script.json") ||
@@ -201,7 +204,8 @@ export async function handleScriptMetadata(
       message,
       opts,
       rawWorkspaceDependencies,
-      codebases
+      codebases,
+      permissionedAsContext
     );
   } else {
     return false;
@@ -223,7 +227,8 @@ export async function handleFile(
   message: string | undefined,
   opts: (GlobalOptions & { defaultTs?: "bun" | "deno" } & Skips) | undefined,
   rawWorkspaceDependencies: Record<string, string>,
-  codebases: SyncCodebase[]
+  codebases: SyncCodebase[],
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<boolean> {
   if (
     !isAppInlineScriptPath(path) &&
@@ -421,9 +426,27 @@ export async function handleFile(
       envs: typed?.envs,
     };
 
-    // console.log(requestBodyCommon.codebase);
-    // log.info(JSON.stringify(requestBodyCommon, null, 2))
-    // log.info(JSON.stringify(opts, null, 2))
+    // Add preserve flags for permissioned_as
+    if (permissionedAsContext?.userIsAdminOrDeployer) {
+      if (remote) {
+        // Updating: preserve the remote's on_behalf_of_email
+        requestBodyCommon.preserve_on_behalf_of = true;
+        if (remote.on_behalf_of_email) {
+          requestBodyCommon.on_behalf_of_email = remote.on_behalf_of_email;
+        }
+      } else {
+        // Creating: apply defaultPermissionedAs rule if one matches
+        const ruleEmail = resolvePermissionedAsEmail(
+          remotePath,
+          permissionedAsContext.rules
+        );
+        if (ruleEmail) {
+          requestBodyCommon.on_behalf_of_email = ruleEmail;
+          requestBodyCommon.preserve_on_behalf_of = true;
+        }
+      }
+    }
+
     if (remote) {
       if (content === remote.content) {
         if (
@@ -1284,6 +1307,51 @@ async function preview(
   }
 }
 
+async function setPermissionedAs(
+  opts: GlobalOptions,
+  scriptPath: string,
+  email: string
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const remote = await wmill.getScriptByPath({
+    workspace: workspace.workspaceId,
+    path: scriptPath,
+  });
+
+  if (!remote) {
+    throw new Error(`Script ${scriptPath} not found`);
+  }
+
+  const body: NewScript = {
+    content: remote.content,
+    description: remote.description,
+    language: remote.language as NewScript["language"],
+    path: remote.path,
+    summary: remote.summary,
+    kind: remote.kind as NewScript["kind"],
+    lock: Array.isArray(remote.lock)
+      ? remote.lock.join("\n")
+      : remote.lock ?? undefined,
+    schema: remote.schema,
+    tag: remote.tag ?? undefined,
+    parent_hash: remote.hash,
+    on_behalf_of_email: email,
+    preserve_on_behalf_of: true,
+  };
+
+  await wmill.createScript({
+    workspace: workspace.workspaceId,
+    requestBody: body,
+  });
+  log.info(
+    colors.green(
+      `Updated permissioned_as for script ${scriptPath} to ${email}`
+    )
+  );
+}
+
 const command = new Command()
   .description("script related commands")
   .option("--show-archived", "Enable archived scripts in output")
@@ -1358,6 +1426,12 @@ const command = new Command()
     "-e --excludes <patterns:file[]>",
     "Comma separated patterns to specify which file to NOT take into account."
   )
-  .action(generateMetadata as any);
+  .action(generateMetadata as any)
+  .command(
+    "set-permissioned-as",
+    "Set the on_behalf_of_email for a script (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action(setPermissionedAs as any);
 
 export default command;

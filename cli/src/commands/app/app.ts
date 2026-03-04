@@ -17,6 +17,8 @@ import lintCommand from "./lint.ts";
 import newCommand from "./new.ts";
 import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { resolvePermissionedAsEmail } from "../../core/permissioned_as.ts";
 
 export interface AppFile {
   value: any;
@@ -104,7 +106,8 @@ export async function pushApp(
   workspace: string,
   remotePath: string,
   localPath: string,
-  message?: string
+  message?: string,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -142,6 +145,29 @@ export async function pushApp(
     localApp?.["public"] ??
       localApp?.["policy"]?.["execution_mode"] == "anonymous"
   );
+
+  // Build preserve flags for permissioned_as
+  const preserveFields: { preserve_on_behalf_of?: boolean } = {};
+  if (permissionedAsContext?.userIsAdminOrDeployer) {
+    if (app) {
+      // Updating: preserve the remote's on_behalf_of
+      preserveFields.preserve_on_behalf_of = true;
+    } else {
+      // Creating: apply defaultPermissionedAs rule if one matches
+      const ruleEmail = resolvePermissionedAsEmail(
+        remotePath,
+        permissionedAsContext.rules
+      );
+      if (ruleEmail) {
+        // Set the policy on_behalf_of_email for the new app
+        if (localApp.policy) {
+          (localApp.policy as any).on_behalf_of_email = ruleEmail;
+        }
+        preserveFields.preserve_on_behalf_of = true;
+      }
+    }
+  }
+
   if (app) {
     if (isSuperset(localApp, app)) {
       log.info(colors.green(`App ${remotePath} is up to date`));
@@ -154,6 +180,7 @@ export async function pushApp(
       requestBody: {
         deployment_message: message,
         ...localApp,
+        ...preserveFields,
       },
     });
   } else {
@@ -165,6 +192,7 @@ export async function pushApp(
         path: remotePath,
         deployment_message: message,
         ...localApp,
+        ...preserveFields,
       },
     });
   }
@@ -245,6 +273,31 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   log.info(colors.bold.underline.green("App pushed"));
 }
 
+async function setPermissionedAs(
+  opts: GlobalOptions,
+  appPath: string,
+  email: string
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  await wmill.updateApp({
+    workspace: workspace.workspaceId,
+    path: appPath,
+    requestBody: {
+      policy: {
+        on_behalf_of_email: email,
+      } as any,
+      preserve_on_behalf_of: true,
+    },
+  });
+  log.info(
+    colors.green(
+      `Updated permissioned_as for app ${appPath} to ${email}`
+    )
+  );
+}
+
 const command = new Command()
   .description("app related commands")
   .option("--json", "Output as JSON (for piping to jq)")
@@ -263,6 +316,12 @@ const command = new Command()
   .command("lint", lintCommand)
   .command("new", newCommand)
   .command("generate-agents", generateAgentsCommand)
+  .command(
+    "set-permissioned-as",
+    "Set the on_behalf_of_email for an app (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action(setPermissionedAs as any)
   .command(
     "generate-locks",
     "re-generate the lockfiles for app runnables inline scripts that have changed"

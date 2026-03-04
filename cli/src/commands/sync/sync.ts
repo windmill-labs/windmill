@@ -78,6 +78,11 @@ import {
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
 import { isExecutionModeAnonymous } from "../app/app.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import {
+  preCheckPermissionedAs,
+  validatePermissionedAsRules,
+} from "../../core/permissioned_as.ts";
 import {
   APP_BACKEND_FOLDER,
   generateAppLocksInternal,
@@ -2248,7 +2253,7 @@ function removeSuffix(str: string, suffix: string) {
 }
 
 export async function push(
-  opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string },
+  opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string; acceptOverridingPermissionedAsWithSelf?: boolean },
 ) {
   // Save original CLI options before merging with config file
   const originalCliOpts = { ...opts };
@@ -2565,6 +2570,30 @@ export async function push(
       log.info(colors.gray(`Dry run complete.`));
       return;
     }
+
+    // Build permissioned_as context
+    const user = await wmill.whoami({ workspace: workspace.workspaceId });
+    const userIsAdminOrDeployer =
+      user.is_admin || (user.groups ?? []).includes("wm_deployers");
+    const validatedRules = validatePermissionedAsRules(
+      opts.defaultPermissionedAs,
+      "wmill.yaml"
+    );
+    const permissionedAsContext: PermissionedAsContext = {
+      rules: validatedRules,
+      emailToUsernameCache: new Map<string, string>(),
+      userIsAdminOrDeployer,
+    };
+
+    // Pre-check: warn non-admin/non-deployer users about permissioned_as changes
+    await preCheckPermissionedAs(
+      changes,
+      user.email,
+      userIsAdminOrDeployer,
+      opts.acceptOverridingPermissionedAsWithSelf ?? false,
+      !!process.stdin.isTTY
+    );
+
     if (
       !opts.yes &&
       !(await Confirm.prompt({
@@ -2661,6 +2690,7 @@ export async function push(
                   rawWorkspaceDependencies,
                   codebases,
                   opts,
+                  permissionedAsContext,
                 )
               ) {
                 if (stateTarget) {
@@ -2676,6 +2706,7 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                  permissionedAsContext,
                 )
               ) {
                 if (stateTarget) {
@@ -2780,6 +2811,7 @@ export async function push(
                 alreadySynced,
                 opts.message,
                 originalBranchSpecificPath,
+                permissionedAsContext,
               );
 
               if (stateTarget) {
@@ -2803,6 +2835,7 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                  permissionedAsContext,
                 )
               ) {
                 continue;
@@ -2838,6 +2871,7 @@ export async function push(
                 [],
                 opts.message,
                 localFilePath, // Pass the actual local file path
+                permissionedAsContext,
               );
 
               if (stateTarget) {
@@ -3263,6 +3297,10 @@ const command = new Command()
   .option(
     "--locks-required",
     "Fail if scripts or flow inline scripts that need locks have no locks",
+  )
+  .option(
+    "--accept-overriding-permissioned-as-with-self",
+    "Accept that items with a different permissioned_as will be updated with your own user",
   )
   .action(push as any);
 
