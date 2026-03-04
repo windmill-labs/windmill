@@ -553,6 +553,13 @@ pub async fn build_rust_crate(
                 std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
             );
             build_rust_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+            // MSVC linker needs LIB and INCLUDE to find kernel32.lib etc.
+            if let Ok(lib) = std::env::var("LIB") {
+                build_rust_cmd.env("LIB", lib);
+            }
+            if let Ok(include) = std::env::var("INCLUDE") {
+                build_rust_cmd.env("INCLUDE", include);
+            }
         }
         start_child_process(build_rust_cmd, CARGO_PATH.as_str(), false).await?
     };

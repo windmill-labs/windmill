@@ -511,7 +511,6 @@ lazy_static::lazy_static! {
         if dir.ends_with('/') || dir.ends_with('\\') {
             panic!("WINDMILL_DIR must not end with a trailing slash, got: {dir}");
         }
-        eprintln!("WINDMILL_DIR initialized to: {dir}");
         dir
     };
     pub static ref TMP_LOGS_DIR: String = format!("{}/logs", *WINDMILL_DIR);
