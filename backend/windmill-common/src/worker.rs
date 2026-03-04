@@ -495,7 +495,7 @@ lazy_static::lazy_static! {
     pub static ref WINDMILL_DIR: String = {
         let dir = std::env::var("WINDMILL_DIR")
             .unwrap_or_else(|_| "/tmp/windmill".to_string());
-        if dir.ends_with('/') {
+        if dir.ends_with('/') || dir.ends_with('\\') {
             panic!("WINDMILL_DIR must not end with a trailing slash, got: {dir}");
         }
         dir
