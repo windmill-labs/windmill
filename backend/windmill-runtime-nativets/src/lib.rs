@@ -265,14 +265,14 @@ fn capture_proxy(s: &str) -> Option<(String, Option<(String, String)>)> {
 }
 
 fn write_error_expr(expr: &str, uuid: &Uuid) {
-    if let Err(e) = std::fs::create_dir_all(ERROR_DIR) {
-        tracing::error!("failed to create error dir {ERROR_DIR}: {e}");
+    if let Err(e) = std::fs::create_dir_all(&*ERROR_DIR) {
+        tracing::error!("failed to create error dir {}: {e}", *ERROR_DIR);
         return;
     }
-    let dir_entries = match std::fs::read_dir(ERROR_DIR) {
+    let dir_entries = match std::fs::read_dir(&*ERROR_DIR) {
         Ok(entries) => entries.count(),
         Err(_) => {
-            tracing::error!("failed to read error dir {ERROR_DIR}");
+            tracing::error!("failed to read error dir {}", *ERROR_DIR);
             return;
         }
     };
@@ -281,13 +281,14 @@ fn write_error_expr(expr: &str, uuid: &Uuid) {
         tracing::info!("native error for job {uuid}: {expr}");
     }
     if dir_entries >= 100 {
-        tracing::info!("Too many error files in {ERROR_DIR}, skipping write");
+        tracing::info!("Too many error files in {}, skipping write", *ERROR_DIR);
         return;
     }
 
     let path = format!("/{uuid}.js");
     tracing::info!(
-        "nativets job {uuid} failed, writing error expr to {ERROR_DIR}/{path} for debugging: {path}"
+        "nativets job {uuid} failed, writing error expr to {}/{path} for debugging: {path}",
+        *ERROR_DIR
     );
     if let Err(e) = write_file(&ERROR_DIR, &path, expr) {
         tracing::error!("failed to write error expr to file {path}: {e}");
