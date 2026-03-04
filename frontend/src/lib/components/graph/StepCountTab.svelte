@@ -24,7 +24,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="absolute left-0 rounded-t-md px-2 text-3xs font-medium z-[-1] flex items-start gap-0.5 {colorConfig.background} {colorConfig.text} {onExpand
+	class="absolute right-[48px] rounded-t-md px-2 text-3xs font-medium z-[-1] flex items-start gap-0.5 {colorConfig.background} {colorConfig.text} {onExpand
 		? 'cursor-pointer hover:opacity-80'
 		: ''}"
 	style="top: -20px; height: {short ? 20 : 34}px;"

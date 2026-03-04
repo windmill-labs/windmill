@@ -61,9 +61,9 @@
 
 <button
 	class={twMerge(
-		'center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary cursor-grab',
+		'center-center p-1 text-secondary  cursor-grab hover:bg-surface-hover hover:text-primary',
 		visible ? '' : '!hidden',
-		'shadow-md rounded-md',
+		'rounded-md',
 		'touch-none',
 		extraClass
 	)}

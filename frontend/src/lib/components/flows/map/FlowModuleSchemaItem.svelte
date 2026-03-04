@@ -209,6 +209,9 @@
 
 	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
 	let historyOpen = $derived.by(() => outputPickerInner?.getHistoryOpen?.() ?? false)
+
+	const NODE_ACTION_CLASS =
+		'center-center p-1 text-secondary  cursor-grab hover:bg-surface-hover hover:text-primary'
 </script>
 
 {#if deletable && id && editId}
@@ -532,7 +535,7 @@
 
 			{#if !isMultiSelected && id !== 'preprocessor' && moveManager && id}
 				<div
-					class="absolute -translate-y-[100%] top-2 right-5 h-7 p-1 min-w-7"
+					class="absolute -translate-y-[100%] top-1 right-5 h-7 p-1 min-w-7"
 					style="will-change: transform;"
 				>
 					<MoveHandleButton
@@ -548,7 +551,7 @@
 
 			{#if !isMultiSelected && menuItems && menuItems.length > 0}
 				<div
-					class="absolute -translate-y-[100%] top-2 -right-2 h-7 p-1 min-w-7"
+					class="absolute -translate-y-[100%] top-1 -right-1 h-7 p-1 min-w-7"
 					style="will-change: transform;"
 				>
 					<DropdownV2
@@ -561,9 +564,8 @@
 						{#snippet buttonReplacement()}
 							<button
 								class={twMerge(
-									'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
+									NODE_ACTION_CLASS,
 									hover || selected || dropdownOpen ? 'block' : '!hidden',
-									'shadow-md rounded-md',
 									'group-hover:block'
 								)}
 								onpointerdown={stopPropagation(preventDefault(() => {}))}
