@@ -15,6 +15,7 @@
 		deletable?: boolean
 		bold?: boolean
 		editId?: boolean
+		disableEditId?: boolean
 		hover?: boolean
 		colorClasses?: FlowNodeColorClasses
 		icon?: import('svelte').Snippet
@@ -28,6 +29,7 @@
 		deletable = false,
 		bold = false,
 		editId = $bindable(false),
+		disableEditId = false,
 		hover = false,
 		colorClasses,
 		icon,
@@ -74,16 +76,18 @@
 				)}
 				baseClass={twMerge('!px-1')}
 				title={id}
-				clickable
-				onclick={(e) => {
-					e?.preventDefault()
-					e?.stopPropagation()
-					editId = !editId
-					onclick?.()
-				}}
+				clickable={!disableEditId}
+				onclick={disableEditId
+					? undefined
+					: (e) => {
+							e?.preventDefault()
+							e?.stopPropagation()
+							editId = !editId
+							onclick?.()
+						}}
 			>
 				<span class="max-w-full text-2xs truncate flex items-center">
-					{#if editId || (hover && deletable)}
+					{#if !disableEditId && (editId || (hover && deletable))}
 						<span transition:slide={{ axis: 'x', duration: 100 }}>
 							<Pencil size={10} class="mr-1" />
 						</span>
