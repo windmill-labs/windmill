@@ -104,7 +104,7 @@ const p = {
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, url);
       return {
-        path: file,
+        path: file.replace(/\\/g, "/"),
       };
     });
   },

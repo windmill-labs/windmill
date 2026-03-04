@@ -737,7 +737,7 @@ pub async fn handle_rust_job(
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let compiled_executable_name = &format!("./{RUST_BIN_NAME}");
+        let compiled_executable_name = &format!("{job_dir}/{RUST_BIN_NAME}");
         let mut run_rust = build_command_with_isolation(compiled_executable_name, &[]);
         run_rust
             .current_dir(job_dir)
