@@ -3,14 +3,17 @@
 	import { VolumeService } from '$lib/gen'
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { displayDate, displaySize, sendUserToast } from '$lib/utils'
-	import { File, HardDriveIcon, Loader2, Trash2 } from 'lucide-svelte'
+	import { File, HardDriveIcon, Loader2, Shield, Trash2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
+	import SharedBadge from '../SharedBadge.svelte'
+	import ShareModal from '../ShareModal.svelte'
 	import { resource } from 'runed'
 
 	let { onExplore }: { onExplore?: (volumeName: string) => void } = $props()
 
 	let open = $state(false)
 	let refreshKey = $state(0)
+	let shareModal: ShareModal | undefined = $state()
 
 	let volumes = resource(
 		() => (open ? { ws: $workspaceStore, key: refreshKey } : undefined),
@@ -30,6 +33,33 @@
 		sendUserToast(`Volume '${name}' deleted`)
 		refreshKey++
 	}
+
+	function canReadVolume(
+		createdBy: string,
+		extraPerms?: { [key: string]: unknown }
+	): boolean {
+		if ($userStore?.is_admin) return true
+		const username = $userStore?.username
+		if (username === createdBy || `u/${username}` === createdBy) return true
+		const perms = extraPerms ?? {}
+		const keys = Object.keys(perms)
+		if (keys.length === 0) return true // public
+		if (`u/${username}` in perms) return true
+		const pgroups = $userStore?.pgroups ?? []
+		return pgroups.some((g) => g in perms)
+	}
+
+	function canWriteVolume(
+		createdBy: string,
+		extraPerms?: { [key: string]: unknown }
+	): boolean {
+		if ($userStore?.is_admin) return true
+		const username = $userStore?.username
+		if (username === createdBy || `u/${username}` === createdBy) return true
+		if (extraPerms?.[`u/${username}`] === true) return true
+		const pgroups = $userStore?.pgroups ?? []
+		return pgroups.some((g) => extraPerms?.[g] === true)
+	}
 </script>
 
 <Drawer {open} size="700px" on:close={() => (open = false)}>
@@ -45,14 +75,22 @@
 		{:else}
 			<div class="flex flex-col divide-y border rounded-md">
 				{#each volumes.current as vol (vol.name)}
+					{@const readable = canReadVolume(vol.created_by, vol.extra_perms)}
+					{@const writable = canWriteVolume(vol.created_by, vol.extra_perms)}
 					<div class="flex items-center gap-3 px-4 py-3 hover:bg-surface-hover">
 						<HardDriveIcon size={16} class="text-secondary shrink-0" />
 						<div class="flex flex-col flex-1 min-w-0">
-							<span class="text-sm font-medium truncate">{vol.name}</span>
+							<div class="flex items-center gap-1.5">
+								<span class="text-sm font-medium truncate">{vol.name}</span>
+								<SharedBadge
+									extraPerms={vol.extra_perms as Record<string, boolean>}
+									canWrite={writable}
+								/>
+							</div>
 							<span class="text-2xs text-secondary">
 								{vol.file_count} {vol.file_count === 1 ? 'file' : 'files'}
 								&middot; {displaySize(vol.size_bytes) ?? '0 B'}
-								&middot; created by {vol.created_by}
+								&middot; owner: {vol.created_by.replace(/^u\//, '')}
 							</span>
 						</div>
 						{#if vol.last_used_at}
@@ -60,7 +98,17 @@
 								Used {displayDate(vol.last_used_at)}
 							</span>
 						{/if}
-						{#if onExplore}
+						{#if writable}
+							<Button
+								variant="subtle"
+								iconOnly
+								unifiedSize="sm"
+								endIcon={{ icon: Shield }}
+								on:click={() =>
+									shareModal?.openDrawer(vol.name, 'volume', true)}
+							/>
+						{/if}
+						{#if onExplore && readable}
 							<Button
 								variant="default"
 								unifiedSize="sm"
@@ -73,7 +121,7 @@
 								Explore
 							</Button>
 						{/if}
-						{#if $userStore?.is_admin}
+						{#if writable}
 							<Button
 								variant="subtle"
 								iconOnly
@@ -89,3 +137,5 @@
 		{/if}
 	</DrawerContent>
 </Drawer>
+
+<ShareModal bind:this={shareModal} on:change={() => refreshKey++} />

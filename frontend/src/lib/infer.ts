@@ -142,6 +142,7 @@ function getCommentPrefix(language: SupportedLanguage | undefined): string | und
 		case 'python3':
 		case 'bash':
 		case 'powershell':
+		case 'ansible':
 		case 'ruby':
 			return '#'
 		case 'deno':

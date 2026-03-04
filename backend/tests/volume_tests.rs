@@ -225,38 +225,6 @@ async fn test_volume_delete(db: Pool<Postgres>) -> anyhow::Result<()> {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_volume_extra_perms(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-
-    let perms_val = serde_json::json!({"u/test-user": true, "g/all": false});
-    sqlx::query!(
-        "INSERT INTO volume (workspace_id, name, size_bytes, created_by, extra_perms)
-         VALUES ($1, $2, $3, $4, $5)",
-        "test-workspace",
-        "perms-vol",
-        100_i64,
-        "test-user",
-        perms_val
-    )
-    .execute(&db)
-    .await?;
-
-    let row = sqlx::query!(
-        "SELECT extra_perms FROM volume WHERE workspace_id = $1 AND name = $2",
-        "test-workspace",
-        "perms-vol"
-    )
-    .fetch_one(&db)
-    .await?;
-
-    let perms: serde_json::Value = row.extra_perms;
-    assert_eq!(perms["u/test-user"], serde_json::json!(true));
-    assert_eq!(perms["g/all"], serde_json::json!(false));
-
-    Ok(())
-}
-
-#[sqlx::test(fixtures("base"))]
 async fn test_volume_workspace_fk_constraint(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
@@ -315,6 +283,77 @@ async fn test_volume_primary_key_uniqueness(db: Pool<Postgres>) -> anyhow::Resul
         "Expected unique violation, got: {}",
         err
     );
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_volume_extra_perms(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    // Insert volume with default (empty) extra_perms
+    sqlx::query!(
+        "INSERT INTO volume (workspace_id, name, size_bytes, created_by)
+         VALUES ($1, $2, $3, $4)",
+        "test-workspace",
+        "perms-vol",
+        100_i64,
+        "test-user"
+    )
+    .execute(&db)
+    .await?;
+
+    // Default extra_perms should be empty object
+    let row = sqlx::query!(
+        "SELECT extra_perms FROM volume WHERE workspace_id = $1 AND name = $2",
+        "test-workspace",
+        "perms-vol"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(row.extra_perms, serde_json::json!({}));
+
+    // Set extra_perms via jsonb_set (same pattern as granular_acls.rs)
+    sqlx::query!(
+        "UPDATE volume SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2::bool), true)
+         WHERE workspace_id = $3 AND name = $4",
+        &vec!["u/alice".to_string()],
+        true,
+        "test-workspace",
+        "perms-vol"
+    )
+    .execute(&db)
+    .await?;
+
+    let row = sqlx::query!(
+        "SELECT extra_perms FROM volume WHERE workspace_id = $1 AND name = $2",
+        "test-workspace",
+        "perms-vol"
+    )
+    .fetch_one(&db)
+    .await?;
+    let perms = row.extra_perms.as_object().unwrap();
+    assert_eq!(perms.get("u/alice").and_then(|v| v.as_bool()), Some(true));
+
+    // Remove a permission entry
+    sqlx::query!(
+        "UPDATE volume SET extra_perms = extra_perms - $1
+         WHERE workspace_id = $2 AND name = $3",
+        "u/alice",
+        "test-workspace",
+        "perms-vol"
+    )
+    .execute(&db)
+    .await?;
+
+    let row = sqlx::query!(
+        "SELECT extra_perms FROM volume WHERE workspace_id = $1 AND name = $2",
+        "test-workspace",
+        "perms-vol"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(row.extra_perms, serde_json::json!({}));
 
     Ok(())
 }

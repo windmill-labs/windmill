@@ -3848,6 +3848,18 @@ async fn handle_code_execution_job(
     .await
 }
 
+#[cfg(feature = "parquet")]
+struct LeaseRenewalGuard(Option<tokio::task::JoinHandle<()>>);
+
+#[cfg(feature = "parquet")]
+impl Drop for LeaseRenewalGuard {
+    fn drop(&mut self) {
+        if let Some(handle) = self.0.take() {
+            handle.abort();
+        }
+    }
+}
+
 pub async fn run_language_executor(
     job: &MiniPulledJob,
     conn: &Connection,
@@ -4229,26 +4241,36 @@ mount {{
         };
         let raw_mounts = windmill_worker_volumes::parse_volume_annotations(&code, comment_prefix);
         let args_ref = job.args.as_ref().map(|a| &**a);
-        raw_mounts
-            .into_iter()
-            .map(|mut v| {
-                v.name = windmill_worker_volumes::interpolate_volume_name(
-                    &v.name,
-                    args_ref,
-                    &job.workspace_id,
-                );
-                v
-            })
-            .collect::<Vec<_>>()
+        let mut interpolated = Vec::new();
+        for mut v in raw_mounts {
+            v.name = windmill_worker_volumes::interpolate_volume_name(
+                &v.name,
+                args_ref,
+                &job.workspace_id,
+            );
+            if let Err(e) = windmill_worker_volumes::validate_volume_name(&v.name) {
+                return Err(Error::ExecutionErr(e));
+            }
+            if let Err(e) = windmill_worker_volumes::validate_volume_target(&v.target) {
+                return Err(Error::ExecutionErr(e));
+            }
+            interpolated.push(v);
+        }
+        if let Err(e) = windmill_worker_volumes::validate_volume_mounts(&interpolated) {
+            return Err(Error::ExecutionErr(e));
+        }
+        interpolated
     };
 
     #[cfg(feature = "parquet")]
     let mut volume_states: Vec<windmill_worker_volumes::VolumeState> = Vec::new();
     #[cfg(feature = "parquet")]
+    let mut volume_writable: Vec<bool> = Vec::new();
+    #[cfg(feature = "parquet")]
     let mut volume_client: Option<std::sync::Arc<dyn windmill_worker_volumes::DynObjectStore>> =
         None;
     #[cfg(feature = "parquet")]
-    let mut volume_lease_renewal: Option<tokio::task::JoinHandle<()>> = None;
+    let mut volume_lease_renewal = LeaseRenewalGuard(None);
 
     #[cfg(feature = "parquet")]
     if !volume_mounts.is_empty() {
@@ -4291,154 +4313,233 @@ mount {{
                     windmill_object_store::build_object_store_client(&s3_resource).await?;
                 volume_client = Some(client_arc.clone());
 
-                for volume in &volume_mounts {
-                    // Acquire exclusive lease before downloading
-                    let mut acquired = false;
-                    for attempt in 0..120 {
-                        let row = sqlx::query_scalar!(
-                            "INSERT INTO volume (workspace_id, name, size_bytes, created_by, lease_until, leased_by)
-                             VALUES ($1, $2, 0, $3, now() + interval '30 seconds', $4)
-                             ON CONFLICT (workspace_id, name) DO UPDATE
-                             SET lease_until = now() + interval '30 seconds', leased_by = $4
-                             WHERE volume.lease_until IS NULL OR volume.lease_until < now()
-                             RETURNING name",
-                            &job.workspace_id,
-                            &volume.name,
-                            &job.created_by,
-                            worker_name
-                        )
-                        .fetch_optional(db)
-                        .await;
+                let mut acquired_leases: Vec<String> = Vec::new();
 
-                        match row {
-                            Ok(Some(_)) => {
-                                acquired = true;
-                                break;
-                            }
-                            Ok(None) => {
-                                if attempt == 0 {
-                                    tracing::info!(
-                                        workspace_id = %job.workspace_id,
-                                        "volume '{}' is leased by another worker, waiting...",
-                                        volume.name
-                                    );
-                                }
-                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    workspace_id = %job.workspace_id,
-                                    "failed to acquire lease for volume '{}': {e}",
-                                    volume.name
-                                );
-                                break;
-                            }
-                        }
-                    }
-
-                    if !acquired {
-                        return Err(Error::internal_err(format!(
-                            "Timed out waiting for volume '{}' lease (held by another worker)",
-                            volume.name
-                        )));
-                    }
-
-                    let _ = sqlx::query!(
-                        "UPDATE volume SET last_used_at = now() WHERE workspace_id = $1 AND name = $2",
-                        &job.workspace_id,
-                        &volume.name
-                    )
-                    .execute(db)
-                    .await;
-
-                    match windmill_worker_volumes::download_volume(
-                        client_arc.clone(),
-                        volume,
-                        job_dir,
-                        &job.workspace_id,
-                    )
-                    .await
-                    {
-                        Ok((state, dl_stats)) => {
-                            append_logs(
-                                &job.id,
-                                &job.workspace_id,
-                                format!(
-                                    "Volume '{}': {} total files ({} from cache, {} pulled from object store)\n",
-                                    volume.name,
-                                    dl_stats.total_files,
-                                    dl_stats.from_cache,
-                                    dl_stats.downloaded,
-                                ),
-                                conn,
-                            )
-                            .await;
-                            let nsjail_target = if volume.target.starts_with('/') {
-                                volume.target.clone()
-                            } else {
-                                let nsjail_cwd = match language {
-                                    ScriptLang::Bun
-                                    | ScriptLang::Bunnative
-                                    | ScriptLang::Nativets => "/tmp/bun",
-                                    ScriptLang::Deno => "/tmp/deno",
-                                    _ => "/tmp",
-                                };
-                                format!("{}/{}", nsjail_cwd, volume.target)
-                            };
-                            let nsjail_mount = windmill_worker_volumes::volume_nsjail_mount(
-                                &state.local_dir,
-                                &nsjail_target,
-                            );
-                            shared_mount.push_str(&nsjail_mount);
-
-                            if !is_sandboxing_enabled() {
-                                let env_name = format!(
-                                    "WM_VOLUME_{}",
-                                    volume.name.to_uppercase().replace('-', "_")
-                                );
-                                envs.insert(env_name, state.local_dir.display().to_string());
-
-                                if !volume.target.starts_with('/') {
-                                    let resolved =
-                                        std::path::Path::new(job_dir).join(&volume.target);
-                                    if let Some(parent) = resolved.parent() {
-                                        std::fs::create_dir_all(parent).ok();
-                                    }
-                                    #[cfg(unix)]
-                                    std::os::unix::fs::symlink(&state.local_dir, &resolved).ok();
-                                }
-                            }
-
-                            tracing::info!(
-                                workspace_id = %job.workspace_id,
-                                "mounted volume '{}' at '{}' for job {}",
-                                volume.name,
-                                volume.target,
-                                job.id
-                            );
-                            volume_states.push(state);
-                        }
-                        Err(e) => {
-                            // Release lease on failure
-                            let _ = sqlx::query!(
-                                "UPDATE volume SET lease_until = NULL, leased_by = NULL
-                                 WHERE workspace_id = $1 AND name = $2 AND leased_by = $3",
+                let volume_setup_result: error::Result<()> = async {
+                    for volume in &volume_mounts {
+                        // Acquire exclusive lease before downloading
+                        let mut acquired = false;
+                        for attempt in 0..120 {
+                            let row = sqlx::query_scalar!(
+                                "INSERT INTO volume (workspace_id, name, size_bytes, created_by, lease_until, leased_by)
+                                 VALUES ($1, $2, 0, $3, now() + interval '30 seconds', $4)
+                                 ON CONFLICT (workspace_id, name) DO UPDATE
+                                 SET lease_until = now() + interval '30 seconds', leased_by = $4
+                                 WHERE volume.lease_until IS NULL OR volume.lease_until < now()
+                                 RETURNING name",
                                 &job.workspace_id,
                                 &volume.name,
+                                &job.permissioned_as,
                                 worker_name
                             )
-                            .execute(db)
+                            .fetch_optional(db)
                             .await;
-                            tracing::warn!(
-                                workspace_id = %job.workspace_id,
-                                "failed to download volume '{}' for job {}: {}",
-                                volume.name,
-                                job.id,
-                                e
-                            );
-                            return Err(e);
+
+                            match row {
+                                Ok(Some(_)) => {
+                                    acquired = true;
+                                    break;
+                                }
+                                Ok(None) => {
+                                    if attempt == 0 {
+                                        tracing::info!(
+                                            workspace_id = %job.workspace_id,
+                                            "volume '{}' is leased by another worker, waiting...",
+                                            volume.name
+                                        );
+                                    }
+                                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                    if attempt % 10 == 9 {
+                                        if sqlx::query_scalar!(
+                                            "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
+                                            job.id
+                                        )
+                                        .fetch_optional(db)
+                                        .await
+                                        .map(|v| Some(true) == v)
+                                        .unwrap_or(false)
+                                        {
+                                            return Err(Error::JsonErr(canceled_job_to_result(&job)));
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        workspace_id = %job.workspace_id,
+                                        "failed to acquire lease for volume '{}': {e}",
+                                        volume.name
+                                    );
+                                    break;
+                                }
+                            }
                         }
+
+                        if !acquired {
+                            return Err(Error::internal_err(format!(
+                                "Timed out waiting for volume '{}' lease (held by another worker)",
+                                volume.name
+                            )));
+                        }
+                        acquired_leases.push(volume.name.clone());
+
+                        let _ = sqlx::query!(
+                            "UPDATE volume SET last_used_at = now() WHERE workspace_id = $1 AND name = $2",
+                            &job.workspace_id,
+                            &volume.name
+                        )
+                        .execute(db)
+                        .await;
+
+                        // Check volume permissions (extra_perms)
+                        // true in extra_perms = read+write, false = read-only
+                        // owner always has read+write; empty extra_perms = workspace-public (read+write)
+                        let mut can_write_volume = true;
+                        let vol_perms = sqlx::query!(
+                            "SELECT extra_perms, created_by FROM volume WHERE workspace_id = $1 AND name = $2",
+                            &job.workspace_id,
+                            &volume.name
+                        )
+                        .fetch_optional(db)
+                        .await
+                        .ok()
+                        .flatten();
+
+                        if let Some(ref vp) = vol_perms {
+                            if let Some(perms_obj) = vp.extra_perms.as_object() {
+                                if !perms_obj.is_empty() {
+                                    let is_owner = job.permissioned_as == vp.created_by;
+                                    if !is_owner {
+                                        let username = job.permissioned_as
+                                            .strip_prefix("u/")
+                                            .unwrap_or(&job.permissioned_as);
+                                        let groups = sqlx::query_scalar!(
+                                            "SELECT group_ FROM usr_to_group WHERE usr = $1 AND workspace_id = $2",
+                                            username,
+                                            &job.workspace_id
+                                        )
+                                        .fetch_all(db)
+                                        .await
+                                        .unwrap_or_default();
+
+                                        match windmill_common::auth::check_extra_perms(
+                                            perms_obj,
+                                            &job.permissioned_as,
+                                            &groups,
+                                        ) {
+                                            None => {
+                                                return Err(Error::ExecutionErr(format!(
+                                                    "User '{}' does not have permission to use volume '{}'",
+                                                    job.permissioned_as, volume.name
+                                                )));
+                                            }
+                                            Some(write) => {
+                                                can_write_volume = write;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        let (state, dl_stats) = windmill_worker_volumes::download_volume(
+                            client_arc.clone(),
+                            volume,
+                            job_dir,
+                            &job.workspace_id,
+                        )
+                        .await?;
+
+                        append_logs(
+                            &job.id,
+                            &job.workspace_id,
+                            format!(
+                                "Volume '{}': {} total files ({} from cache, {} pulled from object store)\n",
+                                volume.name,
+                                dl_stats.total_files,
+                                dl_stats.from_cache,
+                                dl_stats.downloaded,
+                            ),
+                            conn,
+                        )
+                        .await;
+                        let nsjail_target = if volume.target.starts_with('/') {
+                            volume.target.clone()
+                        } else {
+                            let nsjail_cwd = match language {
+                                ScriptLang::Bun
+                                | ScriptLang::Bunnative
+                                | ScriptLang::Nativets => "/tmp/bun",
+                                ScriptLang::Deno => "/tmp/deno",
+                                _ => "/tmp",
+                            };
+                            format!("{}/{}", nsjail_cwd, volume.target)
+                        };
+                        let nsjail_mount = windmill_worker_volumes::volume_nsjail_mount(
+                            &state.local_dir,
+                            &nsjail_target,
+                        );
+                        shared_mount.push_str(&nsjail_mount);
+
+                        if !is_sandboxing_enabled() {
+                            let env_name = format!(
+                                "WM_VOLUME_{}",
+                                volume.name.to_uppercase().replace('-', "_")
+                            );
+                            envs.insert(env_name, state.local_dir.display().to_string());
+
+                            if !volume.target.starts_with('/') {
+                                let resolved =
+                                    std::path::Path::new(job_dir).join(&volume.target);
+                                let job_dir_path = std::path::Path::new(job_dir)
+                                    .canonicalize()
+                                    .unwrap_or_else(|_| std::path::PathBuf::from(job_dir));
+                                let resolved_canon = resolved
+                                    .parent()
+                                    .and_then(|p| {
+                                        std::fs::create_dir_all(p).ok();
+                                        p.canonicalize().ok()
+                                    })
+                                    .map(|p| p.join(resolved.file_name().unwrap_or_default()));
+                                if let Some(ref canon) = resolved_canon {
+                                    if !canon.starts_with(&job_dir_path) {
+                                        return Err(Error::ExecutionErr(format!(
+                                            "Volume target '{}' resolves outside the job directory",
+                                            volume.target
+                                        )));
+                                    }
+                                }
+                                #[cfg(unix)]
+                                std::os::unix::fs::symlink(&state.local_dir, &resolved).ok();
+                            }
+                        }
+
+                        tracing::info!(
+                            workspace_id = %job.workspace_id,
+                            "mounted volume '{}' at '{}' for job {}",
+                            volume.name,
+                            volume.target,
+                            job.id
+                        );
+                        volume_states.push(state);
+                        volume_writable.push(can_write_volume);
                     }
+                    Ok(())
+                }.await;
+
+                if let Err(e) = volume_setup_result {
+                    // Release all acquired leases on failure
+                    for name in &acquired_leases {
+                        let _ = sqlx::query!(
+                            "UPDATE volume SET lease_until = NULL, leased_by = NULL
+                             WHERE workspace_id = $1 AND name = $2 AND leased_by = $3",
+                            &job.workspace_id,
+                            name,
+                            worker_name
+                        )
+                        .execute(db)
+                        .await;
+                    }
+                    return Err(e);
                 }
 
                 // Spawn background lease renewal task
@@ -4448,7 +4549,7 @@ mount {{
                     let vol_names: Vec<String> =
                         volume_states.iter().map(|s| s.mount.name.clone()).collect();
                     let worker = worker_name.to_string();
-                    volume_lease_renewal = Some(tokio::spawn(async move {
+                    volume_lease_renewal.0 = Some(tokio::spawn(async move {
                         let mut interval =
                             tokio::time::interval(std::time::Duration::from_secs(10));
                         loop {
@@ -4467,6 +4568,209 @@ mount {{
                         }
                     }));
                 }
+            }
+        } else if let Connection::Http(http) = conn {
+            // Agent worker: use server-side volume endpoints
+            let vol_url_base = format!("/api/w/{}/volumes", job.workspace_id);
+
+            let mut acquired_leases: Vec<(String, String)> = Vec::new(); // (name, worker_name)
+
+            let volume_setup_result: error::Result<()> = async {
+                for volume in &volume_mounts {
+                    // 1. Begin volume (acquire lease + get manifest)
+                    #[derive(serde::Serialize)]
+                    struct BeginReq {
+                        worker_name: String,
+                        permissioned_as: String,
+                    }
+                    #[derive(serde::Deserialize)]
+                    struct BeginResp {
+                        manifest: std::collections::HashMap<String, u64>,
+                        symlinks: std::collections::HashMap<String, String>,
+                        writable: bool,
+                    }
+
+                    let begin_url = format!("{}/{}/begin", vol_url_base, volume.name);
+                    let resp: BeginResp = http
+                        .post(
+                            &begin_url,
+                            None,
+                            &BeginReq {
+                                worker_name: worker_name.to_string(),
+                                permissioned_as: job.permissioned_as.clone(),
+                            },
+                        )
+                        .await
+                        .map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to begin volume '{}': {e}",
+                                volume.name
+                            ))
+                        })?;
+
+                    acquired_leases.push((volume.name.clone(), worker_name.to_string()));
+
+                    // 2. Download files from manifest
+                    let vol_dir = std::path::Path::new(job_dir)
+                        .join("_volumes")
+                        .join(&volume.name);
+                    std::fs::create_dir_all(&vol_dir).map_err(|e| {
+                        Error::internal_err(format!("Failed to create volume dir: {e}"))
+                    })?;
+
+                    for (rel_path, _size) in &resp.manifest {
+                        let file_url =
+                            format!("{}/{}/file/{}", vol_url_base, volume.name, rel_path);
+                        let bytes = http.get_bytes(&file_url).await.map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to download volume file '{}': {e}",
+                                rel_path
+                            ))
+                        })?;
+
+                        let file_path = vol_dir.join(rel_path);
+                        if let Some(parent) = file_path.parent() {
+                            std::fs::create_dir_all(parent).ok();
+                        }
+                        std::fs::write(&file_path, &bytes).map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to write volume file '{}': {e}",
+                                rel_path
+                            ))
+                        })?;
+                    }
+
+                    // 3. Restore symlinks
+                    #[cfg(unix)]
+                    for (link_name, target) in &resp.symlinks {
+                        let link_path = vol_dir.join(link_name);
+                        if let Some(parent) = link_path.parent() {
+                            std::fs::create_dir_all(parent).ok();
+                        }
+                        std::os::unix::fs::symlink(target, &link_path).ok();
+                    }
+
+                    // Build state for sync-back
+                    let dl_file_count = resp.manifest.len();
+                    let state = windmill_worker_volumes::VolumeState {
+                        mount: volume.clone(),
+                        local_dir: vol_dir.clone(),
+                        manifest: resp.manifest,
+                        symlinks: resp.symlinks,
+                    };
+
+                    let nsjail_target = if volume.target.starts_with('/') {
+                        volume.target.clone()
+                    } else {
+                        let nsjail_cwd = match language {
+                            ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Nativets => {
+                                "/tmp/bun"
+                            }
+                            ScriptLang::Deno => "/tmp/deno",
+                            _ => "/tmp",
+                        };
+                        format!("{}/{}", nsjail_cwd, volume.target)
+                    };
+                    let nsjail_mount = windmill_worker_volumes::volume_nsjail_mount(
+                        &state.local_dir,
+                        &nsjail_target,
+                    );
+                    shared_mount.push_str(&nsjail_mount);
+
+                    if !is_sandboxing_enabled() {
+                        let env_name =
+                            format!("WM_VOLUME_{}", volume.name.to_uppercase().replace('-', "_"));
+                        envs.insert(env_name, state.local_dir.display().to_string());
+
+                        if !volume.target.starts_with('/') {
+                            let resolved = std::path::Path::new(job_dir).join(&volume.target);
+                            let job_dir_path = std::path::Path::new(job_dir)
+                                .canonicalize()
+                                .unwrap_or_else(|_| std::path::PathBuf::from(job_dir));
+                            let resolved_canon = resolved
+                                .parent()
+                                .and_then(|p| {
+                                    std::fs::create_dir_all(p).ok();
+                                    p.canonicalize().ok()
+                                })
+                                .map(|p| p.join(resolved.file_name().unwrap_or_default()));
+                            if let Some(ref canon) = resolved_canon {
+                                if !canon.starts_with(&job_dir_path) {
+                                    return Err(Error::ExecutionErr(format!(
+                                        "Volume target '{}' resolves outside the job directory",
+                                        volume.target
+                                    )));
+                                }
+                            }
+                            #[cfg(unix)]
+                            std::os::unix::fs::symlink(&state.local_dir, &resolved).ok();
+                        }
+                    }
+
+                    append_logs(
+                        &job.id,
+                        &job.workspace_id,
+                        format!(
+                            "Volume '{}': {} files downloaded via server proxy\n",
+                            volume.name, dl_file_count,
+                        ),
+                        conn,
+                    )
+                    .await;
+
+                    volume_states.push(state);
+                    volume_writable.push(resp.writable);
+                }
+                Ok(())
+            }
+            .await;
+
+            if let Err(e) = volume_setup_result {
+                // Release all acquired leases on failure
+                for (name, wn) in &acquired_leases {
+                    #[derive(serde::Serialize)]
+                    struct ReleaseReq {
+                        worker_name: String,
+                    }
+                    let release_url = format!("{}/{}/release", vol_url_base, name);
+                    let _ = http
+                        .post::<_, serde_json::Value>(
+                            &release_url,
+                            None,
+                            &ReleaseReq { worker_name: wn.clone() },
+                        )
+                        .await;
+                }
+                return Err(e);
+            }
+
+            // Spawn background lease renewal task via HTTP
+            if !volume_states.is_empty() {
+                let http_clone = http.clone();
+                let ws_id = job.workspace_id.clone();
+                let vol_names: Vec<String> =
+                    volume_states.iter().map(|s| s.mount.name.clone()).collect();
+                let worker = worker_name.to_string();
+                volume_lease_renewal.0 = Some(tokio::spawn(async move {
+                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+                    loop {
+                        interval.tick().await;
+                        for name in &vol_names {
+                            #[derive(serde::Serialize)]
+                            struct RenewReq {
+                                worker_name: String,
+                            }
+                            let renew_url = format!("/api/w/{}/volumes/{}/renew", ws_id, name);
+                            let _ = http_clone
+                                .post::<_, serde_json::Value>(
+                                    &renew_url,
+                                    None,
+                                    &RenewReq { worker_name: worker.clone() },
+                                )
+                                .await;
+                        }
+                    }
+                }));
             }
         }
     }
@@ -4885,80 +5189,297 @@ mount {{
     // Volume sync-back and lease release
     #[cfg(feature = "parquet")]
     if !volume_states.is_empty() {
+        // Stop lease renewal before sync-back
+        drop(volume_lease_renewal);
+
         if let Some(ref vol_client) = volume_client {
             if let Connection::Sql(db) = conn {
-                let mut sync_log = "\n--- VOLUME SYNC BACK ---\n".to_string();
+                let job_succeeded = result.is_ok();
 
-                for state in &volume_states {
-                    match windmill_worker_volumes::sync_volume_back(
-                        vol_client.clone(),
-                        state,
-                        &job.workspace_id,
-                    )
-                    .await
-                    {
-                        Ok(sync_stats) => {
-                            let _ = sqlx::query!(
-                                "UPDATE volume
-                                 SET size_bytes = $3, file_count = $4, last_used_at = now(),
-                                     lease_until = NULL, leased_by = NULL
-                                 WHERE workspace_id = $1 AND name = $2",
-                                &job.workspace_id,
-                                &state.mount.name,
-                                sync_stats.new_size_bytes as i64,
-                                sync_stats.file_count as i32,
-                            )
-                            .execute(db)
-                            .await;
+                if job_succeeded {
+                    let mut sync_log = "\n--- VOLUME SYNC BACK ---\n".to_string();
 
+                    for (i, state) in volume_states.iter().enumerate() {
+                        let writable = volume_writable.get(i).copied().unwrap_or(true);
+                        if !writable {
                             sync_log.push_str(&format!(
-                                "Volume '{}': {} files uploaded, {} files unchanged (skipped)\n",
-                                state.mount.name, sync_stats.uploaded, sync_stats.skipped,
-                            ));
-
-                            tracing::info!(
-                                workspace_id = %job.workspace_id,
-                                "synced volume '{}' back ({} bytes) for job {}",
+                                "Volume '{}': read-only, skipping sync back\n",
                                 state.mount.name,
-                                sync_stats.new_size_bytes,
-                                job.id
-                            );
-                        }
-                        Err(e) => {
-                            // Release lease even on sync failure
+                            ));
+                            // Still release lease
                             let _ = sqlx::query!(
                                 "UPDATE volume SET lease_until = NULL, leased_by = NULL
-                                 WHERE workspace_id = $1 AND name = $2 AND leased_by = $3",
+                                 WHERE workspace_id = $1 AND name = $2",
                                 &job.workspace_id,
-                                &state.mount.name,
-                                worker_name
+                                &state.mount.name
                             )
-                            .execute(db)
+                            .execute(&*db)
                             .await;
+                            continue;
+                        }
+                        match windmill_worker_volumes::sync_volume_back(
+                            vol_client.clone(),
+                            state,
+                            &job.workspace_id,
+                        )
+                        .await
+                        {
+                            Ok(sync_stats) => {
+                                let _ = sqlx::query!(
+                                    "UPDATE volume
+                                     SET size_bytes = $3, file_count = $4,
+                                         updated_at = now(), last_used_at = now(),
+                                         lease_until = NULL, leased_by = NULL
+                                     WHERE workspace_id = $1 AND name = $2",
+                                    &job.workspace_id,
+                                    &state.mount.name,
+                                    sync_stats.new_size_bytes as i64,
+                                    sync_stats.file_count as i32,
+                                )
+                                .execute(db)
+                                .await;
 
+                                sync_log.push_str(&format!(
+                                    "Volume '{}': {} files uploaded, {} files unchanged (skipped)\n",
+                                    state.mount.name, sync_stats.uploaded, sync_stats.skipped,
+                                ));
+
+                                tracing::info!(
+                                    workspace_id = %job.workspace_id,
+                                    "synced volume '{}' back ({} bytes) for job {}",
+                                    state.mount.name,
+                                    sync_stats.new_size_bytes,
+                                    job.id
+                                );
+                            }
+                            Err(e) => {
+                                sync_log.push_str(&format!(
+                                    "Volume '{}': failed to sync back: {}\n",
+                                    state.mount.name, e,
+                                ));
+
+                                tracing::warn!(
+                                    workspace_id = %job.workspace_id,
+                                    "failed to sync volume '{}' back for job {}: {}",
+                                    state.mount.name,
+                                    job.id,
+                                    e
+                                );
+                            }
+                        }
+                    }
+
+                    append_logs(&job.id, &job.workspace_id, sync_log, conn).await;
+                } else {
+                    append_logs(
+                        &job.id,
+                        &job.workspace_id,
+                        "\n--- VOLUME SYNC BACK ---\nSkipped: job failed, not syncing volumes to avoid persisting corrupted state\n".to_string(),
+                        conn,
+                    )
+                    .await;
+                }
+
+                // Always release leases regardless of success/failure
+                for state in &volume_states {
+                    let _ = sqlx::query!(
+                        "UPDATE volume SET lease_until = NULL, leased_by = NULL
+                         WHERE workspace_id = $1 AND name = $2 AND leased_by = $3",
+                        &job.workspace_id,
+                        &state.mount.name,
+                        worker_name
+                    )
+                    .execute(db)
+                    .await;
+                }
+            }
+        }
+
+        // HTTP sync-back for agent workers
+        if let Connection::Http(http) = conn {
+            let vol_url_base = format!("/api/w/{}/volumes", job.workspace_id);
+            let job_succeeded = result.is_ok();
+
+            if job_succeeded {
+                let mut sync_log = "\n--- VOLUME SYNC BACK ---\n".to_string();
+
+                for (i, state) in volume_states.iter().enumerate() {
+                    let writable = volume_writable.get(i).copied().unwrap_or(true);
+                    if !writable {
+                        sync_log.push_str(&format!(
+                            "Volume '{}': read-only, skipping sync back\n",
+                            state.mount.name,
+                        ));
+                        #[derive(serde::Serialize)]
+                        struct ReleaseReq {
+                            worker_name: String,
+                        }
+                        let release_url = format!("{}/{}/release", vol_url_base, state.mount.name);
+                        let _ = http
+                            .post::<_, serde_json::Value>(
+                                &release_url,
+                                None,
+                                &ReleaseReq { worker_name: worker_name.to_string() },
+                            )
+                            .await;
+                        continue;
+                    }
+
+                    // Walk local dir, diff against manifest, upload changed files
+                    let mut uploaded = 0usize;
+                    let mut deleted_keys = Vec::new();
+                    let mut current_files = std::collections::HashMap::new();
+                    let mut total_size: u64 = 0;
+                    let mut symlinks = std::collections::HashMap::new();
+
+                    // Collect current files
+                    fn walk_dir(
+                        base: &std::path::Path,
+                        dir: &std::path::Path,
+                        files: &mut std::collections::HashMap<String, u64>,
+                        symlinks: &mut std::collections::HashMap<String, String>,
+                    ) {
+                        if let Ok(entries) = std::fs::read_dir(dir) {
+                            for entry in entries.flatten() {
+                                let path = entry.path();
+                                let rel = path
+                                    .strip_prefix(base)
+                                    .unwrap_or(&path)
+                                    .to_string_lossy()
+                                    .to_string();
+
+                                #[cfg(unix)]
+                                if path
+                                    .symlink_metadata()
+                                    .map(|m| m.file_type().is_symlink())
+                                    .unwrap_or(false)
+                                {
+                                    if let Ok(target) = std::fs::read_link(&path) {
+                                        symlinks.insert(rel, target.to_string_lossy().to_string());
+                                    }
+                                    continue;
+                                }
+
+                                if path.is_dir() {
+                                    walk_dir(base, &path, files, symlinks);
+                                } else if path.is_file() {
+                                    let size = path.metadata().map(|m| m.len()).unwrap_or(0);
+                                    files.insert(rel, size);
+                                }
+                            }
+                        }
+                    }
+
+                    walk_dir(
+                        &state.local_dir,
+                        &state.local_dir,
+                        &mut current_files,
+                        &mut symlinks,
+                    );
+
+                    // Upload new/changed files
+                    for (rel_path, size) in &current_files {
+                        total_size += size;
+                        let old_size = state.manifest.get(rel_path);
+                        if old_size == Some(size) {
+                            continue;
+                        }
+                        let file_path = state.local_dir.join(rel_path);
+                        match std::fs::read(&file_path) {
+                            Ok(bytes) => {
+                                let upload_url = format!(
+                                    "{}/{}/file/{}",
+                                    vol_url_base, state.mount.name, rel_path
+                                );
+                                if let Err(e) =
+                                    http.put_bytes(&upload_url, bytes::Bytes::from(bytes)).await
+                                {
+                                    tracing::warn!(
+                                        "Failed to upload volume file '{}': {e}",
+                                        rel_path
+                                    );
+                                } else {
+                                    uploaded += 1;
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to read volume file '{}': {e}", rel_path);
+                            }
+                        }
+                    }
+
+                    // Find deleted files
+                    for key in state.manifest.keys() {
+                        if !current_files.contains_key(key) {
+                            deleted_keys.push(key.clone());
+                        }
+                    }
+
+                    // Commit
+                    #[derive(serde::Serialize)]
+                    struct CommitReq {
+                        worker_name: String,
+                        deleted_keys: Vec<String>,
+                        symlinks: std::collections::HashMap<String, String>,
+                        file_count: i32,
+                        size_bytes: i64,
+                    }
+                    let commit_url = format!("{}/{}/commit", vol_url_base, state.mount.name);
+                    match http
+                        .post::<_, serde_json::Value>(
+                            &commit_url,
+                            None,
+                            &CommitReq {
+                                worker_name: worker_name.to_string(),
+                                deleted_keys,
+                                symlinks,
+                                file_count: current_files.len() as i32,
+                                size_bytes: total_size as i64,
+                            },
+                        )
+                        .await
+                    {
+                        Ok(_) => {
                             sync_log.push_str(&format!(
-                                "Volume '{}': failed to sync back: {}\n",
+                                "Volume '{}': {} files uploaded via server proxy\n",
+                                state.mount.name, uploaded,
+                            ));
+                        }
+                        Err(e) => {
+                            sync_log.push_str(&format!(
+                                "Volume '{}': failed to commit: {}\n",
                                 state.mount.name, e,
                             ));
-
-                            tracing::warn!(
-                                workspace_id = %job.workspace_id,
-                                "failed to sync volume '{}' back for job {}: {}",
-                                state.mount.name,
-                                job.id,
-                                e
-                            );
                         }
                     }
                 }
 
                 append_logs(&job.id, &job.workspace_id, sync_log, conn).await;
-            }
-        }
+            } else {
+                append_logs(
+                    &job.id,
+                    &job.workspace_id,
+                    "\n--- VOLUME SYNC BACK ---\nSkipped: job failed, not syncing volumes to avoid persisting corrupted state\n".to_string(),
+                    conn,
+                )
+                .await;
 
-        // Stop lease renewal
-        if let Some(handle) = volume_lease_renewal.take() {
-            handle.abort();
+                // Release all leases
+                for state in &volume_states {
+                    #[derive(serde::Serialize)]
+                    struct ReleaseReq {
+                        worker_name: String,
+                    }
+                    let release_url = format!("{}/{}/release", vol_url_base, state.mount.name);
+                    let _ = http
+                        .post::<_, serde_json::Value>(
+                            &release_url,
+                            None,
+                            &ReleaseReq { worker_name: worker_name.to_string() },
+                        )
+                        .await;
+                }
+            }
         }
     }
 

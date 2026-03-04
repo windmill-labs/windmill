@@ -9,10 +9,12 @@ CREATE TABLE volume (
     file_count INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_by VARCHAR(255) NOT NULL,
-    extra_perms JSONB NOT NULL DEFAULT '{}',
+    updated_at TIMESTAMPTZ,
     lease_until TIMESTAMPTZ,
     leased_by VARCHAR(255),
     last_used_at TIMESTAMPTZ,
+    extra_perms JSONB NOT NULL DEFAULT '{}',
     PRIMARY KEY (workspace_id, name)
 );
 
+CREATE INDEX idx_volume_last_used ON volume(workspace_id, last_used_at);

@@ -17501,6 +17501,7 @@ version = "1.648.0"
 dependencies = [
  "bytes",
  "futures",
+ "lazy_static",
  "object_store",
  "regex",
  "serde",

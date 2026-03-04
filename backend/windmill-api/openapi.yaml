@@ -15198,6 +15198,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       responses:
         "200":
@@ -15243,6 +15244,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       requestBody:
         description: acl to add
@@ -15299,6 +15301,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       requestBody:
         description: acl to add
@@ -24066,10 +24069,17 @@ components:
           format: date-time
         created_by:
           type: string
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
         last_used_at:
           type: string
           format: date-time
           nullable: true
+        extra_perms:
+          type: object
+          additionalProperties: true
     ProtectionRuleset:
       type: object
       description: A workspace protection rule defining restrictions and bypass permissions

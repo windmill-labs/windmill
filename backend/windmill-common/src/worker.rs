@@ -353,6 +353,45 @@ impl HttpClient {
             )))
         }
     }
+
+    pub async fn get_bytes(&self, url: &str) -> anyhow::Result<Bytes> {
+        let base_url = self.base_internal_url.clone();
+        let response = self
+            .client
+            .get(format!("{}{}", base_url, url))
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        if response.status().is_success() {
+            Ok(response.bytes().await?)
+        } else {
+            Err(anyhow::anyhow!(
+                "HTTP agent request GET {} failed {}",
+                url,
+                response.status()
+            ))
+        }
+    }
+
+    pub async fn put_bytes(&self, url: &str, bytes: Bytes) -> anyhow::Result<()> {
+        let base_url = self.base_internal_url.clone();
+        let response = self
+            .client
+            .put(format!("{}{}", base_url, url))
+            .body(bytes)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "HTTP agent request PUT {} failed {}",
+                url,
+                response.status()
+            ))
+        }
+    }
 }
 
 #[derive(Clone)]

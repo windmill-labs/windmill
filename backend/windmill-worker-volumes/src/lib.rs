@@ -6,7 +6,17 @@ pub use volume_oss::*;
 pub use object_store::ObjectStore as DynObjectStore;
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::PathBuf;
+
+pub const MAX_VOLUMES_PER_JOB: usize = 10;
+
+lazy_static::lazy_static! {
+    static ref ARGS_INTERPOLATION_RE: regex::Regex =
+        regex::Regex::new(r#"\$args\[((?:\w+\.)*\w+)\]"#).unwrap();
+    static ref VALID_VOLUME_NAME_RE: regex::Regex =
+        regex::Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,253}[a-zA-Z0-9]$").unwrap();
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VolumeMount {
@@ -34,6 +44,65 @@ pub struct SyncStats {
     pub skipped: usize,
 }
 
+pub fn validate_volume_name(name: &str) -> Result<(), String> {
+    if name.contains("..") {
+        return Err(format!(
+            "Volume name '{}' contains '..' which is not allowed",
+            name
+        ));
+    }
+    if !VALID_VOLUME_NAME_RE.is_match(name) {
+        return Err(format!(
+            "Volume name '{}' is invalid. Names must be 2-255 characters, \
+             start and end with alphanumeric, and contain only alphanumeric, '.', '_', or '-'",
+            name
+        ));
+    }
+    Ok(())
+}
+
+const ALLOWED_ABSOLUTE_PREFIXES: &[&str] = &["/tmp/", "/mnt/", "/opt/", "/home/", "/data/"];
+
+pub fn validate_volume_target(target: &str) -> Result<(), String> {
+    if target.split('/').any(|seg| seg == "..") {
+        return Err(format!(
+            "Volume target '{target}' contains '..' segments which is not allowed"
+        ));
+    }
+    if target.starts_with('/')
+        && !ALLOWED_ABSOLUTE_PREFIXES
+            .iter()
+            .any(|p| target.starts_with(p))
+    {
+        return Err(format!(
+            "Volume target '{target}' must be a relative path or start with one of: {}",
+            ALLOWED_ABSOLUTE_PREFIXES.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+pub fn validate_volume_mounts(mounts: &[VolumeMount]) -> Result<(), String> {
+    if mounts.len() > MAX_VOLUMES_PER_JOB {
+        return Err(format!(
+            "Too many volume mounts ({}, max {})",
+            mounts.len(),
+            MAX_VOLUMES_PER_JOB
+        ));
+    }
+    let mut seen_names = HashSet::new();
+    let mut seen_targets = HashSet::new();
+    for v in mounts {
+        if !seen_names.insert(&v.name) {
+            return Err(format!("Duplicate volume name: '{}'", v.name));
+        }
+        if !seen_targets.insert(&v.target) {
+            return Err(format!("Duplicate volume target: '{}'", v.target));
+        }
+    }
+    Ok(())
+}
+
 pub fn interpolate_volume_name(
     name: &str,
     args: Option<&HashMap<String, Box<serde_json::value::RawValue>>>,
@@ -46,9 +115,8 @@ pub fn interpolate_volume_name(
     let Some(args) = args else {
         return name;
     };
-    let re = regex::Regex::new(r#"\$args\[((?:\w+\.)*\w+)\]"#).unwrap();
     let mut result = name.clone();
-    for cap in re.captures_iter(&name) {
+    for cap in ARGS_INTERPOLATION_RE.captures_iter(&name) {
         let full_match = cap.get(0).unwrap().as_str();
         let arg_name = cap.get(1).unwrap().as_str();
         let arg_value = if arg_name.contains('.') {
@@ -323,5 +391,124 @@ mod tests {
             result,
             vec![VolumeMount { name: "data".to_string(), target: "data/models".to_string() }]
         );
+    }
+
+    #[test]
+    fn validate_valid_names() {
+        assert!(validate_volume_name("mydata").is_ok());
+        assert!(validate_volume_name("my-data_v2").is_ok());
+        assert!(validate_volume_name("acme-staging-cache").is_ok());
+        assert!(validate_volume_name("a1").is_ok());
+        assert!(validate_volume_name("data.v2").is_ok());
+        assert!(validate_volume_name("A0").is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_path_traversal() {
+        assert!(validate_volume_name("../other-workspace").is_err());
+        assert!(validate_volume_name("data/../secrets").is_err());
+        assert!(validate_volume_name("a..b").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_special_start_end() {
+        assert!(validate_volume_name("-data").is_err());
+        assert!(validate_volume_name("data-").is_err());
+        assert!(validate_volume_name(".data").is_err());
+        assert!(validate_volume_name("data.").is_err());
+        assert!(validate_volume_name("_data").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_path_separators() {
+        assert!(validate_volume_name("data/secrets").is_err());
+        assert!(validate_volume_name("data\\secrets").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_too_short() {
+        assert!(validate_volume_name("").is_err());
+        assert!(validate_volume_name("a").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_too_long() {
+        let long_name = format!("a{}a", "b".repeat(254));
+        assert!(validate_volume_name(&long_name).is_err());
+    }
+
+    #[test]
+    fn validate_rejects_spaces_and_special() {
+        assert!(validate_volume_name("my data").is_err());
+        assert!(validate_volume_name("my@data").is_err());
+        assert!(validate_volume_name("my$data").is_err());
+    }
+
+    #[test]
+    fn validate_target_allows_relative() {
+        assert!(validate_volume_target("data").is_ok());
+        assert!(validate_volume_target("data/models").is_ok());
+        assert!(validate_volume_target(".claude").is_ok());
+    }
+
+    #[test]
+    fn validate_target_allows_safe_absolute() {
+        assert!(validate_volume_target("/tmp/data").is_ok());
+        assert!(validate_volume_target("/mnt/data").is_ok());
+        assert!(validate_volume_target("/opt/models").is_ok());
+        assert!(validate_volume_target("/home/user/data").is_ok());
+        assert!(validate_volume_target("/data/cache").is_ok());
+    }
+
+    #[test]
+    fn validate_target_rejects_dangerous_absolute() {
+        assert!(validate_volume_target("/etc/passwd").is_err());
+        assert!(validate_volume_target("/proc/self").is_err());
+        assert!(validate_volume_target("/sys/fs").is_err());
+        assert!(validate_volume_target("/dev/null").is_err());
+        assert!(validate_volume_target("/usr/bin").is_err());
+        assert!(validate_volume_target("/var/log").is_err());
+    }
+
+    #[test]
+    fn validate_target_rejects_traversal() {
+        assert!(validate_volume_target("../../etc").is_err());
+        assert!(validate_volume_target("data/../../../etc").is_err());
+        assert!(validate_volume_target("/tmp/../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn validate_mounts_rejects_too_many() {
+        let mounts: Vec<VolumeMount> = (0..11)
+            .map(|i| VolumeMount { name: format!("v{:02}", i), target: format!("t{}", i) })
+            .collect();
+        assert!(validate_volume_mounts(&mounts).is_err());
+    }
+
+    #[test]
+    fn validate_mounts_rejects_duplicate_name() {
+        let mounts = vec![
+            VolumeMount { name: "data".to_string(), target: "/tmp/a".to_string() },
+            VolumeMount { name: "data".to_string(), target: "/tmp/b".to_string() },
+        ];
+        assert!(validate_volume_mounts(&mounts).is_err());
+    }
+
+    #[test]
+    fn validate_mounts_rejects_duplicate_target() {
+        let mounts = vec![
+            VolumeMount { name: "v1".to_string(), target: "/tmp/data".to_string() },
+            VolumeMount { name: "v2".to_string(), target: "/tmp/data".to_string() },
+        ];
+        assert!(validate_volume_mounts(&mounts).is_err());
+    }
+
+    #[test]
+    fn validate_mounts_ok() {
+        let mounts = vec![
+            VolumeMount { name: "v1".to_string(), target: "/tmp/a".to_string() },
+            VolumeMount { name: "v2".to_string(), target: "/tmp/b".to_string() },
+        ];
+        assert!(validate_volume_mounts(&mounts).is_ok());
     }
 }
