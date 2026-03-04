@@ -59,8 +59,9 @@
 		if (group.module_ids.length === 0) return null
 		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(group.module_ids, allNodes)
 		const padding = 16
+		const headerGap = 24 // space between header bottom and first node
 		const noteHeight = groupEditorContext?.groupEditor.getNoteHeights()[group.id] ?? 0
-		const topPadding = padding + GROUP_HEADER_HEIGHT + noteHeight
+		const topPadding = headerGap + GROUP_HEADER_HEIGHT + noteHeight
 		return {
 			x: minX - padding,
 			y: minY - topPadding,

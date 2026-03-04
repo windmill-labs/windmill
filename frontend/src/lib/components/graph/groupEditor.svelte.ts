@@ -261,7 +261,7 @@ export function getGroupEditorContext(): GroupEditorContext | undefined {
 /** Extra vertical space pushed above the topmost node of each group for the header card */
 export const GROUP_HEADER_HEIGHT = 40
 
-const GROUP_TOP_MARGIN = 32
+const GROUP_TOP_MARGIN = 24
 
 /**
  * Compute adjusted node positions for collapsed groups whose note is visible.
