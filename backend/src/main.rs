@@ -969,7 +969,7 @@ Windmill Community Edition {GIT_VERSION}
 
         DirBuilder::new()
             .recursive(true)
-            .create("/tmp/windmill")
+            .create(&*WINDMILL_DIR)
             .expect("could not create initial server dir");
 
         #[cfg(feature = "tantivy")]

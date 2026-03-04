@@ -5934,10 +5934,10 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
     }
 
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-        return Err(error::Error::NotFound(format!(
-            "File not found on server logs volume /tmp/windmill/logs and no distributed logs s3 storage for {}",
-            file_p
-        )));
+    return Err(error::Error::NotFound(format!(
+        "File not found on server logs volume {}/logs and no distributed logs s3 storage for {}",
+        *WINDMILL_DIR, file_p
+    )));
 }
 
 async fn get_job_update(
