@@ -501,26 +501,15 @@ fn format_pull_query_batch(peek: String) -> String {
                 started_at = coalesce(started_at, now()),
                 suspend_until = null,
                 worker = $1
-            WHERE id IN (SELECT id FROM peek)
+            WHERE id = ANY(ARRAY(SELECT id FROM peek))
             RETURNING
                 id, started_at, scheduled_for,
                 canceled_by, canceled_reason, worker, cache_ignore_s3_path, runnable_settings_handle
         ), r AS NOT MATERIALIZED (
             UPDATE v2_job_runtime SET
                 ping = now()
-            WHERE id IN (SELECT id FROM peek)
-        ), j AS NOT MATERIALIZED (
-            SELECT
-                id, workspace_id, parent_job, created_by, created_at, runnable_id,
-                runnable_path, args, kind, trigger, trigger_kind,
-                permissioned_as, permissioned_as_email, script_lang,
-                flow_innermost_root_job, root_job, flow_step_id,
-                same_worker, pre_run_error, visible_to_owner, tag, concurrent_limit,
-                concurrency_time_window_s, timeout, cache_ttl, priority, raw_code, raw_lock,
-                raw_flow, script_entrypoint_override, preprocessed
-            FROM v2_job
-            WHERE id IN (SELECT id FROM peek)
-        ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, q.started_at, q.scheduled_for,
+            WHERE id = ANY(ARRAY(SELECT id FROM q))
+        ) SELECT q.id, j.workspace_id, j.parent_job, j.created_by, q.started_at, q.scheduled_for,
             j.runnable_id, j.runnable_path, j.args, q.canceled_by,
             q.canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
             flow_status, j.script_lang,
@@ -530,9 +519,9 @@ fn format_pull_query_batch(peek: String) -> String {
             j.script_entrypoint_override, j.preprocessed, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
-        FROM q JOIN j ON j.id = q.id
-            LEFT JOIN v2_job_status f ON f.id = j.id
-            LEFT JOIN job_perms p ON p.job_id = j.id
+        FROM q JOIN v2_job j ON j.id = q.id
+            LEFT JOIN v2_job_status f ON f.id = q.id
+            LEFT JOIN job_perms p ON p.job_id = q.id
             LEFT JOIN v2_job pj ON j.parent_job = pj.id
             ",
         peek
