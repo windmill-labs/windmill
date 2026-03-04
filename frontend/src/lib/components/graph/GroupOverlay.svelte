@@ -86,11 +86,12 @@
 		if (group.module_ids.length === 0) return null
 		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(group.module_ids, allNodes)
 		const padding = 16
+		const topPadding = 28
 		return {
 			x: minX - padding,
-			y: minY - padding,
+			y: minY - topPadding,
 			width: maxX - minX + 2 * padding,
-			height: maxY - minY + 2 * padding
+			height: maxY - minY + topPadding + padding
 		}
 	}
 
@@ -216,7 +217,7 @@
 								bind:this={summaryInputEl}
 								bind:value={summaryInput}
 								class="absolute !text-3xs !font-medium !h-4 !bg-transparent !outline-none {textColorClass}"
-								style="top: -18px; left: 70px; width: 160px; padding: 0 6px;"
+								style="top: 2px; left:-3px; width: 160px; padding: 2px 2px;"
 								onblur={() => saveSummary(group.id)}
 								onkeydown={(e) => handleSummaryKeydown(e, group.id)}
 								onclick={stopPropagation(preventDefault(() => {}))}
@@ -229,10 +230,10 @@
 							<!-- svelte-ignore a11y_click_events_have_key_events -->
 							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<span
-								class="absolute text-3xs font-medium bg-surface-secondary truncate max-w-[150px] text-opacity-60 {textColorClass} {editMode
+								class="absolute text-3xs font-medium truncate max-w-[150px] text-opacity-60 {textColorClass} {editMode
 									? 'cursor-text rounded px-0.5 -mx-0.5 hover:text-opacity-100'
 									: ''}"
-								style="top: -18px; left: 76px;"
+								style="top: 2px; left: 0px;"
 								onclick={editMode
 									? stopPropagation(
 											preventDefault(() => startEditingSummary(group.id, group.summary ?? ''))
