@@ -113,8 +113,9 @@ function findInnerIds(
 	visited.add(labelId)
 	visited.add(endId) // Don't traverse past end
 
-	while (queue.length > 0) {
-		const current = queue.shift()!
+	let qi = 0
+	while (qi < queue.length) {
+		const current = queue[qi++]
 		const kids = childrenMap.get(current) ?? []
 		for (const kid of kids) {
 			if (visited.has(kid)) continue
@@ -253,30 +254,25 @@ function layoutLevel(
 	// Step 1: detect compound groups at this level
 	const groups = detectGroups(nodeIdSet, allNodes, childrenMap)
 
-	// Build a set of all IDs that belong to groups (to exclude from top-level layout)
-	const groupOwnedIds = new Set<string>()
-	const groupByHeadId = new Map<string, CompoundGroup>()
+	// First pass: quick set of ALL group-owned inner IDs (just for filtering nested heads)
+	const allGroupOwnedIds = new Set<string>()
 	for (const group of groups) {
-		// Only process groups whose head is at this level (not nested)
 		if (!nodeIdSet.has(group.headId)) continue
-		groupByHeadId.set(group.headId, group)
-		groupOwnedIds.add(group.endId)
 		for (const branch of group.branches) {
-			groupOwnedIds.add(branch.labelId)
 			for (const innerId of branch.innerIds) {
-				groupOwnedIds.add(innerId)
+				allGroupOwnedIds.add(innerId)
 			}
 		}
 	}
 
-	// Filter to only top-level groups (head is at this level, not owned by another group)
+	// Filter to top-level groups (head not owned by another group)
 	const topLevelGroups = groups.filter(
-		(g) => nodeIdSet.has(g.headId) && !groupOwnedIds.has(g.headId)
+		(g) => nodeIdSet.has(g.headId) && !allGroupOwnedIds.has(g.headId)
 	)
 
-	// Rebuild groupOwnedIds for only top-level groups
-	groupOwnedIds.clear()
-	groupByHeadId.clear()
+	// Build final groupOwnedIds and groupByHeadId from top-level only
+	const groupOwnedIds = new Set<string>()
+	const groupByHeadId = new Map<string, CompoundGroup>()
 	for (const group of topLevelGroups) {
 		groupByHeadId.set(group.headId, group)
 		groupOwnedIds.add(group.endId)
@@ -300,6 +296,7 @@ function layoutLevel(
 		totalWidth: number
 		wrapperWidth: number
 		wrapperHeight: number
+		maxBranchHeight: number
 	}
 
 	const groupLayouts = new Map<string, GroupLayout>()
@@ -327,6 +324,7 @@ function layoutLevel(
 		let wrapperHeight: number
 		let branchWidths: number[] = []
 		let totalWidth = 0
+		let maxBranchHeight = 0
 		const rowHeight = constants.nodeHeight + constants.gapV
 
 		if (isBranch) {
@@ -339,7 +337,7 @@ function layoutLevel(
 				branchWidths.reduce((s, w) => s + w, 0) + gaps
 			wrapperWidth = Math.max(totalWidth, constants.nodeWidth)
 
-			const maxBranchHeight = Math.max(0, ...branchLayouts.map((bl) => bl.bbox.height))
+			maxBranchHeight = Math.max(0, ...branchLayouts.map((bl) => bl.bbox.height))
 			// head row + branch content + end row
 			wrapperHeight = rowHeight + maxBranchHeight + rowHeight
 		} else {
@@ -350,14 +348,14 @@ function layoutLevel(
 			// head row + start row + body + end row
 			wrapperHeight = rowHeight + bodyHeight + rowHeight
 		}
-
 		groupLayouts.set(group.headId, {
 			group,
 			branchLayouts,
 			branchWidths,
 			totalWidth,
 			wrapperWidth,
-			wrapperHeight
+			wrapperHeight,
+			maxBranchHeight
 		})
 		wrapperSizes.set(group.headId, { width: wrapperWidth, height: wrapperHeight })
 	}
@@ -374,14 +372,14 @@ function layoutLevel(
 		if (groupOwnedIds.has(nid)) continue
 
 		const originalNode = allNodes.get(nid)!
+		const seen = new Set<string>()
 		const newParents: string[] = []
 		for (const pid of originalNode.parentIds ?? []) {
 			if (!nodeIdSet.has(pid)) continue
-			if (endToHead.has(pid)) {
-				const headId = endToHead.get(pid)!
-				if (!newParents.includes(headId)) newParents.push(headId)
-			} else if (!groupOwnedIds.has(pid)) {
-				if (!newParents.includes(pid)) newParents.push(pid)
+			const resolved = endToHead.get(pid) ?? (groupOwnedIds.has(pid) ? undefined : pid)
+			if (resolved && !seen.has(resolved)) {
+				seen.add(resolved)
+				newParents.push(resolved)
 			}
 		}
 		flatNodes.push({ id: nid, parentIds: newParents })
@@ -429,7 +427,7 @@ function layoutLevel(
 			}
 
 			// Position end node below all branches
-			const maxBranchHeight = Math.max(0, ...gl.branchLayouts.map((bl) => bl.bbox.height))
+			const maxBranchHeight = gl.maxBranchHeight
 			positions.set(gl.group.endId, {
 				x: wrapperPos.x,
 				y: wrapperPos.y + rowHeight + maxBranchHeight + constants.gapV
@@ -459,10 +457,12 @@ function layoutLevel(
 	// Compute overall bbox (nodes + group wrapper extents)
 	let minX = Infinity
 	let maxX = -Infinity
+	let minY = Infinity
 	let maxY = 0
 	for (const pos of positions.values()) {
 		minX = Math.min(minX, pos.x - constants.nodeWidth / 2)
 		maxX = Math.max(maxX, pos.x + constants.nodeWidth / 2)
+		minY = Math.min(minY, pos.y)
 		maxY = Math.max(maxY, pos.y + constants.nodeHeight)
 	}
 	// Account for group wrapper extents in bbox (e.g. LOOP_INDENT makes wrappers wider than nodes)
@@ -477,8 +477,7 @@ function layoutLevel(
 	const contentMinX = minX === Infinity ? 0 : minX
 
 	const bboxWidth = maxX - minX
-	const bboxHeight =
-		maxY - (positions.size > 0 ? Math.min(...Array.from(positions.values()).map((p) => p.y)) : 0)
+	const bboxHeight = maxY - (positions.size > 0 ? minY : 0)
 
 	const finalBbox = {
 		width: Math.max(bboxWidth, constants.nodeWidth),
