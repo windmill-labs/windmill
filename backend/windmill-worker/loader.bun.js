@@ -57,16 +57,23 @@ const p = {
 
     build.onLoad({ filter: /.*\.url$/ }, async (args) => {
       const url = readFileSync(args.path, "utf8");
-      const req = await fetch(url, {
-        method: "GET",
-        headers: {
-          Authorization: "Bearer " + token,
-        },
-      });
-      if (!req.ok) {
+      let req;
+      try {
+        req = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: "Bearer " + token,
+          },
+        });
+      } catch (e) {
         throw new Error(
-          `Failed to find relative import at ${url}`,
-          req.statusText
+          `Fetch error for ${url}: ${e.message}`
+        );
+      }
+      if (!req.ok) {
+        const body = await req.text();
+        throw new Error(
+          `Failed to find relative import at ${url} (status ${req.status}): ${body}`
         );
       }
       const contents = await req.text();
@@ -95,6 +102,7 @@ const p = {
       const file = isRelative
         ? resolve("./" + file_path + "/../" + args.path + ".url")
         : resolve("./" + args.path + ".url");
+      console.error(`[loader] resolve: importer=${args.importer} path=${args.path} file_path=${file_path} url=${url}`);
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, url);
       return {
