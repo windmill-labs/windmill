@@ -203,24 +203,19 @@
 			} else if (newType === 'json') {
 				delete resourcePaths[key]
 				const currentValue = flowStore.val.value.flow_env[key]
-				const stringValue =
-					typeof currentValue === 'string'
-						? currentValue
-						: JSON.stringify(currentValue, null, 2)
-				try {
-					const parsed = JSON.parse(stringValue)
-					flowStore.val.value.flow_env[key] = parsed
-				} catch {
-					flowStore.val.value.flow_env[key] = stringValue
+				if (typeof currentValue === 'string') {
+					try {
+						flowStore.val.value.flow_env[key] = JSON.parse(currentValue)
+					} catch {
+						// keep as string if not valid JSON
+					}
 				}
 			} else {
 				delete resourcePaths[key]
 				const currentValue = flowStore.val.value.flow_env[key]
-				const stringValue =
-					typeof currentValue === 'string'
-						? currentValue
-						: JSON.stringify(currentValue, null, 2)
-				flowStore.val.value.flow_env[key] = stringValue
+				if (typeof currentValue !== 'string') {
+					flowStore.val.value.flow_env[key] = JSON.stringify(currentValue, null, 2)
+				}
 			}
 			flowStore.val = flowStore.val
 		}
