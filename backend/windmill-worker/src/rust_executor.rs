@@ -81,18 +81,6 @@ fn find_preinstalled_dir(env_var: &str, candidates: &[&str]) -> String {
 }
 
 lazy_static::lazy_static! {
-    static ref HOME_DIR: String = {
-        #[cfg(not(windows))]
-        { std::env::var("HOME").expect("Could not find the HOME environment variable") }
-        #[cfg(windows)]
-        {
-            std::env::var("HOME")
-                .ok()
-                .filter(|s| !s.is_empty())
-                .or_else(|| std::env::var("USERPROFILE").ok())
-                .unwrap_or_else(|| std::env::temp_dir().to_string_lossy().to_string())
-        }
-    };
     static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { CARGO_HOME_DEFAULT.clone() });
     static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| { RUSTUP_HOME_DEFAULT.clone() });
     static ref CARGO_PATH: String = find_cargo_path();
@@ -102,14 +90,14 @@ lazy_static::lazy_static! {
 
 #[cfg(windows)]
 lazy_static::lazy_static! {
-    static ref CARGO_HOME_DEFAULT: String = format!("{}\\.cargo", *HOME_DIR);
-    static ref RUSTUP_HOME_DEFAULT: String = format!("{}\\.rustup", *HOME_DIR);
+    static ref CARGO_HOME_DEFAULT: String = format!("{}\\.cargo", HOME_ENV.as_str());
+    static ref RUSTUP_HOME_DEFAULT: String = format!("{}\\.rustup", HOME_ENV.as_str());
 }
 
 #[cfg(not(windows))]
 lazy_static::lazy_static! {
-    static ref CARGO_HOME_DEFAULT: String = format!("{}/.cargo", *HOME_DIR);
-    static ref RUSTUP_HOME_DEFAULT: String = format!("{}/.rustup", *HOME_DIR);
+    static ref CARGO_HOME_DEFAULT: String = format!("{}/.cargo", HOME_ENV.as_str());
+    static ref RUSTUP_HOME_DEFAULT: String = format!("{}/.rustup", HOME_ENV.as_str());
 }
 
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
@@ -118,11 +106,11 @@ const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
 lazy_static::lazy_static! {
     static ref PREINSTALLED_CARGO: String = find_preinstalled_dir(
         "CARGO_PREINSTALL_DIR",
-        &["/usr/local/cargo", &format!("{}/.cargo", *HOME_DIR)],
+        &["/usr/local/cargo", &format!("{}/.cargo", HOME_ENV.as_str())],
     );
     static ref PREINSTALLED_RUSTUP: String = find_preinstalled_dir(
         "RUSTUP_PREINSTALL_DIR",
-        &["/usr/local/rustup", &format!("{}/.rustup", *HOME_DIR)],
+        &["/usr/local/rustup", &format!("{}/.rustup", HOME_ENV.as_str())],
     );
 }
 
