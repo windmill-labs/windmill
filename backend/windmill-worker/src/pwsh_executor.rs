@@ -452,7 +452,7 @@ $PSModulePathBackup = $env:PSModulePath
 $env:PSModulePath = \"C:\\Program Files\\PowerShell\\7\\Modules\"
 Get-Module -ListAvailable | Import-Module
 $env:PSModulePath = \"{};$PSModulePathBackup\"",
-        POWERSHELL_CACHE_DIR
+        *POWERSHELL_CACHE_DIR
     );
 
     // NOTE: powershell error handling / termination is quite tricky compared to bash
