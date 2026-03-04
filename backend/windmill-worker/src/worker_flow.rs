@@ -2244,11 +2244,13 @@ pub async fn handle_flow(
     flow_runners: Option<Arc<FlowRunners>>,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
-    let flow_from_cache = flow_data.value();
+    let flow = flow_data.value();
 
-    // Resolve $var: and $res: references in flow_env
-    let resolved_flow;
-    let flow = if let Some(ref env) = flow_from_cache.flow_env {
+    // Resolve $var: and $res: references in flow_env.
+    // We resolve into a separate variable to avoid cloning the entire FlowValue
+    // (which includes modules, failure_module, etc.) just to replace flow_env.
+    let resolved_env;
+    let flow_env = if let Some(ref env) = flow.flow_env {
         match transform_json(
             client,
             &flow_job.workspace_id,
@@ -2258,24 +2260,18 @@ pub async fn handle_flow(
         )
         .await
         {
-            Ok(Some(resolved_env)) => {
-                resolved_flow = {
-                    // TODO: avoid cloning the entire FlowValue just to replace flow_env.
-                    // Consider a wrapper struct that overrides flow_env without cloning modules.
-                    let mut f = flow_from_cache.clone();
-                    f.flow_env = Some(resolved_env);
-                    f
-                };
-                &resolved_flow
+            Ok(Some(resolved)) => {
+                resolved_env = resolved;
+                Some(&resolved_env)
             }
-            Ok(None) => flow_from_cache,
+            Ok(None) => flow.flow_env.as_ref(),
             Err(e) => {
                 tracing::warn!("Failed to resolve flow_env references: {e}");
-                flow_from_cache
+                flow.flow_env.as_ref()
             }
         }
     } else {
-        flow_from_cache
+        None
     };
 
     let status = flow_job
@@ -2381,6 +2377,7 @@ pub async fn handle_flow(
             flow_job,
             status,
             flow,
+            flow_env,
             db,
             client,
             last_result.clone(),
@@ -2481,6 +2478,7 @@ async fn push_next_flow_job(
     flow_job: Arc<MiniPulledJob>,
     mut status: FlowStatus,
     flow: &FlowValue,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_job_result: Option<Arc<Box<RawValue>>>,
@@ -2613,7 +2611,7 @@ async fn push_next_flow_job(
             let skip = compute_bool_from_expr(
                 &skip_expr,
                 arc_flow_job_args.clone(),
-                flow.flow_env.as_ref(),
+                flow_env,
                 Arc::new(to_raw_value(&json!("{}"))),
                 None,
                 None,
@@ -2738,7 +2736,7 @@ async fn push_next_flow_job(
                                      expr.to_string(),
                                      context,
                                      Some(arc_flow_job_args.clone()),
-                                     flow.flow_env.as_ref(),
+                                     flow_env,
                                      None,
                                      None,
                                      None
@@ -2999,7 +2997,7 @@ async fn push_next_flow_job(
                     &input_transform,
                     arc_last_job_result.clone(),
                     Some(arc_flow_job_args.clone()),
-                    flow.flow_env.as_ref(),
+                    flow_env,
                     Some(client),
                     None,
                 )
@@ -3037,7 +3035,7 @@ async fn push_next_flow_job(
             &status.retry,
             arc_last_job_result.clone(),
             arc_flow_job_args.clone(),
-            flow.flow_env.as_ref(),
+            flow_env,
             Some(client),
         )
         .await?
@@ -3125,7 +3123,7 @@ async fn push_next_flow_job(
         compute_bool_from_expr(
             &skip_if.expr,
             arc_flow_job_args.clone(),
-            flow.flow_env.as_ref(),
+            flow_env,
             arc_last_job_result.clone(),
             None,
             Some(&idcontext),
@@ -3215,7 +3213,7 @@ async fn push_next_flow_job(
                 };
                 transform_input(
                     arc_flow_job_args.clone(),
-                    flow.flow_env.as_ref(),
+                    flow_env,
                     arc_last_job_result.clone(),
                     input_transforms,
                     resumes.clone(),
@@ -3242,7 +3240,7 @@ async fn push_next_flow_job(
     let next_flow_transform = compute_next_flow_transform(
         arc_flow_job_args.clone(),
         arc_last_job_result.clone(),
-        flow.flow_env.as_ref(),
+        flow_env,
         &flow_job,
         &flow,
         transform_context,
@@ -3406,7 +3404,7 @@ async fn push_next_flow_job(
                     let ctx = get_transform_context(&flow_job, "", &status);
                     let ti = transform_input(
                         Marc::new(args),
-                        flow.flow_env.as_ref(),
+                        flow_env,
                         arc_last_job_result.clone(),
                         input_transforms,
                         resumes.clone(),
@@ -3461,7 +3459,7 @@ async fn push_next_flow_job(
                         let ctx = get_transform_context(&flow_job, &previous_id, &status);
                         let ti = transform_input(
                             Marc::new(hm),
-                            flow.flow_env.as_ref(),
+                            flow_env,
                             arc_last_job_result.clone(),
                             input_transforms,
                             resumes.clone(),
@@ -3579,7 +3577,7 @@ async fn push_next_flow_job(
                 timeout_transform,
                 arc_last_job_result.clone(),
                 Some(arc_flow_job_args.clone()),
-                flow.flow_env.as_ref(),
+                flow_env,
                 Some(client),
                 Some(&ctx),
             )
@@ -3658,7 +3656,7 @@ async fn push_next_flow_job(
                     parallelism_transform,
                     arc_last_job_result.clone(),
                     Some(arc_flow_job_args.clone()),
-                    flow.flow_env.as_ref(),
+                    flow_env,
                     Some(client),
                     Some(&ctx),
                 )
@@ -4494,7 +4492,7 @@ async fn compute_next_flow_transform(
                         let pred = compute_bool_from_expr(
                             &b.expr,
                             arc_flow_job_args.clone(),
-                            flow.flow_env.as_ref(),
+                            flow_env,
                             arc_last_job_result.clone(),
                             None,
                             Some(&idcontext),
