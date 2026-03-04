@@ -5,7 +5,7 @@
 	import { writable } from 'svelte/store'
 	import type { FlowEditorContext } from '../types'
 	import { Button } from '$lib/components/common'
-	import { Plus, Trash2 } from 'lucide-svelte'
+	import { DollarSign, Plus, Trash2 } from 'lucide-svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -233,13 +233,6 @@
 		}
 	}
 
-	function getVarPath(value: any): string {
-		if (typeof value === 'string' && value.startsWith('$var:')) {
-			return value.substring('$var:'.length)
-		}
-		return ''
-	}
-
 	function setVarPath(key: string, path: string) {
 		if (flowStore.val.value.flow_env) {
 			flowStore.val.value.flow_env[key] = '$var:' + path
@@ -324,27 +317,36 @@
 								<!-- svelte-ignore a11y_label_has_associated_control -->
 								<label class="text-sm font-medium">Value</label>
 								{#if entry.type === 'variable'}
-									<div class="flex items-center gap-2">
+									<div class="relative group w-full">
 										<input
 											type="text"
-											value={getVarPath(entry.value)}
-											disabled
+											value={entry.displayValue}
+											oninput={(e) =>
+												updateEnvValue(entry.key, e.currentTarget.value, 'string')}
+											disabled={noEditor}
 											class="input w-full"
-											placeholder="Select a variable..."
+											placeholder="$var:path/to/variable"
 										/>
 										{#if !noEditor}
 											<Button
-												size="sm"
-												color="light"
+												iconOnly
+												startIcon={{ icon: DollarSign }}
+												unifiedSize="sm"
 												onClick={() => {
 													pickForKey = entry.key
 													variablePicker?.openDrawer?.()
 												}}
-											>
-												Pick
-											</Button>
+												wrapperClasses="opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-1/2 -translate-y-1/2 bg-surface-input"
+												variant="subtle"
+												title="Insert a Variable"
+											/>
 										{/if}
 									</div>
+									{#if typeof entry.value === 'string' && entry.value.startsWith('$var:') && entry.value.length > 5}
+										<div class="text-2xs text-tertiary">
+											Linked to variable <span class="font-medium">{entry.value.slice(5)}</span>
+										</div>
+									{/if}
 								{:else if entry.type === 'resource'}
 									<ResourcePicker
 										bind:value={resourcePaths[entry.key]}
@@ -362,14 +364,36 @@
 										/>
 									</div>
 								{:else}
-									<input
-										type="text"
-										value={entry.displayValue}
-										oninput={(e) => updateEnvValue(entry.key, e.currentTarget.value, 'string')}
-										disabled={noEditor}
-										class="input w-full"
-										placeholder="Variable value"
-									/>
+									<div class="relative group w-full">
+										<input
+											type="text"
+											value={entry.displayValue}
+											oninput={(e) =>
+												updateEnvValue(entry.key, e.currentTarget.value, 'string')}
+											disabled={noEditor}
+											class="input w-full"
+											placeholder="Variable value"
+										/>
+										{#if !noEditor}
+											<Button
+												iconOnly
+												startIcon={{ icon: DollarSign }}
+												unifiedSize="sm"
+												onClick={() => {
+													pickForKey = entry.key
+													variablePicker?.openDrawer?.()
+												}}
+												wrapperClasses="opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-1/2 -translate-y-1/2 bg-surface-input"
+												variant="subtle"
+												title="Insert a Variable"
+											/>
+										{/if}
+									</div>
+									{#if typeof entry.value === 'string' && entry.value.startsWith('$var:') && entry.value.length > 5}
+										<div class="text-2xs text-tertiary">
+											Linked to variable <span class="font-medium">{entry.value.slice(5)}</span>
+										</div>
+									{/if}
 								{/if}
 							</div>
 						</div>
