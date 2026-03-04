@@ -48,7 +48,7 @@
 	)
 </script>
 
-<NodeWrapper offset={data.offset} {contextMenuItems}>
+<NodeWrapper {contextMenuItems}>
 	{#snippet children({ darkMode })}
 		<MapItem
 			moduleId={data.id}

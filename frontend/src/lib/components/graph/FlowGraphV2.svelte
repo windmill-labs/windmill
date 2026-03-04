@@ -35,7 +35,6 @@
 	import ResultNode from './renderers/nodes/ResultNode.svelte'
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
-	// d3-dag imports now used inside compoundLayout.ts
 	import { Expand, MousePointer, Hand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
@@ -318,7 +317,6 @@
 	type NodeDep = {
 		id: string
 		parentIds?: string[]
-		offset?: number
 		data?: { assets?: AssetWithAltAccessType[] }
 	}
 	type NodePos = { position: { x: number; y: number } }
@@ -340,13 +338,8 @@
 			seenId.push(n.id)
 		}
 
-		// Build edges from parentIds
-		const edges = nodes.flatMap((n) =>
-			(n.parentIds ?? []).map((pid) => ({ source: pid, target: n.id }))
-		)
-
 		// Run recursive compound layout
-		const { positions, bbox } = compoundLayout(nodes, edges, {
+		const { positions, bbox } = compoundLayout(nodes, {
 			nodeWidth: NODE.width,
 			nodeHeight: NODE.height,
 			gapH: NODE.gap.horizontal,
@@ -550,7 +543,6 @@
 			Object.values(graph.nodes).map((n) => ({
 				id: n.id,
 				parentIds: n.parentIds,
-				offset: n.data.offset ?? 0,
 				data: { assets: (n.data as any).assets }
 			}))
 		)
@@ -559,7 +551,7 @@
 		let assetNodesResult = $showAssets
 			? computeAssetNodes(
 					newNodes.map((n) => ({
-						data: { assets: n.data?.assets as AssetWithAltAccessType[], offset: n.data?.offset as number },
+						data: { assets: n.data?.assets as AssetWithAltAccessType[] },
 						id: n.id,
 						position: n.position
 					}))
@@ -590,7 +582,6 @@
 						id: n.id,
 						position: n.position,
 						parentIds: n.parentIds,
-						offset: n.data?.offset ?? 0,
 						data: { assets: (n.data as any)?.assets },
 						type: n.type
 					})),

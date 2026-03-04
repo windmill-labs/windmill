@@ -175,7 +175,7 @@
 									? inputToolWidth + inputToolXGap
 									: isLastRow && tools.length % 2 === 1
 										? (ROW_WIDTH - inputToolWidth) / 2
-										: 0) + node.data.offset,
+										: 0),
 						y:
 							baseOffset +
 							rowOffset *
@@ -207,7 +207,7 @@
 					parentId: node.id,
 					width: NEW_TOOL_NODE_WIDTH,
 					position: {
-						x: (ROW_WIDTH - NEW_TOOL_NODE_WIDTH) / 2 + node.data.offset,
+						x: (ROW_WIDTH - NEW_TOOL_NODE_WIDTH) / 2,
 						y: baseOffset + rowOffset
 					},
 					selectable: false

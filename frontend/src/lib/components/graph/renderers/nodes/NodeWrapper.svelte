@@ -8,7 +8,6 @@
 	interface Props {
 		enableSourceHandle?: boolean
 		enableTargetHandle?: boolean
-		offset?: number
 		wrapperClass?: string
 		contextMenuItems?: ContextMenuItem[]
 		/** xyflow node ID — used to fade nodes that are part of a moving subflow */
@@ -19,7 +18,6 @@
 	let {
 		enableSourceHandle = true,
 		enableTargetHandle = true,
-		offset: _offset = 0,
 		wrapperClass = '',
 		contextMenuItems = undefined,
 		nodeId = undefined,

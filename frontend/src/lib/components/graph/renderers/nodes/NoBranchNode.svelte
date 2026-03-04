@@ -10,7 +10,7 @@
 	let { data, id }: Props = $props()
 </script>
 
-<NodeWrapper offset={data.offset} enableSourceHandle enableTargetHandle nodeId={id}>
+<NodeWrapper enableSourceHandle enableTargetHandle nodeId={id}>
 	{#snippet children({ darkMode })}
 		<VirtualItem
 			label={data.label ?? 'No branches'}

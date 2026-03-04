@@ -215,7 +215,7 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 }
 
 /**
- * Calculate the bounding box for a collection of nodes, accounting for CSS offset
+ * Calculate the bounding box for a collection of nodes.
  * Also includes expanded subflow nodes when calculating bounds for subflow containers
  * @param containedIds - Array of node IDs to calculate bounds for
  * @param allNodes - Array of all nodes to search for expanded subflow nodes
@@ -226,7 +226,6 @@ export function calculateNodesBoundsWithOffset(
 	allNodes: Array<{
 		id: string
 		position: { x: number; y: number }
-		data?: { offset?: number }
 		type: string
 	}>
 ): {
@@ -267,13 +266,11 @@ function getAllRelatedSubflowNodes(
 	allNodes: Array<{
 		id: string
 		position: { x: number; y: number }
-		data?: { offset?: number }
 		type: string
 	}>
 ): Array<{
 	id: string
 	position: { x: number; y: number }
-	data?: { offset?: number }
 }> {
 	const relatedNodeIds = new Set<string>()
 
