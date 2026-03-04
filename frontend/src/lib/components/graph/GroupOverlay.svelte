@@ -110,7 +110,9 @@
 	}
 
 	function getBgColorClass(color?: string): string {
-		return GROUP_BG_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ?? GROUP_BG_COLORS[NoteColor.BLUE]
+		return (
+			GROUP_BG_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ?? GROUP_BG_COLORS[NoteColor.BLUE]
+		)
 	}
 
 	function toggleCollapse(groupId: string) {
@@ -166,7 +168,7 @@
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					class="absolute"
-					style="pointer-events: auto; transform: translate({bounds.x + 16}px, {bounds.y - 24}px);"
+					style="pointer-events: auto; transform: translate({bounds.x + 16}px, {bounds.y}px);"
 					style:z-index="4"
 					onpointerenter={() => {
 						actionBarHovered = true
@@ -196,7 +198,8 @@
 								onAddNote={() => groupEditorContext?.groupEditor.addNote(group.id)}
 								onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(group.id)}
 								onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(group.id, c)}
-								onUpdateCollapsedDefault={(v) => groupEditorContext?.groupEditor.updateCollapsedDefault(group.id, v)}
+								onUpdateCollapsedDefault={(v) =>
+									groupEditorContext?.groupEditor.updateCollapsedDefault(group.id, v)}
 								onDeleteGroup={() => {
 									groupEditorContext?.groupEditor.deleteGroup(group.id)
 									visibleGroup = undefined
