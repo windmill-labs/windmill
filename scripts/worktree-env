@@ -58,18 +58,21 @@ db_name="windmill_${wt_basename//-/_}"
 db_conn="postgres://postgres:changeme@127.0.0.1:5432"
 
 if command -v psql &>/dev/null; then
+  echo "$(date '+%Y-%m-%d %H:%M:%S') psql found" >> /tmp/hooks.log
   if psql "$db_conn/postgres" -tc "SELECT 1 FROM pg_database WHERE datname = '${db_name}'" 2>/dev/null | grep -q 1; then
-    echo "Database $db_name already exists"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') Database $db_name already exists" >> /tmp/hooks.log
   else
     if [[ -n "${WM_CLONE_DB:-}" ]]; then
+      echo "$(date '+%Y-%m-%d %H:%M:%S') Cloning database $db_name from template windmill" >> /tmp/hooks.log
       # Terminate active connections so CREATE DATABASE ... TEMPLATE works
       psql "$db_conn/postgres" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'windmill' AND pid <> pg_backend_pid();" 2>/dev/null || true
       psql "$db_conn/postgres" -c "CREATE DATABASE ${db_name} TEMPLATE windmill" 2>/dev/null \
-        && echo "Created database $db_name (template: windmill)" \
+        && echo "$(date '+%Y-%m-%d %H:%M:%S') Created database $db_name (template: windmill)" >> /tmp/hooks.log \
         || echo "WARNING: Could not create database $db_name from template windmill" >&2
     else
+      echo "$(date '+%Y-%m-%d %H:%M:%S') Creating database $db_name" >> /tmp/hooks.log
       psql "$db_conn/postgres" -c "CREATE DATABASE ${db_name}" 2>/dev/null \
-        && echo "Created database $db_name" \
+        && echo "$(date '+%Y-%m-%d %H:%M:%S') Created database $db_name" >> /tmp/hooks.log \
         || echo "WARNING: Could not create database $db_name (is PostgreSQL running?)" >&2
     fi
   fi
@@ -93,6 +96,7 @@ EOF
   echo "Added DATABASE_URL for database $db_name to .env.local"
 else
   echo "WARNING: psql not found, skipping per-worktree database creation" >&2
+  echo "$(date '+%Y-%m-%d %H:%M:%S') psql not found" >> /tmp/hooks.log
 fi
 
 # --- Copy frontend/node_modules preserving symlinks ---
@@ -178,13 +182,20 @@ if [ -n "$ee_repo" ]; then
   if [ -d "$ee_worktree_dir" ]; then
     ee_rel=$(python3 -c "import os; print(os.path.relpath('$ee_worktree_dir', '$(pwd)'))" 2>/dev/null || echo "$ee_worktree_dir")
     mkdir -p .claude
+    rust_plugin=""
+    if [[ -n "${USE_RUST_PLUGIN:-}" ]]; then
+      rust_plugin=',
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": true
+  }'
+    fi
     cat > .claude/settings.local.json <<EOFCLAUDE
 {
   "permissions": {
     "additionalDirectories": [
       "$ee_rel"
     ]
-  }
+  }${rust_plugin}
 }
 EOFCLAUDE
     echo "Created .claude/settings.local.json with EE path: $ee_rel"
