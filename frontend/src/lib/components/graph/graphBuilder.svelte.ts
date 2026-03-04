@@ -650,7 +650,7 @@ export function graphBuilder(
 							const startNode: NodeLayout = {
 								id: `${module.id}-branch-0`,
 								data: {
-										id: module.id,
+									id: module.id,
 									branchIndex: -1,
 									eventHandlers: eventHandlers,
 									flowModuleState: extra.flowModuleStates?.[module.id],
@@ -675,7 +675,7 @@ export function graphBuilder(
 								const startNode: NodeLayout = {
 									id: `${module.id}-branch-${branchIndex}`,
 									data: {
-												label: defaultIfEmptyString(branch.summary, `Branch ${branchIndex + 1}`),
+										label: defaultIfEmptyString(branch.summary, `Branch ${branchIndex + 1}`),
 										id: module.id,
 										branchIndex: branchIndex,
 										eventHandlers: eventHandlers,
@@ -878,7 +878,7 @@ export function graphBuilder(
 							const startNode: NodeLayout = {
 								id: `${module.id}-branch-${branchIndex}`,
 								data: {
-										label: defaultIfEmptyString(branch.summary, 'Branch ' + (branchIndex + 1)),
+									label: defaultIfEmptyString(branch.summary, 'Branch ' + (branchIndex + 1)),
 									preLabel: branch.summary ? '' : branch.expr,
 									id: module.id,
 									branchIndex: branchIndex,
@@ -921,7 +921,7 @@ export function graphBuilder(
 							const startNode: NodeLayout = {
 								id: startId,
 								data: {
-										label: `Start of subflow ${idWithoutPrefix}`,
+									label: `Start of subflow ${idWithoutPrefix}`,
 									id: startId,
 									subflowId: module.id,
 									eventHandlers: eventHandlers,
@@ -949,7 +949,7 @@ export function graphBuilder(
 							const endNode: NodeLayout = {
 								id: endId,
 								data: {
-										label: `End of subflow ${idWithoutPrefix}`,
+									label: `End of subflow ${idWithoutPrefix}`,
 									id: endId,
 									subflowId: module.id,
 									eventHandlers: eventHandlers,

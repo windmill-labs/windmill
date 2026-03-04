@@ -166,7 +166,8 @@ function runSugiyama(
 				return [w + constants.gapH, h + constants.gapV] as readonly [number, number]
 			})
 		boxSize = layout(dag as any) as any
-	} catch {
+	} catch (e) {
+		console.debug('[compoundLayout] decrossOpt failed, falling back to decrossTwoLayer:', e)
 		const layout = sugiyama()
 			.decross(decrossTwoLayer())
 			.coord(coordCenter())
@@ -229,11 +230,14 @@ function runSugiyama(
  * 5. Run sugiyama on the simplified graph
  * 6. Expand wrapper positions back to absolute positions
  */
+const MAX_RECURSION_DEPTH = 50
+
 function layoutLevel(
 	nodeIds: string[],
 	allNodes: Map<string, LayoutNode>,
 	constants: LayoutConstants,
-	childrenMap: Map<string, string[]>
+	childrenMap: Map<string, string[]>,
+	depth: number = 0
 ): LayoutResult {
 	const positions = new Map<string, { x: number; y: number }>()
 	const nodeIdSet = new Set(nodeIds)
@@ -244,6 +248,19 @@ function layoutLevel(
 			bbox: { width: constants.nodeWidth, height: 0 },
 			contentMinX: 0
 		}
+	}
+
+	if (depth >= MAX_RECURSION_DEPTH) {
+		console.warn('[compoundLayout] Max recursion depth reached, falling back to flat layout')
+		const flatNodes = nodeIds.map((id) => {
+			const n = allNodes.get(id)!
+			return { id, parentIds: (n.parentIds ?? []).filter((pid) => nodeIdSet.has(pid)) }
+		})
+		const result = runSugiyama(flatNodes, constants)
+		for (const [id, pos] of result.positions) {
+			positions.set(id, pos)
+		}
+		return { positions, bbox: { width: result.width, height: result.height }, contentMinX: 0 }
 	}
 
 	// Step 1: detect compound groups at this level
@@ -305,7 +322,7 @@ function layoutLevel(
 			const branchNodeIds = [branch.labelId, ...branch.innerIds]
 
 			// Find sub-groups within this branch
-			const result = layoutLevel(branchNodeIds, allNodes, constants, childrenMap)
+			const result = layoutLevel(branchNodeIds, allNodes, constants, childrenMap, depth + 1)
 
 			branchLayouts.push({
 				labelId: branch.labelId,
@@ -453,7 +470,7 @@ function layoutLevel(
 	let minX = Infinity
 	let maxX = -Infinity
 	let minY = Infinity
-	let maxY = 0
+	let maxY = -Infinity
 	for (const pos of positions.values()) {
 		minX = Math.min(minX, pos.x - constants.nodeWidth / 2)
 		maxX = Math.max(maxX, pos.x + constants.nodeWidth / 2)
