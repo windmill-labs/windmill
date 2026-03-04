@@ -1727,6 +1727,20 @@ def write_s3_file(
 
 
 @init_global_client
+def remove_s3_file(
+    s3object: S3Object | str,
+    s3_resource_path: str | None = None,
+) -> None:
+    """
+    Permanently delete a file from the workspace S3 bucket.
+    """
+    return _client.remove_s3_file(
+        s3object,
+        s3_resource_path if s3_resource_path != "" else None,
+    )
+
+
+@init_global_client
 def sign_s3_objects(s3_objects: list[S3Object | str]) -> list[S3Object]:
     """
     Sign S3 objects to be used by anonymous users in public apps
