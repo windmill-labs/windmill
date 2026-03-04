@@ -54,30 +54,9 @@ fn find_cargo_path() -> String {
     if std::path::Path::new(&from_home).exists() {
         return from_home;
     }
-    #[cfg(windows)]
-    {
-        let from_home_win = format!("{}\\bin\\cargo.exe", CARGO_HOME.as_str());
-        if std::path::Path::new(&from_home_win).exists() {
-            return from_home_win;
-        }
-    }
     for p in ["/usr/local/cargo/bin/cargo", "/usr/bin/cargo"] {
         if std::path::Path::new(p).exists() {
             return p.to_string();
-        }
-    }
-    #[cfg(windows)]
-    {
-        // On Windows, fall back to finding cargo in PATH
-        if let Ok(output) = std::process::Command::new("where").arg("cargo").output() {
-            if output.status.success() {
-                if let Ok(path) = String::from_utf8(output.stdout) {
-                    let path = path.lines().next().unwrap_or("").trim();
-                    if !path.is_empty() {
-                        return path.to_string();
-                    }
-                }
-            }
         }
     }
     from_home

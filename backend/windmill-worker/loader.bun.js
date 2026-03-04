@@ -56,6 +56,18 @@ const p = {
       }, []).join("/");
     }
 
+    // Resolve a windmill script import path relative to an importer path.
+    // Bun on Windows may prefix args with "windmill-url:" or strip leading "/".
+    function resolveWindmillImport(importerPath, importPath) {
+      const path = importPath.replace(/^windmill-url:/, "").replace(/^\//, "");
+      const isAbsolute = path.startsWith("f/") || path.startsWith("u/");
+      const endExt = path.endsWith(".ts") ? "" : ".ts";
+      const rawScriptPath = isAbsolute
+        ? `${path}${endExt}`
+        : `${importerPath}/../${path}${endExt}`;
+      return { path: normalizePath(rawScriptPath), namespace: "windmill-url" };
+    }
+
     build.onLoad({ filter: filterLoad }, async (args) => {
       const code = readFileSync(args.path, "utf8");
       return replaceRelativeImports(code);
@@ -63,8 +75,8 @@ const p = {
 
     // Load windmill scripts by fetching from the API
     build.onLoad({ filter: /.*/, namespace: "windmill-url" }, async (args) => {
-      const cleanPath = args.path.replace(/^windmill-url:/, "");
-      const url = `${base_internal_url}/api/w/${w_id}/scripts/RAW_GET_ENDPOINT/p/${cleanPath}`;
+      const path = args.path.replace(/^windmill-url:/, "");
+      const url = `${base_internal_url}/api/w/${w_id}/scripts/RAW_GET_ENDPOINT/p/${path}`;
       const req = await fetch(url, {
         method: "GET",
         headers: {
@@ -89,43 +101,18 @@ const p = {
       if (importerFwd.startsWith(cdirNodeModules)) {
         return undefined;
       }
-      // Check if importer is main.ts (handles both ./main.ts and full resolved paths)
       const isMainTs =
-        args.importer == "./main.ts" ||
-        importerFwd == cdirFwd + "/main.ts" ||
-        importerFwd.endsWith("/main.ts");
+        args.importer == "./main.ts" || importerFwd.endsWith("/main.ts");
       const file_path = isMainTs
         ? current_path
         : importerFwd.replace(cdirFwd + "/", "");
-
-      const isRelative = !args.path.startsWith("/");
-
-      let endExt = args.path.endsWith(".ts") ? "" : ".ts";
-      const rawScriptPath = isRelative
-        ? `${file_path}/../${args.path}${endExt}`
-        : `${args.path}${endExt}`;
-      return {
-        path: normalizePath(rawScriptPath),
-        namespace: "windmill-url",
-      };
+      return resolveWindmillImport(file_path, args.path);
     });
 
     // Resolve nested imports from within windmill-url modules
     build.onResolve({ filter: /\.ts$/, namespace: "windmill-url" }, (args) => {
-      // Strip namespace prefix if present (Bun may prefix with "namespace:")
       const importer = args.importer.replace(/^windmill-url:/, "");
-      const path = args.path.replace(/^windmill-url:/, "");
-      // Absolute windmill paths start with /f/ or /u/, but Bun may strip the leading /
-      const isRelative = !path.startsWith("/") && !path.startsWith("f/") && !path.startsWith("u/");
-      const cleanPath = path.replace(/^\//, "");
-      let endExt = cleanPath.endsWith(".ts") ? "" : ".ts";
-      const rawScriptPath = isRelative
-        ? `${importer}/../${cleanPath}${endExt}`
-        : `${cleanPath}${endExt}`;
-      return {
-        path: normalizePath(rawScriptPath),
-        namespace: "windmill-url",
-      };
+      return resolveWindmillImport(importer, args.path);
     });
   },
 };
