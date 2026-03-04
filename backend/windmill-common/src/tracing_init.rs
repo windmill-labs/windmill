@@ -6,8 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use const_format::concatcp;
-
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
@@ -61,7 +59,9 @@ fn create_targets_filter(default_env_filter: LevelFilter) -> Targets {
 
 pub const LOGS_SERVICE: &str = "logs/services/";
 
-pub const TMP_WINDMILL_LOGS_SERVICE: &str = concatcp!("/tmp/windmill/", LOGS_SERVICE);
+lazy_static::lazy_static! {
+    pub static ref TMP_WINDMILL_LOGS_SERVICE: String = format!("{}/{}", *crate::worker::WINDMILL_DIR, LOGS_SERVICE);
+}
 
 pub fn initialize_tracing(
     hostname: &str,
@@ -108,7 +108,7 @@ pub fn initialize_tracing(
 
     use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
-    let log_dir = format!("{}/{}/", TMP_WINDMILL_LOGS_SERVICE, hostname);
+    let log_dir = format!("{}/{}/", *TMP_WINDMILL_LOGS_SERVICE, hostname);
     std::fs::create_dir_all(&log_dir).unwrap();
     let file_appender = RollingFileAppender::builder()
         .rotation(Rotation::MINUTELY)
