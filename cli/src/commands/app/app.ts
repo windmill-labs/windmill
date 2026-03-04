@@ -18,7 +18,7 @@ import newCommand from "./new.ts";
 import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
-import { resolvePermissionedAsEmail } from "../../core/permissioned_as.ts";
+import { resolvePermissionedAsEmail, lookupUsernameByEmail } from "../../core/permissioned_as.ts";
 
 export interface AppFile {
   value: any;
@@ -124,6 +124,15 @@ export async function pushApp(
   } catch {
     //ignore
   }
+  // Save remote policy ownership fields before clearing (needed for preserve)
+  let remoteOnBehalfOf: string | undefined;
+  let remoteOnBehalfOfEmail: string | undefined;
+  if (app?.policy) {
+    remoteOnBehalfOf = app.policy.on_behalf_of;
+    remoteOnBehalfOfEmail = app.policy.on_behalf_of_email;
+    log.debug(`Remote app ${remotePath} policy: on_behalf_of=${remoteOnBehalfOf}, on_behalf_of_email=${remoteOnBehalfOfEmail}`);
+  }
+
   if (isExecutionModeAnonymous(app)) {
     app.public = true;
   }
@@ -150,8 +159,13 @@ export async function pushApp(
   const preserveFields: { preserve_on_behalf_of?: boolean } = {};
   if (permissionedAsContext?.userIsAdminOrDeployer) {
     if (app) {
-      // Updating: preserve the remote's on_behalf_of
-      preserveFields.preserve_on_behalf_of = true;
+      // Updating: inject remote's on_behalf_of into the freshly generated policy
+      // The backend requires policy.on_behalf_of to be set for preserve to work
+      if (localApp.policy && remoteOnBehalfOf) {
+        (localApp.policy as any).on_behalf_of = remoteOnBehalfOf;
+        (localApp.policy as any).on_behalf_of_email = remoteOnBehalfOfEmail;
+        preserveFields.preserve_on_behalf_of = true;
+      }
     } else {
       // Creating: apply defaultPermissionedAs rule if one matches
       const ruleEmail = resolvePermissionedAsEmail(
@@ -159,8 +173,15 @@ export async function pushApp(
         permissionedAsContext.rules
       );
       if (ruleEmail) {
-        // Set the policy on_behalf_of_email for the new app
+        // Set both on_behalf_of and on_behalf_of_email on the policy
+        // The backend requires on_behalf_of to be set for preserve to work
         if (localApp.policy) {
+          const username = await lookupUsernameByEmail(
+            workspace,
+            ruleEmail,
+            permissionedAsContext.emailToUsernameCache
+          );
+          (localApp.policy as any).on_behalf_of = `u/${username}`;
           (localApp.policy as any).on_behalf_of_email = ruleEmail;
         }
         preserveFields.preserve_on_behalf_of = true;
@@ -174,26 +195,30 @@ export async function pushApp(
       return;
     }
     log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
+    const requestBody = {
+      deployment_message: message,
+      ...localApp,
+      ...preserveFields,
+    };
+    log.debug(`App ${remotePath} update request: preserve_on_behalf_of=${requestBody.preserve_on_behalf_of}, policy.on_behalf_of=${(requestBody as any).policy?.on_behalf_of}, policy.on_behalf_of_email=${(requestBody as any).policy?.on_behalf_of_email}`);
     await wmill.updateApp({
       workspace,
       path: remotePath,
-      requestBody: {
-        deployment_message: message,
-        ...localApp,
-        ...preserveFields,
-      },
+      requestBody,
     });
   } else {
     log.info(colors.yellow.bold("Creating new app..."));
 
+    const requestBody = {
+      path: remotePath,
+      deployment_message: message,
+      ...localApp,
+      ...preserveFields,
+    };
+    log.debug(`App ${remotePath} create request: preserve_on_behalf_of=${requestBody.preserve_on_behalf_of}, policy.on_behalf_of=${(requestBody as any).policy?.on_behalf_of}, policy.on_behalf_of_email=${(requestBody as any).policy?.on_behalf_of_email}`);
     await wmill.createApp({
       workspace,
-      requestBody: {
-        path: remotePath,
-        deployment_message: message,
-        ...localApp,
-        ...preserveFields,
-      },
+      requestBody,
     });
   }
 }
@@ -281,11 +306,16 @@ async function setPermissionedAs(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
+  // Look up username for the email — backend requires on_behalf_of (u/<username>) to be set
+  const cache = new Map<string, string>();
+  const username = await lookupUsernameByEmail(workspace.workspaceId, email, cache);
+
   await wmill.updateApp({
     workspace: workspace.workspaceId,
     path: appPath,
     requestBody: {
       policy: {
+        on_behalf_of: `u/${username}`,
         on_behalf_of_email: email,
       } as any,
       preserve_on_behalf_of: true,

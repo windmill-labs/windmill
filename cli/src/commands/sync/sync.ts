@@ -2575,10 +2575,12 @@ export async function push(
     const user = await wmill.whoami({ workspace: workspace.workspaceId });
     const userIsAdminOrDeployer =
       user.is_admin || (user.groups ?? []).includes("wm_deployers");
+    log.debug(`permissioned_as: user=${user.email}, is_admin=${user.is_admin}, groups=${JSON.stringify(user.groups)}, isAdminOrDeployer=${userIsAdminOrDeployer}`);
     const validatedRules = validatePermissionedAsRules(
       opts.defaultPermissionedAs,
       "wmill.yaml"
     );
+    log.debug(`permissioned_as: ${validatedRules.length} rules loaded`);
     const permissionedAsContext: PermissionedAsContext = {
       rules: validatedRules,
       emailToUsernameCache: new Map<string, string>(),

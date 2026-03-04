@@ -189,13 +189,13 @@ export async function preCheckPermissionedAs(
         }
       }
     } else if (typeStr === "flow") {
-      // Flow metadata may have on_behalf_of_email
-      const match = beforeContent.match(
-        /on_behalf_of_email:\s*["']?([^\s"']+)["']?/
-      );
-      if (match) {
-        currentOwner = match[1];
-      }
+      // Flow on_behalf_of_email is stripped during sync pull, so we can't
+      // reliably detect the current owner from local files. Always flag it.
+      wouldChangeItems.push({
+        path: change.path,
+        currentOwner: "(flow owner)",
+      });
+      continue;
     } else if (typeStr === "app") {
       // Apps always have on_behalf_of set - any edited app will change owner
       wouldChangeItems.push({
@@ -211,12 +211,13 @@ export async function preCheckPermissionedAs(
         currentOwner = match[1];
       }
     } else if (typeStr.endsWith("_trigger")) {
-      const match = beforeContent.match(
-        /email:\s*["']?([^\s"']+)["']?/
-      );
-      if (match) {
-        currentOwner = match[1];
-      }
+      // Trigger email/edited_by is stripped during sync pull, so we can't
+      // reliably detect the current owner from local files. Always flag it.
+      wouldChangeItems.push({
+        path: change.path,
+        currentOwner: "(trigger owner)",
+      });
+      continue;
     }
 
     if (currentOwner && currentOwner !== userEmail) {
