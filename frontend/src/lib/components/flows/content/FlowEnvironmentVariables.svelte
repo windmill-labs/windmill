@@ -252,8 +252,8 @@
 				Flow envs can be referenced in any flow step input using the syntax{' '}
 				<code>flow_env.VARIABLE_NAME</code> or <code>flow_env["VARIABLE_NAME"]</code>. These
 				variables are available in the property picker and can be used in JavaScript expressions and
-				input bindings. You can choose between String, JSON, Variable, or Resource types. Variable
-				and Resource types reference workspace variables and resources that are resolved at runtime.
+				input bindings. String values can link to workspace variables using the <DollarSign size={12}
+					class="inline" /> button. Resource type references workspace resources resolved at runtime.
 			</Alert>
 
 			{#if flowEnvEntries.length === 0}
@@ -306,9 +306,7 @@
 								{/if}
 							</div>
 
-							<div class="flex flex-col gap-1">
-								<!-- svelte-ignore a11y_label_has_associated_control -->
-								<label class="text-sm font-medium">Value</label>
+							<Label label="Value">
 								{#if entry.type === 'resource'}
 									<ResourcePicker
 										bind:value={resourcePaths[entry.key]}
@@ -357,7 +355,7 @@
 										</div>
 									{/if}
 								{/if}
-							</div>
+							</Label>
 						</div>
 					{/each}
 				</div>
