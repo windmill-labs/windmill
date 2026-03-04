@@ -185,12 +185,17 @@
 					<div class="relative flex items-center">
 						<StepCountTab
 							stepCount={group.module_ids.length}
-							summary={group.summary}
 							color={group.color}
 							collapsed={false}
 							short
 							onExpand={() => toggleCollapse(group.id)}
 						/>
+						{#if group.summary}
+							<span
+								class="absolute text-3xs font-medium truncate max-w-[150px] opacity-60"
+								style="top: -14px; left: 80px;"
+							>{group.summary}</span>
+						{/if}
 						{#if editMode && visibleGroup?.id === group.id}
 							<GroupActionBar
 								note={group.note}

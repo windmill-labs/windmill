@@ -33,7 +33,6 @@
 		<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
 			<StepCountTab
 				stepCount={data.stepCount}
-				summary={data.summary}
 				color={data.color}
 				onExpand={() => data.eventHandlers.expandGroup(data.groupId)}
 			/>
