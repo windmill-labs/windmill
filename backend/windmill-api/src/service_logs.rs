@@ -130,7 +130,7 @@ async fn get_log_file(
             }
         }
     }
-    let file = tokio::fs::read(format!("{}{}", TMP_WINDMILL_LOGS_SERVICE, path)).await;
+    let file = tokio::fs::read(format!("{}{}", *TMP_WINDMILL_LOGS_SERVICE, path)).await;
     if let Ok(bytes) = file {
         Ok(content_plain(Body::from(bytes::Bytes::from(bytes))))
     } else {

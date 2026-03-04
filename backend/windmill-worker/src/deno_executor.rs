@@ -449,7 +449,8 @@ try {{
         }
 
         let allow_read = format!(
-            "--allow-read=./,/tmp/windmill/cache/deno/,{}",
+            "--allow-read=./,{}/,{}",
+            *DENO_CACHE_DIR,
             DENO_PATH.as_str()
         );
         if let Some(deno_flags) = DENO_FLAGS.as_ref() {
@@ -510,7 +511,8 @@ try {{
     *has_stream = handle_result.result_stream.is_some();
 
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
-    if let Err(e) = tokio::fs::remove_dir_all(format!("{DENO_CACHE_DIR}/gen/file/{job_dir}")).await
+    if let Err(e) =
+        tokio::fs::remove_dir_all(format!("{}/gen/file/{job_dir}", *DENO_CACHE_DIR)).await
     {
         tracing::error!("failed to remove deno gen tmp cache dir: {}", e);
     }

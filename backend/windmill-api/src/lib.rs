@@ -296,7 +296,7 @@ pub async fn run_server(
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
-    for x in [HUB_CACHE_DIR] {
+    for x in [&*HUB_CACHE_DIR] {
         DirBuilder::new()
             .recursive(true)
             .create(x)

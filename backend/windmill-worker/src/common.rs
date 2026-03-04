@@ -1094,7 +1094,7 @@ fn tentatively_improve_error(err: Error, executable: &str) -> Error {
 
 pub async fn clean_cache() -> error::Result<()> {
     tracing::info!("Started cleaning cache");
-    tokio::fs::remove_dir_all(ROOT_CACHE_DIR).await?;
+    tokio::fs::remove_dir_all(&*ROOT_CACHE_DIR).await?;
     tracing::info!("Finished cleaning cache");
     Ok(())
 }

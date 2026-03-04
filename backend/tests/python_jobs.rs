@@ -1,7 +1,7 @@
-use windmill_test_utils::*;
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
 use windmill_common::scripts::ScriptLang;
+use windmill_test_utils::*;
 
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base", "lockfile_python"))]
@@ -188,7 +188,8 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
-        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -207,14 +208,14 @@ def main():
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_python_global_site_packages(db: Pool<Postgres>) -> anyhow::Result<()> {
-    use windmill_common::{cache::concatcp, worker::ROOT_CACHE_DIR};
+    use windmill_common::worker::ROOT_CACHE_DIR;
 
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
     // Shared for all 3.12.*
-    let path = concatcp!(ROOT_CACHE_DIR, "python_3_12/global-site-packages").to_owned();
+    let path = format!("{}python_3_12/global-site-packages", *ROOT_CACHE_DIR);
     std::fs::create_dir_all(&path).unwrap();
     std::fs::write(path + "/my_global_site_package_3_12_any.py", "").unwrap();
 
@@ -237,7 +238,9 @@ def main():
             path: None,
             language: ScriptLang::Python3,
             lock: None,
-            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
             cache_ttl: None,
             cache_ignore_s3_path: None,
@@ -271,7 +274,9 @@ def main():
             path: None,
             language: ScriptLang::Python3,
             lock: None,
-            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
             cache_ttl: None,
             cache_ignore_s3_path: None,
@@ -310,7 +315,8 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
-        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
@@ -347,7 +353,8 @@ def main():
         path: None,
         language: ScriptLang::Python3,
         lock: None,
-        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         cache_ignore_s3_path: None,

@@ -18,6 +18,8 @@ use windmill_common::{
 use anyhow::{anyhow, bail};
 use windmill_queue::append_logs;
 
+#[cfg(unix)]
+use crate::python_executor::UV_PATH;
 use crate::{
     common::{start_child_process, OccupancyMetrics},
     handle_child::handle_child,
@@ -25,8 +27,6 @@ use crate::{
     HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, UV_CACHE_DIR,
     WIN_ENVS,
 };
-#[cfg(unix)]
-use crate::python_executor::UV_PATH;
 
 impl From<PyV> for PyVAlias {
     fn from(value: PyV) -> Self {
@@ -234,7 +234,8 @@ impl PyV {
     pub(crate) fn to_cache_dir(&self, ignore_patch: bool) -> String {
         use windmill_common::worker::ROOT_CACHE_DIR;
         format!(
-            "{ROOT_CACHE_DIR}{}",
+            "{}{}",
+            *ROOT_CACHE_DIR,
             self.to_cache_dir_top_level(ignore_patch)
         )
     }
@@ -311,7 +312,7 @@ impl PyV {
             Command::new(uv_cmd)
                 .env_clear()
                 .envs(WIN_ENVS.to_vec())
-                .env("UV_CACHE_DIR", UV_CACHE_DIR)
+                .env("UV_CACHE_DIR", &*UV_CACHE_DIR)
                 .args([
                     "python",
                     "list",
@@ -539,8 +540,8 @@ impl PyV {
             ])
             // TODO: Do we need these?
             .envs([
-                ("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR),
-                ("UV_CACHE_DIR", UV_CACHE_DIR),
+                ("UV_PYTHON_INSTALL_DIR", &*PY_INSTALL_DIR),
+                ("UV_CACHE_DIR", &*UV_CACHE_DIR),
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -630,11 +631,9 @@ impl PyV {
                 "--system",
                 "--python-preference=only-managed",
             ])
-            .envs([
-                ("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR),
-                ("UV_PYTHON_PREFERENCE", "only-managed"),
-                ("UV_CACHE_DIR", UV_CACHE_DIR),
-            ])
+            .env("UV_PYTHON_INSTALL_DIR", &*PY_INSTALL_DIR)
+            .env("UV_PYTHON_PREFERENCE", "only-managed")
+            .env("UV_CACHE_DIR", &*UV_CACHE_DIR)
             // .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()

@@ -278,7 +278,7 @@ pub async fn uv_pip_compile(
             "requirements.txt",
             // Target to /tmp/windmill/cache/uv
             "--cache-dir",
-            UV_CACHE_DIR,
+            &*UV_CACHE_DIR,
         ];
 
         args.extend(["-p", &py_version_str, "--python-preference", "only-managed"]);
@@ -811,7 +811,7 @@ mount {{
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{PY_INSTALL_DIR}", PY_INSTALL_DIR)
+                .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
@@ -821,7 +821,7 @@ mount {{
                     "{ADDITIONAL_PYTHON_PATHS}",
                     additional_python_paths_folders.as_str(),
                 )
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
     } else {
@@ -1416,10 +1416,10 @@ async fn spawn_uv_install(
             &nsjail_proto,
             NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
                 .replace("{WORKER_DIR}", worker_dir)
-                .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
+                .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{TARGET_DIR}", &venv_p)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .as_str(),
         )?;
