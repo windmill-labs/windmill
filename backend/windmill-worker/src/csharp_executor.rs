@@ -13,14 +13,11 @@ use itertools::Itertools;
 #[cfg(feature = "csharp")]
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 #[cfg(feature = "csharp")]
-use windmill_common::{
-    utils::calculate_hash,
-    worker::write_file,
-};
+use windmill_common::{utils::calculate_hash, worker::write_file};
 
-use windmill_common::error::{self, Error};
 #[cfg(feature = "csharp")]
 use crate::global_cache::save_cache;
+use windmill_common::error::{self, Error};
 #[cfg(feature = "csharp")]
 use windmill_queue::append_logs;
 
@@ -105,8 +102,8 @@ pub async fn generate_nuget_lockfile(
     let mut gen_lockfile_cmd = Command::new(DOTNET_PATH.as_str());
     gen_lockfile_cmd
         .current_dir(job_dir)
-        .env("DOTNET_CLI_HOME", CSHARP_CACHE_DIR)
-        .env("NUGET_PACKAGES", format!("{CSHARP_CACHE_DIR}/nuget"))
+        .env("DOTNET_CLI_HOME", &*CSHARP_CACHE_DIR)
+        .env("NUGET_PACKAGES", format!("{}/nuget", *CSHARP_CACHE_DIR))
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
         .env("DOTNET_NOLOGO", "true")
         .env("MSBUILDDISABLENODEREUSE", "1")
@@ -367,8 +364,8 @@ async fn build_cs_proj(
         .env("PATH", PATH_ENV.as_str())
         .env("BASE_INTERNAL_URL", base_internal_url)
         .env("HOME", HOME_ENV.as_str())
-        .env("DOTNET_CLI_HOME", CSHARP_CACHE_DIR)
-        .env("NUGET_PACKAGES", format!("{CSHARP_CACHE_DIR}/nuget"))
+        .env("DOTNET_CLI_HOME", &*CSHARP_CACHE_DIR)
+        .env("NUGET_PACKAGES", format!("{}/nuget", *CSHARP_CACHE_DIR))
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
         .env("DOTNET_NOLOGO", "true")
         .env("MSBUILDDISABLENODEREUSE", "1")
@@ -434,7 +431,7 @@ async fn build_cs_proj(
         }
     }
 
-    let bin_path = format!("{}/{hash}", CSHARP_CACHE_DIR);
+    let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
     #[cfg(unix)]
     let target = format!("{job_dir}/Main");
     #[cfg(windows)]
@@ -516,11 +513,10 @@ pub async fn handle_csharp_job(
         inner_content,
         requirements_o.unwrap_or(&String::new())
     ));
-    let bin_path = format!("{}/{hash}", CSHARP_CACHE_DIR);
+    let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
     let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
 
-    let (cache, cache_logs) =
-        crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
+    let (cache, cache_logs) = crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
         #[cfg(unix)]
@@ -591,11 +587,11 @@ pub async fn handle_csharp_job(
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_CSHARP_CONTENT
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", CSHARP_CACHE_DIR)
+                .replace("{CACHE_DIR}", &*CSHARP_CACHE_DIR)
                 .replace("{CACHE_HASH}", &hash)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -608,8 +604,8 @@ pub async fn handle_csharp_job(
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .env("DOTNET_CLI_HOME", CSHARP_CACHE_DIR)
-            .env("NUGET_PACKAGES", format!("{CSHARP_CACHE_DIR}/nuget"))
+            .env("DOTNET_CLI_HOME", &*CSHARP_CACHE_DIR)
+            .env("NUGET_PACKAGES", format!("{}/nuget", *CSHARP_CACHE_DIR))
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
             .env("DOTNET_NOLOGO", "true")
             .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
@@ -640,8 +636,8 @@ pub async fn handle_csharp_job(
             .envs(get_proxy_envs_for_lang(&ScriptLang::CSharp).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
-            .env("DOTNET_CLI_HOME", CSHARP_CACHE_DIR)
-            .env("NUGET_PACKAGES", format!("{CSHARP_CACHE_DIR}/nuget"))
+            .env("DOTNET_CLI_HOME", &*CSHARP_CACHE_DIR)
+            .env("NUGET_PACKAGES", format!("{}/nuget", *CSHARP_CACHE_DIR))
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
             .env("DOTNET_NOLOGO", "true")
             .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
