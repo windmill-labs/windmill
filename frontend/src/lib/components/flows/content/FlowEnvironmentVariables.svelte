@@ -19,7 +19,7 @@
 		noEditor: boolean
 	}
 
-	type EnvVarType = 'string' | 'json' | 'variable' | 'resource'
+	type EnvVarType = 'string' | 'json' | 'resource'
 
 	interface EnvVarEntry {
 		id: string
@@ -41,9 +41,6 @@
 
 	function determineValueType(value: any): EnvVarType {
 		if (typeof value === 'string') {
-			if (value.startsWith('$var:')) {
-				return 'variable'
-			}
 			if (value.startsWith('$res:')) {
 				return 'resource'
 			}
@@ -66,7 +63,6 @@
 	const typeOptions: { label: string; value: EnvVarType }[] = [
 		{ label: 'String', value: 'string' },
 		{ label: 'JSON', value: 'json' },
-		{ label: 'Variable', value: 'variable' },
 		{ label: 'Resource', value: 'resource' }
 	]
 
@@ -201,10 +197,7 @@
 		if (flowStore.val.value.flow_env && key in flowStore.val.value.flow_env) {
 			flowEnvTypes[key] = newType
 
-			if (newType === 'variable') {
-				flowStore.val.value.flow_env[key] = '$var:'
-				delete resourcePaths[key]
-			} else if (newType === 'resource') {
+			if (newType === 'resource') {
 				flowStore.val.value.flow_env[key] = '$res:'
 				resourcePaths[key] = ''
 			} else if (newType === 'json') {
@@ -316,38 +309,7 @@
 							<div class="flex flex-col gap-1">
 								<!-- svelte-ignore a11y_label_has_associated_control -->
 								<label class="text-sm font-medium">Value</label>
-								{#if entry.type === 'variable'}
-									<div class="relative group w-full">
-										<input
-											type="text"
-											value={entry.displayValue}
-											oninput={(e) =>
-												updateEnvValue(entry.key, e.currentTarget.value, 'string')}
-											disabled={noEditor}
-											class="input w-full"
-											placeholder="$var:path/to/variable"
-										/>
-										{#if !noEditor}
-											<Button
-												iconOnly
-												startIcon={{ icon: DollarSign }}
-												unifiedSize="sm"
-												onClick={() => {
-													pickForKey = entry.key
-													variablePicker?.openDrawer?.()
-												}}
-												wrapperClasses="opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-1/2 -translate-y-1/2 bg-surface-input"
-												variant="subtle"
-												title="Insert a Variable"
-											/>
-										{/if}
-									</div>
-									{#if typeof entry.value === 'string' && entry.value.startsWith('$var:') && entry.value.length > 5}
-										<div class="text-2xs text-tertiary">
-											Linked to variable <span class="font-medium">{entry.value.slice(5)}</span>
-										</div>
-									{/if}
-								{:else if entry.type === 'resource'}
+								{#if entry.type === 'resource'}
 									<ResourcePicker
 										bind:value={resourcePaths[entry.key]}
 										disabled={noEditor}
