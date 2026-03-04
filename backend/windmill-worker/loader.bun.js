@@ -88,10 +88,14 @@ const p = {
       if (importerFwd.startsWith(cdirNodeModules)) {
         return undefined;
       }
-      const file_path =
-        args.importer == "./main.ts" || importerFwd == cdirFwd + "/main.ts"
-          ? current_path
-          : importerFwd.replace(cdirFwd + "/", "");
+      // Check if importer is main.ts (handles both ./main.ts and full resolved paths)
+      const isMainTs =
+        args.importer == "./main.ts" ||
+        importerFwd == cdirFwd + "/main.ts" ||
+        importerFwd.endsWith("/main.ts");
+      const file_path = isMainTs
+        ? current_path
+        : importerFwd.replace(cdirFwd + "/", "");
 
       const isRelative = !args.path.startsWith("/");
 
@@ -107,10 +111,12 @@ const p = {
 
     // Resolve nested imports from within windmill-url modules
     build.onResolve({ filter: /\.ts$/, namespace: "windmill-url" }, (args) => {
+      // Strip namespace prefix if present (Bun may prefix importer with "namespace:")
+      const importer = args.importer.replace(/^windmill-url:/, "");
       const isRelative = !args.path.startsWith("/");
       let endExt = args.path.endsWith(".ts") ? "" : ".ts";
       const rawScriptPath = isRelative
-        ? `${args.importer}/../${args.path}${endExt}`
+        ? `${importer}/../${args.path}${endExt}`
         : `${args.path}${endExt}`;
       return {
         path: normalizePath(rawScriptPath),
