@@ -118,7 +118,7 @@ jobs:
           New-Item -ItemType Directory -Path ..\target\debug -Force
           Copy-Item target\release\windmill_duckdb_ffi_internal.dll ..\target\debug\
 
-      - name: Print runtime versions
+      - name: Print runtime versions and env
         shell: pwsh
         run: |
           deno --version
@@ -129,6 +129,10 @@ jobs:
           php --version
           pwsh --version
           dotnet --version
+          echo "TEMP=$env:TEMP"
+          echo "TMP=$env:TMP"
+          echo "USERPROFILE=$env:USERPROFILE"
+          echo "HOME=$env:HOME"
 
       - name: cargo test
         working-directory: backend

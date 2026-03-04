@@ -24,7 +24,9 @@ const p = {
 
     let cdirNodeModules = `${cdirFwd}/node_modules/`;
 
-    const filterLoadPath = cdirFwd + "/main.ts";
+    // Escape backslashes in cdir for regex, and match both / and \ separators
+    const cdirRegex = cdir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const filterLoad = new RegExp(`^${cdirRegex}[\\\\/]main\\.ts$`);
     const transpiler = new Bun.Transpiler({
       loader: "ts",
     });
@@ -48,8 +50,7 @@ const p = {
       };
     }
 
-    build.onLoad({ filter: /main\.ts$/ }, async (args) => {
-      if (args.path.replace(/\\/g, "/") !== filterLoadPath) return undefined;
+    build.onLoad({ filter: filterLoad }, async (args) => {
       const code = readFileSync(args.path, "utf8");
       return replaceRelativeImports(code);
     });
