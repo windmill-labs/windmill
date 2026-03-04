@@ -1778,10 +1778,11 @@ pub async fn create_session_token<'c>(
 
     sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, email, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6)",
+            (token_hash, token_prefix, token, email, label, expiration, super_admin)
+            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, $7)",
         t_hash,
         t_prefix,
+        &token,
         email,
         "session",
         &MAX_SESSION_VALIDITY_SECONDS.to_string(),
@@ -1850,10 +1851,11 @@ async fn impersonate(
 
     sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, email, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, $5, $6)",
+            (token_hash, token_prefix, token, email, label, expiration, super_admin)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)",
         t_hash,
         t_prefix,
+        &token,
         impersonated,
         new_token.label,
         new_token.expiration,

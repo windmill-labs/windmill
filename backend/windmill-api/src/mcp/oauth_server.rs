@@ -392,11 +392,12 @@ async fn handle_authorization_code_grant(
 
     // Create access token (rejects archived workspaces inline)
     let rows = sqlx::query!(
-        "INSERT INTO token (token_hash, token_prefix, email, label, expiration, scopes, workspace_id)
-         SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, now() + ($5 || ' seconds')::interval, $6::text[], $7::varchar
-         WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $7 AND deleted = true)",
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, expiration, scopes, workspace_id)
+         SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, $5::varchar, now() + ($6 || ' seconds')::interval, $7::text[], $8::varchar
+         WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $8 AND deleted = true)",
         access_token_hash,
         access_token_prefix,
+        &access_token,
         auth_code.user_email,
         format!("mcp-oauth-{}", auth_code.client_id),
         MCP_OAUTH_TOKEN_EXPIRATION_SECS.to_string(),
@@ -529,11 +530,12 @@ async fn handle_refresh_token_grant(
 
     // Create new access token (rejects archived workspaces inline)
     let rows = sqlx::query!(
-        "INSERT INTO token (token_hash, token_prefix, email, label, expiration, scopes, workspace_id)
-         SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, now() + ($5 || ' seconds')::interval, $6::text[], $7::varchar
-         WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $7 AND deleted = true)",
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, expiration, scopes, workspace_id)
+         SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, $5::varchar, now() + ($6 || ' seconds')::interval, $7::text[], $8::varchar
+         WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $8 AND deleted = true)",
         new_access_token_hash,
         new_access_token_prefix,
+        &new_access_token,
         token_row.user_email,
         format!("mcp-oauth-{}", token_row.client_id),
         MCP_OAUTH_TOKEN_EXPIRATION_SECS.to_string(),

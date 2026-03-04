@@ -541,13 +541,14 @@ pub async fn create_token_internal(
     }
     let rows = sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, email, label, expiration, super_admin, scopes, workspace_id)
-            SELECT $1, $2, $3, $4, $5, $6, $7, $8
-            WHERE $8::varchar IS NULL OR NOT EXISTS(
-                SELECT 1 FROM workspace WHERE id = $8 AND deleted = true
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
+            WHERE $9::varchar IS NULL OR NOT EXISTS(
+                SELECT 1 FROM workspace WHERE id = $9 AND deleted = true
             )",
         t_hash,
         t_prefix,
+        &token,
         authed.email,
         token_config.label,
         token_config.expiration,
