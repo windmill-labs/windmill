@@ -285,7 +285,7 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub indexer_settings: Option<IndexerSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub oauths: Option<BTreeMap<String, OAuthClient>>,
+    pub oauths: Option<BTreeMap<String, OAuthClientEntry>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub otel: Option<OtelSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -406,6 +406,49 @@ pub struct IndexerSettings {
 // OAuth
 // ---------------------------------------------------------------------------
 
+/// Wrapper that tries to deserialize as a typed [`OAuthClient`] and falls
+/// back to a raw JSON value when the stored config contains unexpected types
+/// (e.g. `"true"` instead of `true` for a boolean field).  This prevents the
+/// entire `/api/settings/instance_config` endpoint from failing because of
+/// one malformed provider entry.
+#[derive(Serialize, Clone, Debug)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+pub enum OAuthClientEntry {
+    Typed(OAuthClient),
+    /// Fallback: the raw JSON value plus the error that prevented typed parsing.
+    Raw {
+        value: serde_json::Value,
+        /// Human-readable deserialization error (not serialized).
+        #[serde(skip)]
+        error: String,
+    },
+}
+
+impl<'de> serde::Deserialize<'de> for OAuthClientEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        match serde_json::from_value::<OAuthClient>(raw.clone()) {
+            Ok(client) => Ok(OAuthClientEntry::Typed(client)),
+            Err(e) => Ok(OAuthClientEntry::Raw { value: raw, error: e.to_string() }),
+        }
+    }
+}
+
+impl OAuthClientEntry {
+    /// Returns a mutable reference to the inner [`OAuthClient`] if this entry
+    /// was successfully parsed, or `None` for raw/fallback entries.
+    pub fn as_typed_mut(&mut self) -> Option<&mut OAuthClient> {
+        match self {
+            OAuthClientEntry::Typed(c) => Some(c),
+            OAuthClientEntry::Raw { .. } => None,
+        }
+    }
+}
+
 /// OAuth client configuration for a single provider.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
@@ -426,6 +469,10 @@ pub struct OAuthClient {
     pub share_with_workspaces: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub grant_types: Vec<String>,
+
+    /// Catch-all for provider-specific fields (e.g. Keycloak `org`, Okta `domain`/`custom`).
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 /// OAuth provider endpoint configuration.
@@ -1166,8 +1213,18 @@ pub fn resolve_env_refs(settings: &mut GlobalSettings) -> Result<(), String> {
     }
 
     if let Some(oauths) = &mut settings.oauths {
-        for oauth in oauths.values_mut() {
-            resolve_env_field(&mut oauth.secret)?;
+        for (name, entry) in oauths.iter_mut() {
+            match entry {
+                OAuthClientEntry::Typed(oauth) => {
+                    resolve_env_field(&mut oauth.secret)?;
+                }
+                OAuthClientEntry::Raw { error, .. } => {
+                    tracing::error!(
+                        "OAuth entry '{name}' could not be deserialized as OAuthClient \
+                         and was kept as raw JSON — it likely has an unexpected shape: {error}"
+                    );
+                }
+            }
         }
     }
 
@@ -1935,6 +1992,88 @@ mod tests {
     }
 
     #[test]
+    fn oauth_entry_valid_config_deserializes_as_typed() {
+        let json = r#"{
+            "id": "slack_id",
+            "secret": "slack_secret",
+            "connect_config": {
+                "auth_url": "https://slack.com/oauth/v2/authorize",
+                "token_url": "https://slack.com/api/oauth.v2.access",
+                "scopes": ["channels:read", "chat:write"],
+                "req_body_auth": true
+            }
+        }"#;
+        let entry: OAuthClientEntry = serde_json::from_str(json).unwrap();
+        match &entry {
+            OAuthClientEntry::Typed(c) => {
+                assert_eq!(c.id, "slack_id");
+                let cc = c.connect_config.as_ref().unwrap();
+                assert_eq!(cc.req_body_auth, Some(true));
+            }
+            OAuthClientEntry::Raw { .. } => panic!("expected Typed variant"),
+        }
+        // round-trip preserves the value
+        let serialized = serde_json::to_string(&entry).unwrap();
+        assert!(serialized.contains("slack_id"));
+    }
+
+    #[test]
+    fn oauth_entry_string_bool_falls_back_to_raw_with_error() {
+        // This is the real-world scenario: req_body_auth stored as "true" (string)
+        let json = r#"{
+            "id": "custom_provider",
+            "secret": "secret",
+            "connect_config": {
+                "auth_url": "https://example.com/auth",
+                "token_url": "https://example.com/token",
+                "req_body_auth": "true"
+            }
+        }"#;
+        let entry: OAuthClientEntry = serde_json::from_str(json).unwrap();
+        match &entry {
+            OAuthClientEntry::Raw { error, .. } => {
+                assert!(
+                    error.contains("invalid type"),
+                    "error should mention type mismatch, got: {error}"
+                );
+            }
+            OAuthClientEntry::Typed(_) => panic!("expected Raw fallback for string bool"),
+        }
+        // Serialization still round-trips the raw JSON faithfully
+        let serialized = serde_json::to_string(&entry).unwrap();
+        assert!(serialized.contains("custom_provider"));
+        assert!(serialized.contains(r#""req_body_auth":"true""#));
+    }
+
+    #[test]
+    fn oauth_entry_map_with_mixed_valid_and_invalid() {
+        // Simulates what InstanceConfig.oauths looks like when one provider is
+        // well-formed and another has a string-typed boolean.
+        let json = r#"{
+            "google": {
+                "id": "google_id",
+                "secret": "google_secret",
+                "connect_config": {
+                    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+                    "token_url": "https://oauth2.googleapis.com/token"
+                }
+            },
+            "broken": {
+                "id": "broken_id",
+                "secret": "broken_secret",
+                "connect_config": {
+                    "auth_url": "https://example.com/auth",
+                    "token_url": "https://example.com/token",
+                    "req_body_auth": "false"
+                }
+            }
+        }"#;
+        let map: BTreeMap<String, OAuthClientEntry> = serde_json::from_str(json).unwrap();
+        assert!(matches!(map["google"], OAuthClientEntry::Typed(_)));
+        assert!(matches!(map["broken"], OAuthClientEntry::Raw { .. }));
+    }
+
+    #[test]
     fn custom_instance_pg_databases_roundtrips() {
         let json = r#"{
             "user_pwd": "secret123",
@@ -2234,7 +2373,7 @@ mod tests {
                 let mut m = BTreeMap::new();
                 m.insert(
                     "google".to_string(),
-                    OAuthClient {
+                    OAuthClientEntry::Typed(OAuthClient {
                         id: "id".to_string(),
                         secret: StringOrSecretRef::EnvRef(EnvRefWrapper {
                             env_ref: "__WM_TEST_OAUTH_SECRET".to_string(),
@@ -2246,7 +2385,8 @@ mod tests {
                         tenant: None,
                         share_with_workspaces: None,
                         grant_types: vec![],
-                    },
+                        extra: BTreeMap::new(),
+                    }),
                 );
                 m
             }),
@@ -2264,10 +2404,12 @@ mod tests {
                 .and_then(|v| v.as_literal()),
             Some("smtp-secret")
         );
-        assert_eq!(
-            gs.oauths.as_ref().unwrap()["google"].secret.as_literal(),
-            Some("oauth-secret")
-        );
+        match &gs.oauths.as_ref().unwrap()["google"] {
+            OAuthClientEntry::Typed(c) => {
+                assert_eq!(c.secret.as_literal(), Some("oauth-secret"));
+            }
+            OAuthClientEntry::Raw { .. } => panic!("expected Typed variant"),
+        }
 
         unsafe {
             std::env::remove_var("__WM_TEST_SMTP_PWD");

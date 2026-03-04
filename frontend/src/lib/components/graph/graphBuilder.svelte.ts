@@ -56,6 +56,7 @@ export type GraphEventHandlers = {
 	delete: (detail: { id: string }, label: string) => void
 	newBranch: (id: string) => void
 	move: (detail: { id: string }) => void
+	duplicate: (detail: { id: string }) => void
 	selectedIteration: onSelectedIteration
 	changeId: (newId: string) => void
 	simplifyFlow: (b: boolean) => void
@@ -422,10 +423,6 @@ export function graphBuilder(
 				throw new Error(`Duplicated node detected: ${module.id}`)
 			}
 
-			if (module.id.startsWith('subflow:')) {
-				extra.insertable = false
-			}
-
 			nodes.push({
 				id: module.id,
 				data: {
@@ -436,7 +433,7 @@ export function graphBuilder(
 					eventHandlers: eventHandlers,
 					flowModuleState: extra.flowModuleStates?.[module.id],
 					testModuleState: extra.testModuleStates?.states?.[module.id],
-					insertable: extra.insertable,
+					insertable: extra.insertable && !module.id.startsWith('subflow:'),
 					editMode: extra.editMode,
 					isOwner: extra.isOwner,
 					flowJob: extra.flowJob,
@@ -968,11 +965,15 @@ export function graphBuilder(
 							nodes.push(startNode)
 
 							if (previousId) {
-								addEdge(previousId!, startNode.id, undefined, prefix, {
-									type: 'empty'
+								addEdge(previousId, startNode.id, branch, prefix, {
+									subModules: modules,
+									disableMoveIds
 								})
 							} else {
-								addEdge(beforeNode.id, startNode.id, undefined, prefix, { type: 'empty' })
+								addEdge(beforeNode.id, startNode.id, undefined, prefix, {
+									subModules: modules,
+									disableMoveIds
+								})
 							}
 
 							const endId = `${module.id}-subflow-end`

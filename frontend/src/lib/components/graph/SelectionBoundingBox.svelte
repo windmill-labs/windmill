@@ -1,23 +1,46 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
 	import { calculateNodesBoundsWithOffset } from './util'
-	import { StickyNote } from 'lucide-svelte'
-	import Button from '../common/button/Button.svelte'
+	import { StickyNote, Move, Copy, Trash2, EllipsisVertical } from 'lucide-svelte'
+	import { Button } from '../common'
+	import DropdownV2 from '../DropdownV2.svelte'
 	import { getNoteEditorContext } from './noteEditor.svelte'
 	import { getGraphContext } from './graphContext'
+	import MoveHandleButton from './MoveHandleButton.svelte'
 	import { tick } from 'svelte'
+	import { isMac, type Item } from '$lib/utils'
 
 	interface Props {
 		selectedNodes: string[]
 		allNodes: (Node & { type: string })[]
+		onDeleteSelected?: () => void
+		onDuplicateSelected?: () => void
+		onMoveSelected?: () => void
+		onCancelMove?: () => void
+		canMoveSelected?: boolean
+		isMoving?: boolean
+		resolvedModuleIds?: string[]
 	}
 
-	let { selectedNodes, allNodes }: Props = $props()
+	let {
+		selectedNodes,
+		allNodes,
+		onDeleteSelected,
+		onDuplicateSelected,
+		onMoveSelected,
+		onCancelMove,
+		canMoveSelected = false,
+		isMoving = false,
+		resolvedModuleIds = []
+	}: Props = $props()
+
+	let resolvedCount = $derived(resolvedModuleIds.length)
 
 	// Get NoteEditor context for group note creation
 	const noteEditorContext = getNoteEditorContext()
-	// Get Graph context for clearFlowSelection function
+	// Get Graph context for clearFlowSelection function and moveManager
 	const graphContext = getGraphContext()
+	const moveManager = graphContext?.moveManager
 
 	function handleAddGroupNote() {
 		if (selectedNodes.length > 0 && noteEditorContext?.noteEditor && graphContext) {
@@ -32,7 +55,38 @@
 		}
 	}
 
-	let bounds = $derived(() => {
+	let menuItems: Item[] = $derived([
+		{
+			displayName: 'Move',
+			icon: Move,
+			action: () => onMoveSelected?.(),
+			disabled: !canMoveSelected
+		},
+		{
+			displayName: 'Duplicate',
+			icon: Copy,
+			action: () => onDuplicateSelected?.()
+		},
+		{
+			displayName: `Delete (${resolvedCount})`,
+			icon: Trash2,
+			type: 'delete',
+			shortcut: isMac() ? '⌫' : 'Del',
+			action: () => onDeleteSelected?.()
+		},
+		...(noteEditorContext?.noteEditor
+			? [
+					{
+						displayName: 'Add note',
+						icon: StickyNote,
+						separatorTop: true,
+						action: handleAddGroupNote
+					}
+				]
+			: [])
+	])
+
+	let bounds = $derived.by(() => {
 		if (selectedNodes.length === 0) {
 			return null
 		}
@@ -53,8 +107,8 @@
 	})
 </script>
 
-{#if bounds() && selectedNodes.length > 1}
-	{@const currentBounds = bounds()!}
+{#if bounds && selectedNodes.length > 1}
+	{@const currentBounds = bounds!}
 	<ViewportPortal target="front">
 		<div
 			class={'absolute cursor-pointer bg-surface-selected/40 rounded-md pointer-events-none'}
@@ -63,20 +117,37 @@
 			style:height="{currentBounds.height}px"
 			style:z-index="10"
 		>
-			<!-- Add Group Note Button positioned in top-right corner -->
-			{#if noteEditorContext?.noteEditor}
-				<div class="absolute -top-4 -right-1 z-20" style="pointer-events: auto;">
-					<Button
-						unifiedSize="sm"
-						variant="accent"
-						title="Create group note ({selectedNodes.length} nodes)"
-						onclick={handleAddGroupNote}
-						startIcon={{ icon: StickyNote }}
+			<div
+				class="absolute -top-4 -right-1 z-20 flex gap-2 items-center"
+				style="pointer-events: auto;"
+			>
+				{#if isMoving}
+					<Button variant="accent" onClick={() => onCancelMove?.()} size="xs" destructive
+						>Cancel move</Button
 					>
-						Create group note ({selectedNodes.length} nodes)
-					</Button>
-				</div>
-			{/if}
+				{:else if resolvedCount > 0}
+					{#if canMoveSelected && moveManager && resolvedModuleIds.length > 0}
+						<div class="">
+							<MoveHandleButton
+								{moveManager}
+								moduleId={resolvedModuleIds[0]}
+								selectedIds={resolvedModuleIds}
+								onClickMove={() => onMoveSelected?.()}
+							/>
+						</div>
+					{/if}
+					<DropdownV2 items={menuItems} size="sm" placement="right-start">
+						{#snippet buttonReplacement()}
+							<button
+								class="center-center p-1 rounded-md shadow-md bg-surface text-secondary hover:bg-surface-tertiary"
+								title="Actions"
+							>
+								<EllipsisVertical size={12} />
+							</button>
+						{/snippet}
+					</DropdownV2>
+				{/if}
+			</div>
 		</div>
 	</ViewportPortal>
 {/if}

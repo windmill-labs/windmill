@@ -14,6 +14,7 @@ import {
 import { getLocalSetting, type StateStore } from './utils'
 import { createState } from './svelte5Utils.svelte'
 import { DEFAULT_HUB_BASE_URL } from './hub'
+import type { DbManagerUriState } from './components/dbManagerDrawerModel.svelte'
 
 export interface UserExt {
 	email: string
@@ -126,9 +127,7 @@ export const codeCompletionSessionEnabled = writable<boolean>(
 
 export const usedTriggerKinds = writable<string[]>([])
 
-export let globalDbManagerDrawer: StateStore<any | undefined> = createState({
-	val: undefined
-})
+export let globalDbManagerDrawer: StateStore<DbManagerUriState | undefined> = { val: undefined }
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {

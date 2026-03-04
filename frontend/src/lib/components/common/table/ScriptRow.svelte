@@ -45,6 +45,7 @@
 	import { scriptToHubUrl } from '$lib/hub'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
 		script: Script & { canWrite: boolean; use_codebase: boolean }
@@ -176,7 +177,7 @@
 						</div>
 					{/if}
 				{/if}
-				{#if !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !script.canWrite)}
+				{#if !isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !script.canWrite)}
 					<div>
 						<Button
 							variant={!showEditButton ? 'default' : 'subtle'}
@@ -244,7 +245,7 @@
 						displayName: 'Edit in workspace fork',
 						icon: GitFork,
 						href: buildForkEditUrl('script', script.path),
-						hide: $userStore?.operator || isRuleActive('DisableWorkspaceForking')
+						hide: $userStore?.operator || isCloudHosted() || isRuleActive('DisableWorkspaceForking')
 					},
 					{
 						displayName: 'Move/Rename',

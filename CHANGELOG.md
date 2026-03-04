@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.649.0](https://github.com/windmill-labs/windmill/compare/v1.648.0...v1.649.0) (2026-03-03)
+
+
+### Features
+
+* **frontend:** add script recorder for offline replay ([#8200](https://github.com/windmill-labs/windmill/issues/8200)) ([c97d8b4](https://github.com/windmill-labs/windmill/commit/c97d8b4715f86ea83ab2c0223ba859ced690829a))
+* move index management out of /srch/, add storage size reporting ([#8169](https://github.com/windmill-labs/windmill/issues/8169)) ([ee01acd](https://github.com/windmill-labs/windmill/commit/ee01acd9a6a2cd68a3f226988bfb46f6a6e64c08))
+
+
+### Bug Fixes
+
+* clean up slow-load toast interval on component destroy ([#8207](https://github.com/windmill-labs/windmill/issues/8207)) ([26f4f2b](https://github.com/windmill-labs/windmill/commit/26f4f2b399b828185b553289d6560e12261030a3))
+* **frontend:** prevent subflow expansion from hiding all insertion points ([#8203](https://github.com/windmill-labs/windmill/issues/8203)) ([e97da86](https://github.com/windmill-labs/windmill/commit/e97da860672171e33054a77d71f4824bb09e540d))
+* gracefully handle malformed OAuth entries in instance config ([#8205](https://github.com/windmill-labs/windmill/issues/8205)) ([cac4bdd](https://github.com/windmill-labs/windmill/commit/cac4bdd54f0c3ea80844ac31f7597f418ff7d8ae))
+* skip stop_after_if evaluation for skipped (identity) flow steps ([#8201](https://github.com/windmill-labs/windmill/issues/8201)) ([e6f7775](https://github.com/windmill-labs/windmill/commit/e6f7775d4d9a052aefc37260c6ed161146841cd7))
+* use exact matching for python requirements directive parsing ([#8199](https://github.com/windmill-labs/windmill/issues/8199)) ([2b2be38](https://github.com/windmill-labs/windmill/commit/2b2be38f129bbe58b6bb3815c4bd94aa03a3da90))
+
+
+### Performance Improvements
+
+* use two-step query in input history to leverage v2_job index ([#8197](https://github.com/windmill-labs/windmill/issues/8197)) ([50defdd](https://github.com/windmill-labs/windmill/commit/50defdded113b4d2cf0991b3fb642d1cd9a462b7))
+
+## [1.648.0](https://github.com/windmill-labs/windmill/compare/v1.647.2...v1.648.0) (2026-03-02)
+
+
+### Features
+
+* add right-click context menu to ObjectViewer ([#8181](https://github.com/windmill-labs/windmill/issues/8181)) ([1855204](https://github.com/windmill-labs/windmill/commit/18552046c29878b5cf115b9364c2ce829ab7aa59))
+* **frontend:** add drag-and-drop node movement in flow editor ([#8076](https://github.com/windmill-labs/windmill/issues/8076)) ([7a5e487](https://github.com/windmill-labs/windmill/commit/7a5e48787860c38aa3589c49ea9a70654d479c8a))
+
+
+### Bug Fixes
+
+* don't insert underscore after digit in PascalCase to snake_case conversion ([#8184](https://github.com/windmill-labs/windmill/issues/8184)) ([a111653](https://github.com/windmill-labs/windmill/commit/a111653c6d32fd1a3d2f45351eceb8d8d7df6f41))
+* **frontend:** preserve keycloak realm url between instance settings saves ([#8189](https://github.com/windmill-labs/windmill/issues/8189)) ([cfd9541](https://github.com/windmill-labs/windmill/commit/cfd9541ab1daf635c7d801cd3a7788db57b98257))
+* preserve debouncing settings for post-preprocessing arg accumulation ([#8191](https://github.com/windmill-labs/windmill/issues/8191)) ([9e92445](https://github.com/windmill-labs/windmill/commit/9e92445faed1a10b2406b97562e8df7a5b2dfd76))
+
 ## [1.647.2](https://github.com/windmill-labs/windmill/compare/v1.647.1...v1.647.2) (2026-03-02)
 
 

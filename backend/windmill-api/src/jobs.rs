@@ -47,7 +47,7 @@ use windmill_common::runtime_assets::{register_runtime_asset, InsertRuntimeAsset
 use windmill_common::scripts::ScriptRunnableSettingsInline;
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
-use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
+use windmill_common::worker::{Connection, CLOUD_HOSTED, WINDMILL_DIR};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
 };
@@ -1476,7 +1476,7 @@ async fn get_logs_from_disk(
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
             for file_p in &file_index {
-                if !tokio::fs::metadata(format!("{TMP_DIR}/{file_p}"))
+                if !tokio::fs::metadata(format!("{}/{file_p}", *WINDMILL_DIR))
                     .await
                     .is_ok()
                 {
@@ -1491,7 +1491,7 @@ async fn get_logs_from_disk(
             "#.to_string(),
                 ));
                 for file_p in file_index.clone() {
-                    let mut file = tokio::fs::File::open(format!("{TMP_DIR}/{file_p}")).await.map_err(to_anyhow)?;
+                    let mut file = tokio::fs::File::open(format!("{}/{file_p}", *WINDMILL_DIR)).await.map_err(to_anyhow)?;
                     let mut buffer = Vec::new();
                     file.read_to_end(&mut buffer).await.map_err(to_anyhow)?;
                     yield Ok(bytes::Bytes::from(buffer)) as anyhow::Result<bytes::Bytes>;
@@ -5952,7 +5952,7 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
         ));
     }
 
-    let local_file = format!("{TMP_DIR}/logs/{file_p}");
+    let local_file = format!("{}/logs/{file_p}", *WINDMILL_DIR);
     if tokio::fs::metadata(&local_file).await.is_ok() {
         let mut file = tokio::fs::File::open(local_file).await.map_err(to_anyhow)?;
         let mut buffer = Vec::new();
@@ -5998,10 +5998,10 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
     }
 
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-        return Err(error::Error::NotFound(format!(
-            "File not found on server logs volume /tmp/windmill/logs and no distributed logs s3 storage for {}",
-            file_p
-        )));
+    return Err(error::Error::NotFound(format!(
+        "File not found on server logs volume {}/logs and no distributed logs s3 storage for {}",
+        *WINDMILL_DIR, file_p
+    )));
 }
 
 async fn get_job_update(

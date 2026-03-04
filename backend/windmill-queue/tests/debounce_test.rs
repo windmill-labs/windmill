@@ -3076,4 +3076,617 @@ mod debounce {
 
         Ok(())
     }
+
+    // =========================================================================
+    // Helpers for focused accumulation tests
+    // =========================================================================
+
+    /// Helper: insert a flow job with flow_status and v2_job_status, simulating a flow with a preprocessor.
+    async fn insert_flow_job_with_preprocessor(
+        db: &Pool<Postgres>,
+        job_id: Uuid,
+        workspace_id: &str,
+        runnable_path: &str,
+        preprocessed: bool,
+        flow_status_step: i32,
+    ) {
+        sqlx::query!(
+            "INSERT INTO v2_job (id, kind, tag, created_by, permissioned_as, permissioned_as_email, workspace_id, runnable_path, preprocessed)
+             VALUES ($1, 'flow', 'flow', 'test-user', 'u/test-user', 'test@windmill.dev', $2, $3, $4)",
+            job_id,
+            workspace_id,
+            runnable_path,
+            preprocessed,
+        )
+        .execute(db)
+        .await
+        .expect("insert v2_job");
+
+        sqlx::query!(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag, running)
+             VALUES ($1, $2, now(), 'flow', false)",
+            job_id,
+            workspace_id,
+        )
+        .execute(db)
+        .await
+        .expect("insert v2_job_queue");
+
+        sqlx::query!("INSERT INTO v2_job_runtime (id) VALUES ($1)", job_id)
+            .execute(db)
+            .await
+            .expect("insert v2_job_runtime");
+
+        let flow_status = serde_json::json!({
+            "step": flow_status_step,
+            "modules": [
+                {"id": "a", "type": "WaitingForPriorSteps"}
+            ],
+            "failure_module": {
+                "type": "WaitingForPriorSteps",
+                "id": "failure"
+            },
+            "preprocessor_module": {
+                "type": "Success",
+                "id": "preprocessor",
+                "job": Uuid::new_v4().to_string(),
+                "flow_jobs": null,
+                "flow_jobs_success": null,
+                "branch_chosen": null,
+                "approvers": [],
+                "failed_retries": [],
+                "skipped": false
+            },
+            "cleanup_module": {"flow_jobs_to_clean": []},
+            "retry": {"fail_count": 0, "failed_jobs": []}
+        });
+
+        sqlx::query!(
+            "INSERT INTO v2_job_status (id, flow_status) VALUES ($1, $2)",
+            job_id,
+            flow_status,
+        )
+        .execute(db)
+        .await
+        .expect("insert v2_job_status");
+    }
+
+    /// Helper: insert a script job with args into v2_job + v2_job_queue + v2_job_runtime.
+    async fn insert_script_job_with_args(
+        db: &Pool<Postgres>,
+        job_id: Uuid,
+        workspace_id: &str,
+        runnable_path: &str,
+        args: &serde_json::Value,
+    ) {
+        sqlx::query!(
+            "INSERT INTO v2_job (id, kind, tag, created_by, permissioned_as, permissioned_as_email, workspace_id, runnable_path, args)
+             VALUES ($1, 'script', 'deno', 'test-user', 'u/test-user', 'test@windmill.dev', $2, $3, $4)",
+            job_id,
+            workspace_id,
+            runnable_path,
+            args,
+        )
+        .execute(db)
+        .await
+        .expect("insert v2_job with args");
+
+        sqlx::query!(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag)
+             VALUES ($1, $2, now(), 'deno')",
+            job_id,
+            workspace_id,
+        )
+        .execute(db)
+        .await
+        .expect("insert v2_job_queue");
+
+        sqlx::query!("INSERT INTO v2_job_runtime (id) VALUES ($1)", job_id)
+            .execute(db)
+            .await
+            .expect("insert v2_job_runtime");
+    }
+
+    /// Helper: build a PulledJobResult from job data, for calling maybe_apply_debouncing.
+    fn make_pulled_job_result(
+        job_id: Uuid,
+        workspace_id: &str,
+        runnable_path: &str,
+        args: &serde_json::Value,
+        kind: JobKind,
+        tag: &str,
+        rs_handle: Option<i64>,
+    ) -> windmill_queue::PulledJobResult {
+        use windmill_queue::{MiniPulledJob, PulledJob, PulledJobResult};
+
+        let args_hm: HashMap<String, Box<RawValue>> = serde_json::from_value(args.clone()).unwrap();
+
+        let mini = MiniPulledJob {
+            workspace_id: workspace_id.to_string(),
+            id: job_id,
+            args: Some(sqlx::types::Json(args_hm)),
+            parent_job: None,
+            created_by: "test-user".to_string(),
+            scheduled_for: Utc::now(),
+            started_at: None,
+            runnable_path: Some(runnable_path.to_string()),
+            kind,
+            runnable_id: None,
+            canceled_reason: None,
+            canceled_by: None,
+            permissioned_as: "u/test-user".to_string(),
+            permissioned_as_email: "test@windmill.dev".to_string(),
+            flow_status: None,
+            tag: tag.to_string(),
+            script_lang: None,
+            same_worker: false,
+            pre_run_error: None,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            flow_innermost_root_job: None,
+            root_job: None,
+            timeout: None,
+            flow_step_id: None,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            priority: None,
+            preprocessed: None,
+            script_entrypoint_override: None,
+            trigger: None,
+            trigger_kind: None,
+            visible_to_owner: false,
+            permissioned_as_end_user_email: None,
+            runnable_settings_handle: rs_handle,
+        };
+
+        let pulled = PulledJob {
+            job: mini,
+            raw_code: None,
+            raw_lock: None,
+            raw_flow: None,
+            parent_runnable_path: None,
+            permissioned_as_email: None,
+            permissioned_as_username: None,
+            permissioned_as_is_admin: None,
+            permissioned_as_is_operator: None,
+            permissioned_as_groups: None,
+            permissioned_as_folders: None,
+        };
+
+        PulledJobResult {
+            job: Some(pulled),
+            suspended: false,
+            missing_concurrency_key: false,
+            error_while_preprocessing: None,
+        }
+    }
+
+    /// Helper: insert debouncing settings into the DB and return the runnable_settings_handle.
+    async fn setup_debouncing_settings(
+        db: &Pool<Postgres>,
+        settings: &DebouncingSettings,
+    ) -> Option<i64> {
+        use windmill_common::runnable_settings::{
+            insert_rs, ConcurrencySettings, RunnableSettings, RunnableSettingsTrait,
+        };
+
+        let debouncing_hash = settings.insert_cached(db).await.expect("insert debouncing");
+        let concurrency_hash = ConcurrencySettings::default()
+            .insert_cached(db)
+            .await
+            .expect("insert concurrency");
+
+        insert_rs(
+            RunnableSettings {
+                debouncing_settings: debouncing_hash,
+                concurrency_settings: concurrency_hash,
+            },
+            db,
+        )
+        .await
+        .expect("insert rs")
+    }
+
+    /// Helper: assert that accumulated items match expected values.
+    fn assert_accumulated_items(
+        result: &windmill_queue::PulledJobResult,
+        expected: &[i64],
+        arg_name: &str,
+    ) {
+        let job = result
+            .job
+            .as_ref()
+            .expect("survivor job should not be nulled out");
+        let args = job.job.args.as_ref().expect("args should be present");
+        let items_raw = args.get(arg_name).expect("accumulated arg should exist");
+        let items: Vec<serde_json::Value> =
+            serde_json::from_str(items_raw.get()).expect("items should be valid JSON array");
+
+        let mut item_nums: Vec<i64> = items
+            .iter()
+            .map(|v| v.as_i64().expect("item should be a number"))
+            .collect();
+        item_nums.sort();
+
+        assert_eq!(
+            item_nums, expected,
+            "accumulated items should contain all values from all debounced jobs"
+        );
+    }
+
+    // =========================================================================
+    // Argument accumulation tests for scripts, flows, flows with preprocessor
+    // =========================================================================
+
+    /// Test: Script debounce accumulation via push-time maybe_debounce + maybe_apply_debouncing.
+    /// Pushes 3 script jobs with different "items" values, verifies they accumulate.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_script_debounce_accumulation(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some("script_accum_key".to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        let jobs: Vec<(Uuid, serde_json::Value)> = vec![
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": [1, 2], "other": "x"}),
+            ),
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": [3], "other": "x"}),
+            ),
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": [4, 5, 6], "other": "x"}),
+            ),
+        ];
+
+        // Insert script jobs and set runnable_settings_handle
+        for (id, args) in &jobs {
+            insert_script_job_with_args(&db, *id, "test-workspace", "f/test/script", args).await;
+            sqlx::query!(
+                "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+                rs_handle,
+                id,
+            )
+            .execute(&db)
+            .await?;
+        }
+
+        // Push-time debounce: each job debounces the previous one
+        for (id, args) in &jobs {
+            let args_hm: HashMap<String, Box<RawValue>> =
+                serde_json::from_value(args.clone()).unwrap();
+            let push_args = PushArgs::from(&args_hm);
+            let mut scheduled_for = None;
+            let mut tx = db.begin().await?;
+            windmill_queue::jobs_ee::maybe_debounce(
+                &settings,
+                &mut scheduled_for,
+                &Some("f/test/script".to_string()),
+                "test-workspace",
+                JobKind::Script,
+                *id,
+                &push_args,
+                &mut tx,
+            )
+            .await?;
+            tx.commit().await?;
+        }
+
+        // Last job should survive, first two should be completed (skipped)
+        let survivor_id = jobs[2].0;
+        assert!(
+            is_queued(&db, &survivor_id).await,
+            "last job should survive in queue"
+        );
+        assert!(
+            is_completed(&db, &jobs[0].0).await,
+            "job 0 should be debounced"
+        );
+        assert!(
+            is_completed(&db, &jobs[1].0).await,
+            "job 1 should be debounced"
+        );
+
+        // Call maybe_apply_debouncing on the survivor
+        let mut result = make_pulled_job_result(
+            survivor_id,
+            "test-workspace",
+            "f/test/script",
+            &jobs[2].1,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        result.maybe_apply_debouncing(&db).await?;
+
+        // Verify accumulation
+        assert_accumulated_items(&result, &[1, 2, 3, 4, 5, 6], "items");
+
+        // "other" arg should be unchanged
+        let job = result.job.as_ref().unwrap();
+        let other_raw = job.job.args.as_ref().unwrap().get("other").unwrap();
+        let other: String = serde_json::from_str(other_raw.get())?;
+        assert_eq!(other, "x", "non-accumulated arg should be unchanged");
+
+        Ok(())
+    }
+
+    /// Test: Flow (without preprocessor) debounce accumulation via push-time maybe_debounce.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_flow_debounce_accumulation_no_preprocessor(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some("flow_accum_key".to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        let jobs: Vec<(Uuid, serde_json::Value)> = vec![
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": [10, 20], "tag": "a"}),
+            ),
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": [30], "tag": "a"}),
+            ),
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": [40, 50], "tag": "a"}),
+            ),
+        ];
+
+        for (id, args) in &jobs {
+            insert_flow_job_with_args(&db, *id, "test-workspace", "f/test/flow_no_pp", args).await;
+            sqlx::query!(
+                "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+                rs_handle,
+                id,
+            )
+            .execute(&db)
+            .await?;
+        }
+
+        // Push-time debounce
+        for (id, args) in &jobs {
+            let args_hm: HashMap<String, Box<RawValue>> =
+                serde_json::from_value(args.clone()).unwrap();
+            let push_args = PushArgs::from(&args_hm);
+            let mut scheduled_for = None;
+            let mut tx = db.begin().await?;
+            windmill_queue::jobs_ee::maybe_debounce(
+                &settings,
+                &mut scheduled_for,
+                &Some("f/test/flow_no_pp".to_string()),
+                "test-workspace",
+                JobKind::Flow,
+                *id,
+                &push_args,
+                &mut tx,
+            )
+            .await?;
+            tx.commit().await?;
+        }
+
+        let survivor_id = jobs[2].0;
+        assert!(
+            is_queued(&db, &survivor_id).await,
+            "last job should survive"
+        );
+        assert!(
+            is_completed(&db, &jobs[0].0).await,
+            "job 0 should be debounced"
+        );
+        assert!(
+            is_completed(&db, &jobs[1].0).await,
+            "job 1 should be debounced"
+        );
+
+        let mut result = make_pulled_job_result(
+            survivor_id,
+            "test-workspace",
+            "f/test/flow_no_pp",
+            &jobs[2].1,
+            JobKind::Flow,
+            "flow",
+            rs_handle,
+        );
+        result.maybe_apply_debouncing(&db).await?;
+
+        assert_accumulated_items(&result, &[10, 20, 30, 40, 50], "items");
+
+        Ok(())
+    }
+
+    /// Test: Flow WITH preprocessor debounce accumulation via maybe_debounce_post_preprocessing.
+    /// This is the bug case: after preprocessing completes, the worker must store the flow's
+    /// debouncing settings in runnable_settings_handle so that maybe_apply_debouncing can find
+    /// them when the surviving job is pulled.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_flow_debounce_accumulation_with_preprocessor(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: None,
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        let jobs: Vec<(Uuid, serde_json::Value)> = vec![
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": [100, 200], "extra": "v"}),
+            ),
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": [300], "extra": "v"}),
+            ),
+            (
+                Uuid::new_v4(),
+                serde_json::json!({"items": [400, 500, 600], "extra": "v"}),
+            ),
+        ];
+
+        // Insert flow jobs with preprocessor state (step=0, preprocessor=Success)
+        for (id, args) in &jobs {
+            insert_flow_job_with_preprocessor(
+                &db,
+                *id,
+                "test-workspace",
+                "f/test/flow_pp",
+                true,
+                0,
+            )
+            .await;
+            sqlx::query!("UPDATE v2_job SET args = $2 WHERE id = $1", id, args)
+                .execute(&db)
+                .await?;
+        }
+
+        // Post-preprocessing debounce
+        for (id, args) in &jobs {
+            let args_hm: HashMap<String, Box<RawValue>> =
+                serde_json::from_value(args.clone()).unwrap();
+            let push_args = PushArgs::from(&args_hm);
+            windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+                &settings,
+                &Some("f/test/flow_pp".to_string()),
+                "test-workspace",
+                *id,
+                &push_args,
+                &db,
+            )
+            .await?;
+        }
+
+        let survivor_id = jobs[2].0;
+        assert!(
+            is_queued(&db, &survivor_id).await,
+            "last job should survive"
+        );
+
+        // Simulate the fix: worker stores runnable_settings_handle on the surviving job
+        sqlx::query!(
+            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+            rs_handle,
+            survivor_id,
+        )
+        .execute(&db)
+        .await?;
+
+        let mut result = make_pulled_job_result(
+            survivor_id,
+            "test-workspace",
+            "f/test/flow_pp",
+            &jobs[2].1,
+            JobKind::Flow,
+            "flow",
+            rs_handle,
+        );
+        result.maybe_apply_debouncing(&db).await?;
+
+        assert_accumulated_items(&result, &[100, 200, 300, 400, 500, 600], "items");
+
+        // "extra" arg should be unchanged
+        let job = result.job.as_ref().unwrap();
+        let extra_raw = job.job.args.as_ref().unwrap().get("extra").unwrap();
+        let extra: String = serde_json::from_str(extra_raw.get())?;
+        assert_eq!(extra, "v", "non-accumulated arg should be unchanged");
+
+        Ok(())
+    }
+
+    /// Test: Flow WITH preprocessor but WITHOUT the runnable_settings_handle fix.
+    /// Proves the bug: when runnable_settings_handle is NULL, accumulation does nothing.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_flow_debounce_accumulation_with_preprocessor_no_fix(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: None,
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+
+        let jobs: Vec<(Uuid, serde_json::Value)> = vec![
+            (Uuid::new_v4(), serde_json::json!({"items": [1, 2]})),
+            (Uuid::new_v4(), serde_json::json!({"items": [3]})),
+            (Uuid::new_v4(), serde_json::json!({"items": [4, 5]})),
+        ];
+
+        for (id, args) in &jobs {
+            insert_flow_job_with_preprocessor(
+                &db,
+                *id,
+                "test-workspace",
+                "f/test/flow_pp_nofix",
+                true,
+                0,
+            )
+            .await;
+            sqlx::query!("UPDATE v2_job SET args = $2 WHERE id = $1", id, args)
+                .execute(&db)
+                .await?;
+        }
+
+        for (id, args) in &jobs {
+            let args_hm: HashMap<String, Box<RawValue>> =
+                serde_json::from_value(args.clone()).unwrap();
+            let push_args = PushArgs::from(&args_hm);
+            windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+                &settings,
+                &Some("f/test/flow_pp_nofix".to_string()),
+                "test-workspace",
+                *id,
+                &push_args,
+                &db,
+            )
+            .await?;
+        }
+
+        let survivor_id = jobs[2].0;
+        assert!(
+            is_queued(&db, &survivor_id).await,
+            "last job should survive"
+        );
+
+        // DO NOT set runnable_settings_handle — simulating the bug (no fix applied)
+        let mut result = make_pulled_job_result(
+            survivor_id,
+            "test-workspace",
+            "f/test/flow_pp_nofix",
+            &jobs[2].1,
+            JobKind::Flow,
+            "flow",
+            None, // No runnable_settings_handle — this is the bug
+        );
+        result.maybe_apply_debouncing(&db).await?;
+
+        // Without the fix, only the survivor's own items are present (no accumulation)
+        let job = result.job.as_ref().expect("job should still exist");
+        let args = job.job.args.as_ref().expect("args should be present");
+        let items_raw = args.get("items").expect("items should exist");
+        let items: Vec<serde_json::Value> = serde_json::from_str(items_raw.get())?;
+        let item_nums: Vec<i64> = items.iter().map(|v| v.as_i64().unwrap()).collect();
+
+        assert_eq!(
+            item_nums,
+            vec![4, 5],
+            "Without the fix: only the survivor's own items should be present (no accumulation)"
+        );
+
+        Ok(())
+    }
 }
