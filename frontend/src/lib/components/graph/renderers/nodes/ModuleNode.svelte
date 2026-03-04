@@ -6,8 +6,6 @@
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
 	import { isMac, type Item } from '$lib/utils'
-	import type { ContextMenuItem } from '../../../common/contextmenu/ContextMenu.svelte'
-	import { addGroupNoteContextMenuItem } from '../../noteUtils.svelte'
 	import StepCountTab from '../../StepCountTab.svelte'
 
 	interface Props {
@@ -114,6 +112,7 @@
 			{#if isContainer}
 				<StepCountTab
 					stepCount={containerStepCount}
+					collapsed={!!data.isCollapsedContainer}
 					onExpand={data.isCollapsedContainer
 						? () => data.eventHandlers.expandContainer(data.id)
 						: () => data.eventHandlers.collapseContainer(data.id)}
@@ -137,7 +136,6 @@
 						(state?.iteration_total ?? '?')
 					: ''}
 				nodeState={state?.skipped ? '_Skipped' : type}
-				moving={data.moving}
 				duration_ms={state?.duration_ms}
 				retries={state?.retries}
 				{flowJobs}
@@ -166,17 +164,6 @@
 				onEditInput={data.eventHandlers.editInput}
 				flowJob={data.flowJob}
 				isOwner={data.isOwner}
-				maximizeSubflow={data.module.value.type == 'flow' && 'path' in data.module.value
-					? () => {
-							data.eventHandlers.expandSubflow(data.id, data.module.value['path'])
-						}
-					: undefined}
-				collapseContainer={isContainer && !data.isCollapsedContainer
-					? () => data.eventHandlers.collapseContainer(data.id)
-					: undefined}
-				expandContainer={data.isCollapsedContainer
-					? () => data.eventHandlers.expandContainer(data.id)
-					: undefined}
 			/>
 		</div>
 

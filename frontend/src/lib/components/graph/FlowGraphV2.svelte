@@ -51,7 +51,7 @@
 	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
 	import type { TriggerContext } from '../triggers'
 	import { workspaceStore } from '$lib/stores'
-	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
+	import CollapsedSubflowNode from './renderers/nodes/CollapsedSubflowNode.svelte'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import ViewportResizer from './ViewportResizer.svelte'
 	import ViewportSynchronizer from './ViewportSynchronizer.svelte'
@@ -785,7 +785,7 @@
 		whileLoopEnd: ForLoopEndNode,
 		branchOneStart: BranchOneStart,
 		branchOneEnd: BranchOneEndNode,
-		subflowBound: SubflowBound,
+		collapsedSubflow: CollapsedSubflowNode,
 		noBranch: NoBranchNode,
 		trigger: TriggersNode,
 		asset: AssetNode,

@@ -109,7 +109,7 @@ export type FlowNode =
 	| WhileLoopEndN
 	| BranchOneStartN
 	| BranchOneEndN
-	| SubflowBoundN
+	| CollapsedSubflowN
 	| NoBranchN
 	| TriggerN
 	| AssetN
@@ -261,16 +261,16 @@ export type BranchOneEndN = {
 	}
 }
 
-export type SubflowBoundN = {
-	type: 'subflowBound'
+export type CollapsedSubflowN = {
+	type: 'collapsedSubflow'
 	data: {
 		offset: number
 		id: string
+		module: FlowModule
 		eventHandlers: GraphEventHandlers
-		label: string
-		preLabel: string | undefined
-		subflowId: string
-		selected: boolean
+		editMode: boolean
+		expanded: boolean
+		innerNodeIds?: string[]
 	}
 }
 
@@ -382,7 +382,7 @@ export function topologicalSort(
 // whileLoopEnd: ForLoopEndNode,
 // branchOneStart: BranchOneStart,
 // branchOneEnd: BranchOneEndNode,
-// subflowBound: SubflowBound,
+// collapsedSubflow: CollapsedSubflowNode,
 // noBranch: NoBranchNode,
 // trigger: TriggersNode
 
@@ -668,7 +668,7 @@ export function graphBuilder(
 			currentOffset = 0,
 			disableMoveIds: string[] = [],
 			parentIndex?: string
-		) {
+		): string | undefined {
 			if (prefix != undefined) {
 				modules.forEach((m) => {
 					if (!m['oid']) {
@@ -686,6 +686,7 @@ export function graphBuilder(
 						disableMoveIds
 					})
 				}
+				return previousId
 			} else {
 				modules.forEach((module, index) => {
 					// --- Collapsed group handling ---
@@ -1095,67 +1096,63 @@ export function graphBuilder(
 						let expanded = expandedSubflows[module.id]
 						if (expanded) {
 							expanded = $state.snapshot(expanded)
-							const startId = `${module.id}`
-							const idWithoutPrefix = module.id.startsWith('subflow:')
-								? module.id.substring(8)
-								: module.id
-							const startNode: NodeLayout = {
-								id: startId,
+
+							// Emit subflow header node (replaces startNode)
+							const headerNode: NodeLayout = {
+								id: module.id,
 								data: {
 									offset: currentOffset,
-									label: `Start of subflow ${idWithoutPrefix}`,
-									id: startId,
-									subflowId: module.id,
+									id: module.id,
+									module: module,
 									eventHandlers: eventHandlers,
-									preLabel: '',
-									selected: false
+									editMode: extra.editMode,
+									expanded: true
 								},
-								type: 'subflowBound'
+								type: 'collapsedSubflow'
 							}
-
-							nodes.push(startNode)
+							nodes.push(headerNode)
 
 							if (previousId) {
-								addEdge(previousId, startNode.id, branch, prefix, {
-									subModules: modules,
-									disableMoveIds
+								addEdge(previousId, headerNode.id, undefined, prefix, {
+									type: 'empty'
 								})
 							} else {
-								addEdge(beforeNode.id, startNode.id, undefined, prefix, {
-									subModules: modules,
-									disableMoveIds
-								})
+								addEdge(beforeNode.id, headerNode.id, undefined, prefix, { type: 'empty' })
 							}
 
-							const endId = `${module.id}-subflow-end`
-							const endNode: NodeLayout = {
-								id: endId,
-								data: {
-									offset: currentOffset,
-									label: `End of subflow ${idWithoutPrefix}`,
-									id: endId,
-									subflowId: module.id,
-									eventHandlers: eventHandlers,
-									preLabel: '',
-									selected: false
-								},
-								type: 'subflowBound'
-							}
-
-							nodes.push(endNode)
-
-							processModules(
+							// Process inner modules — no end node, outer loop handles wiring
+							const nodesBefore = nodes.length
+							const lastInnerNodeId = processModules(
 								expanded,
 								undefined,
-								startNode,
-								endNode,
+								headerNode,
+								undefined,
 								false,
 								buildPrefix(prefix, module['oid'] ?? module.id),
 								currentOffset,
 								localDisableMoveIds
 							)
 
-							previousId = endNode.id
+							// Collect inner node IDs for border rendering
+							;(headerNode.data as CollapsedSubflowN['data']).innerNodeIds = nodes
+								.slice(nodesBefore)
+								.map((n) => n.id)
+
+							previousId = lastInnerNodeId ?? headerNode.id
+						} else if (module.value.type === 'flow' && 'path' in module.value) {
+							nodes.push({
+								id: module.id,
+								data: {
+									offset: currentOffset,
+									id: module.id,
+									module: module,
+									eventHandlers: eventHandlers,
+									editMode: extra.editMode,
+									expanded: false
+								},
+								type: 'collapsedSubflow'
+							} as NodeLayout)
+							previousId = module.id
 						} else {
 							addNode(module, currentOffset)
 							previousId = module.id
@@ -1178,6 +1175,7 @@ export function graphBuilder(
 					}
 				})
 			}
+			return previousId
 		}
 
 		if (simplifiableFlow?.simplifiedFlow === true && triggerNode) {

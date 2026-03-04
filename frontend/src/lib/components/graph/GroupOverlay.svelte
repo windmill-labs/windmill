@@ -7,6 +7,7 @@
 	import GroupActionBar from './GroupActionBar.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import StepCountTab from './StepCountTab.svelte'
+	import type { CollapsedSubflowN } from './graphBuilder.svelte'
 
 	interface Props {
 		hoveredNodeId: string | null
@@ -112,6 +113,32 @@
 			)
 			.filter((m): m is FlowModule => m != null)
 	}
+
+	// Expanded subflows — derive from allNodes
+	let expandedSubflowNodes = $derived(
+		allNodes.filter(
+			(n) =>
+				n.type === 'collapsedSubflow' &&
+				(n.data as CollapsedSubflowN['data']).expanded &&
+				(n.data as CollapsedSubflowN['data']).innerNodeIds?.length
+		)
+	)
+
+	function computeSubflowBounds(node: Node) {
+		const data = node.data as CollapsedSubflowN['data']
+		const innerIds = data.innerNodeIds ?? []
+		if (innerIds.length === 0) return null
+		// Include the header node itself in the bounds
+		const allIds = [node.id, ...innerIds]
+		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(allIds, allNodes)
+		const padding = 16
+		return {
+			x: minX - padding,
+			y: minY - padding,
+			width: maxX - minX + 2 * padding,
+			height: maxY - minY + 2 * padding
+		}
+	}
 </script>
 
 {#each allGroups as group (group.id)}
@@ -150,6 +177,7 @@
 						<StepCountTab
 							stepCount={group.module_ids.length}
 							color={group.color}
+							collapsed={false}
 							onExpand={() => toggleCollapse(group.id)}
 						/>
 						<GroupNodeCard
@@ -188,5 +216,20 @@
 				</div>
 			</ViewportPortal>
 		{/if}
+	{/if}
+{/each}
+
+{#each expandedSubflowNodes as node (node.id)}
+	{@const bounds = computeSubflowBounds(node)}
+	{#if bounds}
+		<ViewportPortal target="front">
+			<div
+				class="absolute rounded-lg border pointer-events-none border-blue-400/60 dark:border-blue-600/60"
+				style:transform="translate({bounds.x}px, {bounds.y}px)"
+				style:width="{bounds.width}px"
+				style:height="{bounds.height}px"
+				style:z-index="4"
+			></div>
+		</ViewportPortal>
 	{/if}
 {/each}
