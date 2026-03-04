@@ -1,4 +1,7 @@
+use serde_json::json;
 use sqlx::{Pool, Postgres};
+use windmill_common::jobs::{JobPayload, RawCode};
+use windmill_common::scripts::ScriptLang;
 use windmill_test_utils::*;
 
 #[sqlx::test(fixtures("base"))]
@@ -526,4 +529,104 @@ fn test_asset_kind_volume_variant() {
 
     let deserialized: AssetKind = serde_json::from_str("\"volume\"").unwrap();
     assert!(matches!(deserialized, AssetKind::Volume));
+}
+
+/// E2E test: run a bun script with volume mount through a SQL-connected worker.
+/// Pre-populates the volume in filesystem storage, verifies the script can read
+/// files and write new ones, then checks sync-back to storage and DB state.
+#[cfg(feature = "parquet")]
+#[sqlx::test(fixtures("base"))]
+async fn test_volume_sql_worker_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // 1. Set up filesystem-based object storage in a temp dir
+    let storage_dir = tempfile::tempdir()?;
+    let storage_root = storage_dir.path().to_string_lossy().to_string();
+
+    let lfs_config = json!({
+        "type": "FilesystemStorage",
+        "root_path": storage_root,
+        "public_resource": null,
+        "advanced_permissions": null
+    });
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
+        lfs_config,
+        "test-workspace"
+    )
+    .execute(&db)
+    .await?;
+
+    // 2. Pre-populate the volume with a file
+    let vol_dir = storage_dir.path().join("volumes").join("test-vol");
+    std::fs::create_dir_all(&vol_dir)?;
+    std::fs::write(vol_dir.join("hello.txt"), b"hello from volume")?;
+
+    // 3. Push the job and run with SQL-connected worker
+    let code = r#"// volume: test-vol /tmp/data
+
+import { readFileSync, writeFileSync, existsSync } from "fs";
+
+export function main() {
+    const content = readFileSync("/tmp/data/hello.txt", "utf-8");
+    writeFileSync("/tmp/data/output.txt", "written by sql worker");
+    return {
+        read_content: content,
+        output_exists: existsSync("/tmp/data/output.txt"),
+    };
+}"#;
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content: code.to_string(),
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port).await;
+
+    assert!(result.success, "job should succeed: {:?}", result.result);
+    let json = result.json_result().expect("should have JSON result");
+    assert_eq!(json["read_content"], json!("hello from volume"));
+    assert_eq!(json["output_exists"], json!(true));
+
+    // 4. Verify volume DB row was updated
+    let vol_row = sqlx::query!(
+        "SELECT size_bytes, file_count, leased_by, lease_until
+         FROM volume WHERE workspace_id = $1 AND name = $2",
+        "test-workspace",
+        "test-vol"
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let vol_row = vol_row.expect("volume row should exist");
+    assert!(
+        vol_row.file_count >= 2,
+        "should have at least 2 files (hello.txt + output.txt), got: {}",
+        vol_row.file_count
+    );
+    assert!(vol_row.size_bytes > 0, "size_bytes should be > 0");
+    assert!(vol_row.leased_by.is_none(), "lease should be released");
+
+    // 5. Verify the new file was written back to storage
+    let output_path = vol_dir.join("output.txt");
+    assert!(
+        output_path.exists(),
+        "output.txt should be synced back to storage"
+    );
+    let output_content = std::fs::read_to_string(&output_path)?;
+    assert_eq!(output_content, "written by sql worker");
+
+    Ok(())
 }
