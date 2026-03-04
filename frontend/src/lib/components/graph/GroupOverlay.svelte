@@ -6,6 +6,7 @@
 	import GroupActionBar from './GroupActionBar.svelte'
 	import StepCountTab from './StepCountTab.svelte'
 	import type { CollapsedSubflowN } from './graphBuilder.svelte'
+	import { stopPropagation, preventDefault } from 'svelte/legacy'
 
 	interface Props {
 		hoveredNodeId: string | null
@@ -19,6 +20,35 @@
 
 	// Menu open state
 	let menuOpen = $state(false)
+
+	// Inline summary editing
+	let editingGroupId = $state<string | null>(null)
+	let summaryInput = $state('')
+	let summaryInputEl = $state<HTMLInputElement | undefined>(undefined)
+
+	function startEditingSummary(groupId: string, current: string) {
+		if (!editMode) return
+		editingGroupId = groupId
+		summaryInput = current
+		requestAnimationFrame(() => {
+			summaryInputEl?.focus()
+			summaryInputEl?.select()
+		})
+	}
+
+	function saveSummary(groupId: string) {
+		editingGroupId = null
+		const trimmed = summaryInput.trim()
+		groupEditorContext?.groupEditor.updateSummary(groupId, trimmed)
+	}
+
+	function handleSummaryKeydown(event: KeyboardEvent, groupId: string) {
+		if (event.key === 'Enter') {
+			saveSummary(groupId)
+		} else if (event.key === 'Escape') {
+			editingGroupId = null
+		}
+	}
 
 	// Action bar hover state to prevent flicker
 	let actionBarHovered = $state(false)
@@ -179,15 +209,42 @@
 							short
 							onExpand={() => toggleCollapse(group.id)}
 						/>
-						{#if group.summary}
+						{#if editingGroupId === group.id}
+							{@const textColorClass =
+								NOTE_COLORS[(group.color as NoteColor) ?? NoteColor.BLUE]?.text ?? ''}
+							<input
+								bind:this={summaryInputEl}
+								bind:value={summaryInput}
+								class="absolute !text-3xs !font-medium !h-4 !bg-transparent !outline-none {textColorClass}"
+								style="top: -18px; left: 70px; width: 160px; padding: 0 6px;"
+								onblur={() => saveSummary(group.id)}
+								onkeydown={(e) => handleSummaryKeydown(e, group.id)}
+								onclick={stopPropagation(preventDefault(() => {}))}
+								onpointerdown={stopPropagation(preventDefault(() => {}))}
+								spellcheck={false}
+							/>
+						{:else}
+							{@const textColorClass =
+								NOTE_COLORS[(group.color as NoteColor) ?? NoteColor.BLUE]?.text ?? ''}
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<span
-								class="absolute text-3xs font-medium truncate max-w-[150px] opacity-60 {NOTE_COLORS[(group.color as NoteColor) ?? NoteColor.BLUE]?.text ?? ''}"
-								style="top: -14px; left: 80px;"
-							>{group.summary}</span>
+								class="absolute text-3xs font-medium bg-surface-secondary truncate max-w-[150px] text-opacity-60 {textColorClass} {editMode
+									? 'cursor-text rounded px-0.5 -mx-0.5 hover:text-opacity-100'
+									: ''}"
+								style="top: -18px; left: 76px;"
+								onclick={editMode
+									? stopPropagation(
+											preventDefault(() => startEditingSummary(group.id, group.summary ?? ''))
+										)
+									: undefined}
+								onpointerdown={editMode ? stopPropagation(preventDefault(() => {})) : undefined}
+								>{group.summary || (editMode ? 'Group' : '')}</span
+							>
 						{/if}
 					</div>
 					{#if editMode}
-						<div class="relative" style="margin-top: -20px;">
+						<div class="relative" style="margin-top: -8px;">
 							<GroupActionBar
 								note={group.note}
 								color={group.color}
