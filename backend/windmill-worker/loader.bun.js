@@ -53,7 +53,7 @@ const p = {
       return replaceRelativeImports(code);
     });
 
-    build.onLoad({ filter: /.*\.wurl$/ }, async (args) => {
+    build.onLoad({ filter: /.*/, namespace: "windmill-url" }, async (args) => {
       const url = readFileSync(args.path, "utf8");
       const req = await fetch(url, {
         method: "GET",
@@ -105,6 +105,7 @@ const p = {
       writeFileSync(file, url);
       return {
         path: file.replace(/\\/g, "/"),
+        namespace: "windmill-url",
       };
     });
   },
