@@ -862,14 +862,6 @@
 
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
-	const undoShortcutSnippet = createRawSnippet(() => ({
-		render: () => `<span class="ml-auto text-2xs text-tertiary">${mod}Z</span>`
-	}))
-
-	const redoShortcutSnippet = createRawSnippet(() => ({
-		render: () => `<span class="ml-auto text-2xs text-tertiary">${mod}⇧Z</span>`
-	}))
-
 	function getMoreItems(): Item[] {
 		return [
 			...baseMenuItems,
@@ -878,7 +870,7 @@
 				icon: Undo,
 				action: () => handleUndo(),
 				disabled: $history.index === 0,
-				extra: undoShortcutSnippet,
+				shortcut: `${mod}Z`,
 				separatorTop: baseMenuItems.length > 0
 			},
 			{
@@ -886,7 +878,7 @@
 				icon: Redo,
 				action: () => handleRedo(),
 				disabled: $history.index === $history.history.length - 1,
-				extra: redoShortcutSnippet
+				shortcut: `${mod}⇧Z`
 			},
 			{
 				displayName: 'Tutorials',

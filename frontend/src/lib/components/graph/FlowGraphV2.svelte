@@ -78,6 +78,11 @@
 	import { computeNoteNodes } from './noteUtils.svelte'
 	import { Tooltip } from '../meltComponents'
 	import { getNoteEditorContext } from './noteEditor.svelte'
+	import {
+		resolveSelectedModuleIds,
+		locateModules,
+		areContiguousSiblings
+	} from '../flows/multiSelectUtils'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
@@ -131,6 +136,10 @@
 		notes?: FlowNote[]
 		chatInputEnabled?: boolean
 		multiSelectEnabled?: boolean
+		onDeleteMultiple?: (ids: string[]) => void
+		onDuplicateMultiple?: (ids: string[]) => void
+		onMoveMultiple?: (ids: string[]) => void
+		movingIds?: string[]
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -150,6 +159,7 @@
 		onDeleteBranch?: (detail: { id: string; index: number }) => Promise<void>
 		onChangeId?: (detail: { id: string; newId: string; deps: Record<string, string[]> }) => void
 		onMove?: (id: string) => void
+		onDuplicate?: (id: string) => void
 		onUpdateMock?: (detail: { mock: FlowModule['mock']; id: string }) => void
 		onTestUpTo?: ((id: string) => void) | undefined
 		onSelectedIteration?: onSelectedIteration
@@ -175,6 +185,7 @@
 		onInsert = undefined,
 		onDelete = undefined,
 		onMove = undefined,
+		onDuplicate = undefined,
 		onDeleteBranch = undefined,
 		onNewBranch = undefined,
 		onSelect = undefined,
@@ -231,7 +242,11 @@
 		diffBeforeFlow = undefined,
 		currentInputSchema = undefined,
 		markRemovedAsShadowed = false,
-		multiSelectEnabled = false
+		multiSelectEnabled = false,
+		onDeleteMultiple = undefined,
+		onDuplicateMultiple = undefined,
+		onMoveMultiple = undefined,
+		movingIds = undefined
 	}: Props = $props()
 
 	// Initialize note manager with fine-grained reactivity
@@ -428,6 +443,9 @@
 		move: (detail) => {
 			onMove?.(detail.id)
 		},
+		duplicate: (detail) => {
+			onDuplicate?.(detail.id)
+		},
 		selectedIteration: (detail) => {
 			onSelectedIteration?.(detail)
 		},
@@ -508,6 +526,15 @@
 
 	let canUseDiffDrawer = $derived(diffBeforeFlow || moduleActions || editMode)
 
+	// Derived state for multi-select operations
+	let resolvedModuleIds = $derived(
+		resolveSelectedModuleIds(selectionManager.selectedIds, effectiveModules ?? [])
+	)
+	let canMoveSelected = $derived(
+		resolvedModuleIds.length > 0 &&
+			areContiguousSiblings(locateModules(resolvedModuleIds, effectiveModules ?? []))
+	)
+
 	// Initialize moduleTracker with effectiveModules
 	let moduleTracker = $state(new ChangeTracker<FlowModule[]>([]))
 
@@ -564,6 +591,31 @@
 		if (event.key === 'Escape') {
 			if (noteMode) {
 				exitNoteMode?.()
+			}
+		}
+		if ((event.key === 'Backspace' || event.key === 'Delete') && editMode) {
+			const active = document.activeElement
+			if (active && active !== document.body && !flowContainer?.contains(active)) {
+				return
+			}
+			if (
+				active instanceof HTMLInputElement ||
+				active instanceof HTMLTextAreaElement ||
+				active?.getAttribute('contenteditable') === 'true'
+			) {
+				return
+			}
+			if (noteManager.selectedNoteId && noteEditorContext) {
+				noteEditorContext.noteEditor.deleteNote(noteManager.selectedNoteId)
+				noteManager.clearNoteSelection()
+				return
+			}
+			if (resolvedModuleIds.length > 1) {
+				onDeleteMultiple?.(resolvedModuleIds)
+			} else if (resolvedModuleIds.length === 1) {
+				onDelete?.(resolvedModuleIds[0])
+			} else if (selectedId) {
+				onDelete?.(selectedId)
 			}
 		}
 	}
@@ -967,6 +1019,7 @@
 				elevateNodesOnSelect={false}
 				{proOptions}
 				multiSelectionKey={'Shift'}
+				deleteKey={null}
 				nodesDraggable={false}
 				--background-color={false}
 			>
@@ -978,8 +1031,17 @@
 
 				{#if multiSelectEnabled}
 					<SelectionBoundingBox
-						selectedNodes={selectionManager.selectedIds}
+						selectedNodes={selectionManager.selectedIds.filter(id =>
+							nodesWithOffset.some(n => n.id === id)
+						)}
 						allNodes={nodesWithOffset as (Node & { type: string })[]}
+						onDeleteSelected={() => onDeleteMultiple?.(resolvedModuleIds)}
+						onDuplicateSelected={() => onDuplicateMultiple?.(resolvedModuleIds)}
+						onMoveSelected={() => onMoveMultiple?.(resolvedModuleIds)}
+						onCancelMove={() => onMoveMultiple?.(movingIds ?? [])}
+						{canMoveSelected}
+						isMoving={movingIds != null && movingIds.length > 0}
+						{resolvedModuleIds}
 					/>
 				{/if}
 
@@ -1093,5 +1155,9 @@
 	:global(.svelte-flow__selection) {
 		display: none;
 		pointer-events: none;
+	}
+
+	:global(.svelte-flow__selection-wrapper) {
+		pointer-events: none !important;
 	}
 </style>

@@ -46,8 +46,19 @@
 		return { x: n.position.x, y: n.position.y }
 	}
 
-	function computeGhost(moduleId: string, allNodes: Node[], allEdges: Edge[]) {
-		const { sfNodes, sfEdges } = getSubflowNodesAndEdges(moduleId, allNodes, allEdges)
+	function computeGhost(moduleId: string, draggedNodeIds: Set<string>, allNodes: Node[], allEdges: Edge[]) {
+		// Use pre-computed draggedNodeIds when available (covers multi-select),
+		// otherwise fall back to single-module subflow computation.
+		let sfNodes: Node[]
+		let sfEdges: Edge[]
+		if (draggedNodeIds.size > 0) {
+			sfNodes = allNodes.filter((n) => draggedNodeIds.has(n.id))
+			sfEdges = allEdges.filter((e) => draggedNodeIds.has(e.source) && draggedNodeIds.has(e.target))
+		} else {
+			const result = getSubflowNodesAndEdges(moduleId, allNodes, allEdges)
+			sfNodes = result.sfNodes
+			sfEdges = result.sfEdges
+		}
 		if (sfNodes.length === 0) return undefined
 
 		// Compute bounding box using absolute positions
@@ -112,8 +123,7 @@
 	let ghost = $derived.by(() => {
 		const moduleId = moveManager.dragging?.moduleId
 		if (!moduleId) return undefined
-		// Compute ghost once at drag start — don't react to node/edge changes during drag
-		return untrack(() => computeGhost(moduleId, nodes, edges))
+		return untrack(() => computeGhost(moduleId, moveManager.draggedNodeIds, nodes, edges))
 	})
 </script>
 
