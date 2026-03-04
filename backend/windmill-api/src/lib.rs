@@ -274,27 +274,29 @@ async fn inject_agent_authed(
 ) -> Response {
     let mut request = request;
 
-    // Extract what we need from the request synchronously (before any .await)
-    // to avoid holding &Request across an await point (Request is Send but not Sync).
-    let extracted = {
-        let token = request
-            .headers()
-            .get(axum::http::header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.strip_prefix("Bearer ").map(|t| t.to_string()));
-        let cache = request.extensions().get::<Arc<AgentCache>>().cloned();
-        let db = request.extensions().get::<DB>().cloned();
-        match (token, cache, db) {
-            (Some(token), Some(cache), Some(db)) => Some((token, cache, db)),
-            _ => None,
-        }
-    };
+    // Extract worker name from agent JWT via AgentCache
+    // (OSS returns None; EE decodes the JWT and returns the worker name)
+    {
+        let extracted = {
+            let token = request
+                .headers()
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.strip_prefix("Bearer ").map(|t| t.to_string()));
+            let cache = request.extensions().get::<Arc<AgentCache>>().cloned();
+            let db = request.extensions().get::<DB>().cloned();
+            match (token, cache, db) {
+                (Some(token), Some(cache), Some(db)) => Some((token, cache, db)),
+                _ => None,
+            }
+        };
 
-    if let Some((token, cache, db)) = extracted {
-        if let Some(auth) = cache.get_agent_authed(&token, &db).await {
-            request
-                .extensions_mut()
-                .insert(AgentWorkerName(auth.worker_name()));
+        if let Some((token, cache, db)) = extracted {
+            if let Some(worker_name) = cache.extract_worker_name(&token, &db).await {
+                request
+                    .extensions_mut()
+                    .insert(AgentWorkerName(worker_name));
+            }
         }
     }
 
