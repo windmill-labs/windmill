@@ -82,6 +82,7 @@
 		{ name: 'Early Return', active: Boolean(flowStore.val.value.early_return) },
 		{ name: 'Dedicated Worker', active: Boolean(flowStore.val.dedicated_worker) },
 		{ name: 'Concurrent Limit', active: Boolean(flowStore.val.value.concurrent_limit) },
+		{ name: 'Debouncing', active: Boolean(flowStore.val.value.debounce_delay_s) },
 		{ name: `Run on Behalf of ${flowStore.val.on_behalf_of_email ?? 'Last Editor'}`, active: Boolean(flowStore.val.on_behalf_of_email) },
 		{ name: 'Worker Tag', active: displayWorkerTagPicker }
 	])

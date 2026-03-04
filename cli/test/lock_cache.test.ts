@@ -46,15 +46,28 @@ function extractWorkspaceDepsAnnotation(
   if (!config) return null;
 
   const { comment, keyword, validityRe } = config;
-  const extraMarker = `extra_${keyword}:`;
+  const extraMarkerUnderscore = `extra_${keyword}:`;
+  const extraMarkerHyphen = `extra-${keyword}:`;
   const manualMarker = `${keyword}:`;
+
+  const stripComment = (l: string): string | null => {
+    if (!l.startsWith(comment)) return null;
+    return l.substring(comment.length).trimStart();
+  };
+  const isExtra = (l: string): boolean => {
+    const s = stripComment(l);
+    return s !== null && (s.startsWith(extraMarkerUnderscore) || s.startsWith(extraMarkerHyphen));
+  };
+  const isManual = (l: string): boolean => {
+    const s = stripComment(l);
+    return s !== null && s.startsWith(manualMarker);
+  };
 
   const lines = scriptContent.split("\n");
 
   let pos = -1;
   for (let i = 0; i < lines.length; i++) {
-    const l = lines[i];
-    if (l.startsWith(comment) && (l.includes(extraMarker) || l.includes(manualMarker))) {
+    if (isExtra(lines[i]) || isManual(lines[i])) {
       pos = i;
       break;
     }
@@ -62,9 +75,11 @@ function extractWorkspaceDepsAnnotation(
   if (pos === -1) return null;
 
   const annotationLine = lines[pos];
-  const mode: AnnotationMode = annotationLine.includes(extraMarker) ? "extra" : "manual";
+  const mode: AnnotationMode = isExtra(annotationLine) ? "extra" : "manual";
 
-  const marker = mode === "extra" ? extraMarker : manualMarker;
+  const marker = mode === "extra"
+    ? (annotationLine.includes(extraMarkerUnderscore) ? extraMarkerUnderscore : extraMarkerHyphen)
+    : manualMarker;
   const unparsed = annotationLine.replaceAll(marker, "").replaceAll(comment, "");
   const external = unparsed
     .split(",")
@@ -175,6 +190,18 @@ def main():
 
 test("python: extra_requirements mode", () => {
   const code = `# extra_requirements: utils
+#numpy>=1.24.0
+
+def main():
+    pass`;
+  const r = extractWorkspaceDepsAnnotation(code, "python3")!;
+  expect(r.mode).toEqual("extra");
+  expect(r.external).toEqual(["utils"]);
+  expect(r.inline).toEqual("numpy>=1.24.0");
+});
+
+test("python: extra-requirements (hyphen) mode", () => {
+  const code = `# extra-requirements: utils
 #numpy>=1.24.0
 
 def main():
