@@ -108,6 +108,21 @@ SET s3_secret_access_key='80yMndIMcyXwEujxVNINQbf0tBlIzRaLPyM2m1n4';
             )
         print(file_key)
 
+    @unittest.skip("skipping")
+    def test_remove_s3_file(self):
+        # Upload a temporary file
+        s3_obj = wmill.write_s3_file(
+            S3Object(s3="_wmill_test_remove_s3_file.txt"), b"remove_s3_file test content"
+        )
+        # Verify it exists
+        content = wmill.load_s3_file(s3_obj)
+        self.assertEqual(content, b"remove_s3_file test content")
+        # Delete it
+        wmill.remove_s3_file(s3_obj)
+        # Verify it's gone
+        with self.assertRaises(Exception):
+            wmill.load_s3_file(s3_obj)
+
 
 if __name__ == "__main__":
     unittest.main()
