@@ -12,6 +12,7 @@ use sqlx::FromRow;
 use windmill_common::{
     auth::{hash_token, TOKEN_PREFIX_LEN},
     error::{Error, Result},
+    min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH,
     utils::rd_string,
     BASE_URL, DB,
 };
@@ -386,6 +387,11 @@ async fn handle_authorization_code_grant(
     let access_token = rd_string(32);
     let access_token_hash = hash_token(&access_token);
     let access_token_prefix = &access_token[..TOKEN_PREFIX_LEN];
+    let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
+        None
+    } else {
+        Some(&access_token)
+    };
     let refresh_token = rd_string(32);
     let token_family = sqlx::types::Uuid::new_v4();
     let scopes = auth_code.scopes;
@@ -397,7 +403,7 @@ async fn handle_authorization_code_grant(
          WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $8 AND deleted = true)",
         access_token_hash,
         access_token_prefix,
-        &access_token,
+        plaintext as Option<&str>,
         auth_code.user_email,
         format!("mcp-oauth-{}", auth_code.client_id),
         MCP_OAUTH_TOKEN_EXPIRATION_SECS.to_string(),
@@ -525,6 +531,11 @@ async fn handle_refresh_token_grant(
     let new_access_token = rd_string(32);
     let new_access_token_hash = hash_token(&new_access_token);
     let new_access_token_prefix = &new_access_token[..TOKEN_PREFIX_LEN];
+    let new_plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
+        None
+    } else {
+        Some(&new_access_token)
+    };
     let new_refresh_token = rd_string(32);
     let scopes = token_row.scopes;
 
@@ -535,7 +546,7 @@ async fn handle_refresh_token_grant(
          WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $8 AND deleted = true)",
         new_access_token_hash,
         new_access_token_prefix,
-        &new_access_token,
+        new_plaintext as Option<&str>,
         token_row.user_email,
         format!("mcp-oauth-{}", token_row.client_id),
         MCP_OAUTH_TOKEN_EXPIRATION_SECS.to_string(),

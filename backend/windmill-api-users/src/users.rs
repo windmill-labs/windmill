@@ -1746,9 +1746,16 @@ pub async fn create_session_token<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     cookies: Cookies,
 ) -> Result<String> {
+    use windmill_common::min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH;
+
     let token = rd_string(32);
     let t_hash = windmill_common::auth::hash_token(&token);
     let t_prefix = &token[..TOKEN_PREFIX_LEN];
+    let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
+        None
+    } else {
+        Some(&token)
+    };
 
     if *INVALIDATE_OLD_SESSIONS {
         sqlx::query!(
@@ -1782,7 +1789,7 @@ pub async fn create_session_token<'c>(
             VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, $7)",
         t_hash,
         t_prefix,
-        &token,
+        plaintext as Option<&str>,
         email,
         "session",
         &MAX_SESSION_VALIDITY_SECONDS.to_string(),
@@ -1827,9 +1834,16 @@ async fn impersonate(
     authed: ApiAuthed,
     Json(new_token): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
+    use windmill_common::min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH;
+
     let token = rd_string(32);
     let t_hash = windmill_common::auth::hash_token(&token);
     let t_prefix = &token[..TOKEN_PREFIX_LEN];
+    let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
+        None
+    } else {
+        Some(&token)
+    };
     require_super_admin(&db, &authed.email).await?;
 
     if new_token.impersonate_email.is_none() {
@@ -1855,7 +1869,7 @@ async fn impersonate(
             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         t_hash,
         t_prefix,
-        &token,
+        plaintext as Option<&str>,
         impersonated,
         new_token.label,
         new_token.expiration,

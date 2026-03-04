@@ -514,11 +514,20 @@ pub async fn create_token_internal(
 ) -> Result<String> {
     use tracing::Instrument;
     use windmill_audit::{audit_oss::audit_log, ActionKind};
-    use windmill_common::{utils::rd_string, worker::CLOUD_HOSTED};
+    use windmill_common::{
+        min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH, utils::rd_string, worker::CLOUD_HOSTED,
+    };
 
     let token = rd_string(32);
     let t_hash = hash_token(&token);
     let t_prefix = &token[..TOKEN_PREFIX_LEN];
+
+    // Write plaintext token column until all workers support hash-based lookup
+    let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
+        None
+    } else {
+        Some(&token)
+    };
 
     let is_super_admin = sqlx::query_scalar!(
         "SELECT super_admin FROM password WHERE email = $1",
@@ -548,7 +557,7 @@ pub async fn create_token_internal(
             )",
         t_hash,
         t_prefix,
-        &token,
+        plaintext as Option<&str>,
         authed.email,
         token_config.label,
         token_config.expiration,
