@@ -549,7 +549,8 @@ async fn test_volume_sql_worker_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
         "type": "FilesystemStorage",
         "root_path": storage_root,
         "public_resource": null,
-        "advanced_permissions": null
+        "advanced_permissions": null,
+        "volume_storage": "primary"
     });
 
     sqlx::query!(
@@ -560,8 +561,12 @@ async fn test_volume_sql_worker_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
     .execute(&db)
     .await?;
 
-    // 2. Pre-populate the volume with a file
-    let vol_dir = storage_dir.path().join("volumes").join("test-vol");
+    // 2. Pre-populate the volume with a file (workspace-namespaced path)
+    let vol_dir = storage_dir
+        .path()
+        .join("volumes")
+        .join("test-workspace")
+        .join("test-vol");
     std::fs::create_dir_all(&vol_dir)?;
     std::fs::write(vol_dir.join("hello.txt"), b"hello from volume")?;
 
