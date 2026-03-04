@@ -53,7 +53,14 @@ use windmill_object_store::attempt_fetch_bytes;
 
 use windmill_parser::Typ;
 
+// The Windows loader uses a virtual "windmill-url" namespace instead of writing .url
+// files to disk, which avoids Windows path issues. The virtual namespace approach is
+// likely better on all fronts but we keep the original .url-file loader on Linux to
+// avoid breaking back-compat.
+#[cfg(not(windows))]
 pub const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.js");
+#[cfg(windows)]
+pub const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.windows.js");
 
 pub const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
 
