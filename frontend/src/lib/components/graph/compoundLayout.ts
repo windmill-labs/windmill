@@ -37,7 +37,11 @@ const LOOP_INDENT = 25
  * - BranchAll/BranchOne: node X has children X-branch-N and X-end
  * - ForLoop/WhileLoop: node X has child X-start and X-end
  */
-function detectGroups(nodeIds: Set<string>, allNodes: Map<string, LayoutNode>): CompoundGroup[] {
+function detectGroups(
+	nodeIds: Set<string>,
+	allNodes: Map<string, LayoutNode>,
+	childrenMap: Map<string, string[]>
+): CompoundGroup[] {
 	const groups: CompoundGroup[] = []
 
 	for (const id of nodeIds) {
@@ -50,13 +54,13 @@ function detectGroups(nodeIds: Set<string>, allNodes: Map<string, LayoutNode>): 
 		const baseNode = allNodes.get(baseId)
 		if (!baseNode) continue
 
-		// Check for branch pattern: baseId-branch-N nodes
+		// Check for branch pattern: probe for baseId-branch-N nodes directly
 		const branchLabelIds: string[] = []
-		for (const nid of nodeIds) {
-			const branchMatch = nid.match(new RegExp(`^${escapeRegExp(baseId)}-branch-(\\d+|default)$`))
-			if (branchMatch) {
-				branchLabelIds.push(nid)
-			}
+		if (nodeIds.has(`${baseId}-branch-default`)) {
+			branchLabelIds.push(`${baseId}-branch-default`)
+		}
+		for (let i = 0; nodeIds.has(`${baseId}-branch-${i}`); i++) {
+			branchLabelIds.push(`${baseId}-branch-${i}`)
 		}
 
 		// Check for loop pattern: baseId-start node
@@ -67,29 +71,19 @@ function detectGroups(nodeIds: Set<string>, allNodes: Map<string, LayoutNode>): 
 			const isBranchOne = branchLabelIds.some((lid) => lid.endsWith('-branch-default'))
 			const type = isBranchOne ? 'branchone' : 'branchall'
 
-			// Sort branch labels: default first for branchone, then numeric
-			branchLabelIds.sort((a, b) => {
-				if (a.endsWith('-default')) return -1
-				if (b.endsWith('-default')) return 1
-				const aNum = parseInt(a.split('-branch-').pop()!)
-				const bNum = parseInt(b.split('-branch-').pop()!)
-				return aNum - bNum
-			})
+			// Branches are already in correct order: default first, then 0, 1, 2...
 
 			const branches = branchLabelIds.map((labelId) => ({
 				labelId,
-				innerIds: findInnerIds(labelId, id, nodeIds, allNodes)
+				innerIds: findInnerIds(labelId, id, nodeIds, childrenMap)
 			}))
 
 			groups.push({ type, headId: baseId, endId: id, branches })
 		} else if (hasStart) {
-			// Both forloop and whileloop have identical structure for layout purposes
-			const type = determineLoopType(baseId, allNodes)
-
-			const innerIds = findInnerIds(`${baseId}-start`, id, nodeIds, allNodes)
+			const innerIds = findInnerIds(`${baseId}-start`, id, nodeIds, childrenMap)
 
 			groups.push({
-				type,
+				type: 'forloop',
 				headId: baseId,
 				endId: id,
 				branches: [{ labelId: `${baseId}-start`, innerIds }]
@@ -101,21 +95,6 @@ function detectGroups(nodeIds: Set<string>, allNodes: Map<string, LayoutNode>): 
 }
 
 /**
- * Determine if a loop is a forloop or whileloop.
- * We look at children of the start node - whileloop start nodes have type 'whileLoopStart'.
- * Since we don't have type info in LayoutNode, we check the ID patterns.
- * Both are laid out identically, so this is mainly for documentation.
- */
-function determineLoopType(
-	_baseId: string,
-	_allNodes: Map<string, LayoutNode>
-): 'forloop' | 'whileloop' {
-	// Both loop types have identical structure for layout purposes
-	// The distinction doesn't affect layout, so we default to 'forloop'
-	return 'forloop'
-}
-
-/**
  * Find inner node IDs between a label/start node and an end node.
  * These are nodes that are reachable from the label node but not including
  * the label or end node themselves.
@@ -124,21 +103,10 @@ function findInnerIds(
 	labelId: string,
 	endId: string,
 	nodeIds: Set<string>,
-	allNodes: Map<string, LayoutNode>
+	childrenMap: Map<string, string[]>
 ): string[] {
 	const inner: string[] = []
 	const visited = new Set<string>()
-
-	// Build children map (reverse of parentIds)
-	const children = new Map<string, string[]>()
-	for (const [nid, node] of allNodes) {
-		if (!nodeIds.has(nid)) continue
-		for (const pid of node.parentIds ?? []) {
-			if (!nodeIds.has(pid)) continue
-			if (!children.has(pid)) children.set(pid, [])
-			children.get(pid)!.push(nid)
-		}
-	}
 
 	// BFS from label to find all reachable nodes before end
 	const queue = [labelId]
@@ -147,9 +115,10 @@ function findInnerIds(
 
 	while (queue.length > 0) {
 		const current = queue.shift()!
-		const kids = children.get(current) ?? []
+		const kids = childrenMap.get(current) ?? []
 		for (const kid of kids) {
 			if (visited.has(kid)) continue
+			if (!nodeIds.has(kid)) continue
 			visited.add(kid)
 			inner.push(kid)
 			queue.push(kid)
@@ -157,10 +126,6 @@ function findInnerIds(
 	}
 
 	return inner
-}
-
-function escapeRegExp(s: string): string {
-	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**
@@ -184,9 +149,10 @@ function runSugiyama(
 		return { positions: pos, width: w, height: h }
 	}
 
+	const nodeIdSet = new Set(nodes.map((n) => n.id))
 	const dagNodes = nodes.map((n) => ({
 		id: n.id,
-		parentIds: (n.parentIds ?? []).filter((pid) => nodes.some((nn) => nn.id === pid))
+		parentIds: (n.parentIds ?? []).filter((pid) => nodeIdSet.has(pid))
 	}))
 
 	const dag = dagStratify().id(({ id }: { id: string }) => id)(dagNodes)
@@ -271,7 +237,7 @@ function layoutLevel(
 	nodeIds: string[],
 	allNodes: Map<string, LayoutNode>,
 	constants: LayoutConstants,
-	depth = 0
+	childrenMap: Map<string, string[]>
 ): LayoutResult {
 	const positions = new Map<string, { x: number; y: number }>()
 	const nodeIdSet = new Set(nodeIds)
@@ -285,7 +251,7 @@ function layoutLevel(
 	}
 
 	// Step 1: detect compound groups at this level
-	const groups = detectGroups(nodeIdSet, allNodes)
+	const groups = detectGroups(nodeIdSet, allNodes, childrenMap)
 
 	// Build a set of all IDs that belong to groups (to exclude from top-level layout)
 	const groupOwnedIds = new Set<string>()
@@ -330,6 +296,8 @@ function layoutLevel(
 			result: LayoutResult
 			bbox: { width: number; height: number }
 		}[]
+		branchWidths: number[]
+		totalWidth: number
 		wrapperWidth: number
 		wrapperHeight: number
 	}
@@ -345,7 +313,7 @@ function layoutLevel(
 			const branchNodeIds = [branch.labelId, ...branch.innerIds]
 
 			// Find sub-groups within this branch
-			const result = layoutLevel(branchNodeIds, allNodes, constants, depth + 1)
+			const result = layoutLevel(branchNodeIds, allNodes, constants, childrenMap)
 
 			branchLayouts.push({
 				labelId: branch.labelId,
@@ -357,16 +325,19 @@ function layoutLevel(
 		// Compute wrapper dimensions
 		let wrapperWidth: number
 		let wrapperHeight: number
+		let branchWidths: number[] = []
+		let totalWidth = 0
 		const rowHeight = constants.nodeHeight + constants.gapV
 
 		if (isBranch) {
 			// Place branches side by side horizontally
-			const totalBranchWidth = branchLayouts.reduce(
-				(sum, bl) => sum + Math.max(bl.bbox.width, constants.nodeWidth),
-				0
+			branchWidths = branchLayouts.map((bl) =>
+				Math.max(bl.bbox.width, constants.nodeWidth)
 			)
-			const gaps = Math.max(0, branchLayouts.length - 1) * constants.gapH
-			wrapperWidth = Math.max(totalBranchWidth + gaps, constants.nodeWidth)
+			const gaps = Math.max(0, branchWidths.length - 1) * constants.gapH
+			totalWidth =
+				branchWidths.reduce((s, w) => s + w, 0) + gaps
+			wrapperWidth = Math.max(totalWidth, constants.nodeWidth)
 
 			const maxBranchHeight = Math.max(0, ...branchLayouts.map((bl) => bl.bbox.height))
 			// head row + branch content + end row
@@ -383,6 +354,8 @@ function layoutLevel(
 		groupLayouts.set(group.headId, {
 			group,
 			branchLayouts,
+			branchWidths,
+			totalWidth,
 			wrapperWidth,
 			wrapperHeight
 		})
@@ -390,48 +363,17 @@ function layoutLevel(
 	}
 
 	// Step 4: Build flattened node list for sugiyama
-	// Regular nodes + wrapper pseudo-nodes (replacing groups)
-	const flatNodes: { id: string; parentIds?: string[] }[] = []
-
-	for (const nid of nodeIds) {
-		if (groupOwnedIds.has(nid)) continue // Skip group internals
-
-		if (groupByHeadId.has(nid)) {
-			// This is a group head — acts as the wrapper node
-			const headNode = allNodes.get(nid)!
-			flatNodes.push({
-				id: nid,
-				parentIds: (headNode.parentIds ?? []).filter(
-					(pid) => nodeIdSet.has(pid) && !groupOwnedIds.has(pid)
-				)
-			})
-		} else {
-			// Regular node
-			const node = allNodes.get(nid)!
-			flatNodes.push({
-				id: nid,
-				parentIds: (node.parentIds ?? []).filter((pid) => {
-					if (!nodeIdSet.has(pid)) return false
-					if (groupOwnedIds.has(pid)) {
-						// This node's parent is inside a group — it should connect to the group head instead
-						return false
-					}
-					return true
-				})
-			})
-		}
-	}
-
-	// Fix parent references: if a node's parent is a group end node, redirect to the group head
+	// Merge into a single pass: create flatNode and compute final parentIds with end→head redirection
 	const endToHead = new Map<string, string>()
 	for (const group of topLevelGroups) {
 		endToHead.set(group.endId, group.headId)
 	}
 
-	for (const fn of flatNodes) {
-		if (!fn.parentIds) continue
-		// Check original parents before filtering
-		const originalNode = allNodes.get(fn.id)!
+	const flatNodes: { id: string; parentIds?: string[] }[] = []
+	for (const nid of nodeIds) {
+		if (groupOwnedIds.has(nid)) continue
+
+		const originalNode = allNodes.get(nid)!
 		const newParents: string[] = []
 		for (const pid of originalNode.parentIds ?? []) {
 			if (!nodeIdSet.has(pid)) continue
@@ -442,7 +384,7 @@ function layoutLevel(
 				if (!newParents.includes(pid)) newParents.push(pid)
 			}
 		}
-		fn.parentIds = newParents
+		flatNodes.push({ id: nid, parentIds: newParents })
 	}
 
 	// Step 5: Run sugiyama on flattened nodes
@@ -467,19 +409,12 @@ function layoutLevel(
 		positions.set(headId, { x: wrapperPos.x, y: wrapperPos.y })
 
 		if (isBranch) {
-			// Place branches side by side
-			const branchWidths = gl.branchLayouts.map((bl) =>
-				Math.max(bl.bbox.width, constants.nodeWidth)
-			)
-			const totalWidth =
-				branchWidths.reduce((s, w) => s + w, 0) +
-				Math.max(0, branchWidths.length - 1) * constants.gapH
-
-			let currentX = wrapperPos.x - totalWidth / 2
+			// Reuse cached branchWidths and totalWidth
+			let currentX = wrapperPos.x - gl.totalWidth / 2
 
 			for (let bi = 0; bi < gl.branchLayouts.length; bi++) {
 				const bl = gl.branchLayouts[bi]
-				const bw = branchWidths[bi]
+				const bw = gl.branchWidths[bi]
 				const branchCenterX = currentX + bw / 2
 
 				// Offset all branch positions relative to the branch center
@@ -576,8 +511,17 @@ export function compoundLayout(
 		allNodes.set(n.id, n)
 	}
 
+	// Build children map once (reverse of parentIds), shared across all recursion levels
+	const childrenMap = new Map<string, string[]>()
+	for (const [nid, node] of allNodes) {
+		for (const pid of node.parentIds ?? []) {
+			if (!childrenMap.has(pid)) childrenMap.set(pid, [])
+			childrenMap.get(pid)!.push(nid)
+		}
+	}
+
 	const nodeIds = nodes.map((n) => n.id)
-	const result = layoutLevel(nodeIds, allNodes, c)
+	const result = layoutLevel(nodeIds, allNodes, c, childrenMap)
 
 	// Shift positions so minX=0 (left-aligned).
 	// FlowGraphV2 centers with: xCenter = viewport/2 - bbox.width/2
