@@ -163,8 +163,8 @@
 	{#if !groupEditorContext?.groupEditor.isRuntimeCollapsed(group.id)}
 		{@const bounds = computeGroupBounds(group)}
 		{#if bounds}
-			<ViewportPortal target="front">
-				<!-- Always-visible border -->
+			<!-- Bounding box background + outline (behind nodes) -->
+			<ViewportPortal target="back">
 				<div
 					class="absolute rounded-lg outline outline-1 pointer-events-none transition-colors duration-150 {getOutlineColorClass(
 						group.color,
@@ -173,61 +173,63 @@
 					style:transform="translate({bounds.x}px, {bounds.y}px)"
 					style:width="{bounds.width}px"
 					style:height="{bounds.height}px"
+				></div>
+			</ViewportPortal>
+
+			<!-- Header card (above nodes) -->
+			<ViewportPortal target="front">
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="absolute"
+					style="pointer-events: auto; transform: translate({bounds.x + 16}px, {bounds.y - bounds.headerOffset}px);"
 					style:z-index="4"
+					onpointerenter={() => {
+						actionBarHovered = true
+						visibleGroup = group
+						if (hideTimeout) {
+							clearTimeout(hideTimeout)
+							hideTimeout = undefined
+						}
+					}}
+					onpointerleave={() => {
+						actionBarHovered = false
+					}}
 				>
-					<!-- Header card (inside the border) -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						class="absolute"
-						style="pointer-events: auto; left: 16px; top: -{bounds.headerOffset}px;"
-						onpointerenter={() => {
-							actionBarHovered = true
-							visibleGroup = group
-							if (hideTimeout) {
-								clearTimeout(hideTimeout)
-								hideTimeout = undefined
-							}
-						}}
-						onpointerleave={() => {
-							actionBarHovered = false
-						}}
-					>
-						<StepCountTab
-							stepCount={group.module_ids.length}
-							color={group.color}
-							collapsed={false}
-							onExpand={() => toggleCollapse(group.id)}
-						/>
-						<GroupNodeCard
-							summary={group.summary}
-							stepCount={group.module_ids.length}
-							color={group.color}
+					<StepCountTab
+						stepCount={group.module_ids.length}
+						color={group.color}
+						collapsed={false}
+						onExpand={() => toggleCollapse(group.id)}
+					/>
+					<GroupNodeCard
+						summary={group.summary}
+						stepCount={group.module_ids.length}
+						color={group.color}
+						note={group.note}
+						showNote={showNotes && group.note != null}
+						{editMode}
+						modules={getGroupModules(group)}
+						onExpand={() => toggleCollapse(group.id)}
+						onSummaryUpdate={(text) => groupEditorContext?.groupEditor.updateSummary(group.id, text)}
+						onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(group.id, text)}
+						onHeightChange={(h) => groupEditorContext?.groupEditor.setNoteHeight(group.id, h)}
+					/>
+					{#if editMode && visibleGroup?.id === group.id}
+						<GroupActionBar
 							note={group.note}
-							showNote={showNotes && group.note != null}
-							{editMode}
-							modules={getGroupModules(group)}
-							onExpand={() => toggleCollapse(group.id)}
-							onSummaryUpdate={(text) => groupEditorContext?.groupEditor.updateSummary(group.id, text)}
-							onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(group.id, text)}
-							onHeightChange={(h) => groupEditorContext?.groupEditor.setNoteHeight(group.id, h)}
+							color={group.color}
+							collapsedByDefault={group.collapsed_by_default ?? false}
+							bind:menuOpen
+							onAddNote={() => groupEditorContext?.groupEditor.addNote(group.id)}
+							onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(group.id)}
+							onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(group.id, c)}
+							onUpdateCollapsedDefault={(v) => groupEditorContext?.groupEditor.updateCollapsedDefault(group.id, v)}
+							onDeleteGroup={() => {
+								groupEditorContext?.groupEditor.deleteGroup(group.id)
+								visibleGroup = undefined
+							}}
 						/>
-						{#if editMode && visibleGroup?.id === group.id}
-							<GroupActionBar
-								note={group.note}
-								color={group.color}
-								collapsedByDefault={group.collapsed_by_default ?? false}
-								bind:menuOpen
-								onAddNote={() => groupEditorContext?.groupEditor.addNote(group.id)}
-								onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(group.id)}
-								onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(group.id, c)}
-								onUpdateCollapsedDefault={(v) => groupEditorContext?.groupEditor.updateCollapsedDefault(group.id, v)}
-								onDeleteGroup={() => {
-									groupEditorContext?.groupEditor.deleteGroup(group.id)
-									visibleGroup = undefined
-								}}
-							/>
-						{/if}
-					</div>
+					{/if}
 				</div>
 			</ViewportPortal>
 		{/if}
@@ -237,7 +239,7 @@
 {#each expandedSubflowNodes as node (node.id)}
 	{@const bounds = computeSubflowBounds(node)}
 	{#if bounds}
-		<ViewportPortal target="front">
+		<ViewportPortal target="back">
 			<div
 				class="absolute rounded-lg outline outline-1 pointer-events-none outline-blue-400/60 dark:outline-blue-600/60"
 				style:transform="translate({bounds.x}px, {bounds.y}px)"
