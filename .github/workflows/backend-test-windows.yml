@@ -1,0 +1,157 @@
+name: Backend integration tests (Windows)
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_INCREMENTAL: 0
+  SQLX_OFFLINE: true
+  DISABLE_EMBEDDING: true
+
+jobs:
+  cargo_test_windows:
+    runs-on: blacksmith-16vcpu-windows-2025
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read EE repo commit hash
+        shell: pwsh
+        run: |
+          $ee_repo_ref = Get-Content .\backend\ee-repo-ref.txt
+          echo "ee_repo_ref=$ee_repo_ref" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Checkout windmill-ee-private repository
+        uses: actions/checkout@v4
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          ref: ${{ env.ee_repo_ref }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 0
+
+      - name: Substitute EE code
+        shell: bash
+        run: |
+          ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
+
+      - name: Setup PostgreSQL
+        uses: ikalnytskyi/action-setup-postgres@v6
+        with:
+          username: postgres
+          password: changeme
+          database: windmill
+          port: 5432
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-workspaces: backend
+          toolchain: 1.93.0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - uses: actions/setup-go@v2
+        with:
+          go-version: 1.21.5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: astral-sh/setup-uv@v6.2.1
+        with:
+          version: "0.9.24"
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+
+      - name: Install windmill CLI
+        shell: bash
+        run: |
+          cd cli
+          bash gen_wm_client.sh
+          bun install
+          mkdir -p "$HOME/.local/bin"
+          printf '#!/bin/sh\nexec bun run "%s/cli/src/main.ts" "$@"\n' "$GITHUB_WORKSPACE" > "$HOME/.local/bin/wmill"
+          chmod +x "$HOME/.local/bin/wmill"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install OpenSSL via vcpkg
+        run: |
+          vcpkg.exe install openssl-windows:x64-windows
+          vcpkg.exe install openssl:x64-windows-static
+          vcpkg.exe integrate install
+
+      - name: Get runtime paths
+        id: runtime-paths
+        shell: pwsh
+        run: |
+          echo "DENO_PATH=$($(Get-Command deno).Source)" >> $env:GITHUB_OUTPUT
+          echo "BUN_PATH=$($(Get-Command bun).Source)" >> $env:GITHUB_OUTPUT
+          echo "NODE_BIN_PATH=$($(Get-Command node).Source)" >> $env:GITHUB_OUTPUT
+          echo "GO_PATH=$($(Get-Command go).Source)" >> $env:GITHUB_OUTPUT
+          echo "UV_PATH=$($(Get-Command uv).Source)" >> $env:GITHUB_OUTPUT
+          echo "PHP_PATH=$($(Get-Command php).Source)" >> $env:GITHUB_OUTPUT
+          echo "COMPOSER_PATH=$($(Get-Command composer).Source)" >> $env:GITHUB_OUTPUT
+          echo "POWERSHELL_PATH=$($(Get-Command pwsh).Source)" >> $env:GITHUB_OUTPUT
+          echo "DOTNET_PATH=$($(Get-Command dotnet).Source)" >> $env:GITHUB_OUTPUT
+
+      - name: Build DuckDB FFI module
+        working-directory: backend/windmill-duckdb-ffi-internal
+        timeout-minutes: 30
+        run: |
+          cargo build --release -p windmill_duckdb_ffi_internal
+          New-Item -ItemType Directory -Path ..\target\debug -Force
+          Copy-Item target\release\windmill_duckdb_ffi_internal.dll ..\target\debug\
+
+      - name: Print runtime versions
+        shell: pwsh
+        run: |
+          deno --version
+          bun -v
+          node --version
+          go version
+          python3 --version
+          php --version
+          pwsh --version
+          dotnet --version
+
+      - name: cargo test
+        working-directory: backend
+        timeout-minutes: 60
+        env:
+          DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
+          RUST_LOG: "off"
+          RUST_LOG_STYLE: never
+          CARGO_NET_GIT_FETCH_WITH_CLI: true
+          CARGO_BUILD_JOBS: 12
+          VCPKGRS_DYNAMIC: 1
+          OPENSSL_DIR: ${{ env.VCPKG_INSTALLATION_ROOT }}\installed\x64-windows-static
+          DENO_PATH: ${{ steps.runtime-paths.outputs.DENO_PATH }}
+          BUN_PATH: ${{ steps.runtime-paths.outputs.BUN_PATH }}
+          NODE_BIN_PATH: ${{ steps.runtime-paths.outputs.NODE_BIN_PATH }}
+          GO_PATH: ${{ steps.runtime-paths.outputs.GO_PATH }}
+          UV_PATH: ${{ steps.runtime-paths.outputs.UV_PATH }}
+          PHP_PATH: ${{ steps.runtime-paths.outputs.PHP_PATH }}
+          COMPOSER_PATH: ${{ steps.runtime-paths.outputs.COMPOSER_PATH }}
+          POWERSHELL_PATH: ${{ steps.runtime-paths.outputs.POWERSHELL_PATH }}
+          DOTNET_PATH: ${{ steps.runtime-paths.outputs.DOTNET_PATH }}
+          WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: 1
+          WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1
+          WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1
+        run: >
+          cargo test
+          --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private,csharp,php,quickjs,mcp,run_inline
+          --all
+          -- --nocapture --test-threads=10
