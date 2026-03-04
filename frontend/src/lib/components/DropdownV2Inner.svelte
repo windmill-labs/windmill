@@ -62,6 +62,9 @@
 						{item.displayName}
 					</p>
 					{@render item.extra?.()}
+					{#if item.shortcut}
+						<span class="ml-auto pl-4 text-2xs text-secondary shrink-0">{item.shortcut}</span>
+					{/if}
 					{#if item.tooltip}
 						<Tooltip>
 							{#snippet text()}

@@ -56,6 +56,7 @@ export type GraphEventHandlers = {
 	delete: (detail: { id: string }, label: string) => void
 	newBranch: (id: string) => void
 	move: (detail: { id: string }) => void
+	duplicate: (detail: { id: string }) => void
 	selectedIteration: OnSelectedIteration
 	changeId: (newId: string) => void
 	simplifyFlow: (b: boolean) => void
