@@ -26,6 +26,7 @@
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
+		disableHubStore,
 		usedTriggerKinds,
 		devopsRole,
 		whitelabelNameStore,
@@ -157,6 +158,7 @@
 		loadUsage()
 		syncTutorialsTodos()
 		loadHubBaseUrl()
+		loadDisableHub()
 		loadUsedTriggerKinds()
 	}
 
@@ -174,6 +176,11 @@
 			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
 			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
 			DEFAULT_HUB_BASE_URL
+	}
+
+	async function loadDisableHub() {
+		$disableHubStore =
+			((await SettingService.getGlobal({ key: 'disable_hub' })) as boolean) ?? false
 	}
 
 	async function loadFavorites() {
