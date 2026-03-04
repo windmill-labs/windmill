@@ -69,35 +69,35 @@
 		}
 	}
 
-	// Border color mapping — default uses /60 opacity, hover uses full opacity
-	const GROUP_BORDER_COLORS: Record<NoteColor, string> = {
-		[NoteColor.YELLOW]: 'border-yellow-400/60 dark:border-yellow-600/60',
-		[NoteColor.BLUE]: 'border-blue-400/60 dark:border-blue-600/60',
-		[NoteColor.GREEN]: 'border-green-400/60 dark:border-green-600/60',
-		[NoteColor.PURPLE]: 'border-purple-400/60 dark:border-purple-600/60',
-		[NoteColor.PINK]: 'border-pink-400/60 dark:border-pink-600/60',
-		[NoteColor.ORANGE]: 'border-orange-400/60 dark:border-orange-600/60',
-		[NoteColor.RED]: 'border-red-400/60 dark:border-red-600/60',
-		[NoteColor.CYAN]: 'border-cyan-400/60 dark:border-cyan-600/60',
-		[NoteColor.LIME]: 'border-lime-400/60 dark:border-lime-600/60',
-		[NoteColor.GRAY]: 'border-gray-400/60 dark:border-gray-600/60'
+	// Outline color mapping — default uses /60 opacity, hover uses full opacity
+	const GROUP_OUTLINE_COLORS: Record<NoteColor, string> = {
+		[NoteColor.YELLOW]: 'outline-yellow-400/60 dark:outline-yellow-600/60',
+		[NoteColor.BLUE]: 'outline-blue-400/60 dark:outline-blue-600/60',
+		[NoteColor.GREEN]: 'outline-green-400/60 dark:outline-green-600/60',
+		[NoteColor.PURPLE]: 'outline-purple-400/60 dark:outline-purple-600/60',
+		[NoteColor.PINK]: 'outline-pink-400/60 dark:outline-pink-600/60',
+		[NoteColor.ORANGE]: 'outline-orange-400/60 dark:outline-orange-600/60',
+		[NoteColor.RED]: 'outline-red-400/60 dark:outline-red-600/60',
+		[NoteColor.CYAN]: 'outline-cyan-400/60 dark:outline-cyan-600/60',
+		[NoteColor.LIME]: 'outline-lime-400/60 dark:outline-lime-600/60',
+		[NoteColor.GRAY]: 'outline-gray-400/60 dark:outline-gray-600/60'
 	}
 
-	const GROUP_BORDER_COLORS_HOVER: Record<NoteColor, string> = {
-		[NoteColor.YELLOW]: 'border-yellow-400 dark:border-yellow-600',
-		[NoteColor.BLUE]: 'border-blue-400 dark:border-blue-600',
-		[NoteColor.GREEN]: 'border-green-400 dark:border-green-600',
-		[NoteColor.PURPLE]: 'border-purple-400 dark:border-purple-600',
-		[NoteColor.PINK]: 'border-pink-400 dark:border-pink-600',
-		[NoteColor.ORANGE]: 'border-orange-400 dark:border-orange-600',
-		[NoteColor.RED]: 'border-red-400 dark:border-red-600',
-		[NoteColor.CYAN]: 'border-cyan-400 dark:border-cyan-600',
-		[NoteColor.LIME]: 'border-lime-400 dark:border-lime-600',
-		[NoteColor.GRAY]: 'border-gray-400 dark:border-gray-600'
+	const GROUP_OUTLINE_COLORS_HOVER: Record<NoteColor, string> = {
+		[NoteColor.YELLOW]: 'outline-yellow-400 dark:outline-yellow-600',
+		[NoteColor.BLUE]: 'outline-blue-400 dark:outline-blue-600',
+		[NoteColor.GREEN]: 'outline-green-400 dark:outline-green-600',
+		[NoteColor.PURPLE]: 'outline-purple-400 dark:outline-purple-600',
+		[NoteColor.PINK]: 'outline-pink-400 dark:outline-pink-600',
+		[NoteColor.ORANGE]: 'outline-orange-400 dark:outline-orange-600',
+		[NoteColor.RED]: 'outline-red-400 dark:outline-red-600',
+		[NoteColor.CYAN]: 'outline-cyan-400 dark:outline-cyan-600',
+		[NoteColor.LIME]: 'outline-lime-400 dark:outline-lime-600',
+		[NoteColor.GRAY]: 'outline-gray-400 dark:outline-gray-600'
 	}
 
-	function getBorderColorClass(color?: string, hovered?: boolean): string {
-		const map = hovered ? GROUP_BORDER_COLORS_HOVER : GROUP_BORDER_COLORS
+	function getOutlineColorClass(color?: string, hovered?: boolean): string {
+		const map = hovered ? GROUP_OUTLINE_COLORS_HOVER : GROUP_OUTLINE_COLORS
 		return map[(color as NoteColor) ?? NoteColor.BLUE] ?? map[NoteColor.BLUE]
 	}
 
@@ -148,7 +148,7 @@
 			<ViewportPortal target="front">
 				<!-- Always-visible border -->
 				<div
-					class="absolute rounded-lg border pointer-events-none transition-colors duration-150 {getBorderColorClass(
+					class="absolute rounded-lg outline outline-1 pointer-events-none transition-colors duration-150 {getOutlineColorClass(
 						group.color,
 						visibleGroup?.id === group.id
 					)}"
@@ -221,7 +221,7 @@
 	{#if bounds}
 		<ViewportPortal target="front">
 			<div
-				class="absolute rounded-lg border pointer-events-none border-blue-400/60 dark:border-blue-600/60"
+				class="absolute rounded-lg outline outline-1 pointer-events-none outline-blue-400/60 dark:outline-blue-600/60"
 				style:transform="translate({bounds.x}px, {bounds.y}px)"
 				style:width="{bounds.width}px"
 				style:height="{bounds.height}px"
