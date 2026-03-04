@@ -993,9 +993,18 @@ macro_rules! process_app_multipart {
             let mut uploaded_js = false;
 
             let mut multipart = $multipart;
-            while let Some(field) = multipart.next_field().await.unwrap() {
-                let name = field.name().unwrap().to_string();
-                let data = field.bytes().await.unwrap();
+            while let Some(field) = multipart
+                .next_field()
+                .await
+                .map_err(|e| Error::BadRequest(format!("failed to read multipart field: {e}")))?
+            {
+                let name = field
+                    .name()
+                    .ok_or_else(|| Error::BadRequest("multipart field missing name".to_string()))?
+                    .to_string();
+                let data = field.bytes().await.map_err(|e| {
+                    Error::BadRequest(format!("failed to read multipart stream: {e}"))
+                })?;
                 if name == "app" {
                     let app = serde_json::from_slice(&data).map_err(to_anyhow)?;
                     let (ntx, npath, nid) = $internal_fn(
@@ -2149,7 +2158,8 @@ async fn execute_component(
         (email.as_str(), permissioned_as)
     };
 
-    let end_user_email = get_end_user_email(&db, opt_authed.as_ref(), tokened.token.as_deref()).await;
+    let end_user_email =
+        get_end_user_email(&db, opt_authed.as_ref(), tokened.token.as_deref()).await;
 
     let (uuid, mut tx) = push(
         &db,
