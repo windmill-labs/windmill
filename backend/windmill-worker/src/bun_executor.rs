@@ -527,6 +527,8 @@ pub async fn build_loader(
     current_path: &str,
     mode: LoaderMode,
 ) -> Result<()> {
+    // Use forward slashes in JS strings to avoid backslash escape issues on Windows
+    let job_dir_js = job_dir.replace('\\', "/");
     let loader = RELATIVE_BUN_LOADER
         .replace("W_ID", w_id)
         .replace("BASE_INTERNAL_URL", base_internal_url)
@@ -549,13 +551,13 @@ import {{ readdir }} from "node:fs/promises";
 
 let fileNames = []
 try {{
-    fileNames = await readdir("{job_dir}/node_modules")
+    fileNames = await readdir("{job_dir_js}/node_modules")
 }} catch (e) {{
 }}
 
 try {{
     await Bun.build({{
-        entrypoints: ["{job_dir}/wrapper.mjs"],
+        entrypoints: ["{job_dir_js}/wrapper.mjs"],
         outdir: "./",
         target: "node",
         plugins: [p],
@@ -597,7 +599,7 @@ plugin(p)
 
 try {{
     await Bun.build({{
-        entrypoints: ["{job_dir}/main.ts"],
+        entrypoints: ["{job_dir_js}/main.ts"],
         outdir: "./",
         target: "{}",
         plugins: [p],

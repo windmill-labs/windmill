@@ -15,15 +15,16 @@ const p = {
 
     const cdir = resolve("./");
     const cdirNoPrivate = cdir.replace(/^\/private/, ""); // for macos
-    // On Windows, normalize path to POSIX format to match args.path from Bun's resolver
-    const cdirPosix = cdir.replace(/\\/g, "/").replace(/^[a-zA-Z]:/, "");
+    // On Windows, normalize path to forward slashes to match Bun's resolver output
+    const cdirFwd = cdir.replace(/\\/g, "/");
+    const cdirPosix = cdirFwd.replace(/^[a-zA-Z]:/, "");
     const filterResolve = new RegExp(
-      `^(?!\\.\/main\\.ts)(?!${cdir}\/main\\.ts)(?!${cdirPosix}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
+      `^(?!\\.\/main\\.ts)(?!${cdirFwd}\/main\\.ts)(?!${cdirPosix}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
     );
 
-    let cdirNodeModules = `${cdir}/node_modules/`;
+    let cdirNodeModules = `${cdirFwd}/node_modules/`;
 
-    const filterLoad = new RegExp(`^${cdir}\/main\\.ts$`);
+    const filterLoadPath = cdirFwd + "/main.ts";
     const transpiler = new Bun.Transpiler({
       loader: "ts",
     });
@@ -47,7 +48,8 @@ const p = {
       };
     }
 
-    build.onLoad({ filter: filterLoad }, async (args) => {
+    build.onLoad({ filter: /main\.ts$/ }, async (args) => {
+      if (args.path.replace(/\\/g, "/") !== filterLoadPath) return undefined;
       const code = readFileSync(args.path, "utf8");
       return replaceRelativeImports(code);
     });
@@ -74,13 +76,14 @@ const p = {
     });
 
     build.onResolve({ filter: filterResolve }, (args) => {
-      if (args.importer?.startsWith(cdirNodeModules)) {
+      const importerFwd = args.importer?.replace(/\\/g, "/") ?? "";
+      if (importerFwd.startsWith(cdirNodeModules)) {
         return undefined;
       }
       const file_path =
-        args.importer == "./main.ts" || args.importer == resolve("./main.ts")
+        args.importer == "./main.ts" || importerFwd == cdirFwd + "/main.ts"
           ? current_path
-          : args.importer.replace(cdir + "/", "");
+          : importerFwd.replace(cdirFwd + "/", "");
 
       const isRelative = !args.path.startsWith("/");
 
