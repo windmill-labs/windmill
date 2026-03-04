@@ -96,9 +96,8 @@ components:
           type: boolean
         flow_env:
           type: object
-          description: Environment variables available to all steps
-          additionalProperties:
-            type: string
+          description: "Environment variables available to all steps. Values can be strings, JSON values, or special references: '$var:path' (workspace variable) or '$res:path' (resource)."
+          additionalProperties: {}
         priority:
           type: number
           description: Execution priority (higher numbers run first)
