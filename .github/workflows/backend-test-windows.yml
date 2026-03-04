@@ -155,6 +155,7 @@ jobs:
           WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1
         run: >
           cargo test
+          --no-fail-fast
           --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private,csharp,php,quickjs,mcp,run_inline
           --all
           -- --nocapture --test-threads=10
