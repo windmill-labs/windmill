@@ -50,6 +50,7 @@ export type DisplayResultUi = {
 
 export type PreviewPanelUi = {
 	disableHistory?: boolean
+	disableTracing?: boolean
 	disableTriggerCaptures?: boolean
 	disableTriggerButton?: boolean
 	displayResult?: DisplayResultUi

@@ -69,6 +69,7 @@
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 
 	let flow: Flow | undefined = $state()
 	let can_write = $state(false)
@@ -255,7 +256,7 @@
 			})
 		}
 
-		if (flow && !$userStore?.operator && !isRuleActive('DisableWorkspaceForking')) {
+		if (flow && !$userStore?.operator && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
 			buttons.push({
 				label: 'Edit in fork',
 				buttonProps: {

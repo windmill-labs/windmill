@@ -47,7 +47,9 @@ use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, script_path_to_payload, JobKind, JobPayload,
     OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
+use windmill_common::runnable_settings::{
+    ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettingsTrait,
+};
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
@@ -547,6 +549,25 @@ pub async fn update_flow_status_after_job_completion_internal(
             Ok::<_, Error>(args.clone())
         };
 
+        // Pre-compute whether the completed job was an identity (skipped) job.
+        // When a step has skip_if set and the condition was true, the step runs
+        // as an identity job.  We must skip the stop_after_if evaluation in that
+        // case because the result is just a pass-through of the previous step's
+        // result, not the output of the actual step logic.
+        let is_identity_job = if current_module.is_some_and(|m| m.skip_if.is_some()) {
+            sqlx::query_scalar!(
+                "SELECT kind = 'identity' FROM v2_job WHERE id = $1",
+                job_id_for_status
+            )
+            .fetch_optional(db)
+            .await
+            .map_err(|e| Error::internal_err(format!("error during identity job check: {e:#}")))?
+            .flatten()
+            .unwrap_or(false)
+        } else {
+            false
+        };
+
         let (mut stop_early, mut stop_early_err_msg, mut skip_if_stop_early, continue_on_error) =
             if stop_early_override.is_some()
                 && !is_flow_stop_early_override
@@ -562,6 +583,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 let stop_early = success
                     && !is_branch_all // we don't support stop_early per branch
                     && !parallel_loop // we don't support anymore stop_early per iteration when parallel for loop (removed from frontend)
+                    && !is_identity_job // don't evaluate stop_after_if for skipped (identity) steps
                     && if let Some(expr) = current_module
                         .stop_after_if
                         .as_ref()
@@ -1101,17 +1123,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 {
                     let is_skipped = (stop_early && skip_if_stop_early)
                         || if current_module.as_ref().is_some_and(|m| m.skip_if.is_some()) {
-                            sqlx::query_scalar!(
-                                "SELECT kind = 'identity' FROM v2_job WHERE id = $1",
-                                job_id_for_status
-                            )
-                            .fetch_optional(db)
-                            .await
-                            .map_err(|e| {
-                                Error::internal_err(format!("error during skip check: {e:#}"))
-                            })?
-                            .flatten()
-                            .unwrap_or(false)
+                            is_identity_job
                         } else {
                             false
                         };
@@ -1424,6 +1436,38 @@ pub async fn update_flow_status_after_job_completion_internal(
                 }
             };
 
+            // When debouncing is applied, store the flow's debouncing settings in
+            // the runnable_settings_handle so that maybe_apply_debouncing can find
+            // them after re-pull and perform argument accumulation.
+            let new_runnable_settings_handle: Option<i64> = if scheduled_for.is_some() {
+                let debouncing_hash = flow_value
+                    .debouncing_settings
+                    .insert_cached(db)
+                    .await
+                    .unwrap_or_else(|e| {
+                        tracing::error!(
+                            "Failed to insert debouncing settings for post-preprocessing: {e:#}"
+                        );
+                        None
+                    });
+                windmill_common::runnable_settings::insert_rs(
+                    windmill_common::runnable_settings::RunnableSettings {
+                        debouncing_settings: debouncing_hash,
+                        concurrency_settings: None,
+                    },
+                    db,
+                )
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!(
+                        "Failed to insert runnable settings for post-preprocessing: {e:#}"
+                    );
+                    None
+                })
+            } else {
+                None
+            };
+
             sqlx::query!(
                 "WITH job_result AS (
                  SELECT result
@@ -1434,7 +1478,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 UPDATE v2_job_queue
                 SET running = false,
                 tag = COALESCE($3, tag),
-                scheduled_for = COALESCE($6, scheduled_for)
+                scheduled_for = COALESCE($6, scheduled_for),
+                runnable_settings_handle = COALESCE($7, runnable_settings_handle)
                 WHERE id = $2
              )
              UPDATE v2_job
@@ -1463,6 +1508,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 concurrent_limit,
                 concurrency_time_window_s,
                 scheduled_for,
+                new_runnable_settings_handle,
             )
             .execute(db)
             .await

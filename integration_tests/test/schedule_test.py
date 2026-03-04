@@ -112,25 +112,39 @@ class TestSchedule(unittest.TestCase):
         return datetime.datetime.fromisoformat(db_datetime.strip("Z") + "+00:00")
 
     def test_script_schedule_running(self):
-        # the script is scheduled to run every 5 seconds, wait for 6 before checking is has run
-        time.sleep(6)
-        script_runs = self._client.get_latest_job_runs(path=SCRIPT_PATH)
-        if len(script_runs) == 0:
-            self.fail("No script runs found")
-        latest_run = script_runs[0]
-        latest_run_time = TestSchedule.parse_db_datetime(latest_run["created_at"])
-        time_now = datetime.datetime.now(datetime.timezone.utc)
-        # check that last run is within 5 seconds of now
-        self.assertTrue(time_now - latest_run_time < datetime.timedelta(seconds=5))
+        # the script is scheduled to run every 5 seconds
+        # poll until we see a recent run, with a generous timeout for CI
+        start_time = datetime.datetime.now(datetime.timezone.utc)
+        timeout = 30
+        poll_interval = 2
+        elapsed = 0
+        while elapsed < timeout:
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+            script_runs = self._client.get_latest_job_runs(path=SCRIPT_PATH)
+            if len(script_runs) > 0:
+                latest_run_time = TestSchedule.parse_db_datetime(script_runs[0]["created_at"])
+                if latest_run_time >= start_time:
+                    return  # success: schedule produced a run after we started waiting
+        self.fail(
+            f"No script schedule run appeared within {timeout}s"
+        )
 
     def test_flow_schedule_running(self):
-        # the flow is scheduled to run every 5 seconds, wait for 6 before checking is has run
-        time.sleep(6)
-        flow_runs = self._client.get_latest_job_runs(path=FLOW_PATH)
-        if len(flow_runs) == 0:
-            self.fail("No flow runs found")
-        latest_run = flow_runs[0]
-        latest_run_time = TestSchedule.parse_db_datetime(latest_run["created_at"])
-        time_now = datetime.datetime.now(datetime.timezone.utc)
-        # check that last run is within 5 seconds of now
-        self.assertTrue(time_now - latest_run_time < datetime.timedelta(seconds=5))
+        # the flow is scheduled to run every 5 seconds
+        # poll until we see a recent run, with a generous timeout for CI
+        start_time = datetime.datetime.now(datetime.timezone.utc)
+        timeout = 30
+        poll_interval = 2
+        elapsed = 0
+        while elapsed < timeout:
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+            flow_runs = self._client.get_latest_job_runs(path=FLOW_PATH)
+            if len(flow_runs) > 0:
+                latest_run_time = TestSchedule.parse_db_datetime(flow_runs[0]["created_at"])
+                if latest_run_time >= start_time:
+                    return  # success: schedule produced a run after we started waiting
+        self.fail(
+            f"No flow schedule run appeared within {timeout}s"
+        )

@@ -14,3 +14,8 @@ pub fn workspaced_service() -> Router {
 pub fn global_service() -> Router {
     Router::new()
 }
+
+#[cfg(not(feature = "private"))]
+pub fn management_service() -> Router {
+    Router::new()
+}

@@ -5,6 +5,7 @@ use std::{collections::HashMap, process::Stdio};
 use uuid::Uuid;
 use windmill_parser_rust::parse_rust_deps_into_manifest;
 
+use crate::global_cache::save_cache;
 use itertools::Itertools;
 use tokio::{
     fs::{create_dir_all, File},
@@ -16,7 +17,6 @@ use windmill_common::{
     utils::calculate_hash,
     worker::{write_file, Connection},
 };
-use crate::global_cache::save_cache;
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -337,7 +337,7 @@ async fn get_build_dir(
                 if !is_sandboxing_enabled() {
                     // If nsjail is disabled then entire worker has shared build directory
                     // It drastically improves cache hit-rate.
-                    Some((format!("{RUST_CACHE_DIR}/build/{worker_name}"), true))
+                    Some((format!("{}/build/{worker_name}", *RUST_CACHE_DIR), true))
                 } else {
                     // If nsjail is enabled, having global shared directory is vulnerability and target for an attack
                     // Instead we either:
@@ -345,7 +345,8 @@ async fn get_build_dir(
                     // 2. If user is not known or something else goes wrong - use random build dir. This is equivalent to no cache at all.
                     Some((
                         format!(
-                            "{RUST_CACHE_DIR}/build/{}@{}@{}",
+                            "{}/build/{}@{}@{}",
+                            *RUST_CACHE_DIR,
                             &job.workspace_id,
                             p.replace('/', "."),
                             &job.created_by
@@ -355,7 +356,10 @@ async fn get_build_dir(
                 }
             }
         })
-        .unwrap_or((format!("{RUST_CACHE_DIR}/build/{}", Uuid::new_v4()), false));
+        .unwrap_or((
+            format!("{}/build/{}", *RUST_CACHE_DIR, Uuid::new_v4()),
+            false,
+        ));
 
     {
         let (t, r, g) = (
@@ -449,7 +453,7 @@ pub async fn build_rust_crate(
     is_preview: bool,
 ) -> error::Result<String> {
     ensure_rust_runtime_dirs();
-    let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
+    let bin_path = format!("{}/{hash}", *RUST_CACHE_DIR);
 
     let build_dir = get_build_dir(job, job_dir, conn, worker_name, is_preview).await?;
 
@@ -459,9 +463,9 @@ pub async fn build_rust_crate(
             "download.config.proto",
             &NSJAIL_CONFIG_COMPILE_RUST_CONTENT
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", RUST_CACHE_DIR)
+                .replace("{CACHE_DIR}", &*RUST_CACHE_DIR)
                 .replace("{CARGO_HOME}", CARGO_HOME.as_str())
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{BUILD}", &build_dir),
         )?;
@@ -605,14 +609,13 @@ pub async fn handle_rust_job(
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
     let hash = compute_rust_hash(inner_content, requirements_o);
-    let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
+    let bin_path = format!("{}/{hash}", *RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
 
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-    let (cache, cache_logs) =
-        crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
+    let (cache, cache_logs) = crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
         let target = format!("{job_dir}/main");
@@ -669,10 +672,10 @@ pub async fn handle_rust_job(
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_RUST_CONTENT
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", RUST_CACHE_DIR)
+                .replace("{CACHE_DIR}", &*RUST_CACHE_DIR)
                 .replace("{CACHE_HASH}", &hash)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{SHARED_MOUNT}", shared_mount),
         )?;
