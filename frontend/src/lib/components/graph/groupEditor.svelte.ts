@@ -171,9 +171,7 @@ export class GroupEditor {
 
 	updateCollapsedDefault(groupId: string, collapsed_by_default: boolean): void {
 		const groups = this.getGroups()
-		this.setGroups(
-			groups.map((g) => (g.id === groupId ? { ...g, collapsed_by_default } : g))
-		)
+		this.setGroups(groups.map((g) => (g.id === groupId ? { ...g, collapsed_by_default } : g)))
 	}
 
 	/**
@@ -263,7 +261,7 @@ export function getGroupEditorContext(): GroupEditorContext | undefined {
 /** Extra vertical space pushed above the topmost node of each group for the header card */
 export const GROUP_HEADER_HEIGHT = 40
 
-const GROUP_TOP_MARGIN = 16
+const GROUP_TOP_MARGIN = 32
 
 /**
  * Compute adjusted node positions for collapsed groups whose note is visible.
