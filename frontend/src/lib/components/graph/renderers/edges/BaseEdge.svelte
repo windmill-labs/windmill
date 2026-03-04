@@ -213,7 +213,7 @@
 
 	{#if moveManager?.movingModuleId && data?.insertable}
 		<div class="edgeButtonContainer nodrag nopan" style:transform="translate(-50%, -50%)">
-			{#if !data.disableMoveIds?.includes(moveManager.movingModuleId)}
+			{#if !(moveManager.movingIds ?? [moveManager.movingModuleId]).some((id) => data.disableMoveIds?.includes(id))}
 				<button
 					title="Paste module"
 					onclick={() => {

@@ -17,9 +17,8 @@
 	import { isDbType } from '$lib/components/dbTypes'
 	import { formatAsset, type Asset } from '$lib/components/assets/lib'
 	import { Button, ButtonType } from '$lib/components/common'
-	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
-	import { userStore } from '$lib/stores'
+	import { globalDbManagerDrawer, userStore } from '$lib/stores'
 	import { isS3Uri } from '$lib/utils'
 	import { Database, File, HardDriveIcon } from 'lucide-svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
@@ -28,7 +27,6 @@
 		asset,
 		_resourceMetadata,
 		s3FilePicker,
-		dbManagerDrawer,
 		onClick,
 		class: className = '',
 		noText = false,
@@ -39,7 +37,6 @@
 		asset: Asset
 		_resourceMetadata?: { resource_type?: string }
 		s3FilePicker?: S3FilePicker
-		dbManagerDrawer?: DbManagerDrawer
 		onClick?: () => void
 		class?: string
 		noText?: boolean
@@ -47,6 +44,8 @@
 		btnClasses?: string
 		disabled?: boolean
 	} = $props()
+
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	const assetUri = $derived(formatAsset(asset))
 </script>
 

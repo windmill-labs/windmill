@@ -16386,6 +16386,7 @@ dependencies = [
  "http 1.4.0",
  "hyper 1.8.1",
  "lazy_static",
+ "magic-crypt",
  "regex",
  "serde",
  "serde_json",

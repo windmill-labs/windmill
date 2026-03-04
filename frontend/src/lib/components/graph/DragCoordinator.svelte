@@ -21,7 +21,15 @@
 
 	onMount(() => {
 		moveManager.setScreenToFlowPosition(screenToFlowPosition)
-		moveManager.setComputeDraggedNodeIds((moduleId) => getSubflowNodeIds(moduleId, nodes, edges))
+		moveManager.setComputeDraggedNodeIds((moduleIds) => {
+			const combined = new Set<string>()
+			for (const id of moduleIds) {
+				for (const nodeId of getSubflowNodeIds(id, nodes, edges)) {
+					combined.add(nodeId)
+				}
+			}
+			return combined
+		})
 	})
 
 	$effect(() => {
@@ -33,11 +41,17 @@
 
 		function onPointerUp(_e: PointerEvent) {
 			const moduleId = moveManager.dragging?.moduleId
+			const selectedIds = moveManager.dragging?.selectedIds
 			const zone = moveManager.endDrag()
 			if (zone && moduleId) {
-				// Set movingModuleId directly (non-toggle) so the insert handler knows which module to relocate
-				moveManager.setMoving(moduleId)
-				// Then trigger the insert, which detects movingModuleId and performs the splice
+				// Set moving state so the insert handler knows which module(s) to relocate
+				if (selectedIds && selectedIds.length > 1) {
+					moveManager.movingModuleId = selectedIds[0]
+					moveManager.movingIds = selectedIds
+				} else {
+					moveManager.setMoving(moduleId)
+				}
+				// Then trigger the insert, which detects movingModuleId/movingIds and performs the splice
 				eventHandlers.insert({
 					sourceId: zone.sourceId,
 					targetId: zone.targetId,

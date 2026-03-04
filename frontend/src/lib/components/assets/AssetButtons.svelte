@@ -8,7 +8,6 @@
 
 	type Props = {
 		s3FilePicker?: any | undefined
-		dbManagerDrawer?: any | undefined
 		resourceEditorDrawer?: ResourceEditorDrawer | undefined
 		resourceDataCache: Record<string, string | undefined>
 		asset: Asset
@@ -18,7 +17,6 @@
 	}
 	let {
 		s3FilePicker,
-		dbManagerDrawer,
 		resourceEditorDrawer,
 		resourceDataCache,
 		asset,
@@ -71,7 +69,6 @@
 		<ExploreAssetButton
 			{asset}
 			{s3FilePicker}
-			{dbManagerDrawer}
 			onClick={() => onClick?.()}
 			noText
 			_resourceMetadata={{ resource_type: resourceDataCacheValue }}

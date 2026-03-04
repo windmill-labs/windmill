@@ -31,7 +31,9 @@ use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
+use windmill_common::variables::{
+    build_crypt, decrypt, encrypt, SECRET_SALT, WORKSPACE_CRYPT_CACHE,
+};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::GitRepositorySettings;
@@ -2420,20 +2422,28 @@ async fn set_encryption_key(
         ));
     }
 
+    // Build the previous cipher before the transaction (reads from cache/pool)
     let previous_encryption_key = build_crypt(&db, w_id.as_str()).await?;
+
+    let mut tx = db.begin().await?;
 
     sqlx::query!(
         "UPDATE workspace_key SET key = $1 WHERE workspace_id = $2",
         request.new_key.clone(),
         w_id
     )
-    .execute(&db)
+    .execute(&mut *tx)
     .await?;
 
-    WORKSPACE_CRYPT_CACHE.remove(w_id.as_str());
-
     if !request.skip_reencrypt.unwrap_or(false) {
-        let new_encryption_key = build_crypt(&db, w_id.as_str()).await?;
+        // Build the new cipher directly from the key string, since the transaction
+        // hasn't committed yet and build_crypt() would read the old key from the pool.
+        let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
+            format!("{}{}", request.new_key, salt)
+        } else {
+            request.new_key.clone()
+        };
+        let new_encryption_key = magic_crypt::new_magic_crypt!(crypt_key, 256);
 
         let mut truncated_new_key = request.new_key.clone();
         truncated_new_key.truncate(8);
@@ -2447,7 +2457,7 @@ async fn set_encryption_key(
             "SELECT path, value, is_secret FROM variable WHERE workspace_id = $1",
             w_id
         )
-        .fetch_all(&db)
+        .fetch_all(&mut *tx)
         .await?;
 
         for variable in all_variables {
@@ -2468,10 +2478,15 @@ async fn set_encryption_key(
                 w_id,
                 variable.path
             )
-            .execute(&db)
+            .execute(&mut *tx)
             .await?;
         }
     }
+
+    tx.commit().await?;
+
+    // Invalidate the cache only after the transaction has committed
+    WORKSPACE_CRYPT_CACHE.remove(w_id.as_str());
 
     // Trigger git sync for encryption key changes
     handle_deployment_metadata(
