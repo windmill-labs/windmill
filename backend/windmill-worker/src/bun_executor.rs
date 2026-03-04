@@ -924,7 +924,7 @@ pub async fn compute_bundle_local_and_remote_path(
     let local_path = format!("{}/{hash}", *BUN_BUNDLE_CACHE_DIR);
 
     #[cfg(windows)]
-    let local_path = local_path.replace("/", r"\");
+    let local_path = local_path.replace("/tmp", r"C:\tmp").replace("/", r"\");
 
     let remote_path = format!("{BUN_BUNDLE_OBJECT_STORE_PREFIX}{hash}");
     (local_path, remote_path)
