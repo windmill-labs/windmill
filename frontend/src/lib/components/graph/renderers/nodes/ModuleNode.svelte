@@ -47,19 +47,25 @@
 		(noteEditorContext?.noteEditor?.isNodeOnlyMemberOfGroupNote(data.id) ?? false)
 	)
 
+	let isPreprocessor = $derived(data.id === 'preprocessor')
+
 	const menuItems: Item[] = $derived(
 		data.editMode
 			? [
-					{
-						displayName: 'Move',
-						icon: Move,
-						action: () => data.eventHandlers.move({ id: data.id })
-					},
-					{
-						displayName: 'Duplicate',
-						icon: Copy,
-						action: () => data.eventHandlers.duplicate({ id: data.id })
-					},
+					...(isPreprocessor
+						? []
+						: [
+								{
+									displayName: 'Move',
+									icon: Move,
+									action: () => data.eventHandlers.move({ id: data.id })
+								},
+								{
+									displayName: 'Duplicate',
+									icon: Copy,
+									action: () => data.eventHandlers.duplicate({ id: data.id })
+								}
+							]),
 					{
 						displayName: 'Delete',
 						icon: Trash2,

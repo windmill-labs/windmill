@@ -535,7 +535,7 @@
 				</div>
 			{/if}
 
-			{#if !isMultiSelected && id !== 'preprocessor' && menuItems && menuItems.length > 0}
+			{#if !isMultiSelected && menuItems && menuItems.length > 0}
 				<div
 					class="absolute -translate-y-[100%] top-2 -right-2 h-7 p-1 min-w-7"
 					style="will-change: transform;"
