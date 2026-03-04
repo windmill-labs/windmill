@@ -14,7 +14,7 @@ type LayoutConstants = {
 }
 
 type CompoundGroup = {
-	type: 'branchall' | 'branchone' | 'forloop' | 'whileloop'
+	type: 'branch' | 'loop'
 	headId: string
 	endId: string
 	branches: {
@@ -67,23 +67,18 @@ function detectGroups(
 		const hasStart = nodeIds.has(`${baseId}-start`)
 
 		if (branchLabelIds.length > 0) {
-			// This is a branch group (branchall or branchone)
-			const isBranchOne = branchLabelIds.some((lid) => lid.endsWith('-branch-default'))
-			const type = isBranchOne ? 'branchone' : 'branchall'
-
 			// Branches are already in correct order: default first, then 0, 1, 2...
-
 			const branches = branchLabelIds.map((labelId) => ({
 				labelId,
 				innerIds: findInnerIds(labelId, id, nodeIds, childrenMap)
 			}))
 
-			groups.push({ type, headId: baseId, endId: id, branches })
+			groups.push({ type: 'branch', headId: baseId, endId: id, branches })
 		} else if (hasStart) {
 			const innerIds = findInnerIds(`${baseId}-start`, id, nodeIds, childrenMap)
 
 			groups.push({
-				type: 'forloop',
+				type: 'loop',
 				headId: baseId,
 				endId: id,
 				branches: [{ labelId: `${baseId}-start`, innerIds }]
@@ -304,7 +299,7 @@ function layoutLevel(
 
 	for (const group of topLevelGroups) {
 		const branchLayouts: GroupLayout['branchLayouts'] = []
-		const isBranch = group.type === 'branchall' || group.type === 'branchone'
+		const isBranch = group.type === 'branch'
 
 		for (const branch of group.branches) {
 			const branchNodeIds = [branch.labelId, ...branch.innerIds]
@@ -401,7 +396,7 @@ function layoutLevel(
 		if (!wrapperPos) continue
 
 		const rowHeight = constants.nodeHeight + constants.gapV
-		const isBranch = gl.group.type === 'branchall' || gl.group.type === 'branchone'
+		const isBranch = gl.group.type === 'branch'
 
 		// Position the head node at the top-center of the wrapper
 		positions.set(headId, { x: wrapperPos.x, y: wrapperPos.y })
