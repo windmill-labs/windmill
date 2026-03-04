@@ -61,7 +61,7 @@ if command -v psql &>/dev/null; then
   if psql "$db_conn/postgres" -tc "SELECT 1 FROM pg_database WHERE datname = '${db_name}'" 2>/dev/null | grep -q 1; then
     echo "Database $db_name already exists"
   else
-    if [[ -n "${WM_CLONE_DB:-}" ]]; then
+    if [[ "${WM_CLONE_DB:-}" == "1" || "${WM_CLONE_DB:-}" == "true" ]]; then
       # Terminate active connections so CREATE DATABASE ... TEMPLATE works
       psql "$db_conn/postgres" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'windmill' AND pid <> pg_backend_pid();" 2>/dev/null || true
       psql "$db_conn/postgres" -c "CREATE DATABASE ${db_name} TEMPLATE windmill" 2>/dev/null \
@@ -179,7 +179,7 @@ if [ -n "$ee_repo" ]; then
     ee_rel=$(python3 -c "import os; print(os.path.relpath('$ee_worktree_dir', '$(pwd)'))" 2>/dev/null || echo "$ee_worktree_dir")
     mkdir -p .claude
     rust_plugin=""
-    if [[ -n "${USE_RUST_PLUGIN:-}" ]]; then
+    if [[ "${USE_RUST_PLUGIN:-}" == "1" || "${USE_RUST_PLUGIN:-}" == "true" ]]; then
       rust_plugin=',
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true
