@@ -17,15 +17,18 @@ import { resolve, track_job } from "../script/script.ts";
 import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
-import { Flow } from "../../../gen/types.gen.ts";
+import { Flow, OpenFlowWPath } from "../../../gen/types.gen.ts";
 import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { generateFlowLockInternal } from "./flow_metadata.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { resolvePermissionedAsEmail } from "../../core/permissioned_as.ts";
 
 export interface FlowFile {
   summary: string;
   description?: string;
   value: any;
   schema?: any;
+  on_behalf_of_email?: string;
 }
 
 const alreadySynced: string[] = [];
@@ -34,7 +37,8 @@ export async function pushFlow(
   workspace: string,
   remotePath: string,
   localPath: string,
-  message?: string
+  message?: string,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -64,6 +68,28 @@ export async function pushFlow(
     SEP
   );
 
+  // Build preserve flags for permissioned_as
+  const preserveFields: Partial<OpenFlowWPath> = {};
+  if (permissionedAsContext?.userIsAdminOrDeployer) {
+    if (flow) {
+      // Updating: preserve the remote's on_behalf_of_email
+      preserveFields.preserve_on_behalf_of = true;
+      if (flow.on_behalf_of_email) {
+        preserveFields.on_behalf_of_email = flow.on_behalf_of_email;
+      }
+    } else {
+      // Creating: apply defaultPermissionedAs rule if one matches
+      const ruleEmail = resolvePermissionedAsEmail(
+        remotePath,
+        permissionedAsContext.rules
+      );
+      if (ruleEmail) {
+        preserveFields.on_behalf_of_email = ruleEmail;
+        preserveFields.preserve_on_behalf_of = true;
+      }
+    }
+  }
+
   if (flow) {
     if (isSuperset(localFlow, flow)) {
       log.info(colors.green(`Flow ${remotePath} is up to date`));
@@ -77,6 +103,7 @@ export async function pushFlow(
         path: remotePath.replaceAll(SEP, "/"),
         deployment_message: message,
         ...localFlow,
+        ...preserveFields,
       },
     });
   } else {
@@ -88,6 +115,7 @@ export async function pushFlow(
           path: remotePath.replaceAll(SEP, "/"),
           deployment_message: message,
           ...localFlow,
+          ...preserveFields,
         },
       });
     } catch (e) {
@@ -395,6 +423,30 @@ export function bootstrap(
   writeFileSync(flowYamlPath, newFlowDefinitionYaml, { flag: "wx", encoding: "utf-8" });
 }
 
+async function setPermissionedAs(
+  opts: GlobalOptions,
+  flowPath: string,
+  email: string
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  await wmill.updateFlow({
+    workspace: workspace.workspaceId,
+    path: flowPath,
+    requestBody: {
+      path: flowPath,
+      on_behalf_of_email: email,
+      preserve_on_behalf_of: true,
+    } as any,
+  });
+  log.info(
+    colors.green(
+      `Updated permissioned_as for flow ${flowPath} to ${email}`
+    )
+  );
+}
+
 const command = new Command()
   .description("flow related commands")
   .option("--show-archived", "Enable archived flows in output")
@@ -463,6 +515,12 @@ const command = new Command()
   .arguments("<flow_path:string>")
   .option("--summary <summary:string>", "flow summary")
   .option("--description <description:string>", "flow description")
-  .action(bootstrap as any);
+  .action(bootstrap as any)
+  .command(
+    "set-permissioned-as",
+    "Set the on_behalf_of_email for a flow (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action(setPermissionedAs as any);
 
 export default command;

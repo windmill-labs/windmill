@@ -36,6 +36,11 @@ import {
 import { getCurrentGitBranch } from "../../utils/git.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { validatePath, resolveWorkspace } from "../../core/context.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import {
+  resolvePermissionedAsEmail,
+  lookupUsernameByEmail,
+} from "../../core/permissioned_as.ts";
 
 type Trigger = {
   http: HttpTrigger;
@@ -148,7 +153,8 @@ export async function pushTrigger<K extends TriggerType>(
   workspace: string,
   path: string,
   trigger: TriggerFile<K> | Trigger[K] | undefined,
-  localTrigger: TriggerFile<K>
+  localTrigger: TriggerFile<K>,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<void> {
   path = removeType(path, triggerType + "_trigger").replaceAll(SEP, "/");
   log.debug(`Processing local ${triggerType} trigger ${path}`);
@@ -161,6 +167,33 @@ export async function pushTrigger<K extends TriggerType>(
     //ignore
   }
 
+  // Build preserve flags for permissioned_as
+  const preserveFields: { email?: string; preserve_email?: boolean } = {};
+  if (permissionedAsContext?.userIsAdminOrDeployer) {
+    if (trigger) {
+      // Updating: preserve the remote's edited_by (username)
+      preserveFields.preserve_email = true;
+      if ((trigger as any).edited_by) {
+        preserveFields.email = (trigger as any).edited_by;
+      }
+    } else {
+      // Creating: apply defaultPermissionedAs rule if one matches
+      const ruleEmail = resolvePermissionedAsEmail(
+        path,
+        permissionedAsContext.rules
+      );
+      if (ruleEmail) {
+        const username = await lookupUsernameByEmail(
+          workspace,
+          ruleEmail,
+          permissionedAsContext.emailToUsernameCache
+        );
+        preserveFields.email = username;
+        preserveFields.preserve_email = true;
+      }
+    }
+  }
+
   if (trigger) {
     if (isSuperset(localTrigger, trigger)) {
       log.debug(`${triggerType} trigger ${path} is up to date`);
@@ -170,6 +203,7 @@ export async function pushTrigger<K extends TriggerType>(
     try {
       await updateTrigger(triggerType, workspace, path, {
         ...localTrigger,
+        ...preserveFields,
         path,
       } as Trigger[K]);
     } catch (e) {
@@ -183,6 +217,7 @@ export async function pushTrigger<K extends TriggerType>(
     try {
       await createTrigger(triggerType, workspace, path, {
         ...localTrigger,
+        ...preserveFields,
         path,
       } as Trigger[K]);
     } catch (e) {
@@ -559,6 +594,47 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   console.log(colors.bold.underline.green("Trigger pushed"));
 }
 
+async function setPermissionedAs(
+  opts: GlobalOptions & { kind?: string },
+  triggerPath: string,
+  email: string
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  if (!opts.kind) {
+    throw new Error(
+      "--kind is required. Valid kinds: " + TRIGGER_TYPES.join(", ")
+    );
+  }
+  if (!checkIfValidTrigger(opts.kind)) {
+    throw new Error(
+      "Invalid trigger kind: " +
+        opts.kind +
+        ". Valid kinds: " +
+        TRIGGER_TYPES.join(", ")
+    );
+  }
+
+  const cache = new Map<string, string>();
+  const username = await lookupUsernameByEmail(
+    workspace.workspaceId,
+    email,
+    cache
+  );
+
+  await updateTrigger(opts.kind, workspace.workspaceId, triggerPath, {
+    email: username,
+    preserve_email: true,
+    path: triggerPath,
+  } as any);
+  log.info(
+    colors.green(
+      `Updated permissioned_as for ${opts.kind} trigger ${triggerPath} to ${email} (username: ${username})`
+    )
+  );
+}
+
 const command = new Command()
   .description("trigger related commands")
   .option("--json", "Output as JSON (for piping to jq)")
@@ -580,6 +656,16 @@ const command = new Command()
     "push a local trigger spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string>")
-  .action(push as any);
+  .action(push as any)
+  .command(
+    "set-permissioned-as",
+    "Set the email (run-as user) for a trigger (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .option(
+    "--kind <kind:string>",
+    "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)"
+  )
+  .action(setPermissionedAs as any);
 
 export default command;
