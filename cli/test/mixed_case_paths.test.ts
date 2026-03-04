@@ -64,6 +64,9 @@ async function createScript(
     language: "bun",
     is_template: false,
     kind: "script",
+    // Provide a non-empty lock to prevent async lock generation by the backend
+    // worker, which causes flaky tests due to race conditions on Windows CI.
+    lock: "\n",
     schema: {
       $schema: "https://json-schema.org/draft/2020-12/schema",
       type: "object",
@@ -255,6 +258,12 @@ async function verifyNoDiffOnPull(backend: any, tempDir: string): Promise<void> 
   const output = parseJsonFromCLIOutput(pullResult.stdout);
   const changes = output.changes || [];
 
+  if (changes.length > 0) {
+    console.error(
+      `Unexpected changes on dry-run pull (expected 0, got ${changes.length}):`,
+      JSON.stringify(changes, null, 2)
+    );
+  }
   expect(changes.length).toEqual(0);
 }
 

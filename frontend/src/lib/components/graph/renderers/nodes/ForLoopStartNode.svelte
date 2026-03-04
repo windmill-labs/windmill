@@ -56,7 +56,7 @@
 	let filteredInput = $derived(filterIterFromInput($pickablePropertiesFiltered?.flow_input))
 </script>
 
-<NodeWrapper offset={data.offset}>
+<NodeWrapper offset={data.offset} nodeId={id}>
 	{#snippet children({ darkMode })}
 		<VirtualItem
 			label={data.simplifiedTriggerView ? 'For each new event' : 'Do one iteration'}

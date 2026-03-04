@@ -33,6 +33,8 @@
 		Bug,
 		Copy,
 		CornerDownLeft,
+		Disc,
+		Download,
 		ExternalLink,
 		Github,
 		GitBranch,
@@ -86,6 +88,10 @@
 	import { deepEqual } from 'fast-equals'
 	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
 	import { resource, watch } from 'runed'
+	import { createScriptRecording } from './recording/scriptRecording.svelte'
+	import { setActiveRecording } from './recording/flowRecording.svelte'
+	import type { ScriptRecording } from './recording/types'
+	import DropdownV2 from './DropdownV2.svelte'
 
 	interface Props {
 		// Exported
@@ -235,6 +241,10 @@
 	let pastPreviews: CompletedJob[] = $state([])
 	let validCode = $state(true)
 
+	// Recording
+	let scriptRecording = createScriptRecording()
+	let lastRecording: ScriptRecording | undefined = $state(undefined)
+
 	let wsProvider: WebsocketProvider | undefined = $state(undefined)
 	let yContent: Y.Text | undefined = $state(undefined)
 	let peers: { name: string }[] = $state([])
@@ -332,16 +342,36 @@
 			undefined,
 			{
 				done(_x) {
+					if (scriptRecording.active) {
+						lastRecording = scriptRecording.stop()
+						setActiveRecording(undefined)
+					}
 					loadPastTests()
 				},
 				doneError({ error }) {
+					if (scriptRecording.active) {
+						lastRecording = scriptRecording.stop()
+						setActiveRecording(undefined)
+					}
 					console.error(error)
-					// sendUserToast('Error running test', true)
 				}
 			}
 		)
 		logPanel?.setFocusToLogs()
 		return job
+	}
+
+	async function recordAndTest() {
+		lastRecording = undefined
+		scriptRecording.start(path ?? '', code, lang ?? '', args ?? {}, schema)
+		setActiveRecording(scriptRecording)
+		await runTest()
+	}
+
+	function downloadRecording() {
+		if (lastRecording) {
+			scriptRecording.download(lastRecording)
+		}
 	}
 
 	async function loadPastTests(): Promise<void> {
@@ -1110,40 +1140,72 @@
 						/>
 					</div>
 					{#if !(debugMode && isDebuggableScript)}
-						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
-							{#if testIsLoading}
-								<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" unifiedSize="md">
-									<WindmillIcon
-										white={true}
-										class="mr-2 text-white"
-										height="16px"
-										width="20px"
-										spin="fast"
-									/>
-									Cancel
-								</Button>
-							{:else}
-								{@const disableTriggerButton =
-									customUi?.previewPanel?.disableTriggerButton === true}
-								<Button
-									on:click={() => runTest()}
-									unifiedSize="md"
-									btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
-									variant="accent-secondary"
-									startIcon={{ icon: Play, classes: 'animate-none' }}
-									shortCut={{ Icon: CornerDownLeft }}
-								>
-									Test
-								</Button>
-								{#if !disableTriggerButton}
-									<CaptureButton on:openTriggers />
+						<div class="flex flex-row gap-2">
+							<div
+								class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch"
+							>
+								{#if testIsLoading}
+									<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" unifiedSize="md">
+										<WindmillIcon
+											white={true}
+											class="mr-2 text-white"
+											height="16px"
+											width="20px"
+											spin="fast"
+										/>
+										Cancel
+									</Button>
+								{:else}
+									{@const disableTriggerButton =
+										customUi?.previewPanel?.disableTriggerButton === true}
+									<Button
+										on:click={() => runTest()}
+										unifiedSize="md"
+										btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
+										variant="accent-secondary"
+										startIcon={{ icon: Play, classes: 'animate-none' }}
+										shortCut={{ Icon: CornerDownLeft }}
+									>
+										Test
+									</Button>
+									{#if !disableTriggerButton}
+										<CaptureButton on:openTriggers />
+									{/if}
 								{/if}
+							</div>
+							{#if lastRecording}
+								<Button
+									on:click={downloadRecording}
+									unifiedSize="md"
+									startIcon={{ icon: Download }}
+									iconOnly
+									title="Download recording"
+								/>
 							{/if}
 						</div>
 					{/if}
-					<div class="absolute top-2 right-2"
-						><Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} /></div
-					>
+					<div class="absolute top-2 right-2 flex items-center gap-2">
+						<Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} />
+						<DropdownV2
+							size="xs"
+							items={[
+								{
+									displayName: 'Test & record',
+									icon: Disc,
+									action: () => recordAndTest()
+								},
+								...(lastRecording
+									? [
+											{
+												displayName: 'Download recording',
+												icon: Download,
+												action: () => downloadRecording()
+											}
+										]
+									: [])
+							]}
+						/>
+					</div>
 				</div>
 				<Splitpanes
 					horizontal

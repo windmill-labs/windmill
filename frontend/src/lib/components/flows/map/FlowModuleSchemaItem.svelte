@@ -20,7 +20,7 @@
 		Timer,
 		Maximize2
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
@@ -136,6 +136,7 @@
 
 	const flowGraphContext = getGraphContext()
 	const diffManager = flowGraphContext?.diffManager
+	const moveManager = flowGraphContext?.moveManager
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
@@ -185,8 +186,46 @@
 		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
 	)
 
+	let isDragging = $derived(!!moveManager?.dragging)
+
+	// --- Drag handle logic ---
+	let dragCleanup: (() => void) | undefined
+
+	function onMovePointerDown(e: Event) {
+		const pe = e as PointerEvent
+		const startX = pe.clientX
+		const startY = pe.clientY
+		let didDrag = false
+
+		function onMovePointer(me: PointerEvent) {
+			const dx = me.clientX - startX
+			const dy = me.clientY - startY
+			if (!didDrag && Math.sqrt(dx * dx + dy * dy) > 5) {
+				didDrag = true
+				if (moveManager && id) {
+					moveManager.startDrag(id, startX, startY)
+				}
+			}
+		}
+
+		function onUp() {
+			document.removeEventListener('pointermove', onMovePointer)
+			document.removeEventListener('pointerup', onUp)
+			dragCleanup = undefined
+			if (!didDrag) {
+				dispatch('move')
+			}
+		}
+
+		document.addEventListener('pointermove', onMovePointer)
+		document.addEventListener('pointerup', onUp)
+		dragCleanup = onUp
+	}
+
+	onDestroy(() => dragCleanup?.())
+
 	const outputPickerVisible = $derived(
-		editMode && (isConnectingCandidate || alwaysShowOutputPicker) && !!id
+		editMode && (isConnectingCandidate || alwaysShowOutputPicker) && !!id && !isDragging
 	)
 
 	const icon_render = $derived(icon)
@@ -474,7 +513,7 @@
 			{/if}
 		</div>
 
-		{#if deletable}
+		{#if deletable && !isDragging}
 			{#if maximizeSubflow !== undefined}
 				{@render buttonMaximizeSubflow?.()}
 			{/if}
@@ -488,12 +527,13 @@
 				>
 					<button
 						class={twMerge(
-							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
+							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary cursor-grab',
 							hover || selected ? 'block' : '!hidden',
 							'shadow-md rounded-md',
-							'group-hover:block'
+							'group-hover:block',
+							'touch-none'
 						)}
-						onclick={stopPropagation(preventDefault((event) => dispatch('move')))}
+						onpointerdown={stopPropagation(preventDefault(onMovePointerDown))}
 						title="Move"
 					>
 						<Move size={12} />
@@ -556,7 +596,7 @@
 		{/if}
 	</div>
 
-	{#if editMode && enableTestRun && flowJob?.type !== 'QueuedJob'}
+	{#if editMode && enableTestRun && flowJob?.type !== 'QueuedJob' && !isDragging}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-1 h-9 min-w-9"

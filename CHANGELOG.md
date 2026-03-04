@@ -1,5 +1,89 @@
 # Changelog
 
+## [1.649.0](https://github.com/windmill-labs/windmill/compare/v1.648.0...v1.649.0) (2026-03-03)
+
+
+### Features
+
+* **frontend:** add script recorder for offline replay ([#8200](https://github.com/windmill-labs/windmill/issues/8200)) ([c97d8b4](https://github.com/windmill-labs/windmill/commit/c97d8b4715f86ea83ab2c0223ba859ced690829a))
+* move index management out of /srch/, add storage size reporting ([#8169](https://github.com/windmill-labs/windmill/issues/8169)) ([ee01acd](https://github.com/windmill-labs/windmill/commit/ee01acd9a6a2cd68a3f226988bfb46f6a6e64c08))
+
+
+### Bug Fixes
+
+* clean up slow-load toast interval on component destroy ([#8207](https://github.com/windmill-labs/windmill/issues/8207)) ([26f4f2b](https://github.com/windmill-labs/windmill/commit/26f4f2b399b828185b553289d6560e12261030a3))
+* **frontend:** prevent subflow expansion from hiding all insertion points ([#8203](https://github.com/windmill-labs/windmill/issues/8203)) ([e97da86](https://github.com/windmill-labs/windmill/commit/e97da860672171e33054a77d71f4824bb09e540d))
+* gracefully handle malformed OAuth entries in instance config ([#8205](https://github.com/windmill-labs/windmill/issues/8205)) ([cac4bdd](https://github.com/windmill-labs/windmill/commit/cac4bdd54f0c3ea80844ac31f7597f418ff7d8ae))
+* skip stop_after_if evaluation for skipped (identity) flow steps ([#8201](https://github.com/windmill-labs/windmill/issues/8201)) ([e6f7775](https://github.com/windmill-labs/windmill/commit/e6f7775d4d9a052aefc37260c6ed161146841cd7))
+* use exact matching for python requirements directive parsing ([#8199](https://github.com/windmill-labs/windmill/issues/8199)) ([2b2be38](https://github.com/windmill-labs/windmill/commit/2b2be38f129bbe58b6bb3815c4bd94aa03a3da90))
+
+
+### Performance Improvements
+
+* use two-step query in input history to leverage v2_job index ([#8197](https://github.com/windmill-labs/windmill/issues/8197)) ([50defdd](https://github.com/windmill-labs/windmill/commit/50defdded113b4d2cf0991b3fb642d1cd9a462b7))
+
+## [1.648.0](https://github.com/windmill-labs/windmill/compare/v1.647.2...v1.648.0) (2026-03-02)
+
+
+### Features
+
+* add right-click context menu to ObjectViewer ([#8181](https://github.com/windmill-labs/windmill/issues/8181)) ([1855204](https://github.com/windmill-labs/windmill/commit/18552046c29878b5cf115b9364c2ce829ab7aa59))
+* **frontend:** add drag-and-drop node movement in flow editor ([#8076](https://github.com/windmill-labs/windmill/issues/8076)) ([7a5e487](https://github.com/windmill-labs/windmill/commit/7a5e48787860c38aa3589c49ea9a70654d479c8a))
+
+
+### Bug Fixes
+
+* don't insert underscore after digit in PascalCase to snake_case conversion ([#8184](https://github.com/windmill-labs/windmill/issues/8184)) ([a111653](https://github.com/windmill-labs/windmill/commit/a111653c6d32fd1a3d2f45351eceb8d8d7df6f41))
+* **frontend:** preserve keycloak realm url between instance settings saves ([#8189](https://github.com/windmill-labs/windmill/issues/8189)) ([cfd9541](https://github.com/windmill-labs/windmill/commit/cfd9541ab1daf635c7d801cd3a7788db57b98257))
+* preserve debouncing settings for post-preprocessing arg accumulation ([#8191](https://github.com/windmill-labs/windmill/issues/8191)) ([9e92445](https://github.com/windmill-labs/windmill/commit/9e92445faed1a10b2406b97562e8df7a5b2dfd76))
+
+## [1.647.2](https://github.com/windmill-labs/windmill/compare/v1.647.1...v1.647.2) (2026-03-02)
+
+
+### Bug Fixes
+
+* update oracle instant client arm64 download url ([#8179](https://github.com/windmill-labs/windmill/issues/8179)) ([758b35f](https://github.com/windmill-labs/windmill/commit/758b35f8ebbf78e1473a8fd83dbc795d58b23b80))
+
+## [1.647.1](https://github.com/windmill-labs/windmill/compare/v1.647.0...v1.647.1) (2026-03-02)
+
+
+### Bug Fixes
+
+* add missing display_name and tenant fields to instance config OAuthClient ([#8176](https://github.com/windmill-labs/windmill/issues/8176)) ([db44b8b](https://github.com/windmill-labs/windmill/commit/db44b8be74e1709dbf759dd391bdb3861b3c711b))
+* add missing grant_types field to instance config OAuth structs ([#8175](https://github.com/windmill-labs/windmill/issues/8175)) ([fca94f8](https://github.com/windmill-labs/windmill/commit/fca94f88dd796db66e0c5bd0225e23b92efce4a7))
+* show sync endpoint timeout setting on all instances ([#8170](https://github.com/windmill-labs/windmill/issues/8170)) ([c70307d](https://github.com/windmill-labs/windmill/commit/c70307d3f2dfe61a0250dd12234470a25baf2d1b))
+
+## [1.647.0](https://github.com/windmill-labs/windmill/compare/v1.646.0...v1.647.0) (2026-03-01)
+
+
+### Features
+
+* populate baseUrl and userId in Nextcloud resource from OAuth ([#8132](https://github.com/windmill-labs/windmill/issues/8132)) ([5d58a87](https://github.com/windmill-labs/windmill/commit/5d58a87a7f02c4f7775bd02c885071495a5f686d))
+* runScript inline for path and hash ([#8019](https://github.com/windmill-labs/windmill/issues/8019)) ([7d9d16a](https://github.com/windmill-labs/windmill/commit/7d9d16a6a3357981e5692023982ca1e670acfaae))
+* slow stream warnings, batch size control, and fix result/skipped filters ([#8154](https://github.com/windmill-labs/windmill/issues/8154)) ([7a32abe](https://github.com/windmill-labs/windmill/commit/7a32abec96124f96a1dbac11e03162cca68f3286))
+
+
+### Bug Fixes
+
+* : persist show schedules and show future jobs toggles in local storage ([#8125](https://github.com/windmill-labs/windmill/issues/8125)) ([f1d8568](https://github.com/windmill-labs/windmill/commit/f1d8568831bf69ee790def4f90df8f32c59a94e0)), closes [#8123](https://github.com/windmill-labs/windmill/issues/8123)
+* add partial index for fast failure filtering on runs page ([#8150](https://github.com/windmill-labs/windmill/issues/8150)) ([d4673c2](https://github.com/windmill-labs/windmill/commit/d4673c2e91168dcdb0aca9d6c039df0d9c52bb28))
+* copy deps and remove user auto-add on workspace fork ([#8142](https://github.com/windmill-labs/windmill/issues/8142)) ([0776de6](https://github.com/windmill-labs/windmill/commit/0776de6b2173075f533fd59a49efb111000da5df))
+* fix custom TS Monaco worker not reloading on file uri change ([#8130](https://github.com/windmill-labs/windmill/issues/8130)) ([b68ff96](https://github.com/windmill-labs/windmill/commit/b68ff965dd4f67046fae7e8cf756c8b3e15c2643))
+* Handle CTEs and local tables in SQL asset parser ([#8131](https://github.com/windmill-labs/windmill/issues/8131)) ([0955051](https://github.com/windmill-labs/windmill/commit/095505136c2b3e03f656ace20a5c1bbe142fa63f))
+* prevent wm-cursor from hanging on stale cursor IPC sockets ([b9e3e05](https://github.com/windmill-labs/windmill/commit/b9e3e053e4914e753bbb806e6b748c791edb92d2))
+* process deletes before adds in CLI sync push to avoid conflicts ([#8148](https://github.com/windmill-labs/windmill/issues/8148)) ([278983c](https://github.com/windmill-labs/windmill/commit/278983c4fd38d67a14a8c208178c04db05ee1880))
+* remove review comments from discord notifications and support comment edits ([cdc0543](https://github.com/windmill-labs/windmill/commit/cdc0543747680267e30974037a2eb180a19062d9))
+* restore email domain (MX) setting in instance settings UI ([#8152](https://github.com/windmill-labs/windmill/issues/8152)) ([13daebf](https://github.com/windmill-labs/windmill/commit/13daebf88ac1abcb833646490073f922ac7c050e))
+* sync flow on_behalf_of_email on load ([#8149](https://github.com/windmill-labs/windmill/issues/8149)) ([faf190f](https://github.com/windmill-labs/windmill/commit/faf190f12d96cd75ba9eda10ab3e6f26d2eed813))
+* validate tarball URL host against registry to prevent SSRF and token exfiltration ([#8153](https://github.com/windmill-labs/windmill/issues/8153)) ([86182ed](https://github.com/windmill-labs/windmill/commit/86182ed2e999f018fc72343308e7df8e9de6c189))
+
+
+### Performance Improvements
+
+* batch large job list requests and fix loadExtraJobs cursor ([#8151](https://github.com/windmill-labs/windmill/issues/8151)) ([4f5a804](https://github.com/windmill-labs/windmill/commit/4f5a8040912e18f34401a6e3a95dea6f97d1d24c))
+* lazy-load heavy deps (graphql, openapi-parser, sha256) ([#8145](https://github.com/windmill-labs/windmill/issues/8145)) ([ba48d70](https://github.com/windmill-labs/windmill/commit/ba48d7015741eb6bbbe04088a957c37499cd8471))
+* lazy-load markdown in Tooltip components ([#8143](https://github.com/windmill-labs/windmill/issues/8143)) ([bd9ff03](https://github.com/windmill-labs/windmill/commit/bd9ff03010f75557dcc315d10e9208b4e9cafece))
+
 ## [1.646.0](https://github.com/windmill-labs/windmill/compare/v1.645.0...v1.646.0) (2026-02-26)
 
 

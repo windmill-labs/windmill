@@ -1085,7 +1085,7 @@ async fn sync_cached_resource_types(
     require_super_admin(&db, &authed.email).await?;
 
     use windmill_common::worker::HUB_RT_CACHE_DIR;
-    let cache_path = format!("{}/resource_types.json", HUB_RT_CACHE_DIR);
+    let cache_path = format!("{}/resource_types.json", *HUB_RT_CACHE_DIR);
 
     let content = tokio::fs::read_to_string(&cache_path).await.map_err(|e| {
         error::Error::NotFound(format!(

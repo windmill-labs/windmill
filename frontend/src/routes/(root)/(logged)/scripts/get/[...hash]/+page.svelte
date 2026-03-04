@@ -88,6 +88,7 @@
 	import { page } from '$app/state'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 
 	let script: Script | undefined = $state()
 	let topHash: string | undefined = $state()
@@ -351,7 +352,7 @@
 			})
 		}
 
-		if (script && !$userStore?.operator && !isRuleActive('DisableWorkspaceForking')) {
+		if (script && !$userStore?.operator && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
 			buttons.push({
 				label: 'Edit in fork',
 				buttonProps: {

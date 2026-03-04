@@ -510,7 +510,7 @@ impl WorkspaceDependenciesPrefetched {
         //                 external.get(0).map(|wd| dbg!(wd.content.clone())).or(Some(
         //                     "
         // module mymod
-        // go 1.25
+        // go 1.26
         // require ()
         //                         "
         //                     .to_owned(),
@@ -872,16 +872,29 @@ impl WorkspaceDependenciesAnnotatedRefs<String> {
         validity_re_o: Option<&Regex>,
         runnable_path: &str,
     ) -> Option<Self> {
-        let (extra_deps, manual_deps) = (format!("extra_{keyword}:"), format!("{keyword}:"));
+        let extra_deps_underscore = format!("extra_{keyword}:");
+        let extra_deps_hyphen = format!("extra-{keyword}:");
+        let manual_deps = format!("{keyword}:");
 
-        let Some((pos, mat)) = code.lines().find_position(|l| {
-            l.starts_with(&comment) && (l.contains(&extra_deps) || l.contains(&manual_deps))
-        }) else {
+        let is_extra = |l: &str| {
+            l.strip_prefix(comment)
+                .map(str::trim_start)
+                .is_some_and(|s| {
+                    s.starts_with(&extra_deps_underscore) || s.starts_with(&extra_deps_hyphen)
+                })
+        };
+        let is_manual = |l: &str| {
+            l.strip_prefix(comment)
+                .map(str::trim_start)
+                .is_some_and(|s| s.starts_with(&manual_deps))
+        };
+
+        let Some((pos, mat)) = code.lines().find_position(|l| is_extra(l) || is_manual(l)) else {
             return None;
         };
         let mut lines_it = code.lines().skip(pos);
 
-        let mode = if mat.contains(&extra_deps) {
+        let mode = if is_extra(mat) {
             Mode::extra
         } else {
             Mode::manual
@@ -904,7 +917,9 @@ impl WorkspaceDependenciesAnnotatedRefs<String> {
                     .map(|s| {
                         match mode {
                             Mode::manual => s.replace(&manual_deps, ""),
-                            Mode::extra => s.replace(&extra_deps, ""),
+                            Mode::extra => s
+                                .replace(&extra_deps_underscore, "")
+                                .replace(&extra_deps_hyphen, ""),
                         }
                         .replace(comment, "")
                     })
@@ -991,6 +1006,29 @@ def main():
     fn test_parse_annotation_python_extra_requirements_mode() {
         let code = r#"
 # extra_requirements: utils
+#numpy>=1.24.0
+
+def main():
+    pass
+"#;
+
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "requirements",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
+        assert!(matches!(result.mode, Mode::extra));
+        assert_eq!(result.external, vec!["utils".to_owned()]);
+        assert_eq!(result.inline.as_ref().unwrap(), "numpy>=1.24.0");
+    }
+
+    #[test]
+    fn test_parse_annotation_python_extra_requirements_hyphen() {
+        let code = r#"
+# extra-requirements: utils
 #numpy>=1.24.0
 
 def main():

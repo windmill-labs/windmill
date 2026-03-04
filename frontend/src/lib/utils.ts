@@ -17,8 +17,6 @@ export { sendUserToast }
 import type { AnyMeltElement } from '@melt-ui/svelte'
 import type { TriggerKind } from './components/triggers'
 import { stateSnapshot } from './svelte5Utils.svelte'
-import { validate, dereference } from '@scalar/openapi-parser'
-
 export namespace OpenApi {
 	export enum OpenApiVersion {
 		V2,
@@ -59,6 +57,7 @@ export namespace OpenApi {
 	 * @throws Will throw an error if the specification is invalid or cannot be parsed.
 	 */
 	export async function parse(api: string): Promise<[OpenAPI.Document, OpenApiVersion]> {
+		const { validate, dereference } = await import('@scalar/openapi-parser')
 		const { valid, errors } = await validate(api)
 
 		if (!valid) {
@@ -293,7 +292,7 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
-const portalDivs = ['#app-editor-select', '.select-dropdown-portal']
+const portalDivs = ['#app-editor-select', '.select-dropdown-portal', '[data-context-menu]']
 
 interface ClickOutsideOptions {
 	capture?: boolean

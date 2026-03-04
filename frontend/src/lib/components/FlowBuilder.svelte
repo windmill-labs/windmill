@@ -58,7 +58,7 @@
 		CheckCircle,
 		RefreshCw,
 		CheckCheck,
-		Focus
+		Disc
 	} from 'lucide-svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -98,6 +98,7 @@
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 
 	let {
 		initialPath = $bindable(''),
@@ -136,6 +137,13 @@
 	// For preserve_on_behalf_of feature
 	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
+
+	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
+	$effect(() => {
+		if (savedFlow?.on_behalf_of_email !== undefined) {
+			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
+		}
+	})
 
 	// used for new flows for captures
 	let fakeInitialPath =
@@ -606,7 +614,6 @@
 	const previewArgsStore = $state({ val: initialArgs })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
-	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
 	const pathStore = writable<string>(pathStoreInit ?? initialPath)
 	const captureOn = writable<boolean>(false)
@@ -634,7 +641,6 @@
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		flowEditorDrawer,
-		moving,
 		history,
 		flowStateStore,
 		flowStore,
@@ -813,7 +819,7 @@
 			})
 		}
 
-		if (!newFlow && !isRuleActive('DisableWorkspaceForking')) {
+		if (!newFlow && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
 			dropdownItems.push({
 				label: 'Edit in workspace fork',
 				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
@@ -934,7 +940,7 @@
 			},
 			{
 				displayName: 'Test flow & record',
-				icon: Focus,
+				icon: Disc,
 				action: () => flowPreviewButtons?.openRecordingPreview()
 			}
 		]

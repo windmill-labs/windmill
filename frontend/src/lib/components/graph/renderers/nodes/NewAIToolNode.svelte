@@ -4,6 +4,7 @@
 	import { Plus } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { Button } from '$lib/components/common'
+	import { getGraphContext } from '../../graphContext'
 
 	let funcDesc = $state('')
 	interface Props {
@@ -11,9 +12,13 @@
 	}
 	let { data }: Props = $props()
 
+	const { moveManager } = getGraphContext()
+	let isMoving = $derived(!!moveManager?.dragging || !!moveManager?.movingModuleId)
+
 	let open = $state(false)
 </script>
 
+{#if !isMoving}
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <Popover
 	bind:isOpen={open}
@@ -110,3 +115,4 @@
 		/>
 	{/snippet}
 </Popover>
+{/if}

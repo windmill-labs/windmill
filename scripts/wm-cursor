@@ -111,7 +111,7 @@ SETTINGS
 # Extracts --features <value> from args, exports CARGO_FEATURES, returns remaining args.
 # Usage: parse_features_flag "$@"; set -- "${remaining_args[@]}"
 
-parse_features_flag() {
+parse_flags() {
   remaining_args=()
   while (( $# )); do
     case $1 in
@@ -125,6 +125,10 @@ parse_features_flag() {
         ;;
       --features=*)
         export CARGO_FEATURES=${1#--features=}
+        shift
+        ;;
+      --clone-db)
+        export WM_CLONE_DB=1
         shift
         ;;
       *)
@@ -142,7 +146,7 @@ cmd_add() {
   ensure_tmux
   check_dev_db
 
-  parse_features_flag "$@"
+  parse_flags "$@"
   set -- "${remaining_args[@]}"
 
   # Snapshot worktree list before
@@ -176,7 +180,7 @@ cmd_open() {
   ensure_tmux
   check_dev_db
 
-  parse_features_flag "$@"
+  parse_flags "$@"
   set -- "${remaining_args[@]}"
 
   # Write CARGO_FEATURES to .env.local if specified
@@ -391,6 +395,7 @@ case ${1-} in
     print -u2 ""
     print -u2 "Options:"
     print -u2 "  --features <features>   Cargo features for the backend (e.g. \"enterprise,parquet\")"
+    print -u2 "  --clone-db              Clone the main 'windmill' database instead of creating an empty one"
     exit 1
     ;;
 esac

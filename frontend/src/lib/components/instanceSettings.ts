@@ -141,6 +141,21 @@ export const settings: Record<string, Setting[]> = {
 					!value?.endsWith(' '))
 		},
 		{
+			label: 'Email domain',
+			description: 'Domain to display in webhooks for email triggers (should match the MX record)',
+			key: 'email_domain',
+			fieldType: 'text',
+			placeholder: 'mail.windmill.com',
+			storage: 'setting',
+			error: 'Must be a valid domain',
+			isValid: (value: string | undefined) =>
+				value == undefined ||
+				value === '' ||
+				/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/.test(
+					value
+				)
+		},
+		{
 			label: 'Request size limit in MB',
 			description: 'Maximum size of HTTP requests in MB.',
 			cloudonly: true,
@@ -216,7 +231,6 @@ export const settings: Record<string, Setting[]> = {
 			description:
 				'Maximum amount of time (measured in seconds) that a <a href="https://www.windmill.dev/docs/core_concepts/webhooks">sync endpoint</a> is allowed to run before it is forcibly stopped or timed out.',
 			key: 'timeout_wait_result',
-			cloudonly: true,
 			fieldType: 'seconds',
 			placeholder: '60',
 			storage: 'setting'
