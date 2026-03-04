@@ -481,30 +481,28 @@ async fn get_flow_env_by_flow_job_id(
     // Resolve $var:/$res: references if present
     let resolved = if let Some(raw) = raw_value {
         let raw_str = raw.get();
+        let db_authed = windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(
+            &authed,
+            db.clone(),
+            None,
+        );
         if let Some(path) = raw_str
             .strip_prefix("\"$var:")
             .and_then(|s| s.strip_suffix("\""))
         {
-            let db_authed = windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(
-                &authed,
-                db.clone(),
-                None,
-            );
             match windmill_store::variables::get_value_internal(&db_authed, &w_id, path, false)
                 .await
             {
                 Ok(val) => to_raw_value(&serde_json::Value::String(val)),
-                Err(_) => raw,
+                Err(e) => {
+                    tracing::warn!("Failed to resolve flow_env variable $var:{path}: {e}");
+                    raw
+                }
             }
         } else if let Some(path) = raw_str
             .strip_prefix("\"$res:")
             .and_then(|s| s.strip_suffix("\""))
         {
-            let db_authed = windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(
-                &authed,
-                db.clone(),
-                None,
-            );
             match windmill_store::resources::get_resource_value_interpolated_internal(
                 &db_authed,
                 &w_id,
@@ -516,7 +514,16 @@ async fn get_flow_env_by_flow_job_id(
             .await
             {
                 Ok(Some(val)) => to_raw_value(&val),
-                _ => raw,
+                Ok(None) => {
+                    tracing::warn!(
+                        "Failed to resolve flow_env resource $res:{path}: resource not found"
+                    );
+                    raw
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to resolve flow_env resource $res:{path}: {e}");
+                    raw
+                }
             }
         } else {
             raw

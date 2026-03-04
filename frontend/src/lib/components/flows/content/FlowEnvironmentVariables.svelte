@@ -76,8 +76,13 @@
 		}
 	}
 
-	// Sync resourcePaths changes back to flow_env
+	// Initialize types for new keys and sync resourcePaths → flow_env
 	$effect(() => {
+		for (const [key, value] of flowEnvVarsMap.entries()) {
+			if (!flowEnvTypes[key]) {
+				flowEnvTypes[key] = determineValueType(value)
+			}
+		}
 		for (const [key, path] of Object.entries(resourcePaths)) {
 			if (flowStore.val.value.flow_env && flowEnvTypes[key] === 'resource') {
 				const newVal = '$res:' + (path || '')
@@ -89,22 +94,14 @@
 		}
 	})
 
-	$effect(() => {
-		for (const [key, value] of flowEnvVarsMap.entries()) {
-			if (!flowEnvTypes[key]) {
-				flowEnvTypes[key] = determineValueType(value)
-			}
-		}
-	})
-
+	// Convert values when user changes the type dropdown
+	let prevTypes: Record<string, EnvVarType> = {}
 	$effect(() => {
 		for (const [key, type] of Object.entries(flowEnvTypes)) {
-			if (flowStore.val.value.flow_env && key in flowStore.val.value.flow_env) {
-				const currentType = determineValueType(flowStore.val.value.flow_env[key])
-				if (currentType !== type) {
-					updateEnvType(key, type)
-				}
+			if (prevTypes[key] && prevTypes[key] !== type) {
+				updateEnvType(key, type)
 			}
+			prevTypes[key] = type
 		}
 	})
 
@@ -346,7 +343,12 @@
 									</div>
 									{#if typeof entry.value === 'string' && entry.value.startsWith('$var:') && entry.value.length > 5}
 										<div class="text-2xs text-tertiary">
-											Linked to variable <span class="font-medium">{entry.value.slice(5)}</span>
+											Linked to variable <a
+												href="/variables#{entry.value.slice(5)}"
+												target="_blank"
+												class="text-accent underline font-normal"
+												>{entry.value.slice(5)}</a
+											>
 										</div>
 									{/if}
 								{/if}

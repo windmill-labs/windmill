@@ -2260,13 +2260,19 @@ pub async fn handle_flow(
         {
             Ok(Some(resolved_env)) => {
                 resolved_flow = {
+                    // TODO: avoid cloning the entire FlowValue just to replace flow_env.
+                    // Consider a wrapper struct that overrides flow_env without cloning modules.
                     let mut f = flow_from_cache.clone();
                     f.flow_env = Some(resolved_env);
                     f
                 };
                 &resolved_flow
             }
-            _ => flow_from_cache,
+            Ok(None) => flow_from_cache,
+            Err(e) => {
+                tracing::warn!("Failed to resolve flow_env references: {e}");
+                flow_from_cache
+            }
         }
     } else {
         flow_from_cache
