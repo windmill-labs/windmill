@@ -114,7 +114,9 @@
 	)
 	$effect(() => {
 		;[filter, kind, appFilter, refreshCount]
-		hubScriptsFilteredPromise.refresh()
+		if (!$disableHubStore) {
+			hubScriptsFilteredPromise.refresh()
+		}
 	})
 	$effect(() => {
 		loading = hubScriptsFilteredPromise.status === 'loading'
