@@ -102,7 +102,11 @@ async fn get_log_file(
     #[cfg(feature = "parquet")]
     if let Some(s3_client) = s3_client {
         let path = format!("{}{}", windmill_common::tracing_init::LOGS_SERVICE, path);
-        let file = s3_client.get(&windmill_object_store::object_store_reexports::Path::from(path)).await;
+        let file = s3_client
+            .get(&windmill_object_store::object_store_reexports::Path::from(
+                path,
+            ))
+            .await;
         match file {
             Ok(file) => {
                 let bytes = file.bytes().await;
@@ -126,7 +130,7 @@ async fn get_log_file(
             }
         }
     }
-    let file = tokio::fs::read(format!("{}{}", TMP_WINDMILL_LOGS_SERVICE, path)).await;
+    let file = tokio::fs::read(format!("{}{}", *TMP_WINDMILL_LOGS_SERVICE, path)).await;
     if let Ok(bytes) = file {
         Ok(content_plain(Body::from(bytes::Bytes::from(bytes))))
     } else {

@@ -45,7 +45,7 @@ use uuid::Uuid;
 
 use windmill_common::error::Error;
 use windmill_common::result_stream::append_result_stream_db;
-use windmill_common::worker::{write_file, Connection, TMP_DIR};
+use windmill_common::worker::{write_file, Connection, WINDMILL_DIR};
 
 // ── Permission container ─────────────────────────────────────────────
 
@@ -151,7 +151,9 @@ static RUNTIME_SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/FETCH
 
 pub(crate) const WINDMILL_CLIENT: &str = include_str!("./windmill-client.js");
 
-const ERROR_DIR: &str = const_format::concatcp!(TMP_DIR, "/native_errors");
+lazy_static::lazy_static! {
+    static ref ERROR_DIR: String = format!("{}/native_errors", *WINDMILL_DIR);
+}
 
 lazy_static! {
     static ref RE_PROXY: Regex =
@@ -287,7 +289,7 @@ fn write_error_expr(expr: &str, uuid: &Uuid) {
     tracing::info!(
         "nativets job {uuid} failed, writing error expr to {ERROR_DIR}/{path} for debugging: {path}"
     );
-    if let Err(e) = write_file(ERROR_DIR, &path, expr) {
+    if let Err(e) = write_file(&ERROR_DIR, &path, expr) {
         tracing::error!("failed to write error expr to file {path}: {e}");
     }
 }

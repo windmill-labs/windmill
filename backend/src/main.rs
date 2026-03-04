@@ -62,7 +62,7 @@ use windmill_common::{
     },
     worker::{
         is_native_mode_from_env, reload_custom_tags_setting, Connection, HUB_CACHE_DIR,
-        HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
+        HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR, WINDMILL_DIR, WORKER_GROUP,
     },
     KillpillSender, DEFAULT_HUB_BASE_URL, METRICS_ENABLED,
 };
@@ -238,8 +238,8 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
         )
     })?;
 
-    create_dir_all(HUB_CACHE_DIR)?;
-    create_dir_all(BUN_BUNDLE_CACHE_DIR)?;
+    create_dir_all(&*HUB_CACHE_DIR)?;
+    create_dir_all(&*BUN_BUNDLE_CACHE_DIR)?;
 
     for path in paths.values() {
         tracing::info!("Caching hub script at {path}");
@@ -249,7 +249,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             .as_ref()
             .is_some_and(|x| x == &ScriptLang::Deno)
         {
-            let job_dir = format!("{}/cache_init/{}", TMP_DIR, Uuid::new_v4());
+            let job_dir = format!("{}/cache_init/{}", *WINDMILL_DIR, Uuid::new_v4());
             create_dir_all(&job_dir)?;
             let _ = windmill_worker::generate_deno_lock(
                 &Uuid::nil(),
@@ -267,7 +267,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             tokio::fs::remove_dir_all(job_dir).await?;
         } else if res.language.as_ref().is_some_and(|x| x == &ScriptLang::Bun) {
             let job_id = Uuid::new_v4();
-            let job_dir = format!("{}/cache_init/{}", TMP_DIR, job_id);
+            let job_dir = format!("{}/cache_init/{}", *WINDMILL_DIR, job_id);
             create_dir_all(&job_dir)?;
             if let Some(lock) = res.lockfile {
                 let _ = windmill_worker::prepare_job_dir(&lock, &job_dir).await?;
@@ -384,9 +384,9 @@ async fn cache_hub_resource_types() -> anyhow::Result<()> {
 
     println!("Fetched {} resource types from hub", resource_types.len());
 
-    create_dir_all(HUB_RT_CACHE_DIR)?;
+    create_dir_all(&*HUB_RT_CACHE_DIR)?;
 
-    let cache_path = format!("{}/{}", HUB_RT_CACHE_DIR, HUB_RT_CACHE_FILE);
+    let cache_path = format!("{}/{}", *HUB_RT_CACHE_DIR, HUB_RT_CACHE_FILE);
     let content = serde_json::to_string_pretty(&resource_types)
         .with_context(|| "Failed to serialize resource types")?;
 
@@ -398,7 +398,7 @@ async fn cache_hub_resource_types() -> anyhow::Result<()> {
 }
 
 pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
-    let cache_path = format!("{}/{}", HUB_RT_CACHE_DIR, HUB_RT_CACHE_FILE);
+    let cache_path = format!("{}/{}", *HUB_RT_CACHE_DIR, HUB_RT_CACHE_FILE);
 
     if tokio::fs::metadata(&cache_path).await.is_err() {
         tracing::info!(
@@ -1794,27 +1794,27 @@ pub async fn run_workers(
     let mut handles = Vec::with_capacity(num_workers as usize);
 
     for x in [
-        TMP_LOGS_DIR,
-        UV_CACHE_DIR,
-        DENO_CACHE_DIR,
-        DENO_CACHE_DIR_DEPS,
-        DENO_CACHE_DIR_NPM,
-        BUN_CACHE_DIR,
-        PY310_CACHE_DIR,
-        PY311_CACHE_DIR,
-        PY312_CACHE_DIR,
-        PY313_CACHE_DIR,
-        BUN_BUNDLE_CACHE_DIR,
-        GO_CACHE_DIR,
-        GO_BIN_CACHE_DIR,
-        RUST_CACHE_DIR,
-        CSHARP_CACHE_DIR,
-        NU_CACHE_DIR,
-        HUB_CACHE_DIR,
-        POWERSHELL_CACHE_DIR,
-        JAVA_CACHE_DIR,
-        RUBY_CACHE_DIR,
-        TAR_JAVA_CACHE_DIR, // for related places search: ADD_NEW_LANG
+        &*TMP_LOGS_DIR,
+        &*UV_CACHE_DIR,
+        &*DENO_CACHE_DIR,
+        &*DENO_CACHE_DIR_DEPS,
+        &*DENO_CACHE_DIR_NPM,
+        &*BUN_CACHE_DIR,
+        &*PY310_CACHE_DIR,
+        &*PY311_CACHE_DIR,
+        &*PY312_CACHE_DIR,
+        &*PY313_CACHE_DIR,
+        &*BUN_BUNDLE_CACHE_DIR,
+        &*GO_CACHE_DIR,
+        &*GO_BIN_CACHE_DIR,
+        &*RUST_CACHE_DIR,
+        &*CSHARP_CACHE_DIR,
+        &*NU_CACHE_DIR,
+        &*HUB_CACHE_DIR,
+        &*POWERSHELL_CACHE_DIR,
+        &*JAVA_CACHE_DIR,
+        &*RUBY_CACHE_DIR,
+        &*TAR_JAVA_CACHE_DIR, // for related places search: ADD_NEW_LANG
     ] {
         DirBuilder::new()
             .recursive(true)

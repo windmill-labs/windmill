@@ -1,7 +1,6 @@
 use std::{collections::HashMap, process::Stdio};
 
 use anyhow::anyhow;
-use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
 use tokio::{
@@ -741,9 +740,9 @@ async fn install<'a>(
     };
     // Include builtin windmill client
     {
-        const WM_INTERNAL: &str = concatcp!(RUBY_CACHE_DIR, "/gems/windmill-internal");
-        res.top_level_paths.push(WM_INTERNAL.to_owned());
-        res.rubylib += format!(":{WM_INTERNAL}").as_str();
+        let wm_internal = format!("{}/gems/windmill-internal", *RUBY_CACHE_DIR);
+        res.top_level_paths.push(wm_internal.clone());
+        res.rubylib += format!(":{wm_internal}").as_str();
     }
     Ok(res)
 }
