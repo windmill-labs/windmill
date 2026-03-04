@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ResourceService, WorkspaceService } from '$lib/gen'
-	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { onMount, untrack } from 'svelte'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
@@ -174,7 +174,6 @@
 
 	let appConnect: AppConnect | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let hovering = $state(false)
 	let isDatatableSelected = $derived(value?.startsWith('datatable://') ?? false)
 </script>
@@ -317,7 +316,6 @@
 			class="mt-1"
 			_resourceMetadata={{ resource_type: resourceType }}
 			asset={{ kind: 'resource', path: value }}
-			{dbManagerDrawer}
 		/>
 	{/if}
 </div>

@@ -14,7 +14,7 @@
 	} from './lib'
 	import { untrack } from 'svelte'
 	import { ResourceService, WorkspaceService } from '$lib/gen'
-	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import Tooltip2 from '../Tooltip.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
@@ -48,7 +48,6 @@
 	let blueBgDiv: HTMLDivElement | undefined = $state()
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state()
 	let isOpen = $state(false)
 	let resourceDataCache: Record<string, string | undefined> = $state({})
@@ -227,7 +226,7 @@
 					</li>
 				{/each}
 			</ul>
-		
+
 	{/snippet}
 </Popover>
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />

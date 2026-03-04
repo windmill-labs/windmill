@@ -68,7 +68,7 @@
 	import { SettingService, WorkspaceService } from '$lib/gen'
 	import type { GetSettingsResponse } from '$lib/gen'
 
-	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import Tooltip from '../Tooltip.svelte'
@@ -187,7 +187,6 @@
 			'Where the data is actually stored, in parquet format. You need to configure a workspace storage first'
 	}
 
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let confirmationModal = createAsyncConfirmationModal()
 </script>
 
@@ -293,7 +292,6 @@
 									bind:value={ducklake.catalog.resource_path}
 									{customInstanceDbs}
 									{confirmationModal}
-									{dbManagerDrawer}
 									tag="ducklake"
 								>
 									{#snippet wizardBottomHint()}
@@ -380,7 +378,6 @@
 						{:else}
 							<ExploreAssetButton
 								asset={{ kind: 'ducklake', path: ducklake.name }}
-								{dbManagerDrawer}
 							/>
 						{/if}
 					</div>

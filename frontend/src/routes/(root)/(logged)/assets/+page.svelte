@@ -99,7 +99,6 @@
 	let assets = $derived(_assets.current?.flatMap((page) => page.assets))
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val) as any
 	let assetsUsageDropdown: AssetsUsageDrawer | undefined = $state()
 
 	let allS3Storages = resource(
@@ -192,7 +191,6 @@
 										<ExploreAssetButton
 											asset={{ kind: props.assetKind, path: item.value }}
 											{s3FilePicker}
-											{dbManagerDrawer}
 											btnClasses="dark:bg-surface"
 										/>
 									</div>
@@ -339,7 +337,6 @@
 							<ExploreAssetButton
 								{asset}
 								{s3FilePicker}
-								{dbManagerDrawer}
 								_resourceMetadata={asset.metadata}
 							/>
 						{/if}

@@ -35,8 +35,7 @@
 		enterpriseLicense,
 		userStore,
 		workspaceStore,
-		userWorkspaces,
-		globalDbManagerDrawer
+		userWorkspaces
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import {
@@ -557,8 +556,6 @@
 		}
 	})
 
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val) as any
-
 	let showTable = $derived(
 		tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'
 	)
@@ -1064,7 +1061,6 @@
 											{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
 												<ExploreAssetButton
 													asset={{ kind: 'resource', path }}
-													{dbManagerDrawer}
 													_resourceMetadata={{ resource_type }}
 													class="w-24"
 												/>
