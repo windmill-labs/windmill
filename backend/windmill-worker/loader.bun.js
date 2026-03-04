@@ -53,7 +53,7 @@ const p = {
       return replaceRelativeImports(code);
     });
 
-    build.onLoad({ filter: /.*\.url$/ }, async (args) => {
+    build.onLoad({ filter: /.*\.wurl$/ }, async (args) => {
       const url = readFileSync(args.path, "utf8");
       const req = await fetch(url, {
         method: "GET",
@@ -99,8 +99,8 @@ const p = {
       }, []).join("/");
       const url = `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${normalizedPath}`;
       const file = isRelative
-        ? resolve("./" + file_path + "/../" + args.path + ".url")
-        : resolve("./" + args.path + ".url");
+        ? resolve("./" + file_path + "/../" + args.path + ".wurl")
+        : resolve("./" + args.path + ".wurl");
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, url);
       return {
