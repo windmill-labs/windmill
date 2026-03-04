@@ -24,7 +24,7 @@
 							[])
 					: undefined
 			} catch (err) {
-				sendUserToast('Failed to fetch hub scripts: ' + err, 'error')
+				console.error('Failed to fetch hub scripts:', err)
 				return undefined
 			}
 		},
@@ -44,9 +44,10 @@
 	import { Circle, ExternalLink } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { hubBaseUrlStore, userStore } from '$lib/stores'
+	import { disableHubStore, hubBaseUrlStore, userStore } from '$lib/stores'
 	import { get } from 'svelte/store'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { Alert } from '$lib/components/common'
 
 	let hubNotAvailable = $state(false)
 
@@ -94,13 +95,14 @@
 	})
 
 	async function getAllApps(filterKind: typeof kind) {
+		if ($disableHubStore) return
 		try {
 			hubNotAvailable = false
 			allApps = (await listHubIntegrationsCached({ kind: filterKind, refreshCount })).map(
 				(x) => x.name
 			)
 		} catch (err) {
-			sendUserToast('Failed to fetch hub integrations: ' + err, 'error')
+			console.error('Failed to fetch hub integrations:', err)
 			allApps = []
 			hubNotAvailable = true
 		}
@@ -175,9 +177,13 @@
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
-{#if hubNotAvailable}
-	<div class="text-2xs text-red-400 font-normal text-center py-2 px-3 items-center">
-		Hub not available
+{#if $disableHubStore}
+	<!-- Hub disabled, show nothing -->
+{:else if hubNotAvailable}
+	<div class="px-3 py-2 mt-2">
+		<Alert type="warning" title="Hub not available" size="xs">
+			Could not connect to the Windmill Hub. If you are in a closed environment, you can disable the Hub in the <a href="/#superadmin-settings?tab=private_hub">instance settings</a>.
+		</Alert>
 	</div>
 {:else if loading}
 	{#each Array(15).fill(0) as _}

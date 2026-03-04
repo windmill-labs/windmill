@@ -82,6 +82,7 @@ export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
 export const lspTokenStore = writable<string | undefined>(undefined)
 export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
+export const disableHubStore = writable<boolean>(false)
 export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 	[usersWorkspaceStore, superadmin],
 	([store, superadmin]) => {
