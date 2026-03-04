@@ -38,6 +38,7 @@
 		selectionManager: new SelectionManager(),
 		useDataflow: writable(false),
 		showAssets: writable(false),
+		freeDrag: writable(false),
 		diffManager: createFlowDiffManager()
 	})
 

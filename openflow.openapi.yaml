@@ -113,6 +113,17 @@ components:
           description: Sticky notes attached to the flow
           items:
             $ref: '#/components/schemas/FlowNote'
+        node_offsets:
+          type: object
+          description: User-defined position offsets for flow nodes, keyed by module ID
+          additionalProperties:
+            type: object
+            properties:
+              x:
+                type: number
+              y:
+                type: number
+            required: [x, y]
       required:
         - modules
 

@@ -63,7 +63,7 @@
 	const flowStore: StateStore<Flow> = $state({
 		val: {
 			summary: '',
-			value: { modules: [] },
+			value: { modules: [], node_offsets: {} },
 			path: '',
 			edited_at: '',
 			edited_by: '',

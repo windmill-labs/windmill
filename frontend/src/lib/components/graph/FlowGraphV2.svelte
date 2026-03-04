@@ -37,7 +37,7 @@
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
 	import { sugiyama, dagStratify, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
-	import { Expand, MousePointer, Hand } from 'lucide-svelte'
+	import { Expand, MousePointer, Hand, RotateCcw } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
 	import { encodeState, readFieldsRecursively, getModifierKey, isMac } from '$lib/utils'
@@ -81,6 +81,7 @@
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
+	let freeDrag: Writable<boolean> = writable<boolean>(false)
 	let showNotes = $state(true)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
@@ -129,6 +130,9 @@
 		suspendStatus?: Record<string, { job: Job; nb: number }>
 		noteMode?: boolean
 		notes?: FlowNote[]
+		nodeOffsets?: Record<string, { x: number; y: number }>
+		onNodeOffsetUpdate?: (nodeId: string, offset: { x: number; y: number }) => void
+		onNodeOffsetsReset?: () => void
 		chatInputEnabled?: boolean
 		multiSelectEnabled?: boolean
 		onDelete?: (id: string) => void
@@ -222,6 +226,9 @@
 		flowHasChanged = false,
 		noteMode = false,
 		notes = undefined,
+		nodeOffsets = undefined,
+		onNodeOffsetUpdate = undefined,
+		onNodeOffsetsReset = undefined,
 		exitNoteMode = undefined,
 		onNotePositionUpdate = undefined,
 		chatInputEnabled = false,
@@ -280,6 +287,7 @@
 		selectionManager: selectionManager,
 		useDataflow,
 		showAssets,
+		freeDrag,
 		noteManager,
 		moveManager,
 		clearFlowSelection,
@@ -514,6 +522,26 @@
 	let nodes = $state.raw<Node[]>([])
 	let edges = $state.raw<Edge[]>([])
 
+	// Track layout-computed positions (before user offsets) for drag offset computation
+	let layoutPositions: Record<string, { x: number; y: number }> = {}
+
+	const DRAGGABLE_NODE_TYPES = new Set([
+		'module',
+		'forLoopStart',
+		'forLoopEnd',
+		'branchAllStart',
+		'branchAllEnd',
+		'branchOneStart',
+		'branchOneEnd',
+		'whileLoopStart',
+		'whileLoopEnd',
+		'noBranch',
+		'subflowBound',
+		'input2',
+		'result',
+		'trigger'
+	])
+
 	let height = $state(0)
 
 	// Derived nodes with yOffset applied to all nodes uniformly and selectable flag set to false if notSelectable is true
@@ -642,6 +670,28 @@
 			}))
 		}
 
+		// Capture layout positions (after all spacing, before user offsets)
+		for (const n of finalNodes) {
+			if (n.type && DRAGGABLE_NODE_TYPES.has(n.type)) {
+				layoutPositions[n.id] = { x: n.position.x, y: n.position.y }
+			}
+		}
+
+		// Apply user-defined node offsets and set draggable flag
+		if (nodeOffsets || editMode) {
+			finalNodes = finalNodes.map((n) => {
+				const isDraggable = n.type != null && DRAGGABLE_NODE_TYPES.has(n.type)
+				const offset = nodeOffsets?.[n.id]
+				return {
+					...n,
+					position: offset
+						? { x: n.position.x + offset.x, y: n.position.y + offset.y }
+						: n.position,
+					draggable: isDraggable && editMode
+				}
+			})
+		}
+
 		// update nodes
 		nodes = [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])]
 
@@ -764,9 +814,10 @@
 		$showAssets && Object.values(nodes).every((n) => n.type !== 'asset')
 	)
 	let hideNotesToggle = $derived(!notes || notes.length === 0)
+	let hasNodeOffsets = $derived(nodeOffsets && Object.keys(nodeOffsets).length > 0)
 
 	$effect(() => {
-		;[graph, allowSimplifiedPoll, $showAssets, showNotes, noteManager.renderCount]
+		;[graph, allowSimplifiedPoll, $showAssets, showNotes, noteManager.renderCount, nodeOffsets]
 		untrack(async () => {
 			await updateStores()
 		})
@@ -934,13 +985,23 @@
 					paneContextMenu?.onPaneContextMenu(event)
 				}}
 				onnodedragstop={(event) => {
-					const node = event.targetNode
-					if (node && node.type === 'note') {
-						const positionWithOffset = {
-							x: node.position.x,
-							y: node.position.y - yOffset
+					for (const node of event.nodes) {
+						if (node.type === 'note') {
+							const positionWithOffset = {
+								x: node.position.x,
+								y: node.position.y - yOffset
+							}
+							onNotePositionUpdate?.(node.id, positionWithOffset)
+						} else if (node.type && DRAGGABLE_NODE_TYPES.has(node.type)) {
+							const layoutPos = layoutPositions[node.id]
+							if (layoutPos && onNodeOffsetUpdate) {
+								const offset = {
+									x: node.position.x - layoutPos.x,
+									y: node.position.y - yOffset - layoutPos.y
+								}
+								onNodeOffsetUpdate(node.id, offset)
+							}
 						}
-						onNotePositionUpdate?.(node.id, positionWithOffset)
 					}
 				}}
 				onmove={(event, viewport) => {
@@ -967,7 +1028,7 @@
 				elevateNodesOnSelect={false}
 				{proOptions}
 				multiSelectionKey={'Shift'}
-				nodesDraggable={false}
+				nodesDraggable={$freeDrag || false}
 				--background-color={false}
 			>
 				<div class="absolute inset-0 !bg-surface-secondary h-full" id="flow-graph-v2"></div>
@@ -1066,6 +1127,18 @@
 						{/if}
 						{#if showDataflow}
 							<Toggle bind:checked={$useDataflow} size="xs" options={{ right: 'Dataflow' }} />
+						{/if}
+						{#if editMode}
+						<Toggle bind:checked={$freeDrag} size="xs" options={{ right: 'Free drag' }} />
+					{/if}
+					{#if editMode && hasNodeOffsets}
+							<button
+								class="flex items-center gap-1 text-xs text-secondary hover:text-primary transition-colors"
+								onclick={() => onNodeOffsetsReset?.()}
+							>
+								<RotateCcw size={12} />
+								Reset layout
+							</button>
 						{/if}
 					</Controls>
 				{/if}

@@ -13,6 +13,9 @@ export async function initFlow(
 	flowStateStore: StateStore<FlowState>
 ) {
 	await initFlowState(flow, flowStateStore)
+	if (flow.value && !flow.value.node_offsets) {
+		flow.value.node_offsets = {}
+	}
 	flowStore.val = flow
 }
 
