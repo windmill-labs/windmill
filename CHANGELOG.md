@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.649.0](https://github.com/windmill-labs/windmill/compare/v1.648.0...v1.649.0) (2026-03-03)
+
+
+### Features
+
+* **frontend:** add script recorder for offline replay ([#8200](https://github.com/windmill-labs/windmill/issues/8200)) ([c97d8b4](https://github.com/windmill-labs/windmill/commit/c97d8b4715f86ea83ab2c0223ba859ced690829a))
+* move index management out of /srch/, add storage size reporting ([#8169](https://github.com/windmill-labs/windmill/issues/8169)) ([ee01acd](https://github.com/windmill-labs/windmill/commit/ee01acd9a6a2cd68a3f226988bfb46f6a6e64c08))
+
+
+### Bug Fixes
+
+* clean up slow-load toast interval on component destroy ([#8207](https://github.com/windmill-labs/windmill/issues/8207)) ([26f4f2b](https://github.com/windmill-labs/windmill/commit/26f4f2b399b828185b553289d6560e12261030a3))
+* **frontend:** prevent subflow expansion from hiding all insertion points ([#8203](https://github.com/windmill-labs/windmill/issues/8203)) ([e97da86](https://github.com/windmill-labs/windmill/commit/e97da860672171e33054a77d71f4824bb09e540d))
+* gracefully handle malformed OAuth entries in instance config ([#8205](https://github.com/windmill-labs/windmill/issues/8205)) ([cac4bdd](https://github.com/windmill-labs/windmill/commit/cac4bdd54f0c3ea80844ac31f7597f418ff7d8ae))
+* skip stop_after_if evaluation for skipped (identity) flow steps ([#8201](https://github.com/windmill-labs/windmill/issues/8201)) ([e6f7775](https://github.com/windmill-labs/windmill/commit/e6f7775d4d9a052aefc37260c6ed161146841cd7))
+* use exact matching for python requirements directive parsing ([#8199](https://github.com/windmill-labs/windmill/issues/8199)) ([2b2be38](https://github.com/windmill-labs/windmill/commit/2b2be38f129bbe58b6bb3815c4bd94aa03a3da90))
+
+
+### Performance Improvements
+
+* use two-step query in input history to leverage v2_job index ([#8197](https://github.com/windmill-labs/windmill/issues/8197)) ([50defdd](https://github.com/windmill-labs/windmill/commit/50defdded113b4d2cf0991b3fb642d1cd9a462b7))
+
 ## [1.648.0](https://github.com/windmill-labs/windmill/compare/v1.647.2...v1.648.0) (2026-03-02)
 
 
