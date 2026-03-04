@@ -495,7 +495,6 @@ function layoutLevel(
  */
 export function compoundLayout(
 	nodes: { id: string; parentIds?: string[] }[],
-	_edges: { source: string; target: string }[],
 	constants?: Partial<LayoutConstants>
 ): LayoutResult {
 	const c: LayoutConstants = {

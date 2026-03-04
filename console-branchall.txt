@@ -1,0 +1,425 @@
+Total messages: 36 (Errors: 0, Warnings: 1)
+Returning 22 messages for level "info"
+
+[LOG] ELK input nodes: [Trigger(trigger) ← [], Input(input2) ← [Trigger], Result(result) ← [Input]] @ http://localhost:5183/src/lib/components/graph/FlowGraphV2.svelte?t=1772543608757:531
+[LOG] ELK graph: {
+  "id": "root",
+  "layoutOptions": {
+    "elk.algorithm": "layered",
+    "elk.direction": "DOWN",
+    "elk.layered.spacing.nodeNodeBetweenLayers": "62",
+    "elk.spacing.nodeNode": "50",
+    "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+    "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+    "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES"
+  },
+  "children": [
+    {
+      "id": "Trigger",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "Input",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "Result",
+      "width": 275,
+      "height": 34
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-Trigger-Input",
+      "sources": [
+        "Trigger"
+      ],
+      "targets": [
+        "Input"
+      ]
+    },
+    {
+      "id": "e-Input-Result",
+      "sources": [
+        "Input"
+      ],
+      "targets": [
+        "Result"
+      ]
+    }
+  ]
+} @ http://localhost:5183/src/lib/components/graph/FlowGraphV2.svelte?t=1772543608757:532
+[LOG] cancelling request: {reason: saveAndClear, abortController: undefined} @ http://localhost:5183/src/lib/components/copilot/chat/AIChatManager.svelte.ts?t=1772535251800:1024
+[LOG] loadFlow @ http://localhost:5183/src/routes/(root)/(logged)/flows/edit/[...path]/+page.svelte?t=1772543608757:100
+[LOG] Welcome back admin to testing @ http://localhost:5183/src/routes/(root)/+layout.svelte?t=1772535251800:68
+[WARNING] using deprecated parameters for the initialization function; pass a single object instead @ http://localhost:5183/node_modules/@sveltejs/kit/src/runtime/client/client.js?v=5452fe86:3211
+[LOG] ELK input nodes: [Trigger(trigger) ← [], Input(input2) ← [Trigger], Result(result) ← [a-end], a(module) ← [Input], a-end(branchAllEnd) ← [c,d,g], a-branch-0(branchAllStart) ← [a], b(module) ← [a-branch-0], c(module) ← [b], a-branch-1(branchAllStart) ← [a], d(module) ← [a-branch-1], a-branch-2(branchAllStart) ← [a], e(module) ← [a-branch-2], f(module) ← [e], g(module) ← [f]] @ http://localhost:5183/src/lib/components/graph/FlowGraphV2.svelte?t=1772543608757:531
+[LOG] ELK graph: {
+  "id": "root",
+  "layoutOptions": {
+    "elk.algorithm": "layered",
+    "elk.direction": "DOWN",
+    "elk.layered.spacing.nodeNodeBetweenLayers": "62",
+    "elk.spacing.nodeNode": "50",
+    "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+    "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+    "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES"
+  },
+  "children": [
+    {
+      "id": "Trigger",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "Input",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "Result",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "a-end",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "a",
+      "layoutOptions": {
+        "elk.algorithm": "layered",
+        "elk.direction": "RIGHT",
+        "elk.spacing.nodeNode": "50"
+      },
+      "children": [
+        {
+          "id": "a-branch-0",
+          "layoutOptions": {
+            "elk.algorithm": "layered",
+            "elk.direction": "DOWN",
+            "elk.layered.spacing.nodeNodeBetweenLayers": "62",
+            "elk.spacing.nodeNode": "50"
+          },
+          "children": [
+            {
+              "id": "b",
+              "width": 275,
+              "height": 34
+            },
+            {
+              "id": "c",
+              "width": 275,
+              "height": 34
+            }
+          ],
+          "edges": [
+            {
+              "id": "e-b-c",
+              "sources": [
+                "b"
+              ],
+              "targets": [
+                "c"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "a-branch-1",
+          "layoutOptions": {
+            "elk.algorithm": "layered",
+            "elk.direction": "DOWN",
+            "elk.layered.spacing.nodeNodeBetweenLayers": "62",
+            "elk.spacing.nodeNode": "50"
+          },
+          "children": [
+            {
+              "id": "d",
+              "width": 275,
+              "height": 34
+            }
+          ],
+          "edges": []
+        },
+        {
+          "id": "a-branch-2",
+          "layoutOptions": {
+            "elk.algorithm": "layered",
+            "elk.direction": "DOWN",
+            "elk.layered.spacing.nodeNodeBetweenLayers": "62",
+            "elk.spacing.nodeNode": "50"
+          },
+          "children": [
+            {
+              "id": "e",
+              "width": 275,
+              "height": 34
+            },
+            {
+              "id": "f",
+              "width": 275,
+              "height": 34
+            },
+            {
+              "id": "g",
+              "width": 275,
+              "height": 34
+            }
+          ],
+          "edges": [
+            {
+              "id": "e-e-f",
+              "sources": [
+                "e"
+              ],
+              "targets": [
+                "f"
+              ]
+            },
+            {
+              "id": "e-f-g",
+              "sources": [
+                "f"
+              ],
+              "targets": [
+                "g"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-Trigger-Input",
+      "sources": [
+        "Trigger"
+      ],
+      "targets": [
+        "Input"
+      ]
+    },
+    {
+      "id": "e-a-end-Result",
+      "sources": [
+        "a-end"
+      ],
+      "targets": [
+        "Result"
+      ]
+    },
+    {
+      "id": "e-Input-a",
+      "sources": [
+        "Input"
+      ],
+      "targets": [
+        "a"
+      ]
+    },
+    {
+      "id": "e-a-a-end",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "a-end"
+      ]
+    }
+  ]
+} @ http://localhost:5183/src/lib/components/graph/FlowGraphV2.svelte?t=1772543608757:532
+[LOG] RawScript module b without assets field, parsing @ http://localhost:5183/src/lib/components/flows/FlowAssetsHandler.svelte?t=1772535251800:149
+[LOG] Parsing assets for RawScript module b @ http://localhost:5183/src/lib/components/flows/FlowAssetsHandler.svelte?t=1772535251800:121
+[LOG] RawScript module c without assets field, parsing @ http://localhost:5183/src/lib/components/flows/FlowAssetsHandler.svelte?t=1772535251800:149
+[LOG] Parsing assets for RawScript module c @ http://localhost:5183/src/lib/components/flows/FlowAssetsHandler.svelte?t=1772535251800:121
+[LOG] RawScript module d without assets field, parsing @ http://localhost:5183/src/lib/components/flows/FlowAssetsHandler.svelte?t=1772535251800:149
+[LOG] Parsing assets for RawScript module d @ http://localhost:5183/src/lib/components/flows/FlowAssetsHandler.svelte?t=1772535251800:121
+[LOG] RawScript module e without assets field, parsing @ http://localhost:5183/src/lib/components/flows/FlowAssetsHandler.svelte?t=1772535251800:149
+[LOG] Parsing assets for RawScript module e @ http://localhost:5183/src/lib/components/flows/FlowAssetsHandler.svelte?t=1772535251800:121
+[LOG] RawScript module f without assets field, parsing @ http://localhost:5183/src/lib/components/flows/FlowAssetsHandler.svelte?t=1772535251800:149
+[LOG] Parsing assets for RawScript module f @ http://localhost:5183/src/lib/components/flows/FlowAssetsHandler.svelte?t=1772535251800:121
+[LOG] RawScript module g without assets field, parsing @ http://localhost:5183/src/lib/components/flows/FlowAssetsHandler.svelte?t=1772535251800:149
+[LOG] Parsing assets for RawScript module g @ http://localhost:5183/src/lib/components/flows/FlowAssetsHandler.svelte?t=1772535251800:121
+[LOG] ELK input nodes: [Trigger(trigger) ← [], Input(input2) ← [Trigger], Result(result) ← [a-end], a(module) ← [Input], a-end(branchAllEnd) ← [c,d,g], a-branch-0(branchAllStart) ← [a], b(module) ← [a-branch-0], c(module) ← [b], a-branch-1(branchAllStart) ← [a], d(module) ← [a-branch-1], a-branch-2(branchAllStart) ← [a], e(module) ← [a-branch-2], f(module) ← [e], g(module) ← [f]] @ http://localhost:5183/src/lib/components/graph/FlowGraphV2.svelte?t=1772543608757:531
+[LOG] ELK graph: {
+  "id": "root",
+  "layoutOptions": {
+    "elk.algorithm": "layered",
+    "elk.direction": "DOWN",
+    "elk.layered.spacing.nodeNodeBetweenLayers": "62",
+    "elk.spacing.nodeNode": "50",
+    "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+    "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+    "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES"
+  },
+  "children": [
+    {
+      "id": "Trigger",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "Input",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "Result",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "a-end",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "a",
+      "layoutOptions": {
+        "elk.algorithm": "layered",
+        "elk.direction": "RIGHT",
+        "elk.spacing.nodeNode": "50"
+      },
+      "children": [
+        {
+          "id": "a-branch-0",
+          "layoutOptions": {
+            "elk.algorithm": "layered",
+            "elk.direction": "DOWN",
+            "elk.layered.spacing.nodeNodeBetweenLayers": "62",
+            "elk.spacing.nodeNode": "50"
+          },
+          "children": [
+            {
+              "id": "b",
+              "width": 275,
+              "height": 34
+            },
+            {
+              "id": "c",
+              "width": 275,
+              "height": 34
+            }
+          ],
+          "edges": [
+            {
+              "id": "e-b-c",
+              "sources": [
+                "b"
+              ],
+              "targets": [
+                "c"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "a-branch-1",
+          "layoutOptions": {
+            "elk.algorithm": "layered",
+            "elk.direction": "DOWN",
+            "elk.layered.spacing.nodeNodeBetweenLayers": "62",
+            "elk.spacing.nodeNode": "50"
+          },
+          "children": [
+            {
+              "id": "d",
+              "width": 275,
+              "height": 34
+            }
+          ],
+          "edges": []
+        },
+        {
+          "id": "a-branch-2",
+          "layoutOptions": {
+            "elk.algorithm": "layered",
+            "elk.direction": "DOWN",
+            "elk.layered.spacing.nodeNodeBetweenLayers": "62",
+            "elk.spacing.nodeNode": "50"
+          },
+          "children": [
+            {
+              "id": "e",
+              "width": 275,
+              "height": 34
+            },
+            {
+              "id": "f",
+              "width": 275,
+              "height": 34
+            },
+            {
+              "id": "g",
+              "width": 275,
+              "height": 34
+            }
+          ],
+          "edges": [
+            {
+              "id": "e-e-f",
+              "sources": [
+                "e"
+              ],
+              "targets": [
+                "f"
+              ]
+            },
+            {
+              "id": "e-f-g",
+              "sources": [
+                "f"
+              ],
+              "targets": [
+                "g"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-Trigger-Input",
+      "sources": [
+        "Trigger"
+      ],
+      "targets": [
+        "Input"
+      ]
+    },
+    {
+      "id": "e-a-end-Result",
+      "sources": [
+        "a-end"
+      ],
+      "targets": [
+        "Result"
+      ]
+    },
+    {
+      "id": "e-Input-a",
+      "sources": [
+        "Input"
+      ],
+      "targets": [
+        "a"
+      ]
+    },
+    {
+      "id": "e-a-a-end",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "a-end"
+      ]
+    }
+  ]
+} @ http://localhost:5183/src/lib/components/graph/FlowGraphV2.svelte?t=1772543608757:532

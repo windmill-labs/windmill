@@ -1,0 +1,149 @@
+Total messages: 15 (Errors: 0, Warnings: 0)
+Returning 6 messages for level "info"
+
+[LOG] ELK input nodes: [Trigger(trigger) ← [], Input(input2) ← [Trigger], Result(result) ← [Input]] @ http://localhost:5183/src/lib/components/graph/FlowGraphV2.svelte?t=1772543608757:531
+[LOG] ELK graph: {
+  "id": "root",
+  "layoutOptions": {
+    "elk.algorithm": "layered",
+    "elk.direction": "DOWN",
+    "elk.layered.spacing.nodeNodeBetweenLayers": "62",
+    "elk.spacing.nodeNode": "50",
+    "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+    "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+    "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES"
+  },
+  "children": [
+    {
+      "id": "Trigger",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "Input",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "Result",
+      "width": 275,
+      "height": 34
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-Trigger-Input",
+      "sources": [
+        "Trigger"
+      ],
+      "targets": [
+        "Input"
+      ]
+    },
+    {
+      "id": "e-Input-Result",
+      "sources": [
+        "Input"
+      ],
+      "targets": [
+        "Result"
+      ]
+    }
+  ]
+} @ http://localhost:5183/src/lib/components/graph/FlowGraphV2.svelte?t=1772543608757:532
+[LOG] cancelling request: {reason: saveAndClear, abortController: undefined} @ http://localhost:5183/src/lib/components/copilot/chat/AIChatManager.svelte.ts?t=1772535251800:1024
+[LOG] loadFlow @ http://localhost:5183/src/routes/(root)/(logged)/flows/edit/[...path]/+page.svelte?t=1772543608757:100
+[LOG] ELK input nodes: [Trigger(trigger) ← [], Input(input2) ← [Trigger], Result(result) ← [a-end], a(module) ← [Input], a-end(branchOneEnd) ← [a-branch-default], a-branch-default(branchOneStart) ← [a]] @ http://localhost:5183/src/lib/components/graph/FlowGraphV2.svelte?t=1772543608757:531
+[LOG] ELK graph: {
+  "id": "root",
+  "layoutOptions": {
+    "elk.algorithm": "layered",
+    "elk.direction": "DOWN",
+    "elk.layered.spacing.nodeNodeBetweenLayers": "62",
+    "elk.spacing.nodeNode": "50",
+    "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+    "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+    "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES"
+  },
+  "children": [
+    {
+      "id": "Trigger",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "Input",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "Result",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "a-end",
+      "width": 275,
+      "height": 34
+    },
+    {
+      "id": "a",
+      "layoutOptions": {
+        "elk.algorithm": "layered",
+        "elk.direction": "RIGHT",
+        "elk.spacing.nodeNode": "50"
+      },
+      "children": [
+        {
+          "id": "a-branch-default",
+          "layoutOptions": {
+            "elk.algorithm": "layered",
+            "elk.direction": "DOWN",
+            "elk.layered.spacing.nodeNodeBetweenLayers": "62",
+            "elk.spacing.nodeNode": "50"
+          },
+          "children": [],
+          "edges": []
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-Trigger-Input",
+      "sources": [
+        "Trigger"
+      ],
+      "targets": [
+        "Input"
+      ]
+    },
+    {
+      "id": "e-a-end-Result",
+      "sources": [
+        "a-end"
+      ],
+      "targets": [
+        "Result"
+      ]
+    },
+    {
+      "id": "e-Input-a",
+      "sources": [
+        "Input"
+      ],
+      "targets": [
+        "a"
+      ]
+    },
+    {
+      "id": "e-a-a-end",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "a-end"
+      ]
+    }
+  ]
+} @ http://localhost:5183/src/lib/components/graph/FlowGraphV2.svelte?t=1772543608757:532
