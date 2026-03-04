@@ -29,13 +29,18 @@
 
 	let resolvedContextMenuItems: ContextMenuItem[] | undefined = $derived(
 		contextMenuItems ??
-			menuItems?.map((item) => ({
-				id: item.displayName,
-				label: item.displayName,
-				icon: item.icon,
-				disabled: item.disabled,
-				onClick: item.action as (() => void) | undefined
-			}))
+			menuItems?.flatMap((item) => [
+				...(item.separatorTop ? [{ id: `${item.displayName}-divider`, label: '', divider: true }] : []),
+				{
+					id: item.displayName,
+					label: item.displayName,
+					icon: item.icon,
+					disabled: item.disabled,
+					type: item.type,
+					shortcut: item.shortcut,
+					onClick: item.action as (() => void) | undefined
+				}
+			])
 	)
 
 	const { moveManager } = getGraphContext()
