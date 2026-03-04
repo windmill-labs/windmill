@@ -12,6 +12,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Delete tokens created after migration that have no plaintext (cannot be restored)
+DELETE FROM token WHERE token IS NULL;
+
 -- Make token NOT NULL again
 ALTER TABLE token ALTER COLUMN token SET NOT NULL;
 

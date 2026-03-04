@@ -94,6 +94,16 @@ async fn new_webhook_token(
     );
     let token = create_token_internal(&mut *tx, &db, &authed, token_config).await?;
 
+    // Store plaintext for webhook tokens — needed for URL reconstruction on channel renewal
+    let t_hash = windmill_common::auth::hash_token(&token);
+    sqlx::query!(
+        "UPDATE token SET token = $1 WHERE token_hash = $2",
+        &token,
+        &t_hash
+    )
+    .execute(&mut *tx)
+    .await?;
+
     Ok(token)
 }
 

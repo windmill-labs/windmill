@@ -719,14 +719,20 @@ async fn update_oauth_token_resource(
     }
 }
 
-/// Look up the full token from the token table using its prefix.
-/// With hashed token storage, plaintext tokens are no longer stored in the DB,
-/// so this always returns None, forcing callers to create a new token.
+/// Look up the full plaintext token from the token table using its prefix.
+/// Only webhook tokens store the plaintext (needed for URL construction).
+/// Returns None for tokens that only have a hash stored.
 pub async fn get_token_by_prefix<'c, E: sqlx::Executor<'c, Database = Postgres>>(
-    _db: E,
-    _token_prefix: &str,
+    db: E,
+    token_prefix: &str,
 ) -> Result<Option<String>> {
-    Ok(None)
+    let token: Option<Option<String>> = sqlx::query_scalar!(
+        "SELECT token FROM token WHERE token_prefix = $1 AND token IS NOT NULL",
+        token_prefix
+    )
+    .fetch_optional(db)
+    .await?;
+    Ok(token.flatten())
 }
 
 /// Delete a token from the token table using its prefix
