@@ -41,6 +41,11 @@ const NSJAIL_CONFIG_RUN_RUST_CONTENT: &str = include_str!("../nsjail/run.rust.co
 const NSJAIL_CONFIG_COMPILE_RUST_CONTENT: &str =
     include_str!("../nsjail/download.rust.config.proto");
 
+#[cfg(windows)]
+const RUST_BIN_NAME: &str = "main.exe";
+#[cfg(not(windows))]
+const RUST_BIN_NAME: &str = "main";
+
 fn find_cargo_path() -> String {
     if let Ok(p) = std::env::var("CARGO_PATH") {
         return p;
@@ -584,30 +589,29 @@ pub async fn build_rust_crate(
 
     tokio::fs::copy(
         &format!(
-            "{build_dir}/target/{}/main",
+            "{build_dir}/target/{}/{RUST_BIN_NAME}",
             if is_preview { "debug" } else { "release" },
         ),
-        format! {"{job_dir}/main"},
+        format!("{job_dir}/{RUST_BIN_NAME}"),
     )
     .await
     .map_err(|e| {
         Error::ExecutionErr(format!(
-            "could not copy built binary from [...]/target/.../main to {job_dir}/main: {e:?}"
+            "could not copy built binary from [...]/target/.../{RUST_BIN_NAME} to {job_dir}/{RUST_BIN_NAME}: {e:?}"
         ))
     })?;
 
     match save_cache(
         &bin_path,
         &format!("{RUST_OBJECT_STORE_PREFIX}{hash}"),
-        &format!("{job_dir}/main"),
+        &format!("{job_dir}/{RUST_BIN_NAME}"),
         false,
     )
     .await
     {
         Err(e) => {
             let em = format!(
-                "could not save {bin_path} to {} to rust cache: {e:?}",
-                format!("{job_dir}/main"),
+                "could not save {bin_path} to {job_dir}/{RUST_BIN_NAME} to rust cache: {e:?}",
             );
             tracing::error!(em);
             Ok(em)
@@ -657,16 +661,16 @@ pub async fn handle_rust_job(
     let (cache, cache_logs) = crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
-        let target = format!("{job_dir}/main");
+        let target = format!("{job_dir}/{RUST_BIN_NAME}");
 
         #[cfg(unix)]
         let symlink = std::os::unix::fs::symlink(&bin_path, &target);
         #[cfg(windows)]
-        let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
+        let symlink = std::os::windows::fs::symlink_file(&bin_path, &target);
 
         symlink.map_err(|e| {
             Error::ExecutionErr(format!(
-                "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
+                "could not copy cached binary from {bin_path} to {target}: {e:?}"
             ))
         })?;
 
@@ -733,7 +737,7 @@ pub async fn handle_rust_job(
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let compiled_executable_name = "./main";
+        let compiled_executable_name = &format!("./{RUST_BIN_NAME}");
         let mut run_rust = build_command_with_isolation(compiled_executable_name, &[]);
         run_rust
             .current_dir(job_dir)

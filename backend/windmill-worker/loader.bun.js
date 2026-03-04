@@ -87,9 +87,17 @@ const p = {
       const isRelative = !args.path.startsWith("/");
 
       let endExt = args.path.endsWith(".ts") ? "" : ".ts";
-      const url = isRelative
-        ? `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${file_path}/../${args.path}${endExt}`
-        : `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${args.path}${endExt}`;
+      // Normalize path segments (resolve .. and .) to produce clean URLs
+      // This is needed because Bun on Windows may not normalize these in fetch()
+      const rawScriptPath = isRelative
+        ? `${file_path}/../${args.path}${endExt}`
+        : `${args.path}${endExt}`;
+      const normalizedPath = rawScriptPath.split("/").reduce((acc, seg) => {
+        if (seg === "..") acc.pop();
+        else if (seg !== "." && seg !== "") acc.push(seg);
+        return acc;
+      }, []).join("/");
+      const url = `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${normalizedPath}`;
       const file = isRelative
         ? resolve("./" + file_path + "/../" + args.path + ".url")
         : resolve("./" + args.path + ".url");
