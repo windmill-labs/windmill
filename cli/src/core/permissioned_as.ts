@@ -250,11 +250,11 @@ export async function preCheckPermissionedAs(
       default: false,
     });
     if (!proceed) {
-      throw new Error("Push cancelled by user due to permissioned_as changes.");
+      log.info("Push cancelled.");
+      process.exit(0);
     }
   } else {
-    throw new Error(
-      `${message}\n\nUse --accept-overriding-permissioned-as-with-self to proceed anyway.`
-    );
+    log.error(colors.red(`${message}\n\nUse --accept-overriding-permissioned-as-with-self to proceed anyway.`));
+    process.exit(1);
   }
 }
