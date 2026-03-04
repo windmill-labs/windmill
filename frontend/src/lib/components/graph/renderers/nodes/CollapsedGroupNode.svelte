@@ -18,7 +18,6 @@
 	const groupEditorContext = getGroupEditorContext()
 
 	let selected = $derived(!!(selectionManager && selectionManager.isNodeSelected(id)))
-	let hover = $state(false)
 
 	let group = $derived(
 		groupEditorContext?.groupEditor.getGroups().find((g) => g.id === data.groupId)
@@ -29,7 +28,7 @@
 <NodeWrapper offset={data.offset}>
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
+		<div class="relative">
 			<StepCountTab stepCount={data.stepCount} color={data.color} onExpand={() => data.eventHandlers.expandGroup(data.groupId)} />
 
 
@@ -54,11 +53,8 @@
 					note={data.note}
 					color={data.color}
 					collapsedByDefault={group?.collapsed_by_default ?? false}
-					collapsed={true}
-					showAll={hover || selected}
 					onAddNote={() => groupEditorContext?.groupEditor.addNote(data.groupId)}
 					onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(data.groupId)}
-					onToggleCollapse={() => data.eventHandlers.expandGroup(data.groupId)}
 					onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(data.groupId, c)}
 					onUpdateCollapsedDefault={(v) =>
 						groupEditorContext?.groupEditor.updateCollapsedDefault(data.groupId, v)}

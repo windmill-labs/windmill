@@ -199,11 +199,9 @@
 								note={group.note}
 								color={group.color}
 								collapsedByDefault={group.collapsed_by_default ?? false}
-								collapsed={false}
 								bind:settingsOpen
 								onAddNote={() => groupEditorContext?.groupEditor.addNote(group.id)}
 								onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(group.id)}
-								onToggleCollapse={() => toggleCollapse(group.id)}
 								onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(group.id, c)}
 								onUpdateCollapsedDefault={(v) => groupEditorContext?.groupEditor.updateCollapsedDefault(group.id, v)}
 								onDeleteGroup={() => {

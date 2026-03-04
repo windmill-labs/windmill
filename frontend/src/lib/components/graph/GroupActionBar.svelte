@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
-	import { Maximize2, Minimize2, Settings, StickyNote, Ungroup } from 'lucide-svelte'
+	import { Settings, StickyNote, Ungroup } from 'lucide-svelte'
 	import { NoteColor, NOTE_COLOR_SWATCHES } from './noteColors'
 	import Popover from '../meltComponents/Popover.svelte'
 	import { Tooltip } from '../meltComponents'
@@ -10,13 +10,9 @@
 		note: string | undefined | null
 		color: string | undefined
 		collapsedByDefault: boolean
-		collapsed: boolean
 		settingsOpen?: boolean
-		/** When false, non-collapse buttons are invisible (preserving layout) and the collapse button is dimmed */
-		showAll?: boolean
 		onAddNote: () => void
 		onRemoveNote: () => void
-		onToggleCollapse: () => void
 		onUpdateColor: (color: NoteColor) => void
 		onUpdateCollapsedDefault: (value: boolean) => void
 		onDeleteGroup?: () => void
@@ -26,12 +22,9 @@
 		note,
 		color,
 		collapsedByDefault,
-		collapsed,
 		settingsOpen = $bindable(false),
-		showAll = true,
 		onAddNote,
 		onRemoveNote,
-		onToggleCollapse,
 		onUpdateColor,
 		onUpdateCollapsedDefault,
 		onDeleteGroup = undefined
@@ -39,7 +32,7 @@
 </script>
 
 <div class="absolute -translate-y-[100%] top-2 right-0 h-7 p-1 flex flex-row gap-1">
-	<div class={showAll ? '' : 'invisible pointer-events-none'}>
+	<div>
 		{#if note == null}
 			<Tooltip>
 				<button
@@ -64,21 +57,7 @@
 			</Tooltip>
 		{/if}
 	</div>
-	<Tooltip>
-		<button
-			class="center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1 rounded-md {showAll ? '' : 'opacity-50'}"
-			onclick={stopPropagation(preventDefault(onToggleCollapse))}
-			onpointerdown={stopPropagation(preventDefault(() => {}))}
-		>
-			{#if collapsed}
-				<Maximize2 size={12} />
-			{:else}
-				<Minimize2 size={12} />
-			{/if}
-		</button>
-		<svelte:fragment slot="text">{collapsed ? 'Expand' : 'Collapse'} group</svelte:fragment>
-	</Tooltip>
-	<div class={showAll ? '' : 'invisible pointer-events-none'}>
+	<div>
 		<Popover
 			placement="bottom"
 			contentClasses="p-4"
@@ -119,7 +98,7 @@
 			{/snippet}
 		</Popover>
 	</div>
-	<div class={showAll ? '' : 'invisible pointer-events-none'}>
+	<div>
 		{#if onDeleteGroup}
 			<Tooltip>
 				<button
