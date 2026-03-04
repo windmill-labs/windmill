@@ -20,8 +20,8 @@
 
 	const groupEditorContext = getGroupEditorContext()
 
-	// Settings popover open state
-	let settingsOpen = $state(false)
+	// Menu open state
+	let menuOpen = $state(false)
 
 	// Action bar hover state to prevent flicker
 	let actionBarHovered = $state(false)
@@ -44,7 +44,7 @@
 				hideTimeout = undefined
 			}
 			visibleGroup = activeGroup
-		} else if (!settingsOpen && !actionBarHovered) {
+		} else if (!menuOpen && !actionBarHovered) {
 			hideTimeout = setTimeout(() => {
 				visibleGroup = undefined
 			}, 150)
@@ -199,7 +199,7 @@
 								note={group.note}
 								color={group.color}
 								collapsedByDefault={group.collapsed_by_default ?? false}
-								bind:settingsOpen
+								bind:menuOpen
 								onAddNote={() => groupEditorContext?.groupEditor.addNote(group.id)}
 								onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(group.id)}
 								onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(group.id, c)}

@@ -1,16 +1,17 @@
 <script lang="ts">
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
-	import { Settings, StickyNote, Ungroup } from 'lucide-svelte'
+	import { EllipsisVertical, StickyNote, Ungroup } from 'lucide-svelte'
 	import { NoteColor, NOTE_COLOR_SWATCHES } from './noteColors'
-	import Popover from '../meltComponents/Popover.svelte'
-	import { Tooltip } from '../meltComponents'
 	import Toggle from '../Toggle.svelte'
+	import DropdownV2 from '../DropdownV2.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		note: string | undefined | null
 		color: string | undefined
 		collapsedByDefault: boolean
-		settingsOpen?: boolean
+		visible?: boolean
+		menuOpen?: boolean
 		onAddNote: () => void
 		onRemoveNote: () => void
 		onUpdateColor: (color: NoteColor) => void
@@ -22,7 +23,8 @@
 		note,
 		color,
 		collapsedByDefault,
-		settingsOpen = $bindable(false),
+		visible = true,
+		menuOpen = $bindable(false),
 		onAddNote,
 		onRemoveNote,
 		onUpdateColor,
@@ -31,63 +33,61 @@
 	}: Props = $props()
 </script>
 
-<div class="absolute -translate-y-[100%] top-2 right-0 h-7 p-1 flex flex-row gap-1">
-	<div>
-		{#if note == null}
-			<Tooltip>
+<div
+	class="absolute -translate-y-[100%] top-2 right-0 h-7 p-1 min-w-7"
+	style="will-change: transform;"
+>
+	<DropdownV2
+		placement="bottom-end"
+		bind:open={menuOpen}
+		fixedHeight={false}
+		usePointerDownOutside
+		customMenu
+	>
+		{#snippet buttonReplacement()}
+			<button
+				class={twMerge(
+					'center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
+					visible || menuOpen ? 'block' : '!hidden',
+					'shadow-md rounded-md'
+				)}
+				onpointerdown={stopPropagation(preventDefault(() => {}))}
+				title="Actions"
+			>
+				<EllipsisVertical size={12} />
+			</button>
+		{/snippet}
+		{#snippet menu()}
+			<div class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none py-1">
+				<!-- Add / Remove note -->
 				<button
-					class="center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1 rounded-md"
-					onclick={stopPropagation(preventDefault(onAddNote))}
-					onpointerdown={stopPropagation(preventDefault(() => {}))}
+					class="px-4 py-2 text-primary font-normal hover:bg-surface-hover cursor-pointer text-xs w-full flex flex-row gap-2 items-center rounded-sm"
+					onclick={() => { note == null ? onAddNote() : onRemoveNote(); menuOpen = false }}
 				>
-					<StickyNote size={12} />
+					<StickyNote size={14} class="shrink-0" />
+					<p class="truncate grow min-w-0 whitespace-nowrap text-left">{note == null ? 'Add note' : 'Remove note'}</p>
 				</button>
-				<svelte:fragment slot="text">Add note</svelte:fragment>
-			</Tooltip>
-		{:else}
-			<Tooltip>
-				<button
-					class="center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-red-400 hover:text-white p-1 rounded-md"
-					onclick={stopPropagation(preventDefault(onRemoveNote))}
-					onpointerdown={stopPropagation(preventDefault(() => {}))}
-				>
-					<StickyNote size={12} />
-				</button>
-				<svelte:fragment slot="text">Remove note</svelte:fragment>
-			</Tooltip>
-		{/if}
-	</div>
-	<div>
-		<Popover
-			placement="bottom"
-			contentClasses="p-4"
-			floatingConfig={{ strategy: 'absolute' }}
-			usePointerDownOutside
-			bind:isOpen={settingsOpen}
-		>
-			{#snippet trigger()}
-				<Tooltip>
-					<button
-						class="center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1 rounded-md"
-					>
-						<Settings size={12} />
-					</button>
-					<svelte:fragment slot="text">Group settings</svelte:fragment>
-				</Tooltip>
-			{/snippet}
-			{#snippet content()}
-				<div class="grid grid-cols-5 gap-1" style="min-width: 140px">
-					{#each Object.values(NoteColor) as c (c)}
-						<button
-							class="w-6 h-6 rounded-full hover:scale-110 transition-transform duration-100
-								{NOTE_COLOR_SWATCHES[c]}
-								{(color ?? NoteColor.BLUE) === c ? 'ring-2 ring-accent' : 'dark:border-gray-600'}"
-							onclick={() => onUpdateColor(c)}
-							title={c.charAt(0).toUpperCase() + c.slice(1)}
-						></button>
-					{/each}
+
+				<div class="my-1 border-t border-border-light"></div>
+
+				<!-- Color picker -->
+				<div class="px-4 py-2">
+					<p class="text-2xs text-secondary mb-1.5">Color</p>
+					<div class="grid grid-cols-5 gap-1">
+						{#each Object.values(NoteColor) as c (c)}
+							<button
+								class="w-6 h-6 rounded-full hover:scale-110 transition-transform duration-100
+									{NOTE_COLOR_SWATCHES[c]}
+									{(color ?? NoteColor.BLUE) === c ? 'ring-2 ring-accent' : 'dark:border-gray-600'}"
+								onclick={() => onUpdateColor(c)}
+								title={c.charAt(0).toUpperCase() + c.slice(1)}
+							></button>
+						{/each}
+					</div>
 				</div>
-				<div class="border-t mt-2 pt-2 flex flex-col gap-2">
+
+				<!-- Collapsed by default toggle -->
+				<div class="px-4 py-2">
 					<Toggle
 						size="xs"
 						checked={collapsedByDefault}
@@ -95,21 +95,20 @@
 						on:change={(e) => onUpdateCollapsedDefault(e.detail)}
 					/>
 				</div>
-			{/snippet}
-		</Popover>
-	</div>
-	<div>
-		{#if onDeleteGroup}
-			<Tooltip>
-				<button
-					class="center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-red-400 hover:text-white p-1 rounded-md"
-					onclick={stopPropagation(preventDefault(onDeleteGroup))}
-					onpointerdown={stopPropagation(preventDefault(() => {}))}
-				>
-					<Ungroup size={12} />
-				</button>
-				<svelte:fragment slot="text">Ungroup</svelte:fragment>
-			</Tooltip>
-		{/if}
-	</div>
+
+				{#if onDeleteGroup}
+					<div class="my-1 border-t border-border-light"></div>
+
+					<!-- Ungroup -->
+					<button
+						class="px-4 py-2 font-normal hover:bg-red-500/10 cursor-pointer text-xs w-full flex flex-row gap-2 items-center rounded-sm text-red-600 dark:text-red-400"
+						onclick={() => { onDeleteGroup?.(); menuOpen = false }}
+					>
+						<Ungroup size={14} class="shrink-0" />
+						<p class="truncate grow min-w-0 whitespace-nowrap text-left">Ungroup</p>
+					</button>
+				{/if}
+			</div>
+		{/snippet}
+	</DropdownV2>
 </div>
