@@ -104,6 +104,7 @@ export interface SyncOptions {
   lint?: boolean;
   locksRequired?: boolean;
   defaultPermissionedAs?: PermissionedAsRule[];
+  respectVirtualUserPermissions?: boolean;
 }
 
 export interface Codebase {
@@ -352,6 +353,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
       | "includeSettings"
       | "includeKey"
       | "nonDottedPaths"
+      | "respectVirtualUserPermissions"
     >
   >
 > = {
@@ -375,6 +377,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
   includeKey: false,
   skipWorkspaceDependencies: false,
   nonDottedPaths: false,
+  respectVirtualUserPermissions: true,
 } as const;
 
 export async function mergeConfigWithConfigFile<T>(

@@ -2571,30 +2571,33 @@ export async function push(
       return;
     }
 
-    // Build permissioned_as context
-    const user = await wmill.whoami({ workspace: workspace.workspaceId });
-    const userIsAdminOrDeployer =
-      user.is_admin || (user.groups ?? []).includes("wm_deployers");
-    log.debug(`permissioned_as: user=${user.email}, is_admin=${user.is_admin}, groups=${JSON.stringify(user.groups)}, isAdminOrDeployer=${userIsAdminOrDeployer}`);
-    const validatedRules = validatePermissionedAsRules(
-      opts.defaultPermissionedAs,
-      "wmill.yaml"
-    );
-    log.debug(`permissioned_as: ${validatedRules.length} rules loaded`);
-    const permissionedAsContext: PermissionedAsContext = {
-      rules: validatedRules,
-      emailToUsernameCache: new Map<string, string>(),
-      userIsAdminOrDeployer,
-    };
+    // Build permissioned_as context (only when respectVirtualUserPermissions is enabled)
+    let permissionedAsContext: PermissionedAsContext | undefined = undefined;
+    if (opts.respectVirtualUserPermissions) {
+      const user = await wmill.whoami({ workspace: workspace.workspaceId });
+      const userIsAdminOrDeployer =
+        user.is_admin || (user.groups ?? []).includes("wm_deployers");
+      log.debug(`permissioned_as: user=${user.email}, is_admin=${user.is_admin}, groups=${JSON.stringify(user.groups)}, isAdminOrDeployer=${userIsAdminOrDeployer}`);
+      const validatedRules = validatePermissionedAsRules(
+        opts.defaultPermissionedAs,
+        "wmill.yaml"
+      );
+      log.debug(`permissioned_as: ${validatedRules.length} rules loaded`);
+      permissionedAsContext = {
+        rules: validatedRules,
+        emailToUsernameCache: new Map<string, string>(),
+        userIsAdminOrDeployer,
+      };
 
-    // Pre-check: warn non-admin/non-deployer users about permissioned_as changes
-    await preCheckPermissionedAs(
-      changes,
-      user.email,
-      userIsAdminOrDeployer,
-      opts.acceptOverridingPermissionedAsWithSelf ?? false,
-      !!process.stdin.isTTY
-    );
+      // Pre-check: warn non-admin/non-deployer users about permissioned_as changes
+      await preCheckPermissionedAs(
+        changes,
+        user.email,
+        userIsAdminOrDeployer,
+        opts.acceptOverridingPermissionedAsWithSelf ?? false,
+        !!process.stdin.isTTY
+      );
+    }
 
     if (
       !opts.yes &&
