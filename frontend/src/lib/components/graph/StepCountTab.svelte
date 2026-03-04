@@ -8,10 +8,11 @@
 		label?: string
 		color?: string
 		collapsed?: boolean
+		short?: boolean
 		onExpand?: () => void
 	}
 
-	let { stepCount, label, color, collapsed = true, onExpand }: Props = $props()
+	let { stepCount, label, color, collapsed = true, short = false, onExpand }: Props = $props()
 
 	let colorConfig: NoteColorConfig = $derived(
 		color
@@ -23,10 +24,10 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="absolute left-0 rounded-t-md px-2 text-3xs font-medium z-[-1] flex items-start gap-0.5 {colorConfig.background} {colorConfig.text} {onExpand
+	class="absolute left-0 {short ? 'rounded-md' : 'rounded-t-md'} px-2 text-3xs font-medium z-[-1] flex items-start gap-0.5 {colorConfig.background} {colorConfig.text} {onExpand
 		? 'cursor-pointer hover:opacity-80'
 		: ''}"
-	style="top: -20px; height: 34px;"
+	style="top: -20px; height: {short ? 20 : 34}px;"
 	onclick={onExpand ? stopPropagation(preventDefault(onExpand)) : undefined}
 	onpointerdown={onExpand ? stopPropagation(preventDefault(() => {})) : undefined}
 >

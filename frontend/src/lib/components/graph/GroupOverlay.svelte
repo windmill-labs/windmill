@@ -187,6 +187,7 @@
 							stepCount={group.module_ids.length}
 							color={group.color}
 							collapsed={false}
+							short
 							onExpand={() => toggleCollapse(group.id)}
 						/>
 						{#if editMode && visibleGroup?.id === group.id}
