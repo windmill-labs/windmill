@@ -448,7 +448,7 @@ async fn get_flow_env_by_flow_job_id(
     Path((w_id, flow_job_id, var_name)): Path<(String, Uuid, String)>,
     Query(JsonPath { json_path, .. }): Query<JsonPath>,
 ) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
-    // Fetch the raw value for the key (without json_path) to check for $var:/$res: references
+    // Fetch raw value (without json_path) to check for $var:/$res: references
     let raw_value = sqlx::query_scalar!(
             r#"
                 SELECT
@@ -478,14 +478,13 @@ async fn get_flow_env_by_flow_job_id(
         .await?
         .and_then(|r| r.map(|x| x.0));
 
-    let flow_env = if let Some(raw) = raw_value {
-        // Check if the value is a $var: or $res: reference that needs resolution
+    // Resolve $var:/$res: references if present
+    let resolved = if let Some(raw) = raw_value {
         let raw_str = raw.get();
-        let resolved = if let Some(path) = raw_str
+        if let Some(path) = raw_str
             .strip_prefix("\"$var:")
             .and_then(|s| s.strip_suffix("\""))
         {
-            // Resolve variable reference
             let db_authed = windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(
                 &authed,
                 db.clone(),
@@ -501,7 +500,6 @@ async fn get_flow_env_by_flow_job_id(
             .strip_prefix("\"$res:")
             .and_then(|s| s.strip_suffix("\""))
         {
-            // Resolve resource reference
             let db_authed = windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(
                 &authed,
                 db.clone(),
@@ -522,36 +520,31 @@ async fn get_flow_env_by_flow_job_id(
             }
         } else {
             raw
-        };
-
-        // Apply json_path if present
-        let json_path_parts = json_path
-            .as_ref()
-            .map(|x| x.split(".").collect::<Vec<_>>())
-            .unwrap_or_default();
-        if json_path_parts.is_empty() {
-            resolved
-        } else {
-            // Navigate into the resolved value using json_path
-            let mut value: serde_json::Value =
-                serde_json::from_str(resolved.get()).unwrap_or(serde_json::Value::Null);
-            for part in &json_path_parts {
-                value = match value {
-                    serde_json::Value::Object(ref mut map) => {
-                        map.remove(*part).unwrap_or(serde_json::Value::Null)
-                    }
-                    serde_json::Value::Array(ref arr) => part
-                        .parse::<usize>()
-                        .ok()
-                        .and_then(|i| arr.get(i).cloned())
-                        .unwrap_or(serde_json::Value::Null),
-                    _ => serde_json::Value::Null,
-                };
-            }
-            to_raw_value(&value)
         }
     } else {
         to_raw_value(&serde_json::Value::Null)
+    };
+
+    // Apply json_path navigation on the (possibly resolved) value
+    let flow_env = if let Some(ref jp) = json_path {
+        let mut value: serde_json::Value =
+            serde_json::from_str(resolved.get()).unwrap_or(serde_json::Value::Null);
+        for part in jp.split('.') {
+            value = match value {
+                serde_json::Value::Object(ref mut map) => {
+                    map.remove(part).unwrap_or(serde_json::Value::Null)
+                }
+                serde_json::Value::Array(ref arr) => part
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|i| arr.get(i).cloned())
+                    .unwrap_or(serde_json::Value::Null),
+                _ => serde_json::Value::Null,
+            };
+        }
+        to_raw_value(&value)
+    } else {
+        resolved
     };
 
     log_job_view(
