@@ -30,12 +30,13 @@
 <NodeWrapper offset={data.offset}>
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div
-			class="relative"
-			onmouseenter={() => (hover = true)}
-			onmouseleave={() => (hover = false)}
-		>
-			<StepCountTab stepCount={data.stepCount} color={data.color} onExpand={() => data.eventHandlers.expandGroup(data.groupId)} />
+		<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
+			<StepCountTab
+				stepCount={data.stepCount}
+				summary={data.summary}
+				color={data.color}
+				onExpand={() => data.eventHandlers.expandGroup(data.groupId)}
+			/>
 
 			<GroupNodeCard
 				summary={data.summary}
