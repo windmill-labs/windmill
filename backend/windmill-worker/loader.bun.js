@@ -1,8 +1,8 @@
 const p = {
   name: "windmill-relative-resolver",
   async setup(build) {
-    const { writeFileSync, readFileSync, mkdirSync } = await import("fs");
-    const { dirname, resolve } = await import("node:path");
+    const { readFileSync } = await import("fs");
+    const { resolve } = await import("node:path");
 
     const base_internal_url = "BASE_INTERNAL_URL".replace(
       "localhost",
@@ -48,13 +48,22 @@ const p = {
       };
     }
 
+    function normalizePath(rawPath) {
+      return rawPath.split("/").reduce((acc, seg) => {
+        if (seg === "..") acc.pop();
+        else if (seg !== "." && seg !== "") acc.push(seg);
+        return acc;
+      }, []).join("/");
+    }
+
     build.onLoad({ filter: filterLoad }, async (args) => {
       const code = readFileSync(args.path, "utf8");
       return replaceRelativeImports(code);
     });
 
+    // Load windmill scripts by fetching from the API
     build.onLoad({ filter: /.*/, namespace: "windmill-url" }, async (args) => {
-      const url = readFileSync(args.path, "utf8");
+      const url = `${base_internal_url}/api/w/${w_id}/scripts/RAW_GET_ENDPOINT/p/${args.path}`;
       const req = await fetch(url, {
         method: "GET",
         headers: {
@@ -63,8 +72,7 @@ const p = {
       });
       if (!req.ok) {
         throw new Error(
-          `Failed to find relative import at ${url}`,
-          req.statusText
+          `Failed to find relative import at ${url} (status ${req.status})`
         );
       }
       const contents = await req.text();
@@ -74,6 +82,7 @@ const p = {
       };
     });
 
+    // Resolve windmill script imports from the file namespace (e.g. from main.ts)
     build.onResolve({ filter: filterResolve }, (args) => {
       const importerFwd = args.importer?.replace(/\\/g, "/") ?? "";
       if (importerFwd.startsWith(cdirNodeModules)) {
@@ -87,24 +96,24 @@ const p = {
       const isRelative = !args.path.startsWith("/");
 
       let endExt = args.path.endsWith(".ts") ? "" : ".ts";
-      // Normalize path segments (resolve .. and .) to produce clean URLs
-      // This is needed because Bun on Windows may not normalize these in fetch()
       const rawScriptPath = isRelative
         ? `${file_path}/../${args.path}${endExt}`
         : `${args.path}${endExt}`;
-      const normalizedPath = rawScriptPath.split("/").reduce((acc, seg) => {
-        if (seg === "..") acc.pop();
-        else if (seg !== "." && seg !== "") acc.push(seg);
-        return acc;
-      }, []).join("/");
-      const url = `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${normalizedPath}`;
-      const file = isRelative
-        ? resolve("./" + file_path + "/../" + args.path + ".wurl")
-        : resolve("./" + args.path + ".wurl");
-      mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(file, url);
       return {
-        path: file.replace(/\\/g, "/"),
+        path: normalizePath(rawScriptPath),
+        namespace: "windmill-url",
+      };
+    });
+
+    // Resolve nested imports from within windmill-url modules
+    build.onResolve({ filter: /\.ts$/, namespace: "windmill-url" }, (args) => {
+      const isRelative = !args.path.startsWith("/");
+      let endExt = args.path.endsWith(".ts") ? "" : ".ts";
+      const rawScriptPath = isRelative
+        ? `${args.importer}/../${args.path}${endExt}`
+        : `${args.path}${endExt}`;
+      return {
+        path: normalizePath(rawScriptPath),
         namespace: "windmill-url",
       };
     });
