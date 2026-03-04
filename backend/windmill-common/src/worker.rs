@@ -492,8 +492,14 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
 }
 
 lazy_static::lazy_static! {
-    pub static ref WINDMILL_DIR: String = std::env::var("WINDMILL_DIR")
-        .unwrap_or_else(|_| "/tmp/windmill".to_string());
+    pub static ref WINDMILL_DIR: String = {
+        let dir = std::env::var("WINDMILL_DIR")
+            .unwrap_or_else(|_| "/tmp/windmill".to_string());
+        if dir.ends_with('/') {
+            panic!("WINDMILL_DIR must not end with a trailing slash, got: {dir}");
+        }
+        dir
+    };
     pub static ref TMP_LOGS_DIR: String = format!("{}/logs", *WINDMILL_DIR);
     pub static ref ROOT_CACHE_DIR: String = format!("{}/cache/", *WINDMILL_DIR);
     pub static ref HUB_CACHE_DIR: String = format!("{}hub", *ROOT_CACHE_DIR);
