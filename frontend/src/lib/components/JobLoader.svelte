@@ -369,8 +369,8 @@
 		if (replay) {
 			const recorded = replay.jobs[testId]
 			if (recorded) {
-				job = structuredClone(recorded.initial_job)
-				callbacks?.change?.(job)
+				job = JSON.parse(JSON.stringify(recorded.initial_job))
+				callbacks?.change?.(job!)
 				// Compute delays relative to replay start so sub-jobs (discovered
 				// later by FlowStatusViewerInner) stay in sync with the root job.
 				const elapsed = Date.now() - getReplayStartTime()
