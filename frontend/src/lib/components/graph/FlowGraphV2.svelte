@@ -336,7 +336,6 @@
 	}
 	type NodePos = { position: { x: number; y: number } }
 	let lastNodes: [NodeDep[], (NodeDep & NodePos)[]] | undefined = undefined
-	let lastXCenter = 0
 
 	function layoutNodes(nodes: NodeDep[]): (NodeDep & NodePos)[] {
 		let lastResult = lastNodes?.[1]
@@ -364,8 +363,6 @@
 		// Center horizontally
 		const xCenter =
 			(fullSize ? fullWidth : width) / 2 - bbox.width / 2 - (width - fullWidth) / 2
-		lastXCenter = xCenter
-
 		const newNodes = nodes.map((n) => ({
 			id: n.id,
 			position: {
