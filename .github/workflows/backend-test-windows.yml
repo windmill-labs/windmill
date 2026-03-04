@@ -2,6 +2,9 @@ name: Backend integration tests (Windows)
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - "ci-windows-tests"
 
 env:
   CARGO_INCREMENTAL: 0
