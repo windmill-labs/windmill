@@ -159,7 +159,7 @@ try {
 
 async fn scan_module_directories() -> Result<HashMap<String, String>, Error> {
     let mut module_dirs = HashMap::new();
-    let cache_dir = std::path::Path::new(POWERSHELL_CACHE_DIR);
+    let cache_dir = std::path::Path::new(&*POWERSHELL_CACHE_DIR);
 
     if let Ok(entries) = fs::read_dir(cache_dir) {
         for entry in entries {
@@ -391,7 +391,7 @@ pub async fn handle_powershell_job(
             .join(", ");
 
         let install_string = generate_powershell_install_code()
-            .replace("{path}", POWERSHELL_CACHE_DIR)
+            .replace("{path}", &*POWERSHELL_CACHE_DIR)
             .replace("{job_id}", &job.id.to_string())
             .replace("{has_private_repo}", &format!("${has_private_repo}"))
             .replace("{has_credentials}", &format!("${has_credentials}"))
@@ -442,7 +442,7 @@ $PSModulePathBackup = $env:PSModulePath
 $env:PSModulePath = \"$PSHome/Modules\"
 Get-Module -ListAvailable | Import-Module
 $env:PSModulePath = \"{}:$PSModulePathBackup\"",
-        POWERSHELL_CACHE_DIR
+        *POWERSHELL_CACHE_DIR
     );
 
     #[cfg(windows)]
@@ -452,7 +452,7 @@ $PSModulePathBackup = $env:PSModulePath
 $env:PSModulePath = \"C:\\Program Files\\PowerShell\\7\\Modules\"
 Get-Module -ListAvailable | Import-Module
 $env:PSModulePath = \"{};$PSModulePathBackup\"",
-        POWERSHELL_CACHE_DIR
+        *POWERSHELL_CACHE_DIR
     );
 
     // NOTE: powershell error handling / termination is quite tricky compared to bash
@@ -525,7 +525,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
-                .replace("{CACHE_DIR}", POWERSHELL_CACHE_DIR),
+                .replace("{CACHE_DIR}", &*POWERSHELL_CACHE_DIR),
         )?;
         let cmd_args = vec![
             "--config",

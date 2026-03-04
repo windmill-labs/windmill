@@ -1,3 +1,8 @@
+name: Windmill
+
+startupEnvs:
+  CARGO_FEATURES: "quickjs"
+
 services:
   - name: BE
     portEnv: BACKEND_PORT
@@ -98,6 +103,8 @@ profiles:
           $(printenv R2_PUBLIC_URL)/<branch>/diagram.svg
 
       5) Include in PR descriptions using markdown image syntax.
+
+      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
 
 linkedRepos:
   - repo: windmill-labs/windmill-ee-private

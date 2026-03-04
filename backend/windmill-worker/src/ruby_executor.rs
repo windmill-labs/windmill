@@ -1,7 +1,6 @@
 use std::{collections::HashMap, process::Stdio};
 
 use anyhow::anyhow;
-use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
 use tokio::{
@@ -122,7 +121,7 @@ pub async fn prepare<'a>(
         .write_all(&wrap(inner_content)?.into_bytes())
         .await?;
 
-    let mini_wm_path = format!("{RUBY_CACHE_DIR}/gems/windmill-internal/windmill");
+    let mini_wm_path = format!("{}/gems/windmill-internal/windmill", *RUBY_CACHE_DIR);
     if !std::fs::metadata(&mini_wm_path).is_ok() {
         fs::create_dir_all(&mini_wm_path).await?;
 
@@ -339,7 +338,7 @@ Your Gemfile syntax will continue to work as-is."
                 &NSJAIL_CONFIG_LOCK_RUBY_CONTENT
                     .replace("{JOB_DIR}", job_dir)
                     .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                    .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                    .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                     .replace("#{DEV}", DEV_CONF_NSJAIL), // .replace("{BUILD}", &build_dir),
             )?;
             let mut cmd = Command::new(NSJAIL_PATH.as_str());
@@ -588,7 +587,7 @@ async fn install<'a>(
         // 123...zx-activesupport-8.0.2
         // ^^^^^^^^ hash based on source and type (GEM or GIT)
         let handle = format!("{}-{}-{}", hash, pkg, version);
-        let path = format!("{RUBY_CACHE_DIR}/gems/{}", &handle);
+        let path = format!("{}/gems/{}", *RUBY_CACHE_DIR, &handle);
 
         deps.push(RequiredDependency {
             path,
@@ -632,7 +631,7 @@ async fn install<'a>(
                     &NSJAIL_CONFIG_DOWNLOAD_RUBY_CONTENT
                         .replace("{TARGET}", &dependency.path)
                         .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                        .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                        .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                         .replace("#{DEV}", DEV_CONF_NSJAIL), // .replace("{BUILD}", &build_dir),
                 )?;
                 let mut cmd = Command::new(NSJAIL_PATH.as_str());
@@ -741,9 +740,9 @@ async fn install<'a>(
     };
     // Include builtin windmill client
     {
-        const WM_INTERNAL: &str = concatcp!(RUBY_CACHE_DIR, "/gems/windmill-internal");
-        res.top_level_paths.push(WM_INTERNAL.to_owned());
-        res.rubylib += format!(":{WM_INTERNAL}").as_str();
+        let wm_internal = format!("{}/gems/windmill-internal", *RUBY_CACHE_DIR);
+        res.top_level_paths.push(wm_internal.clone());
+        res.rubylib += format!(":{wm_internal}").as_str();
     }
     Ok(res)
 }
@@ -800,7 +799,7 @@ mount {{
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{SHARED_MOUNT}", &shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", &shared_deps)
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
         )?;

@@ -53,6 +53,7 @@
 	import type { RawAppData } from './dataTableRefUtils'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 
 	// async function hash(message) {
 	// 	try {
@@ -934,7 +935,7 @@
 								window.open(`/apps/add?template=${appPath}`)
 							}
 						},
-						...(!isRuleActive('DisableWorkspaceForking')
+						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
 							? [
 									{
 										label: 'Edit in workspace fork',

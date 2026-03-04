@@ -55,7 +55,8 @@ panes:
       - Pane 2: frontend (npm run dev)\n\n
       To check logs, use: \`tmux capture-pane -t .1 -p -S -50\` (backend) or \`tmux capture-pane -t .2 -p -S -50\` (frontend).\n
       When restarting backend or frontend, make sure to use the ports listed in .env.local.\n
-      Because we are running backend with cargo watch, to verify your changes, just check the logs in the backend pane. No need for cargo check."
+      Because we are running backend with cargo watch, to verify your changes, just check the logs in the backend pane. No need for cargo check.\n\n
+      IMPORTANT: Read docs/autonomous-mode.md before starting any work."
     focus: true
   - command: 'ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/backend" && PORT=${BACKEND_PORT:-8000} cargo watch -x "run ${CARGO_FEATURES:+--features $CARGO_FEATURES}"'
     split: horizontal
