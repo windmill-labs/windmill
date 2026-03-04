@@ -50,16 +50,21 @@ fn find_cargo_path() -> String {
     if let Ok(p) = std::env::var("CARGO_PATH") {
         return p;
     }
-    let from_home = format!("{}/bin/cargo", CARGO_HOME.as_str());
-    if std::path::Path::new(&from_home).exists() {
-        return from_home;
-    }
-    for p in ["/usr/local/cargo/bin/cargo", "/usr/bin/cargo"] {
+    let candidates = if cfg!(windows) {
+        vec![format!("{}\\bin\\cargo.exe", CARGO_HOME.as_str())]
+    } else {
+        vec![
+            format!("{}/bin/cargo", CARGO_HOME.as_str()),
+            "/usr/local/cargo/bin/cargo".to_string(),
+            "/usr/bin/cargo".to_string(),
+        ]
+    };
+    for p in &candidates {
         if std::path::Path::new(p).exists() {
-            return p.to_string();
+            return p.clone();
         }
     }
-    from_home
+    candidates.into_iter().next().unwrap()
 }
 
 #[cfg(not(windows))]
