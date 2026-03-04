@@ -8,14 +8,12 @@
 	import CustomInstanceDbWizardModal from './CustomInstanceDbWizardModal.svelte'
 	import { ArrowRight, TriangleAlert } from 'lucide-svelte'
 	import type { ConfirmationModalHandle } from '../common/confirmationModal/asyncConfirmationModal.svelte'
-	import DBManagerDrawer from '../DBManagerDrawer.svelte'
 	import type { Snippet } from 'svelte'
 
 	type Props = {
 		value: string | undefined
 		customInstanceDbs: ResourceReturn<ListCustomInstanceDbsResponse>
 		confirmationModal: ConfirmationModalHandle
-		dbManagerDrawer: DBManagerDrawer | undefined
 		wizardBottomHint?: Snippet | undefined
 		class?: string
 		tag?: CustomInstanceDbTag
@@ -24,7 +22,6 @@
 		value = $bindable(),
 		customInstanceDbs,
 		confirmationModal,
-		dbManagerDrawer,
 		wizardBottomHint,
 		class: className,
 		tag
@@ -90,7 +87,6 @@
 <CustomInstanceDbWizardModal
 	{customInstanceDbs}
 	{confirmationModal}
-	{dbManagerDrawer}
 	{tag}
 	bottomHint={wizardBottomHint}
 	bind:opened={
