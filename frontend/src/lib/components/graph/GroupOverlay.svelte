@@ -54,19 +54,18 @@
 	// All groups for always-visible labels
 	let allGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
 
-	// Compute bounds for each group (outline covers nodes only, header floats above)
+	// Compute bounds for each group (outline extends up to include header)
 	function computeGroupBounds(group: FlowGroup) {
 		if (group.module_ids.length === 0) return null
 		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(group.module_ids, allNodes)
 		const padding = 16
 		const noteHeight = groupEditorContext?.groupEditor.getNoteHeights()[group.id] ?? 0
-		const headerOffset = GROUP_HEADER_HEIGHT + noteHeight
+		const topPadding = padding + GROUP_HEADER_HEIGHT + noteHeight
 		return {
 			x: minX - padding,
-			y: minY - padding,
+			y: minY - topPadding,
 			width: maxX - minX + 2 * padding,
-			height: maxY - minY + 2 * padding,
-			headerOffset
+			height: maxY - minY + padding + topPadding
 		}
 	}
 
@@ -181,7 +180,7 @@
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					class="absolute"
-					style="pointer-events: auto; transform: translate({bounds.x + 16}px, {bounds.y - bounds.headerOffset}px);"
+					style="pointer-events: auto; transform: translate({bounds.x + 16}px, {bounds.y}px);"
 					style:z-index="4"
 					onpointerenter={() => {
 						actionBarHovered = true
