@@ -1,12 +1,12 @@
 #![cfg(all(feature = "private", feature = "agent_worker_server"))]
 
-use windmill_test_utils::*;
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use windmill_common::{
     jobs::{JobPayload, RawCode},
     scripts::ScriptLang,
 };
+use windmill_test_utils::*;
 
 fn bun_code(code: &str) -> RawCode {
     RawCode {
@@ -18,8 +18,8 @@ fn bun_code(code: &str) -> RawCode {
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
     }
 }
@@ -223,7 +223,10 @@ async fn test_agent_worker_token_and_ping(db: Pool<Postgres>) -> anyhow::Result<
     .fetch_one(&db)
     .await?;
 
-    assert!(worker_count > 0, "worker ping should be recorded in database");
+    assert!(
+        worker_count > 0,
+        "worker ping should be recorded in database"
+    );
 
     // MainLoop ping updates the existing record
     let resp = http_client
@@ -262,6 +265,221 @@ async fn test_agent_worker_multiple_jobs_sequential(db: Pool<Postgres>) -> anyho
         assert!(result.success, "job {i} should succeed");
         assert_eq!(result.json_result(), Some(json!(i)));
     }
+
+    Ok(())
+}
+
+/// Test the volume HTTP proxy endpoints that agent workers use.
+///
+/// Exercises the full volume lifecycle via HTTP:
+/// 1. Configure workspace S3 storage (FilesystemStorage)
+/// 2. Pre-populate a volume with a file
+/// 3. POST /begin — acquire lease, get manifest
+/// 4. GET /file/* — download existing file
+/// 5. PUT /file/* — upload a new file
+/// 6. POST /commit — finalize with stats, release lease
+/// 7. Verify DB state and storage
+#[cfg(feature = "parquet")]
+#[sqlx::test(fixtures("base"))]
+async fn test_agent_worker_volume_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let (client, _port, _server) = init_client_agent_mode(db.clone()).await;
+
+    // 1. Set up filesystem-based object storage in a temp dir
+    let storage_dir = tempfile::tempdir()?;
+    let storage_root = storage_dir.path().to_string_lossy().to_string();
+
+    let lfs_config = json!({
+        "type": "FilesystemStorage",
+        "root_path": storage_root,
+        "public_resource": null,
+        "advanced_permissions": null
+    });
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
+        lfs_config,
+        "test-workspace"
+    )
+    .execute(&db)
+    .await?;
+
+    // 2. Pre-populate the volume with a file
+    let vol_dir = storage_dir.path().join("volumes").join("test-vol");
+    std::fs::create_dir_all(&vol_dir)?;
+    std::fs::write(vol_dir.join("hello.txt"), b"hello from volume")?;
+
+    let base = client.baseurl();
+    let http = client.client();
+    let vol_base = format!("{base}/w/test-workspace/volumes/test-vol");
+
+    // 3. POST /begin — acquire lease, get manifest + permissions
+    let resp = http
+        .post(format!("{vol_base}/begin"))
+        .json(&json!({
+            "worker_name": "test-worker-1",
+            "permissioned_as": "u/test-user"
+        }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "begin should succeed, got: {}",
+        resp.status()
+    );
+
+    let begin_body: serde_json::Value = resp.json().await?;
+    assert!(
+        begin_body["writable"].as_bool().unwrap(),
+        "should be writable"
+    );
+    let manifest = begin_body["manifest"].as_object().unwrap();
+    assert!(
+        manifest.contains_key("hello.txt"),
+        "manifest should contain hello.txt, got: {manifest:?}"
+    );
+
+    // 4. GET /file/* — download the existing file
+    let resp = http
+        .get(format!("{vol_base}/file/hello.txt"))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "file download should succeed, got: {}",
+        resp.status()
+    );
+    let file_bytes = resp.bytes().await?;
+    assert_eq!(
+        file_bytes.as_ref(),
+        b"hello from volume",
+        "downloaded file content should match"
+    );
+
+    // 5. PUT /file/* — upload a new file
+    let resp = http
+        .put(format!("{vol_base}/file/output.txt"))
+        .body(b"written by agent worker".to_vec())
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "file upload should succeed, got: {}",
+        resp.status()
+    );
+
+    // 6. POST /commit — finalize: report stats, release lease
+    let resp = http
+        .post(format!("{vol_base}/commit"))
+        .json(&json!({
+            "worker_name": "test-worker-1",
+            "deleted_keys": [],
+            "symlinks": {},
+            "file_count": 2,
+            "size_bytes": 39
+        }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "commit should succeed, got: {}",
+        resp.status()
+    );
+
+    // 7. Verify volume DB row was updated
+    let vol_row = sqlx::query!(
+        "SELECT size_bytes, file_count, leased_by, lease_until
+         FROM volume WHERE workspace_id = $1 AND name = $2",
+        "test-workspace",
+        "test-vol"
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let vol_row = vol_row.expect("volume row should exist");
+    assert_eq!(vol_row.file_count, 2, "file_count should be 2");
+    assert_eq!(vol_row.size_bytes, 39, "size_bytes should match");
+    assert!(vol_row.leased_by.is_none(), "lease should be released");
+    assert!(
+        vol_row.lease_until.is_none() || vol_row.lease_until.unwrap() < chrono::Utc::now(),
+        "lease_until should be cleared or in the past"
+    );
+
+    // 8. Verify the uploaded file was persisted in storage
+    let output_path = vol_dir.join("output.txt");
+    assert!(output_path.exists(), "output.txt should be in storage");
+    let output_content = std::fs::read_to_string(&output_path)?;
+    assert_eq!(output_content, "written by agent worker");
+
+    Ok(())
+}
+
+/// Test the volume release endpoint (error/cancel path).
+#[cfg(feature = "parquet")]
+#[sqlx::test(fixtures("base"))]
+async fn test_agent_worker_volume_release(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let (client, _port, _server) = init_client_agent_mode(db.clone()).await;
+
+    // Set up filesystem storage
+    let storage_dir = tempfile::tempdir()?;
+    let storage_root = storage_dir.path().to_string_lossy().to_string();
+    let lfs_config = json!({
+        "type": "FilesystemStorage",
+        "root_path": storage_root,
+        "public_resource": null,
+        "advanced_permissions": null
+    });
+    sqlx::query!(
+        "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
+        lfs_config,
+        "test-workspace"
+    )
+    .execute(&db)
+    .await?;
+
+    let base = client.baseurl();
+    let http = client.client();
+    let vol_base = format!("{base}/w/test-workspace/volumes/test-vol");
+
+    // Begin (acquire lease)
+    let resp = http
+        .post(format!("{vol_base}/begin"))
+        .json(&json!({
+            "worker_name": "test-worker-2",
+            "permissioned_as": "u/test-user"
+        }))
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "begin should succeed");
+
+    // Verify lease is held
+    let leased = sqlx::query_scalar!(
+        "SELECT leased_by FROM volume WHERE workspace_id = $1 AND name = $2",
+        "test-workspace",
+        "test-vol"
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten();
+    assert_eq!(leased.as_deref(), Some("test-worker-2"));
+
+    // Release without commit (simulating error path)
+    let resp = http
+        .post(format!("{vol_base}/release"))
+        .json(&json!({ "worker_name": "test-worker-2" }))
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "release should succeed");
+
+    // Verify lease is cleared
+    let leased = sqlx::query_scalar!(
+        "SELECT leased_by FROM volume WHERE workspace_id = $1 AND name = $2",
+        "test-workspace",
+        "test-vol"
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten();
+    assert!(leased.is_none(), "lease should be released");
 
     Ok(())
 }
