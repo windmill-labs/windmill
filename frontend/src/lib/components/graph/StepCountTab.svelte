@@ -33,7 +33,7 @@
 	onpointerdown={onExpand ? stopPropagation(preventDefault(() => {})) : undefined}
 >
 	<div class="flex items-center gap-1 py-0.5 whitespace-nowrap">
-		{#if label}{label}{:else}{stepCount} step{stepCount !== 1 ? 's' : ''}{/if}{#if summary && collapsed}<span class="opacity-60 mx-0.5">·</span><span class="truncate max-w-[120px]">{summary}</span>{/if}
+		{#if label}{label}{:else}{stepCount} step{stepCount !== 1 ? 's' : ''}{/if}{#if summary && !collapsed}<span class="opacity-60 mx-0.5">·</span><span class="truncate max-w-[120px]">{summary}</span>{/if}
 		{#if onExpand}
 			{#if collapsed}<Maximize2 size={10} class="-my-1" />{:else}<Minimize2
 					size={10}

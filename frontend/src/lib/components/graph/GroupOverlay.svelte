@@ -185,6 +185,7 @@
 					<div class="relative flex items-center">
 						<StepCountTab
 							stepCount={group.module_ids.length}
+							summary={group.summary}
 							color={group.color}
 							collapsed={false}
 							short
