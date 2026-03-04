@@ -41,20 +41,30 @@ const NSJAIL_CONFIG_RUN_RUST_CONTENT: &str = include_str!("../nsjail/run.rust.co
 const NSJAIL_CONFIG_COMPILE_RUST_CONTENT: &str =
     include_str!("../nsjail/download.rust.config.proto");
 
+#[cfg(windows)]
+const RUST_BIN_NAME: &str = "main.exe";
+#[cfg(not(windows))]
+const RUST_BIN_NAME: &str = "main";
+
 fn find_cargo_path() -> String {
     if let Ok(p) = std::env::var("CARGO_PATH") {
         return p;
     }
-    let from_home = format!("{}/bin/cargo", CARGO_HOME.as_str());
-    if std::path::Path::new(&from_home).exists() {
-        return from_home;
-    }
-    for p in ["/usr/local/cargo/bin/cargo", "/usr/bin/cargo"] {
+    let candidates = if cfg!(windows) {
+        vec![format!("{}\\bin\\cargo.exe", CARGO_HOME.as_str())]
+    } else {
+        vec![
+            format!("{}/bin/cargo", CARGO_HOME.as_str()),
+            "/usr/local/cargo/bin/cargo".to_string(),
+            "/usr/bin/cargo".to_string(),
+        ]
+    };
+    for p in &candidates {
         if std::path::Path::new(p).exists() {
-            return p.to_string();
+            return p.clone();
         }
     }
-    from_home
+    candidates.into_iter().next().unwrap()
 }
 
 #[cfg(not(windows))]
@@ -71,7 +81,6 @@ fn find_preinstalled_dir(env_var: &str, candidates: &[&str]) -> String {
 }
 
 lazy_static::lazy_static! {
-    static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
     static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { CARGO_HOME_DEFAULT.clone() });
     static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| { RUSTUP_HOME_DEFAULT.clone() });
     static ref CARGO_PATH: String = find_cargo_path();
@@ -81,14 +90,14 @@ lazy_static::lazy_static! {
 
 #[cfg(windows)]
 lazy_static::lazy_static! {
-    static ref CARGO_HOME_DEFAULT: String = format!("{}\\.cargo", *HOME_DIR);
-    static ref RUSTUP_HOME_DEFAULT: String = format!("{}\\.rustup", *HOME_DIR);
+    static ref CARGO_HOME_DEFAULT: String = format!("{}\\.cargo", HOME_ENV.as_str());
+    static ref RUSTUP_HOME_DEFAULT: String = format!("{}\\.rustup", HOME_ENV.as_str());
 }
 
 #[cfg(not(windows))]
 lazy_static::lazy_static! {
-    static ref CARGO_HOME_DEFAULT: String = format!("{}/.cargo", *HOME_DIR);
-    static ref RUSTUP_HOME_DEFAULT: String = format!("{}/.rustup", *HOME_DIR);
+    static ref CARGO_HOME_DEFAULT: String = format!("{}/.cargo", HOME_ENV.as_str());
+    static ref RUSTUP_HOME_DEFAULT: String = format!("{}/.rustup", HOME_ENV.as_str());
 }
 
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
@@ -97,11 +106,11 @@ const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
 lazy_static::lazy_static! {
     static ref PREINSTALLED_CARGO: String = find_preinstalled_dir(
         "CARGO_PREINSTALL_DIR",
-        &["/usr/local/cargo", &format!("{}/.cargo", *HOME_DIR)],
+        &["/usr/local/cargo", &format!("{}/.cargo", HOME_ENV.as_str())],
     );
     static ref PREINSTALLED_RUSTUP: String = find_preinstalled_dir(
         "RUSTUP_PREINSTALL_DIR",
-        &["/usr/local/rustup", &format!("{}/.rustup", *HOME_DIR)],
+        &["/usr/local/rustup", &format!("{}/.rustup", HOME_ENV.as_str())],
     );
 }
 
@@ -521,6 +530,13 @@ pub async fn build_rust_crate(
                 std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
             );
             build_rust_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+            // MSVC linker needs LIB and INCLUDE to find kernel32.lib etc.
+            if let Ok(lib) = std::env::var("LIB") {
+                build_rust_cmd.env("LIB", lib);
+            }
+            if let Ok(include) = std::env::var("INCLUDE") {
+                build_rust_cmd.env("INCLUDE", include);
+            }
         }
         start_child_process(build_rust_cmd, CARGO_PATH.as_str(), false).await?
     };
@@ -545,30 +561,29 @@ pub async fn build_rust_crate(
 
     tokio::fs::copy(
         &format!(
-            "{build_dir}/target/{}/main",
+            "{build_dir}/target/{}/{RUST_BIN_NAME}",
             if is_preview { "debug" } else { "release" },
         ),
-        format! {"{job_dir}/main"},
+        format!("{job_dir}/{RUST_BIN_NAME}"),
     )
     .await
     .map_err(|e| {
         Error::ExecutionErr(format!(
-            "could not copy built binary from [...]/target/.../main to {job_dir}/main: {e:?}"
+            "could not copy built binary from [...]/target/.../{RUST_BIN_NAME} to {job_dir}/{RUST_BIN_NAME}: {e:?}"
         ))
     })?;
 
     match save_cache(
         &bin_path,
         &format!("{RUST_OBJECT_STORE_PREFIX}{hash}"),
-        &format!("{job_dir}/main"),
+        &format!("{job_dir}/{RUST_BIN_NAME}"),
         false,
     )
     .await
     {
         Err(e) => {
             let em = format!(
-                "could not save {bin_path} to {} to rust cache: {e:?}",
-                format!("{job_dir}/main"),
+                "could not save {bin_path} to {job_dir}/{RUST_BIN_NAME} to rust cache: {e:?}",
             );
             tracing::error!(em);
             Ok(em)
@@ -618,16 +633,16 @@ pub async fn handle_rust_job(
     let (cache, cache_logs) = crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
-        let target = format!("{job_dir}/main");
+        let target = format!("{job_dir}/{RUST_BIN_NAME}");
 
         #[cfg(unix)]
         let symlink = std::os::unix::fs::symlink(&bin_path, &target);
         #[cfg(windows)]
-        let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
+        let symlink = std::os::windows::fs::symlink_file(&bin_path, &target);
 
         symlink.map_err(|e| {
             Error::ExecutionErr(format!(
-                "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
+                "could not copy cached binary from {bin_path} to {target}: {e:?}"
             ))
         })?;
 
@@ -694,7 +709,7 @@ pub async fn handle_rust_job(
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let compiled_executable_name = "./main";
+        let compiled_executable_name = &format!("{job_dir}/{RUST_BIN_NAME}");
         let mut run_rust = build_command_with_isolation(compiled_executable_name, &[]);
         run_rust
             .current_dir(job_dir)
