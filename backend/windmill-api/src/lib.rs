@@ -161,9 +161,6 @@ mod teams_cache_oss;
 #[cfg(feature = "private")]
 pub mod teams_ee;
 mod teams_oss;
-#[cfg(feature = "private")]
-pub mod volumes_ee;
-mod volumes_oss;
 mod token;
 mod tracing_init;
 pub mod triggers;
@@ -173,6 +170,9 @@ pub mod users_ee;
 mod users_oss;
 mod utils;
 mod variables;
+#[cfg(feature = "private")]
+pub mod volumes_ee;
+mod volumes_oss;
 pub mod webhook_util;
 mod workspaces;
 #[cfg(feature = "private")]
@@ -250,6 +250,37 @@ type ServiceLogIndexReader = ();
 type IndexReader = windmill_indexer::completed_runs_oss::IndexReader;
 #[cfg(feature = "tantivy")]
 type ServiceLogIndexReader = windmill_indexer::service_logs_oss::ServiceLogIndexReader;
+
+/// Middleware that injects a synthetic admin `ApiAuthed` into request extensions.
+///
+/// Used for volume proxy endpoints under the agent_workers path, where the
+/// agent JWT auth layer has already validated the request. The volume handlers
+/// need `ApiAuthed` to resolve the workspace S3 client, but the agent JWT
+/// format is incompatible with the standard auth extractor.
+#[cfg(feature = "agent_worker_server")]
+async fn inject_agent_authed(
+    request: axum::http::Request<Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let mut request = request;
+    request
+        .extensions_mut()
+        .insert(windmill_api_auth::OptJobAuthed {
+            authed: ApiAuthed {
+                email: "agent-worker@windmill.dev".to_string(),
+                username: "agent-worker".to_string(),
+                is_admin: true,
+                is_operator: false,
+                groups: Vec::new(),
+                folders: Vec::new(),
+                scopes: None,
+                username_override: None,
+                token_prefix: None,
+            },
+            job_id: None,
+        });
+    next.run(request).await
+}
 
 pub async fn run_server(
     db: DB,
@@ -630,7 +661,13 @@ pub async fn run_server(
                 .nest("/w/:workspace_id/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
-                        agent_workers_router.layer(Extension(agent_cache.clone()))
+                        agent_workers_router
+                            .nest(
+                                "/volumes",
+                                volumes_oss::workspaced_service()
+                                    .layer(axum::middleware::from_fn(inject_agent_authed)),
+                            )
+                            .layer(Extension(agent_cache.clone()))
                     }
                     #[cfg(not(feature = "agent_worker_server"))]
                     {

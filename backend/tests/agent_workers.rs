@@ -413,6 +413,107 @@ async fn test_agent_worker_volume_e2e(db: Pool<Postgres>) -> anyhow::Result<()> 
     Ok(())
 }
 
+/// Full E2E test: agent worker in HTTP mode runs a Bun script with a volume mount.
+///
+/// The worker pulls the job via HTTP, downloads volume files via the server-side
+/// volume proxy endpoints, executes the script, and syncs changes back.
+#[cfg(all(feature = "parquet", feature = "enterprise"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_agent_worker_volume_http_worker_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let (_client, port, _server) = init_client_agent_mode(db.clone()).await;
+
+    // 1. Set up filesystem-based object storage in a temp dir
+    let storage_dir = tempfile::tempdir()?;
+    let storage_root = storage_dir.path().to_string_lossy().to_string();
+
+    let lfs_config = json!({
+        "type": "FilesystemStorage",
+        "root_path": storage_root,
+        "public_resource": null,
+        "advanced_permissions": null
+    });
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
+        lfs_config,
+        "test-workspace"
+    )
+    .execute(&db)
+    .await?;
+
+    // 2. Pre-populate the volume with a file
+    let vol_dir = storage_dir.path().join("volumes").join("test-vol");
+    std::fs::create_dir_all(&vol_dir)?;
+    std::fs::write(vol_dir.join("hello.txt"), b"hello from volume")?;
+
+    // 3. Push the job, then run worker with HTTP connection (bun tag)
+    let code = r#"// volume: test-vol /tmp/data
+import { readFileSync, writeFileSync, existsSync } from "fs";
+
+export function main() {
+    const content = readFileSync("/tmp/data/hello.txt", "utf-8");
+    writeFileSync("/tmp/data/output.txt", "written by agent worker");
+    return {
+        read_content: content,
+        output_exists: existsSync("/tmp/data/output.txt"),
+    };
+}"#;
+
+    let uuid = RunJob::from(JobPayload::Code(bun_code(code)))
+        .push(&db)
+        .await;
+    let listener = listen_for_completed_jobs(&db).await;
+
+    let conn = testing_http_connection_with_tags(
+        port,
+        vec!["bun".into(), "flow".into(), "dependency".into()],
+    )
+    .await;
+
+    in_test_worker(conn, listener.find(&uuid), port).await;
+
+    let result = completed_job(uuid, &db).await;
+
+    assert!(result.success, "job should succeed: {:?}", result.result);
+    let json = result.json_result().expect("should have JSON result");
+    assert_eq!(json["read_content"], json!("hello from volume"));
+    assert_eq!(json["output_exists"], json!(true));
+
+    // 4. Verify volume DB row was updated
+    let vol_row = sqlx::query!(
+        "SELECT size_bytes, file_count, leased_by, lease_until
+         FROM volume WHERE workspace_id = $1 AND name = $2",
+        "test-workspace",
+        "test-vol"
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let vol_row = vol_row.expect("volume row should exist");
+    assert!(
+        vol_row.file_count >= 2,
+        "should have at least 2 files (hello.txt + output.txt), got: {}",
+        vol_row.file_count
+    );
+    assert!(vol_row.size_bytes > 0, "size_bytes should be > 0");
+    assert!(vol_row.leased_by.is_none(), "lease should be released");
+    assert!(
+        vol_row.lease_until.is_none() || vol_row.lease_until.unwrap() < chrono::Utc::now(),
+        "lease_until should be cleared or in the past"
+    );
+
+    // 5. Verify the new file was written back to the storage
+    let output_path = vol_dir.join("output.txt");
+    assert!(
+        output_path.exists(),
+        "output.txt should be synced back to storage"
+    );
+    let output_content = std::fs::read_to_string(&output_path)?;
+    assert_eq!(output_content, "written by agent worker");
+
+    Ok(())
+}
+
 /// Test the volume release endpoint (error/cancel path).
 #[cfg(feature = "parquet")]
 #[sqlx::test(fixtures("base"))]

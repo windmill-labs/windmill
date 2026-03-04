@@ -4487,7 +4487,16 @@ mount {{
                             );
                             envs.insert(env_name, state.local_dir.display().to_string());
 
-                            if !volume.target.starts_with('/') {
+                            #[cfg(unix)]
+                            if volume.target.starts_with('/') {
+                                // Absolute target: create symlink at the absolute path
+                                let target_path = std::path::Path::new(&volume.target);
+                                if let Some(parent) = target_path.parent() {
+                                    std::fs::create_dir_all(parent).ok();
+                                }
+                                let _ = std::fs::remove_file(target_path);
+                                std::os::unix::fs::symlink(&state.local_dir, target_path).ok();
+                            } else {
                                 let resolved =
                                     std::path::Path::new(job_dir).join(&volume.target);
                                 let job_dir_path = std::path::Path::new(job_dir)
@@ -4570,8 +4579,8 @@ mount {{
                 }
             }
         } else if let Connection::Http(http) = conn {
-            // Agent worker: use server-side volume endpoints
-            let vol_url_base = format!("/api/w/{}/volumes", job.workspace_id);
+            // Agent worker: use server-side volume endpoints (via agent_workers auth path)
+            let vol_url_base = format!("/api/w/{}/agent_workers/volumes", job.workspace_id);
 
             let mut acquired_leases: Vec<(String, String)> = Vec::new(); // (name, worker_name)
 
@@ -4682,7 +4691,17 @@ mount {{
                             format!("WM_VOLUME_{}", volume.name.to_uppercase().replace('-', "_"));
                         envs.insert(env_name, state.local_dir.display().to_string());
 
-                        if !volume.target.starts_with('/') {
+                        #[cfg(unix)]
+                        if volume.target.starts_with('/') {
+                            // Absolute target: create symlink at the absolute path
+                            let target_path = std::path::Path::new(&volume.target);
+                            if let Some(parent) = target_path.parent() {
+                                std::fs::create_dir_all(parent).ok();
+                            }
+                            // Remove stale symlink/file at target before creating
+                            let _ = std::fs::remove_file(target_path);
+                            std::os::unix::fs::symlink(&state.local_dir, target_path).ok();
+                        } else {
                             let resolved = std::path::Path::new(job_dir).join(&volume.target);
                             let job_dir_path = std::path::Path::new(job_dir)
                                 .canonicalize()
@@ -4702,7 +4721,6 @@ mount {{
                                     )));
                                 }
                             }
-                            #[cfg(unix)]
                             std::os::unix::fs::symlink(&state.local_dir, &resolved).ok();
                         }
                     }
@@ -4760,7 +4778,8 @@ mount {{
                             struct RenewReq {
                                 worker_name: String,
                             }
-                            let renew_url = format!("/api/w/{}/volumes/{}/renew", ws_id, name);
+                            let renew_url =
+                                format!("/api/w/{}/agent_workers/volumes/{}/renew", ws_id, name);
                             let _ = http_clone
                                 .post::<_, serde_json::Value>(
                                     &renew_url,
@@ -5297,7 +5316,7 @@ mount {{
 
         // HTTP sync-back for agent workers
         if let Connection::Http(http) = conn {
-            let vol_url_base = format!("/api/w/{}/volumes", job.workspace_id);
+            let vol_url_base = format!("/api/w/{}/agent_workers/volumes", job.workspace_id);
             let job_succeeded = result.is_ok();
 
             if job_succeeded {
