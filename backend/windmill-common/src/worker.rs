@@ -494,7 +494,17 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
 lazy_static::lazy_static! {
     pub static ref WINDMILL_DIR: String = {
         let dir = std::env::var("WINDMILL_DIR")
-            .unwrap_or_else(|_| "/tmp/windmill".to_string());
+            .unwrap_or_else(|_| {
+                #[cfg(not(windows))]
+                { "/tmp/windmill".to_string() }
+                #[cfg(windows)]
+                {
+                    let temp = std::env::temp_dir();
+                    let temp_str = temp.to_string_lossy();
+                    let normalized = temp_str.trim_end_matches(&['/', '\\'][..]).replace('\\', "/");
+                    format!("{}/windmill", normalized)
+                }
+            });
         if dir.is_empty() {
             panic!("WINDMILL_DIR must not be empty");
         }
