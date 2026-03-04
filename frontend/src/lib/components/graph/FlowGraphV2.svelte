@@ -718,12 +718,10 @@
 
 		// Apply group label spacing (pushes nodes down like group notes do)
 		const groups = groupEditorContext?.groupEditor.getGroups() ?? []
-		const noteHeights = showNotes ? (groupEditorContext?.groupEditor.getNoteHeights() ?? {}) : {}
 		if (groups.length > 0) {
 			const groupPositions = computeGroupSpacing(
 				groups,
-				finalNodes.map((n) => ({ id: n.id, position: n.position })),
-				noteHeights
+				finalNodes.map((n) => ({ id: n.id, position: n.position }))
 			)
 			finalNodes = finalNodes.map((n) => ({
 				...n,
@@ -734,10 +732,11 @@
 		// Apply collapsed group note spacing
 		const collapsedGroups = groupEditorContext?.groupEditor.getCollapsedGroups() ?? []
 		if (collapsedGroups.length > 0) {
+			const collapsedNoteHeights = showNotes ? (groupEditorContext?.groupEditor.getNoteHeights() ?? {}) : {}
 			const collapsedPositions = computeCollapsedGroupNoteSpacing(
 				collapsedGroups,
 				finalNodes.map((n) => ({ id: n.id, position: n.position })),
-				noteHeights
+				collapsedNoteHeights
 			)
 			finalNodes = finalNodes.map((n) => ({
 				...n,
@@ -1120,7 +1119,6 @@
 					{hoveredNodeId}
 					allNodes={nodesWithOffset as (Node & { type: string })[]}
 					{editMode}
-					{showNotes}
 				/>
 
 				<!-- SelectionTool for handling selection changes and filtering -->

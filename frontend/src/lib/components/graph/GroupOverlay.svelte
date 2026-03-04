@@ -1,11 +1,9 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
 	import { calculateNodesBoundsWithOffset } from './util'
-	import { getGroupEditorContext, GROUP_HEADER_HEIGHT, type FlowGroup } from './groupEditor.svelte'
+	import { getGroupEditorContext, type FlowGroup } from './groupEditor.svelte'
 	import { NoteColor } from './noteColors'
-	import GroupNodeCard from './GroupNodeCard.svelte'
 	import GroupActionBar from './GroupActionBar.svelte'
-	import type { FlowModule } from '$lib/gen'
 	import StepCountTab from './StepCountTab.svelte'
 	import type { CollapsedSubflowN } from './graphBuilder.svelte'
 
@@ -13,10 +11,9 @@
 		hoveredNodeId: string | null
 		allNodes: (Node & { type: string })[]
 		editMode: boolean
-		showNotes: boolean
 	}
 
-	let { hoveredNodeId, allNodes, editMode, showNotes }: Props = $props()
+	let { hoveredNodeId, allNodes, editMode }: Props = $props()
 
 	const groupEditorContext = getGroupEditorContext()
 
@@ -54,19 +51,16 @@
 	// All groups for always-visible labels
 	let allGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
 
-	// Compute bounds for each group (outline extends up to include header)
+	// Compute bounds for each group (no header card when expanded)
 	function computeGroupBounds(group: FlowGroup) {
 		if (group.module_ids.length === 0) return null
 		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(group.module_ids, allNodes)
 		const padding = 16
-		const headerGap = 24 // space between header bottom and first node
-		const noteHeight = groupEditorContext?.groupEditor.getNoteHeights()[group.id] ?? 0
-		const topPadding = headerGap + GROUP_HEADER_HEIGHT + noteHeight
 		return {
 			x: minX - padding,
-			y: minY - topPadding,
+			y: minY - padding,
 			width: maxX - minX + 2 * padding,
-			height: maxY - minY + padding + topPadding
+			height: maxY - minY + 2 * padding
 		}
 	}
 
@@ -123,15 +117,6 @@
 		groupEditorContext?.groupEditor.toggleRuntimeCollapse(groupId)
 	}
 
-	function getGroupModules(group: FlowGroup): FlowModule[] {
-		return group.module_ids
-			.map(
-				(id) =>
-					allNodes.find((n) => n.id === id)?.data?.module as FlowModule | undefined
-			)
-			.filter((m): m is FlowModule => m != null)
-	}
-
 	// Expanded subflows — derive from allNodes
 	let expandedSubflowNodes = $derived(
 		allNodes.filter(
@@ -176,12 +161,12 @@
 				></div>
 			</ViewportPortal>
 
-			<!-- Header card (above nodes) -->
+			<!-- StepCountTab + ellipsis menu (above nodes) -->
 			<ViewportPortal target="front">
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					class="absolute"
-					style="pointer-events: auto; transform: translate({bounds.x + 16}px, {bounds.y}px);"
+					style="pointer-events: auto; transform: translate({bounds.x + 16}px, {bounds.y - 24}px);"
 					style:z-index="4"
 					onpointerenter={() => {
 						actionBarHovered = true
@@ -195,41 +180,30 @@
 						actionBarHovered = false
 					}}
 				>
-					<StepCountTab
-						stepCount={group.module_ids.length}
-						color={group.color}
-						collapsed={false}
-						onExpand={() => toggleCollapse(group.id)}
-					/>
-					<GroupNodeCard
-						summary={group.summary}
-						stepCount={group.module_ids.length}
-						color={group.color}
-						note={group.note}
-						showNote={showNotes && group.note != null}
-						{editMode}
-						modules={getGroupModules(group)}
-						onExpand={() => toggleCollapse(group.id)}
-						onSummaryUpdate={(text) => groupEditorContext?.groupEditor.updateSummary(group.id, text)}
-						onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(group.id, text)}
-						onHeightChange={(h) => groupEditorContext?.groupEditor.setNoteHeight(group.id, h)}
-					/>
-					{#if editMode && visibleGroup?.id === group.id}
-						<GroupActionBar
-							note={group.note}
+					<div class="relative flex items-center">
+						<StepCountTab
+							stepCount={group.module_ids.length}
 							color={group.color}
-							collapsedByDefault={group.collapsed_by_default ?? false}
-							bind:menuOpen
-							onAddNote={() => groupEditorContext?.groupEditor.addNote(group.id)}
-							onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(group.id)}
-							onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(group.id, c)}
-							onUpdateCollapsedDefault={(v) => groupEditorContext?.groupEditor.updateCollapsedDefault(group.id, v)}
-							onDeleteGroup={() => {
-								groupEditorContext?.groupEditor.deleteGroup(group.id)
-								visibleGroup = undefined
-							}}
+							collapsed={false}
+							onExpand={() => toggleCollapse(group.id)}
 						/>
-					{/if}
+						{#if editMode && visibleGroup?.id === group.id}
+							<GroupActionBar
+								note={group.note}
+								color={group.color}
+								collapsedByDefault={group.collapsed_by_default ?? false}
+								bind:menuOpen
+								onAddNote={() => groupEditorContext?.groupEditor.addNote(group.id)}
+								onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(group.id)}
+								onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(group.id, c)}
+								onUpdateCollapsedDefault={(v) => groupEditorContext?.groupEditor.updateCollapsedDefault(group.id, v)}
+								onDeleteGroup={() => {
+									groupEditorContext?.groupEditor.deleteGroup(group.id)
+									visibleGroup = undefined
+								}}
+							/>
+						{/if}
+					</div>
 				</div>
 			</ViewportPortal>
 		{/if}

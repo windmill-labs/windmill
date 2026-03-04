@@ -258,8 +258,8 @@ export function getGroupEditorContext(): GroupEditorContext | undefined {
 	return getContext<GroupEditorContext | undefined>(CONTEXT_KEY)
 }
 
-/** Extra vertical space pushed above the topmost node of each group for the header card */
-export const GROUP_HEADER_HEIGHT = 40
+/** Extra vertical space pushed above the topmost node of each group for the tab */
+export const GROUP_HEADER_HEIGHT = 24
 
 const GROUP_TOP_MARGIN = 24
 
@@ -314,8 +314,7 @@ export function computeCollapsedGroupNoteSpacing(
  */
 export function computeGroupSpacing(
 	groups: FlowGroup[],
-	nodes: Array<{ id: string; position: { x: number; y: number } }>,
-	groupNoteHeights?: Record<string, number>
+	nodes: Array<{ id: string; position: { x: number; y: number } }>
 ): Record<string, { x: number; y: number }> {
 	if (groups.length === 0) {
 		return Object.fromEntries(nodes.map((n) => [n.id, { ...n.position }]))
@@ -336,9 +335,7 @@ export function computeGroupSpacing(
 		}
 
 		if (topY < Infinity) {
-			const noteHeight = groupNoteHeights?.[group.id] ?? 0
-			const totalHeader = GROUP_HEADER_HEIGHT + noteHeight
-			yPosMap[topY] = Math.max(yPosMap[topY] || 0, totalHeader) + GROUP_TOP_MARGIN
+			yPosMap[topY] = Math.max(yPosMap[topY] || 0, GROUP_HEADER_HEIGHT) + GROUP_TOP_MARGIN
 		}
 	}
 
