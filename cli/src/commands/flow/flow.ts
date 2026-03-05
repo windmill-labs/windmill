@@ -72,10 +72,10 @@ export async function pushFlow(
   const preserveFields: Partial<OpenFlowWPath> = {};
   if (permissionedAsContext?.userIsAdminOrDeployer) {
     if (flow) {
-      // Updating: preserve the remote's on_behalf_of_email
-      preserveFields.preserve_on_behalf_of = true;
+      // Updating: preserve the remote's on_behalf_of_email (only if it has one)
       if (flow.on_behalf_of_email) {
         preserveFields.on_behalf_of_email = flow.on_behalf_of_email;
+        preserveFields.preserve_on_behalf_of = true;
       }
     } else {
       // Creating: apply defaultPermissionedAs rule if one matches

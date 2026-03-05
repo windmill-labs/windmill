@@ -429,10 +429,10 @@ export async function handleFile(
     // Add preserve flags for permissioned_as
     if (permissionedAsContext?.userIsAdminOrDeployer) {
       if (remote) {
-        // Updating: preserve the remote's on_behalf_of_email
-        requestBodyCommon.preserve_on_behalf_of = true;
+        // Updating: preserve the remote's on_behalf_of_email (only if it has one)
         if (remote.on_behalf_of_email) {
           requestBodyCommon.on_behalf_of_email = remote.on_behalf_of_email;
+          requestBodyCommon.preserve_on_behalf_of = true;
         }
       } else {
         // Creating: apply defaultPermissionedAs rule if one matches

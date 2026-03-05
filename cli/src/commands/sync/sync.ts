@@ -538,6 +538,7 @@ function ZipFSElement(
   resourceTypeToFormatExtension: Record<string, string>,
   resourceTypeToIsFileset: Record<string, boolean>,
   ignoreCodebaseChanges: boolean,
+  stripOnBehalfOf: boolean,
 ): DynFSElement {
   async function _internal_file(
     p: string,
@@ -620,6 +621,10 @@ function ZipFSElement(
                   return s.content;
                 },
               };
+            }
+
+            if (stripOnBehalfOf) {
+              delete (flow as any).on_behalf_of_email;
             }
 
             yield {
@@ -893,6 +898,9 @@ function ZipFSElement(
             }
             if (ignoreCodebaseChanges && parsed["codebase"]) {
               parsed["codebase"] = undefined;
+            }
+            if (stripOnBehalfOf) {
+              delete parsed["on_behalf_of_email"];
             }
             return useYaml
               ? yamlStringify(parsed, yamlOptions)
@@ -1844,6 +1852,7 @@ export async function pull(
     resourceTypeToFormatExtension,
     resourceTypeToIsFileset,
     true,
+    parseFloat(opts.version ?? "0") >= 0.1,
   );
 
   const local = !opts.stateful
@@ -2373,6 +2382,7 @@ export async function push(
     resourceTypeToFormatExtension,
     resourceTypeToIsFileset,
     false,
+    parseFloat(opts.version ?? "0") >= 0.1,
   );
 
   const local = await FSFSElement(path.join(process.cwd(), ""), codebases, false);
@@ -2573,7 +2583,7 @@ export async function push(
 
     // Build permissioned_as context (only when respectVirtualUserPermissions is enabled)
     let permissionedAsContext: PermissionedAsContext | undefined = undefined;
-    if (opts.respectVirtualUserPermissions) {
+    if (opts.version && parseFloat(opts.version) >= 0.1) {
       const user = await wmill.whoami({ workspace: workspace.workspaceId });
       const userIsAdminOrDeployer =
         user.is_admin || (user.groups ?? []).includes("wm_deployers");
@@ -2910,10 +2920,13 @@ export async function push(
                   });
                   break;
                 case "resource":
+                  console.log("ASDASDASDSAD")
+                  log.error("Deleting resourceee");
                   await wmill.deleteResource({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".resource.json"),
                   });
+                  log.error("no reach here right?")
                   break;
                 case "resource-type":
                   await wmill.deleteResourceType({
@@ -3052,6 +3065,7 @@ export async function push(
                   break;
                 }
                 case "variable":
+                  log.error("Deleting variableeee");
                   await wmill.deleteVariable({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".variable.json"),
