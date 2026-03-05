@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-worker-volumes/private"]
+private = ["windmill-worker-volumes/private", "windmill-queue/private"]
 mcp = ["dep:windmill-mcp"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
 enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker-volumes/enterprise", "dep:pem", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
