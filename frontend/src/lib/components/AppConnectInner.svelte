@@ -405,6 +405,7 @@
 			}
 		} else {
 			if (!path) {
+				if (step == 2) return
 				throw Error('Path is not set')
 			}
 			let exists = await VariableService.existsVariable({

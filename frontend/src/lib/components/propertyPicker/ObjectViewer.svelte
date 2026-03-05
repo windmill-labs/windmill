@@ -67,7 +67,7 @@
 		editKey
 	}: Props = $props()
 
-	let jsonFiltered = $state(json)
+	let jsonFiltered = $state(untrack(() => json))
 
 	let search = $state('')
 	let searchOpen = $state(false)

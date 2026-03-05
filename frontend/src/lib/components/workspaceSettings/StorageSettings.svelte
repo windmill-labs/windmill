@@ -235,16 +235,20 @@
 									contentClasses="p-2 text-xs text-secondary"
 									class="cursor-not-allowed"
 								>
-									<svelte:fragment slot="trigger">
-										<ExploreAssetButton asset={{ kind: 's3object', path: '' }} disabled />
-									</svelte:fragment>
-									<svelte:fragment slot="content">
-										{#if emptyString(tableRow[1].resourcePath)}
-											Please select a storage resource
-										{:else if isDirty(tableRow[0])}
-											Please save your changes
-										{/if}
-									</svelte:fragment>
+									{#snippet trigger()}
+																	
+											<ExploreAssetButton asset={{ kind: 's3object', path: '' }} disabled />
+										
+																	{/snippet}
+									{#snippet content()}
+																	
+											{#if emptyString(tableRow[1].resourcePath)}
+												Please select a storage resource
+											{:else if isDirty(tableRow[0])}
+												Please save your changes
+											{/if}
+										
+																	{/snippet}
 								</Popover>
 							{:else}
 								<ExploreAssetButton

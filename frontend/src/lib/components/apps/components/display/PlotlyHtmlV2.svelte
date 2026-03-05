@@ -34,10 +34,10 @@
 	const { worldStore, darkMode } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['plotlycomponentv2'].initialData.configuration, configuration)
+		initConfig(components['plotlycomponentv2'].initialData.configuration, untrack(() => configuration))
 	)
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
@@ -207,6 +207,7 @@
 					</Alert>
 				</div>
 			{/if}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div onpointerdown={bubble('pointerdown')} bind:this={divEl}></div>
 		</RunnableWrapper>
 	</div>

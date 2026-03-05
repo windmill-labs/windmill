@@ -9,7 +9,7 @@
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
 	import {
 		isTriggerStep,
-		type onSelectedIteration
+		type OnSelectedIteration
 	} from '$lib/components/graph/graphBuilder.svelte'
 	import { checkIfParentLoop } from '$lib/components/flows/utils.svelte'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
@@ -36,7 +36,7 @@
 			  }
 			| undefined
 		editMode?: boolean
-		onSelectedIteration: onSelectedIteration
+		onSelectedIteration: OnSelectedIteration
 		onSelect: (id: string | FlowModule) => void
 		onTestUpTo?: ((id: string) => void) | undefined
 		onUpdateMock?: (detail: {

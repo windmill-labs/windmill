@@ -30,7 +30,7 @@
 		componentProperty = undefined
 	}: Props = $props()
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
-	const styleStore = createStyleStore(properties)
+	const styleStore = createStyleStore(untrack(() => properties))
 	setContext(STYLE_STORE_KEY, styleStore)
 
 	let multiValues: Record<number, string[]> = $state(initiateMultiValues())
@@ -210,12 +210,11 @@
 				toggleClasses=" !rounded-b-none !py-0
 				{isOpen[prefix] ? '!bg-surface-secondary hover:!bg-surface-hover' : ''}"
 			>
-				<!-- @migration-task: migrate this slot by hand, `title` would shadow a prop on the parent component -->
-				<svelte:fragment slot="titleSlot">
+				{#snippet titleSlot()}
 					<span class="font-normal text-xs">
 						{group}
 					</span>
-				</svelte:fragment>
+				{/snippet}
 				<div class="flex justify-start items-center flex-wrap gap-x-4 gap-y-1 pt-3">
 					{#each property[group] as p}
 						{@const {

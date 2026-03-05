@@ -24,7 +24,7 @@
 			<cc:Work rdf:about=""
 				><dc:format>image/svg+xml</dc:format>
 				<!-- svelte-ignore element_invalid_self_closing_tag -->
-				<dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage" /></cc:Work
+				<dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"></dc:type></cc:Work
 			></rdf:RDF
 		></metadata
 	><defs id="defs3489"
@@ -326,7 +326,7 @@
 		guidetolerance="10"
 		id="namedview3487"
 		showgrid="false"
-	/>
+	></sodipodi:namedview>
 	<linearGradient
 		id="XMLID_17_"
 		gradientUnits="userSpaceOnUse"

@@ -23,7 +23,7 @@
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let outputs = initOutput($worldStore, `${id}_count`, {
+	let outputs = initOutput($worldStore, `${untrack(() => id)}_count`, {
 		result: undefined,
 		loading: false,
 		jobId: undefined
@@ -36,8 +36,8 @@
 	let renderCountLast = -1
 	let quicksearchLast: string | undefined = undefined
 
-	let localColumnDefs = columnDefs
-	let lastTable = $state(table)
+	let localColumnDefs = untrack(() => columnDefs)
+	let lastTable = $state(untrack(() => table))
 
 	function onTableChange() {
 		if (table !== lastTable) {

@@ -3,7 +3,7 @@
 
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
 	import { AppService, type Policy } from '$lib/gen'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { decodeState } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { App } from '$lib/components/apps/types'
@@ -16,11 +16,11 @@
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 	import { tick } from 'svelte'
 
-	let nodraft = $page.url.searchParams.get('nodraft')
+	let nodraft = page.url.searchParams.get('nodraft')
 	let appEditor: AppEditor | undefined = $state(undefined)
-	const hubId = $page.url.searchParams.get('hub')
-	const templatePath = $page.url.searchParams.get('template')
-	const templateId = $page.url.searchParams.get('template_id')
+	const hubId = page.url.searchParams.get('hub')
+	const templatePath = page.url.searchParams.get('template')
+	const templateId = page.url.searchParams.get('template_id')
 
 	const importRaw = $importStore
 	if ($importStore) {
@@ -42,9 +42,9 @@
 	})
 	afterNavigate(() => {
 		if (nodraft) {
-			let url = new URL($page.url.href)
+			let url = new URL(page.url.href)
 			url.search = ''
-			replaceState(url.toString(), $page.state)
+			replaceState(url.toString(), page.state)
 		}
 	})
 	let policy: Policy = $state({
@@ -115,7 +115,7 @@
 		}
 
 		// Trigger tutorial after everything is initialized
-		const tutorialParam = $page.url.searchParams.get('tutorial')
+		const tutorialParam = page.url.searchParams.get('tutorial')
 		if (tutorialParam) {
 			// Wait for critical elements to be ready before triggering tutorial
 			await tick()
@@ -143,7 +143,7 @@
 				{policy}
 				fromHub={hubId != null}
 				newApp={true}
-				replaceStateFn={(path) => replaceState(path, $page.state)}
+				replaceStateFn={(path) => replaceState(path, page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
 			>
 				{#snippet unsavedConfirmationModal({

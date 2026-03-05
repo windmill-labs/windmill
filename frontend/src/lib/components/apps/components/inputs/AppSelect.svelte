@@ -65,27 +65,27 @@
 	const rowContext = getContext<ListContext>('RowWrapperContext')
 	const rowInputs: ListInputs | undefined = getContext<ListInputs>('RowInputs')
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			setValue(JSON.stringify(nvalue))
 		}
 	}
 
-	if (controls) {
-		$componentControl[id] = { ...$componentControl[id], ...controls }
+	if (untrack(() => controls)) {
+		$componentControl[untrack(() => id)] = { ...$componentControl[untrack(() => id)], ...untrack(() => controls) }
 	}
 
 	let resolvedConfig = $state(
-		initConfig(components['selectcomponent'].initialData.configuration, configuration)
+		initConfig(components['selectcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined as string | undefined
 	})
 
 	// The library expects double quotes around the value
 	let value: string | undefined = $state(
-		noDefault
+		untrack(() => noDefault)
 			? undefined
 			: outputs?.result.peak()
 				? JSON.stringify(outputs?.result.peak())
@@ -189,7 +189,7 @@
 		setContextValue(undefined)
 	}
 
-	let css = $state(initCss($app.css?.selectcomponent, customCss))
+	let css = $state(initCss($app.css?.selectcomponent, untrack(() => customCss)))
 
 	let previsousFilter = ''
 
@@ -255,6 +255,7 @@
 {/if}
 
 <AlignWrapper {render} {verticalAlignment}>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="app-select w-full"
 		style="height: 34px;"

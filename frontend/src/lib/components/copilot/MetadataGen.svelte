@@ -4,7 +4,7 @@
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import { metadataCompletionEnabled } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { twMerge } from 'tailwind-merge'
 	import autosize from '$lib/autosize'
@@ -143,7 +143,7 @@ Generate a tool name for the script below:
 	let genHeight = $state(0)
 
 	let focused = $state(false)
-	let config: PromptConfig = promptConfigs[promptConfigName]
+	let config: PromptConfig = promptConfigs[untrack(() => promptConfigName)]
 
 	async function generateContent(automatic = false) {
 		abortController = new AbortController()
@@ -187,10 +187,10 @@ Generate a tool name for the script below:
 	if (
 		$copilotInfo.enabled &&
 		$metadataCompletionEnabled &&
-		generateOnAppear &&
+		untrack(() => generateOnAppear) &&
 		!content &&
-		code &&
-		!isInitialCode(code)
+		untrack(() => code) &&
+		!isInitialCode(untrack(() => code) ?? '')
 	) {
 		setTimeout(() => {
 			el?.focus()

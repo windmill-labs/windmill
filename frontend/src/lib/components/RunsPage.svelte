@@ -96,8 +96,8 @@
 	let batchRerunOptionsIsOpen = $state(false)
 
 	// Initialize path filter from route param if provided and not already set via query params
-	if (initialPath && !filters.val.path) {
-		filters.val.path = initialPath
+	if (untrack(() => initialPath) && !filters.val.path) {
+		filters.val.path = untrack(() => initialPath)
 	}
 
 	// Apply persistent toggle values from local storage if URL doesn't specify them

@@ -37,17 +37,17 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['userresourcecomponent'].initialData.configuration, configuration)
+		initConfig(components['userresourcecomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined as string | undefined
 	})
 
-	let css = $state(initCss($app.css?.['userresourcecomponent'], customCss))
+	let css = $state(initCss($app.css?.['userresourcecomponent'], untrack(() => customCss)))
 
 	let classInput = $derived(
 		twMerge(
@@ -91,7 +91,7 @@
 		listInputs?.remove(id)
 	})
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			value = nvalue
 		},

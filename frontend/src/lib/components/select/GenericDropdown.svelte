@@ -71,7 +71,7 @@
 	// We do not use Svelte transitions because they can not animate in the opposite direction
 	// when the dropdown is opens above the input
 	// Also CSS transitions are smoother because they do not rely on JS / animation frames
-	let uiState = $state({ domExists: open, visible: open, timeout: null as number | null })
+	let uiState = $state({ domExists: untrack(() => open), visible: untrack(() => open), timeout: null as number | null })
 	let initial = true
 	watch(
 		() => open && !disabled,

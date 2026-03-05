@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
 	import { Badge, Button } from '../common'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -47,7 +48,7 @@
 	let newToken = $state<string | undefined>(undefined)
 	let newMcpToken = $state<string | undefined>(undefined)
 	let newTokenExpiration = $state<number | undefined>(undefined)
-	let newTokenWorkspace = $state<string | undefined>(defaultNewTokenWorkspace)
+	let newTokenWorkspace = $state<string | undefined>(untrack(() => defaultNewTokenWorkspace))
 	let newMcpApps = $state<string[]>([])
 	let mcpCreationMode = $state(false)
 	let newMcpScope = $state('favorites')

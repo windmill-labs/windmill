@@ -42,7 +42,7 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['slidercomponent'].initialData.configuration, configuration)
+		initConfig(components['slidercomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	onDestroy(() => {
@@ -57,11 +57,11 @@
 
 	let slider: HTMLElement | undefined = $state()
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: (0 as number) || null
 	})
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: number) {
 			values = [nvalue]
 		}
@@ -80,7 +80,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.slidercomponent, customCss))
+	let css = $state(initCss($app.css?.slidercomponent, untrack(() => customCss)))
 
 	let lastStyle: string | undefined = $state(undefined)
 
@@ -147,6 +147,7 @@
 
 <AlignWrapper {render} hFull {verticalAlignment}>
 	<div class="flex {resolvedConfig.vertical ? 'flex-col' : ''} items-center w-full h-full gap-1">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class={twMerge(
 				'grow',

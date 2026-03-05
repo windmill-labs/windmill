@@ -13,7 +13,7 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { goto } from '$app/navigation'
 
 	interface WorkspaceIntegration {
@@ -251,7 +251,7 @@
 		const integration = getIntegrationByService(serviceName)
 		resourcePath = integration?.resource_path ?? undefined
 
-		const url = new URL($page.url)
+		const url = new URL(page.url)
 		url.searchParams.delete('code')
 		url.searchParams.delete('state')
 		url.searchParams.delete('service')
@@ -287,14 +287,14 @@
 
 	$effect(() => {
 		if (
-			$page.url.searchParams.has('code') &&
-			$page.url.searchParams.has('state') &&
-			$page.url.searchParams.has('service') &&
+			page.url.searchParams.has('code') &&
+			page.url.searchParams.has('state') &&
+			page.url.searchParams.has('service') &&
 			$workspaceStore
 		) {
-			const service = $page.url.searchParams.get('service')! as NativeServiceName
-			const code = $page.url.searchParams.get('code')!
-			const state = $page.url.searchParams.get('state')!
+			const service = page.url.searchParams.get('service')! as NativeServiceName
+			const code = page.url.searchParams.get('code')!
+			const state = page.url.searchParams.get('state')!
 			handleOAuthCallback($workspaceStore, service, code, state)
 		}
 	})

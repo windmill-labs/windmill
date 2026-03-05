@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { GitFork, ChevronUp, ArchiveRestore } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import { Badge, Button } from '$lib/components/common'
@@ -47,7 +48,7 @@
 		onKeyboardNavigation
 	}: Props = $props()
 
-	const paddingLeft = depth * 24
+	const paddingLeft = untrack(() => depth) * 24
 	const isSelected = $derived(selectedWorkspaceId === workspace.id)
 
 	// Helper functions
