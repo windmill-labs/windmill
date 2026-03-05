@@ -151,6 +151,8 @@ sqs_trigger: path(char), queue_url(char), aws_resource_path(char), message_attri
   FK: (workspace_id) -> workspace(id)
 token: token(char), label(char), expiration(ts), workspace_id(char), owner(char), email(char), super_admin(bool), created_at(ts), last_used_at(ts), scopes(text[]), job(uuid)
   FK: (workspace_id) -> workspace(id)
+token_expiry_notification: token(char), expiration(ts)
+  INDEX: idx_token_expiry_notification_expiration (expiration)
 tutorial_progress: email(char), progress(bit64), skipped_all(bool)
 unique_ext_jwt_token: jwt_hash(bigint), last_used_at(ts)
 usage: id(char), is_workspace(bool), month_(int), usage(int)
