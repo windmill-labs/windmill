@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
-	import { run } from 'svelte/legacy'
-
 	import { Button, Drawer } from './common'
 
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -18,10 +15,8 @@
 
 	let path: string | undefined = $state(undefined)
 
-	let newResource = $state(false)
 	export async function initEdit(p: string): Promise<void> {
 		resource_type = undefined
-		newResource = false
 		path = p
 		drawer?.openDrawer?.()
 	}
@@ -30,18 +25,13 @@
 		resourceType: string,
 		nDefaultValues?: Record<string, any>
 	): Promise<void> {
-		newResource = true
 		path = undefined
 		resource_type = resourceType
 		defaultValues = nDefaultValues
 		drawer?.openDrawer?.()
 	}
 
-	let mode: 'edit' | 'new' = $state(untrack(() => newResource) ? 'new' : 'edit')
-
-	run(() => {
-		path ? (mode = 'edit') : (mode = 'new')
-	})
+	let mode: 'edit' | 'new' = $derived(!path ? 'new' : 'edit')
 </script>
 
 <Drawer bind:this={drawer} size="800px">
@@ -53,7 +43,6 @@
 			<Loader2 class="animate-spin" />
 		{:then Module}
 			<Module.default
-				{newResource}
 				{path}
 				{resource_type}
 				{defaultValues}
