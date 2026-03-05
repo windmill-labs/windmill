@@ -910,16 +910,29 @@ Windmill Community Edition {GIT_VERSION}
 
         let default_base_internal_url = format!("http://localhost:{}", port.to_string());
         // since it's only on server mode, the port is statically defined
-        let has_explicit_base_internal_url = std::env::var("BASE_INTERNAL_URL").is_ok();
         let base_internal_url: String = if let Ok(base_url) = std::env::var("BASE_INTERNAL_URL") {
-            if !is_agent && !is_native_mode_from_env() {
-                tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored unless the mode is 'agent' or 'native', you can remove it.");
+            if !is_agent {
+                tracing::warn!("BASE_INTERNAL_URL is now unecessary and ignored unless the mode is 'agent', you can remove it.");
                 default_base_internal_url.clone()
             } else {
                 base_url
             }
         } else {
             default_base_internal_url.clone()
+        };
+
+        // BATCH_PULL_URL: explicit URL for native workers to pull jobs via HTTP.
+        // In standalone mode (server_mode=true), defaults to the local server.
+        let batch_pull_url: Option<String> = if is_native_mode_from_env() {
+            if let Ok(url) = std::env::var("BATCH_PULL_URL") {
+                Some(url)
+            } else if server_mode {
+                Some(default_base_internal_url.clone())
+            } else {
+                None
+            }
+        } else {
+            None
         };
 
         initial_load(
@@ -1133,19 +1146,13 @@ Windmill Community Edition {GIT_VERSION}
                     let mut workers = vec![];
 
                     // For native workers, create a self-signed JWT for batch pulling via HTTP.
-                    // Enabled when: native mode AND (co-located server OR explicit BASE_INTERNAL_URL).
-                    // In worker-only mode, BASE_INTERNAL_URL points to the remote server.
-                    // In standalone mode, the server is co-located at localhost.
-                    let batch_pull_client = if NATIVE_MODE_RESOLVED
-                        .load(std::sync::atomic::Ordering::Relaxed)
-                        && (server_mode || has_explicit_base_internal_url)
-                        && mode != Mode::Agent
-                    {
-                        match create_native_batch_pull_client(&base_internal_url).await {
+                    // Enabled when BATCH_PULL_URL is set (explicitly or auto-detected in standalone mode).
+                    let batch_pull_client = if let Some(ref pull_url) = batch_pull_url {
+                        match create_native_batch_pull_client(pull_url).await {
                             Ok(client) => {
                                 tracing::info!(
                                     "Native batch pull client created for HTTP pull at {}",
-                                    base_internal_url
+                                    pull_url
                                 );
                                 USES_BATCH_HTTP_PULL
                                     .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -1923,14 +1930,22 @@ async fn create_native_batch_pull_client(base_internal_url: &str) -> anyhow::Res
         worker_group: String,
         tags: Vec<String>,
         native_mode: Option<bool>,
+        exp: usize,
     }
 
     let worker_config = windmill_common::worker::WORKER_CONFIG.read().await;
     let tags = worker_config.worker_tags.clone();
     drop(worker_config);
 
-    let claims =
-        NativeAgentAuth { worker_group: WORKER_GROUP.to_string(), tags, native_mode: Some(true) };
+    // Token expires in 30 days — renewed on restart
+    let exp = (chrono::Utc::now() + chrono::Duration::days(30)).timestamp() as usize;
+
+    let claims = NativeAgentAuth {
+        worker_group: WORKER_GROUP.to_string(),
+        tags,
+        native_mode: Some(true),
+        exp,
+    };
 
     let jwt = encode_with_internal_secret(claims).await?;
     let token = format!("{}{}", AGENT_JWT_PREFIX, jwt);
