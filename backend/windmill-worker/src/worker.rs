@@ -4771,6 +4771,7 @@ mount {{
 
         // Clean up absolute-path symlinks created by setup_volume_mount_paths
         if !is_sandboxing_enabled() {
+            #[allow(unused_variables)] // state is only used on unix
             for state in &volume_setup.states {
                 #[cfg(unix)]
                 if state.mount.target.starts_with('/') {
