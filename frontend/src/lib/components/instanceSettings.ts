@@ -572,6 +572,15 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: 'Critical alerts in UI are only available in the EE version'
 		},
 		{
+			label: 'Alert on token expiry',
+			description:
+				'Send critical alerts when API tokens are about to expire (within 7 days) or have expired',
+			key: 'critical_alerts_on_token_expiry',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'Slack',
 			key: 'slack',
 			fieldType: 'slack_connect',

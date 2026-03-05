@@ -10,10 +10,10 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = []
+private = ["windmill-worker-volumes/private", "windmill-queue/private"]
 mcp = ["dep:windmill-mcp"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
-enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:pem", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
+enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker-volumes/enterprise", "dep:pem", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
 mssql = ["dep:tiberius"]
 mssql-kerberos = ["mssql", "tiberius/integrated-auth-gssapi"]  # Linux/Unix integrated auth
 mssql-winauth = ["mssql", "tiberius/winauth"]  # Windows integrated auth
@@ -47,6 +47,7 @@ windmill-audit.workspace = true # there isn't really a reason for audit-worth ac
 windmill-common = { workspace = true, default-features = false }
 windmill-types.workspace = true
 windmill-object-store.workspace = true
+windmill-worker-volumes.workspace = true
 windmill-jseval.workspace = true
 windmill-runtime-nativets = { workspace = true, optional = true }
 windmill-mcp = { workspace = true, optional = true }

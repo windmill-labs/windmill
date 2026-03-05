@@ -24,7 +24,7 @@ use windmill_common::{
     utils::{not_found_if_none, StripPath},
 };
 
-const KINDS: [&str; 18] = [
+const KINDS: [&str; 19] = [
     "script",
     "group_",
     "resource",
@@ -43,6 +43,7 @@ const KINDS: [&str; 18] = [
     "gcp_trigger",
     "sqs_trigger",
     "email_trigger",
+    "volume",
 ];
 
 pub fn workspaced_service() -> Router {
@@ -77,7 +78,7 @@ async fn add_granular_acl(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let identifier = if kind == "group_" || kind == "folder" {
+    let identifier = if kind == "group_" || kind == "folder" || kind == "volume" {
         "name"
     } else {
         "path"
@@ -89,6 +90,22 @@ async fn add_granular_acl(
         } else if kind == "group_" {
             crate::groups::require_is_owner(path, &authed.username, &authed.groups, &w_id, &db)
                 .await?;
+        } else if kind == "volume" {
+            let created_by = sqlx::query_scalar!(
+                "SELECT created_by FROM volume WHERE name = $1 AND workspace_id = $2",
+                path,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("volume '{path}' not found")))?;
+            // created_by is stored with u/ prefix (from job.permissioned_as)
+            let owner_username = created_by.strip_prefix("u/").unwrap_or(&created_by);
+            if owner_username != authed.username {
+                return Err(Error::NotAuthorized(
+                    "Only the volume owner or an admin can modify permissions".to_string(),
+                ));
+            }
         } else {
             require_owner_of_path(&authed, path)?;
         }
@@ -243,6 +260,22 @@ async fn remove_granular_acl(
         } else if kind == "group_" {
             crate::groups::require_is_owner(path, &authed.username, &authed.groups, &w_id, &db)
                 .await?;
+        } else if kind == "volume" {
+            let created_by = sqlx::query_scalar!(
+                "SELECT created_by FROM volume WHERE name = $1 AND workspace_id = $2",
+                path,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("volume '{path}' not found")))?;
+            // created_by is stored with u/ prefix (from job.permissioned_as)
+            let owner_username = created_by.strip_prefix("u/").unwrap_or(&created_by);
+            if owner_username != authed.username {
+                return Err(Error::NotAuthorized(
+                    "Only the volume owner or an admin can modify permissions".to_string(),
+                ));
+            }
         } else {
             require_owner_of_path(&authed, path)?;
         }
@@ -250,7 +283,7 @@ async fn remove_granular_acl(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let identifier = if kind == "group_" || kind == "folder" {
+    let identifier = if kind == "group_" || kind == "folder" || kind == "volume" {
         "name"
     } else {
         "path"
@@ -380,7 +413,11 @@ async fn get_granular_acls(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let identifier = if kind == "group_" { "name" } else { "path" };
+    let identifier = if kind == "group_" || kind == "folder" || kind == "volume" {
+        "name"
+    } else {
+        "path"
+    };
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
         "SELECT extra_perms from {kind} WHERE {identifier} = $1 AND workspace_id = $2"
     ))

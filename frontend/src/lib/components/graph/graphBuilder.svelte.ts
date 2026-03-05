@@ -27,7 +27,7 @@ export type InsertKind =
 export type InlineScript = {
 	language: RawScript['language']
 	kind: Script['kind']
-	subkind: 'pgsql' | 'flow'
+	subkind: 'pgsql' | 'flow' | 'claudesandbox'
 	summary?: string
 	instructions?: string
 }

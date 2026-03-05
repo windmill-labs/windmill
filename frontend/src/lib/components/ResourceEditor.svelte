@@ -24,6 +24,7 @@
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 	import Button from './common/button/Button.svelte'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
+	import ResourceGen from './copilot/ResourceGen.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -270,6 +271,13 @@
 						right: 'As JSON'
 					}}
 				/>
+				<ResourceGen
+					bind:args
+					resourceType={resource_type}
+					resourceName={path}
+					resourceDescription={description}
+					{resourceSchema}
+				/>
 				{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
 					<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
 				{:else}
@@ -296,9 +304,17 @@
 				{#if loadingSchema}
 					<Skeleton layout={[[4]]} />
 				{:else if !viewJsonSchema && resourceTypeInfo?.is_fileset}
-					<h5 class="mt-1 inline-flex items-center gap-4">
-						Fileset
-					</h5>
+					<div class="mt-1 flex items-center gap-2">
+						<h5 class="inline-flex items-center gap-4">Fileset</h5>
+						<ResourceGen
+							bind:args
+							resourceType={resource_type}
+							resourceName={path}
+							resourceDescription={description}
+							{resourceSchema}
+							isFileset
+						/>
+					</div>
 					<FilesetEditor bind:args />
 				{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
 					{#if resourceTypeInfo?.format_extension}
