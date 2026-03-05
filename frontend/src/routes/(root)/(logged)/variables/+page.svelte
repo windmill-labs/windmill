@@ -40,7 +40,8 @@
 		EyeOff,
 		Circle
 	} from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { onMount, untrack } from 'svelte'
+	import { page } from '$app/stores'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
@@ -202,6 +203,14 @@
 			loadContextualVariables()
 		}, 5000)
 	}
+
+	onMount(() => {
+		let hash = $page.url.hash
+		if (hash.length > 1) {
+			let path = hash.slice(1)
+			variableEditor?.editVariable(path)
+		}
+	})
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />

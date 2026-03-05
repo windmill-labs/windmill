@@ -8,6 +8,7 @@
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { disableHubStore } from '$lib/stores'
 
 	interface Props {
 		kind?: HubScriptKind & string
@@ -47,6 +48,7 @@
 	)
 
 	async function getAllApps(filterKind: typeof kind) {
+		if ($disableHubStore) return
 		try {
 			hubNotAvailable = false
 			allApps = (
@@ -67,6 +69,7 @@
 		filterKind: typeof kind,
 		appFilter: string | undefined
 	) {
+		if ($disableHubStore) return
 		try {
 			loading = true
 			hubNotAvailable = false
@@ -138,6 +141,9 @@
 	})
 </script>
 
+{#if $disableHubStore}
+	<!-- Hub disabled, show nothing -->
+{:else}
 <div class="w-full flex items-center gap-2">
 	{@render children?.()}
 	<div class="relative w-full">
@@ -156,7 +162,9 @@
 </div>
 
 {#if hubNotAvailable}
-	<Alert type="error" title="Hub not available" />
+	<Alert type="warning" title="Hub not available">
+		Could not connect to the Windmill Hub. If you are in a closed environment, you can disable the Hub in the <a href="/#superadmin-settings?tab=private_hub">instance settings</a>.
+	</Alert>
 {:else if (items.length > 0 && apps.length > 0) || !loading}
 	<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 	{#if items.length == 0}
@@ -203,4 +211,5 @@
 	{#each Array(10).fill(0) as _}
 		<Skeleton layout={[0.5, [4]]} />
 	{/each}
+{/if}
 {/if}

@@ -29,8 +29,8 @@ use scopes::ScopeDefinition;
 
 // Re-export key auth types and functions
 pub use auth::{
-    invalidate_token_from_cache, AuthCache, ExpiringAuthCache, OptTokened, Tokened,
-    TruncatedTokenWithEmail, AUTH_CACHE,
+    get_end_user_email, invalidate_token_from_cache, AuthCache, ExpiringAuthCache, OptTokened,
+    Tokened, TruncatedTokenWithEmail, AUTH_CACHE,
 };
 
 // ------------ ApiAuthed & OptJobAuthed types ------------

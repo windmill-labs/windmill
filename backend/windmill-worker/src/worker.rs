@@ -37,7 +37,7 @@ use windmill_common::{
     utils::{create_directory_async, WarnAfterExt},
     worker::{
         make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT,
-        MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, TMP_DIR,
+        MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, WINDMILL_DIR,
     },
     worker_group_job_stats::JobStatsMap,
     KillpillSender,
@@ -47,7 +47,6 @@ use windmill_common::{
 use windmill_common::ee_oss::LICENSE_KEY_VALID;
 
 use anyhow::Result;
-use const_format::concatcp;
 #[cfg(feature = "prometheus")]
 use prometheus::IntCounter;
 
@@ -196,45 +195,47 @@ use windmill_common::bench::{benchmark_init, benchmark_verify, BenchmarkInfo, Be
 
 use windmill_common::add_time;
 
-pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_3_10");
-pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_3_11");
-pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_3_12");
-pub const PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_3_13");
+lazy_static::lazy_static! {
+    pub static ref PY310_CACHE_DIR: String = format!("{}python_3_10", *ROOT_CACHE_DIR);
+    pub static ref PY311_CACHE_DIR: String = format!("{}python_3_11", *ROOT_CACHE_DIR);
+    pub static ref PY312_CACHE_DIR: String = format!("{}python_3_12", *ROOT_CACHE_DIR);
+    pub static ref PY313_CACHE_DIR: String = format!("{}python_3_13", *ROOT_CACHE_DIR);
 
-pub const TAR_JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/java");
+    pub static ref TAR_JAVA_CACHE_DIR: String = format!("{}tar/java", *ROOT_CACHE_DIR);
 
-pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
-pub const PY_INSTALL_DIR: &str = concatcp!(ROOT_CACHE_DIR, "py_runtime");
-pub const TAR_PYBASE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar");
-pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
-pub const DENO_CACHE_DIR_DEPS: &str = concatcp!(ROOT_CACHE_DIR, "deno/deps");
-pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
+    pub static ref UV_CACHE_DIR: String = format!("{}uv", *ROOT_CACHE_DIR);
+    pub static ref PY_INSTALL_DIR: String = format!("{}py_runtime", *ROOT_CACHE_DIR);
+    pub static ref TAR_PYBASE_CACHE_DIR: String = format!("{}tar", *ROOT_CACHE_DIR);
+    pub static ref DENO_CACHE_DIR: String = format!("{}deno", *ROOT_CACHE_DIR);
+    pub static ref DENO_CACHE_DIR_DEPS: String = format!("{}deno/deps", *ROOT_CACHE_DIR);
+    pub static ref DENO_CACHE_DIR_NPM: String = format!("{}deno/npm", *ROOT_CACHE_DIR);
 
-pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
-pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
-pub const NU_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "nu");
-pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
+    pub static ref GO_CACHE_DIR: String = format!("{}go", *ROOT_CACHE_DIR);
+    pub static ref RUST_CACHE_DIR: String = format!("{}rust", *ROOT_CACHE_DIR);
+    pub static ref NU_CACHE_DIR: String = format!("{}nu", *ROOT_CACHE_DIR);
+    pub static ref CSHARP_CACHE_DIR: String = format!("{}csharp", *ROOT_CACHE_DIR);
 
-// Java
-pub const JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "java");
-pub const COURSIER_CACHE_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/coursier-cache");
-pub const JAVA_REPOSITORY_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/repository");
-pub const JAVA_HOME_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/home");
+    // Java
+    pub static ref JAVA_CACHE_DIR: String = format!("{}java", *ROOT_CACHE_DIR);
+    pub static ref COURSIER_CACHE_DIR: String = format!("{}/coursier-cache", *JAVA_CACHE_DIR);
+    pub static ref JAVA_REPOSITORY_DIR: String = format!("{}/repository", *JAVA_CACHE_DIR);
+    pub static ref JAVA_HOME_DIR: String = format!("{}/home", *JAVA_CACHE_DIR);
 
-// Ruby
-pub const RUBY_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "ruby");
+    // Ruby
+    pub static ref RUBY_CACHE_DIR: String = format!("{}ruby", *ROOT_CACHE_DIR);
 
-// for related places search: ADD_NEW_LANG
-pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
-pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
-pub const BUN_CODEBASE_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "script_bundle");
+    // for related places search: ADD_NEW_LANG
+    pub static ref BUN_CACHE_DIR: String = format!("{}bun", *ROOT_CACHE_NOMOUNT_DIR);
+    pub static ref BUN_BUNDLE_CACHE_DIR: String = format!("{}bun", *ROOT_CACHE_DIR);
+    pub static ref BUN_CODEBASE_BUNDLE_CACHE_DIR: String = format!("{}script_bundle", *ROOT_CACHE_NOMOUNT_DIR);
 
-pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
-pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
-pub const COMPOSER_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "composer");
+    pub static ref GO_BIN_CACHE_DIR: String = format!("{}gobin", *ROOT_CACHE_DIR);
+    pub static ref POWERSHELL_CACHE_DIR: String = format!("{}powershell", *ROOT_CACHE_DIR);
+    pub static ref COMPOSER_CACHE_DIR: String = format!("{}composer", *ROOT_CACHE_DIR);
 
-pub const TRACING_PROXY_CA_CERT_PATH: &str =
-    concatcp!(ROOT_CACHE_NOMOUNT_DIR, "tracing_proxy_ca.pem");
+    pub static ref TRACING_PROXY_CA_CERT_PATH: String =
+        format!("{}tracing_proxy_ca.pem", *ROOT_CACHE_NOMOUNT_DIR);
+}
 
 const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_READINGS: u64 = 60;
@@ -562,7 +563,16 @@ lazy_static::lazy_static! {
     pub static ref DOTNET_PATH: String = std::env::var("DOTNET_PATH").unwrap_or_else(|_| DOTNET_DEFAULT_PATH.to_string());
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
-    pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    pub static ref HOME_ENV: String = {
+        #[cfg(not(windows))]
+        { std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()) }
+        #[cfg(windows)]
+        {
+            std::env::var("HOME")
+                .or_else(|_| std::env::var("USERPROFILE"))
+                .unwrap_or_else(|_| std::env::temp_dir().to_string_lossy().to_string())
+        }
+    };
     pub static ref GIT_PATH: String = std::env::var("GIT_PATH").unwrap_or_else(|_| "/usr/bin/git".to_string());
 
     pub static ref NODE_PATH: Option<String> = std::env::var("NODE_PATH").ok();
@@ -1375,7 +1385,7 @@ pub async fn run_worker(
 
     let start_time = Instant::now();
 
-    let worker_dir = format!("{TMP_DIR}/{worker_name}");
+    let worker_dir = format!("{}/{worker_name}", *WINDMILL_DIR);
     tracing::debug!(worker = %worker_name, hostname = %hostname, worker_dir = %worker_dir, "Creating worker dir");
 
     #[cfg(feature = "python")]

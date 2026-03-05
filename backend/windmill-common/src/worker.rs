@@ -2,7 +2,6 @@
 use anyhow::anyhow;
 use axum::http::HeaderMap;
 use bytes::Bytes;
-use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
@@ -274,7 +273,9 @@ lazy_static::lazy_static! {
     pub static ref ROOT_STANDALONE_BUNDLE_DIR: String = format!("{}/.windmill/standalone_bundle", std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
 }
 
-pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
+lazy_static::lazy_static! {
+    pub static ref ROOT_CACHE_NOMOUNT_DIR: String = format!("{}/cache_nomount/", *WINDMILL_DIR);
+}
 
 /// Whether native mode is forced by the environment (NATIVE_MODE=true env var or WORKER_GROUP=native).
 /// This does NOT account for native_mode set in the DB worker group config — for that, read
@@ -490,13 +491,33 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
     *l = queries;
 }
 
-pub const TMP_DIR: &str = "/tmp/windmill";
-pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
-
-pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
-pub const HUB_RT_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub_rt");
-
-pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
+lazy_static::lazy_static! {
+    pub static ref WINDMILL_DIR: String = {
+        let dir = std::env::var("WINDMILL_DIR")
+            .unwrap_or_else(|_| {
+                #[cfg(not(windows))]
+                { "/tmp/windmill".to_string() }
+                #[cfg(windows)]
+                {
+                    let temp = std::env::temp_dir();
+                    let temp_str = temp.to_string_lossy();
+                    let normalized = temp_str.trim_end_matches(&['/', '\\'][..]).replace('\\', "/");
+                    format!("{}/windmill", normalized)
+                }
+            });
+        if dir.is_empty() {
+            panic!("WINDMILL_DIR must not be empty");
+        }
+        if dir.ends_with('/') || dir.ends_with('\\') {
+            panic!("WINDMILL_DIR must not end with a trailing slash, got: {dir}");
+        }
+        dir
+    };
+    pub static ref TMP_LOGS_DIR: String = format!("{}/logs", *WINDMILL_DIR);
+    pub static ref ROOT_CACHE_DIR: String = format!("{}/cache/", *WINDMILL_DIR);
+    pub static ref HUB_CACHE_DIR: String = format!("{}hub", *ROOT_CACHE_DIR);
+    pub static ref HUB_RT_CACHE_DIR: String = format!("{}hub_rt", *ROOT_CACHE_DIR);
+}
 
 pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     let path = format!("{}/{}", dir, path);

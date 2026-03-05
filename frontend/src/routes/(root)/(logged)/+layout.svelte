@@ -11,13 +11,7 @@
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
-	import {
-		capitalize,
-		classNames,
-		getModifierKey,
-		parseDbInputFromAssetSyntax,
-		sendUserToast
-	} from '$lib/utils'
+	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
@@ -32,6 +26,7 @@
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
+		disableHubStore,
 		usedTriggerKinds,
 		devopsRole,
 		whitelabelNameStore,
@@ -66,8 +61,8 @@
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
-	import { watchOnce } from 'runed'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
+	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -163,6 +158,7 @@
 		loadUsage()
 		syncTutorialsTodos()
 		loadHubBaseUrl()
+		loadDisableHub()
 		loadUsedTriggerKinds()
 	}
 
@@ -180,6 +176,11 @@
 			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
 			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
 			DEFAULT_HUB_BASE_URL
+	}
+
+	async function loadDisableHub() {
+		$disableHubStore =
+			((await SettingService.getGlobal({ key: 'disable_hub' })) as boolean) ?? false
 	}
 
 	async function loadFavorites() {
@@ -439,18 +440,8 @@
 			untrack(() => loadProtectionRules(workspace))
 		}
 	})
-	watchOnce(
-		() => globalDbManagerDrawer.val,
-		() => {
-			if (!globalDbManagerDrawer.val) return
-			const hash = window.location.hash
-			if (hash.startsWith('#dbmanager:')) {
-				const [_, path] = hash.split('#dbmanager:')
-				const dbInput = parseDbInputFromAssetSyntax(path)
-				if (dbInput) globalDbManagerDrawer.val?.openDrawer(dbInput)
-			}
-		}
-	)
+
+	globalDbManagerDrawer.val = useDbManagerUriState()
 </script>
 
 <svelte:window bind:innerWidth />
@@ -786,6 +777,6 @@
 	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
 {/if}
 
-{#if $workspaceStore}
-	<DBManagerDrawer bind:this={globalDbManagerDrawer.val} />
+{#if $workspaceStore && globalDbManagerDrawer.val}
+	<DBManagerDrawer uriState={globalDbManagerDrawer.val} />
 {/if}

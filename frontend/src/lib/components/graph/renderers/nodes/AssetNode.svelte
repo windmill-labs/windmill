@@ -235,18 +235,19 @@
 	import type { Edge, Node } from '@xyflow/svelte'
 
 	import { getNodeColorClasses, NODE } from '../../util'
-	import { globalDbManagerDrawer, userStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import { deepEqual } from 'fast-equals'
 	import { slide } from 'svelte/transition'
 	import AssetColumnBadges from '$lib/components/assets/AssetColumnBadges.svelte'
 
 	interface Props {
 		data: AssetN['data']
+		id?: string
 	}
 
 	const flowGraphAssetsCtx = getContext<any | undefined>('FlowGraphAssetContext')
 
-	let { data }: Props = $props()
+	let { data, id }: Props = $props()
 
 	const isSelected = $derived(assetEq(flowGraphAssetsCtx?.val.selectedAsset, data.asset))
 	const cachedResourceMetadata = $derived.by(() => {
@@ -267,7 +268,7 @@
 	)
 </script>
 
-<NodeWrapper wrapperClass="bg-surface-secondary rounded-md">
+<NodeWrapper wrapperClass="bg-surface-secondary rounded-md" nodeId={id}>
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<Tooltip customBgClass="bg-surface-tertiary">
@@ -312,7 +313,6 @@
 							noText
 							buttonVariant="accent"
 							s3FilePicker={flowGraphAssetsCtx?.val.s3FilePicker}
-							dbManagerDrawer={globalDbManagerDrawer.val}
 							_resourceMetadata={cachedResourceMetadata}
 						/>
 					</div>

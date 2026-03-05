@@ -58,7 +58,7 @@
 		CheckCircle,
 		RefreshCw,
 		CheckCheck,
-		Focus
+		Disc
 	} from 'lucide-svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -98,6 +98,7 @@
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 
 	let {
 		initialPath = $bindable(''),
@@ -613,7 +614,6 @@
 	const previewArgsStore = $state({ val: initialArgs })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
-	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
 	const pathStore = writable<string>(pathStoreInit ?? initialPath)
 	const captureOn = writable<boolean>(false)
@@ -641,7 +641,6 @@
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		flowEditorDrawer,
-		moving,
 		history,
 		flowStateStore,
 		flowStore,
@@ -820,7 +819,7 @@
 			})
 		}
 
-		if (!newFlow && !isRuleActive('DisableWorkspaceForking')) {
+		if (!newFlow && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
 			dropdownItems.push({
 				label: 'Edit in workspace fork',
 				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
@@ -863,14 +862,6 @@
 
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
-	const undoShortcutSnippet = createRawSnippet(() => ({
-		render: () => `<span class="ml-auto text-2xs text-tertiary">${mod}Z</span>`
-	}))
-
-	const redoShortcutSnippet = createRawSnippet(() => ({
-		render: () => `<span class="ml-auto text-2xs text-tertiary">${mod}⇧Z</span>`
-	}))
-
 	function getMoreItems(): Item[] {
 		return [
 			...baseMenuItems,
@@ -879,7 +870,7 @@
 				icon: Undo,
 				action: () => handleUndo(),
 				disabled: $history.index === 0,
-				extra: undoShortcutSnippet,
+				shortcut: `${mod}Z`,
 				separatorTop: baseMenuItems.length > 0
 			},
 			{
@@ -887,7 +878,7 @@
 				icon: Redo,
 				action: () => handleRedo(),
 				disabled: $history.index === $history.history.length - 1,
-				extra: redoShortcutSnippet
+				shortcut: `${mod}⇧Z`
 			},
 			{
 				displayName: 'Tutorials',
@@ -941,7 +932,7 @@
 			},
 			{
 				displayName: 'Test flow & record',
-				icon: Focus,
+				icon: Disc,
 				action: () => flowPreviewButtons?.openRecordingPreview()
 			}
 		]

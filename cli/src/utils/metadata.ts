@@ -339,16 +339,29 @@ export function extractWorkspaceDepsAnnotation(
   if (!config) return null;
 
   const { comment, keyword, validityRe } = config;
-  const extraMarker = `extra_${keyword}:`;
+  const extraMarkerUnderscore = `extra_${keyword}:`;
+  const extraMarkerHyphen = `extra-${keyword}:`;
   const manualMarker = `${keyword}:`;
+
+  const stripComment = (l: string): string | null => {
+    if (!l.startsWith(comment)) return null;
+    return l.substring(comment.length).trimStart();
+  };
+  const isExtra = (l: string): boolean => {
+    const s = stripComment(l);
+    return s !== null && (s.startsWith(extraMarkerUnderscore) || s.startsWith(extraMarkerHyphen));
+  };
+  const isManual = (l: string): boolean => {
+    const s = stripComment(l);
+    return s !== null && s.startsWith(manualMarker);
+  };
 
   const lines = scriptContent.split("\n");
 
   // Find first annotation line (mirrors Rust find_position)
   let pos = -1;
   for (let i = 0; i < lines.length; i++) {
-    const l = lines[i];
-    if (l.startsWith(comment) && (l.includes(extraMarker) || l.includes(manualMarker))) {
+    if (isExtra(lines[i]) || isManual(lines[i])) {
       pos = i;
       break;
     }
@@ -356,10 +369,12 @@ export function extractWorkspaceDepsAnnotation(
   if (pos === -1) return null;
 
   const annotationLine = lines[pos];
-  const mode: AnnotationMode = annotationLine.includes(extraMarker) ? "extra" : "manual";
+  const mode: AnnotationMode = isExtra(annotationLine) ? "extra" : "manual";
 
   // Parse external references from the annotation line
-  const marker = mode === "extra" ? extraMarker : manualMarker;
+  const marker = mode === "extra"
+    ? (annotationLine.includes(extraMarkerUnderscore) ? extraMarkerUnderscore : extraMarkerHyphen)
+    : manualMarker;
   const unparsed = annotationLine.replaceAll(marker, "").replaceAll(comment, "");
   const external = unparsed
     .split(",")

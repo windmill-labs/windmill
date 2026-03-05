@@ -66,6 +66,8 @@ fn next_worker_name() -> String {
                 .unwrap_or(s)
         })
         .unwrap_or("no thread name");
+    // Replace colons because they are illegal in Windows directory names
+    let thread_name = thread_name.replace(':', "_");
     format!("{id}/worker-{thread_name}")
 }
 
@@ -380,7 +382,7 @@ pub fn spawn_test_worker(
 
     std::fs::DirBuilder::new()
         .recursive(true)
-        .create(windmill_worker::GO_BIN_CACHE_DIR)
+        .create(&*windmill_worker::GO_BIN_CACHE_DIR)
         .expect("could not create initial worker dir");
 
     let (tx, rx) = KillpillSender::new(1);

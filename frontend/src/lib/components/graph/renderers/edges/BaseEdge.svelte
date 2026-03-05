@@ -1,7 +1,7 @@
 <script lang="ts">
 	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import { getBezierPath, BaseEdge, type EdgeProps, EdgeLabel } from '@xyflow/svelte'
-	import { ClipboardCopy, Hourglass } from 'lucide-svelte'
+	import { CircleDot, Hourglass } from 'lucide-svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { getStraightLinePath } from '../utils'
 	import { twMerge } from 'tailwind-merge'
@@ -13,10 +13,10 @@
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import { getGraphContext } from '../../graphContext'
 
-	const { useDataflow, showAssets } = getGraphContext()
+	const { useDataflow, showAssets, moveManager } = getGraphContext()
 
 	let {
-		// id,
+		id,
 		sourceX,
 		sourceY,
 		sourcePosition,
@@ -32,7 +32,6 @@
 			sourceId: string
 			branch: { rootId: string; branch: number } | undefined
 			targetId: string
-			moving: string | undefined
 			eventHandlers: GraphEventHandlers
 			index: number
 			enableTrigger: boolean
@@ -74,16 +73,50 @@
 	let suspendStatus: Record<string, { job: Job; nb: number }> | undefined = $derived(
 		data?.suspendStatus
 	)
+
+	let centerY = $derived(
+		sourceY +
+			32 +
+			(data.shouldOffsetInsertBtnDueToAssetNode && $showAssets ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)
+	)
+
+	let isDragging = $derived(!!moveManager?.dragging)
+	let draggedId = $derived(moveManager?.dragging?.moduleId)
+	let isValidDropTarget = $derived(
+		isDragging &&
+			data?.insertable &&
+			draggedId !== undefined &&
+			!data.disableMoveIds?.includes(draggedId) &&
+			data.sourceId !== draggedId &&
+			data.targetId !== draggedId
+	)
+	let isNearestDrop = $derived(isValidDropTarget && moveManager?.nearestDropZone?.edgeId === id)
+	let isAdjacentToDragged = $derived(
+		isDragging && (data?.sourceId === draggedId || data?.targetId === draggedId)
+	)
+
+	// Register this edge's drop zone position with the drag manager so proximity
+	// detection uses the actual xyflow-computed position rather than re-deriving it.
+	$effect(() => {
+		if (!data?.insertable || !moveManager) return
+
+		const centerX = sourceX
+
+		moveManager.registerDropZone(id, {
+			sourceId: data.sourceId,
+			targetId: data.targetId,
+			branch: data.branch,
+			index: data.index,
+			disableMoveIds: data.disableMoveIds ?? [],
+			centerX,
+			centerY
+		})
+
+		return () => moveManager.unregisterDropZone(id)
+	})
 </script>
 
-<EdgeLabel
-	x={sourceX}
-	y={sourceY +
-		32 +
-		(data.shouldOffsetInsertBtnDueToAssetNode && $showAssets ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)}
-	class="base-edge"
-	style=""
->
+<EdgeLabel x={sourceX} y={centerY} class="base-edge" style="">
 	{#if waitingForEvents && data.flowJob && data.flowJob.type === 'QueuedJob'}
 		<div
 			class="px-2 py-0.5 rounded-md bg-surface shadow-md text-violet-700 dark:text-violet-400 text-xs flex items-center gap-1"
@@ -118,7 +151,17 @@
 				</div>
 			{/if}
 		</div>
-	{:else if data?.insertable && !$useDataflow && !data?.moving}
+	{:else if isDragging && isValidDropTarget}
+		<div class="edgeButtonContainer nodrag nopan" style:transform="translate(-50%, -50%)">
+			<div class="relative flex items-center justify-center" style="width: 275px; height: 20px;">
+				{#if isNearestDrop}
+					<div class="absolute inset-0 rounded-md bg-accent/5 transition-opacity duration-150"
+					></div>
+				{/if}
+				{@render dropTargetIndicator(isNearestDrop)}
+			</div>
+		</div>
+	{:else if data?.insertable && !$useDataflow && !moveManager?.movingModuleId && !isDragging}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
 			style:transform="translate(-50%, -50%)"
@@ -168,9 +211,9 @@
 		</div>
 	{/if}
 
-	{#if data?.moving}
+	{#if moveManager?.movingModuleId && data?.insertable}
 		<div class="edgeButtonContainer nodrag nopan" style:transform="translate(-50%, -50%)">
-			{#if data.moving && !data.disableMoveIds?.includes(data.moving)}
+			{#if !(moveManager.movingIds ?? [moveManager.movingModuleId]).some((id) => data.disableMoveIds?.includes(id))}
 				<button
 					title="Paste module"
 					onclick={() => {
@@ -182,24 +225,34 @@
 						})
 					}}
 					type="button"
-					class={twMerge(
-						'w-6 h-6 flex items-center justify-center',
-						'border border-gray-300 dark:border-gray-500',
-						'text-primary text-sm',
-						'bg-surface focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected rounded-full '
-					)}
+					class="group relative flex items-center justify-center"
+					style="width: 275px; height: 20px;"
 				>
-					<ClipboardCopy size={14} />
+					<div
+						class="absolute inset-0 rounded-md bg-accent/5 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+					></div>
+					{@render dropTargetIndicator(false)}
 				</button>
 			{/if}
 		</div>
 	{/if}
 </EdgeLabel>
 
+{#snippet dropTargetIndicator(highlighted: boolean)}
+	<div
+		class={twMerge(
+			'w-[20px] h-[20px] flex items-center justify-center rounded-md bg-surface-secondary transition-all duration-150 group-hover:text-accent',
+			highlighted ? 'text-accent' : 'text-primary'
+		)}
+	>
+		<CircleDot size={12} />
+	</div>
+{/snippet}
+
 <BaseEdge
 	path={completeEdge}
 	{markerEnd}
-	class={$useDataflow ? 'hidden' : ''}
+	class={$useDataflow ? 'hidden' : isAdjacentToDragged ? 'opacity-30' : ''}
 	interactionWidth={0}
 	style={undefined}
 	label={undefined}

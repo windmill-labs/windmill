@@ -56,6 +56,7 @@ export type GraphEventHandlers = {
 	delete: (detail: { id: string }, label: string) => void
 	newBranch: (id: string) => void
 	move: (detail: { id: string }) => void
+	duplicate: (detail: { id: string }) => void
 	selectedIteration: onSelectedIteration
 	changeId: (newId: string) => void
 	simplifyFlow: (b: boolean) => void
@@ -119,7 +120,6 @@ export type InputN = {
 		eventHandlers: GraphEventHandlers
 		hasPreprocessor: boolean
 		insertable: boolean
-		moving: string | undefined
 		disableAi: boolean
 		cache: boolean
 		earlyStop: boolean
@@ -143,7 +143,6 @@ export type ModuleN = {
 		id: string
 		parentIds: string[]
 		eventHandlers: GraphEventHandlers
-		moving: string | undefined
 		flowModuleState: GraphModuleState | undefined
 		testModuleState: ModuleTestState | undefined
 		insertable: boolean
@@ -395,7 +394,6 @@ export function graphBuilder(
 	success: boolean | undefined,
 	useDataflow: boolean | undefined,
 	selectedId: string | undefined,
-	moving: string | undefined,
 	simplifiableFlow: SimplifiableFlow | undefined,
 	flowPathForTriggerNode: string | undefined,
 	expandedSubflows: Record<string, FlowModule[]>
@@ -425,10 +423,6 @@ export function graphBuilder(
 				throw new Error(`Duplicated node detected: ${module.id}`)
 			}
 
-			if (module.id.startsWith('subflow:')) {
-				extra.insertable = false
-			}
-
 			nodes.push({
 				id: module.id,
 				data: {
@@ -437,10 +431,9 @@ export function graphBuilder(
 					id: module.id,
 					parentIds: [],
 					eventHandlers: eventHandlers,
-					moving: moving,
 					flowModuleState: extra.flowModuleStates?.[module.id],
 					testModuleState: extra.testModuleStates?.states?.[module.id],
-					insertable: extra.insertable,
+					insertable: extra.insertable && !module.id.startsWith('subflow:'),
 					editMode: extra.editMode,
 					isOwner: extra.isOwner,
 					flowJob: extra.flowJob,
@@ -531,7 +524,6 @@ export function graphBuilder(
 					sourceId,
 					targetId,
 					branch,
-					moving,
 					eventHandlers,
 					simplifiedTriggerView: simplifiableFlow?.simplifiedFlow,
 					disableMoveIds: options?.disableMoveIds,
@@ -554,7 +546,6 @@ export function graphBuilder(
 				eventHandlers: eventHandlers,
 				hasPreprocessor: !!preprocessorModule || flowPathForTriggerNode == undefined,
 				insertable: extra.insertable,
-				moving: moving,
 				disableAi: extra.disableAi,
 				cache: extra.cache,
 				earlyStop: extra.earlyStop,
@@ -974,11 +965,15 @@ export function graphBuilder(
 							nodes.push(startNode)
 
 							if (previousId) {
-								addEdge(previousId!, startNode.id, undefined, prefix, {
-									type: 'empty'
+								addEdge(previousId, startNode.id, branch, prefix, {
+									subModules: modules,
+									disableMoveIds
 								})
 							} else {
-								addEdge(beforeNode.id, startNode.id, undefined, prefix, { type: 'empty' })
+								addEdge(beforeNode.id, startNode.id, undefined, prefix, {
+									subModules: modules,
+									disableMoveIds
+								})
 							}
 
 							const endId = `${module.id}-subflow-end`

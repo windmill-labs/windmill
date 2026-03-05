@@ -1,5 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
+use crate::global_cache::save_cache;
 use anyhow::{anyhow, bail};
 use async_recursion::async_recursion;
 use itertools::Itertools;
@@ -15,7 +16,6 @@ use windmill_common::{
     utils::calculate_hash,
     worker::{copy_dir_recursively, write_file, Connection},
 };
-use crate::global_cache::save_cache;
 use windmill_parser::Arg;
 use windmill_parser_java::parse_java_sig_meta;
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
@@ -185,8 +185,8 @@ pub async fn resolve<'a>(
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
-            .env("HOME", JAVA_HOME_DIR)
-            .env("COURSIER_CACHE", COURSIER_CACHE_DIR)
+            .env("HOME", &*JAVA_HOME_DIR)
+            .env("COURSIER_CACHE", &*COURSIER_CACHE_DIR)
             .envs(PROXY_ENVS.clone());
 
         // Configure proxies
@@ -208,7 +208,7 @@ pub async fn resolve<'a>(
                 cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
             }
         }
-        cmd.arg(&format!("-Duser.home={}", JAVA_HOME_DIR));
+        cmd.arg(&format!("-Duser.home={}", *JAVA_HOME_DIR));
         if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
             cmd.args(&[
                 &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
@@ -223,7 +223,7 @@ pub async fn resolve<'a>(
             "--parallel",
             &format!("{}", *JAVA_CONCURRENT_DOWNLOADS),
             "--cache",
-            COURSIER_CACHE_DIR,
+            &*COURSIER_CACHE_DIR,
         ])
         .args(&get_repos(job_id, w_id, conn).await)
         .args(&deps.split("\n").collect_vec())
@@ -276,7 +276,8 @@ async fn install<'a>(
             match (it.next(), it.next(), it.next()) {
                 (Some(group_id), Some(artifact_id), Some(version)) => {
                     let path = format!(
-                        "{JAVA_REPOSITORY_DIR}/{}/{artifact_id}/{version}",
+                        "{}/{}/{artifact_id}/{version}",
+                        *JAVA_REPOSITORY_DIR,
                         group_id.replace(".", "/")
                     );
                     Ok(RequiredDependency {
@@ -312,7 +313,7 @@ async fn install<'a>(
         metadata(TRUST_STORE_PATH.clone()).await,
     );
     let job_dir = job_dir.to_owned();
-    let fetch_dir = format!("{JAVA_CACHE_DIR}/tmp-fetch-{}", Uuid::new_v4());
+    let fetch_dir = format!("{}/tmp-fetch-{}", *JAVA_CACHE_DIR, Uuid::new_v4());
     let fetch_dir2 = fetch_dir.clone();
     par_install_language_dependencies_all_at_once(
         deps,
@@ -334,8 +335,8 @@ async fn install<'a>(
             cmd.env_clear()
                 .current_dir(&job_dir)
                 .env("PATH", PATH_ENV.as_str())
-                .env("HOME", JAVA_HOME_DIR)
-                .env("COURSIER_CACHE", COURSIER_CACHE_DIR)
+                .env("HOME", &*JAVA_HOME_DIR)
+                .env("COURSIER_CACHE", &*COURSIER_CACHE_DIR)
                 .envs(PROXY_ENVS.clone());
             // Configure proxies
             {
@@ -357,7 +358,7 @@ async fn install<'a>(
                 }
             }
 
-            cmd.arg(&format!("-Duser.home={}", JAVA_HOME_DIR));
+            cmd.arg(&format!("-Duser.home={}", *JAVA_HOME_DIR));
             if trust_store_metadata.is_ok() {
                 cmd.args(&[
                     &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
@@ -400,7 +401,7 @@ async fn install<'a>(
                 if depth == 3 {
                     copy_dir_recursively(
                         &PathBuf::from(path),
-                        &PathBuf::from(JAVA_REPOSITORY_DIR),
+                        &PathBuf::from(&*JAVA_REPOSITORY_DIR),
                     )?;
 
                     return Ok(());
@@ -465,7 +466,7 @@ async fn compile<'a>(
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
     let hash = compute_hash(inner_content, *requirements_o);
-    let bin_path = format!("{}/{hash}", JAVA_CACHE_DIR);
+    let bin_path = format!("{}/{hash}", *JAVA_CACHE_DIR);
     let remote_path = format!("java_jar/{hash}");
     let (cache, ..) = crate::global_cache::load_cache(&bin_path, &remote_path, true).await;
 
@@ -501,7 +502,7 @@ async fn compile<'a>(
             cmd.env_clear()
                 .current_dir(job_dir.to_owned())
                 .env("PATH", PATH_ENV.as_str())
-                .env("HOME", JAVA_HOME_DIR)
+                .env("HOME", &*JAVA_HOME_DIR)
                 .env("BASE_INTERNAL_URL", base_internal_url)
                 .envs(envs)
                 .envs(reserved_variables)
@@ -604,7 +605,7 @@ async fn run<'a>(
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_JAVA_CONTENT
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", JAVA_CACHE_DIR)
+                .replace("{CACHE_DIR}", &*JAVA_CACHE_DIR)
                 .replace("{SHARED_MOUNT}", &shared_mount)
                 // .replace("{CACHED_TARGET}", &shared_mount)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
@@ -613,7 +614,7 @@ async fn run<'a>(
         cmd.env_clear()
             .current_dir(job_dir)
             .env("PATH", PATH_ENV.as_str())
-            .env("HOME", JAVA_HOME_DIR)
+            .env("HOME", &*JAVA_HOME_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables)
@@ -671,7 +672,7 @@ async fn run<'a>(
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
-            .env("HOME", JAVA_HOME_DIR)
+            .env("HOME", &*JAVA_HOME_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables);
