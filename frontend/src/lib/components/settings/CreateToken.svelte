@@ -18,7 +18,7 @@
 	import { safeSelectItems } from '../select/utils.svelte'
 	import TokenDisplay from './TokenDisplay.svelte'
 	import ScopeSelector from './ScopeSelector.svelte'
-	import Alert from '../common/alert/Alert.svelte'
+
 	import FolderPicker from '../FolderPicker.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
@@ -44,8 +44,6 @@
 		displayCreateToken = true
 	}: Props = $props()
 
-	// MCP clients do not allow names longer than 60 characters, here we use 55 because final tool name server side will add ~5 characters
-	const MAX_PATH_LENGTH = 55
 
 	let newToken = $state<string | undefined>(undefined)
 	let newMcpToken = $state<string | undefined>(undefined)
@@ -185,17 +183,6 @@
 			: newMcpScope === 'favorites'
 				? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.`
 				: `You do not have any scripts or flows in the selected folder.`
-	)
-	const longPathRunnables = $derived(
-		includedRunnables.filter((path) => path.length > MAX_PATH_LENGTH)
-	)
-	const validRunnables = $derived(
-		includedRunnables.filter((path) => path.length <= MAX_PATH_LENGTH)
-	)
-	const longPathWarning = $derived(
-		longPathRunnables.length > 0
-			? `${longPathRunnables.length} script(s)/flow(s) have paths longer than 60 characters and will be excluded from MCP tools. Consider shortening the paths: ${longPathRunnables.slice(0, 3).join(', ')}${longPathRunnables.length > 3 ? ` and ${longPathRunnables.length - 3} more` : ''}`
-			: ''
 	)
 
 	$effect(() => {
@@ -628,23 +615,18 @@
 					</div>
 				{:else}
 					<div class="flex flex-col gap-2 col-span-2 pr-4">
-						{#if longPathWarning}
-							<Alert type="warning" title="Some paths are too long" size="xs">
-								{longPathWarning}
-							</Alert>
-						{/if}
 						<span class="block text-xs">Scripts & Flows that will be available via MCP</span>
 						<div class="flex flex-wrap gap-1">
-							{#if validRunnables.length > 0 && validRunnables.length <= 5}
-								{#each validRunnables as scriptOrFlow}
+							{#if includedRunnables.length > 0 && includedRunnables.length <= 5}
+								{#each includedRunnables as scriptOrFlow}
 									<Badge rounded small color="blue">{scriptOrFlow}</Badge>
 								{/each}
-							{:else if validRunnables.length > 0}
-								{#each validRunnables.slice(0, 3) as scriptOrFlow}
+							{:else if includedRunnables.length > 0}
+								{#each includedRunnables.slice(0, 3) as scriptOrFlow}
 									<Badge rounded small color="blue">{scriptOrFlow}</Badge>
 								{/each}
 								<Badge rounded small color="dark-gray">
-									+{validRunnables.length - 3} more
+									+{includedRunnables.length - 3} more
 								</Badge>
 							{:else}
 								<p class="text-xs text-primary">

@@ -136,6 +136,7 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
     workspace_id: &str,
     scope_type: &str,
     item_type: &str,
+    path_prefix: Option<&str>,
 ) -> Result<Vec<T>, ErrorData> {
     let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
     let fields = vec!["o.path", "o.summary", "o.description", "o.schema"];
@@ -151,6 +152,11 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
 
     if item_type == "script" {
         sqlb.and_where("(o.no_main_func IS NOT TRUE OR o.no_main_func IS NULL)");
+    }
+
+    if let Some(prefix) = path_prefix {
+        let escaped = prefix.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        sqlb.and_where("o.path LIKE ? ESCAPE '\\'".bind(&format!("{}%", escaped)));
     }
 
     sqlb.order_by(
