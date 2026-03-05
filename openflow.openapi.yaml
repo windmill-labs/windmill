@@ -654,6 +654,7 @@ components:
                   - resource
                   - ducklake
                   - datatable
+                  - volume
               access_type:
                 type: string
                 nullable: true

@@ -15,6 +15,7 @@
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 	import BedrockCredentialsCheck from './BedrockCredentialsCheck.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import ResourceGen from './copilot/ResourceGen.svelte'
 
 	interface Props {
 		resourceType: string
@@ -148,6 +149,12 @@
 				right: 'As JSON'
 			}}
 			class="as-json-toggle"
+		/>
+		<ResourceGen
+			bind:args
+			resourceType={resourceType}
+			resourceSchema={notFound ? undefined : schema}
+			isFileset={resourceTypeInfo?.is_fileset ?? false}
 		/>
 		<TestConnection {resourceType} {args} />
 		{#if resourceType == 'postgresql'}

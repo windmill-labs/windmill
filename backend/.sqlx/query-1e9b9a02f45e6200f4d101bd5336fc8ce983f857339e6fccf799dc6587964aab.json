@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO volume (workspace_id, name, size_bytes, created_by, last_used_at)\n         VALUES ($1, $2, $3, $4, now())\n         ON CONFLICT (workspace_id, name) DO UPDATE\n         SET size_bytes = $3, last_used_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1e9b9a02f45e6200f4d101bd5336fc8ce983f857339e6fccf799dc6587964aab"
+}

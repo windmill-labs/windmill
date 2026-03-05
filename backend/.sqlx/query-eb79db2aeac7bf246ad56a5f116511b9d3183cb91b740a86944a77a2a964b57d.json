@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE volume SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2::bool), true)\n         WHERE workspace_id = $3 AND name = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Bool",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eb79db2aeac7bf246ad56a5f116511b9d3183cb91b740a86944a77a2a964b57d"
+}

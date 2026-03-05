@@ -46,6 +46,9 @@
 		}
 	}
 
+	// Track the last args we wrote so we can detect external changes.
+	let lastWrittenArgs: Record<string, any> = $state(args ?? {})
+
 	// Sync files → args, overlaying current editContent for the active file.
 	// This avoids spreading a new files object on every keystroke.
 	$effect(() => {
@@ -58,7 +61,31 @@
 				newArgs[argKey] = key === currentKey ? currentContent : value
 			}
 		}
+		lastWrittenArgs = newArgs
 		args = newArgs
+	})
+
+	// Sync args → files when args changes externally (e.g. from AI generation).
+	$effect(() => {
+		const currentArgs = args
+		if (currentArgs === lastWrittenArgs) return
+		// Check if the args object is actually different
+		const currentKeys = Object.keys(currentArgs ?? {}).sort().join('\0')
+		const lastKeys = Object.keys(lastWrittenArgs ?? {}).sort().join('\0')
+		if (currentKeys === lastKeys) {
+			const allSame = Object.entries(currentArgs ?? {}).every(
+				([k, v]) => lastWrittenArgs[k] === v
+			)
+			if (allSame) return
+		}
+		const newFiles = Object.fromEntries(
+			Object.entries(currentArgs ?? {}).map(([k, v]) => ['/' + k, String(v ?? '')])
+		)
+		files = newFiles
+		lastWrittenArgs = currentArgs
+		const firstFile = Object.keys(newFiles).find((k) => !k.endsWith('/'))
+		selectedPath = firstFile ?? '/'
+		editContent = firstFile ? (newFiles[firstFile] ?? '') : ''
 	})
 
 	function inferLang(filePath: string): string {

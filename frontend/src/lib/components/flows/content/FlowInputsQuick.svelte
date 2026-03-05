@@ -491,6 +491,27 @@
 			{/await}
 			<div class="pb-1"></div>
 		{/if}
+		{#if selectedKind === 'script' && preFilter === 'all' && !selected}
+			<div class="pb-0 text-2xs font-normal text-secondary ml-2">AI Sandbox</div>
+			<FlowScriptPickerQuick
+				eeRestricted={false}
+				selected={false}
+				enterpriseLangs={[]}
+				label="Claude Code"
+				lang="claudesandbox"
+				on:click={() => {
+					dispatch('new', {
+						kind: selectedKind,
+						inlineScript: {
+							language: 'bun',
+							kind: selectedKind,
+							subkind: 'claudesandbox',
+							summary
+						}
+					})
+				}}
+			/>
+		{/if}
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			{#if (!selected || selected?.kind === 'integrations') && (preFilter === 'hub' || preFilter === 'all')}
 				{#if !selected && preFilter !== 'hub'}

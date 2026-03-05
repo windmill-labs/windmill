@@ -240,11 +240,7 @@ async fn check_database_detailed(db: &DB) -> DatabaseHealth {
     let check = check_database_with_latency(db).await;
     let pool = get_pool_stats(db);
 
-    DatabaseHealth {
-        healthy: check.healthy,
-        latency_ms: check.latency_ms,
-        pool,
-    }
+    DatabaseHealth { healthy: check.healthy, latency_ms: check.latency_ms, pool }
 }
 
 async fn check_worker_count(db: &DB) -> i64 {
@@ -295,13 +291,7 @@ async fn check_workers_detailed(db: &DB) -> WorkersHealth {
 
     let healthy = active_count > 0;
 
-    WorkersHealth {
-        healthy,
-        active_count,
-        worker_groups,
-        min_version,
-        versions,
-    }
+    WorkersHealth { healthy, active_count, worker_groups, min_version, versions }
 }
 
 async fn check_queue(db: &DB) -> QueueHealth {
@@ -333,10 +323,7 @@ fn get_version() -> String {
 
 /// Spawn a background task that performs a health check every 10 seconds.
 /// Updates the cache and prometheus metrics continuously.
-pub fn start_health_check_loop(
-    db: DB,
-    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
-) {
+pub fn start_health_check_loop(db: DB, mut killpill_rx: tokio::sync::broadcast::Receiver<()>) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(10));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -550,10 +537,7 @@ async fn health_status(
 }
 
 /// Detailed health check - requires DB authentication (always fresh, no caching)
-async fn health_detailed(
-    _authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-) -> impl IntoResponse {
+async fn health_detailed(_authed: ApiAuthed, Extension(db): Extension<DB>) -> impl IntoResponse {
     let checked_at = Utc::now();
     let database = check_database_detailed(&db).await;
     let readiness = check_readiness();
@@ -564,12 +548,7 @@ async fn health_detailed(
             status: HealthStatus::Unhealthy,
             checked_at,
             version: get_version(),
-            checks: HealthChecks {
-                database,
-                workers: None,
-                queue: None,
-                readiness,
-            },
+            checks: HealthChecks { database, workers: None, queue: None, readiness },
         };
         return (StatusCode::SERVICE_UNAVAILABLE, Json(response));
     }
@@ -587,12 +566,7 @@ async fn health_detailed(
         status,
         checked_at,
         version: get_version(),
-        checks: HealthChecks {
-            database,
-            workers: Some(workers),
-            queue: Some(queue),
-            readiness,
-        },
+        checks: HealthChecks { database, workers: Some(workers), queue: Some(queue), readiness },
     };
 
     let status_code = if status == HealthStatus::Unhealthy {

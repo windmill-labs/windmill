@@ -70,6 +70,7 @@ members = [
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
     "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
+    "./windmill-worker-volumes",
     "./windmill-test-utils",
     "./windmill-api-integration-tests",
 ]
@@ -250,6 +251,8 @@ reqwest.workspace = true
 windmill-queue = { workspace = true, features = ["failpoints"] }
 windmill-dep-map.workspace = true
 windmill-test-utils.workspace = true
+windmill-worker-volumes.workspace = true
+windmill-types.workspace = true
 axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
@@ -267,6 +270,7 @@ aws-credential-types.workspace = true
 windmill-api = { path = "./windmill-api", default-features = false  }
 windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }
+windmill-worker-volumes = { path = "./windmill-worker-volumes" }
 windmill-dep-map = { path = "./windmill-dep-map" }
 windmill-types = { path = "./windmill-types" }
 windmill-common = { path = "./windmill-common", default-features = false }
@@ -439,6 +443,7 @@ base64 = "^0.22.1"
 base32 = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
+md-5 = "0.10.6"
 sha1 = "0.10.6"
 sqlx = { version = "0.8.0", features = [
     "macros",

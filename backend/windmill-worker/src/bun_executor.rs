@@ -22,7 +22,7 @@ use crate::{
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR,
     BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH,
-    NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
     TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
@@ -990,6 +990,14 @@ pub async fn handle_bun_job(
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
+    if annotation.sandbox && NSJAIL_AVAILABLE.is_none() {
+        return Err(error::Error::ExecutionErr(
+            "Script has //sandbox annotation but nsjail is not available on this worker. \
+            Please ensure nsjail is installed or remove the //sandbox annotation."
+                .to_string(),
+        ));
+    }
+
     let (mut has_bundle_cache, cache_logs, local_path, remote_path) = if let (Some(lock), true) = (
         maybe_lock.get_lock(),
         !annotation.nobundling && !*DISABLE_BUNDLING && codebase.is_none(),
@@ -1159,6 +1167,10 @@ pub async fn handle_bun_job(
 
     if has_bundle_cache {
         init_logs = format!("\n{}{}", cache_logs, init_logs);
+    }
+
+    if annotation.sandbox {
+        init_logs.push_str("sandbox mode (nsjail)\n");
     }
 
     let write_wrapper_f = async {
@@ -1485,7 +1497,7 @@ try {{
     append_logs(&job.id, &job.workspace_id, init_logs, conn).await;
 
     //do not cache local dependencies
-    let child = if is_sandboxing_enabled() {
+    let child = if is_sandboxing_enabled() || annotation.sandbox {
         let _ = write_file(
             job_dir,
             "run.config.proto",
