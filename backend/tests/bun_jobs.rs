@@ -1,5 +1,6 @@
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
+use uuid::Uuid;
 use windmill_common::jobs::{JobPayload, RawCode};
 use windmill_common::scripts::ScriptLang;
 use windmill_test_utils::*;
@@ -1447,4 +1448,241 @@ export function main() { return { a, b }; }
             "Should resolve to lower version 4.17.10"
         );
     }
+}
+
+// ============================================================================
+// Codebase Mode Tests
+// ============================================================================
+
+/// Create a TAR archive in memory containing a single `main.js` file.
+fn create_codebase_tar(main_js_content: &str) -> Vec<u8> {
+    let mut builder = tar::Builder::new(Vec::new());
+    let content = main_js_content.as_bytes();
+    let mut header = tar::Header::new_gnu();
+    header.set_path("main.js").unwrap();
+    header.set_size(content.len() as u64);
+    header.set_mode(0o644);
+    header.set_cksum();
+    builder.append(&header, content).unwrap();
+    builder.into_inner().unwrap()
+}
+
+/// Place a TAR codebase at the expected cache path for the given job ID and hash.
+fn place_codebase_in_cache(job_id: &Uuid, tar_bytes: &[u8], is_esm: bool) {
+    let codebase_id = if is_esm {
+        format!("{}.esm.tar", job_id)
+    } else {
+        format!("{}.tar", job_id)
+    };
+    let bundle_path = format!("script_bundle/test-workspace/{}", codebase_id);
+    let cache_path = format!(
+        "{}/{}.tar",
+        *windmill_common::worker::ROOT_CACHE_NOMOUNT_DIR,
+        bundle_path,
+    );
+    let parent = std::path::Path::new(&cache_path).parent().unwrap();
+    std::fs::create_dir_all(parent).unwrap();
+    std::fs::write(&cache_path, tar_bytes).unwrap();
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_cjs_codebase_tar(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let main_js = r#"
+module.exports.main = function() {
+    return "cjs codebase ok";
+};
+"#;
+    let inner_content = r#"export function main() { return "cjs codebase ok"; }"#;
+
+    let job_id = Uuid::new_v4();
+    let tar_bytes = create_codebase_tar(main_js);
+    place_codebase_in_cache(&job_id, &tar_bytes, false);
+
+    let job = JobPayload::Code(RawCode {
+        hash: Some(-43), // PREVIEW_IS_TAR_CODEBASE_HASH
+        content: inner_content.to_string(),
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: Default::default(),
+        debouncing_settings: Default::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+    });
+
+    let result = RunJob::from(job)
+        .job_id(job_id)
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result, serde_json::json!("cjs codebase ok"));
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_esm_codebase_tar(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let main_js = r#"
+export function main() {
+    return "esm codebase ok";
+}
+"#;
+    let inner_content = r#"export function main() { return "esm codebase ok"; }"#;
+
+    let job_id = Uuid::new_v4();
+    let tar_bytes = create_codebase_tar(main_js);
+    place_codebase_in_cache(&job_id, &tar_bytes, true);
+
+    let job = JobPayload::Code(RawCode {
+        hash: Some(-45), // PREVIEW_IS_TAR_ESM_CODEBASE_HASH
+        content: inner_content.to_string(),
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: Default::default(),
+        debouncing_settings: Default::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+    });
+
+    let result = RunJob::from(job)
+        .job_id(job_id)
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result, serde_json::json!("esm codebase ok"));
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_cjs_codebase_tar_nsjail(db: Pool<Postgres>) -> anyhow::Result<()> {
+    if std::process::Command::new("nsjail")
+        .arg("--help")
+        .output()
+        .is_err()
+    {
+        eprintln!("nsjail not found, skipping test");
+        return Ok(());
+    }
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let main_js = r#"
+module.exports.main = function() {
+    return "cjs nsjail ok";
+};
+"#;
+    let inner_content = r#"export function main() { return "cjs nsjail ok"; }"#;
+
+    let job_id = Uuid::new_v4();
+    let tar_bytes = create_codebase_tar(main_js);
+    place_codebase_in_cache(&job_id, &tar_bytes, false);
+
+    let job = JobPayload::Code(RawCode {
+        hash: Some(-43),
+        content: inner_content.to_string(),
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: Default::default(),
+        debouncing_settings: Default::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+    });
+
+    use std::sync::atomic::Ordering;
+    windmill_worker::JOB_ISOLATION.store(
+        windmill_worker::JobIsolationLevel::NsjailSandboxing as u8,
+        Ordering::Relaxed,
+    );
+
+    let result = RunJob::from(job)
+        .job_id(job_id)
+        .run_until_complete(&db, false, port)
+        .await;
+
+    windmill_worker::JOB_ISOLATION.store(
+        windmill_worker::JobIsolationLevel::Undefined as u8,
+        Ordering::Relaxed,
+    );
+
+    let json = result.json_result().unwrap();
+    assert_eq!(json, serde_json::json!("cjs nsjail ok"));
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_esm_codebase_tar_nsjail(db: Pool<Postgres>) -> anyhow::Result<()> {
+    if std::process::Command::new("nsjail")
+        .arg("--help")
+        .output()
+        .is_err()
+    {
+        eprintln!("nsjail not found, skipping test");
+        return Ok(());
+    }
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let main_js = r#"
+export function main() {
+    return "esm nsjail ok";
+}
+"#;
+    let inner_content = r#"export function main() { return "esm nsjail ok"; }"#;
+
+    let job_id = Uuid::new_v4();
+    let tar_bytes = create_codebase_tar(main_js);
+    place_codebase_in_cache(&job_id, &tar_bytes, true);
+
+    let job = JobPayload::Code(RawCode {
+        hash: Some(-45),
+        content: inner_content.to_string(),
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: Default::default(),
+        debouncing_settings: Default::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+    });
+
+    use std::sync::atomic::Ordering;
+    windmill_worker::JOB_ISOLATION.store(
+        windmill_worker::JobIsolationLevel::NsjailSandboxing as u8,
+        Ordering::Relaxed,
+    );
+
+    let result = RunJob::from(job)
+        .job_id(job_id)
+        .run_until_complete(&db, false, port)
+        .await;
+
+    windmill_worker::JOB_ISOLATION.store(
+        windmill_worker::JobIsolationLevel::Undefined as u8,
+        Ordering::Relaxed,
+    );
+
+    let json = result.json_result().unwrap();
+    assert_eq!(json, serde_json::json!("esm nsjail ok"));
+    Ok(())
 }
