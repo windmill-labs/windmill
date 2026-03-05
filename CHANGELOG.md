@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.651.1](https://github.com/windmill-labs/windmill/compare/v1.651.0...v1.651.1) (2026-03-05)
+
+
+### Bug Fixes
+
+* prevent slow loading toast interval from leaking on promise cancellation ([#8240](https://github.com/windmill-labs/windmill/issues/8240)) ([2e582b1](https://github.com/windmill-labs/windmill/commit/2e582b1bc1c299388a3c97cfddff9d0eb92858f2))
+* suppress unused variable warnings on windows builds ([#8241](https://github.com/windmill-labs/windmill/issues/8241)) ([2d58382](https://github.com/windmill-labs/windmill/commit/2d583826dc065c05684d4cd1d1510f0d1f2d9ae9))
+
 ## [1.651.0](https://github.com/windmill-labs/windmill/compare/v1.650.0...v1.651.0) (2026-03-05)
 
 
