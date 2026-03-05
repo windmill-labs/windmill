@@ -172,7 +172,7 @@ websocket_trigger: path(char), url(char), script_path(char), is_flow(bool), work
 windmill_migrations: name(text), created_at(ts)
 worker_group_job_stats: hour(bigint), worker_group(text), script_lang(char), workspace_id(char), job_count(int), total_duration_ms(bigint)
   FK: (workspace_id) -> workspace(id)
-worker_ping: worker(char), worker_instance(char), ping_at(ts), started_at(ts), ip(char), jobs_executed(int), custom_tags(text[]), worker_group(char), dedicated_worker(char), wm_version(char), current_job_id(uuid), current_job_workspace_id(char), vcpus(bigint), memory(bigint), occupancy_rate(float), memory_usage(bigint), wm_memory_usage(bigint), occupancy_rate_15s(float), occupancy_rate_5m(float), occupancy_rate_30m(float), job_isolation(text), dedicated_workers(text[])
+worker_ping: worker(char), worker_instance(char), ping_at(ts), started_at(ts), ip(char), jobs_executed(int), custom_tags(text[]), worker_group(char), dedicated_worker(char), wm_version(char), current_job_id(uuid), current_job_workspace_id(char), vcpus(bigint), memory(bigint), occupancy_rate(float), memory_usage(bigint), wm_memory_usage(bigint), occupancy_rate_15s(float), occupancy_rate_5m(float), occupancy_rate_30m(float), job_isolation(text), dedicated_workers(text[]), native_mode(bool), uses_batch_http_pull(bool)
 workspace: id(char), name(char), owner(char), deleted(bool), premium(bool), parent_workspace_id(char)
   FK: (parent_workspace_id) -> workspace(id)
 workspace_dependencies: id(bigint), name(char), content(text), language(script_lang), description(text), archived(bool), workspace_id(char), created_at(ts)

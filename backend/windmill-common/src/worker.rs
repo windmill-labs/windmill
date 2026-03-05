@@ -288,6 +288,10 @@ pub fn is_native_mode_from_env() -> bool {
 /// Use this for hot-path checks (e.g. per-job dispatch) to avoid read-locking WORKER_CONFIG.
 pub static NATIVE_MODE_RESOLVED: AtomicBool = AtomicBool::new(false);
 
+/// Whether this worker uses HTTP batch pull (set at startup in main.rs).
+/// Reported in worker_ping so the server knows which native workers to batch-pull for.
+pub static USES_BATCH_HTTP_PULL: AtomicBool = AtomicBool::new(false);
+
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 #[derive(Clone)]
 pub struct HttpClient {
@@ -475,6 +479,62 @@ pub fn make_pull_query(tags: &[String]) -> String {
         tags.iter().map(|x| format!("'{x}'")).join(", ")
     ));
     query
+}
+
+pub fn make_batch_pull_query(tags: &[String], limit: u32) -> String {
+    format_batch_pull_query(format!(
+        "SELECT id
+        FROM v2_job_queue
+        WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
+        ORDER BY priority DESC NULLS LAST, scheduled_for
+        FOR UPDATE SKIP LOCKED
+        LIMIT {limit}",
+        tags.iter().map(|x| format!("'{x}'")).join(", ")
+    ))
+}
+
+fn format_batch_pull_query(peek: String) -> String {
+    // Optimizations vs single-row format_pull_query:
+    // 1. ANY(ARRAY(SELECT ...)) instead of IN (SELECT ...) — forces PG to materialize IDs
+    //    into an array, enabling Bitmap Index Scan instead of Hash Semi Join / Nested Loop
+    // 2. r CTE chains off q (not peek) — only updates runtime for actually-locked rows,
+    //    avoids re-scanning peek
+    // 3. No separate j CTE — join v2_job directly in final SELECT off q's IDs
+    format!(
+        "WITH peek AS (
+            {}
+        ), q AS NOT MATERIALIZED (
+            UPDATE v2_job_queue SET
+                running = true,
+                started_at = coalesce(started_at, now()),
+                suspend_until = null,
+                worker = $1
+            WHERE id = ANY(ARRAY(SELECT id FROM peek))
+            RETURNING
+                id, started_at, scheduled_for,
+                canceled_by, canceled_reason, worker, cache_ignore_s3_path, runnable_settings_handle
+        ), r AS NOT MATERIALIZED (
+            UPDATE v2_job_runtime SET
+                ping = now()
+            WHERE id = ANY(ARRAY(SELECT id FROM q))
+        ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, q.started_at, q.scheduled_for,
+            j.runnable_id, j.runnable_path, j.args, q.canceled_by,
+            q.canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
+            f.flow_status, j.script_lang,
+            j.same_worker, j.pre_run_error, j.visible_to_owner,
+            j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
+            j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
+            j.script_entrypoint_override, j.preprocessed, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
+            COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
+            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
+        FROM q
+            JOIN v2_job j ON q.id = j.id
+            LEFT JOIN v2_job_status f ON f.id = q.id
+            LEFT JOIN job_perms p ON p.job_id = q.id
+            LEFT JOIN v2_job pj ON j.parent_job = pj.id
+            ",
+        peek
+    )
 }
 
 pub async fn store_pull_query(wc: &WorkerConfig) {
@@ -1143,6 +1203,8 @@ pub struct Ping {
     pub occupancy_rate_30m: Option<f32>,
     pub job_isolation: Option<String>,
     pub native_mode: Option<bool>,
+    #[serde(default)]
+    pub uses_batch_http_pull: Option<bool>,
     pub ping_type: PingType,
 }
 pub async fn update_ping_http(
@@ -1167,6 +1229,7 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_5m,
                 insert_ping.occupancy_rate_30m,
                 insert_ping.native_mode.unwrap_or(false),
+                insert_ping.uses_batch_http_pull.unwrap_or(false),
                 db,
             )
             .await?
@@ -1194,6 +1257,7 @@ pub async fn update_ping_http(
                 insert_ping.memory,
                 insert_ping.job_isolation,
                 insert_ping.native_mode.unwrap_or(false),
+                insert_ping.uses_batch_http_pull.unwrap_or(false),
                 db,
             )
             .await?;
@@ -1326,11 +1390,12 @@ pub async fn insert_ping_query(
     memory: Option<i64>,
     job_isolation: Option<String>,
     native_mode: bool,
+    uses_batch_http_pull: bool,
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
-        DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_workers = EXCLUDED.dedicated_workers, native_mode = EXCLUDED.native_mode",
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode, uses_batch_http_pull) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT (worker)
+        DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_workers = EXCLUDED.dedicated_workers, native_mode = EXCLUDED.native_mode, uses_batch_http_pull = EXCLUDED.uses_batch_http_pull",
         worker_instance,
         worker_name,
         ip,
@@ -1343,6 +1408,7 @@ pub async fn insert_ping_query(
         memory,
         job_isolation.as_deref(),
         native_mode,
+        uses_batch_http_pull,
         )
         .execute(db)
         .await?;
@@ -1434,12 +1500,13 @@ pub async fn update_worker_ping_main_loop_query(
     occupancy_rate_5m: Option<f32>,
     occupancy_rate_30m: Option<f32>,
     native_mode: bool,
+    uses_batch_http_pull: bool,
     db: &DB,
 ) -> anyhow::Result<()> {
     timeout(Duration::from_secs(10), sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
-         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12 WHERE worker = $6",
+         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, uses_batch_http_pull = $13 WHERE worker = $6",
         jobs_executed,
         tags,
         occupancy_rate,
@@ -1452,6 +1519,7 @@ pub async fn update_worker_ping_main_loop_query(
         occupancy_rate_5m,
         occupancy_rate_30m,
         native_mode,
+        uses_batch_http_pull,
     )
         .execute(db))
     .await??;

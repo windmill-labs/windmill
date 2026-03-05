@@ -412,6 +412,7 @@ pub fn spawn_test_worker(
             rx,
             tx2,
             &base_internal_url,
+            None,
         )
         .await
     };

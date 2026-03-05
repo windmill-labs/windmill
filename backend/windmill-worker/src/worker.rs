@@ -1359,6 +1359,7 @@ pub async fn run_worker(
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     killpill_tx: KillpillSender,
     base_internal_url: &str,
+    batch_pull_client: Option<&HttpClient>,
 ) {
     #[cfg(not(feature = "enterprise"))]
     if is_sandboxing_enabled() {
@@ -2059,135 +2060,149 @@ pub async fn run_worker(
                     continue;
                 }
             } else {
-                match &conn {
-                    Connection::Sql(db) => {
-                        let pull_time = Instant::now();
-                        let likelihood_of_suspend = last_30jobs_suspended as f64 / 30.0;
-
-                        let suspend_first = suspend_first_success
-                            || rand::random::<f64>() < likelihood_of_suspend
-                            || last_suspend_first.elapsed().as_secs_f64() > 5.0;
-
-                        if suspend_first {
-                            last_suspend_first = Instant::now();
-                        }
-                        let mut job = match timeout(
-                            Duration::from_secs(30),
-                            pull(
-                                &db,
-                                suspend_first,
-                                &worker_name,
-                                None,
-                                #[cfg(feature = "benchmark")]
-                                &mut bench,
-                            )
-                            .warn_after_seconds(2),
-                        )
+                // If batch_pull_client is set (native worker with co-located server),
+                // use HTTP pull from batch buffer. Otherwise use direct SQL pull.
+                if let Some(bpc) = batch_pull_client {
+                    crate::agent_workers::pull_job(bpc, None, None)
                         .await
-                        {
-                            Ok(job) => job,
-                            Err(e) => {
-                                tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 20s, sleeping for 30s: {e:?}");
-                                tokio::time::sleep(Duration::from_secs(30)).await;
-                                continue;
-                            }
-                        };
+                        .map_err(|e| error::Error::InternalErr(e.to_string()))
+                        .map(|x| x.map(|y| NextJob::Http(y)))
+                } else {
+                    match &conn {
+                        Connection::Sql(db) => {
+                            let pull_time = Instant::now();
+                            let likelihood_of_suspend = last_30jobs_suspended as f64 / 30.0;
 
-                        // Preprocess pulled job result
-                        if let Ok(ref mut pulled_job_res) = job {
-                            if let Err(e) = timeout(
-                                // Will fail if longer than 10 seconds
-                                core::time::Duration::from_secs(10),
-                                pulled_job_res.maybe_apply_debouncing(db),
-                            )
-                            .warn_after_seconds(2)
-                            .await
-                            // Flatten result
-                            .map_err(error::Error::from)
-                            .and_then(|r| r)
-                            {
-                                pulled_job_res.error_while_preprocessing = Some(e.to_string());
-                            }
-                        }
+                            let suspend_first = suspend_first_success
+                                || rand::random::<f64>() < likelihood_of_suspend
+                                || last_suspend_first.elapsed().as_secs_f64() > 5.0;
 
-                        add_time!(bench, "job pulled from DB");
-                        let duration_pull_s = pull_time.elapsed().as_secs_f64();
-                        let err_pull = job.is_ok();
-                        // let empty = job.as_ref().is_ok_and(|x| x.is_none());
-
-                        if duration_pull_s > 0.5 {
-                            let empty = job.as_ref().is_ok_and(|x| x.job.is_none());
-                            tracing::warn!(worker = %worker_name, hostname = %hostname, "pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
-                            #[cfg(feature = "prometheus")]
-                            if empty {
-                                if let Some(wp) = worker_pull_over_500_counter_empty.as_ref() {
-                                    wp.inc();
-                                }
-                            } else if let Some(wp) = worker_pull_over_500_counter.as_ref() {
-                                wp.inc();
-                            }
-                        } else if duration_pull_s > 0.1 {
-                            let empty = job.as_ref().is_ok_and(|x| x.job.is_none());
-                            tracing::warn!(worker = %worker_name, hostname = %hostname, "pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
-                            #[cfg(feature = "prometheus")]
-                            if empty {
-                                if let Some(wp) = worker_pull_over_100_counter_empty.as_ref() {
-                                    wp.inc();
-                                }
-                            } else if let Some(wp) = worker_pull_over_100_counter.as_ref() {
-                                wp.inc();
-                            }
-                        }
-
-                        if let Ok(j) = job.as_ref() {
-                            let suspend_success = j.suspended;
                             if suspend_first {
-                                if last_30jobs_suspended < 30 {
-                                    last_30jobs_suspended += 1;
-                                }
-                            } else {
-                                last_30jobs_suspended -= 1;
+                                last_suspend_first = Instant::now();
                             }
-                            suspend_first_success = suspend_first && suspend_success;
-                            #[cfg(feature = "prometheus")]
-                            if j.job.is_some() {
-                                if let Some(wp) = worker_pull_duration_counter.as_ref() {
-                                    wp.inc_by(duration_pull_s);
+                            let mut job = match timeout(
+                                Duration::from_secs(30),
+                                pull(
+                                    &db,
+                                    suspend_first,
+                                    &worker_name,
+                                    None,
+                                    #[cfg(feature = "benchmark")]
+                                    &mut bench,
+                                )
+                                .warn_after_seconds(2),
+                            )
+                            .await
+                            {
+                                Ok(job) => job,
+                                Err(e) => {
+                                    tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 20s, sleeping for 30s: {e:?}");
+                                    tokio::time::sleep(Duration::from_secs(30)).await;
+                                    continue;
                                 }
-                                if let Some(wp) = worker_pull_duration.as_ref() {
-                                    wp.observe(duration_pull_s);
-                                }
-                            } else {
-                                if let Some(wp) = worker_pull_duration_counter_empty.as_ref() {
-                                    wp.inc_by(duration_pull_s);
-                                }
-                                if let Some(wp) = worker_pull_duration_empty.as_ref() {
-                                    wp.observe(duration_pull_s);
+                            };
+
+                            // Preprocess pulled job result
+                            if let Ok(ref mut pulled_job_res) = job {
+                                if let Err(e) = timeout(
+                                    // Will fail if longer than 10 seconds
+                                    core::time::Duration::from_secs(10),
+                                    pulled_job_res.maybe_apply_debouncing(db),
+                                )
+                                .warn_after_seconds(2)
+                                .await
+                                // Flatten result
+                                .map_err(error::Error::from)
+                                .and_then(|r| r)
+                                {
+                                    pulled_job_res.error_while_preprocessing = Some(e.to_string());
                                 }
                             }
-                        }
-                        match job {
-                            Ok(pulled_job_result) => match pulled_job_result.to_pulled_job() {
-                                Ok(j) => Ok(j.map(|job| NextJob::Sql { flow_runners: None, job })),
-                                Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc))
-                                | Err(PulledJobResultToJobErr::ErrorWhilePreprocessing(jc)) => {
-                                    if let Err(err) = job_completed_tx.send_job(jc, true).await {
-                                        tracing::error!(
+
+                            add_time!(bench, "job pulled from DB");
+                            let duration_pull_s = pull_time.elapsed().as_secs_f64();
+                            let err_pull = job.is_ok();
+                            // let empty = job.as_ref().is_ok_and(|x| x.is_none());
+
+                            if duration_pull_s > 0.5 {
+                                let empty = job.as_ref().is_ok_and(|x| x.job.is_none());
+                                tracing::warn!(worker = %worker_name, hostname = %hostname, "pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
+                                #[cfg(feature = "prometheus")]
+                                if empty {
+                                    if let Some(wp) = worker_pull_over_500_counter_empty.as_ref() {
+                                        wp.inc();
+                                    }
+                                } else if let Some(wp) = worker_pull_over_500_counter.as_ref() {
+                                    wp.inc();
+                                }
+                            } else if duration_pull_s > 0.1 {
+                                let empty = job.as_ref().is_ok_and(|x| x.job.is_none());
+                                tracing::warn!(worker = %worker_name, hostname = %hostname, "pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
+                                #[cfg(feature = "prometheus")]
+                                if empty {
+                                    if let Some(wp) = worker_pull_over_100_counter_empty.as_ref() {
+                                        wp.inc();
+                                    }
+                                } else if let Some(wp) = worker_pull_over_100_counter.as_ref() {
+                                    wp.inc();
+                                }
+                            }
+
+                            if let Ok(j) = job.as_ref() {
+                                let suspend_success = j.suspended;
+                                if suspend_first {
+                                    if last_30jobs_suspended < 30 {
+                                        last_30jobs_suspended += 1;
+                                    }
+                                } else {
+                                    last_30jobs_suspended -= 1;
+                                }
+                                suspend_first_success = suspend_first && suspend_success;
+                                #[cfg(feature = "prometheus")]
+                                if j.job.is_some() {
+                                    if let Some(wp) = worker_pull_duration_counter.as_ref() {
+                                        wp.inc_by(duration_pull_s);
+                                    }
+                                    if let Some(wp) = worker_pull_duration.as_ref() {
+                                        wp.observe(duration_pull_s);
+                                    }
+                                } else {
+                                    if let Some(wp) = worker_pull_duration_counter_empty.as_ref() {
+                                        wp.inc_by(duration_pull_s);
+                                    }
+                                    if let Some(wp) = worker_pull_duration_empty.as_ref() {
+                                        wp.observe(duration_pull_s);
+                                    }
+                                }
+                            }
+                            match job {
+                                Ok(pulled_job_result) => match pulled_job_result.to_pulled_job() {
+                                    Ok(j) => {
+                                        Ok(j.map(|job| NextJob::Sql { flow_runners: None, job }))
+                                    }
+                                    Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc))
+                                    | Err(PulledJobResultToJobErr::ErrorWhilePreprocessing(jc)) => {
+                                        if let Err(err) = job_completed_tx.send_job(jc, true).await
+                                        {
+                                            tracing::error!(
                                             "An error occurred while sending job completed: {:#?}",
                                             err
                                         )
+                                        }
+                                        Ok(None)
                                     }
-                                    Ok(None)
-                                }
-                            },
-                            Err(err) => Err(err),
+                                },
+                                Err(err) => Err(err),
+                            }
+                        }
+
+                        Connection::Http(client) => {
+                            crate::agent_workers::pull_job(&client, None, None)
+                                .await
+                                .map_err(|e| error::Error::InternalErr(e.to_string()))
+                                .map(|x| x.map(|y| NextJob::Http(y)))
                         }
                     }
-
-                    Connection::Http(client) => crate::agent_workers::pull_job(&client, None, None)
-                        .await
-                        .map_err(|e| error::Error::InternalErr(e.to_string()))
-                        .map(|x| x.map(|y| NextJob::Http(y))),
                 }
             }
         };

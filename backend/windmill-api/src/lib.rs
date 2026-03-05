@@ -422,12 +422,16 @@ pub async fn run_server(
     };
 
     #[cfg(feature = "agent_worker_server")]
-    let (agent_workers_router, agent_workers_bg_processor, agent_workers_job_completed_tx) =
-        if server_mode {
-            windmill_api_agent_workers::workspaced_service(db.clone(), _base_internal_url.clone())
-        } else {
-            (Router::new(), vec![], None)
-        };
+    let (
+        agent_workers_router,
+        agent_workers_bg_processor,
+        agent_workers_job_completed_tx,
+        batch_buffer,
+    ) = if server_mode {
+        windmill_api_agent_workers::workspaced_service(db.clone(), _base_internal_url.clone())
+    } else {
+        (Router::new(), vec![], None, None)
+    };
 
     #[cfg(feature = "agent_worker_server")]
     let agent_cache = Arc::new(AgentCache::new());
@@ -612,6 +616,7 @@ pub async fn run_server(
                         {
                             windmill_api_agent_workers::global_service(
                                 agent_workers_job_completed_tx,
+                                batch_buffer.clone(),
                             )
                             .layer(Extension(agent_cache.clone()))
                         } else {
