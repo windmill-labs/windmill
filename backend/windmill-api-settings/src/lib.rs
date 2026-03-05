@@ -566,6 +566,7 @@ pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resu
         &HTTP_CLIENT,
         &db,
         windmill_common::stats_oss::SendStatsReason::Manual,
+        false,
     )
     .await?;
 
@@ -578,6 +579,7 @@ pub async fn get_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resul
     let stats = windmill_common::stats_oss::get_stats_payload(
         &db,
         &windmill_common::stats_oss::SendStatsReason::Manual,
+        false,
     )
     .await?;
     let encrypted = windmill_common::stats_oss::encrypt_stats(&stats)?;
