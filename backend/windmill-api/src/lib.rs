@@ -170,6 +170,9 @@ pub mod users_ee;
 mod users_oss;
 mod utils;
 mod variables;
+#[cfg(feature = "private")]
+pub mod volumes_ee;
+mod volumes_oss;
 pub mod webhook_util;
 mod workspaces;
 #[cfg(feature = "private")]
@@ -247,6 +250,74 @@ type ServiceLogIndexReader = ();
 type IndexReader = windmill_indexer::completed_runs_oss::IndexReader;
 #[cfg(feature = "tantivy")]
 type ServiceLogIndexReader = windmill_indexer::service_logs_oss::ServiceLogIndexReader;
+
+/// Worker name derived from the agent JWT token, used to authenticate volume operations.
+/// Defined unconditionally so volume endpoint handlers can reference it regardless of
+/// whether agent_worker_server is enabled (the extension is only populated on the agent path).
+#[derive(Clone)]
+pub struct AgentWorkerName(pub String);
+
+/// Middleware that injects a synthetic `ApiAuthed` and JWT-derived worker name
+/// into request extensions.
+///
+/// Used for volume proxy endpoints under the agent_workers path, where the
+/// agent JWT auth layer has already validated the request. The volume handlers
+/// need `ApiAuthed` to resolve the workspace S3 client, but the agent JWT
+/// format is incompatible with the standard auth extractor.
+///
+/// The worker name is extracted from the JWT claims rather than trusting
+/// self-reported values in request bodies/query params.
+#[cfg(feature = "agent_worker_server")]
+async fn inject_agent_authed(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let mut request = request;
+
+    // Extract worker name from agent JWT via AgentCache
+    // (OSS returns None; EE decodes the JWT and returns the worker name)
+    {
+        let extracted = {
+            let token = request
+                .headers()
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.strip_prefix("Bearer ").map(|t| t.to_string()));
+            let cache = request.extensions().get::<Arc<AgentCache>>().cloned();
+            let db = request.extensions().get::<DB>().cloned();
+            match (token, cache, db) {
+                (Some(token), Some(cache), Some(db)) => Some((token, cache, db)),
+                _ => None,
+            }
+        };
+
+        if let Some((token, cache, db)) = extracted {
+            if let Some(worker_name) = cache.extract_worker_name(&token, &db).await {
+                request
+                    .extensions_mut()
+                    .insert(AgentWorkerName(worker_name));
+            }
+        }
+    }
+
+    request
+        .extensions_mut()
+        .insert(windmill_api_auth::OptJobAuthed {
+            authed: ApiAuthed {
+                email: "agent-worker@windmill.dev".to_string(),
+                username: "agent-worker".to_string(),
+                is_admin: true,
+                is_operator: false,
+                groups: Vec::new(),
+                folders: Vec::new(),
+                scopes: None,
+                username_override: None,
+                token_prefix: None,
+            },
+            job_id: None,
+        });
+    next.run(request).await
+}
 
 pub async fn run_server(
     db: DB,
@@ -517,6 +588,7 @@ pub async fn run_server(
                             users::workspaced_service().layer(Extension(argon2.clone())),
                         )
                         .nest("/variables", variables::workspaced_service())
+                        .nest("/volumes", volumes_oss::workspaced_service())
                         .nest("/workers", windmill_api_workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_oss::workspaced_service())
@@ -631,7 +703,13 @@ pub async fn run_server(
                 .nest("/w/:workspace_id/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
-                        agent_workers_router.layer(Extension(agent_cache.clone()))
+                        agent_workers_router
+                            .nest(
+                                "/volumes",
+                                volumes_oss::agent_workspaced_service()
+                                    .layer(axum::middleware::from_fn(inject_agent_authed)),
+                            )
+                            .layer(Extension(agent_cache.clone()))
                     }
                     #[cfg(not(feature = "agent_worker_server"))]
                     {

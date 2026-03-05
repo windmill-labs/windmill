@@ -55,20 +55,22 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     // Listing Operations
     // ─────────────────────────────────────────────────────────────────
 
-    /// List scripts, optionally filtered to favorites only
+    /// List scripts, optionally filtered to favorites only and/or by path prefix
     async fn list_scripts(
         &self,
         auth: &Self::Auth,
         workspace_id: &str,
         favorites_only: bool,
+        path_prefix: Option<&str>,
     ) -> BackendResult<Vec<ScriptInfo>>;
 
-    /// List flows, optionally filtered to favorites only
+    /// List flows, optionally filtered to favorites only and/or by path prefix
     async fn list_flows(
         &self,
         auth: &Self::Auth,
         workspace_id: &str,
         favorites_only: bool,
+        path_prefix: Option<&str>,
     ) -> BackendResult<Vec<FlowInfo>>;
 
     /// List resource types in workspace

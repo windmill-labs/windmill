@@ -3,7 +3,13 @@ import { emptyString } from './utils'
 
 // Extended type to include GCS support until backend types are regenerated
 
-type S3type = 's3' | 'azure_blob' | 's3_aws_oidc' | 'azure_workload_identity' | 'gcloud_storage'
+type S3type =
+	| 's3'
+	| 'azure_blob'
+	| 's3_aws_oidc'
+	| 'azure_workload_identity'
+	| 'gcloud_storage'
+	| 'filesystem'
 export type S3ResourceSettingsItem = {
 	resourceType: S3type
 	resourcePath: string | undefined
@@ -15,6 +21,7 @@ export type S3ResourceSettingsItem = {
 }
 export type S3ResourceSettings = S3ResourceSettingsItem & {
 	secondaryStorage: [string, S3ResourceSettingsItem][] | undefined
+	volumeStorage: string | undefined
 }
 export function convertBackendSettingsToFrontendSettings(
 	large_file_storage: GetSettingsResponse['large_file_storage'],
@@ -27,6 +34,7 @@ export function convertBackendSettingsToFrontendSettings(
 	settings.secondaryStorage = Object.entries(large_file_storage?.secondary_storage ?? {}).map(
 		([key, value]) => [key, convertBackendSettingsToFrontendSettingsItem(value, isEnterprise)]
 	)
+	settings.volumeStorage = (large_file_storage as any)?.volume_storage ?? undefined
 
 	return settings as S3ResourceSettings
 }
@@ -79,6 +87,13 @@ export function convertBackendSettingsToFrontendSettingsItem(
 			publicResource: large_file_storage?.public_resource,
 			advancedPermissions
 		}
+	} else if ((large_file_storage as any)?.type === 'FilesystemStorage') {
+		return {
+			resourceType: 'filesystem',
+			resourcePath: (large_file_storage as any)?.root_path,
+			publicResource: (large_file_storage as any)?.public_resource,
+			advancedPermissions
+		}
 	} else {
 		return {
 			resourceType: 's3',
@@ -99,6 +114,9 @@ export function convertFrontendToBackendSetting(
 				.map(([key, value]) => [key, convertFrontendToBackendettingsItem(value)])
 				.filter(([, value]) => value !== undefined)
 		)
+		if (s3ResourceSettings.volumeStorage) {
+			;(settings as any).volume_storage = s3ResourceSettings.volumeStorage
+		}
 	}
 	return settings
 }
@@ -106,6 +124,21 @@ export function convertFrontendToBackendettingsItem(
 	s3ResourceSettings: S3ResourceSettingsItem
 ): LargeFileStorage | undefined {
 	if (!emptyString(s3ResourceSettings.resourcePath)) {
+		if (s3ResourceSettings.resourceType === 'filesystem') {
+			return {
+				type: 'FilesystemStorage',
+				root_path: s3ResourceSettings.resourcePath,
+				public_resource: s3ResourceSettings.publicResource,
+				...(s3ResourceSettings.advancedPermissions
+					? {
+							advanced_permissions: s3ResourceSettings.advancedPermissions.map((rule) => ({
+								...rule,
+								allow: rule.allow.join(',')
+							}))
+						}
+					: {})
+			} as any
+		}
 		let resourcePathWithPrefix = `$res:${s3ResourceSettings.resourcePath}`
 		let params = {
 			public_resource: s3ResourceSettings.publicResource,

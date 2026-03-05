@@ -53,8 +53,7 @@ fn get_windows_program_files() -> String {
 
 #[cfg(windows)]
 fn windows_gopath() -> String {
-    let tmp_dir = get_windows_tmp_dir();
-    GO_CACHE_DIR.replace("/tmp", &tmp_dir).replace("/", r"\\")
+    GO_CACHE_DIR.replace('/', "\\")
 }
 
 #[cfg(windows)]

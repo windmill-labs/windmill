@@ -887,7 +887,7 @@ pub async fn cached_result_path(
 }
 
 #[cfg(feature = "parquet")]
-async fn get_workspace_s3_resource_path(
+pub(crate) async fn get_workspace_s3_resource_path(
     db: &DB,
     client: &AuthedClient,
     workspace_id: &str,
@@ -949,7 +949,11 @@ async fn get_workspace_s3_resource_path(
             )
         }
         Some(LargeFileStorage::FilesystemStorage(fs)) => {
-            (StorageResourceType::Filesystem, fs.root_path.clone())
+            return Ok(Some(
+                windmill_object_store::ObjectStoreResource::Filesystem(
+                    windmill_object_store::FilesystemSettings { root_path: fs.root_path.clone() },
+                ),
+            ));
         }
         None => {
             return Ok(None);

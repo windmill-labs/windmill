@@ -38,11 +38,11 @@ use windmill_common::{
     agent_workers::AgentConfig,
     global_settings::{
         APP_WORKSPACED_ROUTE_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
-        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
+        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING,
+        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
         INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING,
         JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
         MAVEN_SETTINGS_XML_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
@@ -100,10 +100,10 @@ use crate::monitor::{
     load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db,
     reload_app_workspaced_route_setting, reload_base_url_setting,
     reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
-    reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
-    reload_hub_api_secret_setting, reload_hub_base_url_setting, reload_job_default_timeout_setting,
-    reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
-    reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
+    reload_critical_alerts_on_token_expiry_setting, reload_critical_error_channels_setting,
+    reload_extra_pip_index_url_setting, reload_hub_api_secret_setting, reload_hub_base_url_setting,
+    reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
+    reload_license_key, reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
     reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
     reload_smtp_config, reload_uv_index_strategy_setting, reload_worker_config, MonitorIteration,
 };
@@ -1748,6 +1748,11 @@ async fn process_notify_event(
                     tracing::info!("Critical alert UI setting changed");
                     if let Err(e) = reload_critical_alert_mute_ui_setting(conn).await {
                         tracing::error!(error = %e, "Could not reload critical alert UI setting");
+                    }
+                }
+                CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING => {
+                    if let Err(e) = reload_critical_alerts_on_token_expiry_setting(conn).await {
+                        tracing::error!(error = %e, "Could not reload critical alerts on token expiry setting");
                     }
                 }
                 "workspace_telemetry_enabled" => {
