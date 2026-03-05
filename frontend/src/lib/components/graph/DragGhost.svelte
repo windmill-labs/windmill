@@ -18,10 +18,6 @@
 	/** Offset so the cursor indicator icon doesn't overlap the cursor tip */
 	const CURSOR_INDICATOR_OFFSET = 8
 
-	function nodeOffset(n: Node): number {
-		return ((n.data as Record<string, unknown>)?.offset as number) ?? 0
-	}
-
 	function getSubflowNodesAndEdges(
 		moduleId: string,
 		allNodes: Node[],
@@ -68,7 +64,7 @@
 			maxY = -Infinity
 		for (const n of sfNodes) {
 			const abs = absolutePosition(n, allNodes)
-			const x = abs.x + nodeOffset(n)
+			const x = abs.x
 			const y = abs.y
 			const w = n.measured?.width ?? NODE.width
 			const h = n.measured?.height ?? NODE.height
@@ -90,7 +86,7 @@
 		let offsetY = containerHeight / 2
 		if (mainNode) {
 			const mainAbs = absolutePosition(mainNode, allNodes)
-			const mx = mainAbs.x + nodeOffset(mainNode) - minX + PADDING
+			const mx = mainAbs.x - minX + PADDING
 			const my = mainAbs.y - minY + PADDING
 			const mw = mainNode.measured?.width ?? NODE.width
 			const mh = mainNode.measured?.height ?? NODE.height

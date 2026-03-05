@@ -14,7 +14,6 @@ export type NodeDep = {
 	position: { x: number; y: number }
 	data?: { assets?: AssetWithAltAccessType[] }
 	parentIds?: string[]
-	offset?: number
 	type?: string
 }
 
@@ -207,7 +206,6 @@ function calculateGroupNoteLayout(
 		nodes.map((n) => ({
 			id: n.id,
 			position: n.position,
-			data: { offset: n.offset ?? 0 },
 			type: n.type ?? ''
 		}))
 	)
@@ -337,7 +335,6 @@ export function computeNoteNodes(
 		return {
 			...n,
 			data: origNode?.data,
-			offset: origNode?.offset,
 			type: origNode?.type
 		}
 	})

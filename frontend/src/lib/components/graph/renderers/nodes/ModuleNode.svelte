@@ -89,7 +89,7 @@
 	)
 </script>
 
-<NodeWrapper offset={data.offset} {menuItems}>
+<NodeWrapper {menuItems}>
 	{#snippet children({ darkMode })}
 		<MapItem
 			moduleId={data.id}
@@ -99,7 +99,7 @@
 			moduleAction={data.moduleAction}
 			{menuItems}
 			annotation={flowJobs &&
-			(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
+			(data.module?.value?.type === 'forloopflow' || data.module?.value?.type === 'whileloopflow')
 				? 'Iteration: ' +
 					((state?.selectedForloopIndex ?? 0) >= 0
 						? (state?.selectedForloopIndex ?? 0) + 1
@@ -136,15 +136,18 @@
 			onEditInput={data.eventHandlers.editInput}
 			flowJob={data.flowJob}
 			isOwner={data.isOwner}
-			maximizeSubflow={data.module.value.type == 'flow' && 'path' in data.module.value
+			maximizeSubflow={data.module?.value?.type == 'flow' && 'path' in data.module.value
 				? () => {
-						data.eventHandlers.expandSubflow(data.id, data.module.value['path'])
+						const path = data.module?.value && 'path' in data.module.value ? data.module.value['path'] as string : undefined
+						if (path) {
+							data.eventHandlers.expandSubflow(data.id, path)
+						}
 					}
 				: undefined}
 		/>
 
 		<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">
-			{#if (data.module.value.type === 'branchall' || data.module.value.type === 'branchone') && data.insertable}
+			{#if (data.module?.value?.type === 'branchall' || data.module?.value?.type === 'branchone') && data.insertable}
 				<button
 					title="Add branch"
 					class="rounded text-secondary border hover:bg-surface-hover bg-surface p-1"
