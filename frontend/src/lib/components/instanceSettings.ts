@@ -638,8 +638,6 @@ export const settings: Record<string, Setting[]> = {
 	Telemetry: [
 		{
 			label: 'Minimal telemetry',
-			description:
-				'On EE, reduces telemetry to only what is needed for license compliance (no job usage data). On CE, disables telemetry entirely.',
 			key: 'disable_stats',
 			fieldType: 'boolean',
 			storage: 'setting'
