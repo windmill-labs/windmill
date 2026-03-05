@@ -803,7 +803,9 @@ ALTER TABLE public.script OWNER TO postgres;
 --
 
 CREATE TABLE public.token (
-    token character varying(50) NOT NULL,
+    token_hash character varying(64) NOT NULL,
+    token_prefix character varying(10) NOT NULL,
+    token character varying(50),
     label character varying(50),
     expiration timestamp with time zone,
     workspace_id character varying(50),
@@ -1209,7 +1211,7 @@ ALTER TABLE ONLY public.script
 --
 
 ALTER TABLE ONLY public.token
-    ADD CONSTRAINT token_pkey PRIMARY KEY (token);
+    ADD CONSTRAINT token_pkey PRIMARY KEY (token_hash);
 
 
 --
@@ -2534,7 +2536,7 @@ INSERT INTO public.usr(workspace_id, email, username, is_admin, role) VALUES
 INSERT INTO public.workspace_key(workspace_id, kind, key) VALUES
 	('test-workspace', 'cloud', 'test-key');
 
-insert INTO public.token(token, email, label, super_admin) VALUES ('SECRET_TOKEN', 'test@windmill.dev', 'test token', true);
+insert INTO public.token(token_hash, token_prefix, token, email, label, super_admin) VALUES (encode(sha256('SECRET_TOKEN'::bytea), 'hex'), 'SECRET_TOK', 'SECRET_TOKEN', 'test@windmill.dev', 'test token', true);
 
 INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
 'test-workspace',

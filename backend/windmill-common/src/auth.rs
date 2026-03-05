@@ -18,6 +18,12 @@ use crate::{
     DB,
 };
 
+/// Hash a raw token using SHA-256 (hex-encoded, 64 chars).
+/// Used to store and look up tokens without keeping plaintext in the DB.
+pub fn hash_token(token: &str) -> String {
+    crate::utils::calculate_hash(token)
+}
+
 #[derive(Debug)]
 pub struct IdToken {
     token: String,

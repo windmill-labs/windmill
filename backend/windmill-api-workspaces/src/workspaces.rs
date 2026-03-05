@@ -3592,7 +3592,7 @@ pub(crate) async fn archive_workspace_impl(
 
     // Delete non-session tokens scoped to this workspace
     let deleted_tokens = sqlx::query_scalar!(
-        "DELETE FROM token WHERE workspace_id = $1 AND label IS DISTINCT FROM 'session' RETURNING token",
+        "DELETE FROM token WHERE workspace_id = $1 AND label IS DISTINCT FROM 'session' RETURNING token_prefix",
         w_id
     )
     .fetch_all(&mut *tx)

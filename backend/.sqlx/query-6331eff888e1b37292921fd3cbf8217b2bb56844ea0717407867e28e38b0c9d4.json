@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM concurrency_key WHERE key LIKE 'bench_%' OR key LIKE 'u/admin/bench_%'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "6331eff888e1b37292921fd3cbf8217b2bb56844ea0717407867e28e38b0c9d4"
+}

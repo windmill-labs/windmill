@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO concurrency_key (key, ended_at, job_id) VALUES ($1, now() - INTERVAL '1 hour', $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b99da6caeab1912b38129e7190d4e70a7b4e0a79e6703d2e657b1b3801b4abb9"
+}

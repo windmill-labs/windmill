@@ -40,13 +40,20 @@ async fn count_events_for_channel(db: &Pool<Postgres>, channel: &str) -> i64 {
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_get_latest_event_id_returns_valid_id(db: Pool<Postgres>) {
     // Get current latest id
-    let latest_id = get_latest_event_id(&db).await.expect("Should get latest event id");
+    let latest_id = get_latest_event_id(&db)
+        .await
+        .expect("Should get latest event id");
     assert!(latest_id >= 0, "Latest id should be non-negative");
 
     // Insert a new event and verify latest_id increases
     let new_id = insert_test_event(&db, "test_latest_id", "payload").await;
-    let new_latest_id = get_latest_event_id(&db).await.expect("Should get latest event id");
-    assert!(new_latest_id >= new_id, "Latest id should be >= new event id");
+    let new_latest_id = get_latest_event_id(&db)
+        .await
+        .expect("Should get latest event id");
+    assert!(
+        new_latest_id >= new_id,
+        "Latest id should be >= new event id"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -55,7 +62,9 @@ async fn test_get_latest_event_id_with_events(db: Pool<Postgres>) {
     let _id2 = insert_test_event(&db, "test_channel_2", "payload2").await;
     let id3 = insert_test_event(&db, "test_channel_3", "payload3").await;
 
-    let latest_id = get_latest_event_id(&db).await.expect("Should get latest event id");
+    let latest_id = get_latest_event_id(&db)
+        .await
+        .expect("Should get latest event id");
     assert!(latest_id >= id3, "Latest id should be >= last inserted id");
 }
 
@@ -65,8 +74,13 @@ async fn test_poll_notify_events_no_new_events(db: Pool<Postgres>) {
     let latest_id = get_latest_event_id(&db).await.unwrap();
 
     // Poll from the latest id - should return empty since no new events
-    let events = poll_notify_events(&db, latest_id).await.expect("Should poll events");
-    assert!(events.is_empty(), "Should return empty vec when polling from latest id");
+    let events = poll_notify_events(&db, latest_id)
+        .await
+        .expect("Should poll events");
+    assert!(
+        events.is_empty(),
+        "Should return empty vec when polling from latest id"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -76,7 +90,9 @@ async fn test_poll_notify_events_returns_new_events(db: Pool<Postgres>) {
     let _id1 = insert_test_event(&db, "test_poll_channel", "payload1").await;
     let _id2 = insert_test_event(&db, "test_poll_channel", "payload2").await;
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     assert!(events.len() >= 2, "Should return at least 2 new events");
 
     // Verify the events we inserted are present
@@ -87,7 +103,10 @@ async fn test_poll_notify_events_returns_new_events(db: Pool<Postgres>) {
     assert_eq!(our_events.len(), 2, "Should have exactly our 2 test events");
 
     // Verify ordering (ascending by id)
-    assert!(our_events[0].id < our_events[1].id, "Events should be ordered by id ascending");
+    assert!(
+        our_events[0].id < our_events[1].id,
+        "Events should be ordered by id ascending"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -97,14 +116,19 @@ async fn test_poll_notify_events_respects_last_event_id(db: Pool<Postgres>) {
     let _id3 = insert_test_event(&db, "test_respect_id", "payload3").await;
 
     // Poll from id1 should only return id2 and id3
-    let events = poll_notify_events(&db, id1).await.expect("Should poll events");
+    let events = poll_notify_events(&db, id1)
+        .await
+        .expect("Should poll events");
     let our_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "test_respect_id")
         .collect();
 
     assert_eq!(our_events.len(), 2, "Should only return events after id1");
-    assert!(our_events.iter().all(|e| e.id > id1), "All events should have id > id1");
+    assert!(
+        our_events.iter().all(|e| e.id > id1),
+        "All events should have id > id1"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -124,21 +148,24 @@ async fn test_cleanup_old_events(db: Pool<Postgres>) {
     .expect("Failed to insert old event");
 
     // Insert a recent event
-    sqlx::query(
-        "INSERT INTO notify_event (channel, payload) VALUES ($1, $2)",
-    )
-    .bind(&recent_channel)
-    .bind("recent_payload")
-    .execute(&db)
-    .await
-    .expect("Failed to insert recent event");
+    sqlx::query("INSERT INTO notify_event (channel, payload) VALUES ($1, $2)")
+        .bind(&recent_channel)
+        .bind("recent_payload")
+        .execute(&db)
+        .await
+        .expect("Failed to insert recent event");
 
     // Count before cleanup
     let old_count_before = count_events_for_channel(&db, &old_channel).await;
-    assert_eq!(old_count_before, 1, "Should have 1 old event before cleanup");
+    assert_eq!(
+        old_count_before, 1,
+        "Should have 1 old event before cleanup"
+    );
 
     // Cleanup events older than 10 minutes
-    let deleted = cleanup_old_events(&db, 10).await.expect("Should cleanup events");
+    let deleted = cleanup_old_events(&db, 10)
+        .await
+        .expect("Should cleanup events");
     assert!(deleted >= 1, "Should delete at least 1 old event");
 
     // Verify old event is gone
@@ -167,13 +194,18 @@ async fn test_trigger_notify_config_change(db: Pool<Postgres>) {
     .await
     .expect("Failed to insert config");
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let config_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "notify_config_change" && e.payload == "test_config_trigger")
         .collect();
 
-    assert!(!config_events.is_empty(), "Should have notify_config_change event");
+    assert!(
+        !config_events.is_empty(),
+        "Should have notify_config_change event"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -190,13 +222,18 @@ async fn test_trigger_notify_global_setting_change_insert(db: Pool<Postgres>) {
         .await
         .expect("Failed to insert global setting");
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let setting_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting_name)
         .collect();
 
-    assert!(!setting_events.is_empty(), "Should have notify_global_setting_change event on insert");
+    assert!(
+        !setting_events.is_empty(),
+        "Should have notify_global_setting_change event on insert"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -220,13 +257,18 @@ async fn test_trigger_notify_global_setting_change_update(db: Pool<Postgres>) {
         .await
         .expect("Failed to update global setting");
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let setting_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting_name)
         .collect();
 
-    assert!(!setting_events.is_empty(), "Should have notify_global_setting_change event on update");
+    assert!(
+        !setting_events.is_empty(),
+        "Should have notify_global_setting_change event on update"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -250,13 +292,18 @@ async fn test_trigger_notify_global_setting_change_delete(db: Pool<Postgres>) {
         .await
         .expect("Failed to delete global setting");
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let setting_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting_name)
         .collect();
 
-    assert!(!setting_events.is_empty(), "Should have notify_global_setting_change event on delete");
+    assert!(
+        !setting_events.is_empty(),
+        "Should have notify_global_setting_change event on delete"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -272,13 +319,18 @@ async fn test_trigger_notify_workspace_envs_change(db: Pool<Postgres>) {
     .await
     .expect("Failed to insert workspace env");
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let env_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "notify_workspace_envs_change" && e.payload == "test-workspace")
         .collect();
 
-    assert!(!env_events.is_empty(), "Should have notify_workspace_envs_change event");
+    assert!(
+        !env_events.is_empty(),
+        "Should have notify_workspace_envs_change event"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -294,44 +346,57 @@ async fn test_trigger_notify_workspace_key_change(db: Pool<Postgres>) {
     .await
     .expect("Failed to insert workspace key");
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let key_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "notify_workspace_key_change" && e.payload == "test-workspace")
         .collect();
 
-    assert!(!key_events.is_empty(), "Should have notify_workspace_key_change event");
+    assert!(
+        !key_events.is_empty(),
+        "Should have notify_workspace_key_change event"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_trigger_notify_token_invalidation(db: Pool<Postgres>) {
-    // First insert a session token
+    // First insert a session token with token_hash and token_prefix
     let token = format!("test_token_{}", uuid::Uuid::new_v4());
+    let token_hash = windmill_common::utils::calculate_hash(&token);
+    let token_prefix = &token[..10];
     sqlx::query(
-        "INSERT INTO token (token, label, email, workspace_id, owner, expiration)
-         VALUES ($1, 'session', 'test@test.com', 'test-workspace', 'test-user', now() + interval '1 hour')",
+        "INSERT INTO token (token_hash, token_prefix, label, email, workspace_id, owner, expiration)
+         VALUES ($1, $2, 'session', 'test@test.com', 'test-workspace', 'test-user', now() + interval '1 hour')",
     )
-    .bind(&token)
+    .bind(&token_hash)
+    .bind(token_prefix)
     .execute(&db)
     .await
     .expect("Failed to insert token");
 
     let before_id = get_latest_event_id(&db).await.unwrap();
 
-    // Delete the token (should trigger notification)
-    sqlx::query("DELETE FROM token WHERE token = $1")
-        .bind(&token)
+    // Delete the token (should trigger notification with prefix)
+    sqlx::query("DELETE FROM token WHERE token_hash = $1")
+        .bind(&token_hash)
         .execute(&db)
         .await
         .expect("Failed to delete token");
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let token_events: Vec<_> = events
         .iter()
-        .filter(|e| e.channel == "notify_token_invalidation" && e.payload == token)
+        .filter(|e| e.channel == "notify_token_invalidation" && e.payload == token_prefix)
         .collect();
 
-    assert!(!token_events.is_empty(), "Should have notify_token_invalidation event");
+    assert!(
+        !token_events.is_empty(),
+        "Should have notify_token_invalidation event"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -344,13 +409,18 @@ async fn test_trigger_notify_webhook_change(db: Pool<Postgres>) {
         .await
         .expect("Failed to update webhook");
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let webhook_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "notify_webhook_change" && e.payload == "test-workspace")
         .collect();
 
-    assert!(!webhook_events.is_empty(), "Should have notify_webhook_change event");
+    assert!(
+        !webhook_events.is_empty(),
+        "Should have notify_webhook_change event"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -363,13 +433,18 @@ async fn test_trigger_notify_workspace_premium_change(db: Pool<Postgres>) {
         .await
         .expect("Failed to update workspace premium");
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let premium_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "notify_workspace_premium_change" && e.payload == "test-workspace")
         .collect();
 
-    assert!(!premium_events.is_empty(), "Should have notify_workspace_premium_change event");
+    assert!(
+        !premium_events.is_empty(),
+        "Should have notify_workspace_premium_change event"
+    );
 }
 
 // ============================================================================
@@ -392,14 +467,19 @@ async fn test_trigger_notify_http_trigger_change(db: Pool<Postgres>) {
     .await
     .expect("Failed to insert HTTP trigger");
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let http_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "notify_http_trigger_change")
         .filter(|e| e.payload.contains("test-workspace") && e.payload.contains(&trigger_path))
         .collect();
 
-    assert!(!http_events.is_empty(), "Should have notify_http_trigger_change event");
+    assert!(
+        !http_events.is_empty(),
+        "Should have notify_http_trigger_change event"
+    );
 }
 
 // ============================================================================
@@ -431,19 +511,27 @@ async fn test_trigger_notify_runnable_version_change_script(db: Pool<Postgres>) 
         .await
         .expect("Failed to update script lock");
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let script_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "notify_runnable_version_change")
         .filter(|e| e.payload.contains("test-workspace") && e.payload.contains("script"))
         .collect();
 
-    assert!(!script_events.is_empty(), "Should have notify_runnable_version_change event for script");
+    assert!(
+        !script_events.is_empty(),
+        "Should have notify_runnable_version_change event for script"
+    );
 
     // Verify payload format: workspace_id:source_type:path:kind
     let parts: Vec<&str> = script_events[0].payload.split(':').collect();
     assert!(parts.len() >= 4, "Payload should have at least 4 parts");
-    assert_eq!(parts[0], "test-workspace", "First part should be workspace_id");
+    assert_eq!(
+        parts[0], "test-workspace",
+        "First part should be workspace_id"
+    );
     assert_eq!(parts[1], "script", "Second part should be 'script'");
 }
 
@@ -472,19 +560,27 @@ async fn test_trigger_notify_runnable_version_change_flow(db: Pool<Postgres>) {
     .await
     .expect("Failed to update flow versions");
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let flow_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "notify_runnable_version_change")
         .filter(|e| e.payload.contains("test-workspace") && e.payload.contains("flow"))
         .collect();
 
-    assert!(!flow_events.is_empty(), "Should have notify_runnable_version_change event for flow");
+    assert!(
+        !flow_events.is_empty(),
+        "Should have notify_runnable_version_change event for flow"
+    );
 
     // Verify payload format
     let parts: Vec<&str> = flow_events[0].payload.split(':').collect();
     assert!(parts.len() >= 4, "Payload should have at least 4 parts");
-    assert_eq!(parts[0], "test-workspace", "First part should be workspace_id");
+    assert_eq!(
+        parts[0], "test-workspace",
+        "First part should be workspace_id"
+    );
     assert_eq!(parts[1], "flow", "Second part should be 'flow'");
 }
 
@@ -521,13 +617,16 @@ async fn test_concurrent_event_insertion(db: Pool<Postgres>) {
         handle.await.expect("Task should complete");
     }
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
-    let concurrent_events: Vec<_> = events
-        .iter()
-        .filter(|e| e.channel == channel)
-        .collect();
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
+    let concurrent_events: Vec<_> = events.iter().filter(|e| e.channel == channel).collect();
 
-    assert_eq!(concurrent_events.len(), 10, "Should have all 10 concurrent events");
+    assert_eq!(
+        concurrent_events.len(),
+        10,
+        "Should have all 10 concurrent events"
+    );
 
     // Verify all events have unique IDs
     let ids: std::collections::HashSet<i64> = concurrent_events.iter().map(|e| e.id).collect();
@@ -571,18 +670,45 @@ async fn test_polling_isolation(db: Pool<Postgres>) {
     .expect("Failed to insert event");
 
     // Two different "consumers" polling from different points
-    let events_from_baseline = poll_notify_events(&db, baseline_id).await.expect("Should poll events");
-    let events_from_id1 = poll_notify_events(&db, id1).await.expect("Should poll events");
-    let events_from_id2 = poll_notify_events(&db, id2).await.expect("Should poll events");
+    let events_from_baseline = poll_notify_events(&db, baseline_id)
+        .await
+        .expect("Should poll events");
+    let events_from_id1 = poll_notify_events(&db, id1)
+        .await
+        .expect("Should poll events");
+    let events_from_id2 = poll_notify_events(&db, id2)
+        .await
+        .expect("Should poll events");
 
     // Filter to our test events
-    let from_baseline: Vec<_> = events_from_baseline.iter().filter(|e| e.channel == channel).collect();
-    let from_id1: Vec<_> = events_from_id1.iter().filter(|e| e.channel == channel).collect();
-    let from_id2: Vec<_> = events_from_id2.iter().filter(|e| e.channel == channel).collect();
+    let from_baseline: Vec<_> = events_from_baseline
+        .iter()
+        .filter(|e| e.channel == channel)
+        .collect();
+    let from_id1: Vec<_> = events_from_id1
+        .iter()
+        .filter(|e| e.channel == channel)
+        .collect();
+    let from_id2: Vec<_> = events_from_id2
+        .iter()
+        .filter(|e| e.channel == channel)
+        .collect();
 
-    assert_eq!(from_baseline.len(), 3, "Polling from baseline should include all 3 events");
-    assert_eq!(from_id1.len(), 2, "Polling from id1 should include id2 and id3");
-    assert_eq!(from_id2.len(), 1, "Polling from id2 should include only id3");
+    assert_eq!(
+        from_baseline.len(),
+        3,
+        "Polling from baseline should include all 3 events"
+    );
+    assert_eq!(
+        from_id1.len(),
+        2,
+        "Polling from id1 should include id2 and id3"
+    );
+    assert_eq!(
+        from_id2.len(),
+        1,
+        "Polling from id2 should include only id3"
+    );
 }
 
 // ============================================================================
@@ -595,14 +721,23 @@ async fn test_empty_payload(db: Pool<Postgres>) {
 
     insert_test_event(&db, "test_empty_payload", "").await;
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let empty_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "test_empty_payload")
         .collect();
 
-    assert_eq!(empty_events.len(), 1, "Should have event with empty payload");
-    assert_eq!(empty_events[0].payload, "", "Payload should be empty string");
+    assert_eq!(
+        empty_events.len(),
+        1,
+        "Should have event with empty payload"
+    );
+    assert_eq!(
+        empty_events[0].payload, "",
+        "Payload should be empty string"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -613,14 +748,24 @@ async fn test_large_payload(db: Pool<Postgres>) {
     let large_payload = "x".repeat(1024);
     insert_test_event(&db, "test_large_payload", &large_payload).await;
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let large_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "test_large_payload")
         .collect();
 
-    assert_eq!(large_events.len(), 1, "Should have event with large payload");
-    assert_eq!(large_events[0].payload.len(), 1024, "Payload should be preserved");
+    assert_eq!(
+        large_events.len(),
+        1,
+        "Should have event with large payload"
+    );
+    assert_eq!(
+        large_events[0].payload.len(),
+        1024,
+        "Payload should be preserved"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -630,14 +775,23 @@ async fn test_special_characters_in_payload(db: Pool<Postgres>) {
     let special_payload = r#"{"key": "value with \"quotes\" and 'apostrophes'", "unicode": "日本語", "newline": "line1\nline2"}"#;
     insert_test_event(&db, "test_special_chars", special_payload).await;
 
-    let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
     let special_events: Vec<_> = events
         .iter()
         .filter(|e| e.channel == "test_special_chars")
         .collect();
 
-    assert_eq!(special_events.len(), 1, "Should have event with special characters");
-    assert_eq!(special_events[0].payload, special_payload, "Special characters should be preserved");
+    assert_eq!(
+        special_events.len(),
+        1,
+        "Should have event with special characters"
+    );
+    assert_eq!(
+        special_events[0].payload, special_payload,
+        "Special characters should be preserved"
+    );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -664,7 +818,9 @@ async fn test_cleanup_with_no_old_events(db: Pool<Postgres>) {
     assert_eq!(before_count, 2, "Should have 2 recent events");
 
     // Cleanup old events (none of our events should be deleted since they're recent)
-    let _deleted = cleanup_old_events(&db, 10).await.expect("Should cleanup events");
+    let _deleted = cleanup_old_events(&db, 10)
+        .await
+        .expect("Should cleanup events");
 
     let after_count = count_events_for_channel(&db, &channel).await;
     assert_eq!(after_count, 2, "Recent events should not be deleted");
@@ -732,7 +888,11 @@ impl ServerProcess {
     }
 
     fn logs_contain(&self, needle: &str) -> bool {
-        self.log_lines.lock().unwrap().iter().any(|l| l.contains(needle))
+        self.log_lines
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.contains(needle))
     }
 
     fn dump_logs(&self) -> String {
@@ -783,12 +943,17 @@ async fn test_two_server_processes_both_receive_event() {
     let mut server_b = ServerProcess::start(19200, &db_url);
 
     // Wait for both servers to be ready
-    let (ready_a, ready_b) = tokio::join!(
-        wait_for_server(19100, 30),
-        wait_for_server(19200, 30),
+    let (ready_a, ready_b) = tokio::join!(wait_for_server(19100, 30), wait_for_server(19200, 30),);
+    assert!(
+        ready_a,
+        "Server A (port 19100) failed to start. Logs:\n{}",
+        server_a.dump_logs()
     );
-    assert!(ready_a, "Server A (port 19100) failed to start. Logs:\n{}", server_a.dump_logs());
-    assert!(ready_b, "Server B (port 19200) failed to start. Logs:\n{}", server_b.dump_logs());
+    assert!(
+        ready_b,
+        "Server B (port 19200) failed to start. Logs:\n{}",
+        server_b.dump_logs()
+    );
 
     // Give servers a moment to complete their first poll cycle
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;

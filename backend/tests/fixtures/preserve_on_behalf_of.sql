@@ -65,14 +65,18 @@ INSERT INTO usr_to_group(workspace_id, group_, usr) VALUES
 	('test-workspace', 'wm_deployers', 'deployer-user')
 ON CONFLICT DO NOTHING;
 
--- Tokens for all users
-INSERT INTO token(token, email, label, super_admin) VALUES ('SECRET_TOKEN', 'test@windmill.dev', 'test token', true)
+-- Tokens for all users (token_hash = sha256 hex, token_prefix = first 10 chars)
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin)
+VALUES (encode(sha256('SECRET_TOKEN'::bytea), 'hex'), 'SECRET_TOK', 'SECRET_TOKEN', 'test@windmill.dev', 'test token', true)
 ON CONFLICT DO NOTHING;
-INSERT INTO token(token, email, label, super_admin) VALUES ('SECRET_TOKEN_2', 'test2@windmill.dev', 'test token 2', false)
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin)
+VALUES (encode(sha256('SECRET_TOKEN_2'::bytea), 'hex'), 'SECRET_TOK', 'SECRET_TOKEN_2', 'test2@windmill.dev', 'test token 2', false)
 ON CONFLICT DO NOTHING;
-INSERT INTO token(token, email, label, super_admin) VALUES ('DEPLOYER_TOKEN', 'deployer@windmill.dev', 'deployer token', false)
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin)
+VALUES (encode(sha256('DEPLOYER_TOKEN'::bytea), 'hex'), 'DEPLOYER_T', 'DEPLOYER_TOKEN', 'deployer@windmill.dev', 'deployer token', false)
 ON CONFLICT DO NOTHING;
-INSERT INTO token(token, email, label, super_admin) VALUES ('ORIGINAL_TOKEN', 'original@windmill.dev', 'original token', false)
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin)
+VALUES (encode(sha256('ORIGINAL_TOKEN'::bytea), 'hex'), 'ORIGINAL_T', 'ORIGINAL_TOKEN', 'original@windmill.dev', 'original token', false)
 ON CONFLICT DO NOTHING;
 
 GRANT ALL PRIVILEGES ON TABLE workspace_key TO windmill_admin;

@@ -235,7 +235,7 @@ pub struct EditLoginType {
 #[derive(FromRow, Serialize)]
 pub struct TruncatedToken {
     pub label: Option<String>,
-    pub token_prefix: Option<String>,
+    pub token_prefix: String,
     pub expiration: Option<chrono::DateTime<chrono::Utc>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub last_used_at: chrono::DateTime<chrono::Utc>,
@@ -527,23 +527,28 @@ async fn logout(
     }
     cookies.remove(cookie);
     let mut tx = db.begin().await?;
+    let t_hash = windmill_common::auth::hash_token(&token);
+    let t_prefix = &token[..TOKEN_PREFIX_LEN];
 
     let email = if *INVALIDATE_ALL_SESSIONS_ON_LOGOUT {
         sqlx::query_scalar!(
             "WITH email_lookup AS (
-                SELECT email FROM token WHERE token = $1
+                SELECT email FROM token WHERE token_hash = $1
             )
             DELETE FROM token
             WHERE email = (SELECT email FROM email_lookup) AND label = 'session'
             RETURNING email",
-            token
+            t_hash
         )
         .fetch_optional(&mut *tx)
         .await?
     } else {
-        sqlx::query_scalar!("DELETE FROM token WHERE token = $1 RETURNING email", token)
-            .fetch_optional(&mut *tx)
-            .await?
+        sqlx::query_scalar!(
+            "DELETE FROM token WHERE token_hash = $1 RETURNING email",
+            t_hash
+        )
+        .fetch_optional(&mut *tx)
+        .await?
     };
 
     if let Some(email) = email {
@@ -559,7 +564,7 @@ async fn logout(
                 email: email.clone(),
                 username: email,
                 username_override: None,
-                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                token_prefix: Some(t_prefix.to_string()),
             },
             audit_message,
             ActionKind::Delete,
@@ -1689,7 +1694,8 @@ async fn refresh_token(
     let mut tx = db.begin().await?;
 
     if let Some(thresh_s) = query.if_expiring_in_less_than_s {
-        let not_expired = sqlx::query_scalar!("SELECT true FROM token WHERE token = $1 and expiration IS NOT NULL and expiration > now() + $2::int * '1 sec'::interval", &token, thresh_s)
+        let t_hash = windmill_common::auth::hash_token(&token);
+        let not_expired = sqlx::query_scalar!("SELECT true FROM token WHERE token_hash = $1 and expiration IS NOT NULL and expiration > now() + $2::int * '1 sec'::interval", &t_hash, thresh_s)
             .fetch_optional(&db)
             .await?
             .flatten()
@@ -1740,7 +1746,16 @@ pub async fn create_session_token<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     cookies: Cookies,
 ) -> Result<String> {
+    use windmill_common::min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH;
+
     let token = rd_string(32);
+    let t_hash = windmill_common::auth::hash_token(&token);
+    let t_prefix = &token[..TOKEN_PREFIX_LEN];
+    let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
+        None
+    } else {
+        Some(&token)
+    };
 
     if *INVALIDATE_OLD_SESSIONS {
         sqlx::query!(
@@ -1756,7 +1771,7 @@ pub async fn create_session_token<'c>(
                 email: email.to_string(),
                 username: email.to_string(),
                 username_override: None,
-                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                token_prefix: Some(t_prefix.to_string()),
             },
             "users.token.invalidate_old_sessions",
             ActionKind::Delete,
@@ -1770,9 +1785,11 @@ pub async fn create_session_token<'c>(
 
     sqlx::query!(
         "INSERT INTO token
-            (token, email, label, expiration, super_admin)
-            VALUES ($1, $2, $3, now() + ($4 || ' seconds')::interval, $5)",
-        token,
+            (token_hash, token_prefix, token, email, label, expiration, super_admin)
+            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, $7)",
+        t_hash,
+        t_prefix,
+        plaintext as Option<&str>,
         email,
         "session",
         &MAX_SESSION_VALIDITY_SECONDS.to_string(),
@@ -1817,7 +1834,16 @@ async fn impersonate(
     authed: ApiAuthed,
     Json(new_token): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
+    use windmill_common::min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH;
+
     let token = rd_string(32);
+    let t_hash = windmill_common::auth::hash_token(&token);
+    let t_prefix = &token[..TOKEN_PREFIX_LEN];
+    let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
+        None
+    } else {
+        Some(&token)
+    };
     require_super_admin(&db, &authed.email).await?;
 
     if new_token.impersonate_email.is_none() {
@@ -1839,9 +1865,11 @@ async fn impersonate(
 
     sqlx::query!(
         "INSERT INTO token
-            (token, email, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, $5)",
-        token,
+            (token_hash, token_prefix, token, email, label, expiration, super_admin)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        t_hash,
+        t_prefix,
+        plaintext as Option<&str>,
         impersonated,
         new_token.label,
         new_token.expiration,
@@ -1856,7 +1884,7 @@ async fn impersonate(
         "users.impersonate",
         ActionKind::Delete,
         &"global",
-        Some(&token[0..10]),
+        Some(t_prefix),
         Some([("impersonated", &format!("{impersonated}")[..])].into()),
     )
     .instrument(tracing::info_span!("token", email = &impersonated))
@@ -1880,7 +1908,7 @@ async fn list_tokens(
     let rows = if query.exclude_ephemeral.unwrap_or(false) {
         sqlx::query_as!(
             TruncatedToken,
-            "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, \
+            "SELECT label, token_prefix, expiration, created_at, \
              last_used_at, scopes FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
              ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             email,
@@ -1892,7 +1920,7 @@ async fn list_tokens(
     } else {
         sqlx::query_as!(
             TruncatedToken,
-            "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, \
+            "SELECT label, token_prefix, expiration, created_at, \
             last_used_at, scopes FROM token WHERE email = $1
             ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             email,
@@ -1915,8 +1943,8 @@ async fn delete_token(
     let tokens_deleted: Vec<String> = sqlx::query_scalar(
         "DELETE FROM token
                WHERE email = $1
-                 AND token LIKE concat($2::text, '%')
-           RETURNING concat(substring(token for 10), '*****')",
+                 AND token_prefix = $2
+           RETURNING concat(token_prefix, '*****')",
     )
     .bind(&authed.email)
     .bind(&token_prefix)

@@ -848,7 +848,7 @@ struct LogFile {
 pub async fn delete_expired_items(db: &DB) -> () {
     let tokens_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
         "DELETE FROM token WHERE expiration <= now()
-        RETURNING concat(substring(token for 10), '*****')",
+        RETURNING concat(token_prefix, '*****')",
     )
     .fetch_all(db)
     .await;

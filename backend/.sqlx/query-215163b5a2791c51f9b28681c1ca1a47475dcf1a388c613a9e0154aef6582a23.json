@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH email_lookup AS (\n                SELECT email FROM token WHERE token_hash = $1\n            )\n            DELETE FROM token\n            WHERE email = (SELECT email FROM email_lookup) AND label = 'session'\n            RETURNING email",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "215163b5a2791c51f9b28681c1ca1a47475dcf1a388c613a9e0154aef6582a23"
+}

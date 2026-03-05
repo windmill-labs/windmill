@@ -39,13 +39,13 @@ ON CONFLICT (email) DO NOTHING;
 -- Tokens associated with emails (workspace-scoped)
 -- The auth system will look up the user by email in the usr table
 -- Note: tokens must be at least 10 characters (TOKEN_PREFIX_LEN)
-INSERT INTO token (token, email, label, super_admin, owner, workspace_id)
+INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, owner, workspace_id)
 VALUES
-    ('ADMIN_TOKEN_TEST', 'admin@windmill.dev', 'Admin token', false, 'u/admin', 'test-workspace'),
-    ('ALICE_TOKEN_TEST', 'alice@windmill.dev', 'Alice token', false, 'u/alice', 'test-workspace'),
-    ('BOB_TOKEN_TEST12', 'bob@windmill.dev', 'Bob token', false, 'u/bob', 'test-workspace'),
-    ('CHARLIE_TOKEN_01', 'charlie@windmill.dev', 'Charlie token', false, 'u/charlie', 'test-workspace'),
-    ('OPERATOR_TOKEN_1', 'operator@windmill.dev', 'Operator token', false, 'u/operator', 'test-workspace');
+    (encode(sha256('ADMIN_TOKEN_TEST'::bytea), 'hex'), 'ADMIN_TOKE', 'ADMIN_TOKEN_TEST', 'admin@windmill.dev', 'Admin token', false, 'u/admin', 'test-workspace'),
+    (encode(sha256('ALICE_TOKEN_TEST'::bytea), 'hex'), 'ALICE_TOKE', 'ALICE_TOKEN_TEST', 'alice@windmill.dev', 'Alice token', false, 'u/alice', 'test-workspace'),
+    (encode(sha256('BOB_TOKEN_TEST12'::bytea), 'hex'), 'BOB_TOKEN_', 'BOB_TOKEN_TEST12', 'bob@windmill.dev', 'Bob token', false, 'u/bob', 'test-workspace'),
+    (encode(sha256('CHARLIE_TOKEN_01'::bytea), 'hex'), 'CHARLIE_TO', 'CHARLIE_TOKEN_01', 'charlie@windmill.dev', 'Charlie token', false, 'u/charlie', 'test-workspace'),
+    (encode(sha256('OPERATOR_TOKEN_1'::bytea), 'hex'), 'OPERATOR_T', 'OPERATOR_TOKEN_1', 'operator@windmill.dev', 'Operator token', false, 'u/operator', 'test-workspace');
 
 -- ============================================
 -- GROUPS

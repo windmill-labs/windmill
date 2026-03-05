@@ -5,6 +5,7 @@ use tokio::sync::RwLock;
 
 // ============ Feature Definitions ============
 
+pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 650, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");
 pub const MIN_VERSION_SUPPORTS_DEBOUNCING_V2: VC = vc(1, 597, 0, "Debouncing V2");
 pub const MIN_VERSION_IS_AT_LEAST_1_595: VC = vc(1, 595, 0, "Flow status separate table");

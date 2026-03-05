@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_job_runtime WHERE id IN (SELECT id FROM v2_job WHERE workspace_id = 'admins')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "491131b0f8ab87f7dffe7dc554e204ca5c433e2e363ae6df1f459b83d994ac2a"
+}

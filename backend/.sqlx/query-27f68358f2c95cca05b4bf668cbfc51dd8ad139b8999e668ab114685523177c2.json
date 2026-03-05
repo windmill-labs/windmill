@@ -1,0 +1,93 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job (id, runnable_id, runnable_path, kind, script_lang, tag, created_by, permissioned_as, permissioned_as_email, workspace_id, raw_code) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 FROM generate_series(1, $11)) RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "27f68358f2c95cca05b4bf668cbfc51dd8ad139b8999e668ab114685523177c2"
+}

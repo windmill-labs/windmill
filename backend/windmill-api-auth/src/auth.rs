@@ -26,7 +26,9 @@ use tokio::sync::RwLock;
 use windmill_common::DB;
 
 use windmill_common::{
-    auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims, TOKEN_PREFIX_LEN},
+    auth::{
+        get_folders_for_user, get_groups_for_user, hash_token, JWTAuthClaims, TOKEN_PREFIX_LEN,
+    },
     error::{Error, JsonResult},
     jwt,
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},
@@ -75,13 +77,15 @@ pub async fn get_end_user_email(
     }
     None
 }
-// Global function to invalidate a specific token from cache
-pub fn invalidate_token_from_cache(token: &str) {
-    // Remove all cache entries for this token (across all workspaces)
-    AUTH_CACHE.retain(|(_workspace_id, cached_token), _cached_value| cached_token != token);
+// Global function to invalidate tokens from cache by prefix
+pub fn invalidate_token_from_cache(token_prefix: &str) {
+    // Remove all cache entries whose raw token starts with this prefix (across all workspaces)
+    AUTH_CACHE.retain(|(_workspace_id, cached_token), _cached_value| {
+        !cached_token.starts_with(token_prefix)
+    });
     tracing::info!(
-        "Invalidated token from auth cache: {}...",
-        &token[..token.len().min(8)]
+        "Invalidated token(s) from auth cache with prefix: {}...",
+        &token_prefix[..token_prefix.len().min(8)]
     );
 }
 
@@ -211,13 +215,14 @@ impl AuthCache {
                 }
             }
             _ => {
+                let t_hash = hash_token(token);
                 let user_o = sqlx::query!(
                     "UPDATE token SET last_used_at = now() WHERE
-                        token = $1
+                        token_hash = $1
                         AND (expiration > NOW() OR expiration IS NULL)
                         AND (workspace_id IS NULL OR workspace_id = $2)
                     RETURNING owner, email, super_admin, scopes, label",
-                    token,
+                    t_hash,
                     w_id.as_ref(),
                 )
                 .map(|x| (x.owner, x.email, x.super_admin, x.scopes, x.label))
@@ -717,7 +722,7 @@ fn username_override_from_label(label: Option<String>) -> Option<String> {
 #[derive(FromRow, Serialize)]
 pub struct TruncatedTokenWithEmail {
     pub label: Option<String>,
-    pub token_prefix: Option<String>,
+    pub token_prefix: String,
     pub expiration: Option<chrono::DateTime<chrono::Utc>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub last_used_at: chrono::DateTime<chrono::Utc>,
@@ -736,7 +741,7 @@ pub async fn list_tokens_internal(
             TruncatedTokenWithEmail,
             r#"
         SELECT label,
-               concat(substring(token for 10)) AS token_prefix,
+               token_prefix,
                expiration,
                created_at,
                last_used_at,
@@ -759,7 +764,7 @@ pub async fn list_tokens_internal(
             TruncatedTokenWithEmail,
             r#"
         SELECT label,
-               concat(substring(token for 10)) AS token_prefix,
+               token_prefix,
                expiration,
                created_at,
                last_used_at,
