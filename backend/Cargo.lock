@@ -15773,6 +15773,7 @@ dependencies = [
  "sql-builder",
  "sqlx",
  "strum 0.27.2",
+ "tar",
  "tempfile",
  "tikv-jemalloc-ctl",
  "tikv-jemalloc-sys",
