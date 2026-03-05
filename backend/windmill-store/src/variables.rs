@@ -536,13 +536,6 @@ async fn delete_variable(
     )
     .execute(&mut *tx)
     .await?;
-    sqlx::query!(
-        "DELETE FROM resource WHERE path = $1 AND workspace_id = $2",
-        path,
-        w_id
-    )
-    .execute(&mut *tx)
-    .await?;
     audit_log(
         &mut *tx,
         &authed,
