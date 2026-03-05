@@ -1036,6 +1036,12 @@ pub async fn handle_bun_job(
         let _ = write_file(job_dir, "main.ts", inner_content)?;
     } else if !annotation.native && codebase.is_none() {
         let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#)?;
+    } else if codebase.is_some() {
+        // Write a valid fallback package.json for codebase mode. Without this,
+        // nsjail creates an empty 0-byte file (from the mandatory: false mount)
+        // which Node.js fails to parse as JSON (ERR_INVALID_PACKAGE_CONFIG).
+        // If the codebase TAR includes a package.json, it will overwrite this.
+        let _ = write_file(job_dir, "package.json", "{}")?;
     };
 
     let common_bun_proc_envs: HashMap<String, String> =

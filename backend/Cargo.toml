@@ -257,6 +257,7 @@ axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
 tempfile.workspace = true
+tar.workspace = true
 windmill-parser-ts.workspace = true
 rumqttc.workspace = true
 rdkafka.workspace = true
