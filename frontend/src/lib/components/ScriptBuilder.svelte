@@ -387,7 +387,7 @@
 	async function initContent(
 		language: SupportedLanguage,
 		kind: Script['kind'] | undefined,
-		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
+		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox'
 	) {
 		scriptEditor?.disableCollaboration()
 		const templateScript = await isTemplateScript()
@@ -1164,9 +1164,10 @@
 											<div class=" grid grid-cols-3 gap-2">
 												{#each langs as [label, lang] (lang)}
 													{@const isPicked =
-														(lang == script.language && template == 'script') ||
+														(lang == script.language && template != 'bunnative' && template != 'docker' && template != 'claudesandbox') ||
 														(template == 'bunnative' && lang == 'bunnative') ||
-														(template == 'docker' && lang == 'docker')}
+														(template == 'docker' && lang == 'docker') ||
+														(template == 'claudesandbox' && lang == 'bun')}
 													<Popover
 														disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
 													>
@@ -1199,6 +1200,25 @@
 											</div>
 										</Section>
 									{/if}
+									<div class="flex items-center gap-2 mt-2">
+										<span class="text-2xs text-secondary">Template</span>
+										<Button
+											size="xs2"
+											variant="border"
+											color="light"
+											startIcon={{
+												icon: LanguageIcon,
+												props: { lang: 'claudesandbox', width: 16, height: 16 }
+											} as ButtonType.Icon}
+											on:click={() => {
+												template = 'claudesandbox'
+												script.language = 'bun'
+												initContent('bun', script.kind, template)
+											}}
+										>
+											Claude Sandbox
+										</Button>
+									</div>
 									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true}
 										<Section label="Script kind">
 											{#snippet header()}

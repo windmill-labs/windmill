@@ -563,7 +563,16 @@ lazy_static::lazy_static! {
     pub static ref DOTNET_PATH: String = std::env::var("DOTNET_PATH").unwrap_or_else(|_| DOTNET_DEFAULT_PATH.to_string());
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
-    pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    pub static ref HOME_ENV: String = {
+        #[cfg(not(windows))]
+        { std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()) }
+        #[cfg(windows)]
+        {
+            std::env::var("HOME")
+                .or_else(|_| std::env::var("USERPROFILE"))
+                .unwrap_or_else(|_| std::env::temp_dir().to_string_lossy().to_string())
+        }
+    };
     pub static ref GIT_PATH: String = std::env::var("GIT_PATH").unwrap_or_else(|_| "/usr/bin/git".to_string());
 
     pub static ref NODE_PATH: Option<String> = std::env::var("NODE_PATH").ok();
@@ -4152,7 +4161,8 @@ pub async fn run_language_executor(
         job.id
     );
 
-    let shared_mount = if job.same_worker && job.script_lang != Some(ScriptLang::Deno) {
+    #[allow(unused_mut)]
+    let mut shared_mount = if job.same_worker && job.script_lang != Some(ScriptLang::Deno) {
         let folder = if job.script_lang == Some(ScriptLang::Go) {
             "/go"
         } else {
@@ -4174,7 +4184,8 @@ mount {{
 
     // println!("handle lang job {:?}",  SystemTime::now());
 
-    let envs = build_envs(envs.as_ref())?;
+    #[allow(unused_mut)]
+    let mut envs = build_envs(envs.as_ref())?;
 
     let Some(language) = language else {
         return Err(Error::ExecutionErr(
@@ -4207,6 +4218,106 @@ mount {{
                 )
                 .await?,
             })
+        }
+    }
+
+    // Volume mount setup (requires workspace S3 storage; CE has file count/size limits)
+    #[cfg(feature = "parquet")]
+    let volume_mounts = {
+        let comment_prefix = match language {
+            ScriptLang::Python3
+            | ScriptLang::Bash
+            | ScriptLang::Powershell
+            | ScriptLang::Ansible
+            | ScriptLang::Ruby => "#",
+            ScriptLang::Deno
+            | ScriptLang::Bun
+            | ScriptLang::Bunnative
+            | ScriptLang::Nativets
+            | ScriptLang::Go => "//",
+            _ => "",
+        };
+        let raw_mounts = windmill_worker_volumes::parse_volume_annotations(&code, comment_prefix);
+        let args_ref = job.args.as_ref().map(|a| &**a);
+        let mut interpolated = Vec::new();
+        for mut v in raw_mounts {
+            v.name = windmill_worker_volumes::interpolate_volume_name(
+                &v.name,
+                args_ref,
+                &job.workspace_id,
+            );
+            if let Err(e) = windmill_worker_volumes::validate_volume_name(&v.name) {
+                return Err(Error::ExecutionErr(e));
+            }
+            if let Err(e) = windmill_worker_volumes::validate_volume_target(&v.target) {
+                return Err(Error::ExecutionErr(e));
+            }
+            interpolated.push(v);
+        }
+        if let Err(e) = windmill_worker_volumes::validate_volume_mounts(&interpolated) {
+            return Err(Error::ExecutionErr(e));
+        }
+        interpolated
+    };
+
+    #[cfg(feature = "parquet")]
+    let mut volume_setup = crate::volume_oss::VolumeSetupResult {
+        states: Vec::new(),
+        writable: Vec::new(),
+        client: None,
+        lease_renewal: crate::volume_oss::LeaseRenewalGuard(None),
+    };
+
+    #[cfg(feature = "parquet")]
+    if !volume_mounts.is_empty() {
+        let vol_summary: Vec<String> = volume_mounts
+            .iter()
+            .map(|v| format!("'{}' -> {}", v.name, v.target))
+            .collect();
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "\n--- VOLUME MOUNTS ---\nPulling {} volume(s): {}\n",
+                volume_mounts.len(),
+                vol_summary.join(", "),
+            ),
+            conn,
+        )
+        .await;
+
+        if let Connection::Sql(db) = conn {
+            volume_setup = crate::volume_oss::setup_volumes_sql_worker(
+                &volume_mounts,
+                db,
+                &job.workspace_id,
+                job.id,
+                &job.permissioned_as,
+                worker_name,
+                job_dir,
+                client,
+                conn,
+                language,
+                &mut envs,
+                &mut shared_mount,
+            )
+            .await?;
+        } else if let Connection::Http(http) = conn {
+            volume_setup = crate::volume_oss::setup_volumes_http_worker(
+                &volume_mounts,
+                http,
+                &job.workspace_id,
+                job.id,
+                &job.permissioned_as,
+                &job.canceled_by,
+                worker_name,
+                job_dir,
+                conn,
+                language,
+                &mut envs,
+                &mut shared_mount,
+            )
+            .await?;
         }
     }
 
@@ -4621,6 +4732,61 @@ mount {{
         // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
+    // Volume sync-back and lease release
+    #[cfg(feature = "parquet")]
+    if !volume_setup.states.is_empty() {
+        // Stop lease renewal before sync-back
+        volume_setup.lease_renewal.0.take().map(|h| h.abort());
+
+        if let Some(ref vol_client) = volume_setup.client {
+            if let Connection::Sql(db) = conn {
+                crate::volume_oss::sync_volumes_sql_worker(
+                    &volume_setup.states,
+                    &volume_setup.writable,
+                    vol_client,
+                    db,
+                    &job.workspace_id,
+                    job.id,
+                    worker_name,
+                    conn,
+                    result.is_ok(),
+                )
+                .await;
+            }
+        }
+
+        if let Connection::Http(http) = conn {
+            crate::volume_oss::sync_volumes_http_worker(
+                &volume_setup.states,
+                &volume_setup.writable,
+                http,
+                &job.workspace_id,
+                job.id,
+                worker_name,
+                conn,
+                result.is_ok(),
+            )
+            .await;
+        }
+
+        // Clean up absolute-path symlinks created by setup_volume_mount_paths
+        if !is_sandboxing_enabled() {
+            for state in &volume_setup.states {
+                #[cfg(unix)]
+                if state.mount.target.starts_with('/') {
+                    let target_path = std::path::Path::new(&state.mount.target);
+                    if target_path
+                        .symlink_metadata()
+                        .map(|m| m.file_type().is_symlink())
+                        .unwrap_or(false)
+                    {
+                        std::fs::remove_file(target_path).ok();
+                    }
+                }
+            }
+        }
+    }
+
     tracing::info!(
         workspace_id = %job.workspace_id,
         is_ok = result.is_ok(),

@@ -102,6 +102,19 @@
 	let hasUnsavedChanges = $derived.by(() => {
 		return !deepEqual(s3ResourceSettings, s3ResourceSavedSettings)
 	})
+
+	let volumeStorageItems: { value: string; label: string }[] = $derived.by(() => {
+		const items: { value: string; label: string }[] = [{ value: '', label: 'Disabled' }]
+		if (!emptyString(s3ResourceSettings.resourcePath)) {
+			items.push({ value: 'primary', label: 'Primary storage' })
+		}
+		for (const [name, s] of s3ResourceSettings.secondaryStorage ?? []) {
+			if (!emptyString(s.resourcePath)) {
+				items.push({ value: name, label: name })
+			}
+		}
+		return items
+	})
 </script>
 
 <Portal name="workspace-settings">
@@ -160,6 +173,15 @@
 					<Cell>
 						<div class="flex gap-2">
 							<div class="relative">
+								{#if tableRow[1].resourceType === 'filesystem'}
+								<Select
+									items={[{ value: 'filesystem', label: 'Filesystem' }]}
+									value={'filesystem'}
+									disabled
+									id="storage-resource-type-select"
+									class="w-40"
+								/>
+							{:else}
 								<Select
 									items={[
 										{ value: 's3', label: 'S3' },
@@ -172,13 +194,22 @@
 									id="storage-resource-type-select"
 									class="w-40"
 								/>
+							{/if}
 							</div>
 							<div class="flex flex-1">
-								<ResourcePicker
-									class="flex-1"
-									bind:value={tableRow[1].resourcePath}
-									resourceType={tableRow[1].resourceType}
-								/>
+								{#if tableRow[1].resourceType === 'filesystem'}
+									<TextInput
+										class="flex-1"
+										value={tableRow[1].resourcePath ?? ''}
+										inputProps={{ disabled: true, placeholder: 'Filesystem path' }}
+									/>
+								{:else}
+									<ResourcePicker
+										class="flex-1"
+										bind:value={tableRow[1].resourcePath}
+										resourceType={tableRow[1].resourceType}
+									/>
+								{/if}
 							</div>
 						</div>
 					</Cell>
@@ -298,6 +329,25 @@
 			</Row>
 		</tbody>
 	</DataTable>
+
+	<div class="mt-6 mb-2">
+		<SettingsPageHeader
+			title="Volume storage"
+			description="Select which storage volumes should use. If disabled, scripts with volumes will fail with an error."
+			link="https://www.windmill.dev/docs/core_concepts/persistent_storage/volumes"
+		/>
+		<div class="max-w-sm mt-2">
+			<Select
+				items={volumeStorageItems}
+				bind:value={
+					() => s3ResourceSettings.volumeStorage ?? '',
+					(v) => {
+						s3ResourceSettings.volumeStorage = v || undefined
+					}
+				}
+			/>
+		</div>
+	</div>
 
 	<SettingsFooter
 		class="mt-5 mb-5"

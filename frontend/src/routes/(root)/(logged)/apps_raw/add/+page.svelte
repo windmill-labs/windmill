@@ -41,9 +41,17 @@
 	const templateId = page.url.searchParams.get('template_id')
 	const hubId = page.url.searchParams.get('hub')
 
-	const importRaw = $importStore
+	// Check in-memory store first, then sessionStorage (used when full page reload occurs)
+	let importRaw = $importStore
 	if ($importStore) {
 		$importStore = undefined
+	}
+	if (!importRaw) {
+		const sessionData = sessionStorage.getItem('rawAppImport')
+		if (sessionData) {
+			sessionStorage.removeItem('rawAppImport')
+			importRaw = JSON.parse(sessionData)
+		}
 	}
 
 	const appState = nodraft || hubId ? undefined : localStorage.getItem('rawapp')
@@ -189,7 +197,7 @@
 			files: svelte5Template
 		}
 	]
-	let templatePicker = $state(nodraft != null)
+	let templatePicker = $state(nodraft != null && !importRaw)
 	let reloadCounter = $state(0)
 
 	// Modal state

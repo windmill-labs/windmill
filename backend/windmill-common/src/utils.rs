@@ -314,14 +314,14 @@ pub async fn create_directory_async(directory_path: &str) {
         .recursive(true)
         .create(directory_path)
         .await
-        .expect("could not create dir");
+        .unwrap_or_else(|e| panic!("could not create dir '{}': {}", directory_path, e));
 }
 
 pub fn create_directory_sync(directory_path: &str) {
     SyncDirBuilder::new()
         .recursive(true)
         .create(directory_path)
-        .expect("could not create dir");
+        .unwrap_or_else(|e| panic!("could not create dir '{}': {}", directory_path, e));
 }
 
 #[track_caller]

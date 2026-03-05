@@ -6,11 +6,11 @@
 	import { createEventDispatcher } from 'svelte'
 
 	interface Props {
-		label: string;
-		lang?: SupportedLanguage | 'docker' | 'javascript' | undefined;
-		selected?: boolean;
-		eeRestricted: boolean;
-		enterpriseLangs?: string[];
+		label: string
+		lang?: SupportedLanguage | 'docker' | 'javascript' | 'claudesandbox' | undefined
+		selected?: boolean
+		eeRestricted: boolean
+		enterpriseLangs?: string[]
 	}
 
 	let {
@@ -19,7 +19,7 @@
 		selected = false,
 		eeRestricted,
 		enterpriseLangs = []
-	}: Props = $props();
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 	function handleKeydown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
@@ -56,6 +56,9 @@
 	{/if}
 	<span class="grow truncate text-left {eeRestricted ? 'text-disabled' : ''}">
 		{label}{#if eeRestricted}&nbsp;(EE){/if}
+		{#if lang === 'claudesandbox'}
+			<span class="text-primary !text-xs">(new)</span>
+		{/if}
 	</span>
 	{#if selected}
 		<kbd class="!text-xs">&crarr;</kbd>

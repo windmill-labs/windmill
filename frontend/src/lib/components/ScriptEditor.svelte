@@ -100,7 +100,7 @@
 		path: string | undefined
 		lang: Preview['language']
 		kind?: string | undefined
-		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
+		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox'
 		tag: string | undefined
 		initialArgs?: Record<string, any>
 		fixedOverflowWidgets?: boolean

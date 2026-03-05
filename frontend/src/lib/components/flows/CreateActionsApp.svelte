@@ -5,6 +5,8 @@
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { LayoutDashboard, Loader2, Plus, Code2 } from 'lucide-svelte'
 	import { importStore } from '../apps/store'
@@ -14,12 +16,21 @@
 	let pendingRaw: string = $state('')
 
 	let importType: 'yaml' | 'json' = $state('yaml')
+	let appKind: 'lowcode' | 'fullcode' = $state('lowcode')
 
 	let appTypeModalOpen = $state(false)
 
 	async function importRaw() {
-		$importStore = importType === 'yaml' ? YAML.parse(pendingRaw) : JSON.parse(pendingRaw)
-		await goto('/apps/add?nodraft=true')
+		const parsed = importType === 'yaml' ? YAML.parse(pendingRaw) : JSON.parse(pendingRaw)
+		if (appKind === 'fullcode') {
+			// Navigation to /apps_raw/add triggers a full page reload (for cross-origin isolation),
+			// so the in-memory importStore would be lost. Use sessionStorage instead.
+			sessionStorage.setItem('rawAppImport', JSON.stringify(parsed))
+			await goto('/apps_raw/add?nodraft=true')
+		} else {
+			$importStore = parsed
+			await goto('/apps/add?nodraft=true')
+		}
 		drawer?.closeDrawer?.()
 	}
 
@@ -51,17 +62,19 @@
 			variant="accent"
 			dropdownItems={[
 				{
-					label: 'Import low-code app from YAML',
+					label: 'Import low-code app',
 					onClick: () => {
-						drawer?.toggleDrawer?.()
+						appKind = 'lowcode'
 						importType = 'yaml'
+						drawer?.toggleDrawer?.()
 					}
 				},
 				{
-					label: 'Import low-code app from JSON',
+					label: 'Import full-code app',
 					onClick: () => {
+						appKind = 'fullcode'
+						importType = 'yaml'
 						drawer?.toggleDrawer?.()
-						importType = 'json'
 					}
 				}
 			]}
@@ -118,22 +131,32 @@
 	</div>
 </Modal>
 
-<!-- Raw JSON -->
+<!-- Import Drawer -->
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent
-		title={'Import low-code app from ' + (importType === 'yaml' ? 'YAML' : 'JSON')}
+		title={appKind === 'fullcode' ? 'Import full-code app' : 'Import low-code app'}
 		on:close={() => drawer?.toggleDrawer?.()}
 	>
-		{#await import('$lib/components/SimpleEditor.svelte')}
-			<Loader2 class="animate-spin" />
-		{:then Module}
-			<Module.default
-				bind:code={pendingRaw}
-				lang={importType}
-				class="h-full"
-				fixedOverflowWidgets={false}
-			/>
-		{/await}
+		<Tabs bind:selected={importType}>
+			<Tab value="yaml" label="YAML" />
+			<Tab value="json" label="JSON" />
+			{#snippet content()}
+				<div class="relative pt-2 h-full">
+					{#key importType}
+						{#await import('$lib/components/SimpleEditor.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default
+								bind:code={pendingRaw}
+								lang={importType}
+								class="h-full"
+								fixedOverflowWidgets={false}
+							/>
+						{/await}
+					{/key}
+				</div>
+			{/snippet}
+		</Tabs>
 		{#snippet actions()}
 			<Button size="sm" on:click={importRaw}>Import</Button>
 		{/snippet}

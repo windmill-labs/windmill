@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM token WHERE expiration <= now()\n        RETURNING substring(token for 10) as token_prefix, label, email, workspace_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token_prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "bb446cbb20166f274a7ee6e88abaa27e233e60e18b3d35545005eb680701241f"
+}

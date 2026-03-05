@@ -26,7 +26,12 @@ use windmill_queue::{
 };
 
 lazy_static::lazy_static! {
-    pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| "/bin/bash".to_string());
+    pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| {
+        #[cfg(not(windows))]
+        { "/bin/bash".to_string() }
+        #[cfg(windows)]
+        { "bash".to_string() }
+    });
 }
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
 
