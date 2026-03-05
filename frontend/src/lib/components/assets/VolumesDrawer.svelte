@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { Drawer, DrawerContent } from '../common'
+	import { Alert, Drawer, DrawerContent } from '../common'
 	import { VolumeService } from '$lib/gen'
-	import { workspaceStore, userStore } from '$lib/stores'
-	import { displayDate, displaySize, sendUserToast } from '$lib/utils'
+	import { enterpriseLicense, workspaceStore, userStore } from '$lib/stores'
+	import { displayDate, displaySize, emptyString, sendUserToast } from '$lib/utils'
 	import { File, HardDriveIcon, Loader2, Plus, Shield, Trash2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import SharedBadge from '../SharedBadge.svelte'
@@ -119,6 +119,14 @@
 				{/snippet}
 			</Popover>
 		{/snippet}
+		{#if emptyString($enterpriseLicense)}
+			<div class="mb-4">
+				<Alert type="info" title="Community Edition limits">
+					Volumes are limited to 20 per workspace and 50 MB per file. Upgrade to Enterprise
+					Edition to remove these limits.
+				</Alert>
+			</div>
+		{/if}
 		{#if volumes.loading}
 			<div class="flex items-center justify-center py-8">
 				<Loader2 size={24} class="animate-spin text-secondary" />
