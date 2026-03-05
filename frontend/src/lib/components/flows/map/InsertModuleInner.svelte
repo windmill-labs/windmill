@@ -31,7 +31,7 @@
 	}: Props = $props()
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
-	let selectedKind: 'script' | 'trigger' | 'preprocessor' | 'approval' | 'flow' | 'failure' =
+	let selectedKind: 'script' | 'trigger' | 'preprocessor' | 'approval' | 'flow' | 'failure' | 'aisandbox' =
 		$state(kind)
 	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
 	let loading = $state(false)
@@ -181,27 +181,53 @@
 							}}
 						/>
 					{/if}
+					<TopLevelNode
+						label="AI Sandbox"
+						selected={selectedKind === 'aisandbox'}
+						onSelect={() => {
+							selectedKind = 'aisandbox'
+						}}
+					/>
 				{/if}
 			</div>
 		{/if}
 
-		<FlowInputsQuick
-			{selectedKind}
-			bind:loading
-			filter={funcDesc}
-			{disableAi}
-			{funcDesc}
-			{kind}
-			bind:owners
-			on:close={() => {
-				dispatch('close')
-			}}
-			on:new
-			on:pickScript
-			on:pickFlow
-			{preFilter}
-			{displayPath}
-			refreshCount={refreshCount.val}
-		/>
+		{#if selectedKind === 'aisandbox'}
+			<div class="h-full overflow-auto grow min-w-0 p-2 gap-1 flex flex-col">
+				<TopLevelNode
+					label="Claude Code"
+					onSelect={() => {
+						dispatch('close')
+						dispatch('new', {
+							kind: 'script',
+							inlineScript: {
+								language: 'bun',
+								kind: 'script',
+								subkind: 'claudesandbox',
+							}
+						})
+					}}
+				/>
+			</div>
+		{:else}
+			<FlowInputsQuick
+				{selectedKind}
+				bind:loading
+				filter={funcDesc}
+				{disableAi}
+				{funcDesc}
+				{kind}
+				bind:owners
+				on:close={() => {
+					dispatch('close')
+				}}
+				on:new
+				on:pickScript
+				on:pickFlow
+				{preFilter}
+				{displayPath}
+				refreshCount={refreshCount.val}
+			/>
+		{/if}
 	</div>
 </div>

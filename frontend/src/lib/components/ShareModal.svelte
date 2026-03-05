@@ -35,6 +35,7 @@
 		| 'postgres_trigger'
 		| 'gcp_trigger'
 		| 'email_trigger'
+		| 'volume'
 	let kind: Kind
 
 	let path: string = $state('')
@@ -53,13 +54,17 @@
 	let drawer: Drawer | undefined = $state()
 
 	let own = $state(false)
-	export async function openDrawer(newPath: string, kind_l: Kind) {
+	export async function openDrawer(newPath: string, kind_l: Kind, isOwnerOverride?: boolean) {
 		path = newPath
 		kind = kind_l
 		loadAcls()
 		loadGroups()
 		loadUsernames()
-		loadOwner()
+		if (isOwnerOverride !== undefined) {
+			own = isOwnerOverride
+		} else {
+			loadOwner()
+		}
 		drawer?.openDrawer()
 	}
 

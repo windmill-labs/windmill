@@ -70,6 +70,7 @@ windmill-git-sync.workspace = true
 windmill-indexer = { workspace = true, optional = true }
 windmill-autoscaling = { workspace = true, optional = true }
 windmill-worker = { workspace = true, optional = true }
+windmill-worker-volumes.workspace = true
 windmill-dep-map.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true

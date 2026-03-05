@@ -830,6 +830,15 @@ pub async fn run_preview_relative_imports(
 
 #[cfg(all(feature = "private", feature = "agent_worker_server"))]
 pub async fn testing_http_connection(port: u16) -> Connection {
+    testing_http_connection_with_tags(
+        port,
+        vec!["flow".into(), "python3".into(), "dependency".into()],
+    )
+    .await
+}
+
+#[cfg(all(feature = "private", feature = "agent_worker_server"))]
+pub async fn testing_http_connection_with_tags(port: u16, tags: Vec<String>) -> Connection {
     let suffix = windmill_common::utils::create_default_worker_suffix("test-agent-worker");
     let agent_token = format!(
         "{}{}",
@@ -837,7 +846,7 @@ pub async fn testing_http_connection(port: u16) -> Connection {
         windmill_common::jwt::encode_with_internal_secret(windmill_api_agent_workers::AgentAuth {
             worker_group: "testing-agent".to_owned(),
             suffix: Some(suffix.clone()),
-            tags: vec!["flow".into(), "python3".into(), "dependency".into()],
+            tags,
             exp: Some(usize::MAX),
         })
         .await

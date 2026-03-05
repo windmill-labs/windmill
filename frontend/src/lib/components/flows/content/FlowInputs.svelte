@@ -288,6 +288,24 @@
 			{/each}
 		</div>
 
+		{#if !failureModule && !preprocessorModule}
+			<h3 class="pb-2 pt-4">AI Sandbox</h3>
+			<div class="flex flex-row flex-wrap gap-2">
+				<FlowScriptPicker
+					label="Claude Code"
+					lang="claudesandbox"
+					on:click={() => {
+						dispatch('new', {
+							language: 'bun',
+							kind,
+							subkind: 'claudesandbox',
+							summary
+						})
+					}}
+				/>
+			</div>
+		{/if}
+
 		<h3 class="mb-2 mt-6"
 			>Use pre-made <span class="text-blue-500 dark:text-blue-400"
 				>{kind == 'script' ? 'action' : kind}</span

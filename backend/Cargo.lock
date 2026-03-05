@@ -15798,7 +15798,9 @@ dependencies = [
  "windmill-queue",
  "windmill-runtime-nativets",
  "windmill-test-utils",
+ "windmill-types",
  "windmill-worker",
+ "windmill-worker-volumes",
  "windows-service",
  "windows-sys 0.52.0",
 ]
@@ -15952,6 +15954,7 @@ dependencies = [
  "windmill-trigger-websocket",
  "windmill-types",
  "windmill-worker",
+ "windmill-worker-volumes",
 ]
 
 [[package]]
@@ -17499,7 +17502,26 @@ dependencies = [
  "windmill-queue",
  "windmill-runtime-nativets",
  "windmill-types",
+ "windmill-worker-volumes",
  "yaml-rust",
+]
+
+[[package]]
+name = "windmill-worker-volumes"
+version = "1.650.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "lazy_static",
+ "md-5 0.10.6",
+ "object_store",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "windmill-common",
 ]
 
 [[package]]
