@@ -984,7 +984,7 @@ class Windmill:
             raise Exception("Could not write file to S3") from e
         return S3Object(s3=response["file_key"], storage=s3object.get("storage") if s3object else None)
 
-    def remove_s3_object(
+    def delete_s3_object(
         self,
         s3object: S3Object | str,
         s3_resource_path: str | None = None,
@@ -996,7 +996,7 @@ class Windmill:
         from wmill import S3Object
 
         s3_obj = S3Object(s3="/path/to/my_file.txt")
-        client.remove_s3_object(s3_obj)
+        client.delete_s3_object(s3_obj)
         '''
         """
         s3object = parse_s3_object(s3object)
@@ -1727,14 +1727,14 @@ def write_s3_file(
 
 
 @init_global_client
-def remove_s3_object(
+def delete_s3_object(
     s3object: S3Object | str,
     s3_resource_path: str | None = None,
 ) -> None:
     """
     Permanently delete a file from the workspace S3 bucket.
     """
-    return _client.remove_s3_object(
+    return _client.delete_s3_object(
         s3object,
         s3_resource_path if s3_resource_path != "" else None,
     )
