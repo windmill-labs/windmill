@@ -3,10 +3,12 @@
 	import { VolumeService } from '$lib/gen'
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { displayDate, displaySize, sendUserToast } from '$lib/utils'
-	import { File, HardDriveIcon, Loader2, Shield, Trash2 } from 'lucide-svelte'
+	import { File, HardDriveIcon, Loader2, Plus, Shield, Trash2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import SharedBadge from '../SharedBadge.svelte'
 	import ShareModal from '../ShareModal.svelte'
+	import Popover from '../meltComponents/Popover.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 	import { resource } from 'runed'
 
 	let { onExplore }: { onExplore?: (volumeName: string) => void } = $props()
@@ -14,6 +16,7 @@
 	let open = $state(false)
 	let refreshKey = $state(0)
 	let shareModal: ShareModal | undefined = $state()
+	let newVolumeName = $state('')
 
 	let volumes = resource(
 		() => (open ? { ws: $workspaceStore, key: refreshKey } : undefined),
@@ -25,6 +28,21 @@
 
 	export function openDrawer() {
 		open = true
+	}
+
+	async function createVolume(name: string, close: () => void) {
+		try {
+			await VolumeService.createVolume({
+				workspace: $workspaceStore!,
+				requestBody: { name }
+			})
+			sendUserToast(`Volume '${name}' created`)
+			newVolumeName = ''
+			close()
+			refreshKey++
+		} catch (e) {
+			sendUserToast(`Failed to create volume: ${e}`, true)
+		}
 	}
 
 	async function deleteVolume(name: string) {
@@ -64,13 +82,50 @@
 
 <Drawer {open} size="700px" on:close={() => (open = false)}>
 	<DrawerContent title="Volumes" on:close={() => (open = false)}>
+		{#snippet actions()}
+			<Popover
+				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+				containerClasses="border rounded-lg shadow-lg bg-surface"
+			>
+				{#snippet trigger()}
+					<Button unifiedSize="sm" variant="accent" startIcon={{ icon: Plus }} nonCaptureEvent
+						>New volume</Button
+					>
+				{/snippet}
+				{#snippet content({ close })}
+					<div class="flex flex-col gap-2 p-4">
+						<TextInput
+							size="md"
+							inputProps={{
+								placeholder: 'Volume name',
+								onkeyup: (e) => {
+									if (e.key === 'Enter' && newVolumeName.trim()) {
+										createVolume(newVolumeName.trim(), close)
+									}
+								}
+							}}
+							bind:value={newVolumeName}
+						/>
+						<Button
+							unifiedSize="sm"
+							variant="accent"
+							startIcon={{ icon: Plus }}
+							disabled={!newVolumeName.trim()}
+							on:click={() => createVolume(newVolumeName.trim(), close)}
+						>
+							Create
+						</Button>
+					</div>
+				{/snippet}
+			</Popover>
+		{/snippet}
 		{#if volumes.loading}
 			<div class="flex items-center justify-center py-8">
 				<Loader2 size={24} class="animate-spin text-secondary" />
 			</div>
 		{:else if !volumes.current?.length}
 			<div class="text-sm text-secondary py-8 text-center">
-				No volumes yet. Volumes are auto-created when a job declares a volume annotation.
+				No volumes yet. Create one above or they are auto-created when a job declares a volume annotation.
 			</div>
 		{:else}
 			<div class="flex flex-col divide-y border rounded-md">
@@ -113,10 +168,7 @@
 								variant="default"
 								unifiedSize="sm"
 								endIcon={{ icon: File }}
-								on:click={() => {
-									open = false
-									onExplore(vol.name)
-								}}
+								on:click={() => onExplore(vol.name)}
 							>
 								Explore
 							</Button>

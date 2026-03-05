@@ -325,7 +325,10 @@
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode allowDelete />
 <VolumesDrawer
 	bind:this={volumesDrawer}
-	onExplore={(name) => s3FilePicker?.open({ s3: `volumes/${name}/` })}
+	onExplore={async (name) => {
+		const storage = (await VolumeService.getVolumeStorage({ workspace: $workspaceStore! })) ?? undefined
+		s3FilePicker?.open({ s3: `volumes/${$workspaceStore}/${name}/`, storage })
+	}}
 />
 
 {#snippet table()}

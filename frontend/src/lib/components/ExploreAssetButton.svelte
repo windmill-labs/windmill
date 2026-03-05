@@ -18,7 +18,8 @@
 	import { formatAsset, type Asset } from '$lib/components/assets/lib'
 	import { Button, ButtonType } from '$lib/components/common'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
-	import { globalDbManagerDrawer, userStore } from '$lib/stores'
+	import { VolumeService } from '$lib/gen'
+	import { globalDbManagerDrawer, userStore, workspaceStore } from '$lib/stores'
 	import { isS3Uri } from '$lib/utils'
 	import { Database, File, HardDriveIcon } from 'lucide-svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
@@ -68,7 +69,8 @@
 		} else if (asset.kind === 's3object' && isS3Uri(assetUri)) {
 			s3FilePicker?.open(assetUri)
 		} else if (asset.kind === 'volume') {
-			s3FilePicker?.open({ s3: `volumes/${asset.path}/` })
+			const storage = (await VolumeService.getVolumeStorage({ workspace: $workspaceStore! })) ?? undefined
+			s3FilePicker?.open({ s3: `volumes/${$workspaceStore}/${asset.path}/`, storage })
 		} else if (asset.kind === 'ducklake') {
 			let ducklake = asset.path.split('/')[0]
 			let specificTable = asset.path.split('/')[1] as string | undefined
