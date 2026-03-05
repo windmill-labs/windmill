@@ -354,7 +354,9 @@
 					<Cell first class="w-16">
 						<Tooltip>
 							<AssetGenericIcon assetKind={asset.kind} size="16px" class="!text-secondary" />
-							<svelte:fragment slot="text">{formatAssetKind(asset)}</svelte:fragment>
+							{#snippet text()}
+														{formatAssetKind(asset)}
+													{/snippet}
 						</Tooltip>
 					</Cell>
 					<Cell class="flex flex-col">
@@ -377,7 +379,9 @@
 						{#if asset.kind === 'resource' && asset.metadata === undefined}
 							<Tooltip class={'w-24 flex items-center justify-center'}>
 								<AlertTriangle size={20} class="text-orange-600 dark:text-orange-500" />
-								<svelte:fragment slot="text">Could not find resource</svelte:fragment>
+								{#snippet text()}
+																Could not find resource
+															{/snippet}
 							</Tooltip>
 						{/if}
 					</Cell>

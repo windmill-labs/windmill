@@ -82,14 +82,14 @@
 		}
 	})
 
-	let color = classes[type]
+	let color = classes[untrack(() => type)]
 
 	let containerClass = {
 		success: 'toast-success',
 		error: 'toast-error',
 		info: 'toast-info',
 		warning: 'toast-warning'
-	}[type]
+	}[untrack(() => type)]
 
 	let Icon = $derived(icons[type])
 

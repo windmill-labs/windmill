@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
@@ -46,9 +47,9 @@
 	}: Props = $props()
 
 	// Use the passed createMenu function
-	const menu = createMenu({
+	const menu = untrack(() => createMenu)({
 		positioning: {
-			placement,
+			placement: untrack(() => placement),
 			fitViewport: true,
 			strategy: 'fixed'
 		},

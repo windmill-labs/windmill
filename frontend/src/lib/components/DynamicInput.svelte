@@ -113,10 +113,10 @@
 		}
 	})
 
-	let lastArgs = $state.snapshot(otherArgs)
+	let lastArgs = $state.snapshot(untrack(() => otherArgs))
 
 	let timeout: number | undefined = $state()
-	let nargs = $state($state.snapshot(otherArgs))
+	let nargs = $state($state.snapshot(untrack(() => otherArgs)))
 	$effect(() => {
 		otherArgs
 		untrack(() => clearTimeout(timeout))

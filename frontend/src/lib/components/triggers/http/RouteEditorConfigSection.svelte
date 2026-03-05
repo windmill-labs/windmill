@@ -6,7 +6,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { HttpTriggerService } from '$lib/gen'
-	// import { page } from '$app/stores'
+	// import { page } from '$app/state'
 	import { getHttpRoute } from './utils'
 	import { isCloudHosted } from '$lib/cloud'
 	import Toggle from '$lib/components/Toggle.svelte'

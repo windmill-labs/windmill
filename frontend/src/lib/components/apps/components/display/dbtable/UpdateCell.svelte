@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { AppViewerContext } from '../../../types'
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
@@ -18,7 +18,7 @@
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let outputs = initOutput($worldStore, `${id}_update`, {
+	let outputs = initOutput($worldStore, `${untrack(() => id)}_update`, {
 		result: undefined,
 		loading: false,
 		jobId: undefined

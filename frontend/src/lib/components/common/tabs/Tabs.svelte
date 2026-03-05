@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setContext } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -52,7 +52,7 @@
 	setContext<TabsContext>('Tabs', {
 		selected: selectedStore,
 		update,
-		hashNavigation
+		hashNavigation: untrack(() => hashNavigation)
 	})
 
 	// Sync external prop changes to store (single direction: prop → store)

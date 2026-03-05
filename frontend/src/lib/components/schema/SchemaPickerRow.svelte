@@ -44,11 +44,12 @@
 	let popoverOpenTimeout: ReturnType<typeof setTimeout> | null = null
 
 	const dispatch = createEventDispatcher()
-	const payloadTooBigForPreview = payloadData != 'WINDMILL_TOO_BIG' && isObjectTooBig(payloadData)
-	const isTooBig = payloadData === 'WINDMILL_TOO_BIG' || payloadTooBigForPreview
+	const payloadTooBigForPreview =
+		untrack(() => payloadData) != 'WINDMILL_TOO_BIG' && isObjectTooBig(untrack(() => payloadData))
+	const isTooBig = untrack(() => payloadData) === 'WINDMILL_TOO_BIG' || payloadTooBigForPreview
 
 	const floatingConfig: FloatingConfig = {
-		placement,
+		placement: untrack(() => placement),
 		strategy: 'fixed',
 		offset: { mainAxis: 4 },
 		gutter: 0,

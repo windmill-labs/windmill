@@ -10,7 +10,7 @@
 		replaceFalseWithUndefined,
 		type Value
 	} from '$lib/utils'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import type { GetInitialAndModifiedValues } from './unsavedTypes'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
@@ -43,9 +43,9 @@
 			!bypassBeforeNavigate &&
 			getInitialAndModifiedValues &&
 			newNavigationState.to &&
-			((newNavigationState.to.url != $page.url &&
+			((newNavigationState.to.url != page.url &&
 				newNavigationState.to.url.pathname !== newNavigationState.from?.url.pathname) ||
-				(triggerOnSearchParamsChange && newNavigationState.to.url.search != $page.url.search))
+				(triggerOnSearchParamsChange && newNavigationState.to.url.search != page.url.search))
 		) {
 			goingTo = newNavigationState.to.url
 

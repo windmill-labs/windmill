@@ -38,7 +38,7 @@
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import FavoriteMenu, {
 		favoriteManager,
 		getFavoriteHref,
@@ -67,10 +67,10 @@
 		children?: import('svelte').Snippet
 	}
 
-	const remoteUrlParam = $page.url.searchParams.get('remote_url')
+	const remoteUrlParam = page.url.searchParams.get('remote_url')
 	if (remoteUrlParam) {
 		document.cookie = `remote_url=${remoteUrlParam}; path=/; secure; samesite=strict`
-		$page.url.searchParams.delete('remote_url')
+		page.url.searchParams.delete('remote_url')
 	}
 
 	let { children }: Props = $props()
@@ -87,32 +87,32 @@
 	const SIDEBAR_BG = '#F3F3F7'
 	const SIDEBAR_BG_DARK = '#1e232e'
 
-	if ($page.status == 404) {
+	if (page.status == 404) {
 		goto('/user/login')
 	}
 
 	function onQueryChangeUserSettings() {
-		if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
-			const mcpMode = $page.url.hash.includes('-mcp')
+		if (userSettings && page.url.hash.startsWith(USER_SETTINGS_HASH)) {
+			const mcpMode = page.url.hash.includes('-mcp')
 			userSettings.openDrawer(mcpMode)
 		}
 	}
 
 	function onQueryChangeAdminSettings() {
-		if (superadminSettings && $page.url.hash === SUPERADMIN_SETTINGS_HASH) {
+		if (superadminSettings && page.url.hash === SUPERADMIN_SETTINGS_HASH) {
 			superadminSettings.openDrawer()
 		}
 	}
 
 	function onQueryChange() {
-		let queryWorkspace = $page.url.searchParams.get('workspace')
+		let queryWorkspace = page.url.searchParams.get('workspace')
 		if (queryWorkspace) {
 			$workspaceStore = queryWorkspace
 		}
 
 		menuHidden =
-			$page.url.searchParams.get('nomenubar') === 'true' ||
-			$page.url.pathname.startsWith('/oauth/callback/')
+			page.url.searchParams.get('nomenubar') === 'true' ||
+			page.url.pathname.startsWith('/oauth/callback/')
 	}
 
 	async function updateUserStore(workspace: string | undefined) {
@@ -303,7 +303,7 @@
 		}
 	}
 
-	let devOnly = $derived($page.url.pathname.startsWith(base + '/scripts/dev'))
+	let devOnly = $derived(page.url.pathname.startsWith(base + '/scripts/dev'))
 
 	async function loadDefaultScripts(workspace: string, user: UserExt | undefined) {
 		if (!user?.operator) {
@@ -379,13 +379,13 @@
 	}
 
 	$effect(() => {
-		$page.url && userSettings != undefined && untrack(() => onQueryChangeUserSettings())
+		page.url && userSettings != undefined && untrack(() => onQueryChangeUserSettings())
 	})
 	$effect(() => {
-		$page.url && superadminSettings != undefined && untrack(() => onQueryChangeAdminSettings())
+		page.url && superadminSettings != undefined && untrack(() => onQueryChangeAdminSettings())
 	})
 	$effect(() => {
-		$page.url && untrack(() => onQueryChange())
+		page.url && untrack(() => onQueryChange())
 	})
 	$effect(() => {
 		$workspaceStore
@@ -447,7 +447,7 @@
 <svelte:window bind:innerWidth />
 
 <UserSettings bind:this={userSettings} showMcpMode={true} />
-{#if $page.status == 404}
+{#if page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}
 	<GlobalSearchModal bind:this={globalSearchModal} />

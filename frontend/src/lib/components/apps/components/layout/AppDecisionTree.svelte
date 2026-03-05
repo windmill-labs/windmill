@@ -51,7 +51,7 @@
 		untrack(() => (counter += 1))
 	})
 
-	let everRender = $state(render)
+	let everRender = $state(untrack(() => render))
 	$effect.pre(() => {
 		render && !everRender && (everRender = true)
 	})
@@ -66,11 +66,11 @@
 		debuggingComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let css = $state(initCss($app.css?.conditionalwrapper, customCss))
+	let css = $state(initCss($app.css?.conditionalwrapper, untrack(() => customCss)))
 	let selectedConditionIndex = 0
-	let currentNodeId = $state(getFirstNode(nodes)?.id ?? '')
+	let currentNodeId = $state(getFirstNode(untrack(() => nodes))?.id ?? '')
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		currentNodeId: untrack(() => currentNodeId),
 		currentNodeIndex: selectedConditionIndex
 	})
@@ -154,7 +154,7 @@
 		}
 	}
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setTab: (conditionIndex: number) => {
 			if (conditionIndex !== -1) {
 				onFocus(conditionIndex)
