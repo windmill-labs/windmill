@@ -18456,6 +18456,7 @@ components:
         - trigger
         - settings
         - key
+        - workspacedependencies
 
     AIProviderModel:
       type: object

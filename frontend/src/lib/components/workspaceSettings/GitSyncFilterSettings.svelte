@@ -24,6 +24,7 @@
 		triggers: boolean
 		settings: boolean
 		key: boolean
+		workspaceDependencies: boolean
 	}
 
 	let {
@@ -68,7 +69,8 @@
 		groups: effectiveIncludeTypes.includes('group'),
 		triggers: effectiveIncludeTypes.includes('trigger'),
 		settings: effectiveIncludeTypes.includes('settings'),
-		key: effectiveIncludeTypes.includes('key')
+		key: effectiveIncludeTypes.includes('key'),
+		workspaceDependencies: effectiveIncludeTypes.includes('workspacedependencies')
 	})
 
 	// Tab selection for filter kinds
@@ -90,7 +92,8 @@
 			groups: 'group',
 			triggers: 'trigger',
 			settings: 'settings',
-			key: 'key'
+			key: 'key',
+			workspaceDependencies: 'workspacedependencies'
 		}
 
 		if (value) {
@@ -302,6 +305,14 @@
 									checked={typeToggles.key}
 									on:change={(e) => updateIncludeType('key', e.detail)}
 									options={{ right: 'Encryption key' }}
+								/>
+							</div>
+							<div class="flex items-center gap-2">
+								<Toggle
+									size="xs"
+									checked={typeToggles.workspaceDependencies}
+									on:change={(e) => updateIncludeType('workspaceDependencies', e.detail)}
+									options={{ right: 'Workspace dependencies' }}
 								/>
 							</div>
 						</div>

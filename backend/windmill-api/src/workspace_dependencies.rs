@@ -16,6 +16,7 @@ use windmill_common::{
 use windmill_dep_map::workspace_dependencies::{
     trigger_dependents_to_recompute_dependencies_in_the_background, NewWorkspaceDependencies,
 };
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 use crate::db::ApiAuthed;
 
@@ -37,21 +38,36 @@ async fn create(
 ) -> error::Result<(StatusCode, String)> {
     tracing::info!(workspace_id = %nwd.workspace_id, name = ?nwd.name, language = ?nwd.language, "create workspace dependencies");
     require_admin(authed.is_admin, &authed.username)?;
-    Ok((
-        StatusCode::CREATED,
-        format!(
-            "{}",
-            nwd.create(
-                (
-                    authed.email,
-                    username_to_permissioned_as(&authed.username),
-                    authed.username,
-                ),
-                db
-            )
-            .await?
-        ),
-    ))
+
+    let dep_path = WorkspaceDependencies::to_path(&nwd.name, nwd.language)?;
+    let w_id = nwd.workspace_id.clone();
+    let email = authed.email.clone();
+    let username = authed.username.clone();
+
+    let id = nwd
+        .create(
+            (
+                authed.email,
+                username_to_permissioned_as(&authed.username),
+                authed.username,
+            ),
+            db.clone(),
+        )
+        .await?;
+
+    handle_deployment_metadata(
+        &email,
+        &username,
+        &db,
+        &w_id,
+        DeployedObject::WorkspaceDependencies { path: dep_path },
+        None,
+        true,
+        None,
+    )
+    .await?;
+
+    Ok((StatusCode::CREATED, format!("{}", id)))
 }
 
 #[axum::debug_handler]
@@ -92,7 +108,20 @@ async fn archive(
     tracing::info!(workspace_id = %w_id, language = ?language, name = ?params.name, "archive workspace dependencies");
     require_admin(authed.is_admin, &authed.username)?;
     let db = &db;
+    let dep_path = WorkspaceDependencies::to_path(&params.name, language)?;
     WorkspaceDependencies::archive(params.name.clone(), language, &w_id, db).await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        db,
+        &w_id,
+        DeployedObject::WorkspaceDependencies { path: dep_path.clone() },
+        None,
+        true,
+        None,
+    )
+    .await?;
 
     trigger_dependents_to_recompute_dependencies_in_the_background(
         params.name.is_none(),
@@ -103,7 +132,7 @@ async fn archive(
             username_to_permissioned_as(&authed.username),
             authed.username,
         ),
-        WorkspaceDependencies::to_path(&params.name, language)?,
+        dep_path,
         db.clone(),
     )
     .await;
@@ -121,7 +150,20 @@ async fn delete(
     tracing::info!(workspace_id = %w_id, language = ?language, name = ?params.name, "delete workspace dependencies");
     require_admin(authed.is_admin, &authed.username)?;
     let db = &db;
+    let dep_path = WorkspaceDependencies::to_path(&params.name, language)?;
     WorkspaceDependencies::delete(params.name.clone(), language, &w_id, db).await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        db,
+        &w_id,
+        DeployedObject::WorkspaceDependencies { path: dep_path.clone() },
+        None,
+        true,
+        None,
+    )
+    .await?;
 
     trigger_dependents_to_recompute_dependencies_in_the_background(
         params.name.is_none(),
@@ -132,7 +174,7 @@ async fn delete(
             username_to_permissioned_as(&authed.username),
             authed.username,
         ),
-        WorkspaceDependencies::to_path(&params.name, language)?,
+        dep_path,
         db.clone(),
     )
     .await;
