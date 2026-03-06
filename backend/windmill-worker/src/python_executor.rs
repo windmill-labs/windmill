@@ -1011,9 +1011,10 @@ mount {{
 
     let result = read_result(job_dir, handle_result.result_stream).await?;
 
-    // WAC v2 post-execution: parse output and handle dispatch/suspend
+    // WAC v2 post-execution: parse output and handle dispatch/suspend.
+    // Box::pin to avoid bloating handle_python_job's async state machine (stack overflow).
     if is_wac_v2 {
-        return crate::bun_executor::handle_wac_v2_output(result, job, conn).await;
+        return Box::pin(crate::bun_executor::handle_wac_v2_output(result, job, conn)).await;
     }
 
     Ok(result)
