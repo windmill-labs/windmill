@@ -3352,14 +3352,22 @@ async fn push_next_flow_job(
             scheduled_for_o = scheduled_for_o.or(Some(
                 chrono::Utc::now() + chrono::Duration::seconds(delay as i64),
             ));
-            let key = debouncing.debounce_key.clone().unwrap_or_else(|| {
+            let key = if let Some(custom_key) = debouncing.debounce_key.clone() {
+                // Interpolate $workspace and $args[...] in the custom key
+                if let Ok(ref args_map) = args {
+                    let push_args = PushArgs::from(args_map.as_ref());
+                    interpolate_args(custom_key, &push_args, &flow_job.workspace_id)
+                } else {
+                    custom_key.replace("$workspace", &flow_job.workspace_id)
+                }
+            } else {
                 format!(
                     "{}/{}/{}",
                     &flow_job.workspace_id,
                     flow_job.runnable_path(),
                     &module.id
                 )
-            });
+            };
             let key = if key.len() <= 255 {
                 key
             } else {
