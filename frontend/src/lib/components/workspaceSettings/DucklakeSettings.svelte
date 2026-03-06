@@ -332,29 +332,33 @@
 				<Cell class="w-12">
 					<div class="flex gap-2">
 						<Popover contentClasses="p-4" enableFlyTransition closeOnOtherPopoverOpen>
-							<svelte:fragment slot="trigger">
-								<div class="relative">
-									<Button variant="default" iconOnly size="sm" endIcon={{ icon: SettingsIcon }} />
-									{#if ducklake.extra_args}
-										<div
-											class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent rounded-full border border-surface"
-										></div>
-									{/if}
-								</div>
-							</svelte:fragment>
-							<svelte:fragment slot="content">
-								<Label
-									label="Extra args"
-									tooltip="Additional arguments to pass in the ATTACH command. The argument list is substituted as-is. Separate them with commas."
-								>
-									<TextInput
-										bind:value={ducklake.extra_args}
-										class="min-w-96"
-										underlyingInputEl="textarea"
-										inputProps={{ placeholder: "METADATA_SCHEMA 'schema', ENCRYPTED true" }}
-									/>
-								</Label>
-							</svelte:fragment>
+							{#snippet trigger()}
+													
+									<div class="relative">
+										<Button variant="default" iconOnly size="sm" endIcon={{ icon: SettingsIcon }} />
+										{#if ducklake.extra_args}
+											<div
+												class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent rounded-full border border-surface"
+											></div>
+										{/if}
+									</div>
+								
+													{/snippet}
+							{#snippet content()}
+													
+									<Label
+										label="Extra args"
+										tooltip="Additional arguments to pass in the ATTACH command. The argument list is substituted as-is. Separate them with commas."
+									>
+										<TextInput
+											bind:value={ducklake.extra_args}
+											class="min-w-96"
+											underlyingInputEl="textarea"
+											inputProps={{ placeholder: "METADATA_SCHEMA 'schema', ENCRYPTED true" }}
+										/>
+									</Label>
+								
+													{/snippet}
 						</Popover>
 						{#if ducklakeIsDirty[ducklake.name]}
 							<Popover
@@ -362,10 +366,14 @@
 								contentClasses="p-2 text-sm text-secondary italic"
 								class="cursor-not-allowed"
 							>
-								<svelte:fragment slot="trigger">
-									<ExploreAssetButton asset={{ kind: 'ducklake', path: '' }} disabled />
-								</svelte:fragment>
-								<svelte:fragment slot="content">Please save settings first</svelte:fragment>
+								{#snippet trigger()}
+															
+										<ExploreAssetButton asset={{ kind: 'ducklake', path: '' }} disabled />
+									
+															{/snippet}
+								{#snippet content()}
+																Please save settings first
+															{/snippet}
 							</Popover>
 						{:else}
 							<ExploreAssetButton

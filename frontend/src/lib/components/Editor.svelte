@@ -189,11 +189,11 @@
 		}
 	})
 
-	let lang = $state(scriptLangToEditorLang(scriptLang))
+	let lang = $state(scriptLangToEditorLang(untrack(() => scriptLang)))
 
-	let filePath = $state(computePath(path))
+	let filePath = $state(computePath(untrack(() => path)))
 
-	let initialPath: string | undefined = $state(path)
+	let initialPath: string | undefined = $state(untrack(() => path))
 
 	let websockets: WebSocket[] = []
 	let languageClients: MonacoLanguageClient[] = []
@@ -209,7 +209,7 @@
 	let destroyed = false
 	const uri = computeUri(
 		untrack(() => filePath),
-		scriptLang
+		untrack(() => scriptLang)
 	)
 
 	console.log('uri', uri)

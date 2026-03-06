@@ -63,7 +63,7 @@
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
-	if (input == undefined) {
+	if (untrack(() => input) == undefined) {
 		// How did this ever do anything at the top level in svelte 4 if
 		// events were not being picked up before the component fully mounted?
 		dispatch('done')
@@ -367,13 +367,13 @@
 			untrack(() => debounce(debounceTemplate))
 	})
 
-	if (input?.type == 'eval') {
+	if (untrack(() => input)?.type == 'eval') {
 		$worldStore?.stateId.subscribe((x) => {
 			debounce2(debounceEval)
 		})
 	}
 
-	if (input?.type == 'template') {
+	if (untrack(() => input)?.type == 'template') {
 		$worldStore?.stateId.subscribe((x) => {
 			debounce2(debounceTemplate)
 		})

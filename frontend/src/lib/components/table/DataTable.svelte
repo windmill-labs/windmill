@@ -67,7 +67,7 @@
 		preventXOverflow = false
 	}: Props = $props()
 	setContext<DatatableContext>('datatable', {
-		size
+		size: untrack(() => size)
 	})
 
 	$effect(() => {

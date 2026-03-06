@@ -3,12 +3,23 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
-	export let tabs: string[]
-	export let selectedIndex: number = 0
-	export let maxReachedIndex: number = -1
-	export let statusByStep: Array<'success' | 'error' | 'pending'> = []
-	export let hasValidations: boolean = false
-	export let allowStepNavigation: boolean = false
+	interface Props {
+		tabs: string[];
+		selectedIndex?: number;
+		maxReachedIndex?: number;
+		statusByStep?: Array<'success' | 'error' | 'pending'>;
+		hasValidations?: boolean;
+		allowStepNavigation?: boolean;
+	}
+
+	let {
+		tabs,
+		selectedIndex = 0,
+		maxReachedIndex = -1,
+		statusByStep = [],
+		hasValidations = false,
+		allowStepNavigation = false
+	}: Props = $props();
 
 	const dispatch = createEventDispatcher()
 
@@ -54,14 +65,14 @@
 <div class="flex justify-between">
 	<ol class="relative z-20 flex justify-between items-centers text-sm font-medium text-primary">
 		{#each tabs ?? [] as step, index}
-			<!-- svelte-ignore a11y-click-events-have-key-events -->
-			<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 			<li
 				class={classNames(
 					'flex items-center gap-2 px-2 py-1 hover:bg-gray-1200 rounded-md m-0.5',
 					index <= maxReachedIndex || allowStepNavigation ? 'cursor-pointer' : 'cursor-not-allowed'
 				)}
-				on:click={() => {
+				onclick={() => {
 					dispatch('click', { index })
 				}}
 			>

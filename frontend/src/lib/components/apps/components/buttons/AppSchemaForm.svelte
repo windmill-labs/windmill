@@ -55,7 +55,7 @@
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false,
 		valid: true,
@@ -85,7 +85,7 @@
 
 	let schemaForm: SchemaForm | undefined = $state()
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: any) {
 			args = nvalue
 			outputs.values.set(nvalue, false)
@@ -101,10 +101,10 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.schemaformcomponent, customCss))
+	let css = $state(initCss($app.css?.schemaformcomponent, untrack(() => customCss)))
 
 	const resolvedConfig = $state(
-		initConfig(components['schemaformcomponent'].initialData.configuration, configuration)
+		initConfig(components['schemaformcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	let valid = $state(true)
@@ -169,6 +169,7 @@
 			class={twMerge('p-2 overflow-auto h-full', css?.container?.class, 'wm-schema-form')}
 			style={css?.container?.style}
 		>
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				onpointerdown={stopPropagation(
 					(e) =>

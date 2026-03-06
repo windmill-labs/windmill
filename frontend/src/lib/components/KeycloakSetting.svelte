@@ -63,7 +63,10 @@
 				<span class="text-secondary font-normal text-xs"
 					>{'REALM_URL/protocol/openid-connect/auth'}</span
 				>
-				<TextInput inputProps={{ type: 'text', placeholder: 'yourorg' }} bind:value={value['org']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'yourorg' }}
+					bind:value={value['org']}
+				/>
 			</label>
 			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Custom Name</span>

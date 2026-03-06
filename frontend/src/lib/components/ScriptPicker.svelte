@@ -52,7 +52,7 @@
 	let lang: SupportedLanguage | undefined = $state()
 
 	let options: [[string, any, any, string | undefined]] = [['Script', 'script', Code2, undefined]]
-	allowFlow && options.push(['Flow', 'flow', FlowIcon, '#14b8a6'])
+	untrack(() => allowFlow) && options.push(['Flow', 'flow', FlowIcon, '#14b8a6'])
 	const dispatch = createEventDispatcher()
 
 	async function loadItems(): Promise<void> {

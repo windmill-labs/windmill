@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import MySQLIcon from '$lib/components/icons/Mysql.svelte'
 	import PostgresIcon from '$lib/components/icons/PostgresIcon.svelte'
@@ -24,6 +25,7 @@
 	import JavaIcon from '$lib/components/icons/JavaIcon.svelte'
 	import DuckDbIcon from '$lib/components/icons/DuckDbIcon.svelte'
 	import RubyIcon from '$lib/components/icons/RubyIcon.svelte'
+	import ClaudeIcon from '$lib/components/icons/ClaudeIcon.svelte'
 
 	interface Props {
 		lang:
@@ -36,6 +38,7 @@
 			| 'docker'
 			| 'powershell'
 			| 'bunnative'
+			| 'claudesandbox'
 		width?: number
 		height?: number
 		scale?: number
@@ -45,7 +48,7 @@
 
 	let { lang, width = 30, height = 30, scale = 1, size = undefined, ...rest }: Props = $props()
 
-	const languageLabel: Record<Script['language'] | 'bunnative', String> = {
+	const languageLabel: Record<Script['language'] | 'bunnative' | 'claudesandbox', String> = {
 		python3: 'Python',
 		deno: 'TypeScript',
 		go: 'Go',
@@ -68,12 +71,13 @@
 		csharp: 'C#',
 		nu: 'Nu',
 		java: 'Java',
-		ruby: 'Ruby'
+		ruby: 'Ruby',
+		claudesandbox: 'Claude Sandbox'
 		// for related places search: ADD_NEW_LANG
 	}
 
 	const langToComponent: Record<
-		SupportedLanguage | 'pgsql' | 'javascript' | 'fetch' | 'docker' | 'powershell' | 'bunnative',
+		SupportedLanguage | 'pgsql' | 'javascript' | 'fetch' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox',
 		any
 	> = {
 		go: GoIcon,
@@ -103,11 +107,12 @@
 		nu: NuIcon,
 		java: JavaIcon,
 		ruby: RubyIcon,
-		duckdb: DuckDbIcon
+		duckdb: DuckDbIcon,
+		claudesandbox: TypeScriptIcon
 		// for related places search: ADD_NEW_LANG
 	}
 
-	let subIconScale = width === 30 ? 0.6 : 0.8
+	let subIconScale = untrack(() => width) === 30 ? 0.6 : 0.8
 
 	const SvelteComponent = $derived(langToComponent[lang])
 </script>
@@ -137,6 +142,19 @@
 			}px;`}
 		>
 			<BunIcon
+				width={width * scale * (subIconScale - 0.1)}
+				height={height * scale * (subIconScale - 0.1)}
+			/>
+		</div>
+	{/if}
+	{#if lang === 'claudesandbox'}
+		<div
+			class="absolute -top-1.5 -right-1.5 bg-surface rounded-full flex items-center justify-center"
+			style={`width: ${width * scale * subIconScale}px; height: ${
+				height * scale * subIconScale
+			}px;`}
+		>
+			<ClaudeIcon
 				width={width * scale * (subIconScale - 0.1)}
 				height={height * scale * (subIconScale - 0.1)}
 			/>

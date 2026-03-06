@@ -4,7 +4,7 @@
 	import { Plus } from 'lucide-svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 
-	let name: string = ''
+	let name: string = $state('')
 
 	const dispatch = createEventDispatcher()
 

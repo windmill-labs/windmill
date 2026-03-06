@@ -4,9 +4,13 @@
 	import AnimatedButton from './common/button/AnimatedButton.svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let connecting: boolean
-	export let id: undefined | string = undefined
-	export let wrapperClasses = ''
+	interface Props {
+		connecting: boolean;
+		id?: undefined | string;
+		wrapperClasses?: string;
+	}
+
+	let { connecting, id = undefined, wrapperClasses = '' }: Props = $props();
 </script>
 
 <AnimatedButton animate={connecting} baseRadius="6px" animationDuration="2s" marginWidth="2px">

@@ -8,20 +8,30 @@
 	import TutorialInner from './TutorialInner.svelte'
 	import { isCurrentlyInTutorial } from '$lib/stores'
 
-	export let index: number = 0
-	export let name: string = 'action'
-	export let tainted: boolean = false
-	export let onDestroyed: (() => void) | undefined = undefined
 
 	type Options = {
 		indexToInsertAt?: number
 		skipStepsCount?: number
 	}
 
-	export let getSteps: (driver: Driver, options?: Options | undefined) => DriveStep[] = () => []
+	interface Props {
+		index?: number;
+		name?: string;
+		tainted?: boolean;
+		onDestroyed?: (() => void) | undefined;
+		getSteps?: (driver: Driver, options?: Options | undefined) => DriveStep[];
+	}
+
+	let {
+		index = 0,
+		name = 'action',
+		tainted = false,
+		onDestroyed = undefined,
+		getSteps = () => []
+	}: Props = $props();
 
 	let totalSteps = 0
-	let tutorial: Driver | undefined = undefined
+	let tutorial: Driver | undefined = $state(undefined)
 	const dispatch = createEventDispatcher()
 
 	// Render controls needs to be exposed so steps that have a custom render can call it

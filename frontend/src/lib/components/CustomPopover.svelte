@@ -5,6 +5,7 @@
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import type { PopoverPlacement } from './Popover.model'
 	import Portal from '$lib/components/Portal.svelte'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		placement?: PopoverPlacement
@@ -33,10 +34,10 @@
 		children,
 		overlay
 	}: Props = $props()
-	const [popperRef, popperContent] = createPopperActions({ placement })
+	const [popperRef, popperContent] = createPopperActions({ placement: untrack(() => placement) })
 
 	const popperOptions: PopperOptions<{}> = {
-		placement,
+		placement: untrack(() => placement),
 		strategy: 'fixed',
 		modifiers: [
 			{ name: 'offset', options: { offset: [8, 8] } },

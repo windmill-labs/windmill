@@ -36,7 +36,7 @@
 	let placeholder: string | undefined = $state(undefined)
 	let defaultValue: string | undefined = $state(undefined)
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: ''
 	})
 
@@ -60,7 +60,7 @@
 		})
 	}
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			if (quill) {
 				quill.root.innerHTML = nvalue
@@ -102,6 +102,7 @@
 
 <InitializeComponent {id} />
 {#if render}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="editor-wrapper h-full flex-col flex max-h-full overflow-hidden"
 		onpointerdown={stopPropagation(() => {

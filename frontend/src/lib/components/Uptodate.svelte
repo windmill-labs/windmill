@@ -3,7 +3,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import Tooltip from './Tooltip.svelte'
 
-	let uptodate: string | undefined = undefined
+	let uptodate: string | undefined = $state(undefined)
 
 	async function loadVersion() {
 		try {

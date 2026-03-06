@@ -5,7 +5,13 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { GroupService, UserService, WorkspaceService, type ProtectionRuleKind, type ProtectionRuleset } from '$lib/gen'
+	import {
+		GroupService,
+		UserService,
+		WorkspaceService,
+		type ProtectionRuleKind,
+		type ProtectionRuleset
+	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { clone } from '$lib/utils'
 	import { untrack } from 'svelte'
@@ -27,21 +33,29 @@
 	const hasRule = (ruleKind: string) => rule?.rules?.includes(ruleKind as any) ?? false
 
 	// Editable state
-	let name = $state(rule?.name ?? '')
+	let name = $state(untrack(() => rule)?.name ?? '')
 	let disableDirectDeployment = $state(hasRule('DisableDirectDeployment'))
 	let disableFork = $state(hasRule('DisableWorkspaceForking'))
-	let selectedGroups = $state<string[]>(rule?.bypass_groups?.map((g) => g.replace('g/', '')) ?? [])
-	let selectedUsers = $state<string[]>(rule?.bypass_users?.map((u) => u.replace('u/', '')) ?? [])
+	let selectedGroups = $state<string[]>(
+		untrack(() => rule)?.bypass_groups?.map((g) => g.replace('g/', '')) ?? []
+	)
+	let selectedUsers = $state<string[]>(
+		untrack(() => rule)?.bypass_users?.map((u) => u.replace('u/', '')) ?? []
+	)
 
 	// Initial state for unsaved changes tracking
-	let initialName = $state(rule?.name ?? '')
+	let initialName = $state(untrack(() => rule)?.name ?? '')
 	let initialDisableDirectDeployment = $state(hasRule('DisableDirectDeployment'))
 	let initialDisableFork = $state(hasRule('DisableWorkspaceForking'))
 	let initialSelectedGroups = $state<string[]>(
-		rule?.bypass_groups ? rule.bypass_groups.map((g) => g.replace('g/', '')) : []
+		untrack(() => rule)?.bypass_groups
+			? untrack(() => rule)!.bypass_groups.map((g) => g.replace('g/', ''))
+			: []
 	)
 	let initialSelectedUsers = $state<string[]>(
-		rule?.bypass_users ? rule.bypass_users.map((u) => u.replace('u/', '')) : []
+		untrack(() => rule)?.bypass_users
+			? untrack(() => rule)!.bypass_users.map((u) => u.replace('u/', ''))
+			: []
 	)
 
 	// Available options
@@ -105,7 +119,8 @@
 					disableFork !== initialDisableFork ||
 					JSON.stringify([...selectedGroups].sort()) !==
 						JSON.stringify([...initialSelectedGroups].sort()) ||
-					JSON.stringify([...selectedUsers].sort()) !== JSON.stringify([...initialSelectedUsers].sort())
+					JSON.stringify([...selectedUsers].sort()) !==
+						JSON.stringify([...initialSelectedUsers].sort())
 	)
 
 	const nameError = $derived.by(() => {
@@ -138,7 +153,7 @@
 					name,
 					rules: [
 						...(disableDirectDeployment ? ['DisableDirectDeployment' as ProtectionRuleKind] : []),
-						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : []),
+						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -163,7 +178,7 @@
 				requestBody: {
 					rules: [
 						...(disableDirectDeployment ? ['DisableDirectDeployment' as ProtectionRuleKind] : []),
-						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : []),
+						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -225,7 +240,11 @@
 					{#each selectedGroups as group (group)}
 						<Badge color="blue" class="flex items-center gap-1">
 							{group}
-							<button type="button" onclick={() => removeGroup(group)} class="ml-1 hover:text-red-600">
+							<button
+								type="button"
+								onclick={() => removeGroup(group)}
+								class="ml-1 hover:text-red-600"
+							>
 								<X size={14} />
 							</button>
 						</Badge>
@@ -247,7 +266,11 @@
 					{#each selectedUsers as user (user)}
 						<Badge color="indigo" class="flex items-center gap-1">
 							{user}
-							<button type="button" onclick={() => removeUser(user)} class="ml-1 hover:text-red-600">
+							<button
+								type="button"
+								onclick={() => removeUser(user)}
+								class="ml-1 hover:text-red-600"
+							>
 								<X size={14} />
 							</button>
 						</Badge>
@@ -287,7 +310,6 @@
 				/>
 				<div class="text-xs text-secondary ml-6">Users cannot create forks of this workspace.</div>
 			</div>
-
 		</div>
 	</Section>
 

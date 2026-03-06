@@ -105,7 +105,7 @@
 	const saveDisabled = $derived(
 		pathError != '' || emptyString(script_path) || !isValid || !can_write || !hasChanged
 	)
-	const captureConfig = $derived.by(isEditor ? getGcpCaptureConfig : () => ({}))
+	const captureConfig = $derived.by(untrack(() => isEditor) ? getGcpCaptureConfig : () => ({}))
 
 	export async function openEdit(
 		ePath: string,

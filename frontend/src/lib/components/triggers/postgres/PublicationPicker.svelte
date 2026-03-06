@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
@@ -9,17 +11,29 @@
 	import { emptyString } from '$lib/utils'
 	import { RefreshCw } from 'lucide-svelte'
 
-	export let items: string[] = []
-	export let can_write: boolean = true
-	export let publication_name: string = ''
-	export let postgres_resource_path: string = ''
-	export let relations: Relations[] | undefined = undefined
-	export let transaction_to_track: string[] = []
-	export let disabled: boolean = false
+	interface Props {
+		items?: string[];
+		can_write?: boolean;
+		publication_name?: string;
+		postgres_resource_path?: string;
+		relations?: Relations[] | undefined;
+		transaction_to_track?: string[];
+		disabled?: boolean;
+	}
 
-	let loadingPublication: boolean = false
-	let deletingPublication: boolean = false
-	let updatingPublication: boolean = false
+	let {
+		items = $bindable([]),
+		can_write = true,
+		publication_name = $bindable(''),
+		postgres_resource_path = '',
+		relations = $bindable(undefined),
+		transaction_to_track = $bindable([]),
+		disabled = false
+	}: Props = $props();
+
+	let loadingPublication: boolean = $state(false)
+	let deletingPublication: boolean = $state(false)
+	let updatingPublication: boolean = $state(false)
 	async function listDatabasePublication() {
 		try {
 			loadingPublication = true
@@ -94,7 +108,9 @@
 	}
 
 	listDatabasePublication()
-	$: publication_name && getAllRelations()
+	run(() => {
+		publication_name && getAllRelations()
+	});
 </script>
 
 <div class="flex gap-1">

@@ -4,7 +4,7 @@
 	const bubble = createBubbler()
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { classNames } from '$lib/utils'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { AppViewerContext } from '../types'
 	import type { DecisionTreeNode } from './component'
 	import { isDebugging } from './settingsPanel/decisionTree/utils'
@@ -27,7 +27,7 @@
 		getContext<AppViewerContext>('AppViewerContext')
 	const dispatch = createEventDispatcher()
 
-	let currentNodeId: string = $state($worldStore.outputsById[id]?.currentNodeId?.peak() ?? 'a')
+	let currentNodeId: string = $state($worldStore.outputsById[untrack(() => id)]?.currentNodeId?.peak() ?? 'a')
 
 	function subscribeToCurrentNode(id: string) {
 		return $worldStore.outputsById[id]?.currentNodeId?.subscribe(
@@ -41,7 +41,7 @@
 		)
 	}
 
-	let subscription = subscribeToCurrentNode(id)
+	let subscription = subscribeToCurrentNode(untrack(() => id))
 
 	function onDebugNode(debuggedNodeIndex: number | undefined) {
 		if (debuggedNodeIndex === undefined) {
@@ -63,7 +63,7 @@
 	})
 
 	let renderCount: number = $state(0)
-	let lastNodes: DecisionTreeNode[] = nodes
+	let lastNodes: DecisionTreeNode[] = untrack(() => nodes)
 
 	function onNodesChange(newNodes: DecisionTreeNode[]) {
 		if (JSON.stringify(newNodes) !== JSON.stringify(lastNodes)) {

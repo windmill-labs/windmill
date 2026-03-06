@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import InstanceSettings from '$lib/components/InstanceSettings.svelte'
 	import { Alert, Button } from '$lib/components/common'
@@ -35,17 +35,17 @@
 
 	const fullStepLabels = ['Settings', 'Root login & Resource Types']
 
-	const initialMode = $page.url.searchParams.get('mode') === 'full' ? 'full' : 'wizard'
+	const initialMode = page.url.searchParams.get('mode') === 'full' ? 'full' : 'wizard'
 	const initialStep = Math.max(
 		0,
-		Math.min(parseInt($page.url.searchParams.get('step') ?? '0') || 0, wizardStepLabels.length - 1)
+		Math.min(parseInt(page.url.searchParams.get('step') ?? '0') || 0, wizardStepLabels.length - 1)
 	)
 	const initialFullStep =
 		initialMode === 'full'
 			? Math.max(
 					0,
 					Math.min(
-						parseInt($page.url.searchParams.get('step') ?? '0') || 0,
+						parseInt(page.url.searchParams.get('step') ?? '0') || 0,
 						fullStepLabels.length - 1
 					)
 				)

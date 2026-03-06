@@ -599,3 +599,10 @@ export function useLocalStorageValue<T>(
 		}
 	}
 }
+
+export function onCustomEvent(node, { event, handler }) {
+	node.addEventListener(event, handler)
+	return {
+		destroy: () => node.removeEventListener(event, handler)
+	}
+}

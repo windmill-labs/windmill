@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
+	import { run } from 'svelte/legacy'
+
 	import { goto } from '$lib/navigation'
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
@@ -31,26 +34,28 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import type { UserWorkspace } from '$lib/stores'
 
-	let invites: WorkspaceInvite[] = []
-	let list_all_as_super_admin: boolean = false
-	let workspaces: UserWorkspace[] | undefined = undefined
-	let showAllForks: boolean = false
+	let invites: WorkspaceInvite[] = $state([])
+	let list_all_as_super_admin: boolean = $state(false)
+	let workspaces: UserWorkspace[] | undefined = $state(undefined)
+	let showAllForks: boolean = $state(false)
 
 	// Workspace tree controls
-	let workspaceSearchFilter = ''
-	let workspaceAllExpanded = false
-	let workspaceHasForks = false
-	let workspaceTreeView: WorkspaceTreeView | undefined = undefined
+	let workspaceSearchFilter = $state('')
+	let workspaceAllExpanded = $state(false)
+	let workspaceHasForks = $state(false)
+	let workspaceTreeView: WorkspaceTreeView | undefined = $state(undefined)
 
-	let userSettings: UserSettings
-	let superadminSettings: SuperadminSettings
+	let userSettings: UserSettings | undefined = $state()
+	let superadminSettings: SuperadminSettings | undefined = $state()
 
-	$: rd = $page.url.searchParams.get('rd')
+	let rd = $derived($page.url.searchParams.get('rd'))
 
-	$: if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
-		const mcpMode = $page.url.hash.includes('-mcp')
-		userSettings.openDrawer(mcpMode)
-	}
+	run(() => {
+		if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
+			const mcpMode = $page.url.hash.includes('-mcp')
+			userSettings.openDrawer(mcpMode)
+		}
+	})
 
 	async function loadInvites() {
 		try {
@@ -90,11 +95,13 @@
 			workspaces = $userWorkspaces
 		}
 	}
-	$: list_all_as_super_admin != undefined && $userWorkspaces && handleListWorkspaces()
+	run(() => {
+		list_all_as_super_admin != undefined && $userWorkspaces && handleListWorkspaces()
+	})
 
-	$: allWorkspaces = workspaces || []
-	$: noWorkspaces = $superadmin && allWorkspaces.length == 0
-	$: onlyAdminsWorkspace = allWorkspaces.length === 1 && allWorkspaces[0].id === 'admins'
+	let allWorkspaces = $derived.by(() => workspaces || [])
+	let noWorkspaces = $derived($superadmin && allWorkspaces.length == 0)
+	let onlyAdminsWorkspace = $derived(allWorkspaces.length === 1 && allWorkspaces[0].id === 'admins')
 
 	async function getCreateWorkspaceRequireSuperadmin() {
 		const r = await fetch(base + '/api/workspaces/create_workspace_require_superadmin')
@@ -102,13 +109,15 @@
 		createWorkspace = t != 'true'
 	}
 
-	let createWorkspace = $superadmin || isCloudHosted()
+	let createWorkspace = $state($superadmin || isCloudHosted())
 
-	$: if ($superadmin) {
-		createWorkspace = true
-	}
+	run(() => {
+		if ($superadmin) {
+			createWorkspace = true
+		}
+	})
 
-	if (!createWorkspace) {
+	if (!untrack(() => createWorkspace)) {
 		getCreateWorkspaceRequireSuperadmin()
 	}
 
@@ -116,7 +125,7 @@
 	loadInvites()
 	loadWorkspaces()
 
-	let loading = false
+	let loading = $state(false)
 
 	async function speakFriendAndEnterWorkspace(workspaceId: string) {
 		loading = true
@@ -257,7 +266,13 @@
 
 		{#if createWorkspace}
 			<div class="flex flex-row-reverse pt-4 w-full">
-				<AnimatedButton animate={onlyAdminsWorkspace} baseRadius="6px" animationDuration="2s" marginWidth="2px" wrapperClasses="w-full">
+				<AnimatedButton
+					animate={onlyAdminsWorkspace}
+					baseRadius="6px"
+					animationDuration="2s"
+					marginWidth="2px"
+					wrapperClasses="w-full"
+				>
 					<Button
 						unifiedSize="sm"
 						href="{base}/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
@@ -309,7 +324,7 @@
 					<Button
 						variant="subtle"
 						size="xs2"
-						on:click={async () => {
+						onClick={async () => {
 							await UserService.declineInvite({
 								requestBody: { workspace_id: invite.workspace_id }
 							})
@@ -398,12 +413,12 @@
 				<Button
 					variant="default"
 					unifiedSize="md"
-					on:click={superadminSettings.openDrawer}
+					onClick={superadminSettings?.openDrawer}
 					startIcon={{ icon: Settings }}
 					dropdownItems={[
 						{
 							label: 'User settings',
-							onClick: () => userSettings.openDrawer(),
+							onClick: () => userSettings?.openDrawer(),
 							icon: User
 						}
 					]}
@@ -414,7 +429,7 @@
 				<Button
 					variant="default"
 					unifiedSize="md"
-					onClick={() => userSettings.openDrawer()}
+					onClick={() => userSettings?.openDrawer()}
 					startIcon={{ icon: Settings }}
 				>
 					User settings
@@ -424,7 +439,7 @@
 			<Button
 				variant="accent"
 				unifiedSize="md"
-				on:click={async () => {
+				onClick={async () => {
 					logout()
 				}}
 			>

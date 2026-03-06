@@ -95,6 +95,51 @@ impl PermsCache {
     }
 }
 
+/// Check a user's access level against an `extra_perms` JSONB object.
+///
+/// Returns `None` if the user has no matching entry (no access).
+/// Returns `Some(true)` if the user (or any of their groups) has write access.
+/// Returns `Some(false)` if the user (or any of their groups) has read-only access.
+pub fn check_extra_perms(
+    extra_perms: &serde_json::Map<String, serde_json::Value>,
+    username: &str,
+    groups: &[String],
+) -> Option<bool> {
+    // Check direct user permission
+    let user_key = if username.starts_with("u/") {
+        username.to_string()
+    } else {
+        format!("u/{username}")
+    };
+    if let Some(v) = extra_perms.get(&user_key) {
+        return Some(v.as_bool().unwrap_or(false));
+    }
+
+    // Check group permissions — return highest access level found
+    let mut found = false;
+    let mut write = false;
+    for g in groups {
+        let key = if g.starts_with("g/") {
+            g.to_string()
+        } else {
+            format!("g/{g}")
+        };
+        if let Some(v) = extra_perms.get(&key) {
+            found = true;
+            if v.as_bool().unwrap_or(false) {
+                write = true;
+                break;
+            }
+        }
+    }
+
+    if found {
+        Some(write)
+    } else {
+        None
+    }
+}
+
 pub fn has_expired(expiration_time: DateTime<Utc>, take: Option<Duration>) -> bool {
     let now = Utc::now();
 

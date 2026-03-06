@@ -8,10 +8,14 @@
 	import { clickButtonBySelector } from '../utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 
-	export let name: string
-	export let index: number
+	interface Props {
+		name: string;
+		index: number;
+	}
 
-	let tutorial: Tutorial | undefined = undefined
+	let { name, index }: Props = $props();
+
+	let tutorial: Tutorial | undefined = $state(undefined)
 
 	const { app, selectedComponent, focusedGrid } = getContext<AppViewerContext>('AppViewerContext')
 	const { history } = getContext<AppEditorContext>('AppEditorContext')

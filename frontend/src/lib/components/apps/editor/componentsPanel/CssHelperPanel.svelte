@@ -76,7 +76,7 @@
 
 	entries.sort((a, b) => (b.order ?? 0) - (a.order ?? 0) + a.name.localeCompare(b.name))
 
-	let search = ''
+	let search = $state('')
 </script>
 
 <div class="p-2">
@@ -98,12 +98,15 @@
 					}
 				}}
 			>
-				<div slot="titleSlot" class="flex items-center">
-					<svelte:component this={icon} size={18} />
-					<span class="ml-1">
-						{name}
-					</span>
-				</div>
+				{#snippet titleSlot()}
+								{@const SvelteComponent = icon}
+				<div  class="flex items-center">
+						<SvelteComponent size={18} />
+						<span class="ml-1">
+							{name}
+						</span>
+					</div>
+							{/snippet}
 				{#if description}
 					<div class="py-2 text-xs text-gray-500">{description}</div>
 				{/if}

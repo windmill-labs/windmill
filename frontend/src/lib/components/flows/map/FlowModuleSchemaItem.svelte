@@ -21,7 +21,7 @@
 		Timer,
 		Maximize2
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
@@ -157,7 +157,7 @@
 
 	let editId = $state(false)
 
-	let newId: string = $state(id ?? '')
+	let newId: string = $state(untrack(() => id) ?? '')
 
 	let moduleTest: ModuleTest | undefined = $state(undefined)
 	let testIsLoading = $state(false)

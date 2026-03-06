@@ -1,10 +1,18 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import { createEventDispatcher } from 'svelte'
 
-	const dispatch = createEventDispatcher()
+	const dispatch = createEventDispatcher<{ open: void; close: void }>()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
-	export let open: boolean = false
+	interface Props {
+		open?: boolean
+	}
 
-	$: dispatchIfMounted(open ? 'open' : 'close')
+	let { open = false }: Props = $props()
+
+	run(() => {
+		dispatchIfMounted(open ? 'open' : 'close')
+	})
 </script>

@@ -34,14 +34,14 @@
 	}: Props = $props()
 
 	let resolvedConfig = $state(
-		initConfig(components['s3fileinputcomponent'].initialData.configuration, configuration)
+		initConfig(components['s3fileinputcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	let fileUploads: Writable<FileUploadData[]> = writable([])
 	const { app, worldStore, componentControl, runnableComponents, workspace } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		clearFiles: () => {
 			outputs.result.set([])
 			$fileUploads = []
@@ -49,7 +49,7 @@
 	}
 
 	let value: { path: string; filename: string }[] | undefined = $state(undefined)
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: untrack(() => value) ?? ([] as { path: string; filename: string }[] | undefined),
 		loading: false,
 		jobId: undefined
@@ -57,7 +57,7 @@
 
 	let resolvedConfigS3 = $derived(resolvedConfig.type.configuration.s3)
 
-	let css = $state(initCss($app.css?.fileinputcomponent, customCss))
+	let css = $state(initCss($app.css?.fileinputcomponent, untrack(() => customCss)))
 	/*
 
 		{#if resolvedConfig.displayDirectLink && fileUpload.progress === 100}

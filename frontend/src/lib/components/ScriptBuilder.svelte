@@ -157,7 +157,7 @@
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
-	let args: Record<string, any> = $state(initialArgs) // Test args input
+	let args: Record<string, any> = $state(untrack(() => initialArgs)) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' = $state('main')
 	let hasPreprocessor = $state(false)
 	let preserveOnBehalfOf = $state(false)
@@ -170,12 +170,12 @@
 	let customOnBehalfOfEmail: string = $state('')
 
 	let metadataOpen = $state(
-		!neverShowMeta &&
-			(showMeta ||
-				searchParams.get('metadata_open') == 'true' ||
+		!untrack(() => neverShowMeta) &&
+			(untrack(() => showMeta) ||
+				untrack(() => searchParams).get('metadata_open') == 'true' ||
 				(initialPath == '' &&
-					searchParams.get('state') == undefined &&
-					searchParams.get('collab') == undefined))
+					untrack(() => searchParams).get('state') == undefined &&
+					untrack(() => searchParams).get('collab') == undefined))
 	)
 
 	let editor: Editor | undefined = $state(undefined)
@@ -193,10 +193,15 @@
 		confirmDeploymentCallback(selectedTriggers)
 	}
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // keep for legacy
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(
+		untrack(() => savedPrimarySchedule)
+	) // keep for legacy
 	const triggersCount = writable<TriggersCount | undefined>(
-		savedPrimarySchedule
-			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
+		untrack(() => savedPrimarySchedule)
+			? {
+					schedule_count: 1,
+					primary_schedule: { schedule: untrack(() => savedPrimarySchedule)!.cron }
+				}
 			: undefined
 	)
 	const simplifiedPoll = writable(false)
@@ -382,7 +387,7 @@
 	async function initContent(
 		language: SupportedLanguage,
 		kind: Script['kind'] | undefined,
-		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
+		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox'
 	) {
 		scriptEditor?.disableCollaboration()
 		const templateScript = await isTemplateScript()
@@ -859,7 +864,7 @@
 		})()
 	)
 
-	setContext('disableTooltips', customUi?.disableTooltips === true)
+	setContext('disableTooltips', untrack(() => customUi)?.disableTooltips === true)
 
 	function langToLanguage(lang: SupportedLanguage | 'docker' | 'bunnative'): SupportedLanguage {
 		if (lang == 'docker') {
@@ -1159,9 +1164,10 @@
 											<div class=" grid grid-cols-3 gap-2">
 												{#each langs as [label, lang] (lang)}
 													{@const isPicked =
-														(lang == script.language && template == 'script') ||
+														(lang == script.language && template != 'bunnative' && template != 'docker' && template != 'claudesandbox') ||
 														(template == 'bunnative' && lang == 'bunnative') ||
-														(template == 'docker' && lang == 'docker')}
+														(template == 'docker' && lang == 'docker') ||
+														(template == 'claudesandbox' && lang == 'bun')}
 													<Popover
 														disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
 													>
@@ -1194,6 +1200,25 @@
 											</div>
 										</Section>
 									{/if}
+									<div class="flex items-center gap-2 mt-2">
+										<span class="text-2xs text-secondary">Template</span>
+										<Button
+											size="xs2"
+											variant="border"
+											color="light"
+											startIcon={{
+												icon: LanguageIcon,
+												props: { lang: 'claudesandbox', width: 16, height: 16 }
+											} as ButtonType.Icon}
+											on:click={() => {
+												template = 'claudesandbox'
+												script.language = 'bun'
+												initContent('bun', script.kind, template)
+											}}
+										>
+											Claude Sandbox
+										</Button>
+									</div>
 									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true}
 										<Section label="Script kind">
 											{#snippet header()}
@@ -1652,8 +1677,10 @@
 													/>
 												{:else if script.on_behalf_of_email && !canPreserve}
 													<span class="text-xs text-tertiary">
-														Currently: <span class="font-medium">{originalOnBehalfOfEmail ?? script.on_behalf_of_email}</span>.
-														Will be set to <span class="font-medium">{$userStore?.email}</span> on deploy (requires admin or wm_deployers group to override)
+														Currently: <span class="font-medium"
+															>{originalOnBehalfOfEmail ?? script.on_behalf_of_email}</span
+														>. Will be set to <span class="font-medium">{$userStore?.email}</span> on
+														deploy (requires admin or wm_deployers group to override)
 													</span>
 												{/if}
 											</span>

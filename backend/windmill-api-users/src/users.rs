@@ -1850,6 +1850,14 @@ async fn impersonate(
     .execute(&mut *tx)
     .await?;
 
+    windmill_api_auth::register_token_expiry_notification(
+        &mut *tx,
+        &token,
+        new_token.label.as_deref(),
+        new_token.expiration,
+    )
+    .await;
+
     audit_log(
         &mut *tx,
         &authed,

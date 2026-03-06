@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import type { EditableSchemaWrapperProps } from './editable_schema_wrapper'
@@ -10,7 +11,7 @@
 		...props
 	}: EditableSchemaWrapperProps & { onSchemaChange?: (schema: any) => void } = $props()
 
-	let schema = $state(oldSchema)
+	let schema = $state(untrack(() => oldSchema))
 
 	let lastSchema = $state<any>(undefined)
 	$effect(() => {

@@ -44,19 +44,20 @@ use windmill_common::{
     apps::APP_WORKSPACED_ROUTE,
     auth::create_token_for_owner,
     ee_oss::CriticalErrorChannel,
+    email_oss::send_email_if_possible,
     error,
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
-        NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OTEL_SETTING,
-        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
+        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING,
+        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        NUGET_CONFIG_SETTING, OTEL_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
+        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
         UV_INDEX_STRATEGY_SETTING,
@@ -76,10 +77,11 @@ use windmill_common::{
         DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR,
         WORKER_CONFIG, WORKER_GROUP,
     },
-    KillpillSender, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE, CRITICAL_ALERT_MUTE_UI_ENABLED,
-    CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
-    METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
-    OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
+    KillpillSender, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE, CRITICAL_ALERTS_ON_TOKEN_EXPIRY,
+    CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
+    HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+    MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
+    SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
 #[cfg(feature = "parquet")]
@@ -205,6 +207,10 @@ pub async fn initial_load(
 
     if let Err(e) = reload_critical_alert_mute_ui_setting(conn).await {
         tracing::error!("Error loading critical alert mute ui setting: {e:#}");
+    }
+
+    if let Err(e) = reload_critical_alerts_on_token_expiry_setting(conn).await {
+        tracing::error!("Error loading critical alerts on token expiry setting: {e:#}");
     }
 
     if let Some(db) = conn.as_sql() {
@@ -473,6 +479,21 @@ pub async fn reload_critical_alert_mute_ui_setting(conn: &Connection) -> error::
         load_value_from_global_settings_with_conn(conn, CRITICAL_ALERT_MUTE_UI_SETTING, true).await
     {
         CRITICAL_ALERT_MUTE_UI_ENABLED.store(t, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+pub async fn reload_critical_alerts_on_token_expiry_setting(
+    conn: &Connection,
+) -> error::Result<()> {
+    if let Ok(Some(serde_json::Value::Bool(t))) = load_value_from_global_settings_with_conn(
+        conn,
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
+        true,
+    )
+    .await
+    {
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY.store(t, Ordering::Relaxed);
     }
     Ok(())
 }
@@ -845,18 +866,82 @@ struct LogFile {
     hostname: String,
 }
 
+struct TokenRow {
+    token_prefix: Option<String>,
+    label: Option<String>,
+    email: Option<String>,
+    workspace_id: Option<String>,
+}
+
+fn is_user_token(label: Option<&str>) -> bool {
+    match label {
+        None => true,
+        Some(l) => l != "session" && !l.starts_with("ephemeral") && !l.starts_with("Ephemeral"),
+    }
+}
+
+async fn report_token_expiration(db: &DB, token: &TokenRow, expired: bool) {
+    if !is_user_token(token.label.as_deref()) {
+        return;
+    }
+    let prefix = token.token_prefix.as_deref().unwrap_or("??????????");
+    let email_addr = token.email.as_deref().unwrap_or("unknown");
+    let token_desc = match token.label.as_deref() {
+        Some(l) if !l.is_empty() => format!("'{l}' ({prefix}****)"),
+        _ => format!("{prefix}****"),
+    };
+
+    let (alert_message, email_subject, email_body) = if expired {
+        (
+            format!(
+                "API token {token_desc} of '{email_addr}' has expired and been deleted"
+            ),
+            "Windmill: Your API token has expired",
+            format!(
+                "Your API token {token_desc} has expired and been deleted.\n\nPlease create a new token if you still need API access."
+            ),
+        )
+    } else {
+        (
+            format!("API token {token_desc} of '{email_addr}' is expiring soon"),
+            "Windmill: Your API token is expiring soon",
+            format!(
+                "Your API token {token_desc} is expiring soon.\n\nPlease rotate or renew your token to avoid service disruption."
+            ),
+        )
+    };
+
+    tracing::info!("{}", alert_message);
+    if CRITICAL_ALERTS_ON_TOKEN_EXPIRY.load(Ordering::Relaxed) {
+        report_critical_error(
+            alert_message,
+            db.clone(),
+            token.workspace_id.as_deref(),
+            None,
+        )
+        .await;
+    }
+    if let Some(email) = &token.email {
+        send_email_if_possible(email_subject, &email_body, email);
+    }
+}
+
 pub async fn delete_expired_items(db: &DB) -> () {
-    let tokens_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
+    let expired_tokens_r = sqlx::query_as!(
+        TokenRow,
         "DELETE FROM token WHERE expiration <= now()
-        RETURNING concat(substring(token for 10), '*****')",
+        RETURNING substring(token for 10) as token_prefix, label, email, workspace_id",
     )
     .fetch_all(db)
     .await;
 
-    match tokens_deleted_r {
+    match expired_tokens_r {
         Ok(tokens) => {
-            if tokens.len() > 0 {
-                tracing::info!("deleted {} tokens: {:?}", tokens.len(), tokens)
+            if !tokens.is_empty() {
+                tracing::info!("deleted {} expired tokens", tokens.len());
+                for t in &tokens {
+                    report_token_expiration(db, t, true).await;
+                }
             }
         }
         Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
@@ -1062,6 +1147,41 @@ pub async fn delete_expired_items(db: &DB) -> () {
         {
             tracing::error!("Error deleting custom concurrency key: {:?}", e);
         }
+    }
+}
+
+pub async fn check_expiring_tokens(db: &DB) {
+    // Find tokens expiring within 7 days that still have a pending notification row
+    let expiring_tokens_r = sqlx::query_as!(
+        TokenRow,
+        "DELETE FROM token_expiry_notification n
+         USING token t
+         WHERE n.token = t.token
+           AND n.expiration > now()
+           AND n.expiration <= now() + interval '7 days'
+         RETURNING substring(t.token for 10) as token_prefix, t.label, t.email, t.workspace_id",
+    )
+    .fetch_all(db)
+    .await;
+
+    match expiring_tokens_r {
+        Ok(tokens) => {
+            for t in &tokens {
+                report_token_expiration(db, t, false).await;
+            }
+            if !tokens.is_empty() {
+                tracing::info!("Sent expiration warnings for {} token(s)", tokens.len());
+            }
+        }
+        Err(e) => tracing::error!("Error checking expiring tokens: {}", e),
+    }
+
+    // Clean up notification rows whose expiration has passed
+    if let Err(e) = sqlx::query!("DELETE FROM token_expiry_notification WHERE expiration <= now()")
+        .execute(db)
+        .await
+    {
+        tracing::error!("Error cleaning up expired token notifications: {}", e);
     }
 }
 
@@ -2052,6 +2172,16 @@ pub async fn monitor_db(
         }
     };
 
+    // Run every hour (10 iterations * 30s = 5 minutes)
+    // Check for tokens expiring within 7 days and send alerts
+    let check_expiring_tokens_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                check_expiring_tokens(&db).await;
+            }
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -2073,6 +2203,7 @@ pub async fn monitor_db(
         cleanup_worker_group_stats_f,
         native_triggers_sync_f,
         cleanup_notify_events_f,
+        check_expiring_tokens_f,
     );
 }
 

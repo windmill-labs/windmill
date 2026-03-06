@@ -13,6 +13,7 @@ pub enum AssetKind {
     Variable, // Deprecated
     Ducklake,
     DataTable,
+    Volume,
 }
 
 #[derive(

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext, ListContext } from '../../types'
@@ -161,7 +161,7 @@
 		}
 	})
 
-	const fullId = id + (extraKey ?? '')
+	const fullId = untrack(() => id) + (untrack(() => extraKey) ?? '')
 	if (!(initializing && componentInput?.type === 'runnable' && isRunnableDefined(componentInput))) {
 		initializing = false
 	} else {

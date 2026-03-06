@@ -1,10 +1,20 @@
-<script>
-	export let pulseDuration = 2
-	export let numberOfPulses = 3
-	export let scale = 1.2
+<script lang="ts">
+	interface Props {
+		pulseDuration?: number;
+		numberOfPulses?: number;
+		scale?: number;
+		children?: import('svelte').Snippet;
+	}
 
-	let isPulsing = false
-	let pulseCount = 1
+	let {
+		pulseDuration = 2,
+		numberOfPulses = 3,
+		scale = 1.2,
+		children
+	}: Props = $props();
+
+	let isPulsing = $state(false)
+	let pulseCount = $state(1)
 
 	export function triggerPulse(count) {
 		if (pulseCount < 1) return
@@ -20,7 +30,7 @@
 
 <div class="relative">
 	<div>
-		<slot />
+		{@render children?.()}
 	</div>
 	{#each Array(numberOfPulses) as _, i}
 		<div

@@ -24,7 +24,7 @@
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
-		type onSelectedIteration,
+		type OnSelectedIteration,
 		type SimplifiableFlow
 	} from './graphBuilder.svelte'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
@@ -162,7 +162,7 @@
 		onDuplicate?: (id: string) => void
 		onUpdateMock?: (detail: { mock: FlowModule['mock']; id: string }) => void
 		onTestUpTo?: ((id: string) => void) | undefined
-		onSelectedIteration?: onSelectedIteration
+		onSelectedIteration?: OnSelectedIteration
 		onEditInput?: (moduleId: string, key: string) => void
 		onTestFlow?: () => void
 		onCancelTestFlow?: () => void
@@ -266,7 +266,7 @@
 	let flowContainer: HTMLDivElement | undefined = $state(undefined)
 
 	// Selection manager - create one if not provided
-	let selectionManager = selectionManagerProp || new SelectionManager()
+	let selectionManager = untrack(() => selectionManagerProp) || new SelectionManager()
 	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const noteEditorContext = getNoteEditorContext()
@@ -288,22 +288,22 @@
 	}
 
 	// Calculate note gap based on current nodes and notes
-	const topPadding = editMode ? 100 : 24
-	const yOffset = calculateNoteGap(notes) + topPadding
+	const topPadding = untrack(() => editMode) ? 100 : 24
+	const yOffset = calculateNoteGap(untrack(() => notes)) + topPadding
 
 	setGraphContext({
 		selectionManager: selectionManager,
 		useDataflow,
 		showAssets,
 		noteManager,
-		moveManager,
+		moveManager: untrack(() => moveManager),
 		clearFlowSelection,
 		yOffset,
 		diffManager
 	} as any)
 
-	if (triggerContext && allowSimplifiedPoll) {
-		if (isSimplifiable(modules)) {
+	if (triggerContext && untrack(() => allowSimplifiedPoll)) {
+		if (isSimplifiable(untrack(() => modules))) {
 			triggerContext?.simplifiedPoll?.set(true)
 		}
 		triggerContext?.simplifiedPoll.subscribe((value) => {
@@ -640,7 +640,10 @@
 		let assetNodesResult = $showAssets
 			? computeAssetNodes(
 					newNodes.map((n) => ({
-						data: { assets: n.data?.assets as AssetWithAltAccessType[], offset: n.data?.offset as number },
+						data: {
+							assets: n.data?.assets as AssetWithAltAccessType[],
+							offset: n.data?.offset as number
+						},
 						id: n.id,
 						position: n.position
 					}))
@@ -967,7 +970,12 @@
 		<SvelteFlowProvider>
 			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
 			{#if moveManager}
-				<DragCoordinator {moveManager} eventHandlers={eventHandler} {edges} nodes={nodesWithOffset} />
+				<DragCoordinator
+					{moveManager}
+					eventHandlers={eventHandler}
+					{edges}
+					nodes={nodesWithOffset}
+				/>
 			{/if}
 			{#if sharedViewport && onViewportChange}
 				<ViewportSynchronizer

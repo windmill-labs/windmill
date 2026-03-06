@@ -268,6 +268,7 @@
 			</Section>
 
 			<Section label="AG Grid configuration">
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					class={twMerge('flex flex-col gap-4', value.ignored ? 'opacity-50 cursor-none ' : '')}
 					onpointerdown={(e) => {

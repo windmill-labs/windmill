@@ -56,13 +56,13 @@
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['textinputcomponent'].initialData.configuration, configuration)
+		initConfig(components['textinputcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined as string | undefined
 	})
 
@@ -75,7 +75,7 @@
 		listInputs?.remove(id)
 	})
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			value = nvalue
 			outputs?.result.set(value)
@@ -109,7 +109,7 @@
 		value = defaultValue
 	}
 
-	let css = $state(initCss($app.css?.[appCssKey], customCss))
+	let css = $state(initCss($app.css?.[untrack(() => appCssKey)], untrack(() => customCss)))
 
 	let beforeIconComponent: any = $state()
 	let afterIconComponent: any = $state()

@@ -5,17 +5,24 @@
 	import { ExternalLink } from 'lucide-svelte'
 	import { emptyString } from '$lib/utils'
 
-	export let job:
+
+	interface Props {
+		job?: 
 		| Job
 		| { id: string; result: unknown; type: 'CompletedJob'; success: boolean; workspace_id: string }
-		| undefined = undefined
+		| undefined;
+		class?: string;
+	}
+
+	let { job = undefined, class: className = '' }: Props = $props();
+	
 </script>
 
 {#if job}
 	<div
 		class={twMerge(
 			'flex flex-row w-fit items-center justify-between gap-2 rounded-md bg-surface-secondary p-1 px-2 group',
-			$$props.class
+			className
 		)}
 	>
 		<div

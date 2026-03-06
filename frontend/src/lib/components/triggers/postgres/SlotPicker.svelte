@@ -8,14 +8,23 @@
 	import { emptyString } from '$lib/utils'
 	import { RefreshCw } from 'lucide-svelte'
 
-	export let edit: boolean
-	export let replication_slot_name: string = ''
-	export let postgres_resource_path: string = ''
-	export let disabled: boolean = false
+	interface Props {
+		edit: boolean;
+		replication_slot_name?: string;
+		postgres_resource_path?: string;
+		disabled?: boolean;
+	}
 
-	let deletingSlot: boolean = false
-	let loadingSlot: boolean = false
-	let items: (string | undefined)[] = []
+	let {
+		edit,
+		replication_slot_name = $bindable(''),
+		postgres_resource_path = '',
+		disabled = false
+	}: Props = $props();
+
+	let deletingSlot: boolean = $state(false)
+	let loadingSlot: boolean = $state(false)
+	let items: (string | undefined)[] = $state([])
 	async function listDatabaseSlot() {
 		try {
 			loadingSlot = true

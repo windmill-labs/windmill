@@ -369,7 +369,11 @@ async fn route_job(
             let s3_object = s3_client.get(&path).await;
 
             let s3_object = match s3_object {
-                Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound { .. }) if trigger.is_static_website => {
+                Err(
+                    windmill_object_store::object_store_reexports::ObjectStoreError::NotFound {
+                        ..
+                    },
+                ) if trigger.is_static_website => {
                     // fallback to index.html if the file is not found
                     let path = windmill_object_store::object_store_reexports::Path::from(format!(
                         "{}/index.html",

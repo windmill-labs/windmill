@@ -1,20 +1,34 @@
 <script lang="ts">
+	import { run, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import ObjectViewerWrapper from '$lib/components/propertyPicker/ObjectViewerWrapper.svelte'
 	import { copyToClipboard, isObjectTooBig } from '$lib/utils'
 	import { Eye, CopyIcon, Loader2 } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 
-	export let payloadData: any
-	export let limitPayloadSize: boolean = false
-	export let hover: boolean = false
-	export let viewerOpen: boolean = false
-	export let maxWidth: number | undefined = undefined
-	export let editOptions: boolean = true
+	interface Props {
+		payloadData: any
+		limitPayloadSize?: boolean
+		hover?: boolean
+		viewerOpen?: boolean
+		maxWidth?: number | undefined
+		editOptions?: boolean
+	}
+
+	let {
+		payloadData,
+		limitPayloadSize = false,
+		hover = false,
+		viewerOpen = false,
+		maxWidth = undefined,
+		editOptions = true
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
-	const payloadTooBigForPreview = payloadData != 'WINDMILL_TOO_BIG' && isObjectTooBig(payloadData)
+	const payloadTooBigForPreview = untrack(() => payloadData) != 'WINDMILL_TOO_BIG' && isObjectTooBig(untrack(() => payloadData))
 	const buttonWidth = 34
 	const floatingConfig = {
 		placement: 'bottom-end',
@@ -30,13 +44,13 @@
 			}
 		]
 	}
-	const xOffset = editOptions ? 218 : 168 // width of the optional buttons on the right
+	const xOffset = untrack(() => editOptions) ? 218 : 168 // width of the optional buttons on the right
 
-	let popover: Popover | undefined
+	let popover: Popover | undefined = $state()
 	let popoverOpen = false
 	let hoverTimeout: ReturnType<typeof setTimeout> | undefined
-	let objectViewerLoaded = false
-	let popoverFullyOpened = false
+	let objectViewerLoaded = $state(false)
+	let popoverFullyOpened = $state(false)
 
 	function handlePopoverChange(event: CustomEvent<boolean>) {
 		const isOpen = event.detail
@@ -73,8 +87,10 @@
 		}
 	}
 
-	$: handleHoverChange(hover)
-	$: ajustedWidth = maxWidth ? Math.abs(maxWidth - xOffset) : undefined
+	run(() => {
+		handleHoverChange(hover)
+	})
+	let ajustedWidth = $derived(maxWidth ? Math.abs(maxWidth - xOffset) : undefined)
 </script>
 
 <Popover
@@ -85,10 +101,10 @@
 		e.stopPropagation()
 	}}
 	closeOnOtherPopoverOpen
-	closeOnClickOutside={false}
+	closeOnOutsideClick={false}
 	usePointerDownOutside
 >
-	<svelte:fragment slot="trigger" let:isOpen>
+	{#snippet trigger({ isOpen })}
 		<Button
 			variant="subtle"
 			unifiedSize="sm"
@@ -98,8 +114,8 @@
 			nonCaptureEvent
 			startIcon={{ icon: Eye }}
 		/>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{/snippet}
+	{#snippet content()}
 		<div
 			class="p-2 overflow-auto"
 			style="width: {ajustedWidth ? ajustedWidth + 'px' : '50vh'}; max-height: 50vh"
@@ -118,10 +134,10 @@
 					role="button"
 					tabindex="0"
 					aria-label="Copy JSON payload to clipboard"
-					on:click={() => {
+					onclick={() => {
 						copyToClipboard(JSON.stringify(payloadData))
 					}}
-					on:keydown
+					onkeydown={bubble('keydown')}
 				>
 					{#if !objectViewerLoaded && payloadTooBigForPreview}
 						<div class="flex justify-center items-center py-4">
@@ -158,5 +174,5 @@
 				</div>
 			{/if}
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

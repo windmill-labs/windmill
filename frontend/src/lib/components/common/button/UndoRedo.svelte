@@ -3,8 +3,12 @@
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from '..'
 
-	export let undoProps: Record<string, any> = {}
-	export let redoProps: Record<string, any> = {}
+	interface Props {
+		undoProps?: Record<string, any>;
+		redoProps?: Record<string, any>;
+	}
+
+	let { undoProps = {}, redoProps = {} }: Props = $props();
 	const dispatch = createEventDispatcher()
 </script>
 

@@ -1166,11 +1166,7 @@
 			{#if hasWorkersWithoutIsolation(workers)}
 				{@const unsafeWorkers = getWorkersWithoutIsolation(workers)}
 				<div class="flex justify-end">
-					<Tooltip
-						placement="bottom"
-						closeButton
-						containerClasses="border rounded-lg shadow-lg bg-surface"
-					>
+					<Tooltip placement="bottom">
 						<TriangleAlert size={14} class="text-yellow-600" />
 
 						{#snippet text()}
