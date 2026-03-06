@@ -12,6 +12,7 @@
 	import { json as jsonLang } from 'svelte-highlight/languages'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ClipboardCopy, InfoIcon, LogOut, Play, Square } from 'lucide-svelte'
@@ -140,23 +141,44 @@
 			</Button>
 		</div>
 
-		{#if recording.args && Object.keys(recording.args).length > 0}
-			<JobArgs args={recording.args} />
-		{/if}
-
-		<Tabs selected="code">
+		<Tabs selected={schema && recording.args ? 'parameters' : recording.args && Object.keys(recording.args).length > 0 ? 'args' : 'code'}>
+			{#if schema && recording.args}
+				<Tab value="parameters" label="Parameters" />
+			{/if}
+			{#if recording.args && Object.keys(recording.args).length > 0}
+				<Tab value="args" label="Args (JSON)" />
+			{/if}
 			<Tab value="code" label="Code" />
 			{#if schema}
 				<Tab value="schema" label="Schema" />
 			{/if}
 			{#snippet content()}
+				<TabContent value="parameters">
+					{#if schema && recording.args}
+						<div class="p-4">
+							<SchemaForm
+								schema={schema}
+								args={recording.args}
+								disabled={true}
+								noVariablePicker={true}
+							/>
+						</div>
+					{/if}
+				</TabContent>
+				<TabContent value="args">
+					{#if recording.args && Object.keys(recording.args).length > 0}
+						<div class="p-2">
+							<JobArgs args={recording.args} />
+						</div>
+					{/if}
+				</TabContent>
 				<TabContent value="code">
-					<div class="p-2 w-full overflow-auto">
+					<div class="p-2 w-full overflow-auto text-2xs">
 						<HighlightCode
 							language={recording.language as Script['language']}
 							code={recording.code}
 							lines
-							className="text-xs"
+							className="text-2xs"
 						/>
 					</div>
 				</TabContent>
