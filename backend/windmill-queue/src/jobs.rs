@@ -5405,15 +5405,7 @@ async fn push_inner<'c, 'd>(
             language
                 .as_ref()
                 .map(|x| {
-                    let tag_lang = if x == &ScriptLang::Bunnative {
-                        if job_kind == JobKind::Dependencies {
-                            ScriptLang::Bun.as_str()
-                        } else {
-                            ScriptLang::Nativets.as_str()
-                        }
-                    } else {
-                        x.as_str()
-                    };
+                    let tag_lang = x.as_worker_tag(job_kind == JobKind::Dependencies);
                     if per_workspace {
                         format!("{}-{}", tag_lang, workspace_id)
                     } else {
