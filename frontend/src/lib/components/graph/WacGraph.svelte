@@ -9,7 +9,7 @@
 		Loader2,
 		XCircle
 	} from 'lucide-svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import type { WacParseResult } from './wacToFlow'
 
 	interface Props {
@@ -42,44 +42,43 @@
 		parallelGroup?: number
 	}
 
+	let jobIdsByKey: Record<string, string> = $derived.by(() => {
+		const ids: Record<string, string> = {}
+		for (const [key, val] of Object.entries(pendingSteps?.job_ids ?? {})) {
+			if (typeof val === 'string') ids[key] = val
+		}
+		return ids
+	})
+
+	function stepName(key: string, jobId?: string): string {
+		return jobId ? (childJobs[jobId]?.name ?? key) : key
+	}
+
 	let steps: StepInfo[] = $derived.by(() => {
 		const result: StepInfo[] = []
 
 		for (const [key, value] of Object.entries(completedSteps)) {
-			const jobId = findJobIdForKey(key)
-			const name = jobId ? (childJobs[jobId]?.name ?? key) : key
-			result.push({ key, name, status: 'completed', jobId, result: value })
+			const jobId = jobIdsByKey[key]
+			result.push({ key, name: stepName(key, jobId), status: 'completed', jobId, result: value })
 		}
 
 		if (pendingSteps) {
-			const mode = pendingSteps.mode
-			const jobIds = pendingSteps.job_ids ?? {}
 			for (const key of pendingSteps.keys ?? []) {
 				if (key in completedSteps) continue
-				const jobId = typeof jobIds[key] === 'string' ? jobIds[key] : undefined
-				const name = jobId ? (childJobs[jobId]?.name ?? key) : key
+				const jobId = jobIdsByKey[key]
 				const isDone = jobId && childJobs[jobId]?.duration_ms != null
 				result.push({
 					key,
-					name,
+					name: stepName(key, jobId),
 					status: isDone ? 'completed' : 'running',
 					jobId,
-					parallelGroup: mode === 'parallel' ? 1 : undefined
+					parallelGroup: pendingSteps.mode === 'parallel' ? 1 : undefined
 				})
 			}
 		}
 
 		return result
 	})
-
-	function findJobIdForKey(stepKey: string): string | undefined {
-		if (pendingSteps?.job_ids) {
-			for (const [key, val] of Object.entries(pendingSteps.job_ids)) {
-				if (key === stepKey && typeof val === 'string') return val
-			}
-		}
-		return undefined
-	}
 
 	interface StepRound {
 		mode: 'sequential' | 'parallel'
@@ -197,7 +196,7 @@
 		{/if}
 		<span class="truncate">{step.name}</span>
 		{#if step.jobId}
-			<Tooltip>
+			<Popover notClickable>
 				<a
 					href="{base}/run/{step.jobId}"
 					target="_blank"
@@ -206,7 +205,7 @@
 					<ExternalLink size={12} />
 				</a>
 				{#snippet text()}View child job{/snippet}
-			</Tooltip>
+			</Popover>
 		{/if}
 	</div>
 {/snippet}

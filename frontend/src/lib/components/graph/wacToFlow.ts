@@ -121,33 +121,54 @@ function parsePythonWac(code: string): WacParseResult {
 	return { modules: statementsToModules(statements), tasks }
 }
 
+const TS_AWAIT_RE = /(?:(?:const|let|var)\s+(\w+)\s*=\s*)?await\s+(\w+)\s*\(([^)]*)\)/
+
+function matchTsTaskCall(line: string, taskMap: Map<string, WacTask>): WacStep | undefined {
+	const m = line.match(TS_AWAIT_RE)
+	if (!m) return undefined
+	const task = taskMap.get(m[2])
+	if (!task) return undefined
+	return { type: 'step', name: task.name, script: task.script, varName: m[1] }
+}
+
+function collectBraceBlock(lines: string[], start: number): { bodyLines: string[]; end: number } {
+	const bodyLines: string[] = []
+	let depth = 1
+	let j = start
+	while (j < lines.length && depth > 0) {
+		if (lines[j].includes('{')) depth++
+		if (lines[j].includes('}')) depth--
+		if (depth > 0) bodyLines.push(lines[j].trim())
+		j++
+	}
+	return { bodyLines, end: j - 1 }
+}
+
+function extractTaskSteps(bodyLines: string[], taskMap: Map<string, WacTask>): WacStep[] {
+	const steps: WacStep[] = []
+	for (const line of bodyLines) {
+		const step = matchTsTaskCall(line, taskMap)
+		if (step) steps.push(step)
+	}
+	return steps
+}
+
 function parseBodyStatements(body: string, tasks: WacTask[], out: WacStatement[]) {
-	const taskNames = new Set(tasks.map((t) => t.name))
+	const taskMap = new Map(tasks.map((t) => [t.name, t]))
 	const lines = body.split('\n')
 
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i].trim()
 
 		// await taskName(...)
-		const awaitMatch = line.match(
-			/(?:(?:const|let|var)\s+(\w+)\s*=\s*)?await\s+(\w+)\s*\(([^)]*)\)/
-		)
-		if (awaitMatch && taskNames.has(awaitMatch[2])) {
-			const task = tasks.find((t) => t.name === awaitMatch[2])!
-			out.push({
-				type: 'step',
-				name: task.name,
-				script: task.script,
-				varName: awaitMatch[1]
-			})
+		const step = matchTsTaskCall(line, taskMap)
+		if (step) {
+			out.push(step)
 			continue
 		}
 
 		// Promise.all([taskA(...), taskB(...)])
-		const promiseAllMatch = line.match(/await\s+Promise\.all\s*\(\s*\[/)
-		if (promiseAllMatch) {
-			const steps: WacStep[] = []
-			// Collect lines until closing ])
+		if (/await\s+Promise\.all\s*\(\s*\[/.test(line)) {
 			let block = line
 			let j = i
 			while (!block.includes(']') && j < lines.length - 1) {
@@ -156,89 +177,87 @@ function parseBodyStatements(body: string, tasks: WacTask[], out: WacStatement[]
 			}
 			i = j
 
+			const steps: WacStep[] = []
 			const callRegex = /(\w+)\s*\(/g
 			let cm
 			while ((cm = callRegex.exec(block)) !== null) {
-				if (taskNames.has(cm[1])) {
-					const task = tasks.find((t) => t.name === cm[1])!
-					steps.push({ type: 'step', name: task.name, script: task.script })
-				}
+				const task = taskMap.get(cm[1])
+				if (task) steps.push({ type: 'step', name: task.name, script: task.script })
 			}
-			if (steps.length > 0) {
-				out.push({ type: 'parallel', steps })
-			}
+			if (steps.length > 0) out.push({ type: 'parallel', steps })
 			continue
 		}
 
 		// if (...) { ... }
 		const ifMatch = line.match(/^if\s*\((.+?)\)\s*\{/)
 		if (ifMatch) {
-			const condition = ifMatch[1]
-			const branchBody: WacStatement[] = []
-			let depth = 1
-			let j = i + 1
-			while (j < lines.length && depth > 0) {
-				if (lines[j].includes('{')) depth++
-				if (lines[j].includes('}')) depth--
-				if (depth > 0) {
-					const bl = lines[j].trim()
-					const bAwait = bl.match(
-						/(?:(?:const|let|var)\s+(\w+)\s*=\s*)?await\s+(\w+)\s*\(([^)]*)\)/
-					)
-					if (bAwait && taskNames.has(bAwait[2])) {
-						const task = tasks.find((t) => t.name === bAwait[2])!
-						branchBody.push({
-							type: 'step',
-							name: task.name,
-							script: task.script,
-							varName: bAwait[1]
-						})
-					}
-				}
-				j++
-			}
-			i = j - 1
-			out.push({ type: 'branch', condition, body: branchBody })
+			const { bodyLines, end } = collectBraceBlock(lines, i + 1)
+			i = end
+			out.push({
+				type: 'branch',
+				condition: ifMatch[1],
+				body: extractTaskSteps(bodyLines, taskMap)
+			})
 			continue
 		}
 
 		// for (const x of items) { ... }
 		const forMatch = line.match(/^for\s*\(\s*(?:const|let|var)\s+(\w+)\s+of\s+(\w+)\s*\)\s*\{/)
 		if (forMatch) {
-			const variable = forMatch[1]
-			const iterator = forMatch[2]
-			const loopBody: WacStatement[] = []
-			let depth = 1
-			let j = i + 1
-			while (j < lines.length && depth > 0) {
-				if (lines[j].includes('{')) depth++
-				if (lines[j].includes('}')) depth--
-				if (depth > 0) {
-					const bl = lines[j].trim()
-					const bAwait = bl.match(
-						/(?:(?:const|let|var)\s+(\w+)\s*=\s*)?await\s+(\w+)\s*\(([^)]*)\)/
-					)
-					if (bAwait && taskNames.has(bAwait[2])) {
-						const task = tasks.find((t) => t.name === bAwait[2])!
-						loopBody.push({
-							type: 'step',
-							name: task.name,
-							script: task.script,
-							varName: bAwait[1]
-						})
-					}
-				}
-				j++
-			}
-			i = j - 1
-			out.push({ type: 'loop', iterator, variable, body: loopBody })
+			const { bodyLines, end } = collectBraceBlock(lines, i + 1)
+			i = end
+			out.push({
+				type: 'loop',
+				iterator: forMatch[2],
+				variable: forMatch[1],
+				body: extractTaskSteps(bodyLines, taskMap)
+			})
 			continue
 		}
 	}
 }
 
+const PY_AWAIT_RE = /(?:(\w+)\s*=\s*)?await\s+(\w+)\s*\(/
+
+function matchPyTaskCall(line: string, taskMap: Map<string, WacTask>): WacStep | undefined {
+	const m = line.match(PY_AWAIT_RE)
+	if (!m) return undefined
+	const task = taskMap.get(m[2])
+	if (!task) return undefined
+	return { type: 'step', name: task.name, script: task.script, varName: m[1] }
+}
+
+function collectIndentBlock(
+	lines: string[],
+	start: number,
+	parentIndent: number
+): { bodyLines: string[]; end: number } {
+	const bodyLines: string[] = []
+	let j = start
+	while (j < lines.length) {
+		const nextLine = lines[j]
+		const nextIndent = nextLine.search(/\S/)
+		if (nextLine.trim() === '' || nextIndent > parentIndent) {
+			bodyLines.push(nextLine.trim())
+			j++
+		} else {
+			break
+		}
+	}
+	return { bodyLines, end: j - 1 }
+}
+
+function extractPyTaskSteps(bodyLines: string[], taskMap: Map<string, WacTask>): WacStep[] {
+	const steps: WacStep[] = []
+	for (const line of bodyLines) {
+		const step = matchPyTaskCall(line, taskMap)
+		if (step) steps.push(step)
+	}
+	return steps
+}
+
 function parsePythonBody(body: string, tasks: WacTask[], out: WacStatement[]) {
-	const taskNames = new Set(tasks.map((t) => t.name))
+	const taskMap = new Map(tasks.map((t) => [t.name, t]))
 	const lines = body.split('\n')
 
 	for (let i = 0; i < lines.length; i++) {
@@ -246,15 +265,9 @@ function parsePythonBody(body: string, tasks: WacTask[], out: WacStatement[]) {
 		const trimmed = line.trim()
 
 		// result = await task_name(...)
-		const awaitMatch = trimmed.match(/(?:(\w+)\s*=\s*)?await\s+(\w+)\s*\(/)
-		if (awaitMatch && taskNames.has(awaitMatch[2])) {
-			const task = tasks.find((t) => t.name === awaitMatch[2])!
-			out.push({
-				type: 'step',
-				name: task.name,
-				script: task.script,
-				varName: awaitMatch[1]
-			})
+		const step = matchPyTaskCall(trimmed, taskMap)
+		if (step) {
+			out.push(step)
 			continue
 		}
 
@@ -271,93 +284,51 @@ function parsePythonBody(body: string, tasks: WacTask[], out: WacStatement[]) {
 			const callRegex = /(\w+)\s*\(/g
 			let cm
 			while ((cm = callRegex.exec(block)) !== null) {
-				if (taskNames.has(cm[1])) {
-					const task = tasks.find((t) => t.name === cm[1])!
-					steps.push({ type: 'step', name: task.name, script: task.script })
-				}
+				const task = taskMap.get(cm[1])
+				if (task) steps.push({ type: 'step', name: task.name, script: task.script })
 			}
-			if (steps.length > 0) {
-				out.push({ type: 'parallel', steps })
-			}
+			if (steps.length > 0) out.push({ type: 'parallel', steps })
 			continue
 		}
 
 		// if condition:
 		const ifMatch = trimmed.match(/^if\s+(.+?)\s*:/)
 		if (ifMatch) {
-			const condition = ifMatch[1]
 			const indent = line.search(/\S/)
-			const branchBody: WacStatement[] = []
-			let j = i + 1
-			while (j < lines.length) {
-				const nextLine = lines[j]
-				const nextIndent = nextLine.search(/\S/)
-				if (nextLine.trim() === '' || nextIndent > indent) {
-					const bl = nextLine.trim()
-					const bAwait = bl.match(/(?:(\w+)\s*=\s*)?await\s+(\w+)\s*\(/)
-					if (bAwait && taskNames.has(bAwait[2])) {
-						const task = tasks.find((t) => t.name === bAwait[2])!
-						branchBody.push({
-							type: 'step',
-							name: task.name,
-							script: task.script,
-							varName: bAwait[1]
-						})
-					}
-					j++
-				} else {
-					break
-				}
-			}
-			i = j - 1
-			out.push({ type: 'branch', condition, body: branchBody })
+			const { bodyLines, end } = collectIndentBlock(lines, i + 1, indent)
+			i = end
+			out.push({
+				type: 'branch',
+				condition: ifMatch[1],
+				body: extractPyTaskSteps(bodyLines, taskMap)
+			})
 			continue
 		}
 
 		// for variable in iterator:
 		const forMatch = trimmed.match(/^for\s+(\w+)\s+in\s+(\w+)\s*:/)
 		if (forMatch) {
-			const variable = forMatch[1]
-			const iterator = forMatch[2]
 			const indent = line.search(/\S/)
-			const loopBody: WacStatement[] = []
-			let j = i + 1
-			while (j < lines.length) {
-				const nextLine = lines[j]
-				const nextIndent = nextLine.search(/\S/)
-				if (nextLine.trim() === '' || nextIndent > indent) {
-					const bl = nextLine.trim()
-					const bAwait = bl.match(/(?:(\w+)\s*=\s*)?await\s+(\w+)\s*\(/)
-					if (bAwait && taskNames.has(bAwait[2])) {
-						const task = tasks.find((t) => t.name === bAwait[2])!
-						loopBody.push({
-							type: 'step',
-							name: task.name,
-							script: task.script,
-							varName: bAwait[1]
-						})
-					}
-					j++
-				} else {
-					break
-				}
-			}
-			i = j - 1
-			out.push({ type: 'loop', iterator, variable, body: loopBody })
+			const { bodyLines, end } = collectIndentBlock(lines, i + 1, indent)
+			i = end
+			out.push({
+				type: 'loop',
+				iterator: forMatch[2],
+				variable: forMatch[1],
+				body: extractPyTaskSteps(bodyLines, taskMap)
+			})
 			continue
 		}
 	}
 }
 
-let moduleCounter = 0
-
 function statementsToModules(statements: WacStatement[]): FlowModule[] {
-	moduleCounter = 0
-	return statements.map(statementToModule)
+	const counter = { n: 0 }
+	return statements.map((s) => statementToModule(s, counter))
 }
 
-function statementToModule(stmt: WacStatement): FlowModule {
-	const id = stmt.type === 'step' ? stmt.name : `${stmt.type}_${moduleCounter++}`
+function statementToModule(stmt: WacStatement, counter: { n: number }): FlowModule {
+	const id = stmt.type === 'step' ? stmt.name : `${stmt.type}_${counter.n++}`
 
 	switch (stmt.type) {
 		case 'step':
@@ -375,7 +346,7 @@ function statementToModule(stmt: WacStatement): FlowModule {
 				type: 'branchall',
 				branches: stmt.steps.map((s) => ({
 					summary: s.name,
-					modules: [statementToModule(s)]
+					modules: [statementToModule(s, counter)]
 				})),
 				parallel: true
 			}
@@ -390,7 +361,7 @@ function statementToModule(stmt: WacStatement): FlowModule {
 						{
 							summary: stmt.condition,
 							expr: stmt.condition,
-							modules: stmt.body.map(statementToModule)
+							modules: stmt.body.map((s) => statementToModule(s, counter))
 						}
 					],
 					default: []
@@ -400,7 +371,7 @@ function statementToModule(stmt: WacStatement): FlowModule {
 		case 'loop': {
 			const value: ForloopFlow = {
 				type: 'forloopflow',
-				modules: stmt.body.map(statementToModule),
+				modules: stmt.body.map((s) => statementToModule(s, counter)),
 				iterator: { type: 'javascript', expr: stmt.iterator },
 				skip_failures: false
 			}
