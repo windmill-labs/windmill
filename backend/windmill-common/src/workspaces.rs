@@ -148,10 +148,17 @@ pub enum ObjectType {
     Key,
 }
 
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28160/sync-script-to-git-repo-windmill";
+
+fn default_script_path() -> String {
+    LATEST_GIT_SYNC_SCRIPT_PATH.to_string()
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GitRepositorySettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude_types_override: Option<Vec<ObjectType>>,
+    #[serde(default = "default_script_path")]
     pub script_path: String,
     pub git_repo_resource_path: String,
     pub use_individual_branch: Option<bool>,

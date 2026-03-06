@@ -21,10 +21,8 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { fade } from 'svelte/transition'
 	import { workspaceStore } from '$lib/stores'
-	import hubPaths from '$lib/hubPaths.json'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
-	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import { ResourceService, VariableService } from '$lib/gen'
 
 	let {
@@ -447,29 +445,21 @@
 				</Alert>
 			{/if}
 
-			{#if repo.script_path != hubPaths.gitSync}
-				<Alert type="warning" title="Script version mismatch">
-					The git sync version for this repository is not latest. Current: <a
-						target="_blank"
-						href="{DEFAULT_HUB_BASE_URL}/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
-						>{repo.script_path}</a
-					>, latest:
-					<a
-						target="_blank"
-						href="{DEFAULT_HUB_BASE_URL}/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
-						>{hubPaths.gitSync}</a
-					>
+			{#if repo.script_path}
+				<Alert type="warning" title="Pinned git sync script version">
+					This repository uses a pinned sync script: <code>{repo.script_path}</code>.
+					Switch to auto-managed to always use the latest version bundled with Windmill.
 					<div class="flex mt-2">
 						<Button
 							size="xs"
 							variant="accent"
 							onclick={() => {
 								if (repo) {
-									repo.script_path = hubPaths.gitSync
+									repo.script_path = ''
 								}
 							}}
 						>
-							Update git sync script (require save git settings to be applied)
+							Switch to auto-managed (requires save)
 						</Button>
 					</div>
 				</Alert>

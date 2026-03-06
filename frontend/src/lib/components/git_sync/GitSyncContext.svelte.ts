@@ -184,7 +184,7 @@ export function createGitSyncContext(workspace: string) {
 	function addRepository() {
 		repositories.push({
 			git_repo_resource_path: '',
-			script_path: hubPaths.gitSync,
+			script_path: '',
 			use_individual_branch: false,
 			group_by_folder: false,
 			settings: {
@@ -648,7 +648,7 @@ export function createGitSyncContext(workspace: string) {
 	function addSyncRepository() {
 		repositories.push({
 			git_repo_resource_path: '',
-			script_path: hubPaths.gitSync,
+			script_path: '',
 			use_individual_branch: false,
 			group_by_folder: false,
 			settings: {
@@ -671,7 +671,7 @@ export function createGitSyncContext(workspace: string) {
 	function addPromotionRepository() {
 		repositories.push({
 			git_repo_resource_path: '',
-			script_path: hubPaths.gitSync,
+			script_path: '',
 			use_individual_branch: true,
 			group_by_folder: false,
 			settings: {
