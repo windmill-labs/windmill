@@ -214,11 +214,11 @@ async fn test_create_workspace_dependencies_triggers_git_sync(
             "path_type should be 'workspace_dependencies'"
         );
 
-        // Path should be "workspace-dependencies/python3/test-deps" or similar
+        // Path should be "dependencies/test-deps.requirements.in" or similar
         let path = item.get("path").and_then(|v| v.as_str()).unwrap_or("");
         assert!(
-            path.contains("workspace-dependencies") || path.contains("python3"),
-            "path should contain workspace-dependencies or language: got {}",
+            path.contains("dependencies") || path.contains("requirements"),
+            "path should contain dependencies or requirements: got {}",
             path
         );
     } else if let Some(path_type) = args.get("path_type") {
