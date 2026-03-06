@@ -326,9 +326,29 @@ components:
         retry:
           description: Retry configuration if this step fails
           $ref: '#/components/schemas/Retry'
+        debouncing:
+          description: Debouncing configuration for this step
+          $ref: '#/components/schemas/DebouncingSettings'
       required:
         - value
         - id
+
+    DebouncingSettings:
+      type: object
+      description: Debouncing configuration for a flow module
+      properties:
+        debounce_key:
+          type: string
+        debounce_delay_s:
+          type: integer
+        max_total_debouncing_time:
+          type: integer
+        max_total_debounces_amount:
+          type: integer
+        debounce_args_to_accumulate:
+          type: array
+          items:
+            type: string
 
     InputTransform:
       description: Maps input parameters for a step. Can be a static value or a JavaScript expression that references previous results or flow inputs
