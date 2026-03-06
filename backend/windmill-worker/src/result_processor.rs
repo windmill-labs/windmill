@@ -717,6 +717,19 @@ pub async fn process_completed_job(
                 }
                 return Ok(r);
             }
+        } else if let Some(parent_job) = parent_job {
+            // Check if parent is a WAC v2 job (has workflow_as_code_status)
+            if let Ok(Some(_)) =
+                handle_wac_child_completion(db, &job_id, parent_job, &workspace_id, result, true)
+                    .await
+            {
+                if let Some(done_tx) = done_tx {
+                    done_tx
+                        .send(())
+                        .expect("done receiver should still be alive");
+                }
+                return Ok(None);
+            }
         }
     } else {
         let result = add_completed_job_error(
@@ -770,9 +783,161 @@ pub async fn process_completed_job(
                 }
                 return Ok(r);
             }
+        } else if let Some(parent_job) = job.parent_job {
+            // WAC child failed — propagate error to parent
+            let err_result = Arc::new(serde_json::value::to_raw_value(&result).unwrap());
+            if let Ok(Some(_)) = handle_wac_child_completion(
+                db,
+                &job.id,
+                parent_job,
+                &job.workspace_id,
+                err_result,
+                false,
+            )
+            .await
+            {
+                if let Some(done_tx) = done_tx {
+                    done_tx
+                        .send(())
+                        .expect("done receiver should still be alive");
+                }
+                return Ok(None);
+            }
         }
     }
     return Ok(None);
+}
+
+/// Handle a WAC v2 child job completion.
+/// Returns Ok(Some(())) if the parent was a WAC job and was handled,
+/// Ok(None) if the parent is not a WAC job (caller should fall through).
+async fn handle_wac_child_completion(
+    db: &DB,
+    child_job_id: &Uuid,
+    parent_job_id: Uuid,
+    workspace_id: &str,
+    result: Arc<Box<RawValue>>,
+    success: bool,
+) -> error::Result<Option<()>> {
+    use crate::wac_executor::{
+        add_completed_step, all_pending_complete, load_checkpoint, save_checkpoint,
+    };
+
+    // Check if parent has workflow_as_code_status (meaning it's a WAC job)
+    let has_wac_status: Option<bool> = sqlx::query_scalar(
+        "SELECT workflow_as_code_status IS NOT NULL FROM v2_job_status WHERE id = $1",
+    )
+    .bind(&parent_job_id)
+    .fetch_optional(db)
+    .await?;
+
+    if has_wac_status != Some(true) {
+        return Ok(None); // Not a WAC parent
+    }
+
+    let mut checkpoint = load_checkpoint(db, &parent_job_id).await?;
+
+    if !success {
+        // Child failed — fail the parent job
+        tracing::error!(
+            parent_job = %parent_job_id,
+            child_job = %child_job_id,
+            "WAC v2 child job failed, failing parent"
+        );
+
+        // Unsuspend the parent so it can be completed
+        sqlx::query!(
+            "UPDATE v2_job_queue SET suspend = 0 WHERE id = $1",
+            parent_job_id,
+        )
+        .execute(db)
+        .await?;
+
+        // Get the parent as MiniCompletedJob and mark it as failed
+        let parent_mini = get_mini_completed_job(&parent_job_id, workspace_id, db).await?;
+        if let Some(parent_mini) = parent_mini {
+            let err_value: Value = serde_json::from_str(result.get()).unwrap_or_else(
+                |_| json!({ "message": format!("WAC child job {} failed", child_job_id) }),
+            );
+            let _ = windmill_queue::add_completed_job_error(
+                db,
+                &parent_mini,
+                0,
+                None,
+                err_value,
+                "wac_child_handler",
+                false,
+                None,
+            )
+            .await;
+        }
+
+        return Ok(Some(()));
+    }
+
+    // Find the step key for this child job
+    let step_key = checkpoint.pending_steps.as_ref().and_then(|pending| {
+        pending.job_ids.iter().find_map(|(key, val)| {
+            if val.as_str() == Some(&child_job_id.to_string()) {
+                Some(key.clone())
+            } else {
+                None
+            }
+        })
+    });
+
+    let step_key = match step_key {
+        Some(k) => k,
+        None => {
+            tracing::warn!(
+                parent_job = %parent_job_id,
+                child_job = %child_job_id,
+                "WAC v2 child completed but no matching step key found in checkpoint"
+            );
+            return Ok(Some(()));
+        }
+    };
+
+    // Parse the child result
+    let result_value: Value = serde_json::from_str(result.get()).unwrap_or(Value::Null);
+
+    tracing::info!(
+        parent_job = %parent_job_id,
+        child_job = %child_job_id,
+        step_key = %step_key,
+        "WAC v2 child job completed"
+    );
+
+    // Add completed step to checkpoint
+    add_completed_step(&mut checkpoint, &step_key, result_value);
+    let all_done = all_pending_complete(&checkpoint);
+    save_checkpoint(db, &parent_job_id, &checkpoint).await?;
+
+    // Decrement the parent's suspend counter
+    if all_done {
+        // All pending steps done — unsuspend the parent so it gets re-run
+        sqlx::query!(
+            "UPDATE v2_job_queue SET suspend = 0 WHERE id = $1",
+            parent_job_id,
+        )
+        .execute(db)
+        .await?;
+
+        tracing::info!(
+            parent_job = %parent_job_id,
+            "WAC v2 all child jobs completed, unsuspending parent"
+        );
+    } else {
+        // Decrement suspend by 1
+        sqlx::query!(
+            "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1",
+            parent_job_id,
+        )
+        .execute(db)
+        .await?;
+    }
+
+    Ok(Some(()))
 }
 
 pub async fn handle_non_flow_job_error(

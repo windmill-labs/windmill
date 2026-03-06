@@ -33,6 +33,8 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { PreviewPanelUi } from '../custom_ui'
 	import { getStringError } from '../copilot/chat/utils'
+	import { isWorkflowAsCode, parseWacCode, type WacParseResult } from '../graph/wacToFlow'
+	import WacGraph from '../graph/WacGraph.svelte'
 
 	interface Props {
 		lang: Preview['language'] | undefined
@@ -45,6 +47,7 @@
 		workspace?: string | undefined
 		showCaptures?: boolean
 		customUi?: PreviewPanelUi | undefined
+		code?: string | undefined
 		children?: import('svelte').Snippet
 		capturesTab?: import('svelte').Snippet
 		customResultPanel?: import('svelte').Snippet
@@ -62,11 +65,17 @@
 		workspace = undefined,
 		showCaptures = false,
 		customUi = undefined,
+		code = undefined,
 		children,
 		capturesTab,
 		customResultPanel,
 		showCustomResultPanel = false
 	}: Props = $props()
+
+	let isWac = $derived(code && lang ? isWorkflowAsCode(code, lang) : false)
+	let wacResult: WacParseResult | undefined = $derived(
+		isWac && code && lang ? parseWacCode(code, lang) : undefined
+	)
 
 	type DContent = {
 		mode: 'json' | Preview['language'] | 'plain'
@@ -92,7 +101,12 @@
 	}
 
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
-		return x as Record<string, WorkflowStatus>
+		if (!x || typeof x !== 'object') return {}
+		const result: Record<string, WorkflowStatus> = {}
+		for (const [k, v] of Object.entries(x)) {
+			if (!k.startsWith('_')) result[k] = v as WorkflowStatus
+		}
+		return result
 	}
 
 	let forceJson = $state(false)
@@ -129,6 +143,9 @@
 			<Tab value="captures" label="Trigger captures" />
 		{/if}
 		<Tab value="tracing" label="Tracing" />
+		{#if isWac}
+			<Tab value="graph" label="Graph" />
+		{/if}
 
 		{#snippet content()}
 			<div class="grow min-h-0">
@@ -308,6 +325,15 @@
 							Run a preview to see HTTP request traces
 						</div>
 					{/if}
+				{/if}
+				{#if selectedTab === 'graph' && isWac}
+					<div class="h-full w-full">
+						<WacGraph
+							{wacResult}
+							wacStatus={previewJob?.workflow_as_code_status}
+							flowDone={previewJob?.type === 'CompletedJob'}
+						/>
+					</div>
 				{/if}
 			</div>
 		{/snippet}

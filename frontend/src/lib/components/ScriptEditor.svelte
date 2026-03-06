@@ -1193,6 +1193,7 @@
 						<LogPanel
 							bind:this={logPanel}
 							{lang}
+							{code}
 							previewJob={debugMode
 								? ({
 										id: 'debug',

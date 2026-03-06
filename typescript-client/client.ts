@@ -322,37 +322,6 @@ function getParamNames(func: Function): string[] {
 }
 
 /**
- * Wrap a function to execute as a Windmill task within a flow context
- * @param f - Function to wrap as a task
- * @returns Async wrapper function that executes as a Windmill job
- */
-export function task<P, T>(f: (_: P) => T): (_: P) => Promise<T> {
-  return async (...y) => {
-    const args: Record<string, any> = {};
-    const paramNames = getParamNames(f);
-    y.forEach((x, i) => (args[paramNames[i]] = x));
-    let req = await fetch(
-      `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
-        "WM_JOB_ID"
-      )}/${f.name}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getEnv("WM_TOKEN")}`,
-        },
-        body: JSON.stringify({ args }),
-      }
-    );
-    let jobId = await req.text();
-    console.log(`Started task ${f.name} as job ${jobId}`);
-    let r = await waitJob(jobId);
-    console.log(`Task ${f.name} (${jobId}) completed`);
-    return r;
-  };
-}
-
-/**
  * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
  */
 export async function runScriptAsync(
@@ -1451,7 +1420,7 @@ function parseVariableSyntax(s: string) {
 
 // ── Workflow-as-Code SDK ──────────────────────────────────────────────
 
-class StepSuspend extends Error {
+export class StepSuspend extends Error {
   constructor(public dispatchInfo: Record<string, any>) {
     super("__step_suspend__");
     this.name = "StepSuspend";
@@ -1459,6 +1428,9 @@ class StepSuspend extends Error {
 }
 
 export let _workflowCtx: WorkflowCtx | null = null;
+export function setWorkflowCtx(ctx: WorkflowCtx | null) {
+  _workflowCtx = ctx;
+}
 
 export class WorkflowCtx {
   private completed: Record<string, any>;
@@ -1469,15 +1441,19 @@ export class WorkflowCtx {
     args: Record<string, any>;
     key: string;
   }> = [];
+  private _suspended = false;
+  /** When set, the task matching this key executes its inner function directly */
+  _executingKey: string | null;
 
   constructor(checkpoint: Record<string, any> = {}) {
     this.completed = checkpoint?.completed_steps ?? {};
+    this._executingKey = checkpoint?._executing_key ?? null;
   }
 
   _nextStep(
     name: string,
     script: string,
-    args: Record<string, any> = {}
+    args: Record<string, any> = {},
   ): PromiseLike<any> {
     const key = `step_${this.stepIndex++}`;
 
@@ -1486,9 +1462,20 @@ export class WorkflowCtx {
       return { then: (resolve: any) => resolve(value) };
     }
 
+    // If this is a child job executing a specific step, return null to signal
+    // that the task wrapper should run the inner function directly
+    if (this._executingKey === key) {
+      return { then: (resolve: any) => resolve(null), _execute_directly: true } as any;
+    }
+
     this.pending.push({ name, script, args, key });
     return {
-      then: () => {
+      then: (): never => {
+        // Only the first .then() call throws with all accumulated steps.
+        // Subsequent calls (e.g. from Promise.all resolving other thenables)
+        // also throw (they'll be caught by the same handler).
+        if (this._suspended) throw new StepSuspend({ mode: "noop", steps: [] });
+        this._suspended = true;
         const steps = [...this.pending];
         this.pending = [];
         throw new StepSuspend({
@@ -1529,9 +1516,8 @@ export function task<T extends (...args: any[]) => Promise<any>>(
   const wrapper = async function (...args: any[]) {
     const ctx = _workflowCtx;
     if (ctx) {
-      // Inside a workflow — dispatch as step
+      // Inside a workflow with checkpoint/replay context — dispatch as step
       const script = taskPath ?? taskName;
-      // Convert positional args to kwargs using param names
       const paramNames = getParamNames(fn);
       const kwargs: Record<string, any> = {};
       for (let i = 0; i < args.length; i++) {
@@ -1541,7 +1527,38 @@ export function task<T extends (...args: any[]) => Promise<any>>(
           kwargs[`arg${i}`] = args[i];
         }
       }
-      return ctx._nextStep(taskName, script, kwargs);
+      const stepResult = ctx._nextStep(taskName, script, kwargs);
+      // If this step should execute directly (child job mode), run the inner function
+      // and throw StepSuspend with mode "step_complete" to signal that we're done
+      if ((stepResult as any)?._execute_directly) {
+        const result = await fn(...args);
+        throw new StepSuspend({ mode: "step_complete", steps: [], result });
+      }
+      return stepResult;
+    } else if (getEnv("WM_JOB_ID") && !getEnv("WM_FLOW_JOB_ID")) {
+      // Inside a Windmill root job without checkpoint context — v1 HTTP dispatch
+      // WM_FLOW_JOB_ID is set on child jobs, so we skip dispatch for those
+      const paramNames = getParamNames(fn);
+      const kwargs: Record<string, any> = {};
+      args.forEach((x, i) => (kwargs[paramNames[i]] = x));
+      let req = await fetch(
+        `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
+          "WM_JOB_ID"
+        )}/${taskName}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${getEnv("WM_TOKEN")}`,
+          },
+          body: JSON.stringify({ args: kwargs }),
+        }
+      );
+      let jobId = await req.text();
+      console.log(`Started task ${taskName} as job ${jobId}`);
+      let r = await waitJob(jobId);
+      console.log(`Task ${taskName} (${jobId}) completed`);
+      return r;
     } else {
       // Standalone — execute directly
       return fn(...args);
@@ -1559,12 +1576,3 @@ export function workflow<T>(fn: (...args: any[]) => Promise<T>) {
   return fn;
 }
 
-function getParamNames(fn: Function): string[] {
-  const src = fn.toString();
-  const match = src.match(/^(?:async\s+)?(?:function\s*\w*)?\s*\(([^)]*)\)/);
-  if (!match) return [];
-  return match[1]
-    .split(",")
-    .map((p) => p.trim().replace(/[:=].*/s, "").trim())
-    .filter(Boolean);
-}
