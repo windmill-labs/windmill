@@ -221,7 +221,7 @@
 	const pointerdown = ({ clientX, clientY }) => {
 		dragClosure = () => {
 			dragClosure = undefined
-			ctx.componentActive.set(true)
+			ctx?.componentActive.set(true)
 
 			initX = (clientX / $scale) * 100
 			initY = (clientY / $scale) * 100
@@ -401,7 +401,7 @@
 	}, 50)
 
 	const pointerup = (e) => {
-		ctx.componentActive.set(false)
+		ctx?.componentActive.set(false)
 		stopAutoscroll()
 
 		window.removeEventListener('pointerdown', pointerdown)
