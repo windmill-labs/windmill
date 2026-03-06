@@ -105,15 +105,15 @@ impl ScriptLang {
     pub fn is_native(&self) -> bool {
         matches!(
             self,
-            ScriptLang::Bunnative |
-            ScriptLang::Nativets |
-            ScriptLang::Postgresql |
-            ScriptLang::Mysql |
-            ScriptLang::Graphql |
-            ScriptLang::Snowflake |
-            ScriptLang::Mssql |
-            ScriptLang::Bigquery |
-            ScriptLang::OracleDB
+            ScriptLang::Bunnative
+                | ScriptLang::Nativets
+                | ScriptLang::Postgresql
+                | ScriptLang::Mysql
+                | ScriptLang::Graphql
+                | ScriptLang::Snowflake
+                | ScriptLang::Mssql
+                | ScriptLang::Bigquery
+                | ScriptLang::OracleDB
         )
     }
 
@@ -459,6 +459,7 @@ pub struct NewScript {
     pub path: String,
     pub parent_hash: Option<ScriptHash>,
     pub summary: String,
+    #[serde(default)]
     pub description: String,
     pub content: String,
     pub schema: Option<Schema>,

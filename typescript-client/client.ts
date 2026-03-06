@@ -1430,7 +1430,9 @@ export class StepSuspend extends Error {
 export let _workflowCtx: WorkflowCtx | null = null;
 export function setWorkflowCtx(ctx: WorkflowCtx | null) {
   _workflowCtx = ctx;
+  Reflect.set(globalThis, "__wmill_wf_ctx", ctx);
 }
+
 
 export class WorkflowCtx {
   private completed: Record<string, any>;
@@ -1466,6 +1468,14 @@ export class WorkflowCtx {
     // that the task wrapper should run the inner function directly
     if (this._executingKey === key) {
       return { then: (resolve: any) => resolve(null), _execute_directly: true } as any;
+    }
+
+    // In child job mode (_executingKey is set), non-matching uncompleted steps
+    // should never resolve or throw — the matching step will throw step_complete
+    // which terminates the workflow. Returning a never-resolving thenable prevents
+    // race conditions where a non-matching step's StepSuspend fires before step_complete.
+    if (this._executingKey !== null) {
+      return { then: () => new Promise(() => {}) };
     }
 
     this.pending.push({ name, script, args, key });
@@ -1514,7 +1524,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
   const taskName = fn.name || "anonymous";
 
   const wrapper = async function (...args: any[]) {
-    const ctx = _workflowCtx;
+    const ctx = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
     if (ctx) {
       // Inside a workflow with checkpoint/replay context — dispatch as step
       const script = taskPath ?? taskName;

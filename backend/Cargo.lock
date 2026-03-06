@@ -16957,7 +16957,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wac"
-version = "1.647.0"
+version = "1.651.1"
 dependencies = [
  "anyhow",
  "rustpython-ast",

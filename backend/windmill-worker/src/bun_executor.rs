@@ -1056,6 +1056,13 @@ pub async fn handle_bun_job(
         && inner_content.contains("task(")
         && inner_content.contains("windmill-client");
 
+    // WAC v2 scripts can't use bundle caching because the wrapper imports
+    // windmill-client from node_modules, which isn't available in bundle mode
+    if is_wac_v2 && has_bundle_cache {
+        has_bundle_cache = false;
+        let _ = write_file(job_dir, "main.ts", inner_content)?;
+    }
+
     let mut format = BundleFormat::Cjs;
     if has_bundle_cache {
         let target;
@@ -1454,6 +1461,7 @@ try {{
         && !annotation.nobundling
         && !*DISABLE_BUNDLING
         && !codebase.is_some()
+        && !is_wac_v2
         && (maybe_lock.get_lock().is_some() || annotation.native);
 
     let write_loader_f = async {
