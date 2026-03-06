@@ -36,6 +36,7 @@
 		noSummary?: boolean
 		noInput?: boolean
 		hideDefaultInputs?: boolean
+		showStepHint?: boolean
 		noGraphDownload?: boolean
 		availableVersions?: Array<{ id: number; deployment_msg?: string }>
 		selectedVersionId?: number
@@ -51,6 +52,7 @@
 		noSummary = false,
 		noInput = false,
 		hideDefaultInputs = false,
+		showStepHint = false,
 		noGraphDownload = false,
 		selectedVersionId = undefined
 	}: Props = $props()
@@ -172,6 +174,9 @@
 		{/if}
 		<TabContent value="ui">
 			<div class="flow-root w-full pb-4">
+				{#if showStepHint}
+					<p class="text-2xs text-tertiary py-1">Click on a step to see its details</p>
+				{/if}
 				{#if !noSummary}
 					<h2 class="my-4">{flow.summary}</h2>
 					<div>{flow.description ?? ''}</div>
