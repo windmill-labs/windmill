@@ -143,25 +143,37 @@
 
 		<Tabs selected={schema && recording.args ? 'parameters' : recording.args && Object.keys(recording.args).length > 0 ? 'args' : 'code'}>
 			{#if schema && recording.args}
-				<Tab value="parameters" label="Parameters" />
+				<Tab value="parameters" label="Code" />
 			{/if}
 			{#if recording.args && Object.keys(recording.args).length > 0}
-				<Tab value="args" label="Args (JSON)" />
+				<Tab value="args" label="Args" />
 			{/if}
-			<Tab value="code" label="Code" />
+			{#if !schema || !recording.args}
+				<Tab value="code" label="Code" />
+			{/if}
 			{#if schema}
 				<Tab value="schema" label="Schema" />
 			{/if}
 			{#snippet content()}
 				<TabContent value="parameters">
 					{#if schema && recording.args}
-						<div class="p-4">
-							<SchemaForm
-								schema={schema}
-								args={recording.args}
-								disabled={true}
-								noVariablePicker={true}
-							/>
+						<div class="flex gap-4 p-2" style="height: calc(100vh - 250px);">
+							<div class="w-1/2 overflow-auto text-2xs">
+								<HighlightCode
+									language={recording.language as Script['language']}
+									code={recording.code}
+									lines
+									className="text-2xs"
+								/>
+							</div>
+							<div class="w-1/2 overflow-auto">
+								<SchemaForm
+									schema={schema}
+									args={recording.args}
+									disabled={true}
+									noVariablePicker={true}
+								/>
+							</div>
 						</div>
 					{/if}
 				</TabContent>
