@@ -3680,24 +3680,67 @@ async fn push_next_flow_job(
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
         // Node-level debouncing: register step job in debounce_key table.
-        // If a previous step job exists for the same key, cancel it (skip it)
+        // If a previous step job exists for the same key, cancel it (skip it),
+        // record both jobs in v2_job_debounce_batch for arg accumulation,
         // and collect the parent flow ID so we can notify it after commit.
         #[cfg(feature = "enterprise")]
         if let Some(ref debounce_key) = node_debounce_key {
             if i == 0 {
                 let prev_step_job_id: Option<Uuid> = sqlx::query_scalar(
-                    "INSERT INTO debounce_key (job_id, key)
-                     VALUES ($1, $2)
-                     ON CONFLICT (key) DO UPDATE SET
-                         previous_job_id = debounce_key.job_id,
-                         job_id = EXCLUDED.job_id,
-                         debounced_times = debounce_key.debounced_times + 1
-                     RETURNING previous_job_id",
+                    "WITH dk AS (
+                        INSERT INTO debounce_key (job_id, key)
+                        VALUES ($1, $2)
+                        ON CONFLICT (key) DO UPDATE SET
+                            previous_job_id = debounce_key.job_id,
+                            job_id = EXCLUDED.job_id,
+                            debounced_times = debounce_key.debounced_times + 1
+                        RETURNING previous_job_id
+                    ), _batch AS (
+                        INSERT INTO v2_job_debounce_batch (id, debounce_batch)
+                        SELECT
+                            $1,
+                            COALESCE(
+                                (SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = dk.previous_job_id LIMIT 1),
+                                nextval('debounce_batch_seq')
+                            )
+                        FROM dk
+                    )
+                    SELECT previous_job_id FROM dk",
                 )
                 .bind(uuid)
                 .bind(debounce_key)
                 .fetch_one(&mut *inner_tx)
                 .await?;
+
+                // Store the module's debouncing settings in runnable_settings_handle
+                // so that maybe_apply_debouncing can find them at execution time
+                // and perform argument accumulation from the batch.
+                let debouncing = module.debouncing.as_ref().unwrap();
+                let debouncing_hash = debouncing.insert_cached(&db).await.unwrap_or_else(|e| {
+                    tracing::error!("Failed to insert node debouncing settings: {e:#}");
+                    None
+                });
+                let rs_handle = windmill_common::runnable_settings::insert_rs(
+                    windmill_common::runnable_settings::RunnableSettings {
+                        debouncing_settings: debouncing_hash,
+                        concurrency_settings: None,
+                    },
+                    &db,
+                )
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!("Failed to insert runnable settings for node debounce: {e:#}");
+                    None
+                });
+                if rs_handle.is_some() {
+                    sqlx::query(
+                        "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+                    )
+                    .bind(rs_handle)
+                    .bind(uuid)
+                    .execute(&mut *inner_tx)
+                    .await?;
+                }
 
                 if let Some(prev_step_job_id) = prev_step_job_id {
                     tracing::info!(
