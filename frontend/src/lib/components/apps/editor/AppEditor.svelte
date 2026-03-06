@@ -280,10 +280,7 @@
 							}
 						} catch {}
 					} else {
-						const drawerAlreadyHandledFocusedGrid =
-							item?.data.type === 'drawercomponent' &&
-							$focusedGrid?.parentComponentId === befSelected
-						if (!drawerAlreadyHandledFocusedGrid) {
+						if ($focusedGrid?.parentComponentId !== befSelected) {
 							$focusedGrid = undefined
 						}
 					}
