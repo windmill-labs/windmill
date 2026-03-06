@@ -1825,9 +1825,9 @@ try {{
     Ok(result)
 }
 
-/// Handle WAC v2 output after bun exits. Parse result as WacOutput,
+/// Handle WAC v2 output after bun/python exits. Parse result as WacOutput,
 /// dispatch child jobs on suspend, or return the final result.
-async fn handle_wac_v2_output(
+pub async fn handle_wac_v2_output(
     result: Box<RawValue>,
     job: &MiniPulledJob,
     conn: &Connection,

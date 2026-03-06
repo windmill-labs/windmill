@@ -2449,14 +2449,25 @@ class WorkflowCtx:
         self._completed: dict = checkpoint.get("completed_steps", {})
         self._step_index: int = 0
         self._pending: list = []
+        self._executing_key: str | None = checkpoint.get("_executing_key")
 
-    def _next_step(self, name: str, script: str, **kwargs):
-        """Return an awaitable that either resolves from cache or suspends."""
+    def _alloc_key(self) -> str:
         key = f"step_{self._step_index}"
         self._step_index += 1
+        return key
+
+    def _next_step(self, name: str, script: str, func=None, **kwargs):
+        """Return an awaitable that either resolves from cache or suspends."""
+        key = self._alloc_key()
 
         if key in self._completed:
             return self._resolved(self._completed[key])
+
+        if self._executing_key is not None:
+            if key == self._executing_key:
+                return self._execute_directly(func, **kwargs)
+            else:
+                return self._never_resolve()
 
         info = {"name": name, "script": script, "args": kwargs, "key": key}
         self._pending.append(info)
@@ -2464,6 +2475,15 @@ class WorkflowCtx:
 
     async def _resolved(self, value):
         return value
+
+    async def _execute_directly(self, func, **kwargs):
+        result = func(**kwargs)
+        if _asyncio.iscoroutine(result):
+            result = await result
+        raise _StepSuspend({"mode": "step_complete", "steps": [], "result": result})
+
+    async def _never_resolve(self):
+        await _asyncio.Future()
 
     async def _suspend(self):
         steps = list(self._pending)
@@ -2474,6 +2494,26 @@ class WorkflowCtx:
                 "steps": steps,
             }
         )
+
+    async def _run_inline_step(self, name: str, fn):
+        key = self._alloc_key()
+
+        if key in self._completed:
+            return self._completed[key]
+
+        if self._executing_key is not None:
+            await _asyncio.Future()
+
+        result = fn()
+        if _asyncio.iscoroutine(result):
+            result = await result
+
+        raise _StepSuspend({
+            "mode": "inline_checkpoint",
+            "steps": [],
+            "key": key,
+            "result": result,
+        })
 
 
 def task(_func=None, *, path: Optional[str] = None):
@@ -2504,7 +2544,7 @@ def task(_func=None, *, path: Optional[str] = None):
                 # so that asyncio.gather() can collect multiple pending steps
                 # before any of them suspend.
                 script = task_path if task_path else task_name
-                return ctx._next_step(task_name, script, **kwargs)
+                return ctx._next_step(task_name, script, func, **kwargs)
             else:
                 # Standalone / MAIN_OVERRIDE — execute directly
                 return func(*args, **kwargs)
@@ -2528,6 +2568,22 @@ def workflow(func):
     return func
 
 
+async def step(name: str, fn):
+    """Execute ``fn`` inline and checkpoint the result.
+
+    On replay the cached value is returned without re-executing ``fn``.
+    Use for lightweight deterministic operations (timestamps, random IDs,
+    config reads) that should not incur the overhead of a child job.
+    """
+    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    if ctx is not None:
+        return await ctx._run_inline_step(name, fn)
+    result = fn()
+    if _asyncio.iscoroutine(result):
+        result = await result
+    return result
+
+
 async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
     ctx = WorkflowCtx(checkpoint)
     token = _workflow_ctx.set(ctx)
@@ -2535,7 +2591,17 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
         result = await func(**input_args)
         return {"type": "complete", "result": result}
     except _StepSuspend as e:
-        return {"type": "dispatch", **e.dispatch_info}
+        info = e.dispatch_info
+        mode = info.get("mode")
+        if mode == "step_complete":
+            return {"type": "complete", "result": info.get("result")}
+        if mode == "inline_checkpoint":
+            return {
+                "type": "inline_checkpoint",
+                "key": info["key"],
+                "result": info.get("result"),
+            }
+        return {"type": "dispatch", **info}
     finally:
         _workflow_ctx.reset(token)
 

@@ -567,6 +567,11 @@ pub async fn handle_python_job(
 
     let annotations = PythonAnnotations::parse(inner_content);
 
+    let is_wac_v2 = job.script_entrypoint_override.is_none()
+        && (inner_content.contains("@workflow") || inner_content.contains("workflow("))
+        && (inner_content.contains("@task") || inner_content.contains("task("))
+        && (inner_content.contains("import wmill") || inner_content.contains("from wmill"));
+
     if annotations.sandbox && NSJAIL_AVAILABLE.is_none() {
         return Err(Error::ExecutionErr(
             "Script has #sandbox annotation but nsjail is not available on this worker. \
@@ -677,8 +682,68 @@ pub async fn handle_python_job(
         String::new()
     };
     let main_override = main_name.unwrap_or_else(|| "main".to_string());
-    let wrapper_content: String = format!(
-        r#"
+    let wrapper_content: String = if is_wac_v2 {
+        format!(
+            r#"
+import os
+import json
+{import_loader}
+{import_base64}
+{import_datetime}
+import traceback
+import sys
+from {module_dir_dot} import {last} as inner_script
+from wmill.client import _run_workflow
+
+with open("args.json") as f:
+    kwargs = json.load(f, strict=False)
+args = {{}}
+{transforms}
+
+with open("checkpoint.json") as f:
+    checkpoint = json.load(f, strict=False)
+
+result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
+
+# Find the @workflow-decorated function
+workflow_fn = None
+for name in dir(inner_script):
+    obj = getattr(inner_script, name)
+    if callable(obj) and getattr(obj, '_is_workflow', False):
+        workflow_fn = obj
+        break
+
+if workflow_fn is None:
+    raise ValueError("No @workflow function found in script")
+
+for k, v in list(args.items()):
+    if v == '<function call>':
+        del args[k]
+
+try:
+    output = _run_workflow(workflow_fn, checkpoint, args)
+    output_json = json.dumps(output, separators=(',', ':'), default=str)
+    with open(result_json, 'w') as f:
+        f.write(output_json)
+except BaseException as e:
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+    tb = traceback.format_tb(exc_traceback)
+    with open(result_json, 'w') as f:
+        err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
+        extra = e.__dict__
+        if extra and len(extra) > 0:
+            err['extra'] = extra
+        flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
+        if flow_node_id:
+            err['step_id'] = flow_node_id
+        err_json = json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
+        f.write(err_json)
+        sys.exit(1)
+"#,
+        )
+    } else {
+        format!(
+            r#"
 import os
 import json
 {import_loader}
@@ -751,8 +816,22 @@ except BaseException as e:
         f.write(err_json)
         sys.exit(1)
 "#,
-    );
+        )
+    };
     write_file(job_dir, "wrapper.py", &wrapper_content)?;
+
+    // For WAC v2, write checkpoint.json before python runs
+    if is_wac_v2 {
+        if let Connection::Sql(db) = conn {
+            let checkpoint = crate::wac_executor::load_checkpoint(db, &job.id).await?;
+            let checkpoint_json = serde_json::to_string(&checkpoint).map_err(|e| {
+                error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
+            })?;
+            write_file(job_dir, "checkpoint.json", &checkpoint_json)?;
+        } else {
+            write_file(job_dir, "checkpoint.json", r#"{"completed_steps":{}}"#)?;
+        }
+    }
 
     tracing::debug!("Finished writing wrapper");
 
@@ -930,7 +1009,14 @@ mount {{
         *new_args = Some(args.clone());
     }
 
-    read_result(job_dir, handle_result.result_stream).await
+    let result = read_result(job_dir, handle_result.result_stream).await?;
+
+    // WAC v2 post-execution: parse output and handle dispatch/suspend
+    if is_wac_v2 {
+        return crate::bun_executor::handle_wac_v2_output(result, job, conn).await;
+    }
+
+    Ok(result)
 }
 
 async fn prepare_wrapper(

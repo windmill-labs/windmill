@@ -2,8 +2,9 @@
 
 import asyncio
 import pytest
+import time
 
-from wmill.client import WorkflowCtx, _StepSuspend, workflow, task, _run_workflow
+from wmill.client import WorkflowCtx, _StepSuspend, workflow, task, step, _run_workflow
 
 
 @task
@@ -31,6 +32,11 @@ async def send_alert(msg: str = ""):
     pass
 
 
+@task
+async def double(x: int):
+    return x * 2
+
+
 @workflow
 async def simple_workflow(url: str):
     raw = await extract_data(url=url)
@@ -54,6 +60,14 @@ async def conditional_workflow(count: int):
         await send_alert(msg="large")
     await load_data()
     return {"done": True}
+
+
+@workflow
+async def step_workflow(x: int):
+    ts = await step("timestamp", lambda: 1234567890)
+    doubled = await double(x=x)
+    rid = await step("random_id", lambda: "abc-123")
+    return {"ts": ts, "doubled": doubled, "id": rid}
 
 
 class TestWorkflowDecorator:
@@ -158,3 +172,73 @@ class TestConditionalWorkflow:
         # Should skip notify and dispatch load
         assert result["type"] == "dispatch"
         assert result["steps"][0]["name"] == "load_data"
+
+
+class TestStepInlineCheckpoint:
+    def test_first_invocation_returns_inline_checkpoint(self):
+        result = _run_workflow(step_workflow, {}, {"x": 7})
+        assert result["type"] == "inline_checkpoint"
+        assert result["key"] == "step_0"
+        assert result["result"] == 1234567890
+
+    def test_step_cached_then_task_dispatches(self):
+        checkpoint = {
+            "completed_steps": {
+                "step_0": 1234567890,
+            }
+        }
+        result = _run_workflow(step_workflow, checkpoint, {"x": 7})
+        assert result["type"] == "dispatch"
+        assert result["mode"] == "sequential"
+        assert result["steps"][0]["name"] == "double"
+        assert result["steps"][0]["key"] == "step_1"
+
+    def test_step_and_task_cached_then_second_step(self):
+        checkpoint = {
+            "completed_steps": {
+                "step_0": 1234567890,
+                "step_1": 14,
+            }
+        }
+        result = _run_workflow(step_workflow, checkpoint, {"x": 7})
+        assert result["type"] == "inline_checkpoint"
+        assert result["key"] == "step_2"
+        assert result["result"] == "abc-123"
+
+    def test_all_complete(self):
+        checkpoint = {
+            "completed_steps": {
+                "step_0": 1234567890,
+                "step_1": 14,
+                "step_2": "abc-123",
+            }
+        }
+        result = _run_workflow(step_workflow, checkpoint, {"x": 7})
+        assert result["type"] == "complete"
+        assert result["result"] == {"ts": 1234567890, "doubled": 14, "id": "abc-123"}
+
+
+class TestChildMode:
+    def test_child_executes_matching_task(self):
+        checkpoint = {
+            "completed_steps": {
+                "step_0": 1234567890,
+            },
+            "_executing_key": "step_1",
+        }
+        result = _run_workflow(step_workflow, checkpoint, {"x": 7})
+        assert result["type"] == "complete"
+        assert result["result"] == 14  # double(7) = 14
+
+    def test_child_replays_cached_steps(self):
+        """Cached steps before the executing key should replay normally."""
+        checkpoint = {
+            "completed_steps": {
+                "step_0": {"data": [1, 2, 3]},
+            },
+            "_executing_key": "step_1",
+        }
+        result = _run_workflow(simple_workflow, checkpoint, {"url": "https://example.com"})
+        assert result["type"] == "complete"
+        # load_data body returns None
+        assert result["result"] is None
