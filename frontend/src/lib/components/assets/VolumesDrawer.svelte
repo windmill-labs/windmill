@@ -52,10 +52,7 @@
 		refreshKey++
 	}
 
-	function canReadVolume(
-		createdBy: string,
-		extraPerms?: { [key: string]: unknown }
-	): boolean {
+	function canReadVolume(createdBy: string, extraPerms?: { [key: string]: unknown }): boolean {
 		if ($userStore?.is_admin) return true
 		const username = $userStore?.username
 		if (username === createdBy || `u/${username}` === createdBy) return true
@@ -67,10 +64,7 @@
 		return pgroups.some((g) => g in perms)
 	}
 
-	function canWriteVolume(
-		createdBy: string,
-		extraPerms?: { [key: string]: unknown }
-	): boolean {
+	function canWriteVolume(createdBy: string, extraPerms?: { [key: string]: unknown }): boolean {
 		if ($userStore?.is_admin) return true
 		const username = $userStore?.username
 		if (username === createdBy || `u/${username}` === createdBy) return true
@@ -83,10 +77,7 @@
 <Drawer {open} size="700px" on:close={() => (open = false)}>
 	<DrawerContent title="Volumes" on:close={() => (open = false)}>
 		{#snippet actions()}
-			<Popover
-				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-				containerClasses="border rounded-lg shadow-lg bg-surface"
-			>
+			<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
 				{#snippet trigger()}
 					<Button unifiedSize="sm" variant="accent" startIcon={{ icon: Plus }} nonCaptureEvent
 						>New volume</Button
@@ -122,8 +113,8 @@
 		{#if emptyString($enterpriseLicense)}
 			<div class="mb-4">
 				<Alert type="info" title="Community Edition limits">
-					Volumes are limited to 20 per workspace and 50 MB per file. Upgrade to Enterprise
-					Edition to remove these limits.
+					Volumes are limited to 20 per workspace and 50 MB per file. Upgrade to Enterprise Edition
+					to remove these limits.
 				</Alert>
 			</div>
 		{/if}
@@ -133,7 +124,8 @@
 			</div>
 		{:else if !volumes.current?.length}
 			<div class="text-sm text-secondary py-8 text-center">
-				No volumes yet. Create one above or they are auto-created when a job declares a volume annotation.
+				No volumes yet. Create one above or they are auto-created when a job declares a volume
+				annotation.
 			</div>
 		{:else}
 			<div class="flex flex-col divide-y border rounded-md">
@@ -151,7 +143,8 @@
 								/>
 							</div>
 							<span class="text-2xs text-secondary">
-								{vol.file_count} {vol.file_count === 1 ? 'file' : 'files'}
+								{vol.file_count}
+								{vol.file_count === 1 ? 'file' : 'files'}
 								&middot; {displaySize(vol.size_bytes) ?? '0 B'}
 								&middot; owner: {vol.created_by.replace(/^u\//, '')}
 							</span>
@@ -167,8 +160,7 @@
 								iconOnly
 								unifiedSize="sm"
 								endIcon={{ icon: Shield }}
-								on:click={() =>
-									shareModal?.openDrawer(vol.name, 'volume', true)}
+								on:click={() => shareModal?.openDrawer(vol.name, 'volume', true)}
 							/>
 						{/if}
 						{#if onExplore && readable}

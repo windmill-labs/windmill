@@ -6,8 +6,11 @@
 	import { defaultScriptLanguages } from '$lib/scripts'
 	import Alert from './common/alert/Alert.svelte'
 
-	export let small = false
-	$: langs = computeLangs($defaultScripts)
+	interface Props {
+		small?: boolean;
+	}
+
+	let { small = false }: Props = $props();
 
 	function computeLangs(defaultScripts: WorkspaceDefaultScripts | undefined): Script['language'][] {
 		const allLangs = Object.keys(defaultScriptLanguages) as Script['language'][]
@@ -30,6 +33,7 @@
 			requestBody: $defaultScripts
 		})
 	}
+	let langs = $derived(computeLangs($defaultScripts))
 </script>
 
 <Alert title="Global to workspace" type="info" class="mb-4" size={small ? 'xs' : 'sm'}>
@@ -47,7 +51,7 @@
 			<div>
 				{#if i > 0}
 					<button
-						on:click={() => changePosition(i ?? 0, true)}
+						onclick={() => changePosition(i ?? 0, true)}
 						class={small ? 'mr-2 text-secondary text-sm' : 'text-lg mr-2'}
 						title="Move up"
 					>
@@ -56,7 +60,7 @@
 				{/if}
 				{#if i < langs.length - 1}
 					<button
-						on:click={() => changePosition(i ?? 0, false)}
+						onclick={() => changePosition(i ?? 0, false)}
 						class={small ? 'mr-2 text-secondary text-sm' : 'text-lg mr-2'}
 						title="Move down">&downarrow;</button
 					>

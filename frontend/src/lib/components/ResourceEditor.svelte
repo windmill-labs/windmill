@@ -30,7 +30,6 @@
 		canSave?: boolean
 		resource_type?: string | undefined
 		path?: string
-		newResource?: boolean
 		hidePath?: boolean
 		onChange?: (args: { path: string; args: Record<string, any>; description: string }) => void
 		defaultValues?: Record<string, any> | undefined
@@ -40,7 +39,6 @@
 		canSave = $bindable(true),
 		resource_type = $bindable(undefined),
 		path = $bindable(''),
-		newResource = false,
 		hidePath = false,
 		onChange,
 		defaultValues = undefined
@@ -63,6 +61,7 @@
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 	let editDescription = $state(false)
 	let viewJsonSchema = $state(false)
+	let newResource = $derived(!path)
 
 	const dispatch = createEventDispatcher()
 
@@ -82,7 +81,7 @@
 			.map(([k, _]) => k)
 	}
 
-	if (!newResource) {
+	if (!untrack(() => newResource)) {
 		initEdit()
 	} else if (resource_type) {
 		loadResourceType()

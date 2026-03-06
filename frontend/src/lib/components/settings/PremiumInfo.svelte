@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { base } from '$lib/base'
 	import { capitalize, pluralize, sendUserToast } from '$lib/utils'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -14,8 +16,12 @@
 	import Modal from '../common/modal/Modal.svelte'
 	import { slide } from 'svelte/transition'
 
-	export let plan: string | undefined
-	export let customer_id: string | undefined
+	interface Props {
+		plan: string | undefined;
+		customer_id: string | undefined;
+	}
+
+	let { plan, customer_id }: Props = $props();
 
 	let users: User[] | undefined = undefined
 
@@ -33,7 +39,7 @@
 				is_past_due: boolean
 				max_tolerated_executions?: number
 		  }
-		| undefined = undefined
+		| undefined = $state(undefined)
 	const plans = {
 		Free: [
 			'Users use their individual global free-tier quotas when doing executions in this workspace',
@@ -55,13 +61,6 @@
 		]
 	}
 
-	$: {
-		if ($workspaceStore) {
-			loadPremiumInfo()
-			listUsers()
-			getThresholdAlert()
-		}
-	}
 
 	async function listUsers(): Promise<void> {
 		users = await UserService.listUsers({ workspace: $workspaceStore! })
@@ -93,10 +92,10 @@
 				threshold_alert_amount?: number
 				last_alert_sent?: string
 		  }
-		| undefined = undefined
-	let newThresholdAlertAmount: number | undefined = undefined
+		| undefined = $state(undefined)
+	let newThresholdAlertAmount: number | undefined = $state(undefined)
 
-	let thresholdAlertOpen = false
+	let thresholdAlertOpen = $state(false)
 	async function getThresholdAlert() {
 		thresholdAlert = await WorkspaceService.getThresholdAlert({ workspace: $workspaceStore! })
 	}
@@ -114,22 +113,31 @@
 		}
 	}
 
-	let estimatedDevsRaw = 1
-	let estimatedOps = 0
+	let estimatedDevsRaw = $state(1)
+	let estimatedOps = $state(0)
 
-	$: estimatedDevs = Math.max(1, estimatedDevsRaw)
-	$: estimatedSeats = estimatedDevs + Math.ceil(estimatedOps / 2)
 
-	let estimatedExecs = 1
+	let estimatedExecs = $state(1)
 
 	function updateExecs() {
 		if (estimatedExecs < estimatedSeats) {
 			estimatedExecs = estimatedSeats
 		}
 	}
-	$: estimatedSeats && updateExecs()
 
 	const formatNumber = (value: number) => value.toLocaleString('en-US')
+	run(() => {
+		if ($workspaceStore) {
+			loadPremiumInfo()
+			listUsers()
+			getThresholdAlert()
+		}
+	});
+	let estimatedDevs = $derived(Math.max(1, estimatedDevsRaw))
+	let estimatedSeats = $derived(estimatedDevs + Math.ceil(estimatedOps / 2))
+	run(() => {
+		estimatedSeats && updateExecs()
+	});
 </script>
 
 <Modal bind:open={thresholdAlertOpen} title="Threshold alert">
@@ -140,17 +148,19 @@
 		</label>
 	</div>
 
-	<svelte:fragment slot="actions">
-		<Button
-			size="sm"
-			on:click={() => {
-				setThresholdAlert()
-				thresholdAlertOpen = false
-			}}
-		>
-			Save
-		</Button>
-	</svelte:fragment>
+	{#snippet actions()}
+	
+			<Button
+				size="sm"
+				on:click={() => {
+					setThresholdAlert()
+					thresholdAlertOpen = false
+				}}
+			>
+				Save
+			</Button>
+		
+	{/snippet}
 </Modal>
 
 <div class="flex flex-col gap-4 mt-8">
@@ -497,7 +507,7 @@
 					{#if premiumInfo?.premium && plan === 'team'}
 						<button
 							class="mt-1 text-[11px] text-blue-500 underline self-start"
-							on:click={() => {
+							onclick={() => {
 								newThresholdAlertAmount = (estimatedSeats + (estimatedExecs - estimatedSeats)) * 10
 								thresholdAlertOpen = true
 							}}

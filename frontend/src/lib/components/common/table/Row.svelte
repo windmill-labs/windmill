@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import Star from '$lib/components/Star.svelte'
 	import RowIcon from './RowIcon.svelte'
 	import { BellOff } from 'lucide-svelte'
@@ -56,7 +57,7 @@
 		onSelect = () => {}
 	}: Props = $props()
 
-	let displayPath: string = (depth === 0 ? path : path?.split('/')?.slice(-1)?.[0]) ?? ''
+	let displayPath: string = (untrack(() => depth) === 0 ? untrack(() => path) : untrack(() => path)?.split('/')?.slice(-1)?.[0]) ?? ''
 </script>
 
 {#if href}

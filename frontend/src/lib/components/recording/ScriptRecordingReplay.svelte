@@ -119,14 +119,20 @@
 	<div class="flex flex-col gap-4">
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-2">
-				<h2 class="text-lg font-semibold text-emphasis">{recording.script_path || 'Untitled script'}</h2>
-				<span class="text-xs text-secondary px-2 py-0.5 bg-surface-secondary rounded">{recording.language}</span>
+				<h2 class="text-lg font-semibold text-emphasis"
+					>{recording.script_path || 'Untitled script'}</h2
+				>
+				<span class="text-xs text-secondary px-2 py-0.5 bg-surface-secondary rounded"
+					>{recording.language}</span
+				>
 				<Tooltip placement="bottom">
 					<InfoIcon size={16} class="text-tertiary" />
-					<span class="text-2xs" slot="text">
-						Recorded {new Date(recording.recorded_at).toLocaleString()} &mdash;
-						{(recording.total_duration_ms / 1000).toFixed(1)}s
-					</span>
+					{#snippet text()}
+						<span class="text-2xs">
+							Recorded {new Date(recording.recorded_at).toLocaleString()} &mdash;
+							{(recording.total_duration_ms / 1000).toFixed(1)}s
+						</span>
+					{/snippet}
 				</Tooltip>
 			</div>
 			<Button variant="contained" color="blue" on:click={startReplay} startIcon={{ icon: Play }}>
@@ -177,26 +183,26 @@
 {:else if replayState === 'playing' && jobId}
 	<div class="flex flex-col gap-4">
 		<div class="flex items-center justify-between">
-			<h2 class="text-lg font-semibold text-emphasis">Replaying: {recording.script_path || 'Untitled script'}</h2>
-			<Button variant="border" size="xs" on:click={stop} startIcon={{ icon: done ? LogOut : Square }}>
+			<h2 class="text-lg font-semibold text-emphasis"
+				>Replaying: {recording.script_path || 'Untitled script'}</h2
+			>
+			<Button
+				variant="border"
+				size="xs"
+				on:click={stop}
+				startIcon={{ icon: done ? LogOut : Square }}
+			>
 				{done ? 'Exit' : 'Stop'}
 			</Button>
 		</div>
-		<JobLoader
-			noCode={true}
-			bind:this={jobLoader}
-			bind:job
-		/>
+		<JobLoader noCode={true} bind:this={jobLoader} bind:job />
 
 		{#if done && job}
 			<div>
 				<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
 				<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-screen">
 					{#if job.type === 'CompletedJob' && job.result !== undefined}
-						<DisplayResult
-							result={job.result}
-							language={job.language}
-						/>
+						<DisplayResult result={job.result} language={job.language} />
 					{:else}
 						<div class="text-secondary text-sm">No result available</div>
 					{/if}

@@ -4,13 +4,16 @@
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from '../common'
 
-	export let filters: string[]
-	export let selectedFilter:
-		| { kind: 'owner' | 'integrations'; name: string | undefined }
-		| undefined = undefined
-	$: selectedAppFilter = selectedFilter?.kind === 'integrations' ? selectedFilter?.name : undefined
 
-	export let resourceType = false
+	interface Props {
+		filters: string[];
+		selectedFilter?: 
+		| { kind: 'owner' | 'integrations'; name: string | undefined }
+		| undefined;
+		resourceType?: boolean;
+	}
+
+	let { filters, selectedFilter = $bindable(undefined), resourceType = false }: Props = $props();
 
 	function getIconComponent(name: string, resourceType: boolean) {
 		if (resourceType) {
@@ -29,6 +32,7 @@
 	}
 
 	const dispatch = createEventDispatcher()
+	let selectedAppFilter = $derived(selectedFilter?.kind === 'integrations' ? selectedFilter?.name : undefined)
 </script>
 
 {#if Array.isArray(filters) && filters.length > 0}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
@@ -31,12 +31,12 @@
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['alertcomponent'].initialData.configuration, configuration)
+		initConfig(components['alertcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	initOutput($worldStore, id, {})
+	initOutput($worldStore, untrack(() => id), {})
 
-	let css = $state(initCss($app.css?.alertcomponent, customCss))
+	let css = $state(initCss($app.css?.alertcomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(components['alertcomponent'].initialData.configuration) as key (key)}

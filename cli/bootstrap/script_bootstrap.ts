@@ -39,7 +39,10 @@ export const scriptBootstrapCode = {
 }
 `,
 
-  bun: `export async function main() {
+  bun: `// there are multiple modes to add as header: //nobundling //native //npm //nodejs
+// https://www.windmill.dev/docs/getting_started/scripts_quickstart/typescript#modes
+
+export async function main() {
   return "Hello world";
 }
 `,

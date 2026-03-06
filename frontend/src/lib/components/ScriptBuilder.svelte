@@ -157,7 +157,7 @@
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
-	let args: Record<string, any> = $state(initialArgs) // Test args input
+	let args: Record<string, any> = $state(untrack(() => initialArgs)) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' = $state('main')
 	let hasPreprocessor = $state(false)
 	let preserveOnBehalfOf = $state(false)
@@ -170,12 +170,12 @@
 	let customOnBehalfOfEmail: string = $state('')
 
 	let metadataOpen = $state(
-		!neverShowMeta &&
-			(showMeta ||
-				searchParams.get('metadata_open') == 'true' ||
+		!untrack(() => neverShowMeta) &&
+			(untrack(() => showMeta) ||
+				untrack(() => searchParams).get('metadata_open') == 'true' ||
 				(initialPath == '' &&
-					searchParams.get('state') == undefined &&
-					searchParams.get('collab') == undefined))
+					untrack(() => searchParams).get('state') == undefined &&
+					untrack(() => searchParams).get('collab') == undefined))
 	)
 
 	let editor: Editor | undefined = $state(undefined)
@@ -193,10 +193,15 @@
 		confirmDeploymentCallback(selectedTriggers)
 	}
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // keep for legacy
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(
+		untrack(() => savedPrimarySchedule)
+	) // keep for legacy
 	const triggersCount = writable<TriggersCount | undefined>(
-		savedPrimarySchedule
-			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
+		untrack(() => savedPrimarySchedule)
+			? {
+					schedule_count: 1,
+					primary_schedule: { schedule: untrack(() => savedPrimarySchedule)!.cron }
+				}
 			: undefined
 	)
 	const simplifiedPoll = writable(false)
@@ -859,7 +864,7 @@
 		})()
 	)
 
-	setContext('disableTooltips', customUi?.disableTooltips === true)
+	setContext('disableTooltips', untrack(() => customUi)?.disableTooltips === true)
 
 	function langToLanguage(lang: SupportedLanguage | 'docker' | 'bunnative'): SupportedLanguage {
 		if (lang == 'docker') {
@@ -1672,8 +1677,10 @@
 													/>
 												{:else if script.on_behalf_of_email && !canPreserve}
 													<span class="text-xs text-tertiary">
-														Currently: <span class="font-medium">{originalOnBehalfOfEmail ?? script.on_behalf_of_email}</span>.
-														Will be set to <span class="font-medium">{$userStore?.email}</span> on deploy (requires admin or wm_deployers group to override)
+														Currently: <span class="font-medium"
+															>{originalOnBehalfOfEmail ?? script.on_behalf_of_email}</span
+														>. Will be set to <span class="font-medium">{$userStore?.email}</span> on
+														deploy (requires admin or wm_deployers group to override)
 													</span>
 												{/if}
 											</span>

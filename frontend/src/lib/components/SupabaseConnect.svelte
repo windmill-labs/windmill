@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { Loader2, RotateCwIcon } from 'lucide-svelte'
 
 	import { Button, DrawerContent } from './common'
@@ -15,16 +17,16 @@
 	import { createEventDispatcher } from 'svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 
-	let drawer: Drawer
-	let token: undefined | string = undefined
+	let drawer: Drawer | undefined = $state()
+	let token: undefined | string = $state(undefined)
 	export async function open() {
 		token = $oauthStore?.access_token ?? ''
-		drawer.openDrawer?.()
+		drawer?.openDrawer?.()
 		step = 'init'
 		description = ''
 	}
 
-	let step: 'init' | 'resource' = 'init'
+	let step: 'init' | 'resource' = $state('init')
 
 	async function listDatabases() {
 		if (!token) return
@@ -44,31 +46,33 @@
 		region: string
 		id: string
 	}
-	let databases: undefined | Database[] = undefined
+	let databases: undefined | Database[] = $state(undefined)
 
-	$: token != undefined && listDatabases()
+	run(() => {
+		token != undefined && listDatabases()
+	})
 
-	let selectedDatabase: undefined | Database = undefined
+	let selectedDatabase: undefined | Database = $state(undefined)
 
-	let description = ''
-	let pathError = ''
-	let password = ''
-	let path: string | undefined = undefined
+	let description = $state('')
+	let pathError = $state('')
+	let password = $state('')
+	let path: string | undefined = $state(undefined)
 
 	/**
 	 * https://github.com/orgs/supabase/discussions/17817
 	 * host is in the format of `aws-0-${region}.pooler.supabase.com`
 	 * user is in the format of `postgres.${id}`
 	 */
-	$: resourceValue = {
+	let resourceValue = $derived.by(() => ({
 		host: `aws-0-${selectedDatabase?.region}.pooler.supabase.com`,
 		user: `postgres.${selectedDatabase?.id}`,
 		port: 5432,
 		dbname: 'postgres',
 		sslmode: 'prefer',
 		password: `$var:${path}`
-	}
-	$: disabled = path == undefined || pathError != '' || path == ''
+	}))
+	let disabled = $derived(path == undefined || pathError != '' || path == '')
 
 	const dispatch = createEventDispatcher()
 	async function save() {
@@ -95,7 +99,7 @@
 		})
 		sendUserToast('Saved postgres resource')
 		dispatch('refresh')
-		drawer.closeDrawer?.()
+		drawer?.closeDrawer?.()
 	}
 </script>
 
@@ -120,7 +124,7 @@
 				{#each databases as database}
 					<button
 						class="btn btn-outline-primary mt-2 border p-2 w-full border-secondary-inverse hover:border-secondary rounded"
-						on:click={() => {
+						onclick={() => {
 							selectedDatabase = database
 
 							step = 'resource'

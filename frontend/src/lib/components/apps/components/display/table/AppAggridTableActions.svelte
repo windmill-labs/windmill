@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { AppViewerContext } from '../../../types'
 	import type { TableAction } from '$lib/components/apps/editor/component'
 
@@ -53,8 +53,8 @@
 	const { selectedComponent, hoverStore, mode, connectingInput, componentControl, app } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	$componentControl[id] = {
-		...$componentControl[id],
+	$componentControl[untrack(() => id)] = {
+		...$componentControl[untrack(() => id)],
 		onDelete: () => {
 			// Remove associated subgrid
 			actions.forEach((action) => {

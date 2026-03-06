@@ -8,27 +8,49 @@
 
 	type ConvertedFile = string | ArrayBuffer | null
 
-	let c = ''
-	export { c as class }
-	export let style = ''
-	export let accept = '*'
-	export let multiple = false
-	export let convertTo: ReadFileAs | undefined = undefined
-	export let hideIcon = false
-	export let iconSize = 24
-	export let returnFileNames = false
-	export let submittedText: string | undefined = undefined
-	export let defaultFile: string | string[] | undefined = undefined
-	export let disabled: boolean | undefined = undefined
-	export let folderOnly = false
-
 	const dispatch = createEventDispatcher()
-	let input: HTMLInputElement
+	let input: HTMLInputElement | undefined = $state()
 	type FileWithPath = File & { path?: string }
-	export let files: FileWithPath[] | undefined = undefined
+	interface Props {
+		class?: string
+		style?: string
+		accept?: string
+		multiple?: boolean
+		convertTo?: ReadFileAs | undefined
+		hideIcon?: boolean
+		iconSize?: number
+		returnFileNames?: boolean
+		submittedText?: string | undefined
+		defaultFile?: string | string[] | undefined
+		disabled?: boolean | undefined
+		folderOnly?: boolean
+		files?: FileWithPath[] | undefined
+		selectedTitle?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+		[key: string]: any
+	}
 
-	let pointerStartX = 0
-	let pointerStartY = 0
+	let {
+		class: c = '',
+		style = '',
+		accept = '*',
+		multiple = false,
+		convertTo = undefined,
+		hideIcon = false,
+		iconSize = 24,
+		returnFileNames = false,
+		submittedText = undefined,
+		defaultFile = undefined,
+		disabled = undefined,
+		folderOnly = false,
+		files = $bindable(undefined),
+		selectedTitle,
+		children,
+		...rest
+	}: Props = $props()
+
+	let pointerStartX = $state(0)
+	let pointerStartY = $state(0)
 
 	function handlePointerDown(e: PointerEvent) {
 		pointerStartX = e.clientX
@@ -50,7 +72,7 @@
 
 		// Needs to be reset so the same file can be selected
 		// multiple times in a row
-		input.value = ''
+		if (input) input.value = ''
 
 		dispatchChange()
 	}
@@ -194,10 +216,10 @@
 		duration-200 px-1 py-8`,
 		c
 	)}
-	on:dragover={handleDragOver}
-	on:drop={handleDrop}
-	on:pointerdown={handlePointerDown}
-	on:click={(e) => {
+	ondragover={handleDragOver}
+	ondrop={handleDrop}
+	onpointerdown={handlePointerDown}
+	onclick={(e) => {
 		const deltaX = Math.abs(e.clientX - pointerStartX)
 		const deltaY = Math.abs(e.clientY - pointerStartY)
 		if (deltaX > 5 || deltaY > 5) {
@@ -214,11 +236,11 @@
 	{/if}
 	{#if files}
 		<div class="w-full max-h-full overflow-auto px-6">
-			<slot name="selected-title">
+			{#if selectedTitle}{@render selectedTitle()}{:else}
 				<div class="text-center mb-2 px-2">
 					{submittedText ? submittedText : `Selected file${files.length > 1 ? 's' : ''}`}:
 				</div>
-			</slot>
+			{/if}
 			<ul class="relative z-20 max-w-[500px] bg-surface rounded-lg overflow-hidden mx-auto">
 				{#each files as { name }, i}
 					<li
@@ -239,10 +261,8 @@
 				{/each}
 			</ul>
 		</div>
-	{:else}
-		<slot>
-			<span>Drag and drop {folderOnly ? 'a folder' : multiple ? 'files' : 'a file'}</span>
-		</slot>
+	{:else if children}{@render children()}{:else}
+		<span>Drag and drop {folderOnly ? 'a folder' : multiple ? 'files' : 'a file'}</span>
 	{/if}
 	<input
 		class="!absolute !inset-0 !z-10 !opacity-0 !cursor-pointer"
@@ -250,12 +270,12 @@
 		{...{ webkitdirectory: folderOnly }}
 		title={files ? `${files.length} file${files.length > 1 ? 's' : ''} chosen` : 'No file chosen'}
 		bind:this={input}
-		on:change={({ currentTarget }) => {
+		onchange={({ currentTarget }) => {
 			onChange(currentTarget.files ? Array.from(currentTarget.files) : null)
 		}}
 		{accept}
 		{multiple}
-		{...$$restProps}
+		{...rest}
 	/>
 	{#if defaultFile && (!Array.isArray(defaultFile) || defaultFile.length > 0)}
 		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-primary mt-2">

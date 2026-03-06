@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { isMac } from '$lib/utils'
-	import { onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	// const dispatch = createEventDispatcher()
@@ -56,7 +56,7 @@
 		onkeyboardSpecificSelect
 	}: Props = $props()
 
-	if (small) {
+	if (untrack(() => small)) {
 		kbdClass = twMerge(
 			kbdClass,
 			'!text-[10px]  px-1',

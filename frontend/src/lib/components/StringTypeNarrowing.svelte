@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import type { EnumType } from '$lib/common'
 	import { computeKind } from '$lib/utils'
 	import Label from './Label.svelte'
@@ -51,7 +52,7 @@
 		computeKind(enum_, contentEncoding, pattern, format)
 	)
 
-	const allowKindChange = overrideAllowKindChange || originalType === 'string'
+	const allowKindChange = untrack(() => overrideAllowKindChange) || untrack(() => originalType) === 'string'
 
 	let patternStr: string = $state(pattern ?? '')
 	let resource: string | undefined = $state()

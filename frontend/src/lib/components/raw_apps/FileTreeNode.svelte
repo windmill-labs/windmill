@@ -27,7 +27,7 @@
 	import HtmlIcon from '../icons/HtmlIcon.svelte'
 	import MarkdownIcon from '../icons/MarkdownIcon.svelte'
 	import YamlIcon from '../icons/YamlIcon.svelte'
-	import { tick } from 'svelte'
+	import { tick, untrack } from 'svelte'
 
 	interface TreeNode {
 		name: string
@@ -68,7 +68,7 @@
 
 	let userExpanded = $state<boolean | null>(null) // null = not set by user
 	let isHovered = $state(false)
-	let editValue = $state(node.name)
+	let editValue = $state(untrack(() => node).name)
 	let textInputElement: TextInput | undefined = $state()
 	let dropdownOpen = $state(false)
 

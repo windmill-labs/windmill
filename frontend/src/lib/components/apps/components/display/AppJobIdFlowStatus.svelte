@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -35,10 +35,10 @@
 	const { app, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = $state(
-		initConfig(components['jobidlogcomponent'].initialData.configuration, configuration)
+		initConfig(components['jobidlogcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false,
 		jobId: undefined as string | undefined
@@ -46,7 +46,7 @@
 
 	initializing = false
 
-	let css = $state(initCss($app.css?.jobidflowstatuscomponent, customCss))
+	let css = $state(initCss($app.css?.jobidflowstatuscomponent, untrack(() => customCss)))
 
 	let jobId = $derived(resolvedConfig.jobId)
 </script>

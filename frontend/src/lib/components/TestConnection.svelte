@@ -7,10 +7,19 @@
 	import { workspaceStore } from '$lib/stores'
 	import { tryEvery } from '$lib/utils'
 
-	export let workspaceOverride: string | undefined = undefined
-	export let resourceType: string | undefined
-	export let args: Record<string, any> | any = {}
-	export let buttonTextOverride: string | undefined = undefined
+	interface Props {
+		workspaceOverride?: string | undefined;
+		resourceType: string | undefined;
+		args?: Record<string, any> | any;
+		buttonTextOverride?: string | undefined;
+	}
+
+	let {
+		workspaceOverride = undefined,
+		resourceType,
+		args = {},
+		buttonTextOverride = undefined
+	}: Props = $props();
 
 	const scripts: {
 		[key: string]: {
@@ -166,7 +175,7 @@ export async function main(bucket: any) {
 		}
 	}
 
-	let loading = false
+	let loading = $state(false)
 	async function testConnection() {
 		if (!resourceType) return
 		loading = true

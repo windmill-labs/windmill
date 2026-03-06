@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { stopPropagation, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Pencil } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from './common/button/Button.svelte'
@@ -9,13 +12,23 @@
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from './text_input/TextInput.svelte'
 
-	export let value: string | undefined
-	export let email: string
-	export let username: string | undefined = undefined
-	export let automateUsernameCreation: boolean = false
-	export let login_type: string
+	interface Props {
+		value: string | undefined
+		email: string
+		username?: string | undefined
+		automateUsernameCreation?: boolean
+		login_type: string
+	}
 
-	let password: string = ''
+	let {
+		value = $bindable(),
+		email,
+		username = undefined,
+		automateUsernameCreation = false,
+		login_type = $bindable()
+	}: Props = $props()
+
+	let password: string = $state('')
 
 	const dispatch = createEventDispatcher()
 
@@ -46,12 +59,12 @@
 	}}
 	closeButton
 >
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<Button unifiedSize="sm" nonCaptureEvent={true} variant="subtle" startIcon={{ icon: Pencil }}
 			>Edit</Button
 		>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{/snippet}
+	{#snippet content()}
 		<div class="flex flex-col gap-8 max-w-sm p-4">
 			{#if automateUsernameCreation && username}
 				<ChangeInstanceUsernameInner {email} {username} on:renamed noPadding />
@@ -96,10 +109,11 @@
 						type="password"
 						bind:value={password}
 						class="!w-auto grow"
-						on:click|stopPropagation={() => {}}
-						on:keydown|stopPropagation
-						on:keypress|stopPropagation={({ key }) => {
-							if (key === 'Enter') {
+						onclick={stopPropagation(() => {})}
+						onkeydown={stopPropagation(bubble('keydown'))}
+						onkeypress={(e) => {
+							e.stopPropagation()
+							if (e.key === 'Enter') {
 								savePassword()
 							}
 						}}
@@ -126,10 +140,11 @@
 						type="text"
 						bind:value={login_type}
 						class="!w-auto grow"
-						on:click|stopPropagation={() => {}}
-						on:keydown|stopPropagation
-						on:keypress|stopPropagation={({ key }) => {
-							if (key === 'Enter') {
+						onclick={stopPropagation(() => {})}
+						onkeydown={stopPropagation(bubble('keydown'))}
+						onkeypress={(e) => {
+							e.stopPropagation()
+							if (e.key === 'Enter') {
 								saveLoginType()
 							}
 						}}
@@ -153,5 +168,5 @@
 				</Button>
 			</label>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

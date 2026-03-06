@@ -16,7 +16,7 @@
 
 	import { getContainerHeight } from './utils/container'
 	import { moveItem, getItemById, specifyUndefinedColumns } from './utils/item'
-	import { onMount, getContext } from 'svelte'
+	import { onMount, getContext, untrack } from 'svelte'
 	import { getColumn, throttle } from './utils/other'
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
@@ -97,7 +97,7 @@
 	let container = $state()
 
 	let xPerPx = $state(0)
-	let yPerPx = rowHeight
+	let yPerPx = untrack(() => rowHeight)
 
 	const onResizeThrottled = throttle(() => {
 		if (!getComputedCols) return
@@ -108,7 +108,7 @@
 			yPerPx,
 			width: containerWidth
 		})
-	}, throttleUpdate)
+	}, untrack(() => throttleUpdate))
 
 	let mounted = $state(false)
 
@@ -261,7 +261,7 @@
 		}
 	}
 
-	const throttleMatrix = throttle(updateMatrix, throttleResize)
+	const throttleMatrix = throttle(updateMatrix, untrack(() => throttleResize))
 
 	//let hiddenComponents = writable({})
 

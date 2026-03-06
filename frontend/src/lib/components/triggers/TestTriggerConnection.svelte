@@ -13,10 +13,19 @@
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 
-	export let kind: 'websocket' | 'nats' | 'kafka' | 'postgres' | 'sqs' | 'mqtt' | 'gcp'
-	export let args: Record<string, any>
-	export let noButton = false
-	export let testLoading: boolean = false
+	interface Props {
+		kind: 'websocket' | 'nats' | 'kafka' | 'postgres' | 'sqs' | 'mqtt' | 'gcp';
+		args: Record<string, any>;
+		noButton?: boolean;
+		testLoading?: boolean;
+	}
+
+	let {
+		kind,
+		args,
+		noButton = false,
+		testLoading = $bindable(false)
+	}: Props = $props();
 
 	const kindToName: { [key: string]: string } = {
 		websocket: 'WebSocket',

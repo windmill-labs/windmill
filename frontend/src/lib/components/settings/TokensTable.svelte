@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { displayDate } from '$lib/utils'
 	import { UserService, type TruncatedToken } from '$lib/gen'
@@ -31,7 +32,7 @@
 	// --- Local State ---
 	let tokens = $state<TruncatedToken[]>([])
 	let tokenPage = $state(1)
-	let newTokenLabel = $state<string | undefined>(defaultNewTokenLabel)
+	let newTokenLabel = $state<string | undefined>(untrack(() => defaultNewTokenLabel))
 
 	$effect(() => {
 		listTokens()
@@ -127,14 +128,16 @@
 	/>
 	<div class="overflow-auto grow min-h-64 max-h-2/3">
 		<TableCustom>
-			<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-			<tr slot="header-row">
-				<th>Prefix</th>
-				<th>Label</th>
-				<th>Expiration</th>
-				<th>Scopes</th>
-				<th></th>
-			</tr>
+
+			{#snippet headerRow()}
+						<tr >
+					<th>Prefix</th>
+					<th>Label</th>
+					<th>Expiration</th>
+					<th>Scopes</th>
+					<th></th>
+				</tr>
+					{/snippet}
 			{#snippet body()}
 				<tbody>
 					{#if tokens && tokens.length > 0}

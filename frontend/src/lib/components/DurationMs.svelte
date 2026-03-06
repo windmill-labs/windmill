@@ -4,9 +4,13 @@
 	import { Hourglass } from 'lucide-svelte'
 	import WaitTimeWarning from './common/waitTimeWarning/WaitTimeWarning.svelte'
 
-	export let duration_ms: number
-	export let self_wait_time_ms: number | undefined = undefined
-	export let aggregate_wait_time_ms: number | undefined = undefined
+	interface Props {
+		duration_ms: number;
+		self_wait_time_ms?: number | undefined;
+		aggregate_wait_time_ms?: number | undefined;
+	}
+
+	let { duration_ms, self_wait_time_ms = undefined, aggregate_wait_time_ms = undefined }: Props = $props();
 </script>
 
 <div>

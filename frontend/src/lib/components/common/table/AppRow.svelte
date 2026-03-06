@@ -26,7 +26,7 @@
 		Copy
 	} from 'lucide-svelte'
 	import { goto as gotoUrl } from '$app/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { DELETE, copyToClipboard } from '$lib/utils'
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
@@ -242,9 +242,9 @@
 											path
 										})
 										let url =
-											$page.url.protocol +
+											page.url.protocol +
 											'//' +
-											`${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`
+											`${page.url.hostname}/public/${$workspaceStore}/${secretUrl}`
 										gotoUrl(url)
 									}
 								}

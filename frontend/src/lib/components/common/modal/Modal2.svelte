@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { stopPropagation } from 'svelte/legacy'
+
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { twMerge } from 'tailwind-merge'
@@ -7,14 +9,31 @@
 	import List from '$lib/components/common/layout/List.svelte'
 	import { fade } from 'svelte/transition'
 
-	export let title: string
+	interface Props {
+		title: string
+		css?: any
+		target?: string
+		isOpen?: boolean
+		fixedWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
+		fixedHeight?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
+		contentClasses?: string
+		headerLeft?: import('svelte').Snippet
+		headerRight?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+	}
 
-	export let css: any = {}
-	export let target: string = ''
-	export let isOpen = false
-	export let fixedWidth: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' = 'md'
-	export let fixedHeight: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' = 'md'
-	export let contentClasses: string = ''
+	let {
+		title,
+		css = {},
+		target = '',
+		isOpen = $bindable(false),
+		fixedWidth = 'md',
+		fixedHeight = 'md',
+		contentClasses = '',
+		headerLeft,
+		headerRight,
+		children
+	}: Props = $props()
 
 	const widthMap = {
 		xs: '400px',
@@ -54,7 +73,7 @@
 	}
 </script>
 
-<svelte:window on:keydown={handleKeyDown} />
+<svelte:window onkeydown={handleKeyDown} />
 
 {#if isOpen}
 	<Portal name="always-mounted" {target}>
@@ -72,10 +91,7 @@
 						css?.popup?.class,
 						'wm-modal-form-popup'
 					)}
-					use:clickOutside
-					on:click_outside={() => {
-						close()
-					}}
+					use:clickOutside={{ onClickOutside: () => close() }}
 				>
 					<List gap="md">
 						<div class="flex w-full">
@@ -84,15 +100,15 @@
 								<div class="grow w-min-0">
 									<List horizontal justify="between">
 										<div class="min-w-0 grow">
-											<slot name="header-left" />
+											{@render headerLeft?.()}
 										</div>
 										<div class="min-w-0 grow-0 justify-end">
 											<List horizontal justify="end">
-												<slot name="header-right" />
+												{@render headerRight?.()}
 												<div class="w-8">
 													<button
 														id="modal-close-button"
-														on:click={() => {
+														onclick={() => {
 															close()
 														}}
 														class="hover:bg-surface-hover rounded-full w-8 h-8 flex items-center justify-center transition-all"
@@ -107,13 +123,13 @@
 							</List>
 						</div>
 
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<!-- svelte-ignore a11y-no-static-element-interactions -->
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							class="w-full flex grow min-h-0 {contentClasses}"
-							on:click|stopPropagation={() => {}}
+							onclick={stopPropagation(() => {})}
 						>
-							<slot />
+							{@render children?.()}
 						</div>
 					</List>
 				</div>

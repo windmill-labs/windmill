@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
@@ -32,10 +32,10 @@
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['iconcomponent'].initialData.configuration, configuration)
+		initConfig(components['iconcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 	//used so that we can count number of outputs setup for first refresh
-	initOutput($worldStore, id, {})
+	initOutput($worldStore, untrack(() => id), {})
 
 	let iconComponent: any = $state()
 
@@ -45,7 +45,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.iconcomponent, customCss))
+	let css = $state(initCss($app.css?.iconcomponent, untrack(() => customCss)))
 	$effect(() => {
 		handleIcon(resolvedConfig, iconComponent)
 	})

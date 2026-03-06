@@ -1,16 +1,18 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
 
-	export let value: any
+	interface Props {
+		value: any;
+	}
 
-	$: enabled = value != undefined
+	let { value = $bindable() }: Props = $props();
 
-	// Initialize org from existing auth_url
-	$: org = value?.connect_config?.auth_url?.replace('/application/o/authorize/', '') ?? ''
 
-	$: changeOrg(org)
+
 
 	function changeOrg(org) {
 		if (value && org) {
@@ -30,10 +32,16 @@
 			}
 		}
 	}
+	let enabled = $derived(value != undefined)
+	// Initialize org from existing auth_url
+	let org = $derived(value?.connect_config?.auth_url?.replace('/application/o/authorize/', '') ?? '')
+	run(() => {
+		changeOrg(org)
+	});
 </script>
 
 <div class="flex flex-col gap-1">
-	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<label class="text-xs font-semibold text-emphasis flex gap-4 items-center"
 		><div class="w-[120px]"><IconedResourceType name={'authentik'} after={true} /></div><Toggle
 			checked={enabled}

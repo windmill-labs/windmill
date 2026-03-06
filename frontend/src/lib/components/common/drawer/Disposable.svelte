@@ -26,7 +26,7 @@
 		onClose
 	}: Props = $props()
 
-	let offset = $state(initialOffset)
+	let offset = $state(untrack(() => initialOffset))
 	let zIndex = $derived(zIndexes.disposables + offset)
 
 	export function toggleDrawer() {
@@ -87,8 +87,8 @@
 	}
 
 	if (open) {
-		openedDrawers.val.push(id)
-		offset = initialOffset + openedDrawers.val.length
+		openedDrawers.val.push(untrack(() => id))
+		offset = untrack(() => initialOffset) + openedDrawers.val.length
 	}
 
 	let wasEverOpen = false

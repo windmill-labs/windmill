@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import MySQLIcon from '$lib/components/icons/Mysql.svelte'
 	import PostgresIcon from '$lib/components/icons/PostgresIcon.svelte'
@@ -111,7 +112,7 @@
 		// for related places search: ADD_NEW_LANG
 	}
 
-	let subIconScale = width === 30 ? 0.6 : 0.8
+	let subIconScale = untrack(() => width) === 30 ? 0.6 : 0.8
 
 	const SvelteComponent = $derived(langToComponent[lang])
 </script>

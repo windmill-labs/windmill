@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { ExternalLink } from 'lucide-svelte'
 	import PanelSection from './common/PanelSection.svelte'
 	import type { components } from '../component'
@@ -13,7 +14,7 @@
 
 	let { type }: Props = $props()
 
-	const componentControls = getComponentControl(type)
+	const componentControls = getComponentControl(untrack(() => type))
 
 	let collapsed: boolean = $state(true)
 </script>

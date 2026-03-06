@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
 	import { melt } from '@melt-ui/svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -18,7 +19,7 @@
 	const {
 		elements: { subTrigger, subMenu },
 		states: { subOpen }
-	} = builders.createSubmenu()
+	} = untrack(() => builders).createSubmenu()
 
 	let subItems = $derived((item.submenuItems ?? []).filter((i) => !i.hide))
 </script>

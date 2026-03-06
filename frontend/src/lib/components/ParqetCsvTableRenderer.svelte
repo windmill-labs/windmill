@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { type GridApi, createGrid, type IDatasource } from 'ag-grid-community'
 
 	import 'ag-grid-community/styles/ag-grid.css'
@@ -14,15 +16,19 @@
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	let selectedRowIndex = -1
-	export let s3resource: string
-	export let storage: string | undefined
-	export let workspaceId: string | undefined
-	export let disable_download: boolean = false
+	interface Props {
+		s3resource: string
+		storage: string | undefined
+		workspaceId: string | undefined
+		disable_download?: boolean
+	}
+
+	let { s3resource, storage, workspaceId, disable_download = false }: Props = $props()
 
 	let lastSearch: string | undefined = undefined
 
-	let nbRows: number | undefined = undefined
-	let csvSeparatorChar: string = ','
+	let nbRows: number | undefined = $state(undefined)
+	let csvSeparatorChar: string = $state(',')
 	let datasource: IDatasource = {
 		rowCount: 0,
 		getRows: async function (params) {
@@ -95,11 +101,9 @@
 		toggleRow(rows[0])
 	}
 
-	let eGui: HTMLDivElement
+	let eGui: HTMLDivElement | undefined = $state()
 
-	$: eGui && mountGrid()
-
-	let error: string | undefined = undefined
+	let error: string | undefined = $state(undefined)
 	async function mountGrid() {
 		if (eGui) {
 			try {
@@ -170,7 +174,10 @@
 		}
 	}
 
-	let darkMode: boolean = false
+	let darkMode: boolean = $state(false)
+	run(() => {
+		eGui && mountGrid()
+	})
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -182,7 +189,7 @@
 				<label for="csvSeparatorChar" class="text-2xs text-secondary">Separator</label>
 
 				<div class="w-12 ml-2 mr-2">
-					<select class="h-8" bind:value={csvSeparatorChar} on:change={(e) => mountGrid()}>
+					<select class="h-8" bind:value={csvSeparatorChar} onchange={(e) => mountGrid()}>
 						<option value=",">,</option>
 						<option value=";">;</option>
 						<option value="\t">\t</option>

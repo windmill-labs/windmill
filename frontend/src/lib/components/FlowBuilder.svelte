@@ -228,7 +228,9 @@
 		}
 	}
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // kept for legacy reasons
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(
+		untrack(() => savedPrimarySchedule)
+	) // kept for legacy reasons
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const simplifiedPoll = writable(false)
 
@@ -601,8 +603,8 @@
 	const selectionManager = new SelectionManager()
 	const selectedIdStore = $derived(selectionManager.getSelectedId())
 	// Initialize with selected id if provided
-	if (selectedId) {
-		selectionManager.selectId(selectedId)
+	if (untrack(() => selectedId)) {
+		selectionManager.selectId(untrack(() => selectedId) ?? '')
 	} else {
 		selectionManager.selectId('settings-metadata')
 	}
@@ -611,11 +613,11 @@
 		return selectedIdStore
 	}
 
-	const previewArgsStore = $state({ val: initialArgs })
+	const previewArgsStore = $state({ val: untrack(() => initialArgs) })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
-	const history = initHistory(flowStore.val)
-	const pathStore = writable<string>(pathStoreInit ?? initialPath)
+	const history = initHistory(untrack(() => flowStore).val)
+	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
 	const captureOn = writable<boolean>(false)
 	const showCaptureHint = writable<boolean | undefined>(undefined)
 	const flowInputEditorStateStore = writable<FlowInputEditorState>({
@@ -642,15 +644,15 @@
 		scriptEditorDrawer,
 		flowEditorDrawer,
 		history,
-		flowStateStore,
-		flowStore,
+		flowStateStore: untrack(() => flowStateStore),
+		flowStore: untrack(() => flowStore),
 		pathStore,
 		stepsInputArgs,
 		saveDraft,
 		initialPathStore,
 		fakeInitialPath,
 		flowInputsStore: writable<FlowInput>({}),
-		customUi,
+		customUi: untrack(() => customUi),
 		insertButtonOpen,
 		executionCount: writable(0),
 		flowInputEditorState: flowInputEditorStateStore,
@@ -661,10 +663,13 @@
 	})
 
 	// Set up NoteEditor context for note editing capabilities
-	const noteEditor = new NoteEditor(flowStore, () => {
-		// Enable notes display when a note is created
-		flowEditor?.enableNotes?.()
-	})
+	const noteEditor = new NoteEditor(
+		untrack(() => flowStore),
+		() => {
+			// Enable notes display when a note is created
+			flowEditor?.enableNotes?.()
+		}
+	)
 	setNoteEditorContext(noteEditor)
 
 	setContext(
@@ -678,9 +683,9 @@
 			[
 				{ type: 'webhook', path: '', isDraft: false },
 				{ type: 'default_email', path: '', isDraft: false },
-				...(draftTriggersFromUrl ?? savedFlow?.draft?.draft_triggers ?? [])
+				...(untrack(() => draftTriggersFromUrl) ?? savedFlow?.draft?.draft_triggers ?? [])
 			],
-			selectedTriggerIndexFromUrl,
+			untrack(() => selectedTriggerIndexFromUrl),
 			saveSessionDraft
 		)
 	)
@@ -804,7 +809,7 @@
 		onClick: () => void
 	}> = []
 
-	if (customUi.topBar?.extraDeployOptions != false) {
+	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
 		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
 			dropdownItems.push({
 				label: 'Exit & see details',
@@ -812,14 +817,14 @@
 			})
 		}
 
-		if (!newFlow) {
+		if (!untrack(() => newFlow)) {
 			dropdownItems.push({
 				label: 'Fork',
 				onClick: () => window.open(`/flows/add?template=${initialPath}`)
 			})
 		}
 
-		if (!newFlow && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
+		if (!untrack(() => newFlow) && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
 			dropdownItems.push({
 				label: 'Edit in workspace fork',
 				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
@@ -1036,10 +1041,10 @@
 	}
 
 	let stepHistoryLoader = new StepHistoryLoader(
-		loadedFromHistoryFromUrl?.stepsState ?? {},
-		loadedFromHistoryFromUrl?.flowJobInitial,
+		untrack(() => loadedFromHistoryFromUrl)?.stepsState ?? {},
+		untrack(() => loadedFromHistoryFromUrl)?.flowJobInitial,
 		saveSessionDraft,
-		noInitial
+		untrack(() => noInitial)
 	)
 	setStepHistoryLoaderContext(stepHistoryLoader)
 

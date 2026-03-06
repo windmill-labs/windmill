@@ -1,0 +1,39 @@
+# Svelte 5 Migration - Bug Report
+# Testing started: 2026-03-02
+
+## Warnings (not blocking but worth fixing)
+
+1. [WARNING] binding_property_non_reactive in Grid.svelte:372:5
+   - `bind:this={moveResizes[item.id]}` is binding to a non-reactive property
+   - File: src/lib/components/apps/svelte-grid/Grid.svelte
+   - Appears multiple times in App editor
+   - Status: NOT FIXED (non-blocking warning)
+
+2. [WARNING] legacy_recursive_reactive_block in RecomputeAllComponents.svelte
+   - Migrated `$:` reactive block that both accesses and updates the same reactive value
+   - File: src/lib/components/apps/editor/RecomputeAllComponents.svelte
+   - May cause recursive updates when converted to $effect
+   - Status: NOT FIXED (non-blocking warning)
+
+3. [WARNING] ownership_invalid_mutation in SchemaForm.svelte:70:16
+   - Mutating unbound props (`schema`) is strongly discouraged
+   - Parent: src/lib/components/ApiConnectForm.svelte should use `bind:schema={...}`
+   - Appears when opening PostgreSQL resource creation form
+   - Status: NOT FIXED (non-blocking warning)
+
+4. [WARNING] ownership_invalid_binding in InputTransformSchemaForm.svelte
+   - Passes `schema` to InputTransformForm.svelte with `bind:`, but parent Pane.svelte didn't declare `schema` as binding
+   - Appears in flow editor when adding a TypeScript step
+   - Status: NOT FIXED (non-blocking warning)
+
+## Bugs
+
+1. [BUG] state_descriptors_fixed in Chart.svelte (Queue metrics drawer)
+   - Error: "Property descriptors defined on `$state` objects must contain `value` and always be `enumerable`, `configurable` and `writable`."
+   - Triggered by: Clicking "Queue metrics" on /workers page
+   - File: src/lib/components/chartjs-wrappers/Chart.svelte
+   - Root cause: Chart.js's `listenArrayEvents` calls Object.defineProperty on data arrays that are Svelte 5 $state proxies, which reject non-standard property descriptors
+   - Fix: Use $state.snapshot() to pass plain copies of data and options to Chart.js
+   - Status: FIXED
+
+

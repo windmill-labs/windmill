@@ -407,6 +407,7 @@
 	}
 
 	function updatePropsBeingEdited(focused: boolean) {
+		if (!exprBeingEdited) return
 		let newPropsBeingEdited = [...$exprBeingEdited]
 		if (focused) {
 			newPropsBeingEdited.push(argName)

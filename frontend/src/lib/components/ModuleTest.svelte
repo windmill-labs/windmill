@@ -8,7 +8,7 @@
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import JobLoader, { type Callbacks } from './JobLoader.svelte'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
@@ -167,8 +167,8 @@
 		testJob = modulesTestStates.states?.[mod.id]?.testJob
 	})
 
-	modulesTestStates.states[mod.id] = {
-		...(modulesTestStates.states?.[mod.id] ?? { loading: false }),
+	modulesTestStates.states[untrack(() => mod).id] = {
+		...(modulesTestStates.states?.[untrack(() => mod).id] ?? { loading: false }),
 		loading: testIsLoading,
 		testJob: testJob
 	}

@@ -3,7 +3,7 @@
 
 	import { push } from '$lib/history.svelte'
 	import { classNames } from '$lib/utils'
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { gridColumns, isFixed, toggleFixed } from '../gridUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
@@ -68,7 +68,7 @@
 	let isActive = $state(false)
 	let sber = editorContext?.componentActive?.subscribe((x) => (isActive = x))
 
-	let everVisible = $state(visible)
+	let everVisible = $state(untrack(() => visible))
 
 	$effect.pre(() => {
 		visible && !everVisible && (everVisible = true)
@@ -199,6 +199,7 @@
 <!-- {visible}
 {everVisible} -->
 {#if everVisible || $app.eagerRendering}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="translate-x-0 translate-y-0 w-full subgrid {visible
 			? 'visible'
@@ -329,6 +330,7 @@
 				>
 					{#snippet children({ dataItem })}
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							onpointerdown={stopPropagation((e) =>
 								selectComponent(e as PointerEvent, dataItem.id)
