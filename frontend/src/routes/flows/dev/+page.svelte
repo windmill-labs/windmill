@@ -17,7 +17,7 @@
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from '$lib/components/flows/content/FlowEditorPanel.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
@@ -28,14 +28,14 @@
 	import { StepsInputArgs } from '$lib/components/flows/stepsInputArgs.svelte'
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 
-	let token = $page.url.searchParams.get('wm_token') ?? undefined
-	let workspace = $page.url.searchParams.get('workspace') ?? undefined
-	let themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
+	let token = page.url.searchParams.get('wm_token') ?? undefined
+	let workspace = page.url.searchParams.get('workspace') ?? undefined
+	let themeDarkRaw = page.url.searchParams.get('activeColorTheme')
 	let themeDark = themeDarkRaw == '2' || themeDarkRaw == '4'
 
 	if (token) {
 		OpenAPI.WITH_CREDENTIALS = true
-		OpenAPI.TOKEN = $page.url.searchParams.get('wm_token')!
+		OpenAPI.TOKEN = page.url.searchParams.get('wm_token')!
 	}
 
 	if (workspace) {
@@ -74,7 +74,6 @@
 
 	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
-	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
 
 	const stepsInputArgs = new StepsInputArgs()
@@ -93,7 +92,6 @@
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		flowEditorDrawer: writable(undefined),
-		moving,
 		history,
 		pathStore: writable(''),
 		flowStateStore,

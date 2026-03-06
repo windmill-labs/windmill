@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { ChevronDown, ChevronRight } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
@@ -35,7 +36,7 @@
 		children
 	}: Props = $props()
 
-	if (openInitially && collapsable && collapsed) {
+	if (untrack(() => openInitially) && untrack(() => collapsable) && collapsed) {
 		collapsed = false
 	}
 </script>

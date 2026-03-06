@@ -13,6 +13,7 @@
 	interface Props {
 		fromWorkspaceSettings?: boolean
 		readOnlyMode: boolean
+		allowDelete?: boolean
 		initialFileKey?: { s3: string; storage?: string } | undefined
 		selectedFileKey?: { s3: string; storage?: string } | undefined
 		folderOnly?: boolean
@@ -24,6 +25,7 @@
 	let {
 		fromWorkspaceSettings = false,
 		readOnlyMode,
+		allowDelete = false,
 		initialFileKey = $bindable(undefined),
 		selectedFileKey = $bindable(undefined),
 		folderOnly = false,
@@ -94,6 +96,7 @@
 			}}
 			{fromWorkspaceSettings}
 			{readOnlyMode}
+			{allowDelete}
 			bind:initialFileKey
 			bind:selectedFileKey
 			bind:workspaceSettingsInitialized

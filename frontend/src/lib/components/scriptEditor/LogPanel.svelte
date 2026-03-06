@@ -142,7 +142,9 @@
 		{#if showCaptures && customUi?.disableTriggerCaptures !== true}
 			<Tab value="captures" label="Trigger captures" />
 		{/if}
-		<Tab value="tracing" label="Tracing" />
+		{#if customUi?.disableTracing !== true}
+			<Tab value="tracing" label="Tracing" />
+		{/if}
 		{#if isWac}
 			<Tab value="graph" label="Graph" />
 		{/if}

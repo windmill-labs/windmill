@@ -2,12 +2,13 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import Popover from '$lib/components/Popover.svelte'
-	import { classNames, type StateStore } from '$lib/utils'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { classNames, type Item, type StateStore } from '$lib/utils'
 	import {
 		Bed,
 		Database,
 		Gauge,
-		Move,
+		EllipsisVertical,
 		PhoneIncoming,
 		Repeat,
 		Square,
@@ -20,7 +21,7 @@
 		Timer,
 		Maximize2
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
@@ -48,6 +49,7 @@
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import DiffActionBar from './DiffActionBar.svelte'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
+	import MoveHandleButton from '$lib/components/graph/MoveHandleButton.svelte'
 
 	interface Props {
 		selected?: boolean
@@ -69,7 +71,6 @@
 		id?: string | undefined
 		label: string
 		path?: string
-		modType?: string | undefined
 		nodeState?: FlowNodeState
 		concurrency?: boolean
 		// TODO: Implement for this one. See how concurrency is implemented.
@@ -89,6 +90,7 @@
 		isOwner?: boolean
 		enableTestRun?: boolean
 		maximizeSubflow?: () => void
+		menuItems?: Item[]
 	}
 
 	let {
@@ -106,7 +108,6 @@
 		id = undefined,
 		label,
 		path = '',
-		modType = undefined,
 		nodeState,
 		concurrency = false,
 		debouncing = false,
@@ -123,7 +124,8 @@
 		onEditInput,
 		flowJob,
 		enableTestRun = false,
-		maximizeSubflow = undefined
+		maximizeSubflow = undefined,
+		menuItems = undefined
 	}: Props = $props()
 
 	// AI action colors take priority over execution state
@@ -136,6 +138,10 @@
 
 	const flowGraphContext = getGraphContext()
 	const diffManager = flowGraphContext?.diffManager
+	const moveManager = flowGraphContext?.moveManager
+
+	// Hide per-node action buttons when multiple nodes are selected (multi-select mode)
+	let isMultiSelected = $derived((flowGraphContext?.selectionManager?.selectedIds?.length ?? 0) > 1)
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
@@ -151,7 +157,7 @@
 
 	let editId = $state(false)
 
-	let newId: string = $state(id ?? '')
+	let newId: string = $state(untrack(() => id) ?? '')
 
 	let moduleTest: ModuleTest | undefined = $state(undefined)
 	let testIsLoading = $state(false)
@@ -160,6 +166,7 @@
 	let outputPicker: OutputPicker | undefined = $state(undefined)
 	let testJob: any | undefined = $state(undefined)
 	let outputPickerBarOpen = $state(false)
+	let dropdownOpen = $state(false)
 
 	let flowStateStore = $derived(flowEditorContext?.flowStateStore)
 
@@ -185,8 +192,10 @@
 		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
 	)
 
+	let isDragging = $derived(!!moveManager?.dragging)
+
 	const outputPickerVisible = $derived(
-		editMode && (isConnectingCandidate || alwaysShowOutputPicker) && !!id
+		editMode && (isConnectingCandidate || alwaysShowOutputPicker) && !!id && !isDragging
 	)
 
 	const icon_render = $derived(icon)
@@ -428,6 +437,7 @@
 				{deletable}
 				{bold}
 				bind:editId
+				disableEditId={isMultiSelected}
 				{hover}
 				{colorClasses}
 			>
@@ -436,7 +446,7 @@
 				{/snippet}
 			</FlowModuleSchemaItemViewer>
 
-			{#if outputPickerVisible}
+			{#if outputPickerVisible && !isMultiSelected}
 				<OutputPicker
 					bind:this={outputPicker}
 					{selected}
@@ -474,53 +484,10 @@
 			{/if}
 		</div>
 
-		{#if deletable}
+		{#if deletable && !isDragging}
 			{#if maximizeSubflow !== undefined}
 				{@render buttonMaximizeSubflow?.()}
 			{/if}
-
-			{#if id !== 'preprocessor'}
-				<!-- The `style="will-change: transform;"` fixes a bug in Safari where the close and move
-			 		 and delete buttons would get clipped (unless an animation is running) -->
-				<div
-					class={twMerge('absolute -translate-y-[100%] top-2 right-4 h-7 p-1 min-w-7')}
-					style="will-change: transform;"
-				>
-					<button
-						class={twMerge(
-							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
-							hover || selected ? 'block' : '!hidden',
-							'shadow-md rounded-md',
-							'group-hover:block'
-						)}
-						onclick={stopPropagation(preventDefault((event) => dispatch('move')))}
-						title="Move"
-					>
-						<Move size={12} />
-					</button>
-				</div>
-			{/if}
-
-			<div
-				class="absolute -translate-y-[100%] top-2 -right-2 h-7 p-1 min-w-7"
-				style="will-change: transform;"
-			>
-				<button
-					class={twMerge(
-						'trash center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-red-400 hover:text-white p-1',
-						selected || hover ? 'block' : '!hidden',
-						'group-hover:block',
-						'shadow-md rounded-md'
-					)}
-					title="Delete"
-					onclick={stopPropagation(
-						preventDefault((event) => dispatch('delete', { id, type: modType }))
-					)}
-					onpointerdown={stopPropagation(preventDefault(() => {}))}
-				>
-					<X size={12} />
-				</button>
-			</div>
 
 			{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
 				<Popover
@@ -551,19 +518,65 @@
 					<TriangleAlert size={12} strokeWidth={2} />
 				</Popover>
 			{/if}
+
+			{#if !isMultiSelected && id !== 'preprocessor' && moveManager && id}
+				<div
+					class="absolute -translate-y-[100%] top-2 right-5 h-7 p-1 min-w-7"
+					style="will-change: transform;"
+				>
+					<MoveHandleButton
+						{moveManager}
+						moduleId={id}
+						singleNode
+						visible={hover || selected || dropdownOpen}
+						onClickMove={() => dispatch('move')}
+						class="trash group-hover:block"
+					/>
+				</div>
+			{/if}
+
+			{#if !isMultiSelected && menuItems && menuItems.length > 0}
+				<div
+					class="absolute -translate-y-[100%] top-2 -right-2 h-7 p-1 min-w-7"
+					style="will-change: transform;"
+				>
+					<DropdownV2
+						items={menuItems}
+						placement="bottom-end"
+						bind:open={dropdownOpen}
+						fixedHeight={false}
+						usePointerDownOutside
+					>
+						{#snippet buttonReplacement()}
+							<button
+								class={twMerge(
+									'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
+									hover || selected || dropdownOpen ? 'block' : '!hidden',
+									'shadow-md rounded-md',
+									'group-hover:block'
+								)}
+								onpointerdown={stopPropagation(preventDefault(() => {}))}
+								title="Actions"
+							>
+								<EllipsisVertical size={12} />
+							</button>
+						{/snippet}
+					</DropdownV2>
+				</div>
+			{/if}
 		{:else if maximizeSubflow !== undefined}
 			{@render buttonMaximizeSubflow?.()}
 		{/if}
 	</div>
 
-	{#if editMode && enableTestRun && flowJob?.type !== 'QueuedJob'}
+	{#if editMode && enableTestRun && flowJob?.type !== 'QueuedJob' && !isDragging}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-1 h-9 min-w-9"
 			onmouseenter={() => (hover = true)}
 			onmouseleave={() => (hover = false)}
 		>
-			{#if (hover || selected || testRunDropdownOpen) && outputPickerVisible}
+			{#if !isMultiSelected && (hover || selected || testRunDropdownOpen) && outputPickerVisible}
 				<div transition:fade={{ duration: 100 }}>
 					{#if !testIsLoading}
 						<Button
@@ -615,13 +628,13 @@
 </div>
 
 {#snippet buttonMaximizeSubflow()}
-	<div class="absolute -translate-y-[100%] top-2 right-10 h-7 p-1">
+	<div class="absolute -translate-y-[100%] top-2 right-12 h-7 p-1">
 		<button
 			title="Expand subflow"
 			class={twMerge(
 				'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1',
 				'shadow-md rounded-md',
-				hover || selected ? 'opacity-100' : 'opacity-50'
+				!isMultiSelected && (hover || selected) ? 'opacity-100' : 'opacity-50'
 			)}
 			onclick={(e) => {
 				e.stopPropagation()

@@ -12,12 +12,12 @@
 
 	const { app, initialized } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: unintitializedComponents = allItems($app.grid, $app.subgrids)
+	let unintitializedComponents = $derived(allItems($app.grid, $app.subgrids)
 		.map((x) => x.id)
 		.filter((x) => !$initialized.initializedComponents?.includes(x))
-		.sort()
+		.sort())
 
-	$: subgridsErrors = Object.keys($app.subgrids ?? {})
+	let subgridsErrors = $derived(Object.keys($app.subgrids ?? {})
 		.map((x) => {
 			const parentId = x.split('-')[0]
 			const parent = findGridItem($app, parentId)
@@ -39,7 +39,7 @@
 				}
 			}
 		})
-		.filter(Boolean)
+		.filter(Boolean))
 </script>
 
 <div class="flex flex-col gap-8" style="all:none;">

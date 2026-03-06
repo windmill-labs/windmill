@@ -38,10 +38,10 @@
 	const { app, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['jobprogressbarcomponent'].initialData.configuration, configuration)
+		initConfig(components['jobprogressbarcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false,
 		jobId: undefined
@@ -49,7 +49,7 @@
 
 	initializing = false
 
-	let css = $state(initCss($app.css?.jobprogressbarcomponent, customCss))
+	let css = $state(initCss($app.css?.jobprogressbarcomponent, untrack(() => customCss)))
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let testIsLoading: boolean = $state(false)

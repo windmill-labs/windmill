@@ -52,7 +52,7 @@
 	import { onMount } from 'svelte'
 	import { base } from '$lib/base'
 	import { type Changelog, changelogs } from './changelogs'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import SideBarNotification from './SideBarNotification.svelte'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
@@ -369,12 +369,12 @@
 			aiDescription: 'Button to navigate to schedules'
 		},
 		...allTriggerLinks.filter(
-			(link) => $usedTriggerKinds.includes(link.kind) || $page.url.pathname.includes(link.href)
+			(link) => $usedTriggerKinds.includes(link.kind) || page.url.pathname.includes(link.href)
 		)
 	])
 	let extraTriggerLinks = $derived(
 		allTriggerLinks.filter((link) => {
-			return !$page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
+			return !page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
 		})
 	)
 	let secondaryMenuLinks = $derived([

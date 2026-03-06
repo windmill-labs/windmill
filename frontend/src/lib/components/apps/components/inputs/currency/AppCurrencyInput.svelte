@@ -40,7 +40,7 @@
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: null as number | null
 	})
 
@@ -49,7 +49,7 @@
 	})
 
 	let resolvedConfig = $state(
-		initConfig(components['currencycomponent'].initialData.configuration, configuration)
+		initConfig(components['currencycomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	let initValue = outputs?.result.peak()
@@ -57,7 +57,7 @@
 		!iterContext && initValue != undefined ? initValue : resolvedConfig.defaultValue
 	)
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: number) {
 			value = nvalue
 			outputs?.result.set(value ?? null)
@@ -84,7 +84,7 @@
 		handleInput()
 	}
 
-	let css = $state(initCss($app.css?.currencycomponent, customCss))
+	let css = $state(initCss($app.css?.currencycomponent, untrack(() => customCss)))
 	$effect(() => {
 		resolvedConfig.defaultValue
 		untrack(() => handleDefault(resolvedConfig.defaultValue))
@@ -119,6 +119,7 @@
 	{#key resolvedConfig.isNegativeAllowed}
 		{#key resolvedConfig.locale}
 			{#key resolvedConfig.currency}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div class="w-full" onpointerdown={stopPropagation(() => ($selectedComponent = [id]))}>
 					<CurrencyInput
 						inputClasses={{

@@ -88,6 +88,7 @@
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
@@ -613,7 +614,7 @@
 				>
 			{/if}
 			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && selectedJobStepIsTopLevel && job.id}
-					<FlowRestartButton
+				<FlowRestartButton
 					jobId={job.id}
 					{selectedJobStep}
 					{selectedJobStepType}
@@ -661,7 +662,7 @@
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
 					{/if}
-					{#if !showEditButton && !isRuleActive('DisableWorkspaceForking')}
+					{#if !showEditButton && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')}
 						<Button
 							href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '')}
 							unifiedSize="md"
@@ -779,7 +780,7 @@
 
 		{#if isNotFlow(job?.job_kind)}
 			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && (job?.job_kind == 'script' || isScriptPreview(job?.job_kind))}
-				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
+				<ExecutionDuration {job} bind:longRunning={currentJobIsLongRunning} />
 			{/if}
 			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
 				{#if job?.workflow_as_code_status && job.job_kind !== 'aiagent'}
@@ -865,7 +866,7 @@
 								{/if}
 							{:else if viewTab == 'stats'}
 								<div class="w-full">
-									<MemoryFootprintViewer jobId={job.id} bind:jobUpdateLastFetch />
+									<MemoryFootprintViewer jobId={job.id} {jobUpdateLastFetch} />
 								</div>
 							{:else}
 								<div class="w-full p-4 text-secondary">Select a tab to view content</div>

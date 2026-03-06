@@ -15,7 +15,13 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceGroup from '$lib/components/WorkerGroup.svelte'
-	import { WorkerService, type WorkerPing, ConfigService, SettingService, SettingsService } from '$lib/gen'
+	import {
+		WorkerService,
+		type WorkerPing,
+		ConfigService,
+		SettingService,
+		SettingsService
+	} from '$lib/gen'
 	import {
 		enterpriseLicense,
 		superadmin,
@@ -88,8 +94,11 @@
 		const minVersion = isAgent ? agentMinKeepAliveVersion : minKeepAliveVersion
 		if (minVersion) {
 			const minKeepAlive = parseVersion(minVersion)
-			if (minKeepAlive && (worker[0] < minKeepAlive[0] ||
-				(worker[0] === minKeepAlive[0] && worker[1] < minKeepAlive[1]))) {
+			if (
+				minKeepAlive &&
+				(worker[0] < minKeepAlive[0] ||
+					(worker[0] === minKeepAlive[0] && worker[1] < minKeepAlive[1]))
+			) {
 				return 'critical'
 			}
 		}
@@ -105,7 +114,13 @@
 	// Compute the worst version warning across alive workers only
 	let worstVersionWarning = $derived.by(() => {
 		if (!workers) return 'none' as VersionWarning
-		const priority: Record<VersionWarning, number> = { none: 0, note: 1, newer: 2, warning: 3, critical: 4 }
+		const priority: Record<VersionWarning, number> = {
+			none: 0,
+			note: 1,
+			newer: 2,
+			warning: 3,
+			critical: 4
+		}
 		let worst: VersionWarning = 'none'
 		for (const w of workers) {
 			// Only check alive workers (pinged within last 60 seconds, accounting for time since refresh)
@@ -269,11 +284,15 @@
 	loadWorkers()
 	loadWorkerGroups()
 	loadCustomTags()
-	SettingsService.backendVersion().then((v) => (serverVersion = v)).catch((e) => console.error('Failed to fetch server version:', e))
-	SettingService.getMinKeepAliveVersion().then((v) => {
-		minKeepAliveVersion = v.worker
-		agentMinKeepAliveVersion = v.agent
-	}).catch((e) => console.error('Failed to fetch min keep-alive version:', e))
+	SettingsService.backendVersion()
+		.then((v) => (serverVersion = v))
+		.catch((e) => console.error('Failed to fetch server version:', e))
+	SettingService.getMinKeepAliveVersion()
+		.then((v) => {
+			minKeepAliveVersion = v.worker
+			agentMinKeepAliveVersion = v.agent
+		})
+		.catch((e) => console.error('Failed to fetch min keep-alive version:', e))
 
 	onDestroy(() => {
 		if (intervalId) {
@@ -437,9 +456,7 @@
 
 			// Protect well-known groups from accidental deletion
 			const protectedGroups = ['default', 'native']
-			const deletedProtected = protectedGroups.filter(
-				(g) => oldNames.has(g) && !newNames.has(g)
-			)
+			const deletedProtected = protectedGroups.filter((g) => oldNames.has(g) && !newNames.has(g))
 			if (deletedProtected.length > 0) {
 				sendUserToast(
 					`Cannot remove well-known groups: ${deletedProtected.join(', ')}. Add them back to the YAML.`,
@@ -635,8 +652,8 @@
 			<a
 				href="https://www.windmill.dev/docs/advanced/instance_settings#kubernetes-operator"
 				target="_blank"
-				rel="noopener noreferrer"
-			>Learn more <ExternalLink size={12} class="inline-block" /></a>
+				rel="noopener noreferrer">Learn more <ExternalLink size={12} class="inline-block" /></a
+			>
 		</p>
 		{#if yamlDiffMode}
 			<div class="w-full h-full">
@@ -670,21 +687,22 @@
 					unifiedSize="md"
 					variant="default"
 					disabled={yamlSaving}
-					onClick={() => { yamlDiffMode = false }}
-				>Back to editor</Button>
-				<Button
-					unifiedSize="md"
-					variant="accent"
-					loading={yamlSaving}
-					onClick={saveYamlConfig}
-				>Save</Button>
+					onClick={() => {
+						yamlDiffMode = false
+					}}>Back to editor</Button
+				>
+				<Button unifiedSize="md" variant="accent" loading={yamlSaving} onClick={saveYamlConfig}
+					>Save</Button
+				>
 			{:else}
 				<Button
 					unifiedSize="md"
 					variant="accent"
 					disabled={!yamlConfigCode || yamlConfigCode === yamlConfigOriginal}
-					onClick={() => { yamlDiffMode = true }}
-				>Review & Save</Button>
+					onClick={() => {
+						yamlDiffMode = true
+					}}>Review & Save</Button
+				>
 			{/if}
 		{/snippet}
 	</DrawerContent>
@@ -768,13 +786,8 @@
 						>
 						<Popover
 							floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
-							containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 							onKeyDown={(e) => {
-								if (
-									e.key === 'Enter' &&
-									newConfigName &&
-									newConfigName.trim() !== ''
-								) {
+								if (e.key === 'Enter' && newConfigName && newConfigName.trim() !== '') {
 									addConfig()
 								}
 							}}
@@ -793,7 +806,7 @@
 										startIcon={{ icon: Plus }}
 										nonCaptureEvent
 										dropdownItems={[
-											...$enterpriseLicense
+											...($enterpriseLicense
 												? [
 														{
 															label: 'Copy groups config as YAML',
@@ -801,7 +814,9 @@
 																if (!workerGroups) {
 																	return sendUserToast('No worker groups found', true)
 																}
-																navigator.clipboard.writeText(serializeWorkerGroupsAsYaml(workerGroups))
+																navigator.clipboard.writeText(
+																	serializeWorkerGroupsAsYaml(workerGroups)
+																)
 																sendUserToast('Worker groups config copied to clipboard as YAML')
 															}
 														},
@@ -812,16 +827,14 @@
 															}
 														}
 													]
-												: [],
+												: []),
 											{
 												label: 'Edit all configs as YAML',
 												onClick: openYamlDrawer
 											}
 										]}
 									>
-										<span class="hidden md:block"
-											>New group config</span
-										>
+										<span class="hidden md:block">New group config</span>
 
 										<Tooltip light>
 											Worker Group configs are propagated to every workers in the worker group
@@ -855,20 +868,20 @@
 
 			{#if worstVersionWarning === 'critical'}
 				<Alert type="error" title="Critical: Workers below minimum version" class="my-4">
-					One or more workers are running below the minimum supported version.
-					This may cause undefined behavior and cluster instability.
-					Upgrade these workers immediately—running workers this old is untested and strongly discouraged.
+					One or more workers are running below the minimum supported version. This may cause
+					undefined behavior and cluster instability. Upgrade these workers immediately—running
+					workers this old is untested and strongly discouraged.
 				</Alert>
 			{:else if worstVersionWarning === 'warning'}
 				<Alert type="warning" title="Workers significantly behind" class="my-4">
-					One or more workers are significantly behind the server ({serverVersion}) by more than 50 minor versions.
-					While they should still function, the risk of issues is elevated.
-					Further server upgrades may push these workers into a critical state. Upgrading is recommended.
+					One or more workers are significantly behind the server ({serverVersion}) by more than 50
+					minor versions. While they should still function, the risk of issues is elevated. Further
+					server upgrades may push these workers into a critical state. Upgrading is recommended.
 				</Alert>
 			{:else if worstVersionWarning === 'newer'}
 				<Alert type="warning" title="Workers ahead of server" class="my-4">
-					One or more workers are running a newer version than the server ({serverVersion}).
-					Workers should be at or behind the server version. This may cause undefined behavior.
+					One or more workers are running a newer version than the server ({serverVersion}). Workers
+					should be at or behind the server version. This may cause undefined behavior.
 				</Alert>
 			{/if}
 
@@ -1129,33 +1142,57 @@
 														</div>
 													</Cell>
 													<Cell class="text-secondary">
-														{@const versionWarning = getVersionWarning(wm_version, worker.startsWith('ag-'))}
+														{@const versionWarning = getVersionWarning(
+															wm_version,
+															worker.startsWith('ag-')
+														)}
 														<div class="flex items-center gap-1">
 															<div class="!text-2xs" title={wm_version}>
 																{wm_version.split('-')[0]}
 															</div>
 															{#if versionWarning !== 'none'}
 																<MeltTooltip>
-																	<Badge color={versionWarning === 'critical' ? 'red' : versionWarning === 'warning' ? 'yellow' : versionWarning === 'newer' ? 'yellow' : 'blue'}>
+																	<Badge
+																		color={versionWarning === 'critical'
+																			? 'red'
+																			: versionWarning === 'warning'
+																				? 'yellow'
+																				: versionWarning === 'newer'
+																					? 'yellow'
+																					: 'blue'}
+																	>
 																		<TriangleAlert size={12} />
 																	</Badge>
 																	{#snippet text()}
 																		{@const isAgent = worker.startsWith('ag-')}
 																		<div class="max-w-xs text-xs">
 																			{#if versionWarning === 'critical'}
-																				<strong>Critical:</strong> This {isAgent ? 'agent worker' : 'worker'} is running below the minimum supported version ({isAgent ? agentMinKeepAliveVersion : minKeepAliveVersion}).
-																				This may cause undefined behavior and cluster instability.
-																				Upgrade this {isAgent ? 'agent worker' : 'worker'} immediately—running {isAgent ? 'agent workers' : 'workers'} this old is untested and strongly discouraged.
+																				<strong>Critical:</strong> This {isAgent
+																					? 'agent worker'
+																					: 'worker'} is running below the minimum supported version
+																				({isAgent
+																					? agentMinKeepAliveVersion
+																					: minKeepAliveVersion}). This may cause undefined behavior
+																				and cluster instability. Upgrade this {isAgent
+																					? 'agent worker'
+																					: 'worker'} immediately—running {isAgent
+																					? 'agent workers'
+																					: 'workers'} this old is untested and strongly discouraged.
 																			{:else if versionWarning === 'warning'}
-																				<strong>Warning:</strong> This worker is significantly behind the server ({serverVersion}) by more than 50 minor versions.
-																				While it should still function, the risk of issues is elevated.
-																				Further server upgrades may push this worker into a critical state. Upgrading is recommended.
+																				<strong>Warning:</strong> This worker is significantly
+																				behind the server ({serverVersion}) by more than 50 minor
+																				versions. While it should still function, the risk of issues
+																				is elevated. Further server upgrades may push this worker
+																				into a critical state. Upgrading is recommended.
 																			{:else if versionWarning === 'newer'}
-																				<strong>Warning:</strong> This worker is running a newer version than the server ({serverVersion}).
-																				Workers should be at or behind the server version. This may cause undefined behavior.
+																				<strong>Warning:</strong> This worker is running a newer
+																				version than the server ({serverVersion}). Workers should be
+																				at or behind the server version. This may cause undefined
+																				behavior.
 																			{:else}
 																				<strong>Note:</strong> This worker is behind the server version.
-																				While generally fine, keeping all workers aligned with the server provides the best stability and is most thoroughly tested.
+																				While generally fine, keeping all workers aligned with the server
+																				provides the best stability and is most thoroughly tested.
 																			{/if}
 																		</div>
 																	{/snippet}

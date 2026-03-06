@@ -886,7 +886,7 @@ pub async fn cached_result_path(
 }
 
 #[cfg(feature = "parquet")]
-async fn get_workspace_s3_resource_path(
+pub(crate) async fn get_workspace_s3_resource_path(
     db: &DB,
     client: &AuthedClient,
     workspace_id: &str,
@@ -948,7 +948,11 @@ async fn get_workspace_s3_resource_path(
             )
         }
         Some(LargeFileStorage::FilesystemStorage(fs)) => {
-            (StorageResourceType::Filesystem, fs.root_path.clone())
+            return Ok(Some(
+                windmill_object_store::ObjectStoreResource::Filesystem(
+                    windmill_object_store::FilesystemSettings { root_path: fs.root_path.clone() },
+                ),
+            ));
         }
         None => {
             return Ok(None);
@@ -1090,7 +1094,7 @@ fn tentatively_improve_error(err: Error, executable: &str) -> Error {
 
 pub async fn clean_cache() -> error::Result<()> {
     tracing::info!("Started cleaning cache");
-    tokio::fs::remove_dir_all(ROOT_CACHE_DIR).await?;
+    tokio::fs::remove_dir_all(&*ROOT_CACHE_DIR).await?;
     tracing::info!("Finished cleaning cache");
     Ok(())
 }

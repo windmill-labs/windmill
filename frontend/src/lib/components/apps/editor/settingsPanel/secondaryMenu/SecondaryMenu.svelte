@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { fly } from 'svelte/transition'
 	import { secondaryMenuLeft, secondaryMenuRight } from './'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
@@ -11,7 +12,7 @@
 
 	let { right }: Props = $props()
 
-	let secondaryMenu = right ? secondaryMenuRight : secondaryMenuLeft
+	let secondaryMenu = untrack(() => right) ? secondaryMenuRight : secondaryMenuLeft
 	let width: number | undefined = $state()
 </script>
 

@@ -53,8 +53,7 @@ fn get_windows_program_files() -> String {
 
 #[cfg(windows)]
 fn windows_gopath() -> String {
-    let tmp_dir = get_windows_tmp_dir();
-    GO_CACHE_DIR.replace("/tmp", &tmp_dir).replace("/", r"\\")
+    GO_CACHE_DIR.replace('/', "\\")
 }
 
 #[cfg(windows)]
@@ -108,7 +107,7 @@ pub async fn handle_go_job(
         .expect("could not create go job dir");
 
     let hash = calculate_hash(&format!("{}{:?}v2", inner_content, &maybe_lock));
-    let bin_path = format!("{}/{hash}", GO_BIN_CACHE_DIR);
+    let bin_path = format!("{}/{hash}", *GO_BIN_CACHE_DIR);
     let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
     let (cache, cache_logs) = crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
@@ -237,15 +236,15 @@ func Run(req Req) (interface{{}}, error){{
             .env("GOPATH", {
                 #[cfg(unix)]
                 {
-                    GO_CACHE_DIR
+                    GO_CACHE_DIR.as_str()
                 }
                 #[cfg(windows)]
                 {
-                    windows_gopath()
+                    &windows_gopath()
                 }
             })
             .env("HOME", HOME_ENV.as_str())
-            .env("GOCACHE", GO_CACHE_DIR)
+            .env("GOCACHE", GO_CACHE_DIR.as_str())
             .envs(PROXY_ENVS.clone())
             .args(vec!["build", "main.go"])
             .stdout(Stdio::piped())
@@ -346,7 +345,7 @@ func Run(req Req) (interface{{}}, error){{
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -383,11 +382,11 @@ func Run(req Req) (interface{{}}, error){{
             .env("GOPATH", {
                 #[cfg(unix)]
                 {
-                    GO_CACHE_DIR
+                    GO_CACHE_DIR.as_str()
                 }
                 #[cfg(windows)]
                 {
-                    windows_gopath()
+                    &windows_gopath()
                 }
             })
             .env("HOME", HOME_ENV.as_str());
@@ -507,7 +506,7 @@ pub async fn install_go_dependencies(
                     #[cfg(windows)]
                     child_cmd.env("GOPATH", windows_gopath());
                     #[cfg(unix)]
-                    child_cmd.env("GOPATH", GO_CACHE_DIR);
+                    child_cmd.env("GOPATH", GO_CACHE_DIR.as_str());
 
                     #[cfg(windows)]
                     set_windows_env_vars(&mut child_cmd);
@@ -590,11 +589,11 @@ pub async fn install_go_dependencies(
         .env("GOPATH", {
             #[cfg(unix)]
             {
-                GO_CACHE_DIR
+                GO_CACHE_DIR.as_str()
             }
             #[cfg(windows)]
             {
-                windows_gopath()
+                &windows_gopath()
             }
         })
         .args(vec!["mod", mod_command])

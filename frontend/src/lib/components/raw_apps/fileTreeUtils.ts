@@ -23,13 +23,11 @@ export function buildFileTree(filePaths: string[]): TreeNode[] {
 			currentPath = currentPath ? `${currentPath}/${part}` : part
 			// It's a folder if it's not the last part, or if the original path ended with /
 			const isFolder = i < parts.length - 1 || (i === parts.length - 1 && pathEndsWithSlash)
-			const isLastPart = i === parts.length - 1
-
 			// Check if this node already exists
 			if (!nodeMap.has(currentPath)) {
 				// Build the node path with trailing / for folders
 				let nodePath = '/' + currentPath
-				if (isFolder && isLastPart && pathEndsWithSlash) {
+				if (isFolder) {
 					nodePath = nodePath + '/'
 				}
 
@@ -49,7 +47,7 @@ export function buildFileTree(filePaths: string[]): TreeNode[] {
 					existingNode.isFolder = true
 					existingNode.children = []
 					// Update path to include trailing /
-					if (isLastPart && pathEndsWithSlash && !existingNode.path.endsWith('/')) {
+					if (!existingNode.path.endsWith('/')) {
 						existingNode.path = existingNode.path + '/'
 					}
 				}

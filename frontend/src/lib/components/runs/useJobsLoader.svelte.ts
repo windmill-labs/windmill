@@ -133,7 +133,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 				])
 			})
 		}
-		promise = CancelablePromiseUtils.pipe(promise, () => {
+		promise = CancelablePromiseUtils.finallyDo(promise, () => {
 			if (slowStreamIntervalId) {
 				clearInterval(slowStreamIntervalId)
 				slowStreamIntervalId = undefined
@@ -161,7 +161,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			)
 		}, 15000)
 		paramChangePromise = loadJobsIntern(false, size)
-		paramChangePromise = CancelablePromiseUtils.pipe(paramChangePromise, () => {
+		paramChangePromise = CancelablePromiseUtils.finallyDo(paramChangePromise, () => {
 			if (slowStreamIntervalId) {
 				clearInterval(slowStreamIntervalId)
 				slowStreamIntervalId = undefined
@@ -666,6 +666,11 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		if (intervalId) {
 			clearInterval(intervalId)
 		}
+		if (slowStreamIntervalId) {
+			clearInterval(slowStreamIntervalId)
+			slowStreamIntervalId = undefined
+		}
+		paramChangePromise?.cancel()
 	})
 	$effect(() => {
 		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilterInstance])
@@ -682,6 +687,10 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		return () => {
 			clearTimeout(paramChangeTimeout)
 			paramChangePromise?.cancel()
+			if (slowStreamIntervalId) {
+				clearInterval(slowStreamIntervalId)
+				slowStreamIntervalId = undefined
+			}
 		}
 	})
 	$effect(() => {

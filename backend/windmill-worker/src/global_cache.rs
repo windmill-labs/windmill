@@ -33,7 +33,7 @@ pub async fn build_tar_and_push(
         folder.split("/").last().unwrap().to_owned()
     };
 
-    let prefix = &format!("{TAR_PYBASE_CACHE_DIR}/{}", lang);
+    let prefix = &format!("{}/{}", *TAR_PYBASE_CACHE_DIR, lang);
     let tar_path = format!("{prefix}/{folder_name}_tar.tar");
 
     create_dir_all(prefix).await?;
@@ -223,7 +223,7 @@ pub async fn save_cache(
         let file_to_cache = if is_dir {
             let tar_path = format!(
                 "{}/tar/{}_tar.tar",
-                windmill_common::worker::ROOT_CACHE_DIR,
+                *windmill_common::worker::ROOT_CACHE_DIR,
                 local_cache_path
                     .split("/")
                     .last()

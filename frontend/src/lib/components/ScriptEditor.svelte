@@ -33,6 +33,8 @@
 		Bug,
 		Copy,
 		CornerDownLeft,
+		Disc,
+		Download,
 		ExternalLink,
 		Github,
 		GitBranch,
@@ -86,6 +88,10 @@
 	import { deepEqual } from 'fast-equals'
 	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
 	import { resource, watch } from 'runed'
+	import { createScriptRecording } from './recording/scriptRecording.svelte'
+	import { setActiveRecording } from './recording/flowRecording.svelte'
+	import type { ScriptRecording } from './recording/types'
+	import DropdownV2 from './DropdownV2.svelte'
 
 	interface Props {
 		// Exported
@@ -94,7 +100,7 @@
 		path: string | undefined
 		lang: Preview['language']
 		kind?: string | undefined
-		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
+		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox'
 		tag: string | undefined
 		initialArgs?: Record<string, any>
 		fixedOverflowWidgets?: boolean
@@ -117,7 +123,7 @@
 		lastDeployedCode?: string | undefined
 		disableAi?: boolean
 		assets?: AssetWithAltAccessType[]
-		editor_bar_right?: import('svelte').Snippet
+		editorBarRight?: import('svelte').Snippet
 		enablePreprocessorSnippet?: boolean
 	}
 
@@ -149,7 +155,7 @@
 		lastDeployedCode = undefined,
 		disableAi = false,
 		assets = $bindable(),
-		editor_bar_right,
+		editorBarRight,
 		enablePreprocessorSnippet = false
 	}: Props = $props()
 
@@ -234,6 +240,10 @@
 	let testJob: Job | undefined = $state()
 	let pastPreviews: CompletedJob[] = $state([])
 	let validCode = $state(true)
+
+	// Recording
+	let scriptRecording = createScriptRecording()
+	let lastRecording: ScriptRecording | undefined = $state(undefined)
 
 	let wsProvider: WebsocketProvider | undefined = $state(undefined)
 	let yContent: Y.Text | undefined = $state(undefined)
@@ -332,16 +342,36 @@
 			undefined,
 			{
 				done(_x) {
+					if (scriptRecording.active) {
+						lastRecording = scriptRecording.stop()
+						setActiveRecording(undefined)
+					}
 					loadPastTests()
 				},
 				doneError({ error }) {
+					if (scriptRecording.active) {
+						lastRecording = scriptRecording.stop()
+						setActiveRecording(undefined)
+					}
 					console.error(error)
-					// sendUserToast('Error running test', true)
 				}
 			}
 		)
 		logPanel?.setFocusToLogs()
 		return job
+	}
+
+	async function recordAndTest() {
+		lastRecording = undefined
+		scriptRecording.start(path ?? '', code, lang ?? '', args ?? {}, schema)
+		setActiveRecording(scriptRecording)
+		await runTest()
+	}
+
+	function downloadRecording() {
+		if (lastRecording) {
+			scriptRecording.download(lastRecording)
+		}
 	}
 
 	async function loadPastTests(): Promise<void> {
@@ -853,7 +883,7 @@
 		}
 	}
 
-	setContext('disableTooltips', customUi?.disableTooltips === true)
+	setContext('disableTooltips', untrack(() => customUi)?.disableTooltips === true)
 
 	let codePanelSize = $state(70)
 	let testPanelSize = $state(30)
@@ -1012,7 +1042,7 @@
 				bind:showHistoryDrawer
 			>
 				{#snippet right()}
-					{@render editor_bar_right?.()}
+					{@render editorBarRight?.()}
 				{/snippet}
 			</EditorBar>
 		{/if}
@@ -1110,40 +1140,72 @@
 						/>
 					</div>
 					{#if !(debugMode && isDebuggableScript)}
-						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
-							{#if testIsLoading}
-								<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" unifiedSize="md">
-									<WindmillIcon
-										white={true}
-										class="mr-2 text-white"
-										height="16px"
-										width="20px"
-										spin="fast"
-									/>
-									Cancel
-								</Button>
-							{:else}
-								{@const disableTriggerButton =
-									customUi?.previewPanel?.disableTriggerButton === true}
-								<Button
-									on:click={() => runTest()}
-									unifiedSize="md"
-									btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
-									variant="accent-secondary"
-									startIcon={{ icon: Play, classes: 'animate-none' }}
-									shortCut={{ Icon: CornerDownLeft }}
-								>
-									Test
-								</Button>
-								{#if !disableTriggerButton}
-									<CaptureButton on:openTriggers />
+						<div class="flex flex-row gap-2">
+							<div
+								class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch"
+							>
+								{#if testIsLoading}
+									<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" unifiedSize="md">
+										<WindmillIcon
+											white={true}
+											class="mr-2 text-white"
+											height="16px"
+											width="20px"
+											spin="fast"
+										/>
+										Cancel
+									</Button>
+								{:else}
+									{@const disableTriggerButton =
+										customUi?.previewPanel?.disableTriggerButton === true}
+									<Button
+										on:click={() => runTest()}
+										unifiedSize="md"
+										btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
+										variant="accent-secondary"
+										startIcon={{ icon: Play, classes: 'animate-none' }}
+										shortCut={{ Icon: CornerDownLeft }}
+									>
+										Test
+									</Button>
+									{#if !disableTriggerButton}
+										<CaptureButton on:openTriggers />
+									{/if}
 								{/if}
+							</div>
+							{#if lastRecording}
+								<Button
+									on:click={downloadRecording}
+									unifiedSize="md"
+									startIcon={{ icon: Download }}
+									iconOnly
+									title="Download recording"
+								/>
 							{/if}
 						</div>
 					{/if}
-					<div class="absolute top-2 right-2"
-						><Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} /></div
-					>
+					<div class="absolute top-2 right-2 flex items-center gap-2">
+						<Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} />
+						<DropdownV2
+							size="xs"
+							items={[
+								{
+									displayName: 'Test & record',
+									icon: Disc,
+									action: () => recordAndTest()
+								},
+								...(lastRecording
+									? [
+											{
+												displayName: 'Download recording',
+												icon: Download,
+												action: () => downloadRecording()
+											}
+										]
+									: [])
+							]}
+						/>
+					</div>
 				</div>
 				<Splitpanes
 					horizontal

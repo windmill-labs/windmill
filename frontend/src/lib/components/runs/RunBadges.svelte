@@ -89,7 +89,7 @@
 {/if}
 {#if concurrencyKey}
 	<div>
-		<Tooltip notClickable>
+		<Tooltip>
 			{#snippet text()}
 				This job has concurrency limits enabled with the key:
 				{#if onFilterByConcurrencyKey}

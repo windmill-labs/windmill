@@ -5,19 +5,37 @@
 	import Tooltip from './meltComponents/Tooltip.svelte'
 	import { InfoIcon } from 'lucide-svelte'
 
-	export let label: string
-	export let format: string = ''
-	export let contentEncoding = ''
-	export let type: string | undefined = undefined
-	export let disabled: boolean = false
-	export let required = false
-	export let displayType: boolean = true
-	export let labelClass: string = ''
-	export let prettify = false
-	export let simpleTooltip: string | undefined = undefined
-	export let lightHeader = false
-	export let SimpleTooltipIcon = InfoIcon
-	export let simpleTooltipIconClass = ''
+	interface Props {
+		label: string;
+		format?: string;
+		contentEncoding?: string;
+		type?: string | undefined;
+		disabled?: boolean;
+		required?: boolean;
+		displayType?: boolean;
+		labelClass?: string;
+		prettify?: boolean;
+		simpleTooltip?: string | undefined;
+		lightHeader?: boolean;
+		SimpleTooltipIcon?: any;
+		simpleTooltipIconClass?: string;
+	}
+
+	let {
+		label,
+		format = '',
+		contentEncoding = '',
+		type = undefined,
+		disabled = false,
+		required = false,
+		displayType = true,
+		labelClass = '',
+		prettify = false,
+		simpleTooltip = undefined,
+		lightHeader = false,
+		SimpleTooltipIcon = InfoIcon,
+		simpleTooltipIconClass = ''
+	}: Props = $props();
 </script>
 
 <div class="inline-flex flex-row items-baseline truncated">
@@ -54,9 +72,11 @@
 	{#if !emptyString(simpleTooltip)}
 		<Tooltip class="ml-2" placement="bottom">
 			<SimpleTooltipIcon size="14" class={'-mb-0.5 ' + simpleTooltipIconClass} />
-			<span class="text-xs" slot="text">
-				{simpleTooltip}
-			</span>
+			{#snippet text()}
+						<span class="text-xs" >
+					{simpleTooltip}
+				</span>
+					{/snippet}
 		</Tooltip>
 	{/if}
 </div>

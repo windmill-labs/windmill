@@ -134,8 +134,8 @@ use crate::{
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry,
     worker_utils::ping_job_status,
-    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
-    PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
+    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
+    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
     UV_INDEX_STRATEGY,
 };
 use windmill_common::client::AuthedClient;
@@ -278,7 +278,7 @@ pub async fn uv_pip_compile(
             "requirements.txt",
             // Target to /tmp/windmill/cache/uv
             "--cache-dir",
-            UV_CACHE_DIR,
+            &*UV_CACHE_DIR,
         ];
 
         args.extend(["-p", &py_version_str, "--python-preference", "only-managed"]);
@@ -567,6 +567,14 @@ pub async fn handle_python_job(
 
     let annotations = PythonAnnotations::parse(inner_content);
 
+    if annotations.sandbox && NSJAIL_AVAILABLE.is_none() {
+        return Err(Error::ExecutionErr(
+            "Script has #sandbox annotation but nsjail is not available on this worker. \
+            Please ensure nsjail is installed or remove the #sandbox annotation."
+                .to_string(),
+        ));
+    }
+
     let (py_version, mut additional_python_paths) = handle_python_deps(
         job_dir,
         requirements_o,
@@ -605,16 +613,14 @@ pub async fn handle_python_job(
     }
 
     {
-        append_logs(
-            &job.id,
-            &job.workspace_id,
-            format!(
-                "\n\n--- PYTHON ({}) CODE EXECUTION ---\n",
-                py_version.clone().to_string()
-            ),
-            conn,
-        )
-        .await;
+        let mut logs = format!(
+            "\n\n--- PYTHON ({}) CODE EXECUTION ---\n",
+            py_version.clone().to_string()
+        );
+        if annotations.sandbox {
+            logs.push_str("sandbox mode (nsjail)\n");
+        }
+        append_logs(&job.id, &job.workspace_id, logs, conn).await;
     }
     let (
         import_loader,
@@ -784,7 +790,7 @@ except BaseException as e:
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
 
-    if is_sandboxing_enabled() {
+    if is_sandboxing_enabled() || annotations.sandbox {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -805,7 +811,7 @@ mount {{
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{PY_INSTALL_DIR}", PY_INSTALL_DIR)
+                .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
@@ -815,7 +821,7 @@ mount {{
                     "{ADDITIONAL_PYTHON_PATHS}",
                     additional_python_paths_folders.as_str(),
                 )
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
     } else {
@@ -828,7 +834,7 @@ mount {{
         job.id
     );
 
-    let child = if is_sandboxing_enabled() {
+    let child = if is_sandboxing_enabled() || annotations.sandbox {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
@@ -1410,10 +1416,10 @@ async fn spawn_uv_install(
             &nsjail_proto,
             NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
                 .replace("{WORKER_DIR}", worker_dir)
-                .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
+                .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{TARGET_DIR}", &venv_p)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .as_str(),
         )?;

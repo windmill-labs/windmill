@@ -7,16 +7,21 @@
 	// import Button from '$lib/components/common/button/Button.svelte'
 	// import { json } from 'svelte-highlight/languages'
 	// import { copyToClipboard } from '$lib/utils'
-	// import { deepEqual } from 'fast-equals'
+	
 
-	export let preprocessed: boolean | undefined
+	interface Props {
+		// import { deepEqual } from 'fast-equals'
+		preprocessed: boolean | undefined;
+	}
+
+	let { preprocessed }: Props = $props();
 
 	// $: args =
 	// 	'_metadata' in flowStatus && 'original_args' in flowStatus['_metadata']
 	// 		? flowStatus['_metadata']['original_args']
 	// 		: undefined
 
-	$: hasPreprocessedArgs = preprocessed === true
+	let hasPreprocessedArgs = $derived(preprocessed === true)
 
 	// $: argsStr = args !== undefined ? JSON.stringify(args, null, 4) : undefined
 

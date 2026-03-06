@@ -38,10 +38,10 @@
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
 
 	let resolvedConfig = $state(
-		initConfig(components['jobiddisplaycomponent'].initialData.configuration, configuration)
+		initConfig(components['jobiddisplaycomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false,
 		jobId: undefined as string | undefined
@@ -49,7 +49,7 @@
 
 	initializing = false
 
-	let css = $state(initCss($app.css?.jobiddisplaycomponent, customCss))
+	let css = $state(initCss($app.css?.jobiddisplaycomponent, untrack(() => customCss)))
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let testIsLoading: boolean = $state(false)

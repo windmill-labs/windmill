@@ -71,11 +71,13 @@
 			<div class={twMerge('text-xs 	font-normal text-primary min-w-12 p-1 text-center rounded-md')}>
 				{text}
 			</div>
-			<svelte:fragment slot="text">
-				{#if tooltip}
-					{tooltip}
-				{/if}
-			</svelte:fragment>
+			{#snippet text()}
+					
+					{#if tooltip}
+						{tooltip}
+					{/if}
+				
+					{/snippet}
 		</Tooltip>
 	{/if}
 {/snippet}

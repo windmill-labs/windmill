@@ -119,61 +119,65 @@
 </script>
 
 <MeltPopover placement="bottom" on:openChange={(e) => e.detail && loadUsers()}>
-	<svelte:fragment slot="trigger">
-		<span class="inline-flex items-center gap-1">
-			<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
-			{#if selectedDisplayName}
-				<span class="text-xs truncate max-w-24">{selectedDisplayName}</span>
+	{#snippet trigger()}
+	
+			<span class="inline-flex items-center gap-1">
+				<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
+				{#if selectedDisplayName}
+					<span class="text-xs truncate max-w-24">{selectedDisplayName}</span>
+				{/if}
+			</span>
+		
+	{/snippet}
+	{#snippet content({ close: closePopover })}
+		<div   class="p-3 flex flex-col gap-2 min-w-48">
+			<div class="text-xs font-medium text-secondary mb-1">{label}</div>
+			<!-- Target option -->
+			{#if targetEmail}
+				<button
+					class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
+						? 'opacity-50 cursor-not-allowed'
+						: ''}"
+					disabled={!canPreserve}
+					onclick={() => onSelect('target')}
+				>
+					<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
+					<span class="truncate max-w-40">{targetUsername}</span>
+					<span class="text-xs text-tertiary">{isDeployment ? '(target)' : '(current)'}</span>
+				</button>
 			{/if}
-		</span>
-	</svelte:fragment>
-	<div slot="content" let:close={closePopover} class="p-3 flex flex-col gap-2 min-w-48">
-		<div class="text-xs font-medium text-secondary mb-1">{label}</div>
-		<!-- Target option -->
-		{#if targetEmail}
+			<!-- Me option -->
+			<button
+				class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover"
+				onclick={() => onSelect('me')}
+			>
+				<Check class="w-3 h-3 {selected === 'me' ? 'opacity-100' : 'opacity-0'}" />
+				<span class="truncate max-w-40">{$userStore?.username}</span>
+				<span class="text-xs text-tertiary">(me)</span>
+			</button>
+			<!-- Custom / Pick from workspace -->
 			<button
 				class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
 					? 'opacity-50 cursor-not-allowed'
 					: ''}"
 				disabled={!canPreserve}
-				onclick={() => onSelect('target')}
+				onclick={() => {
+					closePopover()
+					openModal()
+				}}
 			>
-				<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
-				<span class="truncate max-w-40">{targetUsername}</span>
-				<span class="text-xs text-tertiary">{isDeployment ? '(target)' : '(current)'}</span>
+				{#if selected === 'custom' && customUsername}
+					<Check class="w-3 h-3 opacity-100" />
+					<span class="truncate max-w-40">{customUsername}</span>
+					<span class="text-xs text-tertiary">(custom)</span>
+				{:else}
+					<Check class="w-3 h-3 opacity-0" />
+					<Users class="w-3 h-3 text-tertiary" />
+					<span>Pick from workspace&hellip;</span>
+				{/if}
 			</button>
-		{/if}
-		<!-- Me option -->
-		<button
-			class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover"
-			onclick={() => onSelect('me')}
-		>
-			<Check class="w-3 h-3 {selected === 'me' ? 'opacity-100' : 'opacity-0'}" />
-			<span class="truncate max-w-40">{$userStore?.username}</span>
-			<span class="text-xs text-tertiary">(me)</span>
-		</button>
-		<!-- Custom / Pick from workspace -->
-		<button
-			class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
-				? 'opacity-50 cursor-not-allowed'
-				: ''}"
-			disabled={!canPreserve}
-			onclick={() => {
-				closePopover()
-				openModal()
-			}}
-		>
-			{#if selected === 'custom' && customUsername}
-				<Check class="w-3 h-3 opacity-100" />
-				<span class="truncate max-w-40">{customUsername}</span>
-				<span class="text-xs text-tertiary">(custom)</span>
-			{:else}
-				<Check class="w-3 h-3 opacity-0" />
-				<Users class="w-3 h-3 text-tertiary" />
-				<span>Pick from workspace&hellip;</span>
-			{/if}
-		</button>
-	</div>
+		</div>
+	{/snippet}
 </MeltPopover>
 
 <!-- User selection modal -->

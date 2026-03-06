@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 
 	import { SvelteToast } from '@zerodevx/svelte-toast'
 	import '$lib/assets/app.css'
@@ -32,7 +32,7 @@
 			src="https://snippet.meticulous.ai/v1/meticulous.js"
 		></script>
 	{/if} -->
-	<title>{$page.data?.stuff?.title ? `${$page.data?.stuff?.title} | ` : ''}Windmill</title>
+	<title>{page.data?.stuff?.title ? `${page.data?.stuff?.title} | ` : ''}Windmill</title>
 </svelte:head>
 
 {@render children?.()}

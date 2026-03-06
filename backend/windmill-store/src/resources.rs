@@ -47,7 +47,7 @@ use windmill_common::{
         StripPath,
     },
     variables,
-    worker::{CLOUD_HOSTED, TMP_DIR},
+    worker::{CLOUD_HOSTED, WINDMILL_DIR},
     PgDatabase,
 };
 
@@ -1752,7 +1752,7 @@ async fn write_ssh_file(
     var_path: &str,
 ) -> std::result::Result<std::path::PathBuf, (error::Error, std::path::PathBuf)> {
     let id_file_name = format!(".ssh_id_priv_{}", Uuid::new_v4());
-    let loc = std::path::Path::new(TMP_DIR)
+    let loc = std::path::Path::new(&*WINDMILL_DIR)
         .join("ssh_ids")
         .join(id_file_name);
 
