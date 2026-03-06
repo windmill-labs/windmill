@@ -219,6 +219,7 @@
 			workspaceId={$workspaceStore}
 			wideResults
 			showLogsWithResult
+			hideFlowResult={!done}
 		/>
 	</div>
 {/if}

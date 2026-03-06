@@ -132,6 +132,7 @@
 		}
 		showLogsWithResult?: boolean
 		showJobDetailHeader?: boolean
+		hideFlowResult?: boolean
 	}
 
 	let {
@@ -171,7 +172,8 @@
 		onDone = undefined,
 		toolCallStore,
 		showLogsWithResult = false,
-		showJobDetailHeader = false
+		showJobDetailHeader = false,
+		hideFlowResult = false
 	}: Props = $props()
 
 	let getTopModuleStates = $derived(topModuleStates ?? localModuleStates)
@@ -1335,7 +1337,7 @@
 					/>
 				</div>
 			{/if}
-		{:else if render}
+		{:else if render && !hideFlowResult}
 			<div class={'flex flex-col w-full'}>
 				{#if showLogsWithResult && job}
 					<!-- Side-by-side result and logs for simple jobs -->
