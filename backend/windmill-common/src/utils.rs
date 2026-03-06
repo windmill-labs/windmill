@@ -202,6 +202,15 @@ impl StripPath {
     }
 }
 
+/// Escape ILIKE special characters (`%`, `_`, `\`) so user input is matched
+/// literally. Use this when building `ILIKE '%…%'` patterns from user-supplied
+/// strings to prevent wildcard injection.
+pub fn escape_ilike_pattern(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
     if !is_admin {
         Err(Error::RequireAdmin(username.to_string()))
@@ -305,14 +314,14 @@ pub async fn create_directory_async(directory_path: &str) {
         .recursive(true)
         .create(directory_path)
         .await
-        .expect("could not create dir");
+        .unwrap_or_else(|e| panic!("could not create dir '{}': {}", directory_path, e));
 }
 
 pub fn create_directory_sync(directory_path: &str) {
     SyncDirBuilder::new()
         .recursive(true)
         .create(directory_path)
-        .expect("could not create dir");
+        .unwrap_or_else(|e| panic!("could not create dir '{}': {}", directory_path, e));
 }
 
 #[track_caller]

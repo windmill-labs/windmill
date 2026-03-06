@@ -43,10 +43,10 @@
 		onClick
 	}: Props = $props()
 
-	const [popperRef, popperContent] = createPopperActions({ placement })
+	const [popperRef, popperContent] = createPopperActions({ placement: untrack(() => placement) })
 
 	const popperOptions: PopperOptions<{}> = {
-		placement,
+		placement: untrack(() => placement),
 		strategy: 'fixed',
 		modifiers: [
 			{ name: 'offset', options: { offset: [8, 8] } },

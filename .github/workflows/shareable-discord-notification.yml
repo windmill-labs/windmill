@@ -36,6 +36,10 @@ on:
         description: "The comment URL"
         type: string
         default: ""
+      COMMENT_IS_EDIT:
+        description: "Whether this is an edit of an existing comment"
+        type: string
+        default: "false"
     secrets:
       DISCORD_WEBHOOK_URL:
         description: "Discord Webhook URL"
@@ -135,7 +139,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ inputs.PR_STATUS == 'comment' }}
     steps:
-      - name: Post comment to Discord thread
+      - name: Post or update comment in Discord thread
         env:
           BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           CHANNEL_ID: ${{ inputs.DISCORD_CHANNEL_ID }}
@@ -144,6 +148,7 @@ jobs:
           COMMENT_BODY: ${{ inputs.COMMENT_BODY }}
           COMMENT_AUTHOR: ${{ inputs.COMMENT_AUTHOR }}
           COMMENT_URL: ${{ inputs.COMMENT_URL }}
+          COMMENT_IS_EDIT: ${{ inputs.COMMENT_IS_EDIT }}
         run: |
           # 1) Find the thread by PR number
           threads=$(curl -s -H "Authorization: Bot $BOT_TOKEN" \
@@ -172,10 +177,36 @@ jobs:
             truncated_body="$COMMENT_BODY"
           fi
 
-          # 3) Post the comment to the thread
-          message=$(printf '**%s** [commented](%s):\n%s' "$COMMENT_AUTHOR" "$COMMENT_URL" "$truncated_body")
+          # 3) Build the message content
+          if [ "$COMMENT_IS_EDIT" = "true" ]; then
+            message=$(printf '**%s** [edited comment](%s):\n%s' "$COMMENT_AUTHOR" "$COMMENT_URL" "$truncated_body")
+          else
+            message=$(printf '**%s** [commented](%s):\n%s' "$COMMENT_AUTHOR" "$COMMENT_URL" "$truncated_body")
+          fi
           payload=$(jq -n --arg content "$message" '{content: $content, flags: 4, allowed_mentions: {parse: []}}')
 
+          # 4) If this is an edit, try to find and update the existing Discord message
+          if [ "$COMMENT_IS_EDIT" = "true" ]; then
+            # Search recent messages in the thread for one containing the comment URL
+            messages=$(curl -s -H "Authorization: Bot $BOT_TOKEN" \
+              "https://discord.com/api/v10/channels/${thread_id}/messages?limit=100")
+            existing_msg_id=$(echo "$messages" | jq -r \
+              --arg url "$COMMENT_URL" \
+              '[.[] | select(.content | contains($url))] | first | .id // empty')
+
+            if [ -n "$existing_msg_id" ]; then
+              echo "Updating existing Discord message $existing_msg_id"
+              curl -s -X PATCH \
+                -H "Authorization: Bot $BOT_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "$payload" \
+                "https://discord.com/api/v10/channels/${thread_id}/messages/${existing_msg_id}"
+              exit 0
+            fi
+            echo "Original Discord message not found, posting as new message"
+          fi
+
+          # 5) Post a new message to the thread
           curl -s -X POST \
             -H "Authorization: Bot $BOT_TOKEN" \
             -H "Content-Type: application/json" \

@@ -16,7 +16,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
@@ -41,7 +41,7 @@
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
@@ -87,7 +87,7 @@
 		]
 	})
 
-	let css = $state(initCss($app.css?.piechartcomponent, customCss))
+	let css = $state(initCss($app.css?.piechartcomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}

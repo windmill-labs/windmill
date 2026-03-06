@@ -103,6 +103,9 @@
 	import { inputSizeClasses } from './text_input/TextInput.svelte'
 	import type { ButtonType } from './common/button/model'
 	import DebounceLimit from './flows/DebounceLimit.svelte'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 
 	let {
 		script = $bindable(),
@@ -154,28 +157,25 @@
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
-	let args: Record<string, any> = $state(initialArgs) // Test args input
+	let args: Record<string, any> = $state(untrack(() => initialArgs)) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' = $state('main')
 	let hasPreprocessor = $state(false)
 	let preserveOnBehalfOf = $state(false)
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let originalOnBehalfOfEmail = $derived(savedScript?.on_behalf_of_email)
-	let showPreserveToggle = $derived(
-		isDeployer &&
-			script.on_behalf_of_email &&
-			originalOnBehalfOfEmail &&
-			originalOnBehalfOfEmail !== $userStore?.email
-	)
+	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
+	let customOnBehalfOfEmail: string = $state('')
 
 	let metadataOpen = $state(
-		!neverShowMeta &&
-			(showMeta ||
-				searchParams.get('metadata_open') == 'true' ||
+		!untrack(() => neverShowMeta) &&
+			(untrack(() => showMeta) ||
+				untrack(() => searchParams).get('metadata_open') == 'true' ||
 				(initialPath == '' &&
-					searchParams.get('state') == undefined &&
-					searchParams.get('collab') == undefined))
+					untrack(() => searchParams).get('state') == undefined &&
+					untrack(() => searchParams).get('collab') == undefined))
 	)
 
 	let editor: Editor | undefined = $state(undefined)
@@ -193,10 +193,15 @@
 		confirmDeploymentCallback(selectedTriggers)
 	}
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // keep for legacy
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(
+		untrack(() => savedPrimarySchedule)
+	) // keep for legacy
 	const triggersCount = writable<TriggersCount | undefined>(
-		savedPrimarySchedule
-			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
+		untrack(() => savedPrimarySchedule)
+			? {
+					schedule_count: 1,
+					primary_schedule: { schedule: untrack(() => savedPrimarySchedule)!.cron }
+				}
 			: undefined
 	)
 	const simplifiedPoll = writable(false)
@@ -382,7 +387,7 @@
 	async function initContent(
 		language: SupportedLanguage,
 		kind: Script['kind'] | undefined,
-		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
+		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox'
 	) {
 		scriptEditor?.disableCollaboration()
 		const templateScript = await isTemplateScript()
@@ -771,6 +776,16 @@
 								window.open(`/scripts/add?template=${initialPath}`)
 							}
 						},
+						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+							? [
+									{
+										label: 'Edit in workspace fork',
+										onClick: () => {
+											window.open(buildForkEditUrl('script', initialPath))
+										}
+									}
+								]
+							: []),
 						...(customUi?.topBar?.diff !== false && savedScript && diffDrawer
 							? [
 									{
@@ -849,7 +864,7 @@
 		})()
 	)
 
-	setContext('disableTooltips', customUi?.disableTooltips === true)
+	setContext('disableTooltips', untrack(() => customUi)?.disableTooltips === true)
 
 	function langToLanguage(lang: SupportedLanguage | 'docker' | 'bunnative'): SupportedLanguage {
 		if (lang == 'docker') {
@@ -1149,9 +1164,10 @@
 											<div class=" grid grid-cols-3 gap-2">
 												{#each langs as [label, lang] (lang)}
 													{@const isPicked =
-														(lang == script.language && template == 'script') ||
+														(lang == script.language && template != 'bunnative' && template != 'docker' && template != 'claudesandbox') ||
 														(template == 'bunnative' && lang == 'bunnative') ||
-														(template == 'docker' && lang == 'docker')}
+														(template == 'docker' && lang == 'docker') ||
+														(template == 'claudesandbox' && lang == 'bun')}
 													<Popover
 														disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
 													>
@@ -1184,6 +1200,25 @@
 											</div>
 										</Section>
 									{/if}
+									<div class="flex items-center gap-2 mt-2">
+										<span class="text-2xs text-secondary">Template</span>
+										<Button
+											size="xs2"
+											variant="border"
+											color="light"
+											startIcon={{
+												icon: LanguageIcon,
+												props: { lang: 'claudesandbox', width: 16, height: 16 }
+											} as ButtonType.Icon}
+											on:click={() => {
+												template = 'claudesandbox'
+												script.language = 'bun'
+												initContent('bun', script.kind, template)
+											}}
+										>
+											Claude Sandbox
+										</Button>
+									</div>
 									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true}
 										<Section label="Script kind">
 											{#snippet header()}
@@ -1468,9 +1503,9 @@
 											>
 												In this mode, the script is meant to be run on dedicated workers that run
 												the script at native speed. Can reach &gt;1500rps per dedicated worker. Only
-												available on enterprise edition and for Python3, Deno, Bun and Bunnative. For other
-												languages, the efficiency is already on par with dedicated workers since
-												they do not spawn a full runtime</Tooltip
+												available on enterprise edition and for Python3, Deno, Bun and Bunnative.
+												For other languages, the efficiency is already on par with dedicated workers
+												since they do not spawn a full runtime</Tooltip
 											>
 										{/snippet}
 									</Section>
@@ -1597,30 +1632,58 @@
 											</Tooltip>
 										{/snippet}
 										<div class="flex gap-2 shrink flex-col">
-											<Toggle
-												size="sm"
-												checked={Boolean(script.on_behalf_of_email)}
-												on:change={() => {
-													if (script.on_behalf_of_email) {
-														script.on_behalf_of_email = undefined
-														preserveOnBehalfOf = false
-													} else {
-														script.on_behalf_of_email = $userStore?.email
-													}
-												}}
-												options={{
-													right: 'Run on behalf of last editor'
-												}}
-											/>
-											{#if showPreserveToggle}
+											<span class="inline-flex gap-2">
 												<Toggle
 													size="sm"
-													bind:checked={preserveOnBehalfOf}
+													checked={Boolean(script.on_behalf_of_email)}
+													on:change={() => {
+														if (script.on_behalf_of_email) {
+															script.on_behalf_of_email = undefined
+															preserveOnBehalfOf = false
+															onBehalfOfChoice = undefined
+														} else {
+															script.on_behalf_of_email = $userStore?.email
+														}
+													}}
 													options={{
-														right: `Keep original author (${originalOnBehalfOfEmail})`
+														right: `Run on behalf of ${canPreserve ? 'a specified user' : 'last editor'}`
 													}}
 												/>
-											{/if}
+												{#if script.on_behalf_of_email && canPreserve}
+													&rarr; <OnBehalfOfSelector
+														targetWorkspace={$workspaceStore ?? ''}
+														targetEmail={originalOnBehalfOfEmail}
+														selected={onBehalfOfChoice}
+														onSelect={(choice, email) => {
+															onBehalfOfChoice = choice
+															if (choice === 'me') {
+																script.on_behalf_of_email = $userStore?.email
+																customOnBehalfOfEmail = ''
+																preserveOnBehalfOf = false
+															} else if (choice === 'target') {
+																script.on_behalf_of_email = originalOnBehalfOfEmail
+																customOnBehalfOfEmail = ''
+																preserveOnBehalfOf = true
+															} else if (choice === 'custom' && email) {
+																script.on_behalf_of_email = email
+																customOnBehalfOfEmail = email
+																preserveOnBehalfOf = true
+															}
+														}}
+														kind="script"
+														{canPreserve}
+														customEmail={customOnBehalfOfEmail}
+														isDeployment={false}
+													/>
+												{:else if script.on_behalf_of_email && !canPreserve}
+													<span class="text-xs text-tertiary">
+														Currently: <span class="font-medium"
+															>{originalOnBehalfOfEmail ?? script.on_behalf_of_email}</span
+														>. Will be set to <span class="font-medium">{$userStore?.email}</span> on
+														deploy (requires admin or wm_deployers group to override)
+													</span>
+												{/if}
+											</span>
 										</div>
 									</Section>
 									{#if !isCloudHosted()}

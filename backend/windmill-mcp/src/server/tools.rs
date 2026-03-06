@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::common::schema::{convert_schema_to_schema_type, make_schema_compatible};
-use crate::common::transform::transform_path;
+use crate::common::transform::{transform_hub_path, transform_path};
 use crate::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, ToolableItem,
 };
@@ -17,8 +17,12 @@ use crate::server::backend::McpBackend;
 
 /// Implementation of ToolableItem for ScriptInfo
 impl ToolableItem for ScriptInfo {
-    fn get_path_or_id(&self) -> String {
+    fn get_transformed_path(&self) -> String {
         transform_path(&self.path, "script")
+    }
+
+    fn get_full_path(&self) -> &str {
+        &self.path
     }
 
     fn get_summary(&self) -> &str {
@@ -48,8 +52,12 @@ impl ToolableItem for ScriptInfo {
 
 /// Implementation of ToolableItem for FlowInfo
 impl ToolableItem for FlowInfo {
-    fn get_path_or_id(&self) -> String {
+    fn get_transformed_path(&self) -> String {
         transform_path(&self.path, "flow")
+    }
+
+    fn get_full_path(&self) -> &str {
+        &self.path
     }
 
     fn get_summary(&self) -> &str {
@@ -79,10 +87,13 @@ impl ToolableItem for FlowInfo {
 
 /// Implementation of ToolableItem for HubScriptInfo
 impl ToolableItem for HubScriptInfo {
-    fn get_path_or_id(&self) -> String {
-        let id = self.version_id;
+    fn get_transformed_path(&self) -> String {
         let summary = self.summary.as_deref().unwrap_or("No summary");
-        format!("hs-{}-{}", id, summary.replace(" ", "_"))
+        transform_hub_path(self.version_id, summary)
+    }
+
+    fn get_full_path(&self) -> &str {
+        self.summary.as_deref().unwrap_or("No summary")
     }
 
     fn get_summary(&self) -> &str {
@@ -124,7 +135,7 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
     resources_types: &[ResourceType],
 ) -> Tool {
     let is_hub = item.is_hub();
-    let path = item.get_path_or_id();
+    let path = item.get_transformed_path();
     let item_type = item.item_type();
     let description = format!(
         "This is a {} named `{}` with the following description: `{}`.{}",
@@ -170,15 +181,24 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
         }
     };
 
+    let title = {
+        let summary = item.get_summary();
+        if summary == "No summary" {
+            item.get_full_path().to_string()
+        } else {
+            summary.to_string()
+        }
+    };
+
     Tool {
         name: Cow::Owned(path),
         description: Some(Cow::Owned(description)),
         input_schema: Arc::new(input_schema_map),
-        title: Some(item.get_summary().to_string()),
+        title: Some(title.clone()),
         output_schema: None,
         icons: None,
         annotations: Some(ToolAnnotations {
-            title: Some(item.get_summary().to_string()),
+            title: Some(title),
             read_only_hint: Some(false),  // Can modify environment
             destructive_hint: Some(true), // Can potentially be destructive
             idempotent_hint: Some(false), // Are not guaranteed to be idempotent

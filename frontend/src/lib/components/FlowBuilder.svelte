@@ -58,7 +58,7 @@
 		CheckCircle,
 		RefreshCw,
 		CheckCheck,
-		Focus
+		Disc
 	} from 'lucide-svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -96,6 +96,9 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 
 	let {
 		initialPath = $bindable(''),
@@ -134,6 +137,13 @@
 	// For preserve_on_behalf_of feature
 	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
+
+	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
+	$effect(() => {
+		if (savedFlow?.on_behalf_of_email !== undefined) {
+			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
+		}
+	})
 
 	// used for new flows for captures
 	let fakeInitialPath =
@@ -218,7 +228,9 @@
 		}
 	}
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // kept for legacy reasons
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(
+		untrack(() => savedPrimarySchedule)
+	) // kept for legacy reasons
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const simplifiedPoll = writable(false)
 
@@ -591,8 +603,8 @@
 	const selectionManager = new SelectionManager()
 	const selectedIdStore = $derived(selectionManager.getSelectedId())
 	// Initialize with selected id if provided
-	if (selectedId) {
-		selectionManager.selectId(selectedId)
+	if (untrack(() => selectedId)) {
+		selectionManager.selectId(untrack(() => selectedId) ?? '')
 	} else {
 		selectionManager.selectId('settings-metadata')
 	}
@@ -601,12 +613,11 @@
 		return selectedIdStore
 	}
 
-	const previewArgsStore = $state({ val: initialArgs })
+	const previewArgsStore = $state({ val: untrack(() => initialArgs) })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
-	const moving = writable<{ id: string } | undefined>(undefined)
-	const history = initHistory(flowStore.val)
-	const pathStore = writable<string>(pathStoreInit ?? initialPath)
+	const history = initHistory(untrack(() => flowStore).val)
+	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
 	const captureOn = writable<boolean>(false)
 	const showCaptureHint = writable<boolean | undefined>(undefined)
 	const flowInputEditorStateStore = writable<FlowInputEditorState>({
@@ -632,17 +643,16 @@
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		flowEditorDrawer,
-		moving,
 		history,
-		flowStateStore,
-		flowStore,
+		flowStateStore: untrack(() => flowStateStore),
+		flowStore: untrack(() => flowStore),
 		pathStore,
 		stepsInputArgs,
 		saveDraft,
 		initialPathStore,
 		fakeInitialPath,
 		flowInputsStore: writable<FlowInput>({}),
-		customUi,
+		customUi: untrack(() => customUi),
 		insertButtonOpen,
 		executionCount: writable(0),
 		flowInputEditorState: flowInputEditorStateStore,
@@ -653,10 +663,13 @@
 	})
 
 	// Set up NoteEditor context for note editing capabilities
-	const noteEditor = new NoteEditor(flowStore, () => {
-		// Enable notes display when a note is created
-		flowEditor?.enableNotes?.()
-	})
+	const noteEditor = new NoteEditor(
+		untrack(() => flowStore),
+		() => {
+			// Enable notes display when a note is created
+			flowEditor?.enableNotes?.()
+		}
+	)
 	setNoteEditorContext(noteEditor)
 
 	setContext(
@@ -670,9 +683,9 @@
 			[
 				{ type: 'webhook', path: '', isDraft: false },
 				{ type: 'default_email', path: '', isDraft: false },
-				...(draftTriggersFromUrl ?? savedFlow?.draft?.draft_triggers ?? [])
+				...(untrack(() => draftTriggersFromUrl) ?? savedFlow?.draft?.draft_triggers ?? [])
 			],
-			selectedTriggerIndexFromUrl,
+			untrack(() => selectedTriggerIndexFromUrl),
 			saveSessionDraft
 		)
 	)
@@ -796,7 +809,7 @@
 		onClick: () => void
 	}> = []
 
-	if (customUi.topBar?.extraDeployOptions != false) {
+	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
 		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
 			dropdownItems.push({
 				label: 'Exit & see details',
@@ -804,10 +817,17 @@
 			})
 		}
 
-		if (!newFlow) {
+		if (!untrack(() => newFlow)) {
 			dropdownItems.push({
 				label: 'Fork',
 				onClick: () => window.open(`/flows/add?template=${initialPath}`)
+			})
+		}
+
+		if (!untrack(() => newFlow) && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
+			dropdownItems.push({
+				label: 'Edit in workspace fork',
+				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
 			})
 		}
 	}
@@ -847,14 +867,6 @@
 
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
-	const undoShortcutSnippet = createRawSnippet(() => ({
-		render: () => `<span class="ml-auto text-2xs text-tertiary">${mod}Z</span>`
-	}))
-
-	const redoShortcutSnippet = createRawSnippet(() => ({
-		render: () => `<span class="ml-auto text-2xs text-tertiary">${mod}⇧Z</span>`
-	}))
-
 	function getMoreItems(): Item[] {
 		return [
 			...baseMenuItems,
@@ -863,7 +875,7 @@
 				icon: Undo,
 				action: () => handleUndo(),
 				disabled: $history.index === 0,
-				extra: undoShortcutSnippet,
+				shortcut: `${mod}Z`,
 				separatorTop: baseMenuItems.length > 0
 			},
 			{
@@ -871,7 +883,7 @@
 				icon: Redo,
 				action: () => handleRedo(),
 				disabled: $history.index === $history.history.length - 1,
-				extra: redoShortcutSnippet
+				shortcut: `${mod}⇧Z`
 			},
 			{
 				displayName: 'Tutorials',
@@ -925,7 +937,7 @@
 			},
 			{
 				displayName: 'Test flow & record',
-				icon: Focus,
+				icon: Disc,
 				action: () => flowPreviewButtons?.openRecordingPreview()
 			}
 		]
@@ -1029,10 +1041,10 @@
 	}
 
 	let stepHistoryLoader = new StepHistoryLoader(
-		loadedFromHistoryFromUrl?.stepsState ?? {},
-		loadedFromHistoryFromUrl?.flowJobInitial,
+		untrack(() => loadedFromHistoryFromUrl)?.stepsState ?? {},
+		untrack(() => loadedFromHistoryFromUrl)?.flowJobInitial,
 		saveSessionDraft,
-		noInitial
+		untrack(() => noInitial)
 	)
 	setStepHistoryLoaderContext(stepHistoryLoader)
 

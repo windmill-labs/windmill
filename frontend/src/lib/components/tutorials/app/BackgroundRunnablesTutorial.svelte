@@ -4,10 +4,14 @@
 	import Tutorial from '../Tutorial.svelte'
 	import { clickButtonBySelector } from '../utils'
 
-	export let name: string
-	export let index: number
+	interface Props {
+		name: string;
+		index: number;
+	}
 
-	let tutorial: Tutorial | undefined = undefined
+	let { name, index }: Props = $props();
+
+	let tutorial: Tutorial | undefined = $state(undefined)
 
 	export function runTutorial(skipStepsCount: number | undefined = undefined) {
 		tutorial?.runTutorial({ skipStepsCount })

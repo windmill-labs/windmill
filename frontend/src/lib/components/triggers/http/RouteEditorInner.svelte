@@ -133,7 +133,7 @@
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const routeConfig = $derived.by(getRouteConfig)
-	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
+	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
 		drawerLoading ||
 			!can_write ||

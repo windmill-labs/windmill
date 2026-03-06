@@ -135,6 +135,7 @@
 	})
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class={`relative h-fit ${className}`}
 	use:clickOutside={{ onClickOutside: () => (open = false) }}

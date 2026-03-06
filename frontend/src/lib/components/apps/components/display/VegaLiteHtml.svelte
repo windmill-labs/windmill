@@ -2,7 +2,7 @@
 	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, RichConfigurations } from '../../types'
@@ -30,7 +30,7 @@
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
@@ -85,6 +85,7 @@
 {#if render}
 	<div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
 		<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div onpointerdown={bubble('pointerdown')} bind:this={divEl}></div>
 		</RunnableWrapper>
 	</div>

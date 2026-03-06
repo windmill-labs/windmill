@@ -3,14 +3,31 @@
 	import { conditionalMelt } from '$lib/utils'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
-	export let aiId: string | undefined = undefined
-	export let aiDescription: string | undefined = undefined
-	export let meltElement: AnyMeltElement | undefined = undefined
-	export let type: 'button' | 'submit' | 'reset' | null | undefined = undefined
-	export let title: string = ''
-	export let id: string | undefined = undefined
+	interface Props {
+		aiId?: string | undefined
+		aiDescription?: string | undefined
+		meltElement?: AnyMeltElement | undefined
+		type?: 'button' | 'submit' | 'reset' | null | undefined
+		title?: string
+		id?: string | undefined
+		class?: string
+		children?: import('svelte').Snippet
+		onClick?: (event: MouseEvent) => void
+	}
 
-	let buttonRef: HTMLButtonElement | undefined = undefined
+	let {
+		aiId = undefined,
+		aiDescription = undefined,
+		meltElement = undefined,
+		type = undefined,
+		title = '',
+		id = undefined,
+		class: className = '',
+		children,
+		onClick
+	}: Props = $props()
+
+	let buttonRef: HTMLButtonElement | undefined = $state(undefined)
 </script>
 
 <button
@@ -23,12 +40,12 @@
 			buttonRef?.click()
 		}
 	}}
-	class={$$props.class}
+	class={className}
 	{type}
 	{title}
 	{id}
 	{...$meltElement}
-	on:click
+	onclick={onClick}
 >
-	<slot />
+	{@render children?.()}
 </button>

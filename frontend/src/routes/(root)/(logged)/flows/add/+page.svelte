@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
 	import { afterNavigate, replaceState } from '$app/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
@@ -14,20 +14,20 @@
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
 
-	let nodraft = $page.url.searchParams.get('nodraft')
+	let nodraft = page.url.searchParams.get('nodraft')
 
 	afterNavigate(() => {
 		if (nodraft) {
-			let url = new URL($page.url.href)
+			let url = new URL(page.url.href)
 			url.search = ''
-			replaceState(url.toString(), $page.state)
+			replaceState(url.toString(), page.state)
 		}
 	})
 
-	const hubId = $page.url.searchParams.get('hub')
-	const templatePath = $page.url.searchParams.get('template')
-	const templateId = $page.url.searchParams.get('template_id')
-	const isFork = $page.url.searchParams.get('fork')
+	const hubId = page.url.searchParams.get('hub')
+	const templatePath = page.url.searchParams.get('template')
+	const templateId = page.url.searchParams.get('template_id')
+	const isFork = page.url.searchParams.get('fork')
 
 	let forkState: any = undefined
 	if (isFork) {
@@ -90,7 +90,7 @@
 		}
 
 		let state = forkState ?? (initialState ? decodeState(initialState) : undefined)
-		const initialStateQuery = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
+		const initialStateQuery = page.url.hash != '' ? page.url.hash.slice(1) : undefined
 
 		if (initialStateQuery) {
 			state = decodeState(initialStateQuery)
@@ -171,7 +171,7 @@
 		loading = false
 
 		// Trigger tutorial after everything is initialized
-		const tutorialParam = $page.url.searchParams.get('tutorial')
+		const tutorialParam = page.url.searchParams.get('tutorial')
 		if (tutorialParam) {
 			// Wait for critical elements to be ready before triggering tutorial
 			await tick()

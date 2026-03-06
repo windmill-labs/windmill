@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
@@ -85,7 +85,7 @@
 
 	const scale = ctx ? ctx.scale : writable(100)
 
-	const divId = `wm-component-${id}`
+	const divId = `wm-component-${untrack(() => id)}`
 	let shadowElement: HTMLElement | undefined = $state()
 
 	let active = $state(false)
@@ -99,7 +99,7 @@
 
 	let cordDiff = $state({ x: 0, y: 0 })
 
-	let newSize = $state({ width, height })
+	let newSize = $state({ width: untrack(() => width), height: untrack(() => height) })
 	let trans = $state(false)
 
 	let anima

@@ -189,11 +189,11 @@
 		}
 	})
 
-	let lang = $state(scriptLangToEditorLang(scriptLang))
+	let lang = $state(scriptLangToEditorLang(untrack(() => scriptLang)))
 
-	let filePath = $state(computePath(path))
+	let filePath = $state(computePath(untrack(() => path)))
 
-	let initialPath: string | undefined = $state(path)
+	let initialPath: string | undefined = $state(untrack(() => path))
 
 	let websockets: WebSocket[] = []
 	let languageClients: MonacoLanguageClient[] = []
@@ -209,7 +209,7 @@
 	let destroyed = false
 	const uri = computeUri(
 		untrack(() => filePath),
-		scriptLang
+		untrack(() => scriptLang)
 	)
 
 	console.log('uri', uri)
@@ -1913,12 +1913,11 @@
 	})
 
 	let isTsWorkerInitialized = resource(
-		[() => lang, () => initialized, () => filePath],
+		[() => lang, () => initialized],
 		async () => {
 			if (lang !== 'typescript' || !initialized) return false
-			console.log('[Editor.isTsWorkerInitialized] Waiting for TS Worker...')
-			await waitForWorkerInitialization(filePath)
-			console.log('[Editor.isTsWorkerInitialized] TS Worker initialized successfully')
+			// Use the stable model URI (computed once at mount), not filePath which changes on rename
+			await waitForWorkerInitialization(uri)
 			return true
 		}
 	)
@@ -1929,7 +1928,7 @@
 		if (lang !== 'typescript' || !isTsWorkerInitialized.current) return
 		if (!preparedAssetsSqlQueries || preparedAssetsSqlQueries.length === 0) {
 			// Clear SQL queries if none exist
-			updateSqlQueriesInWorker(filePath, [])
+			updateSqlQueriesInWorker(uri, [])
 			return
 		}
 
@@ -1937,14 +1936,13 @@
 		// The worker will inject type parameters into the code that TypeScript analyzes
 
 		// Worker async function call freezes if we pass a Proxy, $state.snapshot() is very important here
-		updateSqlQueriesInWorker(filePath, $state.snapshot(preparedAssetsSqlQueries))
+		updateSqlQueriesInWorker(uri, $state.snapshot(preparedAssetsSqlQueries))
 	}, 250)
 
 	watch(
 		[
 			() => preparedAssetsSqlQueries,
 			() => lang,
-			() => filePath,
 			() => isTsWorkerInitialized.current
 		],
 		() => {

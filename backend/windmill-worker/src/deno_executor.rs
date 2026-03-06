@@ -17,6 +17,7 @@ use crate::{
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
+use windmill_common::worker::TypeScriptAnnotations;
 
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use windmill_common::{error::Result, scripts::ScriptLang, worker::write_file, BASE_URL};
@@ -231,8 +232,13 @@ pub async fn handle_deno_job(
     occupancy_metrics: &mut OccupancyMetrics,
     has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
+    let annotations = TypeScriptAnnotations::parse(inner_content);
+
     // let mut start = Instant::now();
-    let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
+    let mut logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
+    if annotations.sandbox {
+        logs1.push_str("sandbox mode (nsjail)\n");
+    }
     append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
     let main_override = job.script_entrypoint_override.as_deref();
@@ -443,14 +449,15 @@ try {{
         }
 
         let allow_read = format!(
-            "--allow-read=./,/tmp/windmill/cache/deno/,{}",
+            "--allow-read=./,{}/,{}",
+            *DENO_CACHE_DIR,
             DENO_PATH.as_str()
         );
         if let Some(deno_flags) = DENO_FLAGS.as_ref() {
             for flag in deno_flags {
                 args.push(flag);
             }
-        } else if is_sandboxing_enabled() {
+        } else if is_sandboxing_enabled() || annotations.sandbox {
             args.push("--allow-net");
             args.push("--allow-sys");
             args.push(allow_read.as_str());
@@ -504,7 +511,8 @@ try {{
     *has_stream = handle_result.result_stream.is_some();
 
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
-    if let Err(e) = tokio::fs::remove_dir_all(format!("{DENO_CACHE_DIR}/gen/file/{job_dir}")).await
+    if let Err(e) =
+        tokio::fs::remove_dir_all(format!("{}/gen/file/{job_dir}", *DENO_CACHE_DIR)).await
     {
         tracing::error!("failed to remove deno gen tmp cache dir: {}", e);
     }

@@ -87,7 +87,7 @@
 		comfortable: 50
 	}
 
-	let css = $state(initCss($app.css?.aggridcomponent, customCss))
+	let css = $state(initCss($app.css?.aggridcomponent, untrack(() => customCss)))
 
 	let result: any[] | undefined = $state(undefined)
 
@@ -129,10 +129,10 @@
 	}
 
 	let resolvedConfig = $state(
-		initConfig(components['aggridcomponent'].initialData.configuration, configuration)
+		initConfig(components['aggridcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		selectedRowIndex: 0,
 		selectedRow: {},
 		selectedRows: [] as any[],
@@ -645,6 +645,7 @@
 				</div>
 			{/if}
 
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				onpointerdown={stopPropagation(() => {
 					$selectedComponent = [id]

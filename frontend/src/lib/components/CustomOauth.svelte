@@ -1,28 +1,32 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import OauthExtraParams from './OauthExtraParams.svelte'
 	import OauthScopes from './OauthScopes.svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 
-	export let connect_config = {
+	let { connect_config = $bindable({
 		scopes: [],
 		auth_url: '',
 		token_url: '',
 		req_body_auth: false,
 		extra_params: {},
 		extra_params_callback: {}
-	}
+	}) } = $props();
 
-	$: if (!connect_config) {
-		connect_config = {
-			scopes: [],
-			auth_url: '',
-			token_url: '',
-			req_body_auth: false,
-			extra_params: {},
-			extra_params_callback: {}
+	run(() => {
+		if (!connect_config) {
+			connect_config = {
+				scopes: [],
+				auth_url: '',
+				token_url: '',
+				req_body_auth: false,
+				extra_params: {},
+				extra_params_callback: {}
+			}
 		}
-	}
+	});
 </script>
 
 <div class="flex flex-col gap-6">
@@ -42,12 +46,12 @@
 			bind:value={connect_config.token_url}
 		/>
 	</label>
-	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<label class="flex flex-col gap-1">
 		<span class="text-emphasis font-semibold text-xs">Scopes</span>
 		<OauthScopes bind:scopes={connect_config.scopes} />
 	</label>
-	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<label class="flex flex-col gap-1">
 		<span class="text-emphasis font-semibold text-xs"
 			>Extra Query Args for Authorize Request&nbsp;<Tooltip
@@ -57,14 +61,14 @@
 		>
 		<OauthExtraParams bind:extra_params={connect_config.extra_params} />
 	</label>
-	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<label class="flex flex-col gap-1">
 		<span class="text-emphasis font-semibold text-xs"
 			>Extra Query Args for Token request <Tooltip>Not needed in most cases</Tooltip></span
 		>
 		<OauthExtraParams bind:extra_params={connect_config.extra_params_callback} />
 	</label>
-	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<label class="flex flex-col gap-1">
 		<span class="text-emphasis font-semibold text-xs"
 			>Payload <Tooltip

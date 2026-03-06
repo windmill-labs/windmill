@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import type { FlowModule } from '$lib/gen'
@@ -15,8 +16,8 @@
 	let { module, size = 16, width, height }: Props = $props()
 
 	// Use width/height if provided, otherwise use size for both
-	const iconWidth = width || size
-	const iconHeight = height || size
+	const iconWidth = untrack(() => width) || untrack(() => size)
+	const iconHeight = untrack(() => height) || untrack(() => size)
 </script>
 
 {#if module?.value?.type === 'aiagent'}

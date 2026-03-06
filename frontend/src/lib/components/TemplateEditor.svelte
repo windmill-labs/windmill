@@ -412,7 +412,7 @@
 	const lang = 'template'
 	const dispatch = createEventDispatcher()
 
-	const uri = `file:///${hash}.ts`
+	const uri = `file:///${untrack(() => hash)}.ts`
 
 	export function insertAtCursor(code: string): void {
 		if (editor) {

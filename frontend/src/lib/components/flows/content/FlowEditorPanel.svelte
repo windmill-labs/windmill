@@ -16,6 +16,11 @@
 	import FlowResult from './FlowResult.svelte'
 	import type { StateStore } from '$lib/utils'
 	import FlowSelectionPanel from './FlowSelectionPanel.svelte'
+	import {
+		resolveSelectedModuleIds,
+		locateModules,
+		areContiguousSiblings
+	} from '../multiSelectUtils'
 
 	interface Props {
 		noEditor?: boolean
@@ -89,10 +94,29 @@
 	$effect(() => {
 		computeMissingInputWarnings(flowStore, flowStateStore.val, flowInputsStore)
 	})
+
+	// Derived state for multi-select operations in the side panel
+	let resolvedModuleIds = $derived(
+		resolveSelectedModuleIds(selectionManager.selectedIds, flowStore.val.value.modules ?? [])
+	)
+	let canMoveSelected = $derived(
+		resolvedModuleIds.length > 0 &&
+			areContiguousSiblings(
+				locateModules(resolvedModuleIds, flowStore.val.value.modules ?? [])
+			)
+	)
 </script>
 
 {#if selectionManager && selectionManager.selectedIds.length > 1}
-	<FlowSelectionPanel {selectionManager} {noEditor} />
+	<FlowSelectionPanel
+		{selectionManager}
+		{noEditor}
+		onDeleteSelected={() => flowModuleSchemaMap?.deleteMultiple(resolvedModuleIds)}
+		onDuplicateSelected={() => flowModuleSchemaMap?.duplicateMultiple(resolvedModuleIds)}
+		onMoveSelected={() => flowModuleSchemaMap?.moveMultiple(resolvedModuleIds)}
+		{canMoveSelected}
+		resolvedCount={resolvedModuleIds.length}
+	/>
 {:else if selectedId?.startsWith('settings')}
 	<FlowSettings {enableAi} {noEditor} />
 {:else if selectedId === 'Input'}

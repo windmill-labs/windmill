@@ -277,9 +277,10 @@
 
 	interface Props {
 		data: AiToolN['data']
+		id?: string
 	}
 
-	let { data }: Props = $props()
+	let { data, id }: Props = $props()
 
 	const { selectionManager } = getGraphContext()
 
@@ -292,7 +293,7 @@
 	)
 </script>
 
-<NodeWrapper>
+<NodeWrapper nodeId={id}>
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div

@@ -12,7 +12,7 @@
 
 	let { filter = '', items, f, filteredItems = $bindable(), opts = {} }: Props = $props()
 
-	let uf = new uFuzzy(opts)
+	let uf = new uFuzzy(untrack(() => opts))
 
 	function filterItems() {
 		let trimmed = filter.trim()

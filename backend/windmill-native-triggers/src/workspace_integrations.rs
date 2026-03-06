@@ -34,8 +34,8 @@ use windmill_api_auth::ApiAuthed;
 
 #[cfg(feature = "native_trigger")]
 use crate::{
-    decrypt_oauth_data, delete_token_by_prefix, delete_workspace_integration, resolve_endpoint,
-    store_workspace_integration, ServiceName,
+    decrypt_oauth_data, delete_token_by_prefix, delete_workspace_integration,
+    nextcloud::OcsResponse, resolve_endpoint, store_workspace_integration, ServiceName,
 };
 
 #[cfg(feature = "native_trigger")]
@@ -231,6 +231,21 @@ async fn try_delete_nextcloud_webhook(base_url: &str, access_token: &str, extern
         .header("OCS-APIRequest", "true")
         .send()
         .await;
+}
+
+#[cfg(feature = "native_trigger")]
+async fn fetch_nextcloud_user_id(base_url: &str, access_token: &str) -> anyhow::Result<String> {
+    let url = format!("{}/ocs/v2.php/cloud/user", base_url);
+    let resp = HTTP_CLIENT
+        .get(&url)
+        .bearer_auth(access_token)
+        .header("OCS-APIRequest", "true")
+        .header("Accept", "application/json")
+        .send()
+        .await?
+        .error_for_status()?;
+    let ocs: OcsResponse<NextcloudUserData> = resp.json().await?;
+    Ok(ocs.ocs.data.id)
 }
 
 /// Delete all native triggers for a workspace+service, including remote webhook cleanup.
@@ -446,6 +461,12 @@ struct OAuthCallbackBody {
 }
 
 #[cfg(feature = "native_trigger")]
+#[derive(Debug, Deserialize)]
+struct NextcloudUserData {
+    id: String,
+}
+
+#[cfg(feature = "native_trigger")]
 async fn oauth_callback(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -542,7 +563,27 @@ async fn oauth_callback(
     .map_err(|e| Error::InternalErr(format!("Failed to create variable: {}", e)))?;
 
     // 3. Create resource pointing to the variable
-    let resource_value = json!({ "token": format!("$var:{}", resource_path) });
+    let resource_value = if service_name == ServiceName::Nextcloud {
+        let token_value = format!("$var:{}", resource_path);
+        let base_url = &oauth_config.base_url;
+        let user_id = fetch_nextcloud_user_id(base_url, &token_response.access_token).await;
+        match user_id {
+            Ok(user_id) => json!({
+                "token": token_value,
+                "baseUrl": base_url,
+                "userId": user_id,
+            }),
+            Err(e) => {
+                tracing::warn!("Failed to fetch Nextcloud user info: {e}");
+                json!({
+                    "token": token_value,
+                    "baseUrl": base_url,
+                })
+            }
+        }
+    } else {
+        json!({ "token": format!("$var:{}", resource_path) })
+    };
 
     sqlx::query!(
         "INSERT INTO resource (workspace_id, path, value, resource_type, description, created_by)

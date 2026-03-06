@@ -1,0 +1,113 @@
+name: Windmill
+
+startupEnvs:
+  CARGO_FEATURES: "quickjs"
+  WM_CLONE_DB: false
+  USE_RUST_PLUGIN: false
+
+services:
+  - name: BE
+    portEnv: BACKEND_PORT
+  - name: FE
+    portEnv: FRONTEND_PORT
+
+profiles:
+  default:
+    name: default
+
+  sandbox:
+    name: sandbox
+    image: windmill-sandbox
+    envPassthrough:
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - R2_ENDPOINT
+      - R2_BUCKET
+      - R2_PUBLIC_URL
+    extraMounts:
+      - hostPath: ~/.ssh
+        guestPath: /root/.ssh
+        writable: true
+      - hostPath: ~/.codex
+        guestPath: /root/.codex
+        writable: true
+      - hostPath: ~/windmill-ee-private
+        writable: true
+      - hostPath: ~/windmill-ee-private__worktrees
+        writable: true
+    systemPrompt: >
+      You are running inside a sandboxed container with full permissions.
+      This worktree is configured with the following ports:
+
+      - Backend: port ${BACKEND_PORT}.
+        Start with: cd backend && PORT=${BACKEND_PORT}
+        DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill
+        cargo watch -x run
+
+      - Frontend: port ${FRONTEND_PORT}.
+        Start with: cd frontend && REMOTE=http://localhost:${BACKEND_PORT}
+        npm run dev -- --port ${FRONTEND_PORT} --host 0.0.0.0
+
+      --- Screenshots ---
+      You can take screenshots of the frontend UI and upload them to R2
+      for use in PR descriptions.
+      1) Take a screenshot:
+         bunx playwright screenshot --browser chromium
+         http://localhost:${FRONTEND_PORT}/path/to/page /tmp/screenshot.png
+      2) Upload to R2:
+         aws s3 cp /tmp/screenshot.png
+         "s3://$(printenv R2_BUCKET)/$(git rev-parse --abbrev-ref HEAD)/screenshot.png"
+         --endpoint-url "$(printenv R2_ENDPOINT)"
+      3) The public URL will be:
+         $(printenv R2_PUBLIC_URL)/<branch>/screenshot.png
+      4) Include in PR descriptions using markdown image syntax.
+
+      --- Terminal Recordings (asciinema) ---
+      You can record terminal sessions and upload them for sharing.
+      asciinema is available on PATH.
+
+      1) Write a shell script with the commands to demo. Add sleep
+          delays for readable pacing:
+          - 0.5s after printing a "$ command" line (lets viewer read it)
+          - 1.5-2s after command output (lets viewer absorb the result)
+          - Set GIT_PAGER=cat and PAGER=cat to prevent pager hangs
+
+      2) Record headlessly:
+          asciinema rec --headless --overwrite \
+            -c "bash /tmp/demo.sh" \
+            --window-size 120x50 \
+            --title "Description of demo" \
+            /tmp/demo.cast
+
+      3) Upload to asciinema.org:
+          XDG_DATA_HOME=/tmp/.local/share \
+            asciinema upload --server-url https://asciinema.org /tmp/demo.cast
+
+      --- Mermaid Diagrams ---
+      You can render Mermaid diagrams to SVG using the pre-installed mmdc CLI.
+      The puppeteer config (no-sandbox + Chromium path) is at /root/.puppeteerrc.json.
+
+      1) Write a .mmd file with your diagram:
+          cat > /tmp/diagram.mmd << 'EOF'
+          graph TD
+            A[Start] --> B[End]
+          EOF
+
+      2) Render to SVG (the -p flag is required):
+          mmdc -i /tmp/diagram.mmd -o /tmp/diagram.svg -p /root/.puppeteerrc.json
+
+      3) Upload to R2:
+          aws s3 cp /tmp/diagram.svg
+          "s3://$(printenv R2_BUCKET)/$(git rev-parse --abbrev-ref HEAD)/diagram.svg"
+          --endpoint-url "$(printenv R2_ENDPOINT)"
+
+      4) The public URL will be:
+          $(printenv R2_PUBLIC_URL)/<branch>/diagram.svg
+
+      5) Include in PR descriptions using markdown image syntax.
+
+      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
+
+linkedRepos:
+  - repo: windmill-labs/windmill-ee-private
+    alias: ee

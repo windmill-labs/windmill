@@ -157,6 +157,8 @@ pub struct GitRepositorySettings {
     pub use_individual_branch: Option<bool>,
     pub group_by_folder: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub force_branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<GitSyncSettings>,
 }
 
@@ -562,19 +564,23 @@ async fn transform_json_unchecked(
             transform_json_unchecked(&resource, w_id, db).await?
         }
         serde_json::Value::String(s) if s.starts_with("$var:") => {
-            let variable = sqlx::query_scalar!(
-                "SELECT value FROM variable WHERE workspace_id = $1 AND path = $2",
-                &w_id,
-                &s[5..]
+            let (value, is_secret): (String, bool) = sqlx::query_as(
+                "SELECT value, is_secret FROM variable WHERE workspace_id = $1 AND path = $2",
             )
+            .bind(&w_id)
+            .bind(&s[5..])
             .fetch_one(db)
             .await
             .map_err(to_anyhow)?;
-            let mc = build_crypt(&db, &w_id).await?;
-            let variable = decrypt(&mc, variable).map_err(|e| {
-                Error::internal_err(format!("Error decrypting variable {}: {}", &s, e))
-            })?;
-            serde_json::Value::String(variable)
+            let value = if is_secret {
+                let mc = build_crypt(&db, &w_id).await?;
+                decrypt(&mc, value).map_err(|e| {
+                    Error::internal_err(format!("Error decrypting variable {}: {}", &s, e))
+                })?
+            } else {
+                value
+            };
+            serde_json::Value::String(value)
         }
         s @ serde_json::Value::String(_) => s.clone(),
         x => x.clone(),

@@ -4,7 +4,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { Pen } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
@@ -16,7 +16,7 @@
 
 	let { row }: Props = $props()
 
-	let editedName = $state(row.name)
+	let editedName = $state(untrack(() => row).name)
 
 	const dispatch = createEventDispatcher()
 </script>

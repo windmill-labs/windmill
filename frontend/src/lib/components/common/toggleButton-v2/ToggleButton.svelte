@@ -57,7 +57,6 @@
 <Tooltip
 	class={twMerge('flex', disabled ? 'cursor-not-allowed' : 'cursor-pointer')}
 	disablePopup={tooltip === undefined}
-	disappearTimeout={0}
 	{documentationLink}
 >
 	<button

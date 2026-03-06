@@ -66,6 +66,8 @@ fn next_worker_name() -> String {
                 .unwrap_or(s)
         })
         .unwrap_or("no thread name");
+    // Replace colons because they are illegal in Windows directory names
+    let thread_name = thread_name.replace(':', "_");
     format!("{id}/worker-{thread_name}")
 }
 
@@ -149,6 +151,7 @@ pub struct RunJob {
     pub args: serde_json::Map<String, serde_json::Value>,
     pub scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     pub email: String,
+    pub job_id: Option<Uuid>,
 }
 
 impl From<JobPayload> for RunJob {
@@ -158,6 +161,7 @@ impl From<JobPayload> for RunJob {
             args: Default::default(),
             scheduled_for_o: None,
             email: "test@windmill.dev".to_string(),
+            job_id: None,
         }
     }
 }
@@ -181,8 +185,13 @@ impl RunJob {
         self
     }
 
+    pub fn job_id(mut self, id: Uuid) -> Self {
+        self.job_id = Some(id);
+        self
+    }
+
     pub async fn push(self, db: &Pool<Postgres>) -> Uuid {
-        let RunJob { payload, args, scheduled_for_o, email } = self;
+        let RunJob { payload, args, scheduled_for_o, email, job_id } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
@@ -204,7 +213,7 @@ impl RunJob {
             /* parent_job */ None,
             /* root job  */ None,
             /* flow_innermost_root_job */ None,
-            /* job_id */ None,
+            /* job_id */ job_id,
             /* is_flow_step */ false,
             /* same_worker */ false,
             None,
@@ -228,7 +237,7 @@ impl RunJob {
 
     /// Push the job as a specific user (for testing permissions)
     pub async fn push_as(self, db: &Pool<Postgres>, username: &str, email: &str) -> Uuid {
-        let RunJob { payload, args, scheduled_for_o, .. } = self;
+        let RunJob { payload, args, scheduled_for_o, job_id, .. } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
@@ -250,7 +259,7 @@ impl RunJob {
             /* parent_job */ None,
             /* root job  */ None,
             /* flow_innermost_root_job */ None,
-            /* job_id */ None,
+            /* job_id */ job_id,
             /* is_flow_step */ false,
             /* same_worker */ false,
             None,
@@ -380,7 +389,7 @@ pub fn spawn_test_worker(
 
     std::fs::DirBuilder::new()
         .recursive(true)
-        .create(windmill_worker::GO_BIN_CACHE_DIR)
+        .create(&*windmill_worker::GO_BIN_CACHE_DIR)
         .expect("could not create initial worker dir");
 
     let (tx, rx) = KillpillSender::new(1);
@@ -828,6 +837,15 @@ pub async fn run_preview_relative_imports(
 
 #[cfg(all(feature = "private", feature = "agent_worker_server"))]
 pub async fn testing_http_connection(port: u16) -> Connection {
+    testing_http_connection_with_tags(
+        port,
+        vec!["flow".into(), "python3".into(), "dependency".into()],
+    )
+    .await
+}
+
+#[cfg(all(feature = "private", feature = "agent_worker_server"))]
+pub async fn testing_http_connection_with_tags(port: u16, tags: Vec<String>) -> Connection {
     let suffix = windmill_common::utils::create_default_worker_suffix("test-agent-worker");
     let agent_token = format!(
         "{}{}",
@@ -835,7 +853,7 @@ pub async fn testing_http_connection(port: u16) -> Connection {
         windmill_common::jwt::encode_with_internal_secret(windmill_api_agent_workers::AgentAuth {
             worker_group: "testing-agent".to_owned(),
             suffix: Some(suffix.clone()),
-            tags: vec!["flow".into(), "python3".into(), "dependency".into()],
+            tags,
             exp: Some(usize::MAX),
         })
         .await

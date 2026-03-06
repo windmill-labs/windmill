@@ -31,7 +31,9 @@ use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
+use windmill_common::variables::{
+    build_crypt, decrypt, encrypt, SECRET_SALT, WORKSPACE_CRYPT_CACHE,
+};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::GitRepositorySettings;
@@ -300,6 +302,8 @@ struct LargeFileStorageWithSecondary {
     large_file_storage: LargeFileStorage,
     #[serde(default)]
     secondary_storage: HashMap<String, LargeFileStorage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    volume_storage: Option<String>,
 }
 #[derive(Deserialize, Debug)]
 struct EditLargeFileStorageConfig {
@@ -2418,20 +2422,28 @@ async fn set_encryption_key(
         ));
     }
 
+    // Build the previous cipher before the transaction (reads from cache/pool)
     let previous_encryption_key = build_crypt(&db, w_id.as_str()).await?;
+
+    let mut tx = db.begin().await?;
 
     sqlx::query!(
         "UPDATE workspace_key SET key = $1 WHERE workspace_id = $2",
         request.new_key.clone(),
         w_id
     )
-    .execute(&db)
+    .execute(&mut *tx)
     .await?;
 
-    WORKSPACE_CRYPT_CACHE.remove(w_id.as_str());
-
     if !request.skip_reencrypt.unwrap_or(false) {
-        let new_encryption_key = build_crypt(&db, w_id.as_str()).await?;
+        // Build the new cipher directly from the key string, since the transaction
+        // hasn't committed yet and build_crypt() would read the old key from the pool.
+        let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
+            format!("{}{}", request.new_key, salt)
+        } else {
+            request.new_key.clone()
+        };
+        let new_encryption_key = magic_crypt::new_magic_crypt!(crypt_key, 256);
 
         let mut truncated_new_key = request.new_key.clone();
         truncated_new_key.truncate(8);
@@ -2445,7 +2457,7 @@ async fn set_encryption_key(
             "SELECT path, value, is_secret FROM variable WHERE workspace_id = $1",
             w_id
         )
-        .fetch_all(&db)
+        .fetch_all(&mut *tx)
         .await?;
 
         for variable in all_variables {
@@ -2466,10 +2478,15 @@ async fn set_encryption_key(
                 w_id,
                 variable.path
             )
-            .execute(&db)
+            .execute(&mut *tx)
             .await?;
         }
     }
+
+    tx.commit().await?;
+
+    // Invalidate the cache only after the transaction has committed
+    WORKSPACE_CRYPT_CACHE.remove(w_id.as_str());
 
     // Trigger git sync for encryption key changes
     handle_deployment_metadata(
@@ -2863,9 +2880,8 @@ async fn clone_workspace_data(
     // Clone workspace runnable dependencies and dependency map
     clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
 
-    // TODO: Enable when git sync is implemented for workspace dependencies.
-    // // Clone workspace dependencies
-    // clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
+    // Clone workspace dependencies
+    clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
     Ok(())
 }
 
@@ -3362,13 +3378,12 @@ async fn clone_workspace_runnable_dependencies(
     Ok(())
 }
 
-#[allow(dead_code)]
 async fn clone_workspace_dependencies(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
-    // Clone workspace_runnable_dependencies
+    // Clone workspace_dependencies
     sqlx::query!(
         "INSERT INTO workspace_dependencies (workspace_id, language, name, description, content, archived, created_at)
          SELECT $1, language, name, description, content, archived, created_at
@@ -3501,17 +3516,6 @@ async fn create_workspace_fork(
 
     // Clone all data from the parent workspace using Rust implementation
     clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id).await?;
-
-    sqlx::query!(
-        "INSERT INTO workspace_invite (workspace_id, email, is_admin, operator)
-           SELECT $1, email, is_admin, operator
-           FROM usr
-         WHERE workspace_id = $2",
-        &forked_id,
-        &parent_workspace_id
-    )
-    .execute(&mut *tx)
-    .await?;
 
     audit_log(
         &mut *tx,

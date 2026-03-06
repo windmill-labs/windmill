@@ -18,7 +18,7 @@ use crate::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{StripPath, HTTP_CLIENT},
-    worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, TMP_DIR},
+    worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, WINDMILL_DIR},
     FlowVersionInfo, ScriptHashInfo, Tag,
 };
 
@@ -225,7 +225,7 @@ pub async fn get_logs_from_disk(
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
             for file_p in &file_index {
-                if !tokio::fs::metadata(format!("{TMP_DIR}/{file_p}"))
+                if !tokio::fs::metadata(format!("{}/{file_p}", *WINDMILL_DIR))
                     .await
                     .is_ok()
                 {
@@ -236,7 +236,7 @@ pub async fn get_logs_from_disk(
             let logs = logs.to_string();
             let stream = async_stream::stream! {
                 for file_p in file_index.clone() {
-                    let mut file = tokio::fs::File::open(format!("{TMP_DIR}/{file_p}")).await.map_err(to_anyhow)?;
+                    let mut file = tokio::fs::File::open(format!("{}/{file_p}", *WINDMILL_DIR)).await.map_err(to_anyhow)?;
                     let mut buffer = Vec::new();
                     file.read_to_end(&mut buffer).await.map_err(to_anyhow)?;
                     yield Ok(bytes::Bytes::from(buffer)) as anyhow::Result<bytes::Bytes>;
@@ -326,6 +326,28 @@ pub struct RunInlinePreviewScriptFnParams {
     pub killpill_rx: tokio::sync::broadcast::Receiver<()>,
 }
 
+pub enum InlineScriptTarget {
+    Path(String),
+    Hash(i64),
+}
+
+pub struct RunInlineScriptFnParams {
+    pub workspace_id: String,
+    pub target: InlineScriptTarget,
+    pub args: Option<HashMap<String, Box<RawValue>>>,
+    pub created_by: String,
+    pub permissioned_as: String,
+    pub permissioned_as_email: String,
+    pub base_internal_url: String,
+    pub worker_name: String,
+    pub conn: crate::worker::Connection,
+    pub client: AuthedClient,
+    pub job_dir: String,
+    pub worker_dir: String,
+    pub killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    pub user_db: Option<(crate::db::UserDB, crate::db::Authed)>,
+}
+
 #[derive(Clone)]
 pub struct WorkerInternalServerInlineUtils {
     pub killpill_rx: Arc<tokio::sync::broadcast::Receiver<()>>,
@@ -333,6 +355,13 @@ pub struct WorkerInternalServerInlineUtils {
     pub run_inline_preview_script: Arc<
         dyn Fn(
                 RunInlinePreviewScriptFnParams,
+            ) -> Pin<Box<dyn Future<Output = error::Result<Box<RawValue>>> + Send>>
+            + Send
+            + Sync,
+    >,
+    pub run_inline_script: Arc<
+        dyn Fn(
+                RunInlineScriptFnParams,
             ) -> Pin<Box<dyn Future<Output = error::Result<Box<RawValue>>> + Send>>
             + Send
             + Sync,

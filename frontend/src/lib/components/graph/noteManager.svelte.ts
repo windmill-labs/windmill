@@ -134,6 +134,13 @@ export class NoteManager {
 	}
 
 	/**
+	 * Get the currently selected note ID
+	 */
+	get selectedNoteId(): string | undefined {
+		return this.#selectedNoteId
+	}
+
+	/**
 	 * Check if a note is currently selected
 	 */
 	isNoteSelected(noteId: string): boolean {

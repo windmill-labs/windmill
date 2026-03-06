@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.644.0
+  version: 1.651.1
   title: Windmill API
 
   contact:
@@ -4106,6 +4106,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match)
+          in: query
+          schema:
+            type: string
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
       responses:
@@ -5117,6 +5122,11 @@ paths:
             type: string
         - name: value
           description: JSONB subset match filter using base64 encoded JSON
+          in: query
+          schema:
+            type: string
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match)
           in: query
           schema:
             type: string
@@ -9163,6 +9173,54 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs/run_inline/p/{path}:
+    post:
+      summary: run script by path without starting a new job
+      operationId: runScriptByPathInline
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InlineScriptArgs"
+
+      responses:
+        "200":
+          description: script result
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/jobs/run_inline/h/{hash}:
+    post:
+      summary: run script by hash without starting a new job
+      operationId: runScriptByHashInline
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptHash"
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InlineScriptArgs"
+
+      responses:
+        "200":
+          description: script result
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs/run_wait_result/preview:
     post:
       summary: run script preview and wait for result
@@ -9996,6 +10054,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match on path, tag, schedule path, trigger kind, label)
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: All jobs
@@ -11217,6 +11280,11 @@ paths:
             type: string
         - name: summary
           description: pattern match filter for summary field (case-insensitive)
+          in: query
+          schema:
+            type: string
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match)
           in: query
           schema:
             type: string
@@ -15130,6 +15198,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       responses:
         "200":
@@ -15175,6 +15244,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       requestBody:
         description: acl to add
@@ -15231,6 +15301,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       requestBody:
         description: acl to add
@@ -16905,9 +16976,9 @@ paths:
                     description: count of log lines that matched the query per hostname
                     type: object
 
-  /srch/index/delete/{idx_name}:
+  /indexer/delete/{idx_name}:
     delete:
-      summary: Restart container and delete the index to recreate it.
+      summary: Clear an index and restart the indexer.
       operationId: clearIndex
       tags:
         - indexSearch
@@ -16922,11 +16993,101 @@ paths:
               - ServiceLogIndex
       responses:
         "200":
-          description: idx to be deleted and container restarting
+          description: idx to be deleted and indexer restarting
           content:
             text/plain:
               schema:
                 type: string
+
+  /indexer/storage:
+    get:
+      summary: Get index storage sizes (disk and S3).
+      operationId: getIndexStorageSizes
+      tags:
+        - indexSearch
+      responses:
+        "200":
+          description: storage sizes for each index
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_index:
+                    type: object
+                    properties:
+                      disk_size_bytes:
+                        type: integer
+                        nullable: true
+                      s3_size_bytes:
+                        type: integer
+                        nullable: true
+                  service_log_index:
+                    type: object
+                    properties:
+                      disk_size_bytes:
+                        type: integer
+                        nullable: true
+                      s3_size_bytes:
+                        type: integer
+                        nullable: true
+
+  /indexer/status:
+    get:
+      summary: Get indexer status including liveness and storage sizes.
+      operationId: getIndexerStatus
+      tags:
+        - indexSearch
+      responses:
+        "200":
+          description: indexer status for each index
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_indexer:
+                    type: object
+                    properties:
+                      is_alive:
+                        type: boolean
+                      last_locked_at:
+                        type: string
+                        format: date-time
+                        nullable: true
+                      owner:
+                        type: string
+                        nullable: true
+                      storage:
+                        type: object
+                        properties:
+                          disk_size_bytes:
+                            type: integer
+                            nullable: true
+                          s3_size_bytes:
+                            type: integer
+                            nullable: true
+                  log_indexer:
+                    type: object
+                    properties:
+                      is_alive:
+                        type: boolean
+                      last_locked_at:
+                        type: string
+                        format: date-time
+                        nullable: true
+                      owner:
+                        type: string
+                        nullable: true
+                      storage:
+                        type: object
+                        properties:
+                          disk_size_bytes:
+                            type: integer
+                            nullable: true
+                          s3_size_bytes:
+                            type: integer
+                            nullable: true
 
   /w/{workspace}/assets/list:
     get:
@@ -16979,6 +17140,11 @@ paths:
         - name: columns
           in: query
           description: JSONB subset match filter for columns using base64 encoded JSON
+          schema:
+            type: string
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match)
+          in: query
           schema:
             type: string
       responses:
@@ -17119,7 +17285,90 @@ paths:
                     path:
                       type: string
                       description: The asset path
-                    
+
+
+  /w/{workspace}/volumes/list:
+    get:
+      summary: List all volumes in the workspace
+      operationId: listVolumes
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of volumes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Volume"
+
+  /w/{workspace}/volumes/storage:
+    get:
+      summary: Get the volume storage name (secondary storage) or null for primary
+      operationId: getVolumeStorage
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: volume storage name or null
+          content:
+            application/json:
+              schema:
+                type: string
+                nullable: true
+
+  /w/{workspace}/volumes/create:
+    post:
+      summary: Create a new volume
+      operationId: createVolume
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+      responses:
+        "200":
+          description: volume created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/volumes/delete/{name}:
+    delete:
+      summary: Delete a volume (admin only)
+      operationId: deleteVolume
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: volume deleted
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /mcp/w/{workspace}/list_tools:
     get:
@@ -19785,6 +20034,12 @@ components:
         language:
           $ref: "#/components/schemas/ScriptLang"
       required: [content, args, language]
+
+    InlineScriptArgs:
+      type: object
+      properties:
+        args:
+          $ref: "#/components/schemas/ScriptArgs"
 
     WorkflowTask:
       type: object
@@ -23212,6 +23467,8 @@ components:
           type: boolean
         group_by_folder:
           type: boolean
+        force_branch:
+          type: string
         collapsed:
           type: boolean
         settings:
@@ -23826,6 +24083,7 @@ components:
         - resource
         - ducklake
         - datatable
+        - volume
     Asset:
       type: object
       properties:
@@ -23834,6 +24092,38 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
+    Volume:
+      type: object
+      required:
+        - name
+        - size_bytes
+        - file_count
+        - created_at
+        - created_by
+      properties:
+        name:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        file_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        extra_perms:
+          type: object
+          additionalProperties: true
     ProtectionRuleset:
       type: object
       description: A workspace protection rule defining restrictions and bypass permissions

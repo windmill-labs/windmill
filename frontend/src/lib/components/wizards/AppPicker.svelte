@@ -8,12 +8,16 @@
 	import Alert from '../common/alert/Alert.svelte'
 	import Select from '../select/Select.svelte'
 
-	export let value = ''
-	let darkMode = false
+	interface Props {
+		value?: string;
+	}
+
+	let { value = $bindable('') }: Props = $props();
+	let darkMode = $state(false)
 
 	const { appPath } = getContext<AppViewerContext>('AppViewerContext')
 
-	let apps: ListableApp[] = []
+	let apps: ListableApp[] = $state([])
 
 	async function loadApps(): Promise<void> {
 		apps = (await AppService.listApps({ workspace: $workspaceStore!, includeDraftOnly: true })).map(

@@ -180,10 +180,12 @@
 				<h2 class="text-lg font-semibold text-emphasis">{recording.flow_path}</h2>
 				<Tooltip placement="bottom">
 					<InfoIcon size={16} class="text-tertiary" />
-					<span class="text-2xs" slot="text">
-						Recorded {new Date(recording.recorded_at).toLocaleString()} &mdash;
-						{(recording.total_duration_ms / 1000).toFixed(1)}s
-					</span>
+					{#snippet text()}
+												<span class="text-2xs" >
+							Recorded {new Date(recording.recorded_at).toLocaleString()} &mdash;
+							{(recording.total_duration_ms / 1000).toFixed(1)}s
+						</span>
+											{/snippet}
 				</Tooltip>
 			</div>
 			<Button variant="contained" color="blue" on:click={startReplay} startIcon={{ icon: Play }}>

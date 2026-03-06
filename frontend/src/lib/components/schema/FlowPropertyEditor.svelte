@@ -196,11 +196,7 @@
 			<div class="flex flex-row gap-2 items-center ml-1 mt-4 mb-2">
 				<span class="font-semibold text-sm">{oneOfSelected}</span>
 
-				<Popover
-					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-					containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-					closeButton
-				>
+				<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }} closeButton>
 					{#snippet trigger()}
 						<Button
 							size="xs2"

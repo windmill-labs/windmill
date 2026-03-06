@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { InfoIcon } from 'lucide-svelte'
 	import { zIndexes } from '$lib/zIndexes'
@@ -7,39 +8,60 @@
 	import { fade } from 'svelte/transition'
 	import TooltipInner from '../TooltipInner.svelte'
 
-	export let light = false
-	export let placement: Placement | undefined = 'bottom'
-	export let documentationLink: string | undefined = undefined
-	export let small = false
-	export let markdownTooltip: string | undefined = undefined
-	export let disablePopup: boolean = false
-	export let openDelay: number = 300
-	export let closeDelay: number = 0
-	export let portal: string | undefined | null = 'body'
-	export let customBgClass: string | undefined = undefined
+	interface Props {
+		light?: boolean
+		placement?: Placement | undefined
+		documentationLink?: string | undefined
+		small?: boolean
+		disablePopup?: boolean
+		openDelay?: number
+		closeDelay?: number
+		portal?: string | undefined | null
+		customBgClass?: string | undefined
+		style?: string
+		class?: string
+		children?: import('svelte').Snippet
+		text?: import('svelte').Snippet
+	}
+
+	let {
+		light = false,
+		placement = 'bottom',
+		documentationLink = undefined,
+		small = false,
+		disablePopup = false,
+		openDelay = 300,
+		closeDelay = 0,
+		portal = 'body',
+		customBgClass = undefined,
+		style = '',
+		class: className = '',
+		children,
+		text
+	}: Props = $props()
 
 	const {
 		elements: { trigger, content },
 		states: { open }
 	} = createTooltip({
 		positioning: {
-			placement
+			placement: untrack(() => placement)
 		},
-		openDelay,
-		closeDelay,
+		openDelay: untrack(() => openDelay),
+		closeDelay: untrack(() => closeDelay),
 		group: true,
-		portal
+		portal: untrack(() => portal)
 	})
 </script>
 
-<span class={$$props.class} style={$$props.style} use:melt={$trigger}>
-	<slot />
+<span class={className} {style} use:melt={$trigger}>
+	{@render children?.()}
 </span>
-{#if !$$slots.default}
+{#if !children}
 	<div
 		class="inline-flex w-3 mx-0.5 h-3 {light
 			? 'text-primary-inverse'
-			: 'text-primary'} {$$props.class} "
+			: 'text-primary'} {className} "
 		use:melt={$trigger}
 	>
 		<InfoIcon size={small ? 12 : 14} />
@@ -48,8 +70,10 @@
 
 {#if $open && !disablePopup}
 	<div use:melt={$content} transition:fade={{ duration: 100 }} style="z-index: {zIndexes.tooltip}">
-		<TooltipInner {documentationLink} {markdownTooltip} {customBgClass}>
-			<slot name="text" />
+		<TooltipInner {documentationLink} {customBgClass}>
+			{#snippet children()}
+				{@render text?.()}
+			{/snippet}
 		</TooltipInner>
 	</div>
 {/if}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email FROM password WHERE ($2::text = '*' OR email LIKE CONCAT('%@', $2::text)) AND NOT EXISTS (\n                    SELECT 1 FROM usr WHERE workspace_id = $1::text AND email = password.email\n                )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "886a921adc115f0a9c6f3a68381bd8f5a16866135120175d9073b9b2c41bbd51"
+}

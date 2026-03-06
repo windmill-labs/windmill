@@ -27,25 +27,27 @@ use url::Url;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use windmill_common::client::AuthedClient;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
-#[cfg(feature = "inline_preview")]
-use windmill_common::jobs::RunInlinePreviewScriptFnParams;
 use windmill_common::jobs::{
     format_completed_job_result, format_result, DynamicInput, ENTRYPOINT_OVERRIDE,
+};
+#[cfg(feature = "run_inline")]
+use windmill_common::jobs::{
+    InlineScriptTarget, RunInlinePreviewScriptFnParams, RunInlineScriptFnParams,
 };
 use windmill_common::runnable_settings::{
     ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
 };
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use windmill_common::runtime_assets::{register_runtime_asset, InsertRuntimeAssetParams};
 use windmill_common::scripts::ScriptRunnableSettingsInline;
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
-use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
+use windmill_common::worker::{Connection, CLOUD_HOSTED, WINDMILL_DIR};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
 };
@@ -53,15 +55,15 @@ use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
 use windmill_object_store::upload_artifact_to_store;
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use windmill_parser::asset_parser::AssetKind;
 use windmill_types::s3::BundleFormat;
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use windmill_worker::get_worker_internal_server_inline_utils;
 
 use windmill_common::variables::get_workspace_key;
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 use crate::db::OptJobAuthed;
 use crate::triggers::trigger_helpers::{FlowId, ScriptId};
 use crate::{
@@ -242,6 +244,11 @@ pub fn workspaced_service() -> Router {
         )
         .route("/run/preview", post(run_preview_script))
         .route("/run_inline/preview", post(run_inline_preview_script))
+        .route(
+            "/run_inline/p/*script_path",
+            post(run_inline_script_by_path),
+        )
+        .route("/run_inline/h/:hash", post(run_inline_script_by_hash))
         .route(
             "/run_wait_result/preview",
             post(run_wait_result_preview_script),
@@ -441,14 +448,15 @@ async fn get_flow_env_by_flow_job_id(
     Path((w_id, flow_job_id, var_name)): Path<(String, Uuid, String)>,
     Query(JsonPath { json_path, .. }): Query<JsonPath>,
 ) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
-    let flow_env = sqlx::query_scalar!(
+    // Fetch raw value (without json_path) to check for $var:/$res: references
+    let raw_value = sqlx::query_scalar!(
             r#"
                 SELECT
                     CASE
                         WHEN flow_version.id IS NOT NULL THEN
-                            (flow_version.value -> 'flow_env' -> $3) #> $4
+                            flow_version.value -> 'flow_env' -> $3
                         ELSE
-                            (root_job.raw_flow -> 'flow_env' -> $3) #> $4
+                            root_job.raw_flow -> 'flow_env' -> $3
                     END AS "flow_env: sqlx::types::Json<Box<RawValue>>"
                 FROM
                     v2_job current_job
@@ -465,16 +473,86 @@ async fn get_flow_env_by_flow_job_id(
             flow_job_id,
             w_id,
             var_name,
-            json_path
-                .as_ref()
-                .map(|x| x.split(".").collect::<Vec<_>>())
-                .unwrap_or_default() as Vec<&str>,
         )
         .fetch_optional(&db)
         .await?
-        .map(|r| r.map(|x| x.0))
-        .flatten()
-        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+        .and_then(|r| r.map(|x| x.0));
+
+    // Resolve $var:/$res: references if present
+    let resolved = if let Some(raw) = raw_value {
+        let raw_str = raw.get();
+        let db_authed = windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(
+            &authed,
+            db.clone(),
+            None,
+        );
+        if let Some(path) = raw_str
+            .strip_prefix("\"$var:")
+            .and_then(|s| s.strip_suffix("\""))
+        {
+            match windmill_store::variables::get_value_internal(&db_authed, &w_id, path, false)
+                .await
+            {
+                Ok(val) => to_raw_value(&serde_json::Value::String(val)),
+                Err(e) => {
+                    tracing::warn!("Failed to resolve flow_env variable $var:{path}: {e}");
+                    raw
+                }
+            }
+        } else if let Some(path) = raw_str
+            .strip_prefix("\"$res:")
+            .and_then(|s| s.strip_suffix("\""))
+        {
+            match windmill_store::resources::get_resource_value_interpolated_internal(
+                &db_authed,
+                &w_id,
+                path,
+                Some(flow_job_id),
+                Some(&tokened.token),
+                false,
+            )
+            .await
+            {
+                Ok(Some(val)) => to_raw_value(&val),
+                Ok(None) => {
+                    tracing::warn!(
+                        "Failed to resolve flow_env resource $res:{path}: resource not found"
+                    );
+                    raw
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to resolve flow_env resource $res:{path}: {e}");
+                    raw
+                }
+            }
+        } else {
+            raw
+        }
+    } else {
+        to_raw_value(&serde_json::Value::Null)
+    };
+
+    // Apply json_path navigation on the (possibly resolved) value
+    let flow_env = if let Some(ref jp) = json_path {
+        let mut value: serde_json::Value =
+            serde_json::from_str(resolved.get()).unwrap_or(serde_json::Value::Null);
+        for part in jp.split('.') {
+            value = match value {
+                serde_json::Value::Object(ref mut map) => {
+                    map.remove(part).unwrap_or(serde_json::Value::Null)
+                }
+                serde_json::Value::Array(ref arr) => part
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|i| arr.get(i).cloned())
+                    .unwrap_or(serde_json::Value::Null),
+                _ => serde_json::Value::Null,
+            };
+        }
+        to_raw_value(&value)
+    } else {
+        resolved
+    };
 
     log_job_view(
         &db,
@@ -1405,7 +1483,7 @@ async fn get_logs_from_disk(
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
             for file_p in &file_index {
-                if !tokio::fs::metadata(format!("{TMP_DIR}/{file_p}"))
+                if !tokio::fs::metadata(format!("{}/{file_p}", *WINDMILL_DIR))
                     .await
                     .is_ok()
                 {
@@ -1420,7 +1498,7 @@ async fn get_logs_from_disk(
             "#.to_string(),
                 ));
                 for file_p in file_index.clone() {
-                    let mut file = tokio::fs::File::open(format!("{TMP_DIR}/{file_p}")).await.map_err(to_anyhow)?;
+                    let mut file = tokio::fs::File::open(format!("{}/{file_p}", *WINDMILL_DIR)).await.map_err(to_anyhow)?;
                     let mut buffer = Vec::new();
                     file.read_to_end(&mut buffer).await.map_err(to_anyhow)?;
                     yield Ok(bytes::Bytes::from(buffer)) as anyhow::Result<bytes::Bytes>;
@@ -2055,6 +2133,8 @@ async fn list_jobs(
 
     let sql = if lq.success.is_none()
         && lq.label.is_none()
+        && lq.result.is_none()
+        && !lq.is_skipped.unwrap_or(false)
         && lq.created_before.is_none()
         && lq.started_before.is_none()
         && lq.created_or_started_before.is_none()
@@ -2853,12 +2933,18 @@ struct Preview {
     flow_path: Option<String>,
 }
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 #[derive(Debug, Deserialize)]
 struct PreviewInline {
     content: String,
     args: Option<HashMap<String, Box<JsonRawValue>>>,
     language: ScriptLang,
+}
+
+#[cfg(feature = "run_inline")]
+#[derive(Debug, Deserialize)]
+struct InlineScriptArgs {
+    args: Option<HashMap<String, Box<JsonRawValue>>>,
 }
 
 #[derive(Deserialize)]
@@ -4573,7 +4659,7 @@ async fn run_preview_script(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
 async fn run_inline_preview_script(
     OptJobAuthed { authed, job_id }: OptJobAuthed,
     Tokened { token }: Tokened,
@@ -4610,14 +4696,120 @@ async fn run_inline_preview_script(
     Ok(Json(to_raw_value(&result)).into_response())
 }
 
-#[cfg(not(feature = "inline_preview"))]
+#[cfg(not(feature = "run_inline"))]
 async fn run_inline_preview_script() -> error::Result<Response> {
     Err(error::Error::InternalErr(
         "inline preview requires the worker feature".to_string(),
     ))
 }
 
-#[cfg(feature = "inline_preview")]
+#[cfg(feature = "run_inline")]
+async fn run_inline_script_by_path(
+    OptJobAuthed { authed, .. }: OptJobAuthed,
+    Tokened { token }: Tokened,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, script_path)): Path<(String, StripPath)>,
+    Json(body): Json<InlineScriptArgs>,
+) -> error::Result<Response> {
+    let script_path_str = script_path.to_path();
+    check_scopes(&authed, || format!("jobs:run:scripts:{script_path_str}"))?;
+    run_inline_script_inner(
+        authed,
+        token,
+        db,
+        w_id,
+        InlineScriptTarget::Path(script_path.to_path().to_string()),
+        body.args,
+        Some(user_db),
+    )
+    .await
+}
+
+#[cfg(not(feature = "run_inline"))]
+async fn run_inline_script_by_path() -> error::Result<Response> {
+    Err(error::Error::InternalErr(
+        "inline script by path requires the worker feature".to_string(),
+    ))
+}
+
+#[cfg(feature = "run_inline")]
+async fn run_inline_script_by_hash(
+    OptJobAuthed { authed, .. }: OptJobAuthed,
+    Tokened { token }: Tokened,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, script_hash)): Path<(String, ScriptHash)>,
+    Json(body): Json<InlineScriptArgs>,
+) -> error::Result<Response> {
+    // Resolve the script path from the hash and check scopes properly
+    let hash = script_hash.0;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let ScriptHashInfo { path, .. } =
+        get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash)
+            .await?
+            .prefetch_cached(&db)
+            .await?;
+
+    check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
+
+    run_inline_script_inner(
+        authed,
+        token,
+        db,
+        w_id,
+        InlineScriptTarget::Hash(hash),
+        body.args,
+        Some(user_db),
+    )
+    .await
+}
+
+#[cfg(not(feature = "run_inline"))]
+async fn run_inline_script_by_hash() -> error::Result<Response> {
+    Err(error::Error::InternalErr(
+        "inline script by hash requires the worker feature".to_string(),
+    ))
+}
+
+#[cfg(feature = "run_inline")]
+async fn run_inline_script_inner(
+    authed: ApiAuthed,
+    token: String,
+    db: DB,
+    w_id: String,
+    target: InlineScriptTarget,
+    args: Option<HashMap<String, Box<JsonRawValue>>>,
+    user_db: Option<UserDB>,
+) -> error::Result<Response> {
+    let utils = get_worker_internal_server_inline_utils()?;
+    let authed_owned: windmill_common::db::Authed = authed.clone().into();
+    let result = utils.run_inline_script.as_ref()(RunInlineScriptFnParams {
+        target,
+        args,
+        workspace_id: w_id.clone(),
+        base_internal_url: utils.base_internal_url.clone(),
+        killpill_rx: utils.killpill_rx.resubscribe(),
+        created_by: authed.display_username().to_string(),
+        permissioned_as: username_to_permissioned_as(&authed.username),
+        permissioned_as_email: authed.email.clone(),
+        job_dir: "".to_string(),
+        worker_name: "".to_string(),
+        worker_dir: "".to_string(),
+        client: AuthedClient {
+            base_internal_url: utils.base_internal_url.clone(),
+            force_client: None,
+            token,
+            workspace: w_id,
+        },
+        conn: windmill_common::worker::Connection::Sql(db),
+        user_db: user_db.map(|udb| (udb, authed_owned)),
+    })
+    .await?;
+    Ok(Json(to_raw_value(&result)).into_response())
+}
+
+#[cfg(feature = "run_inline")]
 fn register_potential_assets_on_inline_execution(
     job_id: Uuid,
     w_id: &str,
@@ -5767,7 +5959,7 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
         ));
     }
 
-    let local_file = format!("{TMP_DIR}/logs/{file_p}");
+    let local_file = format!("{}/logs/{file_p}", *WINDMILL_DIR);
     if tokio::fs::metadata(&local_file).await.is_ok() {
         let mut file = tokio::fs::File::open(local_file).await.map_err(to_anyhow)?;
         let mut buffer = Vec::new();
@@ -5813,10 +6005,10 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
     }
 
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-        return Err(error::Error::NotFound(format!(
-            "File not found on server logs volume /tmp/windmill/logs and no distributed logs s3 storage for {}",
-            file_p
-        )));
+    return Err(error::Error::NotFound(format!(
+        "File not found on server logs volume {}/logs and no distributed logs s3 storage for {}",
+        *WINDMILL_DIR, file_p
+    )));
 }
 
 async fn get_job_update(

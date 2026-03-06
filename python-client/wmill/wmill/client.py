@@ -984,6 +984,40 @@ class Windmill:
             raise Exception("Could not write file to S3") from e
         return S3Object(s3=response["file_key"], storage=s3object.get("storage") if s3object else None)
 
+    def delete_s3_object(
+        self,
+        s3object: S3Object | str,
+        s3_resource_path: str | None = None,
+    ) -> None:
+        """
+        Permanently delete a file from the workspace S3 bucket.
+
+        '''python
+        from wmill import S3Object
+
+        s3_obj = S3Object(s3="/path/to/my_file.txt")
+        client.delete_s3_object(s3_obj)
+        '''
+        """
+        s3object = parse_s3_object(s3object)
+        query_params: Dict[str, Any] = {"file_key": s3object["s3"]}
+        if s3_resource_path is not None and s3_resource_path != "":
+            query_params["s3_resource_path"] = s3_resource_path
+        if "storage" in s3object and s3object["storage"] is not None:
+            query_params["storage"] = s3object["storage"]
+        try:
+            resp = self.client.delete(
+                f"/w/{self.workspace}/job_helpers/delete_s3_file",
+                params=query_params,
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as err:
+            error = f"{err.request.url}: {err.response.status_code}, {err.response.text}"
+            logger.error(error)
+            raise Exception(error)
+        except Exception as e:
+            raise Exception("Could not delete file from S3") from e
+
     def sign_s3_objects(self, s3_objects: list[S3Object | str]) -> list[S3Object]:
         """Sign S3 objects for use by anonymous users in public apps.
 
@@ -1589,6 +1623,19 @@ def get_job_status(job_id: str) -> JobStatus:
 
 
 @init_global_client
+def get_job(job_id: str) -> dict:
+    """Get full job details by ID.
+
+    Args:
+        job_id: UUID of the job
+
+    Returns:
+        Job details dictionary
+    """
+    return _client.get_job(job_id=job_id)
+
+
+@init_global_client
 def get_result(job_id: str, assert_result_is_not_none=True) -> Dict[str, Any]:
     """Get the result of a completed job.
 
@@ -1676,6 +1723,20 @@ def write_s3_file(
         s3_resource_path if s3_resource_path != "" else None,
         content_type,
         content_disposition,
+    )
+
+
+@init_global_client
+def delete_s3_object(
+    s3object: S3Object | str,
+    s3_resource_path: str | None = None,
+) -> None:
+    """
+    Permanently delete a file from the workspace S3 bucket.
+    """
+    return _client.delete_s3_object(
+        s3object,
+        s3_resource_path if s3_resource_path != "" else None,
     )
 
 
@@ -2228,7 +2289,7 @@ class DataTableClient:
         args_def = ""
         for i, arg in enumerate(args):
             args_dict[f"arg{i+1}"] = arg
-            args_def += f"-- ${i+1} arg{i+1}\n"
+            args_def += f"-- ${i+1} arg{i+1} ({infer_sql_type(arg)})\n"
         sql = args_def + sql
         return SqlQuery(
             sql,
@@ -2338,7 +2399,7 @@ def infer_sql_type(value) -> str:
     elif isinstance(value, int):
         return "BIGINT"
     elif isinstance(value, float):
-        return "DOUBLE PRECISION"
+        return "FLOAT8"
     elif value is None:
         return "TEXT"
     elif isinstance(value, str):

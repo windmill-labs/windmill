@@ -44,7 +44,10 @@
 		if (!getInputRect || !listEl) return { width: 0, height: 0, x: 0, y: 0, isBelow: true }
 		let inputR = getInputRect()
 		const listR = listEl.getBoundingClientRect()
-		const isBelow = inputR.y + inputR.height + listR.height <= window.innerHeight
+		const fitsBelow = inputR.y + inputR.height + listR.height <= window.innerHeight
+		const spaceBelow = window.innerHeight - (inputR.y + inputR.height)
+		const spaceAbove = inputR.y
+		const isBelow = fitsBelow || spaceBelow >= spaceAbove
 		let [x, y] = disablePortal ? [0, 0] : [inputR.x, inputR.y]
 		if (isBelow)
 			return { width: inputR.width, height: listR.height, x: x, y: y + inputR.height, isBelow }
@@ -68,7 +71,7 @@
 	// We do not use Svelte transitions because they can not animate in the opposite direction
 	// when the dropdown is opens above the input
 	// Also CSS transitions are smoother because they do not rely on JS / animation frames
-	let uiState = $state({ domExists: open, visible: open, timeout: null as number | null })
+	let uiState = $state({ domExists: untrack(() => open), visible: untrack(() => open), timeout: null as number | null })
 	let initial = true
 	watch(
 		() => open && !disabled,

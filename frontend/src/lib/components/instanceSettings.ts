@@ -141,6 +141,21 @@ export const settings: Record<string, Setting[]> = {
 					!value?.endsWith(' '))
 		},
 		{
+			label: 'Email domain',
+			description: 'Domain to display in webhooks for email triggers (should match the MX record)',
+			key: 'email_domain',
+			fieldType: 'text',
+			placeholder: 'mail.windmill.com',
+			storage: 'setting',
+			error: 'Must be a valid domain',
+			isValid: (value: string | undefined) =>
+				value == undefined ||
+				value === '' ||
+				/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/.test(
+					value
+				)
+		},
+		{
 			label: 'Request size limit in MB',
 			description: 'Maximum size of HTTP requests in MB.',
 			cloudonly: true,
@@ -216,7 +231,6 @@ export const settings: Record<string, Setting[]> = {
 			description:
 				'Maximum amount of time (measured in seconds) that a <a href="https://www.windmill.dev/docs/core_concepts/webhooks">sync endpoint</a> is allowed to run before it is forcibly stopped or timed out.',
 			key: 'timeout_wait_result',
-			cloudonly: true,
 			fieldType: 'seconds',
 			placeholder: '60',
 			storage: 'setting'
@@ -317,6 +331,16 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hiddenIfEmpty: true
+		},
+		{
+			label: 'Disable Hub',
+			description:
+				'Disable the Windmill Hub integration entirely. Enable this if your instance runs in a closed environment without internet access and you do not have a private hub setup.',
+			key: 'disable_hub',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			requiresReloadOnChange: true
 		}
 	],
 	SMTP: [
@@ -546,6 +570,15 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			requiresReloadOnChange: true,
 			ee_only: 'Critical alerts in UI are only available in the EE version'
+		},
+		{
+			label: 'Alert on token expiry',
+			description:
+				'Send critical alerts when API tokens are about to expire (within 7 days) or have expired',
+			key: 'critical_alerts_on_token_expiry',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
 		},
 		{
 			label: 'Slack',

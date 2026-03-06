@@ -3,7 +3,8 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { ChevronDown } from 'lucide-svelte'
 
-	$: opened = false
+	let opened = $state(false);
+	
 </script>
 
 <div class="text-xs flex flex-row-reverse">

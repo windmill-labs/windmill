@@ -34,22 +34,24 @@
 		{isFlow}
 		{captureLoading}
 	>
-		<svelte:fragment slot="description">
-			{#if captureInfo.active}
-				{#if captureInfo.connectionInfo?.connected}
-					<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
-						Listenning to websocket events...
-					</p>
+		{#snippet description()}
+			
+				{#if captureInfo.active}
+					{#if captureInfo.connectionInfo?.connected}
+						<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
+							Listenning to websocket events...
+						</p>
+					{:else}
+						<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
+							Connecting to websocket...
+						</p>
+					{/if}
 				{:else}
 					<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
-						Connecting to websocket...
+						Start capturing to listen to websocket events.
 					</p>
 				{/if}
-			{:else}
-				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
-					Start capturing to listen to websocket events.
-				</p>
-			{/if}
-		</svelte:fragment>
+			
+			{/snippet}
 	</CaptureSection>
 {/if}

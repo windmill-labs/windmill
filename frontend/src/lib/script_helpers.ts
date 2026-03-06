@@ -2,6 +2,8 @@ import { type Script } from './gen'
 
 import type { SupportedLanguage } from './common'
 
+import CLAUDE_SANDBOX_INIT_CODE from './templates/claude_sandbox.ts.template?raw'
+
 const PYTHON_FAILURE_MODULE_CODE = `import os
 
 def main(message: str, name: str, step_id: str):
@@ -30,6 +32,9 @@ def main():
     # wmill.setState(newState)
     # 4. Return the new rows
     # return range from (state to newState)
+    #
+    # For more complex states, consider using Data Tables:
+    # https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables
     return [1, 2, 3]`
 
 const PYTHON_INIT_CODE = `import os
@@ -554,6 +559,9 @@ export async function main() {
   // await wmill.setState(newState)
   // 4. Return the new rows
   // return range from (state to newState)
+  //
+  // For more complex states, consider using Data Tables:
+  // https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables
 
   return [1,2,3]
 
@@ -575,6 +583,9 @@ export async function main() {
   // await wmill.setState(newState)
   // 4. Return the new rows
   // return range from (state to newState)
+  //
+  // For more complex states, consider using Data Tables:
+  // https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables
 
   return [1,2,3]
 
@@ -599,6 +610,9 @@ func main() (interface{}, error) {
 	// 3. Compare the two states and update the internal state
 	wmill.SetState(4)
 	// 4. Return the new rows
+	//
+	// For more complex states, consider using Data Tables:
+	// https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables
 
 	return state, nil
 
@@ -1337,6 +1351,9 @@ export const INITIAL_CODE = {
 	},
 	ruby: {
 		script: RUBY_INIT_CODE
+	},
+	claudesandbox: {
+		script: CLAUDE_SANDBOX_INIT_CODE
 	}
 	// for related places search: ADD_NEW_LANG
 }
@@ -1364,6 +1381,7 @@ export function initialCode(
 		| 'docker'
 		| 'powershell'
 		| 'bunnative'
+		| 'claudesandbox'
 		| undefined,
 	templateScript?: boolean
 ): string {
@@ -1453,7 +1471,9 @@ export function initialCode(
 		return INITIAL_CODE.ruby.script
 		// for related places search: ADD_NEW_LANG
 	} else if (language == 'bun' || language == 'bunnative') {
-		if (kind == 'trigger') {
+		if (subkind === 'claudesandbox') {
+			return INITIAL_CODE.claudesandbox.script
+		} else if (kind == 'trigger') {
 			return INITIAL_CODE.bun.trigger
 		} else if (language == 'bunnative' || subkind === 'bunnative') {
 			return INITIAL_CODE.bunnative.script
@@ -1493,6 +1513,7 @@ export function getResetCode(
 		| 'docker'
 		| 'powershell'
 		| 'bunnative'
+		| 'claudesandbox'
 		| undefined
 ) {
 	if (language === 'deno') {

@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
 	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
@@ -31,8 +31,14 @@
 	}: Props = $props()
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
-	let selectedKind: 'script' | 'trigger' | 'preprocessor' | 'approval' | 'flow' | 'failure' =
-		$state(kind)
+	let selectedKind:
+		| 'script'
+		| 'trigger'
+		| 'preprocessor'
+		| 'approval'
+		| 'flow'
+		| 'failure'
+		| 'aisandbox' = $state(untrack(() => kind))
 	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
 	let loading = $state(false)
 	let small = $derived(kind === 'preprocessor' || kind === 'failure')
@@ -69,7 +75,6 @@
 		{/if}
 		<RefreshButton
 			size="sm"
-			light
 			{loading}
 			onClick={() => {
 				refreshCount.val += 1
@@ -182,27 +187,53 @@
 							}}
 						/>
 					{/if}
+					<TopLevelNode
+						label="AI Sandbox"
+						selected={selectedKind === 'aisandbox'}
+						onSelect={() => {
+							selectedKind = 'aisandbox'
+						}}
+					/>
 				{/if}
 			</div>
 		{/if}
 
-		<FlowInputsQuick
-			{selectedKind}
-			bind:loading
-			filter={funcDesc}
-			{disableAi}
-			{funcDesc}
-			{kind}
-			bind:owners
-			on:close={() => {
-				dispatch('close')
-			}}
-			on:new
-			on:pickScript
-			on:pickFlow
-			{preFilter}
-			{displayPath}
-			refreshCount={refreshCount.val}
-		/>
+		{#if selectedKind === 'aisandbox'}
+			<div class="h-full overflow-auto grow min-w-0 p-2 gap-1 flex flex-col">
+				<TopLevelNode
+					label="Claude Code"
+					onSelect={() => {
+						dispatch('close')
+						dispatch('new', {
+							kind: 'script',
+							inlineScript: {
+								language: 'bun',
+								kind: 'script',
+								subkind: 'claudesandbox'
+							}
+						})
+					}}
+				/>
+			</div>
+		{:else}
+			<FlowInputsQuick
+				{selectedKind}
+				bind:loading
+				filter={funcDesc}
+				{disableAi}
+				{funcDesc}
+				{kind}
+				bind:owners
+				on:close={() => {
+					dispatch('close')
+				}}
+				on:new
+				on:pickScript
+				on:pickFlow
+				{preFilter}
+				{displayPath}
+				refreshCount={refreshCount.val}
+			/>
+		{/if}
 	</div>
 </div>

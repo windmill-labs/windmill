@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
@@ -59,21 +59,21 @@
 		breakpoint
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let everRender = $state(render)
+	let everRender = $state(untrack(() => render))
 	$effect.pre(() => {
 		render && !everRender && (everRender = true)
 	})
 
 	//used so that we can count number of outputs setup for first refresh
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		open: false
 	})
 
-	let css = $state(initCss($app.css?.modalcomponent, customCss))
+	let css = $state(initCss($app.css?.modalcomponent, untrack(() => customCss)))
 	let disposable: Disposable | undefined = $state(undefined)
 
 	let resolvedConfig = $state(
-		initConfig(components['modalcomponent'].initialData.configuration, configuration)
+		initConfig(components['modalcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	let unclickableOutside = $state(false)
@@ -84,7 +84,7 @@
 		}, 1000)
 	}
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		openModal: () => {
 			unclosableModal()
 
@@ -231,6 +231,7 @@
 							</div>
 						</div>
 
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							class={twMerge('wm-modal-container h-full', 'overflow-y-auto', css?.container?.class)}
 							onpointerdown={(e) => {

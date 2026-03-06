@@ -77,7 +77,7 @@
 </script>
 
 <svelte:window
-	on:keydown={(e) => {
+	onkeydown={(e) => {
 		if (!isVisible || !processedItems?.length) return
 		if (e.key === 'ArrowUp' && keyArrowPos !== undefined && processedItems.length > 0) {
 			keyArrowPos = keyArrowPos <= 0 ? undefined : keyArrowPos - 1

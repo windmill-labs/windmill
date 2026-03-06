@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { FlowService, ScriptService, UserService, type TruncatedToken } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getContext } from 'svelte'
@@ -7,13 +9,17 @@
 	import type { TriggerContext } from '../triggers'
 	import { capitalize } from '$lib/utils'
 
-	export let isFlow: boolean
-	export let path: string
-	export let labelPrefix: 'email' | 'webhook'
+	interface Props {
+		isFlow: boolean;
+		path: string;
+		labelPrefix: 'email' | 'webhook';
+	}
+
+	let { isFlow, path, labelPrefix }: Props = $props();
 
 	const { triggersCount } = getContext<TriggerContext>('TriggerContext')
 
-	let tokens: TruncatedToken[] | undefined = undefined
+	let tokens: TruncatedToken[] | undefined = $state(undefined)
 
 	export async function listTokens() {
 		tokens = (
@@ -35,7 +41,9 @@
 		await listTokens()
 	}
 
-	$: $workspaceStore && listTokens()
+	run(() => {
+		$workspaceStore && listTokens()
+	});
 </script>
 
 <div class="flex flex-col gap-2">
@@ -62,7 +70,7 @@
 							</div>
 							{#if token.email == $userStore?.email}
 								<button
-									on:click={() => deleteToken(token.token_prefix)}
+									onclick={() => deleteToken(token.token_prefix)}
 									class="text-xs text-secondary">delete</button
 								>
 							{:else}

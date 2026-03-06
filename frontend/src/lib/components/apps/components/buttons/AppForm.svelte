@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import type { AppInput } from '../../inputType'
@@ -43,17 +43,17 @@
 	const { app, worldStore, stateId, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false,
 		jobId: undefined
 	})
 
 	const resolvedConfig = $state(
-		initConfig(components['formcomponent'].initialData.configuration, configuration)
+		initConfig(components['formcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			wrapper?.setArgs(nvalue)
 		},
@@ -71,7 +71,7 @@
 	let runnableComponent: RunnableComponent | undefined = $state()
 	let loading = $state(false)
 
-	let css = $state(initCss($app.css?.formcomponent, customCss))
+	let css = $state(initCss($app.css?.formcomponent, untrack(() => customCss)))
 
 	let wrapper: RunnableWrapper | undefined = $state()
 	$effect(() => {

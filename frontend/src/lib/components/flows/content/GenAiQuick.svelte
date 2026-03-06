@@ -1,10 +1,17 @@
 <script lang="ts">
+	import { createBubbler } from 'svelte/legacy';
+
+	const bubble = createBubbler();
 	import { Wand2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
-	export let funcDesc: string
-	export let selected: boolean
-	export let lang: string
+	interface Props {
+		funcDesc: string;
+		selected: boolean;
+		lang: string;
+	}
+
+	let { funcDesc, selected, lang }: Props = $props();
 	const dispatch = createEventDispatcher()
 
 	const onKeyDown = (e: KeyboardEvent) => {
@@ -15,12 +22,12 @@
 	}
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 <button
 	class="px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all rounded-md {selected
 		? 'bg-surface-hover'
 		: ''}"
-	on:click
+	onclick={bubble('click')}
 >
 	<Wand2 size={14} class="text-ai" />
 

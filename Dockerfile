@@ -58,7 +58,7 @@ FROM node:24-alpine as frontend
 
 # install dependencies
 WORKDIR /frontend
-COPY ./frontend/package.json ./frontend/package-lock.json ./
+COPY ./frontend/package.json ./frontend/package-lock.json ./frontend/.npmrc ./
 COPY ./frontend/scripts/ ./scripts/
 RUN npm ci
 
@@ -126,7 +126,7 @@ ARG POWERSHELL_DEB_VERSION=7.5.0-1
 ARG KUBECTL_VERSION=1.28.7
 ARG HELM_VERSION=3.14.3
 # NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
-ARG GO_VERSION=1.25.0
+ARG GO_VERSION=1.26.0
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
@@ -256,11 +256,17 @@ COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/t
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-COPY --from=oven/bun:1.3.8 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.3.10 /usr/local/bin/bun /usr/bin/bun
 
 # Install windmill CLI
 RUN bun install -g windmill-cli \
     && ln -s $(bun pm bin -g)/wmill /usr/bin/wmill
+
+# Install Claude Code CLI (used by claude sandbox scripts)
+# The installer puts the binary in ~/.local/bin/claude (symlink to ~/.local/share/claude/versions/*)
+# Copy it to /usr/bin/claude so it's accessible inside nsjail sandbox (which mounts /usr but not /root)
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+    && cp /root/.local/share/claude/versions/* /usr/bin/claude
 
 COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer

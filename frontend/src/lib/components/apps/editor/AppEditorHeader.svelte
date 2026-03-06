@@ -63,6 +63,9 @@
 	import AppEditorHeaderDeployInitialDraft from './AppEditorHeaderDeployInitialDraft.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { updatePolicy } from './appPolicy'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
 		policy: Policy
@@ -153,7 +156,7 @@
 
 	let draftDrawerOpen = $state(false)
 	let saveDrawerOpen = $state(false)
-	let inputsDrawerOpen = $state(fromHub)
+	let inputsDrawerOpen = $state(untrack(() => fromHub))
 	let historyBrowserDrawerOpen = $state(false)
 	let debugAppDrawerOpen = $state(false)
 	let lazyDrawerOpen = $state(false)
@@ -1118,7 +1121,17 @@
 							onClick: () => {
 								window.open(`/apps/add?template=${appPath}`)
 							}
-						}
+						},
+						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+							? [
+									{
+										label: 'Edit in workspace fork',
+										onClick: () => {
+											window.open(buildForkEditUrl('app', $appPath))
+										}
+									}
+								]
+							: [])
 					]
 				: undefined}
 		>

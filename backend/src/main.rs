@@ -38,11 +38,11 @@ use windmill_common::{
     agent_workers::AgentConfig,
     global_settings::{
         APP_WORKSPACED_ROUTE_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
-        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
+        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING,
+        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
         INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING,
         JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
         MAVEN_SETTINGS_XML_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
@@ -62,7 +62,7 @@ use windmill_common::{
     },
     worker::{
         is_native_mode_from_env, reload_custom_tags_setting, Connection, HUB_CACHE_DIR,
-        HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
+        HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR, WINDMILL_DIR, WORKER_GROUP,
     },
     KillpillSender, DEFAULT_HUB_BASE_URL, METRICS_ENABLED,
 };
@@ -99,10 +99,10 @@ use crate::monitor::{
     load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db,
     reload_app_workspaced_route_setting, reload_base_url_setting,
     reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
-    reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
-    reload_hub_api_secret_setting, reload_hub_base_url_setting, reload_job_default_timeout_setting,
-    reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
-    reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
+    reload_critical_alerts_on_token_expiry_setting, reload_critical_error_channels_setting,
+    reload_extra_pip_index_url_setting, reload_hub_api_secret_setting, reload_hub_base_url_setting,
+    reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
+    reload_license_key, reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
     reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
     reload_smtp_config, reload_uv_index_strategy_setting, reload_worker_config, MonitorIteration,
 };
@@ -238,8 +238,8 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
         )
     })?;
 
-    create_dir_all(HUB_CACHE_DIR)?;
-    create_dir_all(BUN_BUNDLE_CACHE_DIR)?;
+    create_dir_all(&*HUB_CACHE_DIR)?;
+    create_dir_all(&*BUN_BUNDLE_CACHE_DIR)?;
 
     for path in paths.values() {
         tracing::info!("Caching hub script at {path}");
@@ -249,7 +249,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             .as_ref()
             .is_some_and(|x| x == &ScriptLang::Deno)
         {
-            let job_dir = format!("{}/cache_init/{}", TMP_DIR, Uuid::new_v4());
+            let job_dir = format!("{}/cache_init/{}", *WINDMILL_DIR, Uuid::new_v4());
             create_dir_all(&job_dir)?;
             let _ = windmill_worker::generate_deno_lock(
                 &Uuid::nil(),
@@ -267,7 +267,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             tokio::fs::remove_dir_all(job_dir).await?;
         } else if res.language.as_ref().is_some_and(|x| x == &ScriptLang::Bun) {
             let job_id = Uuid::new_v4();
-            let job_dir = format!("{}/cache_init/{}", TMP_DIR, job_id);
+            let job_dir = format!("{}/cache_init/{}", *WINDMILL_DIR, job_id);
             create_dir_all(&job_dir)?;
             if let Some(lock) = res.lockfile {
                 let _ = windmill_worker::prepare_job_dir(&lock, &job_dir).await?;
@@ -384,9 +384,9 @@ async fn cache_hub_resource_types() -> anyhow::Result<()> {
 
     println!("Fetched {} resource types from hub", resource_types.len());
 
-    create_dir_all(HUB_RT_CACHE_DIR)?;
+    create_dir_all(&*HUB_RT_CACHE_DIR)?;
 
-    let cache_path = format!("{}/{}", HUB_RT_CACHE_DIR, HUB_RT_CACHE_FILE);
+    let cache_path = format!("{}/{}", *HUB_RT_CACHE_DIR, HUB_RT_CACHE_FILE);
     let content = serde_json::to_string_pretty(&resource_types)
         .with_context(|| "Failed to serialize resource types")?;
 
@@ -398,7 +398,7 @@ async fn cache_hub_resource_types() -> anyhow::Result<()> {
 }
 
 pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
-    let cache_path = format!("{}/{}", HUB_RT_CACHE_DIR, HUB_RT_CACHE_FILE);
+    let cache_path = format!("{}/{}", *HUB_RT_CACHE_DIR, HUB_RT_CACHE_FILE);
 
     if tokio::fs::metadata(&cache_path).await.is_err() {
         tracing::info!(
@@ -969,7 +969,7 @@ Windmill Community Edition {GIT_VERSION}
 
         DirBuilder::new()
             .recursive(true)
-            .create("/tmp/windmill")
+            .create(&*WINDMILL_DIR)
             .expect("could not create initial server dir");
 
         #[cfg(feature = "tantivy")]
@@ -1717,6 +1717,11 @@ async fn process_notify_event(
                         tracing::error!(error = %e, "Could not reload critical alert UI setting");
                     }
                 }
+                CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING => {
+                    if let Err(e) = reload_critical_alerts_on_token_expiry_setting(conn).await {
+                        tracing::error!(error = %e, "Could not reload critical alerts on token expiry setting");
+                    }
+                }
                 "workspace_telemetry_enabled" => {
                     // Read the new value from the database and log it
                     let enabled = sqlx::query_scalar!(
@@ -1794,27 +1799,27 @@ pub async fn run_workers(
     let mut handles = Vec::with_capacity(num_workers as usize);
 
     for x in [
-        TMP_LOGS_DIR,
-        UV_CACHE_DIR,
-        DENO_CACHE_DIR,
-        DENO_CACHE_DIR_DEPS,
-        DENO_CACHE_DIR_NPM,
-        BUN_CACHE_DIR,
-        PY310_CACHE_DIR,
-        PY311_CACHE_DIR,
-        PY312_CACHE_DIR,
-        PY313_CACHE_DIR,
-        BUN_BUNDLE_CACHE_DIR,
-        GO_CACHE_DIR,
-        GO_BIN_CACHE_DIR,
-        RUST_CACHE_DIR,
-        CSHARP_CACHE_DIR,
-        NU_CACHE_DIR,
-        HUB_CACHE_DIR,
-        POWERSHELL_CACHE_DIR,
-        JAVA_CACHE_DIR,
-        RUBY_CACHE_DIR,
-        TAR_JAVA_CACHE_DIR, // for related places search: ADD_NEW_LANG
+        &*TMP_LOGS_DIR,
+        &*UV_CACHE_DIR,
+        &*DENO_CACHE_DIR,
+        &*DENO_CACHE_DIR_DEPS,
+        &*DENO_CACHE_DIR_NPM,
+        &*BUN_CACHE_DIR,
+        &*PY310_CACHE_DIR,
+        &*PY311_CACHE_DIR,
+        &*PY312_CACHE_DIR,
+        &*PY313_CACHE_DIR,
+        &*BUN_BUNDLE_CACHE_DIR,
+        &*GO_CACHE_DIR,
+        &*GO_BIN_CACHE_DIR,
+        &*RUST_CACHE_DIR,
+        &*CSHARP_CACHE_DIR,
+        &*NU_CACHE_DIR,
+        &*HUB_CACHE_DIR,
+        &*POWERSHELL_CACHE_DIR,
+        &*JAVA_CACHE_DIR,
+        &*RUBY_CACHE_DIR,
+        &*TAR_JAVA_CACHE_DIR, // for related places search: ADD_NEW_LANG
     ] {
         DirBuilder::new()
             .recursive(true)

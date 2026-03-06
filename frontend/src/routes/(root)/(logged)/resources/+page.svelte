@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton, Tab } from '$lib/components/common'
@@ -35,8 +35,7 @@
 		enterpriseLicense,
 		userStore,
 		workspaceStore,
-		userWorkspaces,
-		globalDbManagerDrawer
+		userWorkspaces
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import {
@@ -198,6 +197,9 @@
 		if (currentFilters.owner) {
 			apiParams.pathStart = currentFilters.owner
 		}
+		if (currentFilters._default_) {
+			apiParams.broadFilter = currentFilters._default_
+		}
 
 		const result = (await ResourceService.listResource(apiParams)).map((x) => {
 			return {
@@ -336,12 +338,12 @@
 	}
 
 	onMount(() => {
-		const callback = $page.url.searchParams.get('callback')
+		const callback = page.url.searchParams.get('callback')
 		if (callback == 'supabase_wizard') {
 			supabaseConnect?.open?.()
 		}
 
-		const connect_app = $page.url.searchParams.get('connect_app')
+		const connect_app = page.url.searchParams.get('connect_app')
 		if (connect_app) {
 			const rt = connect_app ?? undefined
 			if (rt == 'undefined') {
@@ -546,7 +548,7 @@
 	})
 
 	onMount(() => {
-		let hash = $page.url.hash
+		let hash = page.url.hash
 		if (hash.startsWith('#/resource/')) {
 			console.log('hash', hash)
 			let path = hash.slice(11)
@@ -554,7 +556,9 @@
 		}
 	})
 
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val) as any
+	let showTable = $derived(
+		tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'
+	)
 </script>
 
 <ConfirmationModal
@@ -876,31 +880,31 @@
 					{/snippet}
 				</Tab>
 			</Tabs>
-			<div class="flex">
+			<div class="flex gap-2 grow justify-end">
 				<Button
-					variant="default"
-					on:click={reload}
+					unifiedSize="md"
+					iconOnly
+					onClick={reload}
 					startIcon={{
 						icon: RotateCw,
 						classes: loading.resources || loading.types ? 'animate-spin' : ''
 					}}
 				/>
+				<FilterSearchbar
+					schema={resourcesFilterSchema}
+					class="max-w-[26rem] grow"
+					bind:value={filters.val}
+					placeholder="Filter resources..."
+					presets={[
+						{
+							name: resourcesFilterSchema.user_folders_only?.label ?? '?',
+							value: 'user_folders_only:\\ true'
+						}
+					]}
+				/>
 			</div>
 		</div>
-		{#if tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'}
-			<FilterSearchbar
-				schema={resourcesFilterSchema}
-				bind:value={filters.val}
-				placeholder="Filter resources..."
-				class="mt-4"
-				presets={[
-					{
-						name: resourcesFilterSchema.user_folders_only?.label ?? '?',
-						value: 'user_folders_only:\\ true'
-					}
-				]}
-			/>
-
+		{#if showTable}
 			<div class="overflow-x-auto pb-40 mt-4">
 				{#if loading.resources}
 					<Skeleton layout={[0.5, [2], 1]} />
@@ -1057,7 +1061,6 @@
 											{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
 												<ExploreAssetButton
 													asset={{ kind: 'resource', path }}
-													{dbManagerDrawer}
 													_resourceMetadata={{ resource_type }}
 													class="w-24"
 												/>

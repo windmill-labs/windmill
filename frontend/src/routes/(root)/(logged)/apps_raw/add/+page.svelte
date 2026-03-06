@@ -2,7 +2,7 @@
 	import { importStore } from '$lib/components/apps/store'
 
 	import { AppService, type Policy } from '$lib/gen'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { decodeState } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { afterNavigate, replaceState } from '$app/navigation'
@@ -36,14 +36,22 @@
 	import { Alert } from '$lib/components/common'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 
-	let nodraft = $page.url.searchParams.get('nodraft')
-	const templatePath = $page.url.searchParams.get('template')
-	const templateId = $page.url.searchParams.get('template_id')
-	const hubId = $page.url.searchParams.get('hub')
+	let nodraft = page.url.searchParams.get('nodraft')
+	const templatePath = page.url.searchParams.get('template')
+	const templateId = page.url.searchParams.get('template_id')
+	const hubId = page.url.searchParams.get('hub')
 
-	const importRaw = $importStore
+	// Check in-memory store first, then sessionStorage (used when full page reload occurs)
+	let importRaw = $importStore
 	if ($importStore) {
 		$importStore = undefined
+	}
+	if (!importRaw) {
+		const sessionData = sessionStorage.getItem('rawAppImport')
+		if (sessionData) {
+			sessionStorage.removeItem('rawAppImport')
+			importRaw = JSON.parse(sessionData)
+		}
 	}
 
 	const appState = nodraft || hubId ? undefined : localStorage.getItem('rawapp')
@@ -52,9 +60,9 @@
 	let files: Record<string, string> = $state(react19Template)
 	afterNavigate(() => {
 		if (nodraft) {
-			let url = new URL($page.url.href)
+			let url = new URL(page.url.href)
 			url.search = ''
-			replaceState(url.toString(), $page.state)
+			replaceState(url.toString(), page.state)
 		}
 	})
 	let policy: Policy = $state({
@@ -189,7 +197,7 @@
 			files: svelte5Template
 		}
 	]
-	let templatePicker = $state(nodraft != null)
+	let templatePicker = $state(nodraft != null && !importRaw)
 	let reloadCounter = $state(0)
 
 	// Modal state

@@ -45,9 +45,9 @@
 	}: Props = $props()
 
 	let resolvedConfig = $state(
-		initConfig(components['tabscomponent'].initialData.configuration, configuration)
+		initConfig(components['tabscomponent'].initialData.configuration, untrack(() => configuration))
 	)
-	let everRender = $state(render)
+	let everRender = $state(untrack(() => render))
 	$effect.pre(() => {
 		render && !everRender && (everRender = true)
 	})
@@ -63,13 +63,13 @@
 		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let selected: string = $state(tabs[0])
-	let selectedIndex = $state(tabs?.indexOf(untrack(() => selected)) ?? -1)
-	let css = $state(initCss($app.css?.tabscomponent, customCss))
+	let selected: string = $state(untrack(() => tabs)[0])
+	let selectedIndex = $state(untrack(() => tabs)?.indexOf(untrack(() => selected)) ?? -1)
+	let css = $state(initCss($app.css?.tabscomponent, untrack(() => customCss)))
 
 	let tabHeight: number = $state(0)
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		selectedTabIndex: 0
 	})
 
@@ -96,7 +96,7 @@
 		}
 	}
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setSelectedIndex(index) {
 			if (index >= 0 && index < tabs.length) {
 				selected = tabs[index]
@@ -134,7 +134,7 @@
 		}
 	}
 
-	let lastTabs: string[] | undefined = tabs
+	let lastTabs: string[] | undefined = untrack(() => tabs)
 	$effect.pre(() => {
 		if (!untrack(() => selected)) {
 			return

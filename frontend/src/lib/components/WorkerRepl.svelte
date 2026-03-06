@@ -366,9 +366,8 @@
 						Full path
 
 						<Tooltip
-							markdownTooltip="Commands run in the default directory. Run a standalone `cd` to change it. Chained or invalid `cd` commands won’t apply."
 							class="absolute top-0.5"
-						/>
+						>Commands run in the default directory. Run a standalone ‘cd’ to change it. Chained or invalid ‘cd’ commands won’t apply.</Tooltip>
 					</Badge>
 				</div>
 				<input type="text" disabled bind:value={working_directory} />

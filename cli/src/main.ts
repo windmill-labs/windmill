@@ -39,6 +39,7 @@ import queues from "./commands/queues/queues.ts";
 import dependencies from "./commands/dependencies/dependencies.ts";
 import init from "./commands/init/init.ts";
 import jobs from "./commands/jobs/jobs.ts";
+import docs from "./commands/docs/docs.ts";
 import { fetchVersion } from "./core/context.ts";
 
 export {
@@ -59,13 +60,14 @@ export {
   gitsyncSettings,
   instance,
   dev,
+  docs,
   hubPull,
   pull,
   push,
   workspaceAdd,
 };
 
-export const VERSION = "1.644.0";
+export const VERSION = "1.651.1";
 
 // Re-exported from constants.ts to maintain backwards compatibility
 export { WM_FORK_PREFIX } from "./core/constants.ts";
@@ -127,6 +129,7 @@ const command = new Command()
   .command("queues", queues)
   .command("dependencies", dependencies)
   .command("jobs", jobs)
+  .command("docs", docs)
   .command("version --version", "Show version information")
   .action(async (opts: any) => {
     console.log("CLI version: " + VERSION);

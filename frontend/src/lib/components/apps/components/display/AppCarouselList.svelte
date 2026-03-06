@@ -39,12 +39,12 @@
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let everRender = $state(render)
+	let everRender = $state(untrack(() => render))
 	$effect.pre(() => {
 		render && !everRender && (everRender = true)
 	})
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false,
 		inputs: {},
@@ -52,7 +52,7 @@
 	})
 
 	const resolvedConfig = $state(
-		initConfig(components['carousellistcomponent'].initialData.configuration, configuration)
+		initConfig(components['carousellistcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	function onFocus() {
@@ -62,7 +62,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.carousellistcomponent, customCss))
+	let css = $state(initCss($app.css?.carousellistcomponent, untrack(() => customCss)))
 	let result: any[] | undefined = $state(undefined)
 
 	let inputs = $state({})
@@ -105,7 +105,7 @@
 		currentPageIndex != undefined && untrack(() => handleIndexChange())
 	})
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setSelectedIndex: (index: number) => {
 			if (Array.isArray(result) && index >= 0 && index < result.length) {
 				currentPageIndex = index

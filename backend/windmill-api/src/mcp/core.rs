@@ -64,9 +64,10 @@ impl McpBackend for WindmillBackend {
         auth: &ApiAuthed,
         workspace_id: &str,
         favorites_only: bool,
+        path_prefix: Option<&str>,
     ) -> BackendResult<Vec<ScriptInfo>> {
         let scope_type = if favorites_only { "favorites" } else { "all" };
-        get_items::<ScriptInfo>(&self.user_db, auth, workspace_id, scope_type, "script")
+        get_items::<ScriptInfo>(&self.user_db, auth, workspace_id, scope_type, "script", path_prefix)
             .await
             .map_err(|e| ErrorData::internal_error(e.message, None))
     }
@@ -76,9 +77,10 @@ impl McpBackend for WindmillBackend {
         auth: &ApiAuthed,
         workspace_id: &str,
         favorites_only: bool,
+        path_prefix: Option<&str>,
     ) -> BackendResult<Vec<FlowInfo>> {
         let scope_type = if favorites_only { "favorites" } else { "all" };
-        get_items::<FlowInfo>(&self.user_db, auth, workspace_id, scope_type, "flow")
+        get_items::<FlowInfo>(&self.user_db, auth, workspace_id, scope_type, "flow", path_prefix)
             .await
             .map_err(|e| ErrorData::internal_error(e.message, None))
     }

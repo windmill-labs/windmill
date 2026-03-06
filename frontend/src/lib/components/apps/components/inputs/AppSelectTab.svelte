@@ -39,9 +39,9 @@
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = $state(
-		initConfig(components['selecttabcomponent'].initialData.configuration, configuration)
+		initConfig(components['selecttabcomponent'].initialData.configuration, untrack(() => configuration))
 	)
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined as string | undefined
 	})
 
@@ -54,7 +54,7 @@
 		listInputs?.remove(id)
 	})
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			selected = nvalue
 		},
@@ -83,7 +83,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.selecttabcomponent, customCss))
+	let css = $state(initCss($app.css?.selecttabcomponent, untrack(() => customCss)))
 	$effect.pre(() => {
 		selected === '' && resolvedConfig.defaultValue && untrack(() => setDefaultValue())
 	})

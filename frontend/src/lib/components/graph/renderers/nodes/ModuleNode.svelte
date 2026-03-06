@@ -1,12 +1,11 @@
 <script lang="ts">
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
-	import { GitBranchPlus } from 'lucide-svelte'
+	import { GitBranchPlus, Move, Copy, Trash2, StickyNote } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
-	import type { ContextMenuItem } from '../../../common/contextmenu/ContextMenu.svelte'
-	import { addGroupNoteContextMenuItem } from '../../noteUtils.svelte'
+	import { isMac, type Item } from '$lib/utils'
 
 	interface Props {
 		data: ModuleN['data']
@@ -43,12 +42,54 @@
 	})
 
 	// Define context menu items
-	const contextMenuItems: ContextMenuItem[] = $derived(
-		data.editMode ? [addGroupNoteContextMenuItem(data.id, noteEditorContext)] : []
+	let noteDisabled = $derived(
+		!noteEditorContext?.noteEditor ||
+		(noteEditorContext?.noteEditor?.isNodeOnlyMemberOfGroupNote(data.id) ?? false)
+	)
+
+	let isPreprocessor = $derived(data.id === 'preprocessor')
+
+	const menuItems: Item[] = $derived(
+		data.editMode
+			? [
+					...(isPreprocessor
+						? []
+						: [
+								{
+									displayName: 'Move',
+									icon: Move,
+									action: () => data.eventHandlers.move({ id: data.id })
+								},
+								{
+									displayName: 'Duplicate',
+									icon: Copy,
+									action: () => data.eventHandlers.duplicate({ id: data.id })
+								}
+							]),
+					{
+						displayName: 'Delete',
+						icon: Trash2,
+						type: 'delete' as const,
+						shortcut: isMac() ? '⌫' : 'Del',
+						action: () => data.eventHandlers.delete({ id: data.id }, '')
+					},
+					{
+						displayName: 'Add note',
+						icon: StickyNote,
+						separatorTop: true,
+						disabled: noteDisabled,
+						action: () => {
+							if (noteEditorContext?.noteEditor && !noteDisabled) {
+								noteEditorContext.noteEditor.createGroupNote([data.id])
+							}
+						}
+					}
+				]
+			: []
 	)
 </script>
 
-<NodeWrapper offset={data.offset} {contextMenuItems}>
+<NodeWrapper offset={data.offset} {menuItems}>
 	{#snippet children({ darkMode })}
 		<MapItem
 			moduleId={data.id}
@@ -56,6 +97,7 @@
 			insertable={data.insertable}
 			editMode={data.editMode}
 			moduleAction={data.moduleAction}
+			{menuItems}
 			annotation={flowJobs &&
 			(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
 				? 'Iteration: ' +
@@ -66,7 +108,6 @@
 					(state?.iteration_total ?? '?')
 				: ''}
 			nodeState={state?.skipped ? '_Skipped' : type}
-			moving={data.moving}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
 			{flowJobs}

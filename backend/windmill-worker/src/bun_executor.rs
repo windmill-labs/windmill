@@ -22,7 +22,7 @@ use crate::{
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR,
     BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH,
-    NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
     TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
@@ -53,7 +53,14 @@ use windmill_object_store::attempt_fetch_bytes;
 
 use windmill_parser::Typ;
 
+// The Windows loader uses a virtual "windmill-url" namespace instead of writing .url
+// files to disk, which avoids Windows path issues. The virtual namespace approach is
+// likely better on all fronts but we keep the original .url-file loader on Linux to
+// avoid breaking back-compat.
+#[cfg(not(windows))]
 pub const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.js");
+#[cfg(windows)]
+pub const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.windows.js");
 
 pub const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
 
@@ -527,6 +534,8 @@ pub async fn build_loader(
     current_path: &str,
     mode: LoaderMode,
 ) -> Result<()> {
+    // Use forward slashes in JS strings to avoid backslash escape issues on Windows
+    let job_dir_js = job_dir.replace('\\', "/");
     let loader = RELATIVE_BUN_LOADER
         .replace("W_ID", w_id)
         .replace("BASE_INTERNAL_URL", base_internal_url)
@@ -549,13 +558,13 @@ import {{ readdir }} from "node:fs/promises";
 
 let fileNames = []
 try {{
-    fileNames = await readdir("{job_dir}/node_modules")
+    fileNames = await readdir("{job_dir_js}/node_modules")
 }} catch (e) {{
 }}
 
 try {{
     await Bun.build({{
-        entrypoints: ["{job_dir}/wrapper.mjs"],
+        entrypoints: ["{job_dir_js}/wrapper.mjs"],
         outdir: "./",
         target: "node",
         plugins: [p],
@@ -597,7 +606,7 @@ plugin(p)
 
 try {{
     await Bun.build({{
-        entrypoints: ["{job_dir}/main.ts"],
+        entrypoints: ["{job_dir_js}/main.ts"],
         outdir: "./",
         target: "{}",
         plugins: [p],
@@ -737,7 +746,7 @@ async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCode
 
     let bun_cache_path = format!(
         "{}/{}.{}",
-        windmill_common::worker::ROOT_CACHE_NOMOUNT_DIR,
+        *windmill_common::worker::ROOT_CACHE_NOMOUNT_DIR,
         path,
         if is_tar { "tar" } else { "js" }
     );
@@ -921,7 +930,7 @@ pub async fn compute_bundle_local_and_remote_path(
     };
 
     let hash = windmill_common::utils::calculate_hash(&input_src);
-    let local_path = format!("{BUN_BUNDLE_CACHE_DIR}/{hash}");
+    let local_path = format!("{}/{hash}", *BUN_BUNDLE_CACHE_DIR);
 
     #[cfg(windows)]
     let local_path = local_path.replace("/tmp", r"C:\tmp").replace("/", r"\");
@@ -981,6 +990,14 @@ pub async fn handle_bun_job(
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
+    if annotation.sandbox && NSJAIL_AVAILABLE.is_none() {
+        return Err(error::Error::ExecutionErr(
+            "Script has //sandbox annotation but nsjail is not available on this worker. \
+            Please ensure nsjail is installed or remove the //sandbox annotation."
+                .to_string(),
+        ));
+    }
+
     let (mut has_bundle_cache, cache_logs, local_path, remote_path) = if let (Some(lock), true) = (
         maybe_lock.get_lock(),
         !annotation.nobundling && !*DISABLE_BUNDLING && codebase.is_none(),
@@ -1019,6 +1036,12 @@ pub async fn handle_bun_job(
         let _ = write_file(job_dir, "main.ts", inner_content)?;
     } else if !annotation.native && codebase.is_none() {
         let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#)?;
+    } else if codebase.is_some() {
+        // Write a valid fallback package.json for codebase mode. Without this,
+        // nsjail creates an empty 0-byte file (from the mandatory: false mount)
+        // which Node.js fails to parse as JSON (ERR_INVALID_PACKAGE_CONFIG).
+        // If the codebase TAR includes a package.json, it will overwrite this.
+        let _ = write_file(job_dir, "package.json", "{}")?;
     };
 
     let common_bun_proc_envs: HashMap<String, String> =
@@ -1150,6 +1173,10 @@ pub async fn handle_bun_job(
 
     if has_bundle_cache {
         init_logs = format!("\n{}{}", cache_logs, init_logs);
+    }
+
+    if annotation.sandbox {
+        init_logs.push_str("sandbox mode (nsjail)\n");
     }
 
     let write_wrapper_f = async {
@@ -1476,7 +1503,7 @@ try {{
     append_logs(&job.id, &job.workspace_id, init_logs, conn).await;
 
     //do not cache local dependencies
-    let child = if is_sandboxing_enabled() {
+    let child = if is_sandboxing_enabled() || annotation.sandbox {
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -1495,7 +1522,7 @@ try {{
                         },
                     ),
                 )
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
 
