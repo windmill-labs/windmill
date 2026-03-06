@@ -90,8 +90,12 @@
 
 		for (const recorded of Object.values(data.jobs)) {
 			offsetJobTimestamps(recorded.initial_job)
+			if (recorded.initial_job?.flow_status) offsetFlowStatus(recorded.initial_job.flow_status)
 			for (const event of recorded.events) {
-				if (event.data?.job) offsetJobTimestamps(event.data.job)
+				if (event.data?.job) {
+					offsetJobTimestamps(event.data.job)
+					if (event.data.job.flow_status) offsetFlowStatus(event.data.job.flow_status)
+				}
 				if (event.data?.flow_status) offsetFlowStatus(event.data.flow_status)
 			}
 		}

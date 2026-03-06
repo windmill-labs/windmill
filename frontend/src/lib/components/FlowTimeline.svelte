@@ -121,7 +121,7 @@
 		{#each flowModules as { id: k, type: typ } (k)}
 			{@const subItems = items?.[k]?.filter((x) => x.created_at && x.started_at)}
 			<div class="shadow-inner dark:shadow-gray-700 relative">
-				<div class="px-2 py-2 grid grid-cols-6 w-full">
+				<div class="px-2 py-2 grid grid-cols-5 w-full">
 					<div class="truncate"
 						>{k.startsWith('subflow:') ? k.substring(8) : k}
 						{#if localModuleStates[k]?.selectedForloop && (typ == 'forloopflow' || typ == 'whileloopflow')}
@@ -141,7 +141,7 @@
 							</span>
 						{/if}
 					</div>
-					<div class="col-span-5 flex">
+					<div class="col-span-4 flex">
 						{#if subItems?.length > 1}
 							<div class="text-xs text-secondary absolute top-1 right-2">
 								{subItems?.length} jobs
