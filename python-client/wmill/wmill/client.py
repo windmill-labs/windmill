@@ -2151,69 +2151,6 @@ def ducklake(name: str = "main") -> DucklakeClient:
     """
     return _client.ducklake(name)
 
-def task(*args, **kwargs):
-    """Decorator to mark a function as a workflow task.
-
-    When executed inside a Windmill job, the decorated function runs as a
-    separate workflow step. Outside Windmill, it executes normally.
-
-    Args:
-        tag: Optional worker tag for execution
-
-    Returns:
-        Decorated function
-    """
-    from inspect import signature
-
-    def f(func, tag: str | None = None):
-        if (
-            os.environ.get("WM_JOB_ID") is None
-            or os.environ.get("MAIN_OVERRIDE") == func.__name__
-        ):
-
-            def inner(*args, **kwargs):
-                return func(*args, **kwargs)
-
-            return inner
-        else:
-
-            def inner(*args, **kwargs):
-                global _client
-                if _client is None:
-                    _client = Windmill()
-                w_id = os.environ.get("WM_WORKSPACE")
-                job_id = os.environ.get("WM_JOB_ID")
-                f_name = func.__name__
-                json = kwargs
-                params = list(signature(func).parameters)
-                for i, arg in enumerate(args):
-                    if i < len(params):
-                        p = params[i]
-                        key = p
-                        if key not in kwargs:
-                            json[key] = arg
-
-                params = {}
-                if tag is not None:
-                    params["tag"] = tag
-                w_as_code_response = _client.post(
-                    f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{f_name}",
-                    json={"args": json},
-                    params=params,
-                )
-                job_id = w_as_code_response.text
-                print(f"Executing task {func.__name__} on job {job_id}")
-                job_result = _client.wait_job(job_id)
-                print(f"Task {func.__name__} ({job_id}) completed")
-                return job_result
-
-            return inner
-
-    if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
-        return f(args[0], None)
-    else:
-        return lambda x: f(x, kwargs.get("tag"))
-
 def parse_resource_syntax(s: str) -> Optional[str]:
     """Parse resource syntax from string."""
     if s is None:
@@ -2516,8 +2453,15 @@ class WorkflowCtx:
         })
 
 
-def task(_func=None, *, path: Optional[str] = None):
-    """Decorator that marks an async function as a workflow task.
+def task(_func=None, *, path: Optional[str] = None, tag: Optional[str] = None):
+    """Decorator that marks a function as a workflow task.
+
+    Works in both WAC v1 (sync, HTTP-based dispatch) and WAC v2
+    (async, checkpoint/replay) modes:
+
+    - **v2 (inside @workflow)**: dispatches as a checkpoint step.
+    - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
+    - **Standalone**: executes the function body directly.
 
     Usage::
 
@@ -2526,28 +2470,53 @@ def task(_func=None, *, path: Optional[str] = None):
 
         @task(path="f/external_script")
         async def run_external(x: int): ...
-
-    Inside a ``@workflow``, calling a ``@task`` function dispatches it as a
-    step (with checkpoint replay). Outside a workflow, the function body
-    executes directly.
     """
+    from inspect import signature as _sig
 
     def decorator(func):
         task_path = path
         task_name = func.__name__
 
         def wrapper(*args, **kwargs):
+            # WAC v2: inside a @workflow context
             ctx = _workflow_ctx.get(None)
             if ctx is not None:
-                # Inside a workflow — dispatch as step (synchronous registration).
-                # Returning the awaitable directly (not awaiting here) is critical
-                # so that asyncio.gather() can collect multiple pending steps
-                # before any of them suspend.
                 script = task_path if task_path else task_name
                 return ctx._next_step(task_name, script, func, **kwargs)
-            else:
-                # Standalone / MAIN_OVERRIDE — execute directly
-                return func(*args, **kwargs)
+
+            # WAC v1: running inside a Windmill job but not in a @workflow
+            if (
+                os.environ.get("WM_JOB_ID") is not None
+                and os.environ.get("MAIN_OVERRIDE") != func.__name__
+            ):
+                global _client
+                if _client is None:
+                    _client = Windmill()
+                w_id = os.environ.get("WM_WORKSPACE")
+                job_id = os.environ.get("WM_JOB_ID")
+                json_args = dict(kwargs)
+                params_list = list(_sig(func).parameters)
+                for i, arg in enumerate(args):
+                    if i < len(params_list):
+                        key = params_list[i]
+                        if key not in json_args:
+                            json_args[key] = arg
+                api_params = {}
+                if tag is not None:
+                    api_params["tag"] = tag
+                resp = _client.post(
+                    f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{func.__name__}",
+                    json={"args": json_args},
+                    params=api_params,
+                )
+                child_job_id = resp.text
+                print(f"Executing task {func.__name__} on job {child_job_id}")
+                job_result = _client.wait_job(child_job_id)
+                print(f"Task {func.__name__} ({child_job_id}) completed")
+                return job_result
+
+            # Standalone — execute directly
+            return func(*args, **kwargs)
 
         wrapper.__name__ = func.__name__
         wrapper.__qualname__ = func.__qualname__
@@ -2558,7 +2527,7 @@ def task(_func=None, *, path: Optional[str] = None):
     if _func is not None:
         # @task without parentheses
         return decorator(_func)
-    # @task() or @task(path="...")
+    # @task() or @task(path="...", tag="...")
     return decorator
 
 
