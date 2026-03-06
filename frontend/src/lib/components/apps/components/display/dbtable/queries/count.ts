@@ -1,5 +1,4 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import { wrapDucklakeQuery } from '../../../../../ducklake'
 import type { DbType, DbInput } from '$lib/components/dbTypes'
 import { buildParameters } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
@@ -142,6 +141,28 @@ export function makeCountQuery(
 	return query
 }
 
+export function buildCountMarker(
+	table: string,
+	columnDefs: ColumnDef[],
+	whereClause: string | undefined,
+	dbType: DbType,
+	ducklake?: string
+): string {
+	const params: Record<string, unknown> = {
+		table,
+		column_defs: columnDefs.map((c) => ({
+			field: c.field,
+			datatype: c.datatype,
+			isprimarykey: c.isprimarykey,
+			ignored: c.ignored ?? false
+		})),
+		where_clause: whereClause ?? null,
+		db_type: dbType
+	}
+	if (ducklake) params.ducklake = ducklake
+	return `-- WM_INTERNAL_DB_COUNT_SCRIPT\n${JSON.stringify(params)}`
+}
+
 export function getCountInput(
 	dbInput: DbInput,
 	table: string,
@@ -157,8 +178,8 @@ export function getCountInput(
 		return undefined
 	}
 	const dbType = dbInput.type === 'ducklake' ? 'duckdb' : dbInput.resourceType
-	let query = makeCountQuery(dbType, table, whereClause, columnDefs)
-	if (dbInput.type === 'ducklake') query = wrapDucklakeQuery(query, dbInput.ducklake)
+	const ducklake = dbInput.type === 'ducklake' ? dbInput.ducklake : undefined
+	const query = buildCountMarker(table, columnDefs, whereClause, dbType, ducklake)
 
 	const updateRunnable: RunnableByName = {
 		name: 'AppDbExplorer',

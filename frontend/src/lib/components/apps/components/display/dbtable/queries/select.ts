@@ -1,5 +1,4 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import { wrapDucklakeQuery } from '../../../../../ducklake'
 import type { DbType, DbInput } from '$lib/components/dbTypes'
 import { buildParameters } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
@@ -318,6 +317,33 @@ function coerceToNumber(value: any): number {
 	return 0
 }
 
+export function buildSelectMarker(
+	table: string,
+	columnDefs: ColumnDef[],
+	whereClause: string | undefined,
+	dbType: DbType,
+	ducklake?: string
+): string {
+	const params: Record<string, unknown> = {
+		table,
+		column_defs: columnDefs.map((c) => ({
+			field: c.field,
+			datatype: c.datatype,
+			isprimarykey: c.isprimarykey,
+			ignored: c.ignored ?? false,
+			editable: c.editable ?? false,
+			isnullable: c.isnullable ?? 'YES',
+			isidentity: c.isidentity ?? 'No',
+			defaultvalue: c.defaultvalue ?? null,
+			hideInsert: c.hideInsert ?? false
+		})),
+		where_clause: whereClause ?? null,
+		db_type: dbType
+	}
+	if (ducklake) params.ducklake = ducklake
+	return `-- WM_INTERNAL_DB_SELECT_SCRIPT\n${JSON.stringify(params)}`
+}
+
 export function getSelectInput(
 	dbInput: DbInput,
 	table: string | undefined,
@@ -335,8 +361,8 @@ export function getSelectInput(
 	}
 
 	const dbType = dbInput.type === 'ducklake' ? 'duckdb' : dbInput.resourceType
-	let content = makeSelectQuery(table, columnDefs, whereClause, dbType, options)
-	if (dbInput.type === 'ducklake') content = wrapDucklakeQuery(content, dbInput.ducklake)
+	const ducklake = dbInput.type === 'ducklake' ? dbInput.ducklake : undefined
+	const content = buildSelectMarker(table, columnDefs, whereClause, dbType, ducklake)
 	const getRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
 		type: 'inline',

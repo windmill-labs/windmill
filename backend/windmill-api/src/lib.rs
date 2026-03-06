@@ -76,6 +76,7 @@ mod bedrock;
 mod capture;
 mod concurrency_groups;
 mod db;
+mod db_studio_scripts;
 
 mod drafts;
 #[cfg(feature = "private")]

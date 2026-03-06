@@ -1877,6 +1877,15 @@ pub struct ExecuteApp {
     pub run_query_params: Option<RunJobQuery>,
 }
 
+fn maybe_replace_internal_db_script(mut raw_code: RawCode) -> RawCode {
+    if let Some(replaced) =
+        crate::db_studio_scripts::maybe_replace_internal_script(&raw_code.content)
+    {
+        raw_code.content = replaced;
+    }
+    raw_code
+}
+
 fn digest(code: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(code);
@@ -2138,13 +2147,30 @@ async fn execute_component(
         // flow or script:
         (Some(path), None, None) => get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?,
         // inline script: in "preview" mode or without entry in the `app_script` table.
-        (None, Some(raw_code), None) => (JobPayload::Code(raw_code), None, None),
+        (None, Some(raw_code), None) => {
+            let raw_code = maybe_replace_internal_db_script(raw_code);
+            (JobPayload::Code(raw_code), None, None)
+        }
         // inline script: in "run" mode and with an entry in the `app_script` table.
-        (None, Some(RawCode { language, path, cache_ttl, .. }), Some(id)) => (
-            JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
-            None,
-            None,
-        ),
+        (None, Some(raw_code), Some(id)) => {
+            // Check if this is an internal DB script marker — if so, replace content and
+            // execute as Code (preview-style) since the content is server-controlled.
+            if raw_code
+                .content
+                .trim_start()
+                .starts_with(crate::db_studio_scripts::WM_INTERNAL_PREFIX)
+            {
+                let raw_code = maybe_replace_internal_db_script(raw_code);
+                (JobPayload::Code(raw_code), None, None)
+            } else {
+                let RawCode { language, path, cache_ttl, .. } = raw_code;
+                (
+                    JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
+                    None,
+                    None,
+                )
+            }
+        }
         _ => unreachable!(),
     };
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());

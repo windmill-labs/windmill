@@ -1,5 +1,4 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import { wrapDucklakeQuery } from '../../../../../ducklake'
 import type { DbInput, DbType } from '$lib/components/dbTypes'
 import { getLanguageByResourceType, type ColumnDef, buildParameters } from '../utils'
 
@@ -76,6 +75,23 @@ export function makeUpdateQuery(
 	}
 }
 
+export function buildUpdateMarker(
+	table: string,
+	column: { datatype: string; field: string },
+	columns: { datatype: string; field: string }[],
+	dbType: DbType,
+	ducklake?: string
+): string {
+	const params: Record<string, unknown> = {
+		table,
+		column: { field: column.field, datatype: column.datatype },
+		columns: columns.map((c) => ({ field: c.field, datatype: c.datatype })),
+		db_type: dbType
+	}
+	if (ducklake) params.ducklake = ducklake
+	return `-- WM_INTERNAL_DB_UPDATE_SCRIPT\n${JSON.stringify(params)}`
+}
+
 export function getUpdateInput(
 	dbInput: DbInput,
 	table: string,
@@ -90,8 +106,8 @@ export function getUpdateInput(
 		return undefined
 	}
 	const dbType = dbInput.type === 'ducklake' ? 'duckdb' : dbInput.resourceType
-	let query = makeUpdateQuery(table, column, columns, dbType)
-	if (dbInput.type === 'ducklake') query = wrapDucklakeQuery(query, dbInput.ducklake)
+	const ducklake = dbInput.type === 'ducklake' ? dbInput.ducklake : undefined
+	const query = buildUpdateMarker(table, column, columns, dbType, ducklake)
 
 	const updateRunnable: RunnableByName = {
 		name: 'AppDbExplorer',

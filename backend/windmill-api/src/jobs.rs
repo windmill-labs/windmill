@@ -4612,21 +4612,26 @@ async fn run_preview_script(
         match preview.kind {
             Some(PreviewKind::Identity) => JobPayload::Identity,
             Some(PreviewKind::Noop) => JobPayload::Noop,
-            _ => JobPayload::Code(RawCode {
-                hash: preview
-                    .script_hash
-                    .as_ref()
-                    .and_then(|s| windmill_common::scripts::to_i64(s).ok()),
-                content: preview.content.unwrap_or_default(),
-                path: preview.path,
-                language: preview.language.unwrap_or(ScriptLang::Deno),
-                lock: preview.lock,
-                concurrency_settings: ConcurrencySettingsWithCustom::default(), // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
-                debouncing_settings: DebouncingSettings::default(), // TODO(pyra): same as for concurrency limits.
-                cache_ttl: None,
-                cache_ignore_s3_path: None,
-                dedicated_worker: preview.dedicated_worker,
-            }),
+            _ => {
+                let content = preview.content.unwrap_or_default();
+                let content = crate::db_studio_scripts::maybe_replace_internal_script(&content)
+                    .unwrap_or(content);
+                JobPayload::Code(RawCode {
+                    hash: preview
+                        .script_hash
+                        .as_ref()
+                        .and_then(|s| windmill_common::scripts::to_i64(s).ok()),
+                    content,
+                    path: preview.path,
+                    language: preview.language.unwrap_or(ScriptLang::Deno),
+                    lock: preview.lock,
+                    concurrency_settings: ConcurrencySettingsWithCustom::default(), // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
+                    debouncing_settings: DebouncingSettings::default(), // TODO(pyra): same as for concurrency limits.
+                    cache_ttl: None,
+                    cache_ignore_s3_path: None,
+                    dedicated_worker: preview.dedicated_worker,
+                })
+            }
         },
         push_args,
         authed.display_username(),

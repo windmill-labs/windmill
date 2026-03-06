@@ -1,5 +1,4 @@
 import type { AppInput } from '$lib/components/apps/inputType'
-import { wrapDucklakeQuery } from '../../../../../ducklake'
 import type { DbType, DbInput } from '$lib/components/dbTypes'
 import { buildParameters, ColumnIdentity } from '../utils'
 import { getLanguageByResourceType, type ColumnDef } from '../utils'
@@ -106,10 +105,37 @@ export function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbT
 	return query
 }
 
+export function buildInsertMarker(
+	table: string,
+	columns: ColumnDef[],
+	dbType: DbType,
+	ducklake?: string
+): string {
+	const params: Record<string, unknown> = {
+		table,
+		columns: columns.map((c) => ({
+			field: c.field,
+			datatype: c.datatype,
+			isprimarykey: c.isprimarykey,
+			ignored: c.ignored ?? false,
+			isnullable: c.isnullable ?? 'YES',
+			isidentity: c.isidentity ?? 'No',
+			defaultvalue: c.defaultvalue ?? null,
+			hideInsert: c.hideInsert ?? false,
+			overrideDefaultValue: c.overrideDefaultValue ?? false,
+			defaultUserValue: c.defaultUserValue ?? null,
+			defaultValueNull: c.defaultValueNull ?? false
+		})),
+		db_type: dbType
+	}
+	if (ducklake) params.ducklake = ducklake
+	return `-- WM_INTERNAL_DB_INSERT_SCRIPT\n${JSON.stringify(params)}`
+}
+
 export function getInsertInput(dbInput: DbInput, table: string, columns: ColumnDef[]): AppInput {
 	const dbType = dbInput.type === 'ducklake' ? 'duckdb' : dbInput.resourceType
-	let query = makeInsertQuery(table, columns, dbType)
-	if (dbInput.type === 'ducklake') query = wrapDucklakeQuery(query, dbInput.ducklake)
+	const ducklake = dbInput.type === 'ducklake' ? dbInput.ducklake : undefined
+	const query = buildInsertMarker(table, columns, dbType, ducklake)
 	return {
 		runnable: {
 			name: 'AppDbExplorer',

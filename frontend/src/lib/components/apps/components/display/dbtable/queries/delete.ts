@@ -1,6 +1,5 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import type { DbType, DbInput } from '$lib/components/dbTypes'
-import { wrapDucklakeQuery } from '../../../../../ducklake'
 import { getLanguageByResourceType, type ColumnDef, buildParameters } from '../utils'
 
 export function makeDeleteQuery(table: string, columns: ColumnDef[], dbType: DbType) {
@@ -66,6 +65,21 @@ export function makeDeleteQuery(table: string, columns: ColumnDef[], dbType: DbT
 	}
 }
 
+export function buildDeleteMarker(
+	table: string,
+	columns: ColumnDef[],
+	dbType: DbType,
+	ducklake?: string
+): string {
+	const params: Record<string, unknown> = {
+		table,
+		columns: columns.map((c) => ({ field: c.field, datatype: c.datatype })),
+		db_type: dbType
+	}
+	if (ducklake) params.ducklake = ducklake
+	return `-- WM_INTERNAL_DB_DELETE_SCRIPT\n${JSON.stringify(params)}`
+}
+
 export function getDeleteInput(
 	dbInput: DbInput,
 	table: string,
@@ -79,8 +93,8 @@ export function getDeleteInput(
 		return undefined
 	}
 	const dbType = dbInput.type === 'ducklake' ? 'duckdb' : dbInput.resourceType
-	let query = makeDeleteQuery(table, columns, dbType)
-	if (dbInput.type === 'ducklake') query = wrapDucklakeQuery(query, dbInput.ducklake)
+	const ducklake = dbInput.type === 'ducklake' ? dbInput.ducklake : undefined
+	const query = buildDeleteMarker(table, columns, dbType, ducklake)
 	const deleteRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
 		type: 'inline',

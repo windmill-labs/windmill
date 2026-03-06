@@ -3,12 +3,12 @@ import {
 	type ColumnDef,
 	type TableMetadata
 } from './apps/components/display/dbtable/utils'
-import { makeSelectQuery } from './apps/components/display/dbtable/queries/select'
+import { buildSelectMarker } from './apps/components/display/dbtable/queries/select'
 import { runScriptAndPollResult } from './jobs/utils'
-import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
-import { makeUpdateQuery } from './apps/components/display/dbtable/queries/update'
-import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delete'
-import { makeInsertQuery } from './apps/components/display/dbtable/queries/insert'
+import { buildCountMarker } from './apps/components/display/dbtable/queries/count'
+import { buildUpdateMarker } from './apps/components/display/dbtable/queries/update'
+import { buildDeleteMarker } from './apps/components/display/dbtable/queries/delete'
+import { buildInsertMarker } from './apps/components/display/dbtable/queries/insert'
 import { makeDeleteTableQuery } from './apps/components/display/dbtable/queries/deleteTable'
 import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
@@ -68,8 +68,8 @@ export function dbTableOpsWithPreviewScripts({
 		tableKey,
 		colDefs,
 		getCount: async ({ quicksearch }) => {
-			let countQuery = makeCountQuery(dbType, tableKey, undefined, colDefs)
-			if (input.type === 'ducklake') countQuery = wrapDucklakeQuery(countQuery, input.ducklake)
+			const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
+			const countQuery = buildCountMarker(tableKey, colDefs, undefined, dbType, ducklake)
 			const result = await runScriptAndPollResult({
 				workspace,
 				requestBody: { args: { ...dbArg, quicksearch }, language, content: countQuery }
@@ -78,10 +78,8 @@ export function dbTableOpsWithPreviewScripts({
 			return count
 		},
 		getRows: async (params) => {
-			let query = makeSelectQuery(tableKey, colDefs, undefined, dbType, undefined, {
-				fixPgIntTypes: true
-			})
-			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
+			const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
+			const query = buildSelectMarker(tableKey, colDefs, undefined, dbType, ducklake)
 			let items = (await runScriptAndPollResult({
 				workspace,
 				requestBody: { args: { ...dbArg, ...params }, language, content: query }
@@ -92,8 +90,8 @@ export function dbTableOpsWithPreviewScripts({
 			return items
 		},
 		onUpdate: async ({ values }, colDef, newValue) => {
-			let updateQuery = makeUpdateQuery(tableKey, colDef, colDefs, dbType)
-			if (input.type === 'ducklake') updateQuery = wrapDucklakeQuery(updateQuery, input.ducklake)
+			const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
+			const updateQuery = buildUpdateMarker(tableKey, colDef, colDefs, dbType, ducklake)
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: {
@@ -104,16 +102,16 @@ export function dbTableOpsWithPreviewScripts({
 			})
 		},
 		onDelete: async ({ values }) => {
-			let deleteQuery = makeDeleteQuery(tableKey, colDefs, dbType)
-			if (input.type === 'ducklake') deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
+			const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
+			const deleteQuery = buildDeleteMarker(tableKey, colDefs, dbType, ducklake)
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: { args: { ...dbArg, ...values }, language, content: deleteQuery }
 			})
 		},
 		onInsert: async ({ values }) => {
-			let insertQuery = makeInsertQuery(tableKey, colDefs, dbType)
-			if (input.type === 'ducklake') insertQuery = wrapDucklakeQuery(insertQuery, input.ducklake)
+			const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
+			const insertQuery = buildInsertMarker(tableKey, colDefs, dbType, ducklake)
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: { args: { ...dbArg, ...values }, language, content: insertQuery }
