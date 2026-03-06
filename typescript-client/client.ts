@@ -1452,12 +1452,16 @@ export class WorkflowCtx {
     this._executingKey = checkpoint?._executing_key ?? null;
   }
 
+  _allocKey(): string {
+    return `step_${this.stepIndex++}`;
+  }
+
   _nextStep(
     name: string,
     script: string,
     args: Record<string, any> = {},
   ): PromiseLike<any> {
-    const key = `step_${this.stepIndex++}`;
+    const key = this._allocKey();
 
     if (key in this.completed) {
       const value = this.completed[key];
@@ -1495,6 +1499,28 @@ export class WorkflowCtx {
       },
     };
   }
+  async _runInlineStep<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+    const key = this._allocKey();
+
+    if (key in this.completed) {
+      return this.completed[key] as T;
+    }
+
+    if (this._executingKey !== null) {
+      return new Promise(() => {});
+    }
+
+    const result = await fn();
+    throw new StepSuspend({ mode: "inline_checkpoint", steps: [], key, result });
+  }
+}
+
+export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+  const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+  if (ctx) {
+    return ctx._runInlineStep(name, fn);
+  }
+  return fn();
 }
 
 /**

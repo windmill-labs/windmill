@@ -1335,6 +1335,9 @@ async function run() {{
             if (dispatch.mode === "step_complete") {{
                 return {{ type: "complete", result: dispatch.result ?? null }};
             }}
+            if (dispatch.mode === "inline_checkpoint") {{
+                return {{ type: "inline_checkpoint", key: dispatch.key, result: dispatch.result ?? null }};
+            }}
             return {{ type: "dispatch", mode: dispatch.mode ?? "sequential", steps: dispatch.steps ?? [] }};
         }}
         throw e;
@@ -1830,8 +1833,8 @@ async fn handle_wac_v2_output(
     conn: &Connection,
 ) -> error::Result<Box<RawValue>> {
     use crate::wac_executor::{
-        load_checkpoint, parse_wac_output, save_checkpoint, update_checkpoint_for_dispatch,
-        WacOutput,
+        add_completed_step, load_checkpoint, parse_wac_output, save_checkpoint,
+        update_checkpoint_for_dispatch, WacOutput,
     };
     use serde_json::Value;
     use windmill_common::jobs::{JobKind, JobPayload, RawCode};
@@ -2079,6 +2082,47 @@ async fn handle_wac_v2_output(
             Err(error::Error::WacSuspended(format!(
                 "WAC v2 job {} suspended waiting for {} child job(s)",
                 job.id, num_steps
+            )))
+        }
+        WacOutput::InlineCheckpoint { key, result: value } => {
+            let db = match conn {
+                Connection::Sql(db) => db,
+                _ => {
+                    return Err(error::Error::internal_err(
+                        "WAC v2 inline checkpoint requires SQL connection".to_string(),
+                    ))
+                }
+            };
+
+            let mut checkpoint = load_checkpoint(db, &job.id).await?;
+
+            tracing::info!(
+                job_id = %job.id,
+                step_key = %key,
+                "WAC v2 inline checkpoint — persisting step result"
+            );
+
+            add_completed_step(&mut checkpoint, &key, value);
+            save_checkpoint(db, &job.id, &checkpoint).await?;
+
+            // Reset running=false so the job is immediately eligible for pickup.
+            // Unlike dispatch (which sets suspend>0), inline checkpoints don't suspend —
+            // the job should be re-run right away to continue past the cached step.
+            sqlx::query!(
+                "UPDATE v2_job_queue SET running = false, started_at = null WHERE id = $1",
+                job.id,
+            )
+            .execute(db)
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!(
+                    "Failed to reset running state for inline checkpoint: {e}"
+                ))
+            })?;
+
+            Err(error::Error::WacSuspended(format!(
+                "WAC v2 job {} inline checkpoint for step {}",
+                job.id, key
             )))
         }
     }

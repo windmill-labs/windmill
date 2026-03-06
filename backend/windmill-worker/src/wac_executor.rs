@@ -39,6 +39,10 @@ pub enum WacOutput {
     Dispatch { mode: String, steps: Vec<WacStepDispatch> },
     #[serde(rename = "complete")]
     Complete { result: Value },
+    /// An inline step executed in the parent process — persist result to
+    /// checkpoint and re-run immediately (no child job, no suspend).
+    #[serde(rename = "inline_checkpoint")]
+    InlineCheckpoint { key: String, result: Value },
 }
 
 #[derive(Debug, Deserialize, Clone)]
