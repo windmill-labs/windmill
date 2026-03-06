@@ -78,6 +78,22 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - worker_dependency_cache:/tmp/windmill/cache
 
+  gitea:
+    image: gitea/gitea:1.22-rootless
+    environment:
+      - GITEA__database__DB_TYPE=sqlite3
+      - GITEA__security__INSTALL_LOCK=true
+      - GITEA__server__HTTP_PORT=3000
+      - GITEA__server__ROOT_URL=http://gitea:3000
+      - GITEA__service__DISABLE_REGISTRATION=false
+    ports:
+      - 3000:3000
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/v1/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   npm_registry:
     image: verdaccio/verdaccio
     environment:
