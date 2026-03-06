@@ -445,6 +445,8 @@ pub struct FlowModule {
     pub apply_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pass_flow_input_directly: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debouncing: Option<DebouncingSettings>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -1117,6 +1119,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             skip_if: None,
             apply_preprocessor: None,
             pass_flow_input_directly: None,
+            debouncing: None,
         });
     }
 }
