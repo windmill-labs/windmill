@@ -23,9 +23,10 @@
 		schema?: any | undefined
 		stepDetail?: FlowModule | string | undefined
 		jobScriptHash?: string | undefined
+		hideDefaultInputs?: boolean
 	}
 
-	let { schema = undefined, stepDetail = undefined, jobScriptHash = undefined }: Props = $props()
+	let { schema = undefined, stepDetail = undefined, jobScriptHash = undefined, hideDefaultInputs = false }: Props = $props()
 	let codeViewer: Drawer | undefined = $state()
 </script>
 
@@ -95,7 +96,7 @@
 			<p class="font-medium text-secondary text-center pt-4 pb-8">
 				Click on a step to see its details
 			</p>
-			{#if schema}
+			{#if schema && !hideDefaultInputs}
 				<h3 class="mb-2 font-semibold">Flow Inputs</h3>
 				<SchemaViewer {schema} />
 			{/if}

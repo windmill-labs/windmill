@@ -192,7 +192,7 @@
 				Play
 			</Button>
 		</div>
-		<FlowViewer flow={recording.flow} noSummary />
+		<FlowViewer flow={recording.flow} noSummary noInput hideDefaultInputs />
 	</div>
 {:else if replayState === 'playing' && rootJobId}
 	<div class="flex flex-col gap-4">

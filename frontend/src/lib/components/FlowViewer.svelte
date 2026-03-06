@@ -34,6 +34,8 @@
 		noGraph?: boolean
 		initTab?: TabValue
 		noSummary?: boolean
+		noInput?: boolean
+		hideDefaultInputs?: boolean
 		noGraphDownload?: boolean
 		availableVersions?: Array<{ id: number; deployment_msg?: string }>
 		selectedVersionId?: number
@@ -47,6 +49,8 @@
 		availableVersions = undefined,
 		initTab = undefined,
 		noSummary = false,
+		noInput = false,
+		hideDefaultInputs = false,
 		noGraphDownload = false,
 		selectedVersionId = undefined
 	}: Props = $props()
@@ -173,16 +177,18 @@
 					<div>{flow.description ?? ''}</div>
 				{/if}
 
-				<p class="font-black text-lg w-full my-4">
-					<span>Flow Input</span>
-				</p>
-				{#if flow.schema && flow.schema.properties && Object.keys(flow.schema.properties).length > 0 && flow.schema}
-					<FlowInputViewer schema={flow.schema} />
-				{:else}
-					<div class="text-secondary text-xs italic mb-4">No inputs</div>
+				{#if !noInput}
+					<p class="font-black text-lg w-full my-4">
+						<span>Flow Input</span>
+					</p>
+					{#if flow.schema && flow.schema.properties && Object.keys(flow.schema.properties).length > 0 && flow.schema}
+						<FlowInputViewer schema={flow.schema} />
+					{:else}
+						<div class="text-secondary text-xs italic mb-4">No inputs</div>
+					{/if}
 				{/if}
 
-				<FlowGraphViewer download={!noGraphDownload} {noSide} {flow} overflowAuto />
+				<FlowGraphViewer download={!noGraphDownload} {noSide} {hideDefaultInputs} {flow} overflowAuto />
 			</div>
 		</TabContent>
 		<TabContent value="raw">
