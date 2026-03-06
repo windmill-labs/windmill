@@ -70,7 +70,7 @@
 		triggers: effectiveIncludeTypes.includes('trigger'),
 		settings: effectiveIncludeTypes.includes('settings'),
 		key: effectiveIncludeTypes.includes('key'),
-		workspaceDependencies: effectiveIncludeTypes.includes('workspacedependency')
+		workspaceDependencies: effectiveIncludeTypes.includes('workspacedependencies')
 	})
 
 	// Tab selection for filter kinds
@@ -93,7 +93,7 @@
 			triggers: 'trigger',
 			settings: 'settings',
 			key: 'key',
-			workspaceDependencies: 'workspacedependency'
+			workspaceDependencies: 'workspacedependencies'
 		}
 
 		if (value) {

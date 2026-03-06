@@ -146,7 +146,7 @@ pub enum ObjectType {
     Trigger,
     Settings,
     Key,
-    WorkspaceDependency,
+    WorkspaceDependencies,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
