@@ -20,6 +20,7 @@
 	import type { FlowEditorContext, FlowGraphAssetContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
+	import DebounceLimit from '../DebounceLimit.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import FlowModuleCache from './FlowModuleCache.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
@@ -155,6 +156,12 @@
 	let selected = $state(untrack(() => preprocessorModule) ? 'test' : 'inputs')
 	let advancedSelected = $state('retries')
 	let advancedRuntimeSelected = $state('concurrency')
+
+	$effect(() => {
+		if (advancedSelected === 'debouncing' && !flowModule.debouncing) {
+			flowModule.debouncing = {}
+		}
+	})
 	let s3Kind = $state('s3_client')
 	let validCode = $state(true)
 	let width = $state(1200)
@@ -1126,6 +1133,13 @@
 														label="Suspend"
 													/>
 													<Tab value="sleep" active={Boolean(flowModule.sleep)} label="Sleep" />
+													{#if !parentModule?.value?.type || (parentModule.value.type !== 'forloopflow' && parentModule.value.type !== 'whileloopflow')}
+														<Tab
+															value="debouncing"
+															active={Boolean(flowModule.debouncing?.debounce_delay_s)}
+															label="Debouncing"
+														/>
+													{/if}
 													<Tab
 														value="mock"
 														active={Boolean(flowModule.mock?.enabled)}
@@ -1311,6 +1325,22 @@
 															previousModuleId={previousModule?.id}
 															bind:flowModule
 														/>
+													</div>
+												{:else if advancedSelected === 'debouncing'}
+													<div>
+														{#if flowModule.debouncing}
+															<DebounceLimit
+																size="xs"
+																fontClass="font-medium"
+																bind:debounce_delay_s={flowModule.debouncing.debounce_delay_s}
+																bind:debounce_key={flowModule.debouncing.debounce_key}
+																bind:debounce_args_to_accumulate={flowModule.debouncing.debounce_args_to_accumulate}
+																bind:max_total_debouncing_time={flowModule.debouncing.max_total_debouncing_time}
+																bind:max_total_debounces_amount={flowModule.debouncing.max_total_debounces_amount}
+																schema={flowStateStore.val[flowModule.id]?.schema as any}
+																placeholder={`$workspace/flow/$flow_path-${flowModule.id}`}
+															/>
+														{/if}
 													</div>
 												{:else if advancedSelected === 'mock'}
 													<div>

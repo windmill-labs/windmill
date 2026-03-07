@@ -3342,8 +3342,51 @@ async fn push_next_flow_job(
     let continue_on_same_worker =
         (flow.same_worker || job_same_worker) && module.suspend.is_none() && module.sleep.is_none();
 
+    // Node-level debouncing: compute debounce key and adjust scheduled_for if configured
+    #[cfg(feature = "enterprise")]
+    let node_debounce_key = if let Some(ref debouncing) = module.debouncing {
+        if matches!(step, Step::Step { .. })
+            && debouncing.debounce_delay_s.filter(|x| *x > 0).is_some()
+        {
+            let delay = debouncing.debounce_delay_s.unwrap();
+            scheduled_for_o = scheduled_for_o.or(Some(
+                chrono::Utc::now() + chrono::Duration::seconds(delay as i64),
+            ));
+            let key = if let Some(custom_key) = debouncing.debounce_key.clone() {
+                // Interpolate $workspace and $args[...] in the custom key
+                if let Ok(ref args_map) = args {
+                    let push_args = PushArgs::from(args_map.as_ref());
+                    interpolate_args(custom_key, &push_args, &flow_job.workspace_id)
+                } else {
+                    custom_key.replace("$workspace", &flow_job.workspace_id)
+                }
+            } else {
+                format!(
+                    "{}/{}/{}",
+                    &flow_job.workspace_id,
+                    flow_job.runnable_path(),
+                    &module.id
+                )
+            };
+            let key = if key.len() <= 255 {
+                key
+            } else {
+                windmill_common::utils::calculate_hash(&key)
+            };
+            Some(key)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    #[cfg(not(feature = "enterprise"))]
+    let _node_debounce_key: Option<String> = None;
+
     /* Finally, push the job into the queue */
     let mut uuids = vec![];
+    #[allow(unused_mut)]
+    let mut debounced_prev_parent_flow: Option<Uuid> = None;
 
     let job_payloads = match job_payloads {
         ContinuePayload::SingleJob(payload) => vec![payload],
@@ -3644,6 +3687,112 @@ async fn push_next_flow_job(
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
+        // Node-level debouncing: register step job in debounce_key table.
+        // If a previous step job exists for the same key, cancel it (skip it),
+        // record both jobs in v2_job_debounce_batch for arg accumulation,
+        // and collect the parent flow ID so we can notify it after commit.
+        #[cfg(feature = "enterprise")]
+        if let Some(ref debounce_key) = node_debounce_key {
+            if i == 0 {
+                let prev_step_job_id: Option<Uuid> = sqlx::query_scalar(
+                    "WITH dk AS (
+                        INSERT INTO debounce_key (job_id, key)
+                        VALUES ($1, $2)
+                        ON CONFLICT (key) DO UPDATE SET
+                            previous_job_id = debounce_key.job_id,
+                            job_id = EXCLUDED.job_id,
+                            debounced_times = debounce_key.debounced_times + 1
+                        RETURNING previous_job_id
+                    ), _batch AS (
+                        INSERT INTO v2_job_debounce_batch (id, debounce_batch)
+                        SELECT
+                            $1,
+                            COALESCE(
+                                (SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = dk.previous_job_id LIMIT 1),
+                                nextval('debounce_batch_seq')
+                            )
+                        FROM dk
+                    )
+                    SELECT previous_job_id FROM dk",
+                )
+                .bind(uuid)
+                .bind(debounce_key)
+                .fetch_one(&mut *inner_tx)
+                .await?;
+
+                // Store the module's debouncing settings in runnable_settings_handle
+                // so that maybe_apply_debouncing can find them at execution time
+                // and perform argument accumulation from the batch.
+                let debouncing = module.debouncing.as_ref().unwrap();
+                let debouncing_hash = debouncing.insert_cached(&db).await.unwrap_or_else(|e| {
+                    tracing::error!("Failed to insert node debouncing settings: {e:#}");
+                    None
+                });
+                let rs_handle = windmill_common::runnable_settings::insert_rs(
+                    windmill_common::runnable_settings::RunnableSettings {
+                        debouncing_settings: debouncing_hash,
+                        concurrency_settings: None,
+                    },
+                    &db,
+                )
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!("Failed to insert runnable settings for node debounce: {e:#}");
+                    None
+                });
+                if rs_handle.is_some() {
+                    sqlx::query(
+                        "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+                    )
+                    .bind(rs_handle)
+                    .bind(uuid)
+                    .execute(&mut *inner_tx)
+                    .await?;
+                }
+
+                if let Some(prev_step_job_id) = prev_step_job_id {
+                    tracing::info!(
+                        id = %flow_job.id,
+                        prev_step_job = %prev_step_job_id,
+                        debounce_key = %debounce_key,
+                        "Node debounce: cancelling previous step job"
+                    );
+                    // Complete the previous step job as skipped
+                    let result =
+                        serde_json::to_string(&format!("Debounced by {uuid}")).unwrap_or_default();
+                    sqlx::query(
+                        "WITH completed AS (
+                            INSERT INTO v2_job_completed
+                                (workspace_id, id, started_at, duration_ms, result, status, worker)
+                            SELECT
+                                q.workspace_id, q.id, q.started_at,
+                                (EXTRACT('epoch' FROM now()) - EXTRACT('epoch' FROM COALESCE(q.started_at, now()))) * 1000,
+                                $2::text::jsonb,
+                                'skipped'::job_status,
+                                q.worker
+                            FROM v2_job_queue q
+                            WHERE q.id = $1
+                            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = EXCLUDED.result
+                        )
+                        DELETE FROM v2_job_queue WHERE id = $1",
+                    )
+                    .bind(prev_step_job_id)
+                    .bind(&result)
+                    .execute(&mut *inner_tx)
+                    .await?;
+
+                    // Get the parent flow of the cancelled step so we can notify it
+                    let parent_flow_id: Option<Uuid> =
+                        sqlx::query_scalar("SELECT parent_job FROM v2_job WHERE id = $1")
+                            .bind(prev_step_job_id)
+                            .fetch_optional(&mut *inner_tx)
+                            .await?;
+
+                    debounced_prev_parent_flow = parent_flow_id;
+                }
+            }
+        }
+
         if value_with_parallel.type_ == "forloopflow"
             && value_with_parallel.parallel.unwrap_or(false)
         {
@@ -3932,6 +4081,39 @@ async fn push_next_flow_job(
     }
     tx.commit().warn_after_seconds(3).await?;
     tracing::info!(id = %flow_job.id, root_id = %job_root, "all next flow jobs pushed: {uuids:?}");
+
+    // After commit: notify the debounced step's parent flow so it processes the
+    // skipped step and stops early (skipping descendants while keeping sibling branches).
+    if let Some(parent_flow_id) = debounced_prev_parent_flow {
+        let debounced_result =
+            serde_json::value::to_raw_value(&serde_json::json!({"debounced": true}))
+                .unwrap_or_else(|_| RawValue::from_string("null".to_string()).unwrap());
+        tracing::info!(
+            id = %flow_job.id,
+            debounced_parent = %parent_flow_id,
+            "Node debounce: notifying debounced flow's parent to stop early"
+        );
+        job_completed_tx
+            .send(
+                SendResultPayload::UpdateFlow(UpdateFlow {
+                    flow: parent_flow_id,
+                    w_id: flow_job.workspace_id.clone(),
+                    success: true,
+                    result: debounced_result,
+                    worker_dir: worker_dir.to_string(),
+                    stop_early_override: Some(true), // skip_if_stopped = true
+                    token: client.token.clone(),
+                }),
+                false,
+            )
+            .warn_after_seconds(3)
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "error sending debounced UpdateFlow to job completed channel: {e:#}"
+                ))
+            })?;
+    }
 
     if continue_on_same_worker || continue_with_runners {
         let flow_runners = if start_runners {
