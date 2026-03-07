@@ -3434,6 +3434,38 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
     Ok(job_and_suspended)
 }
 
+/// Batch-pull up to `limit` jobs in a single query, marking them all as running.
+/// The caller controls which tags are queried, so flow/dependency jobs are never
+/// pulled (they use distinct tags like "flow" / "dependency").
+pub async fn batch_pull(
+    db: &Pool<Postgres>,
+    worker_name: &str,
+    tags: &[String],
+    limit: u32,
+) -> windmill_common::error::Result<Vec<PulledJob>> {
+    use windmill_common::worker::make_batch_pull_query;
+
+    if limit == 0 || tags.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let query = make_batch_pull_query(tags, limit);
+    let jobs: Vec<PulledJob> = timeout(
+        Duration::from_secs(15),
+        sqlx::query_as::<_, PulledJob>(&query)
+            .bind(worker_name)
+            .fetch_all(db),
+    )
+    .await
+    .map_err(|_| {
+        windmill_common::error::Error::internal_err(
+            "batch_pull query timed out after 15s".to_string(),
+        )
+    })??;
+
+    Ok(jobs)
+}
+
 pub async fn custom_concurrency_key(
     db: &Pool<Postgres>,
     job_id: &Uuid,
@@ -5373,15 +5405,7 @@ async fn push_inner<'c, 'd>(
             language
                 .as_ref()
                 .map(|x| {
-                    let tag_lang = if x == &ScriptLang::Bunnative {
-                        if job_kind == JobKind::Dependencies {
-                            ScriptLang::Bun.as_str()
-                        } else {
-                            ScriptLang::Nativets.as_str()
-                        }
-                    } else {
-                        x.as_str()
-                    };
+                    let tag_lang = x.as_worker_tag(job_kind == JobKind::Dependencies);
                     if per_workspace {
                         format!("{}-{}", tag_lang, workspace_id)
                     } else {

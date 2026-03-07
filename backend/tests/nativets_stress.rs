@@ -241,6 +241,7 @@ fn spawn_workers(
                 rx,
                 tx2,
                 &base_internal_url,
+                None,
             )
             .await;
         };

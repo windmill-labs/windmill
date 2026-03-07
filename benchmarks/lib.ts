@@ -95,6 +95,10 @@ export async function createBenchScript(
     scriptContent =
       '//native\nexport async function main(){ return (await fetch(BASE_URL + "/api/version")).text() }';
     language = "bunnative";
+  } else if (scriptPattern === "nativets_sleep") {
+    scriptContent =
+      '//native\nexport async function main(){ const ms = 300 + Math.floor(Math.random() * 400); await new Promise(r => setTimeout(r, ms)); return { slept: ms }; }';
+    language = "bunnative";
   } else if (scriptPattern === "dedicated_nativets") {
     scriptContent = "//native\nexport function main(){ return 42; }";
     language = "bunnative";

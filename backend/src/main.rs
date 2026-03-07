@@ -61,8 +61,9 @@ use windmill_common::{
         MODE_AND_ADDONS,
     },
     worker::{
-        is_native_mode_from_env, reload_custom_tags_setting, Connection, HUB_CACHE_DIR,
-        HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR, WINDMILL_DIR, WORKER_GROUP,
+        is_native_mode_from_env, reload_custom_tags_setting, Connection, HttpClient, HUB_CACHE_DIR,
+        HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR, USES_BATCH_HTTP_PULL, WINDMILL_DIR,
+        WORKER_GROUP,
     },
     KillpillSender, DEFAULT_HUB_BASE_URL, METRICS_ENABLED,
 };
@@ -920,6 +921,20 @@ Windmill Community Edition {GIT_VERSION}
             default_base_internal_url.clone()
         };
 
+        // BATCH_PULL_URL: explicit URL for native workers to pull jobs via HTTP.
+        // In standalone mode (server_mode=true), defaults to the local server.
+        let batch_pull_url: Option<String> = if is_native_mode_from_env() {
+            if let Ok(url) = std::env::var("BATCH_PULL_URL") {
+                Some(url)
+            } else if server_mode {
+                Some(default_base_internal_url.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         initial_load(
             &conn,
             killpill_tx.clone(),
@@ -1130,6 +1145,30 @@ Windmill Community Edition {GIT_VERSION}
                     )?;
                     let mut workers = vec![];
 
+                    // For native workers, create a self-signed JWT for batch pulling via HTTP.
+                    // Enabled when BATCH_PULL_URL is set (explicitly or auto-detected in standalone mode).
+                    let batch_pull_client = if let Some(ref pull_url) = batch_pull_url {
+                        match create_native_batch_pull_client(pull_url).await {
+                            Ok(client) => {
+                                tracing::info!(
+                                    "Native batch pull client created for HTTP pull at {}",
+                                    pull_url
+                                );
+                                USES_BATCH_HTTP_PULL
+                                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                                Some(client)
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to create native batch pull client, falling back to SQL pull: {e:#}"
+                                );
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
                     for i in 0..num_workers {
                         let suffix = if i == 0 && first_suffix.is_some() {
                             first_suffix.as_ref().unwrap().clone()
@@ -1153,6 +1192,7 @@ Windmill Community Edition {GIT_VERSION}
                                 WORKER_GROUP.as_str(),
                                 &suffix,
                             ),
+                            batch_pull_client: batch_pull_client.clone(),
                         };
                         workers.push(worker_conn);
                     }
@@ -1766,6 +1806,7 @@ fn display_config(envs: &[&str]) {
 pub struct WorkerConn {
     conn: Connection,
     worker_name: String,
+    batch_pull_client: Option<HttpClient>,
 }
 
 pub async fn run_workers(
@@ -1836,6 +1877,7 @@ pub async fn run_workers(
         let wk_conf = &workers[i as usize - 1];
         let conn1 = wk_conf.conn.clone();
         let worker_name = wk_conf.worker_name.clone();
+        let batch_pull_client = wk_conf.batch_pull_client.clone();
         WORKERS_NAMES.write().await.push(worker_name.clone());
         let ip = ip.clone();
         let rx = killpill_rxs.pop().unwrap();
@@ -1858,6 +1900,7 @@ pub async fn run_workers(
                 rx,
                 tx,
                 &base_internal_url,
+                batch_pull_client.as_ref(),
             );
 
             // #[cfg(tokio_unstable)]
@@ -1874,6 +1917,41 @@ pub async fn run_workers(
 
     futures::future::try_join_all(handles).await?;
     Ok(())
+}
+
+/// Create an HTTP client for native workers to pull jobs from the local server's batch buffer.
+/// Self-signs a JWT with native_mode=true using the same JWT secret the server uses.
+async fn create_native_batch_pull_client(base_internal_url: &str) -> anyhow::Result<HttpClient> {
+    use windmill_common::agent_workers::{build_agent_http_client, AGENT_JWT_PREFIX};
+    use windmill_common::jwt::encode_with_internal_secret;
+
+    #[derive(serde::Serialize)]
+    struct NativeAgentAuth {
+        worker_group: String,
+        tags: Vec<String>,
+        native_mode: Option<bool>,
+        exp: usize,
+    }
+
+    let worker_config = windmill_common::worker::WORKER_CONFIG.read().await;
+    let tags = worker_config.worker_tags.clone();
+    drop(worker_config);
+
+    // Token expires in 30 days — renewed on restart
+    let exp = (chrono::Utc::now() + chrono::Duration::days(30)).timestamp() as usize;
+
+    let claims = NativeAgentAuth {
+        worker_group: WORKER_GROUP.to_string(),
+        tags,
+        native_mode: Some(true),
+        exp,
+    };
+
+    let jwt = encode_with_internal_secret(claims).await?;
+    let token = format!("{}{}", AGENT_JWT_PREFIX, jwt);
+
+    let suffix = create_default_worker_suffix(&HOSTNAME);
+    Ok(build_agent_http_client(&suffix, &token, base_internal_url))
 }
 
 async fn send_delayed_killpill(tx: &KillpillSender, mut max_delay_secs: u64, context: &str) {
