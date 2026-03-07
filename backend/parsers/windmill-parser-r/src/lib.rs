@@ -41,6 +41,87 @@ pub fn parse_r_signature(code: &str) -> anyhow::Result<MainArgSignature> {
     Ok(parse_r_sig_meta(code)?)
 }
 
+/// Extract package names from `library(...)` and `require(...)` calls in R code.
+/// Returns a newline-separated list of package names.
+pub fn parse_r_requirements(code: &str) -> anyhow::Result<String> {
+    let mut parser = tree_sitter::Parser::new();
+    let language = tree_sitter_r::LANGUAGE;
+    parser
+        .set_language(&language.into())
+        .map_err(|e| anyhow!("Error setting R as language: {e}"))?;
+
+    let tree = parser
+        .parse(code, None)
+        .ok_or(anyhow!("Failed to parse code"))?;
+    let root_node = tree.root_node();
+
+    let mut packages = vec![];
+    find_library_calls(root_node, code, &mut packages);
+
+    // Deduplicate and exclude base packages
+    packages.sort();
+    packages.dedup();
+    packages.retain(|p| !is_base_package(p));
+
+    Ok(packages.join("\n"))
+}
+
+fn find_library_calls(node: Node, code: &str, packages: &mut Vec<String>) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "call" {
+            // call node: child 0 is the function name, child 1 is arguments
+            if let (Some(func_node), Some(args_node)) = (child.child(0), child.child(1)) {
+                let func_name = func_node.utf8_text(code.as_bytes()).unwrap_or("");
+                if func_name == "library" || func_name == "require" {
+                    // AST: arguments → ( + argument → identifier/string + )
+                    if args_node.kind() == "arguments" {
+                        let mut args_cursor = args_node.walk();
+                        for arg in args_node.children(&mut args_cursor) {
+                            if arg.kind() == "argument" {
+                                // The argument node wraps the actual value
+                                if let Some(value_node) = arg.child(0) {
+                                    let pkg = value_node
+                                        .utf8_text(code.as_bytes())
+                                        .unwrap_or("")
+                                        .trim_matches('"')
+                                        .trim_matches('\'');
+                                    if !pkg.is_empty() {
+                                        packages.push(pkg.to_string());
+                                    }
+                                }
+                                break; // only first arg
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Recurse into children to find nested library() calls
+        find_library_calls(child, code, packages);
+    }
+}
+
+fn is_base_package(pkg: &str) -> bool {
+    matches!(
+        pkg,
+        "base"
+            | "compiler"
+            | "datasets"
+            | "grDevices"
+            | "graphics"
+            | "grid"
+            | "methods"
+            | "parallel"
+            | "splines"
+            | "stats"
+            | "stats4"
+            | "tcltk"
+            | "tools"
+            | "utils"
+    )
+}
+
 /// Find the main function signature in R code.
 /// R function definitions look like: `main <- function(x, y = 10) { ... }`
 /// In the tree-sitter-r AST, this is a `binary_operator` node with:
@@ -107,10 +188,7 @@ fn parse_function_params(func_node: Node, code: &str) -> anyhow::Result<Vec<Arg>
                     // Simple parameter: just identifier
                     let ident_node = param.child(0).unwrap();
                     let name = ident_node.utf8_text(code.as_bytes())?;
-                    args.push(Arg {
-                        name: name.to_owned(),
-                        ..Default::default()
-                    });
+                    args.push(Arg { name: name.to_owned(), ..Default::default() });
                 } else if param_child_count >= 3 {
                     // Default parameter: identifier = value
                     let ident_node = param.child(0).unwrap();
@@ -165,10 +243,7 @@ helper <- function(x) { x + 1 }
         let sig = parse(code).unwrap();
         assert_eq!(
             sig,
-            windmill_parser::MainArgSignature {
-                no_main_func: Some(true),
-                ..Default::default()
-            }
+            windmill_parser::MainArgSignature { no_main_func: Some(true), ..Default::default() }
         );
     }
 
@@ -182,10 +257,7 @@ main <- function() {
         let sig = parse(code).unwrap();
         assert_eq!(
             sig,
-            windmill_parser::MainArgSignature {
-                no_main_func: Some(false),
-                ..Default::default()
-            }
+            windmill_parser::MainArgSignature { no_main_func: Some(false), ..Default::default() }
         );
     }
 
@@ -242,4 +314,52 @@ main <- function() {
         assert_eq!(sig.args[0].default, Some(json!(null)));
     }
 
+    #[test]
+    fn test_parse_r_requirements() {
+        use super::parse_r_requirements;
+
+        let code = r#"
+library(dplyr)
+library(ggplot2)
+require(tidyr)
+library(stats)
+
+main <- function(x) {
+    library(stringr)
+    x
+}
+"#;
+        let reqs = parse_r_requirements(code).unwrap();
+        let pkgs: Vec<&str> = reqs.lines().collect();
+        assert!(pkgs.contains(&"dplyr"));
+        assert!(pkgs.contains(&"ggplot2"));
+        assert!(pkgs.contains(&"tidyr"));
+        assert!(pkgs.contains(&"stringr"));
+        assert!(!pkgs.contains(&"stats")); // base package excluded
+    }
+
+    #[test]
+    fn test_parse_r_requirements_string_args() {
+        use super::parse_r_requirements;
+
+        let code = r#"
+library("data.table")
+require("jsonlite")
+
+main <- function() { }
+"#;
+        let reqs = parse_r_requirements(code).unwrap();
+        let pkgs: Vec<&str> = reqs.lines().collect();
+        assert!(pkgs.contains(&"data.table"));
+        assert!(pkgs.contains(&"jsonlite"));
+    }
+
+    #[test]
+    fn test_parse_r_requirements_no_deps() {
+        use super::parse_r_requirements;
+
+        let code = r#"main <- function(x) { x + 1 }"#;
+        let reqs = parse_r_requirements(code).unwrap();
+        assert!(reqs.is_empty());
+    }
 }

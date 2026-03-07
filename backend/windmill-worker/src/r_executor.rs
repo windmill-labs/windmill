@@ -3,16 +3,18 @@ use std::{collections::HashMap, process::Stdio};
 use itertools::Itertools;
 use tokio::{
     fs::{self, File},
-    io::AsyncWriteExt,
+    io::{AsyncReadExt, AsyncWriteExt},
     process::Command,
 };
+use uuid::Uuid;
 use windmill_common::{
     client::AuthedClient,
     error::Error,
+    utils::calculate_hash,
     worker::{write_file, Connection},
 };
 use windmill_parser::Arg;
-use windmill_parser_r::parse_r_signature;
+use windmill_parser_r::{parse_r_requirements, parse_r_signature};
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
@@ -65,9 +67,27 @@ pub async fn handle_r_job<'a>(
     {
         prepare(&args).await?;
     }
+    // --- Resolve lockfile ---
+    let lockfile = resolve(
+        &args.job.id,
+        args.inner_content,
+        args.mem_peak,
+        args.canceled_by,
+        args.job_dir,
+        args.conn,
+        args.worker_name,
+        &args.job.workspace_id,
+    )
+    .await?;
+    // --- Install ---
+    let lib_path = if !lockfile.is_empty() {
+        Some(install(&mut args, &lockfile).await?)
+    } else {
+        None
+    };
     // --- Execute ---
     {
-        run(&mut args).await?;
+        run(&mut args, lib_path.as_deref()).await?;
     }
     // --- Retrieve results ---
     {
@@ -131,6 +151,242 @@ get_resource <- function(path) {
     Ok(())
 }
 
+pub async fn resolve<'a>(
+    job_id: &Uuid,
+    inner_content: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    conn: &Connection,
+    worker_name: &str,
+    w_id: &str,
+) -> Result<String, Error> {
+    let packages = parse_r_requirements(inner_content)?;
+    if packages.is_empty() {
+        return Ok(String::new());
+    }
+
+    // Check cache
+    let req_hash = format!("r-{}", calculate_hash(&packages));
+    if let Some(db) = conn.as_sql() {
+        if let Some(cached) = sqlx::query_scalar!(
+            "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
+            req_hash
+        )
+        .fetch_optional(db)
+        .await?
+        {
+            return Ok(cached);
+        }
+    }
+
+    append_logs(
+        job_id,
+        w_id,
+        format!("\n--- RESOLVING R PACKAGES ---\n"),
+        conn,
+    )
+    .await;
+
+    let pkg_vec = packages
+        .lines()
+        .map(|p| format!("\"{}\"", p))
+        .collect_vec()
+        .join(", ");
+
+    let resolve_script = format!(
+        r#"pkgs <- c({pkg_vec})
+con <- file("{job_dir}/r.lock", open = "w")
+av <- tryCatch(
+    available.packages(repos = "https://cloud.r-project.org"),
+    error = function(e) NULL
+)
+for (pkg in pkgs) {{
+    if (!is.null(av) && pkg %in% rownames(av)) {{
+        cat(paste0(pkg, "==", av[pkg, "Version"], "\n"))
+        writeLines(paste0(pkg, "==", av[pkg, "Version"]), con)
+    }} else if (requireNamespace(pkg, quietly = TRUE)) {{
+        v <- as.character(packageVersion(pkg))
+        cat(paste0(pkg, "==", v, "\n"))
+        writeLines(paste0(pkg, "==", v), con)
+    }} else {{
+        cat(paste0(pkg, "==latest\n"))
+        writeLines(paste0(pkg, "==latest"), con)
+    }}
+}}
+close(con)
+"#
+    );
+
+    let mut file = File::create(format!("{}/resolve.r", job_dir)).await?;
+    file.write_all(resolve_script.as_bytes()).await?;
+
+    let rscript_executable = if cfg!(windows) {
+        "Rscript.exe"
+    } else {
+        RSCRIPT_PATH.as_str()
+    };
+
+    let mut cmd = Command::new(rscript_executable);
+    cmd.current_dir(job_dir)
+        .env("PATH", PATH_ENV.as_str())
+        .arg("resolve.r")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let child = start_child_process(cmd, rscript_executable, false).await?;
+    handle_child::handle_child(
+        job_id,
+        conn,
+        mem_peak,
+        canceled_by,
+        child,
+        false,
+        worker_name,
+        w_id,
+        "r resolve",
+        None,
+        false,
+        &mut None,
+        None,
+        None,
+    )
+    .await?;
+
+    let lock_path = format!("{}/r.lock", job_dir);
+    let mut lock_file = File::open(&lock_path).await?;
+    let mut lock = String::new();
+    lock_file.read_to_string(&mut lock).await?;
+
+    // Cache the lockfile
+    if let Some(db) = conn.as_sql() {
+        sqlx::query!(
+            "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = EXCLUDED.lockfile",
+            req_hash,
+            lock.clone(),
+        ).fetch_optional(db).await?;
+    }
+
+    append_logs(job_id, w_id, format!("{}", &lock), conn).await;
+    Ok(lock)
+}
+
+async fn install<'a>(args: &mut JobHandlerInput<'a>, lockfile: &str) -> Result<String, Error> {
+    let lib_path = format!("{}/r_site_library", *R_CACHE_DIR);
+    fs::create_dir_all(&lib_path).await?;
+
+    // Parse lockfile to find packages that need installing
+    let mut to_install = vec![];
+    for line in lockfile.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = line.splitn(2, "==").collect();
+        if parts.len() != 2 {
+            continue;
+        }
+        let pkg = parts[0];
+        let version = parts[1];
+
+        // Check if already installed at the right version
+        let pkg_dir = format!("{}/{}", lib_path, pkg);
+        let desc_file = format!("{}/DESCRIPTION", pkg_dir);
+        if let Ok(desc) = tokio::fs::read_to_string(&desc_file).await {
+            if desc.contains(&format!("Version: {}", version)) {
+                continue; // Already installed at correct version
+            }
+        }
+        to_install.push((pkg.to_string(), version.to_string()));
+    }
+
+    if to_install.is_empty() {
+        return Ok(lib_path);
+    }
+
+    append_logs(
+        &args.job.id,
+        &args.job.workspace_id,
+        format!(
+            "\n--- INSTALLING R PACKAGES ---\n{}\n",
+            to_install
+                .iter()
+                .map(|(p, v)| format!("{} ({})", p, v))
+                .join(", ")
+        ),
+        args.conn,
+    )
+    .await;
+
+    // Build install script
+    let install_calls = to_install
+        .iter()
+        .map(|(pkg, version)| {
+            if version == "latest" {
+                format!(
+                    r#"install.packages("{pkg}", lib = "{lib_path}", repos = "https://cloud.r-project.org", quiet = TRUE)"#
+                )
+            } else {
+                // Try exact version first via remotes, fall back to latest
+                format!(
+                    r#"tryCatch({{
+    if (requireNamespace("remotes", quietly = TRUE)) {{
+        remotes::install_version("{pkg}", version = "{version}", lib = "{lib_path}", repos = "https://cloud.r-project.org", quiet = TRUE)
+    }} else {{
+        install.packages("{pkg}", lib = "{lib_path}", repos = "https://cloud.r-project.org", quiet = TRUE)
+    }}
+}}, error = function(e) {{
+    install.packages("{pkg}", lib = "{lib_path}", repos = "https://cloud.r-project.org", quiet = TRUE)
+}})"#
+                )
+            }
+        })
+        .join("\n");
+
+    let install_script = format!(
+        r#".libPaths(c("{lib_path}", .libPaths()))
+{install_calls}
+"#
+    );
+
+    let mut file = File::create(format!("{}/install.r", args.job_dir)).await?;
+    file.write_all(install_script.as_bytes()).await?;
+
+    let rscript_executable = if cfg!(windows) {
+        "Rscript.exe"
+    } else {
+        RSCRIPT_PATH.as_str()
+    };
+
+    let mut cmd = Command::new(rscript_executable);
+    cmd.current_dir(args.job_dir)
+        .env("PATH", PATH_ENV.as_str())
+        .arg("install.r")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let child = start_child_process(cmd, rscript_executable, false).await?;
+    handle_child::handle_child(
+        &args.job.id,
+        args.conn,
+        args.mem_peak,
+        args.canceled_by,
+        child,
+        false,
+        args.worker_name,
+        &args.job.workspace_id,
+        "r install",
+        None,
+        false,
+        &mut None,
+        None,
+        None,
+    )
+    .await?;
+
+    Ok(lib_path)
+}
+
 async fn run<'a>(
     JobHandlerInput {
         occupancy_metrics,
@@ -147,6 +403,7 @@ async fn run<'a>(
         parent_runnable_path,
         ..
     }: &mut JobHandlerInput<'a>,
+    lib_path: Option<&str>,
 ) -> Result<(), Error> {
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
@@ -179,14 +436,17 @@ async fn run<'a>(
             .envs(envs)
             .envs(reserved_variables)
             .envs(R_PROXY_ENVS.clone())
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Rlang).await?)
-            .args(vec![
-                "--config",
-                "run.config.proto",
-                "--",
-                RSCRIPT_PATH.as_str(),
-                "main.r",
-            ]);
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Rlang).await?);
+        if let Some(lp) = lib_path {
+            cmd.env("R_LIBS_USER", lp);
+        }
+        cmd.args(vec![
+            "--config",
+            "run.config.proto",
+            "--",
+            RSCRIPT_PATH.as_str(),
+            "main.r",
+        ]);
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
@@ -216,6 +476,9 @@ async fn run<'a>(
             .envs(R_PROXY_ENVS.clone())
             .envs(get_proxy_envs_for_lang(&ScriptLang::Rlang).await?)
             .envs(envs);
+        if let Some(lp) = lib_path {
+            cmd.env("R_LIBS_USER", lp);
+        }
 
         cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
