@@ -59,7 +59,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - uses: astral-sh/setup-uv@v6.2.1
+      - uses: astral-sh/setup-uv@v7.3.1
         with:
           version: "0.9.24"
       - uses: shivammathur/setup-php@v2
