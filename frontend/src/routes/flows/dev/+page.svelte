@@ -52,7 +52,7 @@
 	}
 
 	let darkModeToggle: DarkModeToggle | undefined = $state()
-	let darkMode: boolean | undefined = $state(undefined)
+	let darkMode: boolean = $state(document.documentElement.classList.contains('dark'))
 	let modeInitialized = $state(false)
 	function initializeMode() {
 		modeInitialized = true
