@@ -68,6 +68,7 @@ members = [
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
+    "./parsers/windmill-parser-wac",
     "./parsers/windmill-sql-datatype-parser-wasm",
     "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
     "./windmill-worker-volumes",
@@ -332,6 +333,7 @@ windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
+windmill-parser-wac = { path = "./parsers/windmill-parser-wac" }
 windmill-jseval = { path = "./windmill-jseval" }
 windmill-runtime-nativets = { path = "./windmill-runtime-nativets" }
 windmill-api-client = { path = "./windmill-api-client" }

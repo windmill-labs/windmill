@@ -322,37 +322,6 @@ function getParamNames(func: Function): string[] {
 }
 
 /**
- * Wrap a function to execute as a Windmill task within a flow context
- * @param f - Function to wrap as a task
- * @returns Async wrapper function that executes as a Windmill job
- */
-export function task<P, T>(f: (_: P) => T): (_: P) => Promise<T> {
-  return async (...y) => {
-    const args: Record<string, any> = {};
-    const paramNames = getParamNames(f);
-    y.forEach((x, i) => (args[paramNames[i]] = x));
-    let req = await fetch(
-      `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
-        "WM_JOB_ID"
-      )}/${f.name}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getEnv("WM_TOKEN")}`,
-        },
-        body: JSON.stringify({ args }),
-      }
-    );
-    let jobId = await req.text();
-    console.log(`Started task ${f.name} as job ${jobId}`);
-    let r = await waitJob(jobId);
-    console.log(`Task ${f.name} (${jobId}) completed`);
-    return r;
-  };
-}
-
-/**
  * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
  */
 export async function runScriptAsync(
@@ -1448,3 +1417,198 @@ export function parseS3Object(s3Object: S3Object): S3ObjectRecord {
 function parseVariableSyntax(s: string) {
   if (s.startsWith("var://")) return s.substring(6);
 }
+
+// ── Workflow-as-Code SDK ──────────────────────────────────────────────
+
+export class StepSuspend extends Error {
+  constructor(public dispatchInfo: Record<string, any>) {
+    super("__step_suspend__");
+    this.name = "StepSuspend";
+  }
+}
+
+export let _workflowCtx: WorkflowCtx | null = null;
+export function setWorkflowCtx(ctx: WorkflowCtx | null) {
+  _workflowCtx = ctx;
+  Reflect.set(globalThis, "__wmill_wf_ctx", ctx);
+}
+
+
+export class WorkflowCtx {
+  private completed: Record<string, any>;
+  private stepIndex = 0;
+  private pending: Array<{
+    name: string;
+    script: string;
+    args: Record<string, any>;
+    key: string;
+  }> = [];
+  private _suspended = false;
+  /** When set, the task matching this key executes its inner function directly */
+  _executingKey: string | null;
+
+  constructor(checkpoint: Record<string, any> = {}) {
+    this.completed = checkpoint?.completed_steps ?? {};
+    this._executingKey = checkpoint?._executing_key ?? null;
+  }
+
+  _allocKey(): string {
+    return `step_${this.stepIndex++}`;
+  }
+
+  _nextStep(
+    name: string,
+    script: string,
+    args: Record<string, any> = {},
+  ): PromiseLike<any> {
+    const key = this._allocKey();
+
+    if (key in this.completed) {
+      const value = this.completed[key];
+      return { then: (resolve: any) => resolve(value) };
+    }
+
+    // If this is a child job executing a specific step, return null to signal
+    // that the task wrapper should run the inner function directly
+    if (this._executingKey === key) {
+      return { then: (resolve: any) => resolve(null), _execute_directly: true } as any;
+    }
+
+    // In child job mode (_executingKey is set), non-matching uncompleted steps
+    // should never resolve or throw — the matching step will throw step_complete
+    // which terminates the workflow. Returning a never-resolving thenable prevents
+    // race conditions where a non-matching step's StepSuspend fires before step_complete.
+    if (this._executingKey !== null) {
+      return { then: () => new Promise(() => {}) };
+    }
+
+    this.pending.push({ name, script, args, key });
+    return {
+      then: (): never => {
+        // Only the first .then() call throws with all accumulated steps.
+        // Subsequent calls (e.g. from Promise.all resolving other thenables)
+        // also throw (they'll be caught by the same handler).
+        if (this._suspended) throw new StepSuspend({ mode: "noop", steps: [] });
+        this._suspended = true;
+        const steps = [...this.pending];
+        this.pending = [];
+        throw new StepSuspend({
+          mode: steps.length > 1 ? "parallel" : "sequential",
+          steps,
+        });
+      },
+    };
+  }
+  async _runInlineStep<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+    const key = this._allocKey();
+
+    if (key in this.completed) {
+      return this.completed[key] as T;
+    }
+
+    if (this._executingKey !== null) {
+      return new Promise(() => {});
+    }
+
+    const result = await fn();
+    throw new StepSuspend({ mode: "inline_checkpoint", steps: [], key, result });
+  }
+}
+
+export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+  const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+  if (ctx) {
+    return ctx._runInlineStep(name, fn);
+  }
+  return fn();
+}
+
+/**
+ * Wrap an async function as a workflow task.
+ *
+ * @example
+ * const extract_data = task(async (url: string) => { ... });
+ * const run_external = task("f/external_script", async (x: number) => { ... });
+ *
+ * Inside a `workflow()`, calling a task dispatches it as a step.
+ * Outside a workflow, the function body executes directly.
+ */
+export function task<T extends (...args: any[]) => Promise<any>>(
+  fnOrPath: T | string,
+  maybeFn?: T
+): T {
+  let fn: T;
+  let taskPath: string | undefined;
+
+  if (typeof fnOrPath === "string") {
+    taskPath = fnOrPath;
+    fn = maybeFn!;
+  } else {
+    fn = fnOrPath;
+  }
+
+  const taskName = fn.name || "anonymous";
+
+  const wrapper = async function (...args: any[]) {
+    const ctx = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+    if (ctx) {
+      // Inside a workflow with checkpoint/replay context — dispatch as step
+      const script = taskPath ?? taskName;
+      const paramNames = getParamNames(fn);
+      const kwargs: Record<string, any> = {};
+      for (let i = 0; i < args.length; i++) {
+        if (paramNames[i]) {
+          kwargs[paramNames[i]] = args[i];
+        } else {
+          kwargs[`arg${i}`] = args[i];
+        }
+      }
+      const stepResult = ctx._nextStep(taskName, script, kwargs);
+      // If this step should execute directly (child job mode), run the inner function
+      // and throw StepSuspend with mode "step_complete" to signal that we're done
+      if ((stepResult as any)?._execute_directly) {
+        const result = await fn(...args);
+        throw new StepSuspend({ mode: "step_complete", steps: [], result });
+      }
+      return stepResult;
+    } else if (getEnv("WM_JOB_ID") && !getEnv("WM_FLOW_JOB_ID")) {
+      // Inside a Windmill root job without checkpoint context — v1 HTTP dispatch
+      // WM_FLOW_JOB_ID is set on child jobs, so we skip dispatch for those
+      const paramNames = getParamNames(fn);
+      const kwargs: Record<string, any> = {};
+      args.forEach((x, i) => (kwargs[paramNames[i]] = x));
+      let req = await fetch(
+        `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
+          "WM_JOB_ID"
+        )}/${taskName}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${getEnv("WM_TOKEN")}`,
+          },
+          body: JSON.stringify({ args: kwargs }),
+        }
+      );
+      let jobId = await req.text();
+      console.log(`Started task ${taskName} as job ${jobId}`);
+      let r = await waitJob(jobId);
+      console.log(`Task ${taskName} (${jobId}) completed`);
+      return r;
+    } else {
+      // Standalone — execute directly
+      return fn(...args);
+    }
+  } as unknown as T;
+
+  Object.defineProperty(wrapper, "name", { value: taskName });
+  (wrapper as any)._is_task = true;
+  (wrapper as any)._task_path = taskPath;
+  return wrapper;
+}
+
+export function workflow<T>(fn: (...args: any[]) => Promise<T>) {
+  (fn as any)._is_workflow = true;
+  return fn;
+}
+

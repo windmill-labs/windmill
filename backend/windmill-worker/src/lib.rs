@@ -73,6 +73,7 @@ mod universal_pkg_installer;
 #[cfg(feature = "private")]
 mod volume_ee;
 mod volume_oss;
+pub mod wac_executor;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;

@@ -223,4 +223,11 @@ pub fn parse_assets_ansible(code: &str) -> String {
     }
 }
 
+#[cfg(feature = "wac-parser")]
+#[wasm_bindgen]
+pub fn parse_workflow_as_code(code: &str, language: &str) -> String {
+    let result = windmill_parser_wac::parse_workflow(code, language);
+    serde_json::to_string(&result).unwrap_or_else(|_| "{\"type\": \"error\"}".to_string())
+}
+
 // for related places search: ADD_NEW_LANG

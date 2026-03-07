@@ -143,6 +143,13 @@ mount {
 }
 
 mount {
+    src: "{JOB_DIR}/checkpoint.json"
+    dst: "/tmp/{LANG}/checkpoint.json"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
     src: "{JOB_DIR}/result.json"
     dst: "/tmp/{LANG}/result.json"
     rw: true

@@ -2151,69 +2151,6 @@ def ducklake(name: str = "main") -> DucklakeClient:
     """
     return _client.ducklake(name)
 
-def task(*args, **kwargs):
-    """Decorator to mark a function as a workflow task.
-
-    When executed inside a Windmill job, the decorated function runs as a
-    separate workflow step. Outside Windmill, it executes normally.
-
-    Args:
-        tag: Optional worker tag for execution
-
-    Returns:
-        Decorated function
-    """
-    from inspect import signature
-
-    def f(func, tag: str | None = None):
-        if (
-            os.environ.get("WM_JOB_ID") is None
-            or os.environ.get("MAIN_OVERRIDE") == func.__name__
-        ):
-
-            def inner(*args, **kwargs):
-                return func(*args, **kwargs)
-
-            return inner
-        else:
-
-            def inner(*args, **kwargs):
-                global _client
-                if _client is None:
-                    _client = Windmill()
-                w_id = os.environ.get("WM_WORKSPACE")
-                job_id = os.environ.get("WM_JOB_ID")
-                f_name = func.__name__
-                json = kwargs
-                params = list(signature(func).parameters)
-                for i, arg in enumerate(args):
-                    if i < len(params):
-                        p = params[i]
-                        key = p
-                        if key not in kwargs:
-                            json[key] = arg
-
-                params = {}
-                if tag is not None:
-                    params["tag"] = tag
-                w_as_code_response = _client.post(
-                    f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{f_name}",
-                    json={"args": json},
-                    params=params,
-                )
-                job_id = w_as_code_response.text
-                print(f"Executing task {func.__name__} on job {job_id}")
-                job_result = _client.wait_job(job_id)
-                print(f"Task {func.__name__} ({job_id}) completed")
-                return job_result
-
-            return inner
-
-    if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
-        return f(args[0], None)
-    else:
-        return lambda x: f(x, kwargs.get("tag"))
-
 def parse_resource_syntax(s: str) -> Optional[str]:
     """Parse resource syntax from string."""
     if s is None:
@@ -2413,7 +2350,232 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]:
     name = name
     schema = None
     if ":" in name:
-        name, schema = name.split(":", 1) 
+        name, schema = name.split(":", 1)
     if not name:
         name = "main"
     return name, schema
+
+
+# ── Workflow-as-Code SDK ──────────────────────────────────────────────
+
+import asyncio as _asyncio
+import contextvars as _contextvars
+
+
+class _StepSuspend(BaseException):
+    """Raised to suspend workflow execution. Inherits from BaseException
+    so it is not caught by bare `except Exception:` blocks."""
+
+    def __init__(self, dispatch_info: dict):
+        self.dispatch_info = dispatch_info
+
+
+_workflow_ctx: _contextvars.ContextVar["WorkflowCtx"] = _contextvars.ContextVar(
+    "_workflow_ctx"
+)
+
+
+class WorkflowCtx:
+    """Internal context for workflow replay/suspension.
+
+    Not user-facing — set implicitly by ``@workflow`` via contextvars.
+    """
+
+    def __init__(self, checkpoint: dict | None = None):
+        checkpoint = checkpoint or {}
+        self._completed: dict = checkpoint.get("completed_steps", {})
+        self._step_index: int = 0
+        self._pending: list = []
+        self._executing_key: str | None = checkpoint.get("_executing_key")
+
+    def _alloc_key(self) -> str:
+        key = f"step_{self._step_index}"
+        self._step_index += 1
+        return key
+
+    def _next_step(self, name: str, script: str, func=None, **kwargs):
+        """Return an awaitable that either resolves from cache or suspends."""
+        key = self._alloc_key()
+
+        if key in self._completed:
+            return self._resolved(self._completed[key])
+
+        if self._executing_key is not None:
+            if key == self._executing_key:
+                return self._execute_directly(func, **kwargs)
+            else:
+                return self._never_resolve()
+
+        info = {"name": name, "script": script, "args": kwargs, "key": key}
+        self._pending.append(info)
+        return self._suspend()
+
+    async def _resolved(self, value):
+        return value
+
+    async def _execute_directly(self, func, **kwargs):
+        result = func(**kwargs)
+        if _asyncio.iscoroutine(result):
+            result = await result
+        raise _StepSuspend({"mode": "step_complete", "steps": [], "result": result})
+
+    async def _never_resolve(self):
+        await _asyncio.Future()
+
+    async def _suspend(self):
+        steps = list(self._pending)
+        self._pending.clear()
+        raise _StepSuspend(
+            {
+                "mode": "parallel" if len(steps) > 1 else "sequential",
+                "steps": steps,
+            }
+        )
+
+    async def _run_inline_step(self, name: str, fn):
+        key = self._alloc_key()
+
+        if key in self._completed:
+            return self._completed[key]
+
+        if self._executing_key is not None:
+            await _asyncio.Future()
+
+        result = fn()
+        if _asyncio.iscoroutine(result):
+            result = await result
+
+        raise _StepSuspend({
+            "mode": "inline_checkpoint",
+            "steps": [],
+            "key": key,
+            "result": result,
+        })
+
+
+def task(_func=None, *, path: Optional[str] = None, tag: Optional[str] = None):
+    """Decorator that marks a function as a workflow task.
+
+    Works in both WAC v1 (sync, HTTP-based dispatch) and WAC v2
+    (async, checkpoint/replay) modes:
+
+    - **v2 (inside @workflow)**: dispatches as a checkpoint step.
+    - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
+    - **Standalone**: executes the function body directly.
+
+    Usage::
+
+        @task
+        async def extract_data(url: str): ...
+
+        @task(path="f/external_script")
+        async def run_external(x: int): ...
+    """
+    from inspect import signature as _sig
+
+    def decorator(func):
+        task_path = path
+        task_name = func.__name__
+
+        def wrapper(*args, **kwargs):
+            # WAC v2: inside a @workflow context
+            ctx = _workflow_ctx.get(None)
+            if ctx is not None:
+                script = task_path if task_path else task_name
+                return ctx._next_step(task_name, script, func, **kwargs)
+
+            # WAC v1: running inside a Windmill job but not in a @workflow
+            if (
+                os.environ.get("WM_JOB_ID") is not None
+                and os.environ.get("MAIN_OVERRIDE") != func.__name__
+            ):
+                global _client
+                if _client is None:
+                    _client = Windmill()
+                w_id = os.environ.get("WM_WORKSPACE")
+                job_id = os.environ.get("WM_JOB_ID")
+                json_args = dict(kwargs)
+                params_list = list(_sig(func).parameters)
+                for i, arg in enumerate(args):
+                    if i < len(params_list):
+                        key = params_list[i]
+                        if key not in json_args:
+                            json_args[key] = arg
+                api_params = {}
+                if tag is not None:
+                    api_params["tag"] = tag
+                resp = _client.post(
+                    f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{func.__name__}",
+                    json={"args": json_args},
+                    params=api_params,
+                )
+                child_job_id = resp.text
+                print(f"Executing task {func.__name__} on job {child_job_id}")
+                job_result = _client.wait_job(child_job_id)
+                print(f"Task {func.__name__} ({child_job_id}) completed")
+                return job_result
+
+            # Standalone — execute directly
+            return func(*args, **kwargs)
+
+        wrapper.__name__ = func.__name__
+        wrapper.__qualname__ = func.__qualname__
+        wrapper._is_task = True
+        wrapper._task_path = task_path
+        return wrapper
+
+    if _func is not None:
+        # @task without parentheses
+        return decorator(_func)
+    # @task() or @task(path="...", tag="...")
+    return decorator
+
+
+def workflow(func):
+    """Decorator marking an async function as a workflow-as-code entry point."""
+    func._is_workflow = True
+    return func
+
+
+async def step(name: str, fn):
+    """Execute ``fn`` inline and checkpoint the result.
+
+    On replay the cached value is returned without re-executing ``fn``.
+    Use for lightweight deterministic operations (timestamps, random IDs,
+    config reads) that should not incur the overhead of a child job.
+    """
+    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    if ctx is not None:
+        return await ctx._run_inline_step(name, fn)
+    result = fn()
+    if _asyncio.iscoroutine(result):
+        result = await result
+    return result
+
+
+async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
+    ctx = WorkflowCtx(checkpoint)
+    token = _workflow_ctx.set(ctx)
+    try:
+        result = await func(**input_args)
+        return {"type": "complete", "result": result}
+    except _StepSuspend as e:
+        info = e.dispatch_info
+        mode = info.get("mode")
+        if mode == "step_complete":
+            return {"type": "complete", "result": info.get("result")}
+        if mode == "inline_checkpoint":
+            return {
+                "type": "inline_checkpoint",
+                "key": info["key"],
+                "result": info.get("result"),
+            }
+        return {"type": "dispatch", **info}
+    finally:
+        _workflow_ctx.reset(token)
+
+
+def _run_workflow(func, checkpoint: dict, input_args: dict):
+    """Synchronous wrapper that runs the workflow coroutine to completion
+    or until it suspends."""
+    return _asyncio.run(_run_workflow_async(func, checkpoint, input_args))

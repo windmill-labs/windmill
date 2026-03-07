@@ -3485,6 +3485,13 @@ pub async fn handle_queued_job(
         {
             return Ok(false);
         }
+        if result
+            .as_ref()
+            .is_err_and(|err| matches!(err, &Error::WacSuspended(_)))
+        {
+            // WAC v2 job suspended while waiting for child jobs — don't complete it
+            return Ok(true);
+        }
         process_result(
             cjob,
             result.map(|x| Arc::new(x)),

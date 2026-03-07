@@ -22,7 +22,7 @@ use crate::{
         get_reserved_variables, read_result, start_child_process, MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
-    COMPOSER_CACHE_DIR, COMPOSER_PATH, is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
+    is_sandboxing_enabled, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
 };
 use windmill_common::client::AuthedClient;
 
