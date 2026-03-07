@@ -1,19 +1,28 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import OauthExtraParams from './OauthExtraParams.svelte'
 	import OauthScopes from './OauthScopes.svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { untrack } from 'svelte'
 
-	let { connect_config = $bindable({
-		scopes: [],
-		auth_url: '',
-		token_url: '',
-		req_body_auth: false,
-		extra_params: {},
-		extra_params_callback: {}
-	}) } = $props();
+	let { connect_config = $bindable() } = $props()
+
+	$effect.pre(() => {
+		untrack(() => {
+			if (!connect_config) {
+				connect_config = {
+					scopes: [],
+					auth_url: '',
+					token_url: '',
+					req_body_auth: false,
+					extra_params: {},
+					extra_params_callback: {}
+				}
+			}
+		})
+	})
 
 	run(() => {
 		if (!connect_config) {
@@ -26,7 +35,7 @@
 				extra_params_callback: {}
 			}
 		}
-	});
+	})
 </script>
 
 <div class="flex flex-col gap-6">
