@@ -6,15 +6,7 @@
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 
-	let { login_config = $bindable({
-		scopes: [],
-		auth_url: '',
-		token_url: '',
-		userinfo_url: '',
-		req_body_auth: false,
-		extra_params: {},
-		extra_params_callback: {}
-	}) } = $props();
+	let { login_config = $bindable() } = $props();
 
 	run(() => {
 		if (!login_config) {

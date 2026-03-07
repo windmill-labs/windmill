@@ -6,7 +6,13 @@
 		scopes?: string[]
 	}
 
-	let { scopes = $bindable([]) }: Props = $props()
+	let { scopes = $bindable() }: Props = $props()
+
+	$effect.pre(() => {
+		if (!scopes) {
+			scopes = []
+		}
+	})
 </script>
 
 {#if scopes && Array.isArray(scopes)}
@@ -18,7 +24,7 @@
 				size="xs"
 				btnClasses="mx-6"
 				on:click={() => {
-					scopes = scopes.filter((el) => el != v)
+					scopes = scopes?.filter((el) => el != v)
 				}}
 				startIcon={{ icon: Minus }}
 				iconOnly
