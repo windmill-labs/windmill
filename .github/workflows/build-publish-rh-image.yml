@@ -95,22 +95,22 @@ jobs:
           cp /tmp/amd64/usr/src/app/libwindmill_duckdb_ffi_internal.so extracted/libwindmill_duckdb_ffi_internal-amd64.so
           rm -rf /tmp/amd64
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: RHEL9-arm64 build
           path: extracted/windmill-ee-arm64-rhel9
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: RHEL9-amd64 build
           path: extracted/windmill-ee-amd64-rhel9
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: RHEL9-arm64 dynamic libraries build
           path: extracted/libwindmill_duckdb_ffi_internal-arm64.so
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: RHEL9-amd64 dynamic libraries build
           path: extracted/libwindmill_duckdb_ffi_internal-amd64.so
