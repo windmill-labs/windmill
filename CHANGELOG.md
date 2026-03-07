@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.651.2](https://github.com/windmill-labs/windmill/compare/v1.651.1...v1.651.2) (2026-03-07)
+
+
+### Bug Fixes
+
+* cli: support deleting linked resources-variables without throwing ([#8248](https://github.com/windmill-labs/windmill/issues/8248)) ([7859bca](https://github.com/windmill-labs/windmill/commit/7859bca6ae80d32a73a46910960afc6812e64115))
+* Database studio fixes ([#8251](https://github.com/windmill-labs/windmill/issues/8251)) ([1d78589](https://github.com/windmill-labs/windmill/commit/1d785899404e8636a206cda9a2914df32a1a5269))
+* **frontend:** unsaved changes dialog when flow already saved ([#8259](https://github.com/windmill-labs/windmill/issues/8259)) ([0330993](https://github.com/windmill-labs/windmill/commit/0330993cb66cdabffcd6e552a0f85a9a3931c62d))
+* remove $bindable() fallback values causing props_invalid_value error in oauth settings ([#8265](https://github.com/windmill-labs/windmill/issues/8265)) ([037035e](https://github.com/windmill-labs/windmill/commit/037035e094937827305dad29bd76a495d78bc46f))
+* sql input horizontal scroll missing after switching flow steps ([#8249](https://github.com/windmill-labs/windmill/issues/8249)) ([ce8ac9c](https://github.com/windmill-labs/windmill/commit/ce8ac9cf52dc17061673b9b72556279c48c26f8e))
+* wmill workspace whoami output ([#8246](https://github.com/windmill-labs/windmill/issues/8246)) ([1ac391a](https://github.com/windmill-labs/windmill/commit/1ac391a795585747fe5911ac41b157556569fedb))
+
 ## [1.651.1](https://github.com/windmill-labs/windmill/compare/v1.651.0...v1.651.1) (2026-03-05)
 
 
