@@ -731,6 +731,7 @@ pub struct RubyAnnotations {
 #[annotations("#")]
 pub struct RlangAnnotations {
     pub verbose: bool,
+    pub sandbox: bool,
 }
 
 #[annotations("#")]

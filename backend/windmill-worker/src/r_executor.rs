@@ -11,7 +11,7 @@ use windmill_common::{
     client::AuthedClient,
     error::Error,
     utils::calculate_hash,
-    worker::{write_file, Connection},
+    worker::{write_file, Connection, RlangAnnotations},
 };
 use windmill_parser::Arg;
 use windmill_parser_r::{parse_r_requirements, parse_r_signature};
@@ -24,8 +24,8 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::{self},
-    is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, R_CACHE_DIR,
-    TRACING_PROXY_CA_CERT_PATH,
+    is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    R_CACHE_DIR, TRACING_PROXY_CA_CERT_PATH,
 };
 use windmill_common::scripts::ScriptLang;
 
@@ -65,6 +65,16 @@ pub(crate) struct JobHandlerInput<'a> {
 pub async fn handle_r_job<'a>(
     mut args: JobHandlerInput<'a>,
 ) -> Result<Box<sqlx::types::JsonRawValue>, Error> {
+    let annotation = RlangAnnotations::parse(args.inner_content);
+
+    if annotation.sandbox && NSJAIL_AVAILABLE.is_none() {
+        return Err(Error::ExecutionErr(
+            "Script has #sandbox annotation but nsjail is not available on this worker. \
+            Please ensure nsjail is installed or remove the #sandbox annotation."
+                .to_string(),
+        ));
+    }
+
     // --- Prepare ---
     {
         prepare(&args).await?;
@@ -89,7 +99,7 @@ pub async fn handle_r_job<'a>(
     };
     // --- Execute ---
     {
-        run(&mut args, lib_path.as_deref()).await?;
+        run(&mut args, lib_path.as_deref(), annotation.sandbox).await?;
     }
     // --- Retrieve results ---
     {
@@ -108,42 +118,34 @@ pub async fn prepare<'a>(
 
     // Create windmill client library for R
     let wm_lib_path = format!("{}/r_libs", *R_CACHE_DIR);
-    if !std::fs::metadata(&wm_lib_path).is_ok() {
-        fs::create_dir_all(&wm_lib_path).await?;
-
+    fs::create_dir_all(&wm_lib_path).await?;
+    {
         File::create(format!("{}/windmill.r", &wm_lib_path))
             .await?
             .write_all(
                 r##"
 # Windmill mini client methods for R
-# Uses system curl to avoid requiring any extra R packages
+# Uses base R url() + readLines() to avoid requiring any extra R packages
 
-.wm_fetch <- function(url) {
+.wm_fetch_raw <- function(url) {
     token <- Sys.getenv("WM_TOKEN")
-    result <- system2(
-        "curl", c("-s", "-f",
-            "-H", paste0("Authorization: Bearer ", token),
-            url),
-        stdout = TRUE, stderr = TRUE
-    )
-    if (!is.null(attr(result, "status")) && attr(result, "status") != 0) {
-        stop(paste("HTTP request failed:", paste(result, collapse = "\n")))
-    }
-    jsonlite::fromJSON(paste(result, collapse = "\n"))
+    con <- url(url, headers = c(Authorization = paste("Bearer", token)))
+    on.exit(close(con))
+    paste(readLines(con, warn = FALSE), collapse = "\n")
 }
 
 get_variable <- function(path) {
     base_url <- Sys.getenv("BASE_INTERNAL_URL")
     workspace <- Sys.getenv("WM_WORKSPACE")
     url <- paste0(base_url, "/api/w/", workspace, "/variables/get_value/", path)
-    .wm_fetch(url)
+    jsonlite::fromJSON(.wm_fetch_raw(url))
 }
 
 get_resource <- function(path) {
     base_url <- Sys.getenv("BASE_INTERNAL_URL")
     workspace <- Sys.getenv("WM_WORKSPACE")
     url <- paste0(base_url, "/api/w/", workspace, "/resources/get_value_interpolated/", path)
-    .wm_fetch(url)
+    jsonlite::fromJSON(.wm_fetch_raw(url))
 }
 "##
                 .as_bytes(),
@@ -460,15 +462,17 @@ async fn run<'a>(
         ..
     }: &mut JobHandlerInput<'a>,
     lib_path: Option<&str>,
+    sandbox: bool,
 ) -> Result<(), Error> {
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
 
-    let child = if !cfg!(windows) && is_sandboxing_enabled() {
+    let nsjail = !cfg!(windows) && (is_sandboxing_enabled() || sandbox);
+    let child = if nsjail {
         append_logs(
             &job.id,
             &job.workspace_id,
-            format!("\n--- ISOLATED R CODE EXECUTION ---\n"),
+            "\n--- R CODE EXECUTION (nsjail) ---\n".to_string(),
             conn,
         )
         .await;
@@ -557,7 +561,7 @@ async fn run<'a>(
         mem_peak,
         canceled_by,
         child,
-        is_sandboxing_enabled(),
+        nsjail,
         worker_name,
         &job.workspace_id,
         "r",
@@ -580,7 +584,10 @@ fn wrap(inner_content: &str) -> Result<String, Error> {
         .map(|Arg { name, .. }| format!("{name} = args${name}", name = name))
         .collect_vec()
         .join(", ");
-    Ok(r#"INNER_CONTENT
+    let wm_lib_path = format!("{}/r_libs/windmill.r", *R_CACHE_DIR);
+    Ok(r#"source("WM_LIB_PATH")
+
+INNER_CONTENT
 
 library(jsonlite)
 args <- fromJSON("args.json")
@@ -598,6 +605,7 @@ tryCatch({
     stop(e)
 })
 "#
+    .replace("WM_LIB_PATH", &wm_lib_path)
     .replace("INNER_CONTENT", inner_content)
     .replace("SPREAD", &spread))
 }
