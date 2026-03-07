@@ -26,6 +26,27 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Login**: `admin@windmill.dev` / `changeme`
 - **Instance settings**: navigate to `/#superadmin-settings`
 
+## Banned Patterns
+
+### `$bindable(default_value)` on optional props
+
+Using `$bindable(default_value)` on props that can be `undefined` is **banned**. This pattern causes subtle bugs because the default value masks the `undefined` state.
+
+**Bad:**
+```svelte
+let { my_prop = $bindable(default_value) }: { my_prop?: string } = $props()
+```
+
+**Correct alternatives:**
+
+1. **Use `$derived` with nullish coalescing** — handle the potential `undefined` at the usage site:
+   ```svelte
+   let { my_prop = $bindable() }: { my_prop?: string } = $props()
+   let effective_value = $derived(my_prop ?? default_value)
+   ```
+
+2. **Create a `useMyPropState()` helper** — encapsulate the undefined-handling logic in a reusable function and call it higher in the component tree, so the child component always receives a defined value.
+
 ## Core Principles
 
 - Search for existing code to reuse before writing new code
