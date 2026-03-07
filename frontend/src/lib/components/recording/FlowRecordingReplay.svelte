@@ -90,8 +90,12 @@
 
 		for (const recorded of Object.values(data.jobs)) {
 			offsetJobTimestamps(recorded.initial_job)
+			if (recorded.initial_job?.flow_status) offsetFlowStatus(recorded.initial_job.flow_status)
 			for (const event of recorded.events) {
-				if (event.data?.job) offsetJobTimestamps(event.data.job)
+				if (event.data?.job) {
+					offsetJobTimestamps(event.data.job)
+					if (event.data.job.flow_status) offsetFlowStatus(event.data.job.flow_status)
+				}
 				if (event.data?.flow_status) offsetFlowStatus(event.data.flow_status)
 			}
 		}
@@ -192,7 +196,7 @@
 				Play
 			</Button>
 		</div>
-		<FlowViewer flow={recording.flow} noSummary />
+		<FlowViewer flow={recording.flow} noSummary noInput hideDefaultInputs showStepHint />
 	</div>
 {:else if replayState === 'playing' && rootJobId}
 	<div class="flex flex-col gap-4">
@@ -219,6 +223,7 @@
 			workspaceId={$workspaceStore}
 			wideResults
 			showLogsWithResult
+			hideFlowResult={!done}
 		/>
 	</div>
 {/if}

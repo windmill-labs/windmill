@@ -12,6 +12,7 @@
 	import { json as jsonLang } from 'svelte-highlight/languages'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ClipboardCopy, InfoIcon, LogOut, Play, Square } from 'lucide-svelte'
@@ -140,23 +141,56 @@
 			</Button>
 		</div>
 
-		{#if recording.args && Object.keys(recording.args).length > 0}
-			<JobArgs args={recording.args} />
-		{/if}
-
-		<Tabs selected="code">
-			<Tab value="code" label="Code" />
+		<Tabs selected={schema && recording.args ? 'parameters' : recording.args && Object.keys(recording.args).length > 0 ? 'args' : 'code'}>
+			{#if schema && recording.args}
+				<Tab value="parameters" label="Code" />
+			{/if}
+			{#if recording.args && Object.keys(recording.args).length > 0}
+				<Tab value="args" label="Args" />
+			{/if}
+			{#if !schema || !recording.args}
+				<Tab value="code" label="Code" />
+			{/if}
 			{#if schema}
 				<Tab value="schema" label="Schema" />
 			{/if}
 			{#snippet content()}
+				<TabContent value="parameters">
+					{#if schema && recording.args}
+						<div class="flex gap-4 p-2" style="height: calc(100vh - 250px);">
+							<div class="w-1/2 overflow-auto text-2xs">
+								<HighlightCode
+									language={recording.language as Script['language']}
+									code={recording.code}
+									lines
+									className="text-2xs"
+								/>
+							</div>
+							<div class="w-1/2 overflow-auto">
+								<SchemaForm
+									schema={schema}
+									args={recording.args}
+									disabled={true}
+									noVariablePicker={true}
+								/>
+							</div>
+						</div>
+					{/if}
+				</TabContent>
+				<TabContent value="args">
+					{#if recording.args && Object.keys(recording.args).length > 0}
+						<div class="p-2">
+							<JobArgs args={recording.args} />
+						</div>
+					{/if}
+				</TabContent>
 				<TabContent value="code">
-					<div class="p-2 w-full overflow-auto">
+					<div class="p-2 w-full overflow-auto text-2xs">
 						<HighlightCode
 							language={recording.language as Script['language']}
 							code={recording.code}
 							lines
-							className="text-xs"
+							className="text-2xs"
 						/>
 					</div>
 				</TabContent>
@@ -197,29 +231,37 @@
 		</div>
 		<JobLoader noCode={true} bind:this={jobLoader} bind:job />
 
-		{#if done && job}
-			<div>
-				<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
-				<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-screen">
-					{#if job.type === 'CompletedJob' && job.result !== undefined}
+		<div class="grid grid-cols-2 gap-4 w-full" style="height: calc(100vh - 200px);">
+			<div class="flex flex-col min-h-0">
+				<h3 class="shrink-0 text-xs font-semibold text-emphasis mb-1">Result</h3>
+				<div class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary p-4">
+					{#if job !== undefined && job.type === 'CompletedJob' && job.result !== undefined}
 						<DisplayResult result={job.result} language={job.language} />
+					{:else if done}
+						<div class="w-full h-full flex items-center justify-center text-secondary text-sm">
+							No output available
+						</div>
 					{:else}
-						<div class="text-secondary text-sm">No result available</div>
+						<div class="w-full h-full flex items-center justify-center text-secondary text-sm">
+							Waiting for result...
+						</div>
 					{/if}
 				</div>
 			</div>
-		{/if}
-
-		<div class="border rounded-md p-2 bg-surface-secondary overflow-auto min-h-[300px]">
-			<LogViewer
-				jobId={job?.id}
-				duration={job?.['duration_ms']}
-				mem={job?.['mem_peak']}
-				isLoading={!done}
-				content={job?.logs}
-				tag={job?.tag}
-				download={false}
-			/>
+			<div class="flex flex-col min-h-0">
+				<h3 class="shrink-0 text-xs font-semibold text-emphasis mb-1">Logs</h3>
+				<div class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary">
+					<LogViewer
+						jobId={job?.id}
+						duration={job?.['duration_ms']}
+						mem={job?.['mem_peak']}
+						isLoading={!done}
+						content={job?.logs}
+						tag={job?.tag}
+						download={false}
+					/>
+				</div>
+			</div>
 		</div>
 	</div>
 {/if}
