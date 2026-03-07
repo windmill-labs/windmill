@@ -41,6 +41,8 @@ lazy_static::lazy_static! {
 }
 
 const NSJAIL_CONFIG_RUN_R_CONTENT: &str = include_str!("../nsjail/run.r.config.proto");
+const NSJAIL_CONFIG_RESOLVE_R_CONTENT: &str = include_str!("../nsjail/resolve.r.config.proto");
+const NSJAIL_CONFIG_INSTALL_R_CONTENT: &str = include_str!("../nsjail/install.r.config.proto");
 
 #[allow(dead_code)]
 pub(crate) struct JobHandlerInput<'a> {
@@ -221,20 +223,46 @@ close(con)
     let mut file = File::create(format!("{}/resolve.r", job_dir)).await?;
     file.write_all(resolve_script.as_bytes()).await?;
 
-    let rscript_executable = if cfg!(windows) {
-        "Rscript.exe"
+    let child = if !cfg!(windows) && is_sandboxing_enabled() {
+        let nsjail_proto = format!("{}.resolve.config.proto", Uuid::new_v4());
+        write_file(
+            job_dir,
+            &nsjail_proto,
+            &NSJAIL_CONFIG_RESOLVE_R_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL),
+        )?;
+        let mut cmd = Command::new(NSJAIL_PATH.as_str());
+        cmd.env_clear()
+            .current_dir(job_dir)
+            .env("PATH", PATH_ENV.as_str())
+            .envs(R_PROXY_ENVS.clone())
+            .args(vec![
+                "--config",
+                &nsjail_proto,
+                "--",
+                RSCRIPT_PATH.as_str(),
+                "resolve.r",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        RSCRIPT_PATH.as_str()
+        let rscript_executable = if cfg!(windows) {
+            "Rscript.exe"
+        } else {
+            RSCRIPT_PATH.as_str()
+        };
+        let mut cmd = Command::new(rscript_executable);
+        cmd.current_dir(job_dir)
+            .env("PATH", PATH_ENV.as_str())
+            .arg("resolve.r")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        start_child_process(cmd, rscript_executable, false).await?
     };
-
-    let mut cmd = Command::new(rscript_executable);
-    cmd.current_dir(job_dir)
-        .env("PATH", PATH_ENV.as_str())
-        .arg("resolve.r")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let child = start_child_process(cmd, rscript_executable, false).await?;
     handle_child::handle_child(
         job_id,
         conn,
@@ -352,27 +380,55 @@ async fn install<'a>(args: &mut JobHandlerInput<'a>, lockfile: &str) -> Result<S
     let mut file = File::create(format!("{}/install.r", args.job_dir)).await?;
     file.write_all(install_script.as_bytes()).await?;
 
-    let rscript_executable = if cfg!(windows) {
-        "Rscript.exe"
+    let child = if !cfg!(windows) && is_sandboxing_enabled() {
+        let nsjail_proto = format!("{}.install.config.proto", Uuid::new_v4());
+        write_file(
+            args.job_dir,
+            &nsjail_proto,
+            &NSJAIL_CONFIG_INSTALL_R_CONTENT
+                .replace("{JOB_DIR}", args.job_dir)
+                .replace("{R_CACHE_DIR}", &*R_CACHE_DIR)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL),
+        )?;
+        let mut cmd = Command::new(NSJAIL_PATH.as_str());
+        cmd.env_clear()
+            .current_dir(args.job_dir)
+            .env("PATH", PATH_ENV.as_str())
+            .envs(R_PROXY_ENVS.clone())
+            .args(vec![
+                "--config",
+                &nsjail_proto,
+                "--",
+                RSCRIPT_PATH.as_str(),
+                "install.r",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        RSCRIPT_PATH.as_str()
+        let rscript_executable = if cfg!(windows) {
+            "Rscript.exe"
+        } else {
+            RSCRIPT_PATH.as_str()
+        };
+        let mut cmd = Command::new(rscript_executable);
+        cmd.current_dir(args.job_dir)
+            .env("PATH", PATH_ENV.as_str())
+            .arg("install.r")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        start_child_process(cmd, rscript_executable, false).await?
     };
 
-    let mut cmd = Command::new(rscript_executable);
-    cmd.current_dir(args.job_dir)
-        .env("PATH", PATH_ENV.as_str())
-        .arg("install.r")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let child = start_child_process(cmd, rscript_executable, false).await?;
     handle_child::handle_child(
         &args.job.id,
         args.conn,
         args.mem_peak,
         args.canceled_by,
         child,
-        false,
+        is_sandboxing_enabled(),
         args.worker_name,
         &args.job.workspace_id,
         "r install",
