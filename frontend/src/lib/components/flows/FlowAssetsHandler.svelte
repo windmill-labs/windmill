@@ -130,7 +130,8 @@
 			const old = v.assets?.find((a) => assetEq(a, asset))
 			if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
 		}
-		if (!deepEqual(v.assets, newAssets)) v.assets = newAssets
+		const normalizedAssets = newAssets.length > 0 ? newAssets : undefined
+		if (!deepEqual(v.assets, normalizedAssets)) v.assets = normalizedAssets
 	}
 
 	// Check for raw script modules whose assets were not parsed. Useful for flows created
