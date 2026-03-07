@@ -8,6 +8,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
 	import Label from './Label.svelte'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		summary?: string
@@ -35,16 +36,20 @@
 	let hasChanges = $derived(editSummary !== (summary ?? '') || (own && dirtyPath))
 
 	$effect(() => {
-		if (popoverOpen && onSaved) {
-			editSummary = summary ?? ''
-			editPath = path ?? ''
-			own = isOwner(path ?? '', $userStore, $workspaceStore)
-			onBehalfOfEmail = undefined
-			if (kind === 'flow' && $workspaceStore && path) {
-				checkFlowOnBehalfOf($workspaceStore, path).then((email) => {
-					onBehalfOfEmail = email
-				})
-			}
+		if (popoverOpen) {
+			untrack(() => {
+				if (onSaved) {
+					editSummary = summary ?? ''
+					editPath = path ?? ''
+					own = isOwner(path ?? '', $userStore, $workspaceStore)
+					onBehalfOfEmail = undefined
+					if (kind === 'flow' && $workspaceStore && path) {
+						checkFlowOnBehalfOf($workspaceStore, path).then((email) => {
+							onBehalfOfEmail = email
+						})
+					}
+				}
+			})
 		}
 	})
 
