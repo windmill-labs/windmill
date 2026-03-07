@@ -60,6 +60,8 @@ export function scriptLangToEditorLang(
 		return 'nu'
 	} else if (lang == 'java') {
 		return 'java'
+	} else if (lang == 'rlang') {
+		return 'r'
 		// for related places search: ADD_NEW_LANG
 	} else if (lang == undefined) {
 		return 'typescript'
@@ -153,7 +155,8 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['nu', 'Nu'],
 	['java', 'Java'],
 	['duckdb', 'DuckDB'],
-	['ruby', 'Ruby']
+	['ruby', 'Ruby'],
+	['rlang', 'R']
 	// for related places search: ADD_NEW_LANG
 ]
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
@@ -163,7 +166,7 @@ export function processLangs(selected: string | undefined, langs: string[]): str
 		let ls = langs.filter((lang) => lang !== 'nativets')
 
 		//those languages are newer and may not be in the saved list
-		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'ruby']
+		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'ruby', 'rlang']
 		// for related places search: ADD_NEW_LANG
 		nl.forEach((lang) => {
 			if (!ls.includes(lang)) {

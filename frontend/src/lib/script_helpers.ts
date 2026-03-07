@@ -1257,6 +1257,24 @@ def main(
   return result
 end
 `
+const R_INIT_CODE = `# Uncomment to use additional packages (must be installed on the worker):
+# library(dplyr)
+# library(ggplot2)
+
+main <- function(
+    x,
+    name = "default",
+    age = 25,
+    data = list(1, 2, 3),
+    flag = TRUE
+) {
+    # Use Windmill helpers:
+    # var <- get_variable("f/my_var")
+    # res <- get_resource("f/my_resource")
+
+    return(list(result = x, name = name, age = age))
+}
+`
 // for related places search: ADD_NEW_LANG
 export const INITIAL_CODE = {
 	bun: {
@@ -1351,6 +1369,9 @@ export const INITIAL_CODE = {
 	},
 	ruby: {
 		script: RUBY_INIT_CODE
+	},
+	rlang: {
+		script: R_INIT_CODE
 	},
 	claudesandbox: {
 		script: CLAUDE_SANDBOX_INIT_CODE
@@ -1469,6 +1490,8 @@ export function initialCode(
 		return INITIAL_CODE.java.script
 	} else if (language == 'ruby') {
 		return INITIAL_CODE.ruby.script
+	} else if (language == 'rlang') {
+		return INITIAL_CODE.rlang.script
 		// for related places search: ADD_NEW_LANG
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (subkind === 'claudesandbox') {

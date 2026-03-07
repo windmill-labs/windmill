@@ -84,6 +84,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "BUNDLE_PATH",
     "GEM_PATH",
     "RUBY_CONCURRENT_DOWNLOADS",
+    "RSCRIPT_PATH",
     // for related places search: ADD_NEW_LANG
     "GOPRIVATE",
     "GOPROXY",

@@ -26,7 +26,7 @@ native_trigger_service: nextcloud
 request_type: sync, async, sync_sse
 runnable_type: ScriptHash, ScriptPath, FlowPath
 script_kind: script, trigger, failure, command, approval, preprocessor
-script_lang: python3, deno, go, bash, postgresql, nativets, bun, mysql, bigquery, snowflake, graphql, powershell, mssql, php, bunnative, rust, ansible, csharp, oracledb, nu, java, duckdb, ruby
+script_lang: python3, deno, go, bash, postgresql, nativets, bun, mysql, bigquery, snowflake, graphql, powershell, mssql, php, bunnative, rust, ansible, csharp, oracledb, nu, java, duckdb, ruby, rlang
 trigger_kind: webhook, http, websocket, kafka, email, nats, postgres, sqs, mqtt, gcp, default_email, nextcloud
 trigger_mode: enabled, disabled, suspended
 workspace_key_kind: cloud

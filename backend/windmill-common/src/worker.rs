@@ -184,6 +184,7 @@ lazy_static::lazy_static! {
         "nu".to_string(),
         "java".to_string(),
         "ruby".to_string(),
+        "rlang".to_string(),
         "duckdb".to_string(),
         // for related places search: ADD_NEW_LANG
         "dependency".to_string(),
@@ -725,6 +726,12 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
 #[annotations("#")]
 pub struct RubyAnnotations {
     pub verbose: bool,
+}
+
+#[annotations("#")]
+pub struct RlangAnnotations {
+    pub verbose: bool,
+    pub sandbox: bool,
 }
 
 #[annotations("#")]

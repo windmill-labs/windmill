@@ -1067,6 +1067,115 @@ echo "$result"
     Ok(())
 }
 
+#[cfg(feature = "rlang")]
+#[sqlx::test(fixtures("base"))]
+async fn test_r_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+main <- function(msg) {
+    return(paste("hello", msg))
+}
+"#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Rlang,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .arg("msg", json!("world"))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, json!("hello world"));
+    Ok(())
+}
+
+#[cfg(feature = "rlang")]
+#[sqlx::test(fixtures("base", "wmill_cli_test"))]
+async fn test_r_get_variable(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+main <- function() {
+    return(get_variable("u/test-user/test_var"))
+}
+"#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Rlang,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, json!("hello from variable"));
+    Ok(())
+}
+
+#[cfg(feature = "rlang")]
+#[sqlx::test(fixtures("base", "wmill_cli_test"))]
+async fn test_r_get_resource(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+main <- function() {
+    return(get_resource("u/test-user/test_res"))
+}
+"#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Rlang,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, json!({"host": "localhost", "port": 5432}));
+    Ok(())
+}
+
 #[cfg(feature = "nu")]
 #[sqlx::test(fixtures("base"))]
 async fn test_nu_job(db: Pool<Postgres>) -> anyhow::Result<()> {

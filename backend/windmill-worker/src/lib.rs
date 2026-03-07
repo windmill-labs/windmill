@@ -17,6 +17,9 @@ mod java_executor;
 #[cfg(feature = "ruby")]
 mod ruby_executor;
 
+#[cfg(feature = "rlang")]
+mod r_executor;
+
 mod ai;
 mod ai_executor;
 mod bun_executor;

@@ -55,6 +55,11 @@ const targets = [
     desc: "Ruby",
     features: "ruby-parser",
     env: "tree-sitter",
+  }, {
+    ident: "r",
+    desc: "R",
+    features: "r-parser",
+    env: "tree-sitter",
   },
   # ^^^ Add new entry here ^^^
 ];

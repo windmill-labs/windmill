@@ -158,6 +158,9 @@ use crate::java_executor::{handle_java_job, JobHandlerInput as JobHandlerInputJa
 #[cfg(feature = "ruby")]
 use crate::ruby_executor::{handle_ruby_job, JobHandlerInput as JobHandlerInputRuby};
 
+#[cfg(feature = "rlang")]
+use crate::r_executor::{handle_r_job, JobHandlerInput as JobHandlerInputRlang};
+
 #[cfg(feature = "php")]
 use crate::php_executor::handle_php_job;
 
@@ -223,6 +226,9 @@ lazy_static::lazy_static! {
 
     // Ruby
     pub static ref RUBY_CACHE_DIR: String = format!("{}ruby", *ROOT_CACHE_DIR);
+
+    // R
+    pub static ref R_CACHE_DIR: String = format!("{}rlang", *ROOT_CACHE_DIR);
 
     // for related places search: ADD_NEW_LANG
     pub static ref BUN_CACHE_DIR: String = format!("{}bun", *ROOT_CACHE_NOMOUNT_DIR);
@@ -4229,7 +4235,8 @@ mount {{
             | ScriptLang::Bash
             | ScriptLang::Powershell
             | ScriptLang::Ansible
-            | ScriptLang::Ruby => "#",
+            | ScriptLang::Ruby
+            | ScriptLang::Rlang => "#",
             ScriptLang::Deno
             | ScriptLang::Bun
             | ScriptLang::Bunnative
@@ -4729,6 +4736,38 @@ mount {{
                 .await
             }
         }
+        ScriptLang::Rlang => {
+            #[cfg(not(feature = "rlang"))]
+            return Err(
+                anyhow::anyhow!("R is not available because the feature is not enabled").into(),
+            );
+
+            #[cfg(feature = "rlang")]
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                Box::pin(handle_r_job(JobHandlerInputRlang {
+                    mem_peak,
+                    canceled_by,
+                    job,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    inner_content: &code,
+                    job_dir,
+                    requirements_o: lock.as_ref(),
+                    shared_mount: &shared_mount,
+                    base_internal_url,
+                    worker_name,
+                    envs,
+                    occupancy_metrics,
+                }))
+                .await
+            }
+        }
         // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
@@ -4862,6 +4901,10 @@ pub fn parse_sig_of_lang(
             ScriptLang::Ruby => Some(windmill_parser_ruby::parse_ruby_signature(code)?),
             #[cfg(not(feature = "ruby"))]
             ScriptLang::Ruby => None,
+            #[cfg(feature = "rlang")]
+            ScriptLang::Rlang => Some(windmill_parser_r::parse_r_signature(code)?),
+            #[cfg(not(feature = "rlang"))]
+            ScriptLang::Rlang => None,
             // for related places search: ADD_NEW_LANG
         }
     } else {
