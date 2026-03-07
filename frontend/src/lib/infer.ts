@@ -38,6 +38,7 @@ import initCSharpParser, { parse_csharp } from 'windmill-parser-wasm-csharp'
 import initNuParser, { parse_nu } from 'windmill-parser-wasm-nu'
 import initJavaParser, { parse_java } from 'windmill-parser-wasm-java'
 import initRubyParser, { parse_ruby } from 'windmill-parser-wasm-ruby'
+import initRParser, { parse_r } from 'windmill-parser-wasm-r'
 
 import wasmUrlTs from 'windmill-parser-wasm-ts/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRegex from 'windmill-parser-wasm-regex/windmill_parser_wasm_bg.wasm?url'
@@ -50,6 +51,7 @@ import wasmUrlCSharp from 'windmill-parser-wasm-csharp/windmill_parser_wasm_bg.w
 import wasmUrlNu from 'windmill-parser-wasm-nu/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlJava from 'windmill-parser-wasm-java/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRuby from 'windmill-parser-wasm-ruby/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlR from 'windmill-parser-wasm-r/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 import { type AssetWithAccessType } from './components/assets/lib.js'
@@ -93,6 +95,9 @@ async function initWasmJava() {
 }
 async function initWasmRuby() {
 	await initRubyParser(wasmUrlRuby)
+}
+async function initWasmR() {
+	await initRParser(wasmUrlR)
 }
 
 type InferAssetsResult =
@@ -144,6 +149,7 @@ function getCommentPrefix(language: SupportedLanguage | undefined): string | und
 		case 'powershell':
 		case 'ansible':
 		case 'ruby':
+		case 'rlang':
 			return '#'
 		case 'deno':
 		case 'bun':
@@ -351,6 +357,9 @@ export async function inferArgs(
 		} else if (language == 'ruby') {
 			await initWasmRuby()
 			inferedSchema = JSON.parse(parse_ruby(code))
+		} else if (language == 'rlang') {
+			await initWasmR()
+			inferedSchema = JSON.parse(parse_r(code))
 			// for related places search: ADD_NEW_LANG
 		} else {
 			return null

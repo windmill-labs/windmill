@@ -35,6 +35,7 @@ export const LANGUAGE_EXTENSIONS: Record<SupportedLanguage, string> = {
   duckdb: "duckdb.sql",
   bunnative: "ts",
   ruby: "rb",
+  rlang: "r",
   // for related places search: ADD_NEW_LANG
 };
 

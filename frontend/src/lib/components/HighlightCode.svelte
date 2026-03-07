@@ -14,6 +14,7 @@
 	import yaml from 'svelte-highlight/languages/yaml'
 	import java from 'svelte-highlight/languages/java'
 	import ruby from 'svelte-highlight/languages/ruby'
+	import r from 'svelte-highlight/languages/r'
 	import type { Script } from '$lib/gen'
 	import { Button } from './common'
 	import { copyToClipboard } from '$lib/utils'
@@ -91,6 +92,8 @@
 				return java
 			case 'ruby':
 				return ruby
+			case 'rlang':
+				return r
 			case 'json':
 				return json
 			// for related places search: ADD_NEW_LANG

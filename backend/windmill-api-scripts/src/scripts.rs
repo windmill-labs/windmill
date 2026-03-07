@@ -791,6 +791,7 @@ async fn create_script_internal<'c>(
             || ns.language == ScriptLang::Php
             || ns.language == ScriptLang::Java
             || ns.language == ScriptLang::Ruby
+            || ns.language == ScriptLang::Rlang
         // for related places search: ADD_NEW_LANG
     ) {
         Some(String::new())

@@ -19988,6 +19988,7 @@ components:
           nu,
           java,
           ruby,
+          rlang,
           duckdb,
           bunnative,
           # for related places search: ADD_NEW_LANG

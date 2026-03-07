@@ -187,6 +187,12 @@ pub fn parse_ruby(code: &str) -> String {
     wrap_sig(windmill_parser_ruby::parse_ruby_signature(code))
 }
 
+#[cfg(feature = "r-parser")]
+#[wasm_bindgen]
+pub fn parse_r(code: &str) -> String {
+    wrap_sig(windmill_parser_r::parse_r_signature(code))
+}
+
 #[cfg(feature = "sql-parser")]
 #[wasm_bindgen]
 pub fn parse_assets_sql(code: &str) -> String {
