@@ -1535,6 +1535,18 @@ fn validate_git_repo_resource_path(path: &str) -> Result<()> {
 }
 
 #[cfg(feature = "enterprise")]
+fn upgrade_git_sync_script_paths(
+    git_sync_settings: &mut windmill_common::workspaces::WorkspaceGitSyncSettings,
+) {
+    use windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH;
+    for repo in &mut git_sync_settings.repositories {
+        if repo.script_path.is_empty() {
+            repo.script_path = LATEST_GIT_SYNC_SCRIPT_PATH.to_string();
+        }
+    }
+}
+
+#[cfg(feature = "enterprise")]
 fn cleanup_legacy_git_sync_settings_in_memory(
     git_sync_settings: &mut windmill_common::workspaces::WorkspaceGitSyncSettings,
     workspace_id: &str,
@@ -1597,6 +1609,8 @@ async fn edit_git_sync_config(
     .await?;
 
     if let Some(mut git_sync_settings) = new_config.git_sync_settings {
+        // Auto-upgrade hub script paths to latest version
+        upgrade_git_sync_script_paths(&mut git_sync_settings);
         // Clean up legacy workspace-level settings if all repos are migrated
         cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
 
@@ -1724,6 +1738,8 @@ async fn edit_git_sync_repository(
         git_sync_settings.repositories.push(new_config.repository);
     }
 
+    // Auto-upgrade hub script paths to latest version
+    upgrade_git_sync_script_paths(&mut git_sync_settings);
     // Clean up legacy workspace-level settings if all repos are migrated
     cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
 
