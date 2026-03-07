@@ -283,8 +283,14 @@
 		{/if}
 	{:else}
 		<SettingCard
-			label={setting.fieldType != 'smtp_connect' ? setting.label : undefined}
-			description={setting.description}
+			label={setting.key === 'disable_stats'
+				? ($enterpriseLicense ? 'Minimal telemetry' : 'Disable telemetry')
+				: (setting.fieldType != 'smtp_connect' ? setting.label : undefined)}
+			description={setting.key === 'disable_stats'
+				? ($enterpriseLicense
+					? 'Reduces telemetry to only what is needed for license compliance (no job usage data).'
+					: 'Disables telemetry entirely.')
+				: setting.description}
 			ee_only={setting.ee_only}
 			tooltip={setting.tooltip}
 			settingKey={setting.key}

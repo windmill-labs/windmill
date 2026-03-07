@@ -637,11 +637,10 @@ export const settings: Record<string, Setting[]> = {
 
 	Telemetry: [
 		{
-			label: 'Disable telemetry',
+			label: 'Minimal telemetry',
 			key: 'disable_stats',
 			fieldType: 'boolean',
-			storage: 'setting',
-			hiddenInEe: true
+			storage: 'setting'
 		}
 	],
 	'Secret Storage': [
