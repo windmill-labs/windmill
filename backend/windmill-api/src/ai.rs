@@ -29,7 +29,7 @@ const AI_TIMEOUT_MAX_SECS: u64 = 86400; // 24 hours
 const AI_TIMEOUT_DEFAULT_SECS: u64 = 3600; // 1 hour
 const HTTP_POOL_MAX_IDLE_PER_HOST: usize = 10;
 const HTTP_POOL_IDLE_TIMEOUT_SECS: u64 = 90;
-const KEEPALIVE_INTERVAL_SECS: u64 = 15;
+pub(crate) const KEEPALIVE_INTERVAL_SECS: u64 = 15;
 
 lazy_static::lazy_static! {
     /// AI request timeout in seconds.
@@ -87,7 +87,7 @@ lazy_static::lazy_static! {
         }
     };
 
-    static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
+    pub(crate) static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
         .timeout(std::time::Duration::from_secs(*AI_TIMEOUT_SECS))
         .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
         .pool_idle_timeout(Some(std::time::Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS)))
@@ -378,12 +378,7 @@ impl AIRequestConfig {
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
         let is_google_ai = matches!(provider, AIProvider::GoogleAI);
 
-        // GoogleAI uses OpenAI-compatible endpoint in the proxy (for the chat), but not for the ai agent
-        let base_url = if is_google_ai {
-            format!("{}/openai", base_url)
-        } else {
-            base_url.to_string()
-        };
+        let base_url = base_url.to_string();
         let base_url = base_url.as_str();
 
         // Build URL based on provider
@@ -428,6 +423,9 @@ impl AIRequestConfig {
         if let Some(api_key) = self.api_key {
             if is_azure {
                 request = request.header("api-key", api_key.clone())
+            } else if is_google_ai {
+                // Native Gemini API uses x-goog-api-key, not Authorization: Bearer
+                request = request.header("x-goog-api-key", api_key.clone())
             } else {
                 request = request.header("authorization", format!("Bearer {}", api_key.clone()))
             }
@@ -611,7 +609,7 @@ fn is_sse_response(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
-fn inject_keepalives<S>(
+pub(crate) fn inject_keepalives<S>(
     upstream: S,
     interval: Duration,
 ) -> impl futures::Stream<Item = std::result::Result<Bytes, reqwest::Error>>
@@ -828,6 +826,36 @@ async fn proxy(
         let (chat_body, chat_path) = transform_fim_to_chat_completions(&body)?;
         body = chat_body;
         ai_path = chat_path;
+    }
+
+    // Handle GoogleAI (Gemini) using the native Gemini API
+    if matches!(provider, AIProvider::GoogleAI) {
+        let api_key = request_config.api_key.as_deref().unwrap_or("");
+        let base_url = request_config.base_url.trim_end_matches('/');
+
+        let mut tx = db.begin().await?;
+        audit_log(
+            &mut *tx,
+            &authed,
+            "ai.request",
+            ActionKind::Execute,
+            &w_id,
+            Some(&authed.email),
+            Some([("ai_config_path", &format!("{:?}", ai_path)[..])].into()),
+        )
+        .await?;
+        tx.commit().await?;
+
+        return match ai_path.as_str() {
+            "chat/completions" => {
+                crate::google::handle_google_ai_chat(&body, api_key, base_url).await
+            }
+            "models" => crate::google::handle_google_ai_models(api_key, base_url).await,
+            _ => Err(Error::BadRequest(format!(
+                "Unsupported Google AI path: {}",
+                ai_path
+            ))),
+        };
     }
 
     // Handle Bedrock-specific logic when the feature is enabled
