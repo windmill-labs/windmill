@@ -2078,31 +2078,6 @@ pub async fn handle_wac_v2_output(
                     ))
                 })?;
 
-                // Seed child checkpoints so they know which step to execute
-                for (step, (_, child_id)) in steps.iter().zip(job_ids.iter()) {
-                    let child_checkpoint_json = serde_json::json!({
-                        "completed_steps": &checkpoint.completed_steps,
-                        "_executing_key": &step.key,
-                    });
-                    sqlx::query(
-                        "INSERT INTO v2_job_status (id, workflow_as_code_status)
-                         VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
-                         ON CONFLICT (id) DO UPDATE SET
-                            workflow_as_code_status = jsonb_set(
-                                COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
-                                '{_checkpoint}',
-                                $2::jsonb
-                            )",
-                    )
-                    .bind(child_id)
-                    .bind(&child_checkpoint_json)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|e| {
-                        error::Error::internal_err(format!("Failed to seed child checkpoint: {e}"))
-                    })?;
-                }
-
                 tx.commit().await?;
             }
 
@@ -2116,7 +2091,7 @@ pub async fn handle_wac_v2_output(
                     let job_payload = job_payload_template.clone();
                     let push_args = PushArgs { args: &parent_args, extra: None };
 
-                    let (_, tx) = push(
+                    let (_, mut tx) = push(
                         db,
                         PushIsolationLevel::IsolatedRoot(db.clone()),
                         &job.workspace_id,
@@ -2147,6 +2122,30 @@ pub async fn handle_wac_v2_output(
                         None,  // suspended_mode
                     )
                     .await?;
+
+                    // Seed child checkpoint in the same transaction as push,
+                    // so the child can't be picked up before its checkpoint exists.
+                    let child_checkpoint_json = serde_json::json!({
+                        "completed_steps": &checkpoint.completed_steps,
+                        "_executing_key": &step.key,
+                    });
+                    sqlx::query(
+                        "INSERT INTO v2_job_status (id, workflow_as_code_status)
+                         VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
+                         ON CONFLICT (id) DO UPDATE SET
+                            workflow_as_code_status = jsonb_set(
+                                COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+                                '{_checkpoint}',
+                                $2::jsonb
+                            )",
+                    )
+                    .bind(child_uuid)
+                    .bind(&child_checkpoint_json)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        error::Error::internal_err(format!("Failed to seed child checkpoint: {e}"))
+                    })?;
 
                     tx.commit().await.map_err(|e| {
                         error::Error::internal_err(format!("Failed to commit child push: {e}"))
