@@ -67,10 +67,19 @@
 				if (key in completedSteps) continue
 				const jobId = jobIdsByKey[key]
 				const isDone = jobId && childJobs[jobId]?.duration_ms != null
+				let status: StepInfo['status']
+				if (isDone) {
+					status = 'completed'
+				} else if (flowDone) {
+					// Workflow finished but this step isn't completed — it failed
+					status = 'failed'
+				} else {
+					status = 'running'
+				}
 				result.push({
 					key,
 					name: stepName(key, jobId),
-					status: isDone ? 'completed' : 'running',
+					status,
 					jobId,
 					parallelGroup: pendingSteps.mode === 'parallel' ? 1 : undefined
 				})
