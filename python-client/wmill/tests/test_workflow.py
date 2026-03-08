@@ -98,6 +98,16 @@ class TestFirstInvocation:
         assert result["steps"][0]["key"] == "step_0"
         assert result["steps"][0]["args"] == {"url": "https://example.com"}
 
+    def test_positional_args_converted_to_kwargs(self):
+        """Positional args should be mapped to parameter names in dispatch."""
+        @workflow
+        async def pos_workflow():
+            await extract_data("https://pos.example.com")
+
+        result = _run_workflow(pos_workflow, {}, {})
+        assert result["type"] == "dispatch"
+        assert result["steps"][0]["args"] == {"url": "https://pos.example.com"}
+
 
 class TestReplayWithCheckpoint:
     def test_second_invocation_dispatches_second_step(self):
@@ -216,6 +226,38 @@ class TestStepInlineCheckpoint:
         result = _run_workflow(step_workflow, checkpoint, {"x": 7})
         assert result["type"] == "complete"
         assert result["result"] == {"ts": 1234567890, "doubled": 14, "id": "abc-123"}
+
+
+class TestUnawaitedTask:
+    def test_unawaited_last_task_is_flushed(self):
+        """A task called without await as the last statement should still dispatch."""
+        @workflow
+        async def unawaited_workflow():
+            await extract_data(url="x")
+            load_data(data="y")  # forgotten await — last statement
+
+        checkpoint = {"completed_steps": {"step_0": "raw"}}
+        result = _run_workflow(unawaited_workflow, checkpoint, {})
+        assert result["type"] == "dispatch"
+        assert result["mode"] == "sequential"
+        assert len(result["steps"]) == 1
+        assert result["steps"][0]["name"] == "load_data"
+
+    def test_unawaited_multiple_tasks_flushed_as_parallel(self):
+        """Multiple unawaited tasks at the end should dispatch as parallel."""
+        @workflow
+        async def multi_unawaited_workflow():
+            await extract_data(url="x")
+            clean_data(data="y")  # forgotten await
+            compute_stats(data="y")  # forgotten await
+
+        checkpoint = {"completed_steps": {"step_0": "raw"}}
+        result = _run_workflow(multi_unawaited_workflow, checkpoint, {})
+        assert result["type"] == "dispatch"
+        assert result["mode"] == "parallel"
+        assert len(result["steps"]) == 2
+        assert result["steps"][0]["name"] == "clean_data"
+        assert result["steps"][1]["name"] == "compute_stats"
 
 
 class TestChildMode:

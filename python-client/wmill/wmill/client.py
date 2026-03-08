@@ -2477,12 +2477,24 @@ def task(_func=None, *, path: Optional[str] = None, tag: Optional[str] = None):
         task_path = path
         task_name = func.__name__
 
+        _params_list = list(_sig(func).parameters)
+
+        def _merge_args(args, kwargs):
+            merged = dict(kwargs)
+            for i, arg in enumerate(args):
+                if i < len(_params_list):
+                    key = _params_list[i]
+                    if key not in merged:
+                        merged[key] = arg
+            return merged
+
         def wrapper(*args, **kwargs):
             # WAC v2: inside a @workflow context
             ctx = _workflow_ctx.get(None)
             if ctx is not None:
                 script = task_path if task_path else task_name
-                return ctx._next_step(task_name, script, func, **kwargs)
+                merged = _merge_args(args, kwargs)
+                return ctx._next_step(task_name, script, func, **merged)
 
             # WAC v1: running inside a Windmill job but not in a @workflow
             if (
@@ -2494,13 +2506,7 @@ def task(_func=None, *, path: Optional[str] = None, tag: Optional[str] = None):
                     _client = Windmill()
                 w_id = os.environ.get("WM_WORKSPACE")
                 job_id = os.environ.get("WM_JOB_ID")
-                json_args = dict(kwargs)
-                params_list = list(_sig(func).parameters)
-                for i, arg in enumerate(args):
-                    if i < len(params_list):
-                        key = params_list[i]
-                        if key not in json_args:
-                            json_args[key] = arg
+                json_args = _merge_args(args, kwargs)
                 api_params = {}
                 if tag is not None:
                     api_params["tag"] = tag
@@ -2558,6 +2564,15 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
     token = _workflow_ctx.set(ctx)
     try:
         result = await func(**input_args)
+        # Flush any unawaited tasks (e.g. forgotten await on last statement)
+        if ctx._pending:
+            steps = list(ctx._pending)
+            ctx._pending.clear()
+            return {
+                "type": "dispatch",
+                "mode": "parallel" if len(steps) > 1 else "sequential",
+                "steps": steps,
+            }
         return {"type": "complete", "result": result}
     except _StepSuspend as e:
         info = e.dispatch_info
