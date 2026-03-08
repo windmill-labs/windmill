@@ -1838,8 +1838,8 @@ pub async fn handle_wac_v2_output(
     conn: &Connection,
 ) -> error::Result<Box<RawValue>> {
     use crate::wac_executor::{
-        add_completed_step, load_checkpoint, parse_wac_output, save_checkpoint,
-        update_checkpoint_for_dispatch, WacOutput,
+        add_completed_step, load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch,
+        WacOutput,
     };
     use serde_json::Value;
     use windmill_common::jobs::{JobKind, JobPayload, RawCode};
@@ -1887,7 +1887,12 @@ pub async fn handle_wac_v2_output(
             // Create child jobs for each step.
             // Each child re-runs the full workflow with a checkpoint containing
             // _executing_key = step_key, so only that step runs its inner function.
-            let mut job_ids: Vec<(String, Uuid)> = Vec::new();
+            //
+            // IMPORTANT: To prevent a race condition where a fast child completes
+            // before the parent is suspended, we:
+            //   1. Pre-generate child UUIDs
+            //   2. Save checkpoint + suspend parent + seed child checkpoints
+            //   3. THEN push the child jobs (making them visible to workers)
 
             // Read the parent's original args for the child jobs
             let parent_args: HashMap<String, Box<RawValue>> = {
@@ -1933,62 +1938,169 @@ pub async fn handle_wac_v2_output(
                 }
             };
 
-            for step in &steps {
-                let job_payload = match job.kind {
-                    JobKind::Script => {
-                        if let Some(hash) = job.runnable_id {
-                            JobPayload::ScriptHash {
-                                hash,
-                                path: job.runnable_path.clone().unwrap_or_default(),
-                                cache_ttl: job.cache_ttl,
-                                cache_ignore_s3_path: job.cache_ignore_s3_path,
-                                dedicated_worker: None,
-                                language: job.script_lang.unwrap_or(ScriptLang::Bun),
-                                priority: job.priority,
-                                apply_preprocessor: false,
-                                concurrency_settings: ConcurrencySettings::default(),
-                                debouncing_settings: DebouncingSettings::default(),
-                            }
-                        } else {
-                            return Err(error::Error::internal_err(
-                                "WAC v2 Script job missing runnable_id".to_string(),
-                            ));
-                        }
-                    }
-                    JobKind::Preview => {
-                        // For preview jobs, we need the raw code. Read it from the DB.
-                        let row: Option<(Option<String>, Option<String>)> =
-                            sqlx::query_as("SELECT raw_code, raw_lock FROM v2_job WHERE id = $1 AND workspace_id = $2")
-                                .bind(&job.id)
-                                .bind(&job.workspace_id)
-                                .fetch_optional(db)
-                                .await?;
-                        let (code, lock) = row.unwrap_or_default();
-                        JobPayload::Code(RawCode {
-                            content: code.unwrap_or_default(),
-                            path: job.runnable_path.clone(),
-                            hash: None,
-                            language: job.script_lang.unwrap_or(ScriptLang::Bun),
-                            lock: lock,
+            // Pre-generate child UUIDs so we can save them in the checkpoint
+            // before the children become visible to workers
+            let job_ids: Vec<(String, Uuid)> = steps
+                .iter()
+                .map(|s| (s.key.clone(), ulid::Ulid::new().into()))
+                .collect();
+
+            // Resolve job_payload once (same for all children since they re-run
+            // the parent script)
+            let job_payload_template = match job.kind {
+                JobKind::Script => {
+                    if let Some(hash) = job.runnable_id {
+                        Ok(JobPayload::ScriptHash {
+                            hash,
+                            path: job.runnable_path.clone().unwrap_or_default(),
                             cache_ttl: job.cache_ttl,
                             cache_ignore_s3_path: job.cache_ignore_s3_path,
                             dedicated_worker: None,
-                            concurrency_settings: ConcurrencySettingsWithCustom::default(),
+                            language: job.script_lang.unwrap_or(ScriptLang::Bun),
+                            priority: job.priority,
+                            apply_preprocessor: false,
+                            concurrency_settings: ConcurrencySettings::default(),
                             debouncing_settings: DebouncingSettings::default(),
                         })
+                    } else {
+                        Err(error::Error::internal_err(
+                            "WAC v2 Script job missing runnable_id".to_string(),
+                        ))
                     }
-                    _ => {
-                        return Err(error::Error::internal_err(format!(
-                            "WAC v2 unsupported job kind: {:?}",
-                            job.kind
-                        )));
-                    }
-                };
+                }
+                JobKind::Preview => {
+                    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+                        "SELECT raw_code, raw_lock FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                    )
+                    .bind(&job.id)
+                    .bind(&job.workspace_id)
+                    .fetch_optional(db)
+                    .await?;
+                    let (code, lock) = row.unwrap_or_default();
+                    Ok(JobPayload::Code(RawCode {
+                        content: code.unwrap_or_default(),
+                        path: job.runnable_path.clone(),
+                        hash: None,
+                        language: job.script_lang.unwrap_or(ScriptLang::Bun),
+                        lock: lock,
+                        cache_ttl: job.cache_ttl,
+                        cache_ignore_s3_path: job.cache_ignore_s3_path,
+                        dedicated_worker: None,
+                        concurrency_settings: ConcurrencySettingsWithCustom::default(),
+                        debouncing_settings: DebouncingSettings::default(),
+                    }))
+                }
+                _ => Err(error::Error::internal_err(format!(
+                    "WAC v2 unsupported job kind: {:?}",
+                    job.kind
+                ))),
+            }?;
 
-                // Child uses parent's original args (no ENTRYPOINT_OVERRIDE)
+            // Step 1: Save checkpoint, suspend parent, and seed child checkpoints
+            // in a single transaction — all BEFORE children become visible.
+            {
+                let mut tx = db.begin().await?;
+
+                // Update checkpoint with pending steps
+                update_checkpoint_for_dispatch(&mut checkpoint, &steps, &mode, &job_ids);
+                let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
+                    error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
+                })?;
+                sqlx::query(
+                    "INSERT INTO v2_job_status (id, workflow_as_code_status)
+                     VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
+                     ON CONFLICT (id) DO UPDATE SET
+                        workflow_as_code_status = jsonb_set(
+                            COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+                            '{_checkpoint}',
+                            $2::jsonb
+                        )",
+                )
+                .bind(&job.id)
+                .bind(&status_json)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error::Error::internal_err(format!("Failed to save WAC checkpoint: {e}"))
+                })?;
+
+                // Store per-child-job info for the WorkflowTimeline UI
+                for (step, (_, child_id)) in steps.iter().zip(job_ids.iter()) {
+                    let child_id_str = child_id.to_string();
+                    let timeline_val = serde_json::json!({
+                        "scheduled_for": chrono::Utc::now().to_rfc3339(),
+                        "name": step.name,
+                    });
+                    sqlx::query(
+                        "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+                            COALESCE(workflow_as_code_status, '{}'::jsonb),
+                            ARRAY[$2],
+                            $3
+                        ) WHERE id = $1",
+                    )
+                    .bind(&job.id)
+                    .bind(&child_id_str)
+                    .bind(&timeline_val)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        error::Error::internal_err(format!(
+                            "Failed to update WAC timeline status: {e}"
+                        ))
+                    })?;
+                }
+
+                // Suspend parent before children become visible
+                let suspend_count = num_steps as i32;
+                sqlx::query!(
+                    "UPDATE v2_job_queue SET suspend = $2, suspend_until = now() + interval '14 day' WHERE id = $1",
+                    job.id,
+                    suspend_count,
+                )
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error::Error::internal_err(format!(
+                        "Failed to suspend WAC parent job {}: {e}",
+                        job.id
+                    ))
+                })?;
+
+                // Seed child checkpoints so they know which step to execute
+                for (step, (_, child_id)) in steps.iter().zip(job_ids.iter()) {
+                    let child_checkpoint_json = serde_json::json!({
+                        "completed_steps": &checkpoint.completed_steps,
+                        "_executing_key": &step.key,
+                    });
+                    sqlx::query(
+                        "INSERT INTO v2_job_status (id, workflow_as_code_status)
+                         VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
+                         ON CONFLICT (id) DO UPDATE SET
+                            workflow_as_code_status = jsonb_set(
+                                COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+                                '{_checkpoint}',
+                                $2::jsonb
+                            )",
+                    )
+                    .bind(child_id)
+                    .bind(&child_checkpoint_json)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        error::Error::internal_err(format!("Failed to seed child checkpoint: {e}"))
+                    })?;
+                }
+
+                tx.commit().await?;
+            }
+
+            // Step 2: Push child jobs (now visible to workers).
+            // Parent is already suspended, so child completions are safe.
+            for (step, (_, child_uuid)) in steps.iter().zip(job_ids.iter()) {
+                let job_payload = job_payload_template.clone();
                 let push_args = PushArgs { args: &parent_args, extra: None };
 
-                let (child_uuid, tx) = push(
+                let (_, tx) = push(
                     db,
                     PushIsolationLevel::IsolatedRoot(db.clone()),
                     &job.workspace_id,
@@ -2003,10 +2115,10 @@ pub async fn handle_wac_v2_output(
                     Some(job.id),                  // parent_job
                     job.root_job.or(Some(job.id)), // root_job
                     job.flow_innermost_root_job,
-                    None,  // job_id (auto-generate)
-                    false, // is_flow_step
-                    false, // same_worker
-                    None,  // pre_run_error
+                    Some(*child_uuid), // pre-generated job_id
+                    false,             // is_flow_step
+                    false,             // same_worker
+                    None,              // pre_run_error
                     job.visible_to_owner,
                     Some(job.tag.clone()),
                     job.timeout,
@@ -2018,32 +2130,18 @@ pub async fn handle_wac_v2_output(
                     None,  // trigger
                     None,  // suspended_mode
                 )
-                .await?;
-
-                tx.commit().await?;
-
-                // Pre-seed the child's checkpoint so it knows which step to execute
-                let child_checkpoint_json = serde_json::json!({
-                    "completed_steps": &checkpoint.completed_steps,
-                    "_executing_key": &step.key,
-                });
-                sqlx::query(
-                    "INSERT INTO v2_job_status (id, workflow_as_code_status)
-                     VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
-                     ON CONFLICT (id) DO UPDATE SET
-                        workflow_as_code_status = jsonb_set(
-                            COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
-                            '{_checkpoint}',
-                            $2::jsonb
-                        )",
-                )
-                .bind(&child_uuid)
-                .bind(&child_checkpoint_json)
-                .execute(db)
                 .await
                 .map_err(|e| {
-                    error::Error::internal_err(format!("Failed to seed child checkpoint: {e}"))
+                    // If push fails, the parent is already suspended.
+                    // It will eventually time out (14 day suspend_until).
+                    // TODO: consider unsuspending + failing the parent here.
+                    error::Error::internal_err(format!(
+                        "Failed to push WAC child job for step '{}': {e}",
+                        step.name
+                    ))
                 })?;
+
+                tx.commit().await?;
 
                 tracing::info!(
                     parent_job = %job.id,
@@ -2052,57 +2150,11 @@ pub async fn handle_wac_v2_output(
                     step_key = %step.key,
                     "WAC v2 dispatched child job"
                 );
-
-                job_ids.push((step.key.clone(), child_uuid));
             }
-
-            // Update checkpoint with pending steps
-            update_checkpoint_for_dispatch(&mut checkpoint, &steps, &mode, &job_ids);
-            save_checkpoint(db, &job.id, &checkpoint).await?;
-
-            // Also store per-child-job info for the WorkflowTimeline UI
-            for (step, (_, child_id)) in steps.iter().zip(job_ids.iter()) {
-                sqlx::query(
-                    "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
-                        COALESCE(workflow_as_code_status, '{}'::jsonb),
-                        ARRAY[$2],
-                        $3
-                    ) WHERE id = $1",
-                )
-                .bind(&job.id)
-                .bind(child_id.to_string())
-                .bind(serde_json::json!({
-                    "scheduled_for": chrono::Utc::now().to_rfc3339(),
-                    "name": step.name,
-                }))
-                .execute(db)
-                .await
-                .map_err(|e| {
-                    error::Error::internal_err(
-                        format!("Failed to update WAC timeline status: {e}",),
-                    )
-                })?;
-            }
-
-            // Suspend the parent job — workers will skip it until suspend reaches 0
-            let suspend_count = num_steps as i32;
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = $2, suspend_until = now() + interval '14 day' WHERE id = $1",
-                job.id,
-                suspend_count,
-            )
-            .execute(db)
-            .await
-            .map_err(|e| {
-                error::Error::internal_err(format!(
-                    "Failed to suspend WAC parent job {}: {e}",
-                    job.id
-                ))
-            })?;
 
             tracing::info!(
                 job_id = %job.id,
-                suspend_count = suspend_count,
+                num_steps = num_steps,
                 "WAC v2 parent job suspended"
             );
 
@@ -2130,22 +2182,48 @@ pub async fn handle_wac_v2_output(
             );
 
             add_completed_step(&mut checkpoint, &key, value);
-            save_checkpoint(db, &job.id, &checkpoint).await?;
 
-            // Reset running=false so the job is immediately eligible for pickup.
-            // Unlike dispatch (which sets suspend>0), inline checkpoints don't suspend —
-            // the job should be re-run right away to continue past the cached step.
-            sqlx::query!(
-                "UPDATE v2_job_queue SET running = false, started_at = null WHERE id = $1",
-                job.id,
-            )
-            .execute(db)
-            .await
-            .map_err(|e| {
-                error::Error::internal_err(format!(
-                    "Failed to reset running state for inline checkpoint: {e}"
-                ))
-            })?;
+            // Save checkpoint + reset running in a single transaction
+            {
+                let mut tx = db.begin().await?;
+                let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
+                    error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
+                })?;
+                sqlx::query(
+                    "INSERT INTO v2_job_status (id, workflow_as_code_status)
+                     VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
+                     ON CONFLICT (id) DO UPDATE SET
+                        workflow_as_code_status = jsonb_set(
+                            COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+                            '{_checkpoint}',
+                            $2::jsonb
+                        )",
+                )
+                .bind(&job.id)
+                .bind(&status_json)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error::Error::internal_err(format!("Failed to save WAC checkpoint: {e}"))
+                })?;
+
+                // Reset running=false so the job is immediately eligible for pickup.
+                // Unlike dispatch (which sets suspend>0), inline checkpoints don't suspend —
+                // the job should be re-run right away to continue past the cached step.
+                sqlx::query!(
+                    "UPDATE v2_job_queue SET running = false, started_at = null WHERE id = $1",
+                    job.id,
+                )
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error::Error::internal_err(format!(
+                        "Failed to reset running state for inline checkpoint: {e}"
+                    ))
+                })?;
+
+                tx.commit().await?;
+            }
 
             Err(error::Error::WacSuspended(format!(
                 "WAC v2 job {} inline checkpoint for step {}",
