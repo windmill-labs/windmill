@@ -1051,10 +1051,7 @@ pub async fn handle_bun_job(
     let apply_preprocessor =
         job.flow_step_id.as_deref() != Some("preprocessor") && job.preprocessed == Some(false);
 
-    let is_wac_v2 = main_override.is_none()
-        && inner_content.contains("workflow(")
-        && inner_content.contains("task(")
-        && inner_content.contains("windmill-client");
+    let is_wac_v2 = main_override.is_none() && crate::wac_executor::is_wac_v2_ts(inner_content);
 
     // WAC v2 scripts can't use bundle caching because the wrapper imports
     // windmill-client from node_modules, which isn't available in bundle mode

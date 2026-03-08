@@ -156,3 +156,58 @@ pub fn all_pending_complete(checkpoint: &WacCheckpoint) -> bool {
             .all(|k| checkpoint.completed_steps.contains_key(k)),
     }
 }
+
+/// Detect WAC v2 patterns in TypeScript/Bun code.
+/// Checks for `import ... from "windmill-client"` containing workflow/task,
+/// skipping comment lines.
+pub fn is_wac_v2_ts(code: &str) -> bool {
+    let mut has_wac_import = false;
+    let mut has_workflow = false;
+    let mut has_task = false;
+    for line in code.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        if trimmed.contains("windmill-client")
+            && (trimmed.starts_with("import") || trimmed.starts_with("from"))
+        {
+            has_wac_import = true;
+            if trimmed.contains("workflow") {
+                has_workflow = true;
+            }
+            if trimmed.contains("task") {
+                has_task = true;
+            }
+        }
+        if trimmed.contains("export") && trimmed.contains("workflow(") {
+            has_workflow = true;
+        }
+    }
+    has_wac_import && has_workflow && has_task
+}
+
+/// Detect WAC v2 patterns in Python code.
+/// Checks for `@workflow` decorator and `@task` decorator with wmill import,
+/// skipping comment lines.
+pub fn is_wac_v2_py(code: &str) -> bool {
+    let mut has_wmill_import = false;
+    let mut has_workflow_decorator = false;
+    let mut has_task_decorator = false;
+    for line in code.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        if trimmed.starts_with("import wmill") || trimmed.starts_with("from wmill") {
+            has_wmill_import = true;
+        }
+        if trimmed == "@workflow" || trimmed.starts_with("@workflow(") {
+            has_workflow_decorator = true;
+        }
+        if trimmed == "@task" || trimmed.starts_with("@task(") {
+            has_task_decorator = true;
+        }
+    }
+    has_wmill_import && has_workflow_decorator && has_task_decorator
+}

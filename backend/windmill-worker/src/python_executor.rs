@@ -568,9 +568,7 @@ pub async fn handle_python_job(
     let annotations = PythonAnnotations::parse(inner_content);
 
     let is_wac_v2 = job.script_entrypoint_override.is_none()
-        && (inner_content.contains("@workflow") || inner_content.contains("workflow("))
-        && (inner_content.contains("@task") || inner_content.contains("task("))
-        && (inner_content.contains("import wmill") || inner_content.contains("from wmill"));
+        && crate::wac_executor::is_wac_v2_py(inner_content);
 
     if annotations.sandbox && NSJAIL_AVAILABLE.is_none() {
         return Err(Error::ExecutionErr(
