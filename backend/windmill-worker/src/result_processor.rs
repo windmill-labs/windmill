@@ -837,11 +837,24 @@ async fn handle_wac_child_completion(
 
     let mut checkpoint = load_checkpoint(db, &parent_job_id).await?;
 
+    // Resolve step key early so it's available in both success and error paths
+    let step_key = checkpoint.pending_steps.as_ref().and_then(|pending| {
+        pending.job_ids.iter().find_map(|(key, val)| {
+            if val.as_str() == Some(&child_job_id.to_string()) {
+                Some(key.clone())
+            } else {
+                None
+            }
+        })
+    });
+
     if !success {
         // Child failed — fail the parent job
+        let step_desc = step_key.as_deref().unwrap_or("unknown");
         tracing::error!(
             parent_job = %parent_job_id,
             child_job = %child_job_id,
+            step_key = %step_desc,
             "WAC v2 child job failed, failing parent"
         );
 
@@ -856,9 +869,13 @@ async fn handle_wac_child_completion(
         // Get the parent as MiniCompletedJob and mark it as failed
         let parent_mini = get_mini_completed_job(&parent_job_id, workspace_id, db).await?;
         if let Some(parent_mini) = parent_mini {
-            let err_value: Value = serde_json::from_str(result.get()).unwrap_or_else(
-                |_| json!({ "message": format!("WAC child job {} failed", child_job_id) }),
-            );
+            let child_err: Value = serde_json::from_str(result.get()).unwrap_or(Value::Null);
+            let err_value = json!({
+                "message": format!("WAC task '{}' failed (child job {})", step_desc, child_job_id),
+                "child_job_id": child_job_id.to_string(),
+                "step_key": step_desc,
+                "error": child_err,
+            });
             let _ = windmill_queue::add_completed_job_error(
                 db,
                 &parent_mini,
@@ -874,17 +891,6 @@ async fn handle_wac_child_completion(
 
         return Ok(Some(()));
     }
-
-    // Find the step key for this child job
-    let step_key = checkpoint.pending_steps.as_ref().and_then(|pending| {
-        pending.job_ids.iter().find_map(|(key, val)| {
-            if val.as_str() == Some(&child_job_id.to_string()) {
-                Some(key.clone())
-            } else {
-                None
-            }
-        })
-    });
 
     let step_key = match step_key {
         Some(k) => k,
