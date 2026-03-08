@@ -45,6 +45,11 @@ pub enum WacOutput {
     InlineCheckpoint { key: String, result: Value },
 }
 
+/// A step dispatched by the WAC SDK.
+///
+/// Note: `script` and `args` are metadata used for logging and frontend display.
+/// The backend does NOT dispatch to `script` — all children re-run the parent
+/// workflow with `_executing_key` set so only the matching step executes.
 #[derive(Debug, Deserialize, Clone)]
 pub struct WacStepDispatch {
     pub name: String,

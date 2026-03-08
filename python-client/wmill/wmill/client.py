@@ -2389,6 +2389,7 @@ class WorkflowCtx:
         self._executing_key: str | None = checkpoint.get("_executing_key")
 
     def _alloc_key(self) -> str:
+        """Counter-based key: relies on deterministic call order across replays."""
         key = f"step_{self._step_index}"
         self._step_index += 1
         return key
@@ -2538,7 +2539,14 @@ def task(_func=None, *, path: Optional[str] = None, tag: Optional[str] = None):
 
 
 def workflow(func):
-    """Decorator marking an async function as a workflow-as-code entry point."""
+    """Decorator marking an async function as a workflow-as-code entry point.
+
+    The function must be **deterministic**: given the same inputs it must call
+    tasks in the same order on every replay. Branching on task results is fine
+    (results are replayed from checkpoint), but branching on external state
+    (current time, random values, external API calls) must use ``step()`` to
+    checkpoint the value so replays see the same result.
+    """
     func._is_workflow = True
     return func
 

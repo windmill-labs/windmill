@@ -1452,6 +1452,7 @@ export class WorkflowCtx {
     this._executingKey = checkpoint?._executing_key ?? null;
   }
 
+  /** Counter-based key: relies on deterministic call order across replays. */
   _allocKey(): string {
     return `step_${this.stepIndex++}`;
   }
@@ -1614,6 +1615,15 @@ export function task<T extends (...args: any[]) => Promise<any>>(
   return wrapper;
 }
 
+/**
+ * Mark an async function as a workflow-as-code entry point.
+ *
+ * The function must be **deterministic**: given the same inputs it must call
+ * tasks in the same order on every replay. Branching on task results is fine
+ * (results are replayed from checkpoint), but branching on external state
+ * (current time, random values, external API calls) must use `step()` to
+ * checkpoint the value so replays see the same result.
+ */
 export function workflow<T>(fn: (...args: any[]) => Promise<T>) {
   (fn as any)._is_workflow = true;
   return fn;
