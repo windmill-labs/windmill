@@ -665,7 +665,7 @@ pub async fn process_completed_job(
 
         add_time!(bench, "pre add_completed_job");
 
-        let (_, duration) = add_completed_job(
+        let (_, duration, wac_job_ids) = add_completed_job(
             db,
             &job,
             true,
@@ -718,17 +718,27 @@ pub async fn process_completed_job(
                 return Ok(r);
             }
         } else if let Some(parent_job) = parent_job {
-            // Check if parent is a WAC v2 job (has workflow_as_code_status)
-            if let Ok(Some(_)) =
-                handle_wac_child_completion(db, &job_id, parent_job, &workspace_id, result, true)
-                    .await
-            {
-                if let Some(done_tx) = done_tx {
-                    done_tx
-                        .send(())
-                        .expect("done receiver should still be alive");
+            // wac_job_ids is piggybacked from the duration write in
+            // add_completed_job — no extra query needed.
+            if let Some(job_ids) = wac_job_ids {
+                if let Ok(Some(_)) = handle_wac_child_completion(
+                    db,
+                    &job_id,
+                    parent_job,
+                    &workspace_id,
+                    result,
+                    true,
+                    job_ids,
+                )
+                .await
+                {
+                    if let Some(done_tx) = done_tx {
+                        done_tx
+                            .send(())
+                            .expect("done receiver should still be alive");
+                    }
+                    return Ok(None);
                 }
-                return Ok(None);
             }
         }
     } else {
@@ -784,24 +794,35 @@ pub async fn process_completed_job(
                 return Ok(r);
             }
         } else if let Some(parent_job) = job.parent_job {
-            // WAC child failed — propagate error to parent
-            let err_result = Arc::new(serde_json::value::to_raw_value(&result).unwrap());
-            if let Ok(Some(_)) = handle_wac_child_completion(
-                db,
-                &job.id,
-                parent_job,
-                &job.workspace_id,
-                err_result,
-                false,
+            // WAC child failed — query job_ids from parent (errors are rare,
+            // so the extra read is acceptable here).
+            let job_ids_json: Option<Option<Value>> = sqlx::query_scalar(
+                "SELECT workflow_as_code_status->'_checkpoint'->'pending_steps'->'job_ids' \
+                 FROM v2_job_status WHERE id = $1",
             )
-            .await
-            {
-                if let Some(done_tx) = done_tx {
-                    done_tx
-                        .send(())
-                        .expect("done receiver should still be alive");
+            .bind(&parent_job)
+            .fetch_optional(db)
+            .await?;
+            if let Some(Some(job_ids)) = job_ids_json {
+                let err_result = Arc::new(serde_json::value::to_raw_value(&result).unwrap());
+                if let Ok(Some(_)) = handle_wac_child_completion(
+                    db,
+                    &job.id,
+                    parent_job,
+                    &job.workspace_id,
+                    err_result,
+                    false,
+                    job_ids,
+                )
+                .await
+                {
+                    if let Some(done_tx) = done_tx {
+                        done_tx
+                            .send(())
+                            .expect("done receiver should still be alive");
+                    }
+                    return Ok(None);
                 }
-                return Ok(None);
             }
         }
     }
@@ -826,20 +847,10 @@ async fn handle_wac_child_completion(
     workspace_id: &str,
     result: Arc<Box<RawValue>>,
     success: bool,
+    job_ids_value: Value,
 ) -> error::Result<Option<()>> {
-    // Read pending_steps.job_ids to find the step key for this child.
-    // This is safe without locking because pending_steps is written once during
-    // dispatch and never modified by concurrent child completions.
-    let job_ids_json: Option<Option<Value>> = sqlx::query_scalar(
-        "SELECT workflow_as_code_status->'_checkpoint'->'pending_steps'->'job_ids' \
-         FROM v2_job_status WHERE id = $1",
-    )
-    .bind(&parent_job_id)
-    .fetch_optional(db)
-    .await?;
-
-    let job_ids = match job_ids_json {
-        Some(Some(Value::Object(m))) => m,
+    let job_ids = match job_ids_value {
+        Value::Object(m) => m,
         _ => return Ok(None), // Not a WAC parent or no pending steps
     };
 
