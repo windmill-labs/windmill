@@ -1557,8 +1557,13 @@ export function task<T extends (...args: any[]) => Promise<any>>(
 
   const taskName = fn.name || "anonymous";
 
-  const wrapper = async function (...args: any[]) {
-    const ctx = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+  // NOT async — in workflow context we return the thenable directly so that
+  // unawaited task calls leave the step in ctx.pending (for _flushPending).
+  // An async wrapper would auto-resolve the thenable in a microtask, calling
+  // .then() which throws StepSuspend and empties pending before the caller
+  // can flush.
+  const wrapper = function (...args: any[]) {
+    const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
     if (ctx) {
       // Inside a workflow with checkpoint/replay context — dispatch as step
       const script = taskPath ?? taskName;
@@ -1575,34 +1580,38 @@ export function task<T extends (...args: any[]) => Promise<any>>(
       // If this step should execute directly (child job mode), run the inner function
       // and throw StepSuspend with mode "step_complete" to signal that we're done
       if ((stepResult as any)?._execute_directly) {
-        const result = await fn(...args);
-        throw new StepSuspend({ mode: "step_complete", steps: [], result });
+        return (async () => {
+          const result = await fn(...args);
+          throw new StepSuspend({ mode: "step_complete", steps: [], result });
+        })();
       }
       return stepResult;
     } else if (getEnv("WM_JOB_ID") && !getEnv("WM_FLOW_JOB_ID")) {
       // Inside a Windmill root job without checkpoint context — v1 HTTP dispatch
       // WM_FLOW_JOB_ID is set on child jobs, so we skip dispatch for those
-      const paramNames = getParamNames(fn);
-      const kwargs: Record<string, any> = {};
-      args.forEach((x, i) => (kwargs[paramNames[i]] = x));
-      let req = await fetch(
-        `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
-          "WM_JOB_ID"
-        )}/${taskName}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${getEnv("WM_TOKEN")}`,
-          },
-          body: JSON.stringify({ args: kwargs }),
-        }
-      );
-      let jobId = await req.text();
-      console.log(`Started task ${taskName} as job ${jobId}`);
-      let r = await waitJob(jobId);
-      console.log(`Task ${taskName} (${jobId}) completed`);
-      return r;
+      return (async () => {
+        const paramNames = getParamNames(fn);
+        const kwargs: Record<string, any> = {};
+        args.forEach((x, i) => (kwargs[paramNames[i]] = x));
+        let req = await fetch(
+          `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
+            "WM_JOB_ID"
+          )}/${taskName}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${getEnv("WM_TOKEN")}`,
+            },
+            body: JSON.stringify({ args: kwargs }),
+          }
+        );
+        let jobId = await req.text();
+        console.log(`Started task ${taskName} as job ${jobId}`);
+        let r = await waitJob(jobId);
+        console.log(`Task ${taskName} (${jobId}) completed`);
+        return r;
+      })();
     } else {
       // Standalone — execute directly
       return fn(...args);
