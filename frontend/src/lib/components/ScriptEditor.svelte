@@ -2,7 +2,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
+	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang, type ScriptModule } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		copyToClipboard,
@@ -25,6 +25,7 @@
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 	import * as Y from 'yjs'
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import { langToExt } from '$lib/editorLangUtils'
 	import { WebsocketProvider } from 'y-websocket'
 	import Modal from './common/modal/Modal.svelte'
 	import DiffEditor from './DiffEditor.svelte'
@@ -40,8 +41,10 @@
 		GitBranch,
 		Play,
 		PlayIcon,
+		Plus,
 		Terminal,
-		WandSparkles
+		WandSparkles,
+		X
 	} from 'lucide-svelte'
 	import {
 		DebugToolbar,
@@ -123,6 +126,7 @@
 		lastDeployedCode?: string | undefined
 		disableAi?: boolean
 		assets?: AssetWithAltAccessType[]
+		modules?: { [key: string]: ScriptModule } | null
 		editorBarRight?: import('svelte').Snippet
 		enablePreprocessorSnippet?: boolean
 	}
@@ -155,6 +159,7 @@
 		lastDeployedCode = undefined,
 		disableAi = false,
 		assets = $bindable(),
+		modules = $bindable(undefined),
 		editorBarRight,
 		enablePreprocessorSnippet = false
 	}: Props = $props()
@@ -162,6 +167,109 @@
 	let initialArgs = structuredClone($state.snapshot(args))
 	let jsonView = $state(false)
 	let schemaHeight = $state(0)
+
+	// Module tab state
+	let activeModuleTab: string | null = $state(null)
+	let mainCodeBackup: string | null = $state(null)
+
+	function switchToModule(modulePath: string) {
+		if (activeModuleTab === null) {
+			// Switching from main: save main code
+			mainCodeBackup = code
+		} else if (modules && activeModuleTab !== modulePath) {
+			// Switching from another module: save its content
+			modules[activeModuleTab] = { ...modules[activeModuleTab], content: code }
+		}
+		if (modules && modules[modulePath]) {
+			activeModuleTab = modulePath
+			code = modules[modulePath].content
+			editor?.setCode(code)
+		}
+	}
+
+	function switchToMain() {
+		if (activeModuleTab !== null && modules) {
+			// Save current module content
+			modules[activeModuleTab] = { ...modules[activeModuleTab], content: code }
+		}
+		activeModuleTab = null
+		if (mainCodeBackup !== null) {
+			code = mainCodeBackup
+			mainCodeBackup = null
+			editor?.setCode(code)
+		}
+	}
+
+	let effectiveLang = $derived(
+		activeModuleTab && modules?.[activeModuleTab]
+			? (modules[activeModuleTab].language as Preview['language'])
+			: lang
+	)
+
+	let supportsModules = $derived(lang === 'bun' || lang === 'python3')
+	let mainFileName = $derived('main.' + langToExt(scriptLangToEditorLang(lang)))
+
+	let modulePathInput = $state('')
+	let showAddModuleDialog = $state(false)
+
+	function inferModuleLang(filePath: string): ScriptModule['language'] {
+		if (filePath.endsWith('.py')) return 'python3'
+		if (filePath.endsWith('.go')) return 'go'
+		if (filePath.endsWith('.sh')) return 'bash'
+		if (filePath.endsWith('.ps1')) return 'powershell'
+		if (filePath.endsWith('.php')) return 'php'
+		if (filePath.endsWith('.rs')) return 'rust'
+		if (filePath.endsWith('.cs')) return 'csharp'
+		if (filePath.endsWith('.rb')) return 'ruby'
+		if (filePath.endsWith('.java')) return 'java'
+		if (filePath.endsWith('.nu')) return 'nu'
+		if (filePath.endsWith('.ts')) return (lang === 'deno' ? 'deno' : 'bun') as ScriptModule['language']
+		if (filePath.endsWith('.js')) return 'bun'
+		if (filePath.endsWith('.pg.sql')) return 'postgresql'
+		if (filePath.endsWith('.my.sql')) return 'mysql'
+		if (filePath.endsWith('.bq.sql')) return 'bigquery'
+		if (filePath.endsWith('.sf.sql')) return 'snowflake'
+		if (filePath.endsWith('.ms.sql')) return 'mssql'
+		if (filePath.endsWith('.gql')) return 'graphql'
+		return lang as ScriptModule['language']
+	}
+
+	function addModule() {
+		if (!modulePathInput.trim()) return
+		const modulePath = modulePathInput.trim()
+		if (!modules) {
+			modules = {}
+		}
+		if (modules[modulePath]) {
+			sendUserToast(`Module ${modulePath} already exists`, true)
+			return
+		}
+		modules[modulePath] = {
+			content: '',
+			language: inferModuleLang(modulePath)
+		}
+		modulePathInput = ''
+		showAddModuleDialog = false
+		switchToModule(modulePath)
+	}
+
+	function removeModule(modulePath: string) {
+		if (!modules) return
+		if (activeModuleTab === modulePath) {
+			switchToMain()
+		}
+		delete modules[modulePath]
+		modules = { ...modules }
+	}
+
+	export function flushModuleState() {
+		if (activeModuleTab !== null && modules) {
+			modules[activeModuleTab] = { ...modules[activeModuleTab], content: code }
+			code = mainCodeBackup ?? code
+			activeModuleTab = null
+			mainCodeBackup = null
+		}
+	}
 
 	$effect.pre(() => {
 		if (schema == undefined) {
@@ -1317,8 +1425,53 @@
 </SplitPanesWrapper>
 
 {#snippet editorContent()}
-	<div class="h-full !overflow-visible bg-surface dark:bg-[#272D38] relative">
+	<div class="h-full !overflow-visible bg-surface dark:bg-[#272D38] relative flex flex-col">
+		{#if supportsModules && modules && Object.keys(modules).length > 0}
+			<div class="flex items-center border-b border-tertiary/30 bg-surface-secondary px-1 gap-0.5 text-xs overflow-x-auto shrink-0">
+				<button
+					class="px-2 py-1 rounded-t {activeModuleTab === null ? 'bg-surface font-semibold border-b-2 border-blue-500' : 'hover:bg-surface-hover'}"
+					onclick={() => switchToMain()}
+				>
+					{mainFileName}
+				</button>
+				{#each Object.keys(modules) as modulePath}
+					<button
+						class="px-2 py-1 rounded-t flex items-center gap-1 {activeModuleTab === modulePath ? 'bg-surface font-semibold border-b-2 border-blue-500' : 'hover:bg-surface-hover'}"
+						onclick={() => switchToModule(modulePath)}
+					>
+						{modulePath}
+						<span
+							class="hover:text-red-500 ml-0.5"
+							role="button"
+							tabindex="0"
+							onclick={(e) => { e.stopPropagation(); removeModule(modulePath) }}
+							onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); removeModule(modulePath) } }}
+						>
+							<X size={12} />
+						</span>
+					</button>
+				{/each}
+				<button
+					class="px-2 py-1 rounded-t hover:bg-surface-hover"
+					onclick={() => (showAddModuleDialog = true)}
+				>
+					<Plus size={12} />
+				</button>
+			</div>
+		{/if}
+		<div class="relative flex-1 !overflow-visible">
 		<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+			{#if supportsModules && (!modules || Object.keys(modules).length === 0)}
+				<Button
+					variant="default"
+					size="xs"
+					onclick={() => (showAddModuleDialog = true)}
+					startIcon={{ icon: Plus }}
+					btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
+				>
+					Module
+				</Button>
+			{/if}
 			{#if assets?.length}
 				<AssetsDropdownButton {assets} />
 			{/if}
@@ -1435,10 +1588,11 @@
 			</div>
 		{/if}
 	</div>
+	</div>
 {/snippet}
 
 {#snippet editorPane()}
-	{#key lang}
+	{#key effectiveLang}
 		<Editor
 			lineNumbersMinChars={4}
 			folding
@@ -1449,7 +1603,9 @@
 			{yContent}
 			awareness={wsProvider?.awareness}
 			on:change={(e) => {
-				inferSchema(e.detail)
+				if (activeModuleTab === null) {
+					inferSchema(e.detail)
+				}
 				// Refresh breakpoint positions when code changes (decorations track their lines)
 				if (debugMode && breakpointDecorations.length > 0) {
 					refreshBreakpointPositions()
@@ -1458,11 +1614,15 @@
 			on:saveDraft
 			on:toggleTestPanel={toggleTestPanel}
 			cmdEnterAction={async () => {
-				await inferSchema(code)
+				if (activeModuleTab === null) {
+					await inferSchema(code)
+				}
 				runTest()
 			}}
 			formatAction={async () => {
-				await inferSchema(code)
+				if (activeModuleTab === null) {
+					await inferSchema(code)
+				}
 				try {
 					localStorage.setItem(path ?? 'last_save', code)
 				} catch (e) {
@@ -1471,7 +1631,7 @@
 				dispatch('format')
 			}}
 			class="flex flex-1 h-full !overflow-visible"
-			scriptLang={lang}
+			scriptLang={effectiveLang}
 			automaticLayout={true}
 			{fixedOverflowWidgets}
 			{args}
@@ -1517,6 +1677,25 @@
 	on:selected={handleDelegateConfigUpdate}
 	on:addInventories={handleAddInventories}
 />
+
+{#if showAddModuleDialog}
+	<Modal title="Add Module" bind:open={showAddModuleDialog}>
+		<div class="flex flex-col gap-2 p-4">
+			<label class="text-sm font-medium">Relative path (e.g. helper.ts, utils/math.py)</label>
+			<input
+				type="text"
+				class="border rounded px-2 py-1 text-sm"
+				bind:value={modulePathInput}
+				placeholder="helper.ts"
+				onkeydown={(e) => { if (e.key === 'Enter') addModule() }}
+			/>
+			<div class="flex justify-end gap-2 mt-2">
+				<Button variant="default" size="xs" onclick={() => (showAddModuleDialog = false)}>Cancel</Button>
+				<Button variant="accent" size="xs" onclick={addModule}>Add</Button>
+			</div>
+		</div>
+	</Modal>
+{/if}
 
 <style global>
 	/* Debug breakpoint glyph - red circle in the glyph margin */

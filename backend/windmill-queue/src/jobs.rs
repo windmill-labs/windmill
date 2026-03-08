@@ -466,6 +466,7 @@ pub async fn push_init_job<'c>(
             dedicated_worker: None,
             concurrency_settings: ConcurrencySettingsWithCustom::default(),
             debouncing_settings: DebouncingSettings::default(),
+            modules: None,
         }),
         PushArgs::from(&ehm),
         worker_name,
@@ -523,6 +524,7 @@ pub async fn push_periodic_bash_job<'c>(
             dedicated_worker: None,
             concurrency_settings: ConcurrencySettingsWithCustom::default(),
             debouncing_settings: DebouncingSettings::default(),
+            modules: None,
         }),
         PushArgs::from(&ehm),
         worker_name,
@@ -4763,6 +4765,7 @@ async fn push_inner<'c, 'd>(
             dedicated_worker,
             concurrency_settings,
             debouncing_settings,
+            modules,
         }) => JobPayloadUntagged {
             runnable_id: hash,
             runnable_path: path,

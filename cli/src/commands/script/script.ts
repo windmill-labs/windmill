@@ -9,6 +9,7 @@ import { Confirm } from "@cliffy/prompt/confirm";
 import { Table } from "@cliffy/table";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
+import * as path from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { deepEqual } from "../../utils/utils.ts";
 import * as wmill from "../../../gen/services.gen.ts";
@@ -51,13 +52,16 @@ import fs from "node:fs";
 import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
 
 import { execSync } from "node:child_process";
-import { NewScript, Script } from "../../../gen/types.gen.ts";
+import { NewScript, Script, ScriptModule } from "../../../gen/types.gen.ts";
 import {
   isRawAppBackendPath as isRawAppBackendPathInternal,
   isAppInlineScriptPath as isAppInlineScriptPathInternal,
   isFlowInlineScriptPath as isFlowInlineScriptPathInternal,
   isFlowPath,
   isAppPath,
+  isScriptModulePath,
+  buildModuleFolderPath,
+  getModuleFolderSuffix,
 } from "../../utils/resource_folders.ts";
 
 export interface ScriptFile {
@@ -229,6 +233,7 @@ export async function handleFile(
     !isAppInlineScriptPath(path) &&
     !isFlowInlineScriptPath(path) &&
     !isRawAppBackendPath(path) &&
+    !isScriptModulePath(path) &&
     exts.some((exts) => path.endsWith(exts))
   ) {
     if (alreadySynced.includes(path)) {
@@ -391,6 +396,11 @@ export async function handleFile(
       typed.codebase = await codebase.getDigest(forceTar);
     }
 
+    // Scan for __module/ folder alongside the script
+    const scriptBasePath = path.substring(0, path.indexOf("."));
+    const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
+    const modules = await readModulesFromDisk(moduleFolderPath, opts?.defaultTs);
+
     const requestBodyCommon: NewScript = {
       content,
       description: typed?.description ?? "",
@@ -419,6 +429,7 @@ export async function handleFile(
       timeout: typed?.timeout,
       on_behalf_of_email: typed?.on_behalf_of_email,
       envs: typed?.envs,
+      modules: modules,
     };
 
     // console.log(requestBodyCommon.codebase);
@@ -460,7 +471,8 @@ export async function handleFile(
             typed.debounce_delay_s == remote["debounce_delay_s"] &&
             typed.codebase == remote.codebase &&
             typed.on_behalf_of_email == remote.on_behalf_of_email &&
-            deepEqual(typed.envs, remote.envs))
+            deepEqual(typed.envs, remote.envs) &&
+            deepEqual(modules ?? null, remote.modules ?? null))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;
@@ -504,6 +516,96 @@ export async function handleFile(
     return true;
   }
   return false;
+}
+
+/**
+ * Read module files from a __module/ directory on disk.
+ * Returns the modules record for the API, or undefined if no module folder exists.
+ */
+async function readModulesFromDisk(
+  moduleFolderPath: string,
+  defaultTs: "bun" | "deno" | undefined
+): Promise<Record<string, ScriptModule> | undefined> {
+  if (!fs.existsSync(moduleFolderPath) || !fs.statSync(moduleFolderPath).isDirectory()) {
+    return undefined;
+  }
+
+  const modules: Record<string, ScriptModule> = {};
+
+  function readDir(dirPath: string, relPrefix: string) {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      const relPath = relPrefix ? relPrefix + "/" + entry.name : entry.name;
+
+      if (entry.isDirectory()) {
+        readDir(fullPath, relPath);
+      } else if (entry.isFile() && !entry.name.endsWith(".script.lock")) {
+        // Skip lock files — they're handled as the `lock` field on ScriptModule
+        if (exts.some((ext) => entry.name.endsWith(ext))) {
+          const content = fs.readFileSync(fullPath, "utf-8");
+          const language = inferContentTypeFromFilePath(entry.name, defaultTs);
+
+          // Check for an accompanying lock file
+          const lockPath = fullPath.replace(/\.[^.]+$/, ".script.lock");
+          let lock: string | undefined;
+          // For multi-extension files (e.g., .pg.sql), try removing from first dot
+          const baseName = entry.name.substring(0, entry.name.indexOf("."));
+          const lockPath2 = path.join(dirPath, baseName + ".script.lock");
+          if (fs.existsSync(lockPath)) {
+            lock = fs.readFileSync(lockPath, "utf-8");
+          } else if (fs.existsSync(lockPath2)) {
+            lock = fs.readFileSync(lockPath2, "utf-8");
+          }
+
+          modules[relPath] = {
+            content,
+            language: language as ScriptModule["language"],
+            lock: lock || undefined,
+          };
+        }
+      }
+    }
+  }
+
+  readDir(moduleFolderPath, "");
+
+  if (Object.keys(modules).length === 0) {
+    return undefined;
+  }
+
+  log.debug(`Found ${Object.keys(modules).length} module(s) in ${moduleFolderPath}`);
+  return modules;
+}
+
+/**
+ * Write module files to a __module/ directory on disk during pull.
+ */
+export async function writeModulesToDisk(
+  moduleFolderPath: string,
+  modules: Record<string, ScriptModule>,
+  defaultTs: "bun" | "deno" | undefined
+): Promise<void> {
+  // Ensure the module folder exists
+  fs.mkdirSync(moduleFolderPath, { recursive: true });
+
+  for (const [relPath, mod] of Object.entries(modules)) {
+    const fullPath = path.join(moduleFolderPath, relPath);
+    const dir = path.dirname(fullPath);
+    fs.mkdirSync(dir, { recursive: true });
+
+    // Write the module content
+    fs.writeFileSync(fullPath, mod.content, "utf-8");
+
+    // Write the lock file if present
+    if (mod.lock) {
+      const baseName = relPath.substring(0, relPath.indexOf("."));
+      const lockPath = path.join(moduleFolderPath, baseName + ".script.lock");
+      const lockDir = path.dirname(lockPath);
+      fs.mkdirSync(lockDir, { recursive: true });
+      fs.writeFileSync(lockPath, mod.lock, "utf-8");
+    }
+  }
 }
 
 async function createScript(

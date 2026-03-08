@@ -24,6 +24,7 @@ use windmill_common::runtime_assets::init_runtime_asset_loop;
 use windmill_common::runtime_assets::register_runtime_asset;
 use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
+use windmill_common::scripts::ScriptModule;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
 use windmill_common::worker::error_to_value;
@@ -3538,6 +3539,7 @@ pub struct ContentReqLangEnvs {
     pub envs: Option<Vec<String>>,
     pub codebase: Option<String>,
     pub schema: Option<String>,
+    pub modules: Option<std::collections::HashMap<String, ScriptModule>>,
 }
 
 pub async fn get_hub_script_content_and_requirements(
@@ -3557,6 +3559,7 @@ pub async fn get_hub_script_content_and_requirements(
         envs: None,
         codebase: None,
         schema: Some(script.schema.get().to_string()),
+        modules: None,
     })
 }
 
@@ -3577,6 +3580,7 @@ pub async fn get_script_content_by_hash(
             Some(_) => Some(script_hash.to_string()),
         },
         schema: None,
+        modules: data.modules.clone(),
     })
 }
 
@@ -3706,7 +3710,7 @@ async fn handle_code_execution_job(
 
     // Box::pin the script fetching match to prevent large enum on stack
     let (
-        ScriptData { code, lock },
+        ScriptData { code, lock, modules },
         ScriptMetadata { language, envs, codebase, schema_validator, schema },
     ) = match job.kind {
         JobKind::Preview => {
@@ -3731,14 +3735,14 @@ async fn handle_code_execution_job(
             }
         }
         JobKind::Script_Hub => {
-            let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
+            let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema, .. } =
                 Box::pin(get_hub_script_content_and_requirements(
                     job.runnable_path.as_ref(),
                     conn.as_sql(),
                 ))
                 .await?;
 
-            data = ScriptData { code: content, lock: lockfile };
+            data = ScriptData { code: content, lock: lockfile, modules: None };
             metadata = ScriptMetadata { language, envs, codebase, schema, schema_validator: None };
             (&data, &metadata)
         }
@@ -3783,13 +3787,20 @@ async fn handle_code_execution_job(
                     .as_ref()
                     .ok_or_else(|| Error::internal_err("expected script path".to_string()))?;
                 if script_path.starts_with("hub/") {
-                    let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
-                        Box::pin(get_hub_script_content_and_requirements(
-                            Some(script_path),
-                            conn.as_sql(),
-                        ))
-                        .await?;
-                    data = ScriptData { code: content, lock: lockfile };
+                    let ContentReqLangEnvs {
+                        content,
+                        lockfile,
+                        language,
+                        envs,
+                        codebase,
+                        schema,
+                        ..
+                    } = Box::pin(get_hub_script_content_and_requirements(
+                        Some(script_path),
+                        conn.as_sql(),
+                    ))
+                    .await?;
+                    data = ScriptData { code: content, lock: lockfile, modules: None };
                     metadata =
                         ScriptMetadata { language, envs, codebase, schema, schema_validator: None };
                     (&data, &metadata)
@@ -3853,9 +3864,55 @@ async fn handle_code_execution_job(
         envs,
         codebase,
         lock,
+        modules,
         false,
     )
     .await
+}
+
+/// Compute the directory (relative to job_dir) where Python writes the main script.
+/// Module files must be placed in this same directory for relative imports to work.
+fn compute_python_module_dir(script_path: &str) -> String {
+    let parts: Vec<String> = script_path
+        .split("/")
+        .map(|x| {
+            if x.starts_with(|x: char| x.is_ascii_digit()) {
+                format!("_{}", x)
+            } else {
+                x.to_string()
+            }
+        })
+        .collect();
+    let dirs_full = parts[..parts.len().saturating_sub(1)]
+        .join("/")
+        .replace("-", "_")
+        .replace("@", ".");
+    if dirs_full.len() > 0 {
+        dirs_full
+            .strip_prefix("/")
+            .unwrap_or(&dirs_full)
+            .to_string()
+    } else {
+        "tmp".to_string()
+    }
+}
+
+pub async fn write_module_files(
+    job_dir: &str,
+    modules: &std::collections::HashMap<String, ScriptModule>,
+    base_dir: Option<&str>,
+) -> error::Result<()> {
+    for (relpath, module) in modules {
+        let full_path = match base_dir {
+            Some(dir) => format!("{}/{}/{}", job_dir, dir, relpath),
+            None => format!("{}/{}", job_dir, relpath),
+        };
+        if let Some(parent) = std::path::Path::new(&full_path).parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        tokio::fs::write(&full_path, &module.content).await?;
+    }
+    Ok(())
 }
 
 pub async fn run_language_executor(
@@ -3880,8 +3937,19 @@ pub async fn run_language_executor(
     envs: &Option<Vec<String>>,
     codebase: &Option<String>,
     lock: &Option<String>,
+    modules: &Option<std::collections::HashMap<String, ScriptModule>>,
     run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
+    if let Some(modules) = modules {
+        let base_dir = if language == Some(ScriptLang::Python3) {
+            let script_path = crate::common::use_flow_root_path(job.runnable_path());
+            Some(compute_python_module_dir(&script_path))
+        } else {
+            None
+        };
+        write_module_files(job_dir, modules, base_dir.as_deref()).await?;
+    }
+
     if language == Some(ScriptLang::Postgresql) {
         return do_postgresql(
             job,
@@ -4920,6 +4988,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &None,
                     &None,
                     &None,
+                    &None,
                     true,
                 )
                 .await
@@ -5000,6 +5069,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &content_info.envs,
                     &content_info.codebase,
                     &content_info.lockfile,
+                    &content_info.modules,
                     true,
                 )
                 .await

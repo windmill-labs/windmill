@@ -46,6 +46,7 @@ mod dependency_map {
             has_preprocessor: None,
             on_behalf_of_email: None,
             assets: vec![],
+            modules: None,
         }
     }
     async fn init(db: Pool<Postgres>) -> (windmill_api_client::Client, u16, ApiServer) {

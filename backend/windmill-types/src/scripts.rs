@@ -9,10 +9,20 @@ use itertools::Itertools;
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
+use std::collections::HashMap;
+
 use crate::{
     assets::AssetWithAltAccessType,
     runnable_settings::{ConcurrencySettings, DebouncingSettings},
 };
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
+pub struct ScriptModule {
+    pub content: String,
+    pub language: ScriptLang,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lock: Option<String>,
+}
 
 #[derive(
     Serialize,
@@ -105,15 +115,15 @@ impl ScriptLang {
     pub fn is_native(&self) -> bool {
         matches!(
             self,
-            ScriptLang::Bunnative |
-            ScriptLang::Nativets |
-            ScriptLang::Postgresql |
-            ScriptLang::Mysql |
-            ScriptLang::Graphql |
-            ScriptLang::Snowflake |
-            ScriptLang::Mssql |
-            ScriptLang::Bigquery |
-            ScriptLang::OracleDB
+            ScriptLang::Bunnative
+                | ScriptLang::Nativets
+                | ScriptLang::Postgresql
+                | ScriptLang::Mysql
+                | ScriptLang::Graphql
+                | ScriptLang::Snowflake
+                | ScriptLang::Mssql
+                | ScriptLang::Bigquery
+                | ScriptLang::OracleDB
         )
     }
 
@@ -360,6 +370,9 @@ pub struct Script<SR> {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(json(nullable))]
     pub assets: Option<Vec<AssetWithAltAccessType>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(json(nullable))]
+    pub modules: Option<HashMap<String, ScriptModule>>,
     #[serde(flatten)]
     #[sqlx(flatten)]
     pub runnable_settings: SR,
@@ -454,7 +467,7 @@ impl Hash for Schema {
     }
 }
 
-#[derive(Serialize, Deserialize, Hash, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct NewScript {
     pub path: String,
     pub parent_hash: Option<ScriptHash>,
@@ -493,6 +506,52 @@ pub struct NewScript {
     pub preserve_on_behalf_of: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assets: Option<Vec<AssetWithAltAccessType>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modules: Option<HashMap<String, ScriptModule>>,
+}
+
+impl Hash for NewScript {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.path.hash(state);
+        self.parent_hash.hash(state);
+        self.summary.hash(state);
+        self.description.hash(state);
+        self.content.hash(state);
+        self.schema.hash(state);
+        self.is_template.hash(state);
+        self.lock.hash(state);
+        self.language.hash(state);
+        self.kind.hash(state);
+        self.tag.hash(state);
+        self.draft_only.hash(state);
+        self.envs.hash(state);
+        self.concurrency_settings.hash(state);
+        self.debouncing_settings.hash(state);
+        self.cache_ttl.hash(state);
+        self.cache_ignore_s3_path.hash(state);
+        self.dedicated_worker.hash(state);
+        self.ws_error_handler_muted.hash(state);
+        self.priority.hash(state);
+        self.timeout.hash(state);
+        self.delete_after_use.hash(state);
+        self.restart_unless_cancelled.hash(state);
+        self.deployment_message.hash(state);
+        self.visible_to_runner_only.hash(state);
+        self.no_main_func.hash(state);
+        self.codebase.hash(state);
+        self.has_preprocessor.hash(state);
+        self.on_behalf_of_email.hash(state);
+        self.preserve_on_behalf_of.hash(state);
+        self.assets.hash(state);
+        if let Some(modules) = &self.modules {
+            let mut sorted: Vec<_> = modules.iter().collect();
+            sorted.sort_by_key(|(k, _)| k.clone());
+            for (k, v) in sorted {
+                k.hash(state);
+                v.hash(state);
+            }
+        }
+    }
 }
 
 fn lock_deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>

@@ -402,6 +402,7 @@
 	}
 
 	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void> {
+		scriptEditor?.flushModuleState()
 		// Fetch latest version and fetch entire script after if needed
 		let actual_parent_hash: string | undefined = undefined
 
@@ -558,7 +559,8 @@
 					deployment_message: deploymentMsg || undefined,
 					on_behalf_of_email: script.on_behalf_of_email,
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
-					assets: script.assets
+					assets: script.assets,
+					modules: script.modules
 				}
 			})
 
@@ -605,6 +607,7 @@
 	}
 
 	async function saveDraft(forceSave = false): Promise<void> {
+		scriptEditor?.flushModuleState()
 		if (initialPath != '' && !savedScript) {
 			return
 		}
@@ -709,7 +712,8 @@
 						no_main_func: script.no_main_func,
 						has_preprocessor: script.has_preprocessor,
 						on_behalf_of_email: script.on_behalf_of_email,
-						assets: script.assets
+						assets: script.assets,
+						modules: script.modules
 					}
 				})
 			}
@@ -1947,6 +1951,7 @@
 			bind:hasPreprocessor
 			bind:captureTable
 			bind:assets={script.assets}
+			bind:modules={script.modules}
 			enablePreprocessorSnippet
 		/>
 	</div>

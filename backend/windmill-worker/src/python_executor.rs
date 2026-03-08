@@ -542,6 +542,32 @@ async fn postinstall(
     Ok(())
 }
 
+/// Compute the directory (relative to job_dir) where Python writes the main script.
+/// Module files must be placed in this same directory for relative imports to work.
+pub fn compute_python_module_dir(script_path: &str) -> String {
+    let script_path_splitted = script_path.split("/").map(|x| {
+        if x.starts_with(|x: char| x.is_ascii_digit()) {
+            format!("_{}", x)
+        } else {
+            x.to_string()
+        }
+    });
+    let dirs_full = script_path_splitted
+        .clone()
+        .take(script_path_splitted.clone().count() - 1)
+        .join("/")
+        .replace("-", "_")
+        .replace("@", ".");
+    if dirs_full.len() > 0 {
+        dirs_full
+            .strip_prefix("/")
+            .unwrap_or(&dirs_full)
+            .to_string()
+    } else {
+        "tmp".to_string()
+    }
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_python_job(
     requirements_o: Option<&String>,
@@ -958,6 +984,7 @@ async fn prepare_wrapper(
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
+    let dirs = compute_python_module_dir(script_path);
     let script_path_splitted = script_path.split("/").map(|x| {
         if x.starts_with(|x: char| x.is_ascii_digit()) {
             format!("_{}", x)
@@ -965,20 +992,6 @@ async fn prepare_wrapper(
             x.to_string()
         }
     });
-    let dirs_full = script_path_splitted
-        .clone()
-        .take(script_path_splitted.clone().count() - 1)
-        .join("/")
-        .replace("-", "_")
-        .replace("@", ".");
-    let dirs = if dirs_full.len() > 0 {
-        dirs_full
-            .strip_prefix("/")
-            .unwrap_or(&dirs_full)
-            .to_string()
-    } else {
-        "tmp".to_string()
-    };
     let last = script_path_splitted
         .clone()
         .last()

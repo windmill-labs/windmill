@@ -97,6 +97,8 @@ struct ScriptMetadata {
     pub has_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modules: Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
     #[serde(flatten)]
     pub concurrency_settings: ConcurrencySettings,
     #[serde(flatten)]
@@ -487,6 +489,7 @@ pub(crate) async fn tarball_workspace(
                 codebase: script.codebase,
                 has_preprocessor: script.has_preprocessor,
                 on_behalf_of_email: script.on_behalf_of_email,
+                modules: script.modules,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive

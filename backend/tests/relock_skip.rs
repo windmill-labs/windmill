@@ -44,6 +44,7 @@ mod relock_skip {
             has_preprocessor: None,
             on_behalf_of_email: None,
             assets: vec![],
+            modules: None,
         }
     }
 
@@ -57,13 +58,10 @@ mod relock_skip {
         pattern: &str,
         after: chrono::DateTime<chrono::Utc>,
     ) -> i64 {
-        let logs = sqlx::query_scalar!(
-            "SELECT logs FROM job_logs WHERE created_at > $1",
-            after
-        )
-        .fetch_all(db)
-        .await
-        .unwrap();
+        let logs = sqlx::query_scalar!("SELECT logs FROM job_logs WHERE created_at > $1", after)
+            .fetch_all(db)
+            .await
+            .unwrap();
 
         logs.iter()
             .filter_map(|l| l.as_ref())
@@ -270,8 +268,14 @@ def main():
         // We allow up to 3 skips from cascade re-triggers.
         let skipping_count = count_pattern_in_job_logs(&db, "Skipping relock", before).await;
         let relocking_count = count_pattern_in_job_logs(&db, "Relocking", before).await;
-        assert!(skipping_count <= 3, "First deployment should have at most 3 skips from cascade");
-        assert!(relocking_count >= 3, "First deployment should have at least 3 relocking jobs");
+        assert!(
+            skipping_count <= 3,
+            "First deployment should have at most 3 skips from cascade"
+        );
+        assert!(
+            relocking_count >= 3,
+            "First deployment should have at least 3 relocking jobs"
+        );
 
         // Step 2: Redeploy default workspace deps again - should SKIP
         let before = chrono::Utc::now();
@@ -289,7 +293,10 @@ def main():
         in_test_worker(&db, wait_for_jobs_ge(&mut completed, 10), port).await;
 
         let skipping_count = count_pattern_in_job_logs(&db, "Skipping relock", before).await;
-        assert!(skipping_count >= 3, "Second deployment of same content should skip at least 3 times");
+        assert!(
+            skipping_count >= 3,
+            "Second deployment of same content should skip at least 3 times"
+        );
 
         // Step 3: Redeploy default workspace deps with different content - should NOT skip
         let before = chrono::Utc::now();
@@ -308,8 +315,14 @@ def main():
 
         let skipping_count = count_pattern_in_job_logs(&db, "Skipping relock", before).await;
         let relocking_count = count_pattern_in_job_logs(&db, "Relocking", before).await;
-        assert!(skipping_count <= 4, "Changed content should have at most 3 skips from cascade");
-        assert!(relocking_count >= 3, "Changed content should trigger at least 3 relocking jobs");
+        assert!(
+            skipping_count <= 4,
+            "Changed content should have at most 3 skips from cascade"
+        );
+        assert!(
+            relocking_count >= 3,
+            "Changed content should trigger at least 3 relocking jobs"
+        );
 
         // Step 4: Deploy named workspace deps first time - should relock (no hash exists yet)
         // Named deps trigger exactly 3 independent objects with no cascade
@@ -329,8 +342,14 @@ def main():
 
         let skipping_count = count_pattern_in_job_logs(&db, "Skipping relock", before).await;
         let relocking_count = count_pattern_in_job_logs(&db, "Relocking", before).await;
-        assert_eq!(skipping_count, 0, "Named workspace deps first deployment should not skip");
-        assert!(relocking_count > 0, "Named workspace deps first deployment should relock");
+        assert_eq!(
+            skipping_count, 0,
+            "Named workspace deps first deployment should not skip"
+        );
+        assert!(
+            relocking_count > 0,
+            "Named workspace deps first deployment should relock"
+        );
 
         // Step 5: Deploy named workspace deps again with no change - should SKIP
         let before = chrono::Utc::now();
@@ -350,8 +369,14 @@ def main():
         let skipping_count = count_pattern_in_job_logs(&db, "Skipping relock", before).await;
         let relocking_count = count_pattern_in_job_logs(&db, "Relocking", before).await;
 
-        assert!(skipping_count > 0, "Named workspace deps second deployment should skip");
-        assert_eq!(relocking_count, 0, "Named workspace deps second deployment should not relock");
+        assert!(
+            skipping_count > 0,
+            "Named workspace deps second deployment should skip"
+        );
+        assert_eq!(
+            relocking_count, 0,
+            "Named workspace deps second deployment should not relock"
+        );
 
         // Step 6: Deploy named workspace deps with small change - should NOT skip
         let before = chrono::Utc::now();
@@ -370,8 +395,14 @@ def main():
 
         let skipping_count = count_pattern_in_job_logs(&db, "Skipping relock", before).await;
         let relocking_count = count_pattern_in_job_logs(&db, "Relocking", before).await;
-        assert_eq!(skipping_count, 0, "Named workspace deps with change should not skip");
-        assert!(relocking_count > 0, "Named workspace deps with change should relock");
+        assert_eq!(
+            skipping_count, 0,
+            "Named workspace deps with change should not skip"
+        );
+        assert!(
+            relocking_count > 0,
+            "Named workspace deps with change should relock"
+        );
 
         Ok(())
     }

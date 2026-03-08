@@ -434,6 +434,40 @@ export function isRawAppFolderMetadataFile(p: string): boolean {
 }
 
 // ============================================================================
+// Script Module Path Functions
+// ============================================================================
+
+/**
+ * The suffix used for script module folders.
+ * Unlike flows/apps, modules always use `__module` (never dotted `.module`)
+ * to avoid confusion with file extensions.
+ */
+const MODULE_SUFFIX = "__module";
+
+/**
+ * Get the module folder suffix (always "__module")
+ */
+export function getModuleFolderSuffix(): string {
+  return MODULE_SUFFIX;
+}
+
+/**
+ * Check if a path is inside a script module folder.
+ * Matches patterns like: .../my_script__module/...
+ */
+export function isScriptModulePath(p: string): boolean {
+  return normalizeSep(p).includes(MODULE_SUFFIX + "/");
+}
+
+/**
+ * Build the module folder path from a script's base path (without extension).
+ * e.g., "f/my_script" -> "f/my_script__module"
+ */
+export function buildModuleFolderPath(scriptBasePath: string): string {
+  return scriptBasePath + MODULE_SUFFIX;
+}
+
+// ============================================================================
 // Sync-related Path Functions
 // ============================================================================
 

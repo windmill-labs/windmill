@@ -194,6 +194,7 @@ def main():
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
+        modules: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -245,6 +246,7 @@ def main():
             cache_ttl: None,
             cache_ignore_s3_path: None,
             dedicated_worker: None,
+            modules: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -281,6 +283,7 @@ def main():
             cache_ttl: None,
             cache_ignore_s3_path: None,
             dedicated_worker: None,
+            modules: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -321,6 +324,7 @@ def main():
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
+        modules: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -359,6 +363,7 @@ def main():
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
+        modules: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)

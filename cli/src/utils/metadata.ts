@@ -5,7 +5,8 @@ import * as log from "../core/log.ts";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "./yaml.ts";
 import { readFile, writeFile, stat, rm, readdir } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync, mkdirSync, writeFileSync } from "node:fs";
+import * as path from "node:path";
 import { createRequire } from "node:module";
 import {
   ScriptMetadata,
@@ -15,8 +16,10 @@ import { Workspace } from "../commands/workspace/workspace.ts";
 import {
   ScriptLanguage,
   workspaceDependenciesLanguages,
+  languageNeedsLock,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
+import { getModuleFolderSuffix } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders } from "./utils.ts";
 
@@ -255,6 +258,13 @@ export async function generateScriptMetadataInternal(
       );
     } else {
       metadataParsedContent.lock = "";
+    }
+
+    // Generate locks for modules in __module/ folder
+    const scriptBasePath = scriptPath.substring(0, scriptPath.indexOf("."));
+    const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
+    if (existsSync(moduleFolderPath) && statSync(moduleFolderPath).isDirectory()) {
+      await updateModuleLocks(workspace, moduleFolderPath, "", remotePath, rawWorkspaceDependencies, opts.defaultTs);
     }
   } else {
     metadataParsedContent.lock =
@@ -542,6 +552,71 @@ async function updateScriptLock(
       log.info(colors.yellow(`Error removing lock file ${lockPath}: ${e}`));
     }
     metadataContent.lock = "";
+  }
+}
+
+/**
+ * Generate locks for all module files in a __module/ directory.
+ * Recursively walks the directory and generates a lock for each module
+ * whose language requires one.
+ */
+async function updateModuleLocks(
+  workspace: Workspace,
+  dirPath: string,
+  relPrefix: string,
+  scriptRemotePath: string,
+  rawWorkspaceDependencies: Record<string, string>,
+  defaultTs: "bun" | "deno" | undefined,
+): Promise<void> {
+  const entries = readdirSync(dirPath, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    const relPath = relPrefix ? relPrefix + "/" + entry.name : entry.name;
+
+    if (entry.isDirectory()) {
+      await updateModuleLocks(workspace, fullPath, relPath, scriptRemotePath, rawWorkspaceDependencies, defaultTs);
+    } else if (entry.isFile() && !entry.name.endsWith(".script.lock")) {
+      let modLanguage: ScriptLanguage;
+      try {
+        modLanguage = inferContentTypeFromFilePath(entry.name, defaultTs);
+      } catch {
+        continue; // skip files with unrecognized extensions
+      }
+
+      if (!languageNeedsLock(modLanguage)) continue;
+
+      const moduleContent = readFileSync(fullPath, "utf-8");
+      const moduleRemotePath = scriptRemotePath + "/" + relPath;
+
+      log.info(colors.gray(`Generating lock for module ${relPath}`));
+
+      try {
+        const lock = await fetchScriptLock(
+          workspace,
+          moduleContent,
+          modLanguage,
+          moduleRemotePath,
+          rawWorkspaceDependencies,
+        );
+
+        const baseName = entry.name.substring(0, entry.name.indexOf("."));
+        const lockPath = path.join(dirPath, baseName + ".script.lock");
+        if (lock != "") {
+          writeFileSync(lockPath, lock, "utf-8");
+        } else {
+          try {
+            if (existsSync(lockPath)) {
+              const { rm: rmAsync } = await import("node:fs/promises");
+              await rmAsync(lockPath);
+            }
+          } catch {
+            // ignore
+          }
+        }
+      } catch (e) {
+        log.info(colors.yellow(`Failed to generate lock for module ${relPath}: ${e}`));
+      }
+    }
   }
 }
 

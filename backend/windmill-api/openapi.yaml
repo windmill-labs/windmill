@@ -18681,6 +18681,12 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        modules:
+          type: object
+          nullable: true
+          description: "Additional script modules keyed by relative file path"
+          additionalProperties:
+            $ref: "#/components/schemas/ScriptModule"
 
       required:
         - hash
@@ -18799,6 +18805,12 @@ components:
               alt_access_type:
                 type: string
                 enum: [r, w, rw]
+        modules:
+          type: object
+          nullable: true
+          description: "Additional script modules keyed by relative file path"
+          additionalProperties:
+            $ref: "#/components/schemas/ScriptModule"
 
       required:
         - path
@@ -19992,6 +20004,23 @@ components:
           bunnative,
           # for related places search: ADD_NEW_LANG
         ]
+
+    ScriptModule:
+      type: object
+      description: "An additional module file associated with a script"
+      properties:
+        content:
+          type: string
+          description: "The source code content of this module"
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        lock:
+          type: string
+          nullable: true
+          description: "Lock file content for this module's dependencies"
+      required:
+        - content
+        - language
 
     Preview:
       type: object

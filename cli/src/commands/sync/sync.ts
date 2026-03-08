@@ -31,6 +31,7 @@ import {
   findResourceFile,
   handleScriptMetadata,
   removeExtensionToPath,
+  filePathExtensionFromContentType,
 } from "../script/script.ts";
 
 import { handleFile } from "../script/script.ts";
@@ -68,7 +69,7 @@ import {
   readLockfile,
   workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
-import { OpenFlow, NativeServiceName } from "../../../gen/types.gen.ts";
+import { OpenFlow, NativeServiceName, ScriptModule } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
 import {
   newPathAssigner,
@@ -97,6 +98,8 @@ import {
   getFolderSuffix,
   getFolderSuffixWithSep,
   getNonDottedPaths,
+  isScriptModulePath,
+  getModuleFolderSuffix,
 } from "../../utils/resource_folders.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -889,6 +892,8 @@ function ZipFSElement(
             if (ignoreCodebaseChanges && parsed["codebase"]) {
               parsed["codebase"] = undefined;
             }
+            // Modules are stored as files in __module/ folder, not in metadata
+            delete parsed["modules"];
             return useYaml
               ? yamlStringify(parsed, yamlOptions)
               : JSON.stringify(parsed, null, 2);
@@ -955,6 +960,51 @@ function ZipFSElement(
           async *getChildren() {},
           async getContentText() {
             return lock;
+          },
+        });
+      }
+
+      // Extract script modules into __module/ folder
+      const scriptModules: Record<string, ScriptModule> | undefined = parsed["modules"];
+      if (scriptModules && Object.keys(scriptModules).length > 0) {
+        // The script metadata base path (without .script.json/.script.yaml)
+        const scriptBasePath = removeSuffix(
+          removeSuffix(finalPath, ".json"),
+          ".script"
+        );
+        const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
+
+        r.push({
+          isDirectory: true,
+          path: moduleFolderPath,
+          async *getChildren() {
+            for (const [relPath, mod] of Object.entries(scriptModules)) {
+              // Yield the module content file
+              yield {
+                isDirectory: false,
+                path: path.join(moduleFolderPath, relPath),
+                async *getChildren() {},
+                async getContentText() {
+                  return mod.content;
+                },
+              };
+
+              // Yield the module lock file if present
+              if (mod.lock) {
+                const baseName = relPath.substring(0, relPath.indexOf("."));
+                yield {
+                  isDirectory: false,
+                  path: path.join(moduleFolderPath, baseName + ".script.lock"),
+                  async *getChildren() {},
+                  async getContentText() {
+                    return mod.lock!;
+                  },
+                };
+              }
+            }
+          },
+          async getContentText() {
+            throw new Error("Cannot get content of directory");
           },
         });
       }
@@ -1133,6 +1183,12 @@ export async function elementsToMap(
       continue;
     }
     const path = entry.path;
+    // Include module files in the map so they're compared for changes,
+    // but they're pushed as part of their parent script via handleFile
+    if (isScriptModulePath(path)) {
+      map[path] = await entry.getContentText();
+      continue;
+    }
     if (
       !isFileResource(path) &&
       !isFilesetResource(path) &&
@@ -1723,6 +1779,21 @@ async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
       if (!tracker.rawApps.includes(folder)) {
         tracker.rawApps.push(folder);
       }
+    } else if (isScriptModulePath(p)) {
+      // Module file changed — find the parent script content file
+      const moduleSuffix = getModuleFolderSuffix() + "/";
+      const idx = p.indexOf(moduleSuffix);
+      if (idx !== -1) {
+        const scriptBasePath = p.substring(0, idx);
+        try {
+          const contentPath = await findContentFile(scriptBasePath + ".script.yaml");
+          if (contentPath && !tracker.scripts.includes(contentPath)) {
+            tracker.scripts.push(contentPath);
+          }
+        } catch {
+          // ignore — content file not found
+        }
+      }
     } else {
       if (!tracker.scripts.includes(p)) {
         tracker.scripts.push(p);
@@ -1753,6 +1824,43 @@ async function buildTracker(changes: Change[]) {
     }
   }
   return tracker;
+}
+
+/**
+ * When a module file changes, find and push the parent script.
+ * The parent script's handleFile will read the __module/ folder and include all modules.
+ */
+async function pushParentScriptForModule(
+  modulePath: string,
+  workspace: Workspace,
+  alreadySynced: string[],
+  message: string | undefined,
+  opts: (GlobalOptions & { defaultTs?: "bun" | "deno" } & Skips) | undefined,
+  rawWorkspaceDependencies: Record<string, string>,
+  codebases: SyncCodebase[],
+): Promise<void> {
+  const moduleSuffix = getModuleFolderSuffix() + "/";
+  const idx = modulePath.indexOf(moduleSuffix);
+  if (idx === -1) return;
+  const scriptBasePath = modulePath.substring(0, idx);
+
+  // Find the parent script content file
+  try {
+    const contentPath = await findContentFile(scriptBasePath + ".script.yaml");
+    if (contentPath) {
+      await handleFile(
+        contentPath,
+        workspace,
+        alreadySynced,
+        message,
+        opts,
+        rawWorkspaceDependencies,
+        codebases,
+      );
+    }
+  } catch {
+    log.debug(`Could not find parent script for module: ${modulePath}`);
+  }
 }
 
 export async function pull(
@@ -2683,6 +2791,21 @@ export async function push(
                   await writeFile(stateTarget, change.after, "utf-8");
                 }
                 continue;
+              } else if (isScriptModulePath(change.path)) {
+                // Module file changed — push the parent script
+                await pushParentScriptForModule(
+                  change.path,
+                  workspace,
+                  alreadySynced,
+                  opts.message,
+                  opts,
+                  rawWorkspaceDependencies,
+                  codebases,
+                );
+                if (stateTarget) {
+                  await writeFile(stateTarget, change.after, "utf-8");
+                }
+                continue;
               }
               if (stateTarget) {
                 await mkdir(path.dirname(stateTarget), { recursive: true });
@@ -2807,6 +2930,17 @@ export async function push(
                 )
               ) {
                 continue;
+              } else if (isScriptModulePath(change.path)) {
+                await pushParentScriptForModule(
+                  change.path,
+                  workspace,
+                  alreadySynced,
+                  opts.message,
+                  opts,
+                  rawWorkspaceDependencies,
+                  codebases,
+                );
+                continue;
               }
               if (stateTarget) {
                 await mkdir(path.dirname(stateTarget), { recursive: true });
@@ -2846,6 +2980,19 @@ export async function push(
               }
             } else if (change.name === "deleted") {
               if (change.path.endsWith(".lock")) {
+                continue;
+              }
+              if (isScriptModulePath(change.path)) {
+                // Module file deleted — push the parent script (which will now have fewer modules)
+                await pushParentScriptForModule(
+                  change.path,
+                  workspace,
+                  alreadySynced,
+                  opts.message,
+                  opts,
+                  rawWorkspaceDependencies,
+                  codebases,
+                );
                 continue;
               }
               const typ = getTypeStrFromPath(change.path);

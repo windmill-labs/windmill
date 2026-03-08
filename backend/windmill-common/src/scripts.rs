@@ -106,6 +106,7 @@ pub async fn prefetch_cached_script(
         has_preprocessor: script.has_preprocessor,
         on_behalf_of_email: script.on_behalf_of_email,
         assets: script.assets,
+        modules: script.modules,
         runnable_settings: ScriptRunnableSettingsInline {
             concurrency_settings: concurrency_settings.maybe_fallback(
                 script.runnable_settings.concurrency_key,
@@ -418,6 +419,7 @@ pub async fn clone_script<'c>(
         on_behalf_of_email: s.on_behalf_of_email,
         preserve_on_behalf_of: None,
         assets: s.assets,
+        modules: s.modules,
     };
 
     let new_hash = hash_script(&ns);
