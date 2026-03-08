@@ -316,7 +316,11 @@ pub async fn set_global_setting_internal(
              )
              .execute(db)
              .await?;
-            tracing::info!("Set global setting {} to {}", key, v);
+            tracing::info!(
+                "Set global setting {} to {}",
+                key,
+                instance_config::format_setting_value(&key, &v)
+            );
         }
     };
 
