@@ -860,7 +860,7 @@ async fn handle_wac_child_completion(
 
         // Unsuspend the parent so it can be completed
         sqlx::query!(
-            "UPDATE v2_job_queue SET suspend = 0 WHERE id = $1",
+            "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE id = $1",
             parent_job_id,
         )
         .execute(db)
@@ -923,7 +923,7 @@ async fn handle_wac_child_completion(
     if all_done {
         // All pending steps done — unsuspend the parent so it gets re-run
         sqlx::query!(
-            "UPDATE v2_job_queue SET suspend = 0 WHERE id = $1",
+            "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE id = $1",
             parent_job_id,
         )
         .execute(db)
