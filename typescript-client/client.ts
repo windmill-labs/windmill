@@ -1488,7 +1488,7 @@ export class WorkflowCtx {
         // Only the first .then() call throws with all accumulated steps.
         // Subsequent calls (e.g. from Promise.all resolving other thenables)
         // also throw (they'll be caught by the same handler).
-        if (this._suspended) throw new StepSuspend({ mode: "noop", steps: [] });
+        if (this._suspended) return new Promise(() => {}) as never;
         this._suspended = true;
         const steps = [...this.pending];
         this.pending = [];
@@ -1499,6 +1499,13 @@ export class WorkflowCtx {
       },
     };
   }
+  /** Return and clear any pending (unawaited) steps. */
+  _flushPending(): Array<{ name: string; script: string; args: Record<string, any>; key: string }> {
+    const steps = [...this.pending];
+    this.pending = [];
+    return steps;
+  }
+
   async _runInlineStep<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
     const key = this._allocKey();
 

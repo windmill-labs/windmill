@@ -1327,6 +1327,11 @@ async function run() {{
     try {{
         const result = await workflowFn(...argsArr);
         setWorkflowCtx(null);
+        // Flush any unawaited tasks (e.g. forgotten await on last statement)
+        const trailing = ctx._flushPending();
+        if (trailing.length > 0) {{
+            return {{ type: "dispatch", mode: trailing.length > 1 ? "parallel" : "sequential", steps: trailing }};
+        }}
         return {{ type: "complete", result: result ?? null }};
     }} catch (e) {{
         setWorkflowCtx(null);
@@ -1854,6 +1859,11 @@ pub async fn handle_wac_v2_output(
             Ok(raw)
         }
         WacOutput::Dispatch { mode, steps } => {
+            if steps.is_empty() {
+                return Err(error::Error::internal_err(
+                    "WAC v2 dispatch with no steps — this is a bug in the workflow SDK".to_string(),
+                ));
+            }
             let db = match conn {
                 Connection::Sql(db) => db,
                 _ => {
