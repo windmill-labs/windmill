@@ -811,6 +811,14 @@ pub async fn process_completed_job(
 /// Handle a WAC v2 child job completion.
 /// Returns Ok(Some(())) if the parent was a WAC job and was handled,
 /// Ok(None) if the parent is not a WAC job (caller should fall through).
+///
+/// CONCURRENCY: Multiple parallel children may complete simultaneously on
+/// different workers.  We use atomic SQL operations throughout:
+///   - `completed_steps` is merged via `jsonb_set(... || jsonb_build_object(...))`
+///     — PostgreSQL serialises concurrent UPDATEs on the same row, so each
+///     worker sees the previous worker's writes.
+///   - The suspend counter (set to N at dispatch time) is decremented atomically
+///     with `RETURNING` to determine the "all done" condition.
 async fn handle_wac_child_completion(
     db: &DB,
     child_job_id: &Uuid,
@@ -819,33 +827,29 @@ async fn handle_wac_child_completion(
     result: Arc<Box<RawValue>>,
     success: bool,
 ) -> error::Result<Option<()>> {
-    use crate::wac_executor::{
-        add_completed_step, all_pending_complete, load_checkpoint, save_checkpoint,
-    };
-
-    // Check if parent has workflow_as_code_status (meaning it's a WAC job)
-    let has_wac_status: Option<bool> = sqlx::query_scalar(
-        "SELECT workflow_as_code_status IS NOT NULL FROM v2_job_status WHERE id = $1",
+    // Read pending_steps.job_ids to find the step key for this child.
+    // This is safe without locking because pending_steps is written once during
+    // dispatch and never modified by concurrent child completions.
+    let job_ids_json: Option<Option<Value>> = sqlx::query_scalar(
+        "SELECT workflow_as_code_status->'_checkpoint'->'pending_steps'->'job_ids' \
+         FROM v2_job_status WHERE id = $1",
     )
     .bind(&parent_job_id)
     .fetch_optional(db)
     .await?;
 
-    if has_wac_status != Some(true) {
-        return Ok(None); // Not a WAC parent
-    }
+    let job_ids = match job_ids_json {
+        Some(Some(Value::Object(m))) => m,
+        _ => return Ok(None), // Not a WAC parent or no pending steps
+    };
 
-    let mut checkpoint = load_checkpoint(db, &parent_job_id).await?;
-
-    // Resolve step key early so it's available in both success and error paths
-    let step_key = checkpoint.pending_steps.as_ref().and_then(|pending| {
-        pending.job_ids.iter().find_map(|(key, val)| {
-            if val.as_str() == Some(&child_job_id.to_string()) {
-                Some(key.clone())
-            } else {
-                None
-            }
-        })
+    let child_id_str = child_job_id.to_string();
+    let step_key = job_ids.iter().find_map(|(key, val)| {
+        if val.as_str() == Some(&child_id_str) {
+            Some(key.clone())
+        } else {
+            None
+        }
     });
 
     if !success {
@@ -914,33 +918,61 @@ async fn handle_wac_child_completion(
         "WAC v2 child job completed"
     );
 
-    // Add completed step to checkpoint
-    add_completed_step(&mut checkpoint, &step_key, result_value);
-    let all_done = all_pending_complete(&checkpoint);
-    save_checkpoint(db, &parent_job_id, &checkpoint).await?;
+    // Atomically merge the completed step into the checkpoint.
+    // Uses `|| jsonb_build_object(key, value)` so concurrent children on
+    // different workers don't overwrite each other — PostgreSQL serialises
+    // concurrent UPDATEs on the same row and each sees the previous write.
+    let result_json = serde_json::to_value(&result_value)
+        .map_err(|e| error::Error::InternalErr(format!("Failed to serialize step result: {e}")))?;
+    sqlx::query(
+        "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+            workflow_as_code_status,
+            '{_checkpoint,completed_steps}',
+            COALESCE(workflow_as_code_status->'_checkpoint'->'completed_steps', '{}'::jsonb)
+            || jsonb_build_object($2::text, $3::jsonb)
+        ) WHERE id = $1",
+    )
+    .bind(&parent_job_id)
+    .bind(&step_key)
+    .bind(&result_json)
+    .execute(db)
+    .await
+    .map_err(|e| error::Error::InternalErr(format!("Failed to add WAC completed step: {e}")))?;
 
-    // Decrement the parent's suspend counter
+    // Atomically decrement the suspend counter.  The counter was set to N
+    // (number of children) at dispatch time.  When it reaches 0 all children
+    // are done — clear suspend_until in the same statement so the parent
+    // becomes eligible for pickup immediately.
+    let new_suspend: Option<i32> = sqlx::query_scalar!(
+        "UPDATE v2_job_queue \
+         SET suspend = GREATEST(suspend - 1, 0), \
+             suspend_until = CASE WHEN suspend <= 1 THEN NULL ELSE suspend_until END \
+         WHERE id = $1 \
+         RETURNING suspend",
+        parent_job_id,
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let all_done = new_suspend == Some(0);
+
     if all_done {
-        // All pending steps done — unsuspend the parent so it gets re-run
-        sqlx::query!(
-            "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE id = $1",
-            parent_job_id,
+        // Clear pending_steps from checkpoint since all children are complete.
+        // This is cosmetic — the next replay will overwrite it anyway — but
+        // keeps the checkpoint clean for frontend display.
+        let _ = sqlx::query(
+            "UPDATE v2_job_status SET workflow_as_code_status = \
+             workflow_as_code_status #- '{_checkpoint,pending_steps}' \
+             WHERE id = $1",
         )
+        .bind(&parent_job_id)
         .execute(db)
-        .await?;
+        .await;
 
         tracing::info!(
             parent_job = %parent_job_id,
             "WAC v2 all child jobs completed, unsuspending parent"
         );
-    } else {
-        // Decrement suspend by 1
-        sqlx::query!(
-            "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1",
-            parent_job_id,
-        )
-        .execute(db)
-        .await?;
     }
 
     Ok(Some(()))
