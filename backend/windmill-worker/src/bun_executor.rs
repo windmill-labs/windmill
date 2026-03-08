@@ -1894,11 +1894,13 @@ pub async fn handle_wac_v2_output(
                 let stored: serde_json::Map<String, Value> = checkpoint.input_args.clone();
                 if stored.is_empty() {
                     // First dispatch — read from the parent job's args
-                    let row: Option<Value> =
-                        sqlx::query_scalar("SELECT args FROM v2_job WHERE id = $1")
-                            .bind(&job.id)
-                            .fetch_optional(db)
-                            .await?;
+                    let row: Option<Value> = sqlx::query_scalar(
+                        "SELECT args FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                    )
+                    .bind(&job.id)
+                    .bind(&job.workspace_id)
+                    .fetch_optional(db)
+                    .await?;
                     let args_val = row.unwrap_or(Value::Object(Default::default()));
                     if let Value::Object(map) = args_val {
                         // Store for future re-runs
@@ -1956,8 +1958,9 @@ pub async fn handle_wac_v2_output(
                     JobKind::Preview => {
                         // For preview jobs, we need the raw code. Read it from the DB.
                         let row: Option<(Option<String>, Option<String>)> =
-                            sqlx::query_as("SELECT raw_code, raw_lock FROM v2_job WHERE id = $1")
+                            sqlx::query_as("SELECT raw_code, raw_lock FROM v2_job WHERE id = $1 AND workspace_id = $2")
                                 .bind(&job.id)
+                                .bind(&job.workspace_id)
                                 .fetch_optional(db)
                                 .await?;
                         let (code, lock) = row.unwrap_or_default();
