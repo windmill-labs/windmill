@@ -19,7 +19,10 @@ use windmill_common::DB;
 use axum::Router;
 
 #[cfg(not(feature = "private"))]
-pub fn global_service(_job_completed_tx: windmill_worker::JobCompletedSender) -> Router {
+pub fn global_service(
+    _job_completed_tx: windmill_worker::JobCompletedSender,
+    _batch_buffer: Option<()>,
+) -> Router {
     Router::new()
 }
 
@@ -31,6 +34,7 @@ pub fn workspaced_service(
     Router,
     Vec<tokio::task::JoinHandle<()>>,
     Option<windmill_worker::JobCompletedSender>,
+    Option<()>,
 ) {
     use windmill_common::worker::Connection;
     use windmill_worker::JobCompletedSender;
@@ -40,7 +44,7 @@ pub fn workspaced_service(
 
     let router = Router::new();
 
-    (router, vec![], Some(job_completed_tx))
+    (router, vec![], Some(job_completed_tx), None)
 }
 
 #[cfg(not(feature = "private"))]

@@ -8,7 +8,7 @@ use windmill_common::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage,
         insert_ping_query, update_job_ping_query, update_worker_ping_from_job_query,
         update_worker_ping_main_loop_query, Connection, Ping, PingType, NATIVE_MODE_RESOLVED,
-        WORKER_CONFIG, WORKER_GROUP,
+        USES_BATCH_HTTP_PULL, WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, DB,
 };
@@ -31,6 +31,7 @@ pub(crate) async fn update_worker_ping_full(
     let tags = wc.worker_tags.clone();
     let native_mode = wc.native_mode;
     drop(wc);
+    let uses_batch_http_pull = USES_BATCH_HTTP_PULL.load(std::sync::atomic::Ordering::Relaxed);
 
     let memory_usage = get_worker_memory_usage();
     let wm_memory_usage = get_windmill_memory_usage();
@@ -64,6 +65,7 @@ pub(crate) async fn update_worker_ping_full(
             occupancy_rate_5m,
             occupancy_rate_30m,
             native_mode,
+            uses_batch_http_pull,
         )
     })
     .retry(
@@ -110,6 +112,7 @@ async fn update_worker_ping_full_inner(
     occupancy_rate_5m: Option<f32>,
     occupancy_rate_30m: Option<f32>,
     native_mode: bool,
+    uses_batch_http_pull: bool,
 ) -> anyhow::Result<()> {
     match conn {
         Connection::Sql(db) => {
@@ -126,6 +129,7 @@ async fn update_worker_ping_full_inner(
                 occupancy_rate_5m,
                 occupancy_rate_30m,
                 native_mode,
+                uses_batch_http_pull,
                 db,
             )
             .await?;
@@ -155,6 +159,7 @@ async fn update_worker_ping_full_inner(
                         wm_memory_usage: get_windmill_memory_usage(),
                         job_isolation: None,
                         native_mode: Some(native_mode),
+                        uses_batch_http_pull: Some(uses_batch_http_pull),
                         ping_type: PingType::MainLoop,
                     },
                 )
@@ -186,6 +191,7 @@ pub async fn insert_ping(
             wc.native_mode,
         )
     };
+    let uses_batch_http_pull = USES_BATCH_HTTP_PULL.load(std::sync::atomic::Ordering::Relaxed);
 
     let vcpus = get_vcpus();
     let memory = get_memory();
@@ -213,6 +219,7 @@ pub async fn insert_ping(
                 memory,
                 job_isolation,
                 native_mode,
+                uses_batch_http_pull,
                 db,
             )
             .await?;
@@ -242,6 +249,7 @@ pub async fn insert_ping(
                         wm_memory_usage: get_windmill_memory_usage(),
                         job_isolation,
                         native_mode: Some(native_mode),
+                        uses_batch_http_pull: Some(uses_batch_http_pull),
                         ping_type: PingType::Initial,
                     },
                 )
@@ -317,6 +325,9 @@ pub async fn update_worker_ping_from_job(
                         job_isolation,
                         native_mode: Some(
                             NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed),
+                        ),
+                        uses_batch_http_pull: Some(
+                            USES_BATCH_HTTP_PULL.load(std::sync::atomic::Ordering::Relaxed),
                         ),
                     },
                 )

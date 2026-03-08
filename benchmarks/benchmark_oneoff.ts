@@ -47,6 +47,7 @@ export async function main({
   kind,
   jobs,
   noVerify,
+  skipDeploy,
 }: {
   host: string;
   email?: string;
@@ -56,6 +57,7 @@ export async function main({
   kind: string;
   jobs: number;
   noVerify?: boolean;
+  skipDeploy?: boolean;
 }) {
   windmill.setClient("", host);
 
@@ -146,7 +148,8 @@ export async function main({
   }
 
   if (
-    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets"].includes(
+    !skipDeploy &&
+    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "nativets_sleep", "dedicated_nativets"].includes(
       kind
     )
   ) {
@@ -165,7 +168,7 @@ export async function main({
       kind: "noop",
     });
   } else if (
-    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets"].includes(
+    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "nativets_sleep", "dedicated_nativets"].includes(
       kind
     )
   ) {
@@ -336,6 +339,7 @@ export async function main({
     !noVerify &&
     kind !== "noop" &&
     kind !== "nativets" &&
+    kind !== "nativets_sleep" &&
     kind !== "dedicated_nativets" &&
     !kind.startsWith("flow:") &&
     !kind.startsWith("script:")
@@ -396,6 +400,9 @@ if (import.meta.main) {
       default: 10000,
     })
     .option("--no-verify", "Do not verify the output of the jobs.", {
+      default: false,
+    })
+    .option("--skip-deploy", "Skip script deployment (use already deployed script).", {
       default: false,
     })
     .action(main)

@@ -88,6 +88,20 @@ impl ScriptLang {
         }
     }
 
+    /// Returns the worker tag for this language.
+    /// Bunnative scripts run on nativets workers (not bun), except dependency jobs which use bun.
+    pub fn as_worker_tag(&self, is_dependency_job: bool) -> &'static str {
+        if *self == ScriptLang::Bunnative {
+            if is_dependency_job {
+                ScriptLang::Bun.as_str()
+            } else {
+                ScriptLang::Nativets.as_str()
+            }
+        } else {
+            self.as_str()
+        }
+    }
+
     pub fn as_dependencies_filename(&self) -> Option<String> {
         use ScriptLang::*;
         Some(
@@ -105,15 +119,15 @@ impl ScriptLang {
     pub fn is_native(&self) -> bool {
         matches!(
             self,
-            ScriptLang::Bunnative |
-            ScriptLang::Nativets |
-            ScriptLang::Postgresql |
-            ScriptLang::Mysql |
-            ScriptLang::Graphql |
-            ScriptLang::Snowflake |
-            ScriptLang::Mssql |
-            ScriptLang::Bigquery |
-            ScriptLang::OracleDB
+            ScriptLang::Bunnative
+                | ScriptLang::Nativets
+                | ScriptLang::Postgresql
+                | ScriptLang::Mysql
+                | ScriptLang::Graphql
+                | ScriptLang::Snowflake
+                | ScriptLang::Mssql
+                | ScriptLang::Bigquery
+                | ScriptLang::OracleDB
         )
     }
 
