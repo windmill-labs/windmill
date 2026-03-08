@@ -2062,11 +2062,13 @@ pub async fn handle_wac_v2_output(
                     })?;
                 }
 
-                // Suspend parent and mark as not running so it can be picked
-                // up again once children complete and suspend reaches 0.
+                // Suspend parent before children become visible.
+                // Keep running = true so the normal pull query ignores it.
+                // The suspended pull query picks it up when suspend reaches 0
+                // (it checks: suspend_until IS NOT NULL AND suspend <= 0).
                 let suspend_count = num_steps as i32;
                 sqlx::query!(
-                    "UPDATE v2_job_queue SET suspend = $2, suspend_until = now() + interval '14 day', running = false WHERE id = $1",
+                    "UPDATE v2_job_queue SET suspend = $2, suspend_until = now() + interval '14 day' WHERE id = $1",
                     job.id,
                     suspend_count,
                 )

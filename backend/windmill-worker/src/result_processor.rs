@@ -952,12 +952,11 @@ async fn handle_wac_child_completion(
 
     // Atomically decrement the suspend counter.  The counter was set to N
     // (number of children) at dispatch time.  When it reaches 0 all children
-    // are done — clear suspend_until in the same statement so the parent
-    // becomes eligible for pickup immediately.
+    // are done.  Keep suspend_until non-null so the suspended pull query
+    // (`WHERE suspend_until IS NOT NULL AND suspend <= 0`) picks up the parent.
     let new_suspend: Option<i32> = sqlx::query_scalar!(
         "UPDATE v2_job_queue \
-         SET suspend = GREATEST(suspend - 1, 0), \
-             suspend_until = CASE WHEN suspend <= 1 THEN NULL ELSE suspend_until END \
+         SET suspend = GREATEST(suspend - 1, 0) \
          WHERE id = $1 \
          RETURNING suspend",
         parent_job_id,
