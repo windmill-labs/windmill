@@ -1871,6 +1871,21 @@ pub async fn handle_wac_v2_output(
             };
 
             let mut checkpoint = load_checkpoint(db, &job.id).await?;
+
+            // Source hash validation: detect if code changed between replays
+            let current_hash = job.runnable_id.map(|h| h.0.to_string()).unwrap_or_default();
+            if !current_hash.is_empty() {
+                if checkpoint.source_hash.is_empty() {
+                    checkpoint.source_hash = current_hash.clone();
+                } else if checkpoint.source_hash != current_hash {
+                    return Err(error::Error::ExecutionErr(
+                        "Workflow source code changed between replays. \
+                         Cannot safely resume from checkpoint — step keys may have shifted. \
+                         Please restart this workflow."
+                            .to_string(),
+                    ));
+                }
+            }
             let num_steps = steps.len();
 
             tracing::info!(
@@ -2093,60 +2108,74 @@ pub async fn handle_wac_v2_output(
 
             // Step 2: Push child jobs (now visible to workers).
             // Parent is already suspended, so child completions are safe.
-            for (step, (_, child_uuid)) in steps.iter().zip(job_ids.iter()) {
-                let job_payload = job_payload_template.clone();
-                let push_args = PushArgs { args: &parent_args, extra: None };
+            // If any push fails, unsuspend the parent so it isn't stuck forever.
+            let push_result: error::Result<()> = async {
+                for (step, (_, child_uuid)) in steps.iter().zip(job_ids.iter()) {
+                    let job_payload = job_payload_template.clone();
+                    let push_args = PushArgs { args: &parent_args, extra: None };
 
-                let (_, tx) = push(
-                    db,
-                    PushIsolationLevel::IsolatedRoot(db.clone()),
-                    &job.workspace_id,
-                    job_payload,
-                    push_args,
-                    &job.created_by,
-                    &job.permissioned_as_email,
-                    job.permissioned_as.clone(),
-                    None,
-                    None,
-                    None,
-                    Some(job.id),                  // parent_job
-                    job.root_job.or(Some(job.id)), // root_job
-                    job.flow_innermost_root_job,
-                    Some(*child_uuid), // pre-generated job_id
-                    false,             // is_flow_step
-                    false,             // same_worker
-                    None,              // pre_run_error
-                    job.visible_to_owner,
-                    Some(job.tag.clone()),
-                    job.timeout,
-                    None,  // flow_step_id
-                    None,  // priority_override
-                    None,  // authed
-                    false, // running
-                    None,  // end_user_email
-                    None,  // trigger
-                    None,  // suspended_mode
-                )
-                .await
-                .map_err(|e| {
-                    // If push fails, the parent is already suspended.
-                    // It will eventually time out (14 day suspend_until).
-                    // TODO: consider unsuspending + failing the parent here.
-                    error::Error::internal_err(format!(
-                        "Failed to push WAC child job for step '{}': {e}",
-                        step.name
-                    ))
-                })?;
+                    let (_, tx) = push(
+                        db,
+                        PushIsolationLevel::IsolatedRoot(db.clone()),
+                        &job.workspace_id,
+                        job_payload,
+                        push_args,
+                        &job.created_by,
+                        &job.permissioned_as_email,
+                        job.permissioned_as.clone(),
+                        None,
+                        None,
+                        None,
+                        Some(job.id),                  // parent_job
+                        job.root_job.or(Some(job.id)), // root_job
+                        job.flow_innermost_root_job,
+                        Some(*child_uuid), // pre-generated job_id
+                        false,             // is_flow_step
+                        false,             // same_worker
+                        None,              // pre_run_error
+                        job.visible_to_owner,
+                        Some(job.tag.clone()),
+                        job.timeout,
+                        None,  // flow_step_id
+                        None,  // priority_override
+                        None,  // authed
+                        false, // running
+                        None,  // end_user_email
+                        None,  // trigger
+                        None,  // suspended_mode
+                    )
+                    .await?;
 
-                tx.commit().await?;
+                    tx.commit().await.map_err(|e| {
+                        error::Error::internal_err(format!("Failed to commit child push: {e}"))
+                    })?;
 
-                tracing::info!(
-                    parent_job = %job.id,
-                    child_job = %child_uuid,
-                    step_name = %step.name,
-                    step_key = %step.key,
-                    "WAC v2 dispatched child job"
+                    tracing::info!(
+                        parent_job = %job.id,
+                        child_job = %child_uuid,
+                        step_name = %step.name,
+                        step_key = %step.key,
+                        "WAC v2 dispatched child job"
+                    );
+                }
+                Ok(())
+            }
+            .await;
+
+            if let Err(e) = push_result {
+                tracing::error!(
+                    job_id = %job.id,
+                    error = %e,
+                    "WAC v2 failed to push child jobs, unsuspending parent"
                 );
+                // Unsuspend parent so the error propagates instead of a 14-day hang
+                let _ = sqlx::query!(
+                    "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE id = $1",
+                    job.id,
+                )
+                .execute(db)
+                .await;
+                return Err(e);
             }
 
             tracing::info!(
@@ -2171,6 +2200,21 @@ pub async fn handle_wac_v2_output(
             };
 
             let mut checkpoint = load_checkpoint(db, &job.id).await?;
+
+            // Source hash validation (same as Dispatch path)
+            let current_hash = job.runnable_id.map(|h| h.0.to_string()).unwrap_or_default();
+            if !current_hash.is_empty() {
+                if checkpoint.source_hash.is_empty() {
+                    checkpoint.source_hash = current_hash.clone();
+                } else if checkpoint.source_hash != current_hash {
+                    return Err(error::Error::ExecutionErr(
+                        "Workflow source code changed between replays. \
+                         Cannot safely resume from checkpoint — step keys may have shifted. \
+                         Please restart this workflow."
+                            .to_string(),
+                    ));
+                }
+            }
 
             tracing::info!(
                 job_id = %job.id,
