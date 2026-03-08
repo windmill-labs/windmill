@@ -1904,16 +1904,30 @@ pub async fn handle_wac_v2_output(
                         // Store for future re-runs
                         checkpoint.input_args = map.clone();
                         map.into_iter()
-                            .map(|(k, v)| (k, serde_json::value::to_raw_value(&v).unwrap()))
-                            .collect()
+                            .map(|(k, v)| {
+                                let raw = serde_json::value::to_raw_value(&v).map_err(|e| {
+                                    error::Error::internal_err(format!(
+                                        "Failed to serialize arg '{k}': {e}"
+                                    ))
+                                })?;
+                                Ok((k, raw))
+                            })
+                            .collect::<error::Result<HashMap<_, _>>>()?
                     } else {
                         HashMap::new()
                     }
                 } else {
                     stored
                         .into_iter()
-                        .map(|(k, v)| (k, serde_json::value::to_raw_value(&v).unwrap()))
-                        .collect()
+                        .map(|(k, v)| {
+                            let raw = serde_json::value::to_raw_value(&v).map_err(|e| {
+                                error::Error::internal_err(format!(
+                                    "Failed to serialize arg '{k}': {e}"
+                                ))
+                            })?;
+                            Ok((k, raw))
+                        })
+                        .collect::<error::Result<HashMap<_, _>>>()?
                 }
             };
 
