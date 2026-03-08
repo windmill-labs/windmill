@@ -2108,7 +2108,9 @@ pub async fn handle_wac_v2_output(
 
             // Step 2: Push child jobs (now visible to workers).
             // Parent is already suspended, so child completions are safe.
-            // If any push fails, unsuspend the parent so it isn't stuck forever.
+            // Track successfully pushed children so we can cancel them on
+            // partial failure (e.g. pushing child 3 of 5 fails).
+            let mut pushed_ids: Vec<Uuid> = Vec::with_capacity(num_steps);
             let push_result: error::Result<()> = async {
                 for (step, (_, child_uuid)) in steps.iter().zip(job_ids.iter()) {
                     let job_payload = job_payload_template.clone();
@@ -2150,6 +2152,8 @@ pub async fn handle_wac_v2_output(
                         error::Error::internal_err(format!("Failed to commit child push: {e}"))
                     })?;
 
+                    pushed_ids.push(*child_uuid);
+
                     tracing::info!(
                         parent_job = %job.id,
                         child_job = %child_uuid,
@@ -2166,8 +2170,36 @@ pub async fn handle_wac_v2_output(
                 tracing::error!(
                     job_id = %job.id,
                     error = %e,
-                    "WAC v2 failed to push child jobs, unsuspending parent"
+                    pushed_count = pushed_ids.len(),
+                    total_count = num_steps,
+                    "WAC v2 failed to push child jobs, cleaning up"
                 );
+
+                // Cancel already-pushed children so they don't complete and
+                // corrupt the checkpoint (they'd decrement suspend on a parent
+                // that's about to be unsuspended and re-run).
+                for child_id in &pushed_ids {
+                    let _ = sqlx::query!(
+                        "UPDATE v2_job_queue SET canceled_by = $2, canceled_reason = $3 WHERE id = $1",
+                        child_id,
+                        "system",
+                        "WAC dispatch failed: not all children could be pushed",
+                    )
+                    .execute(db)
+                    .await;
+                }
+
+                // Clear pending_steps from checkpoint so the parent doesn't
+                // think children are outstanding when it re-runs.
+                let _ = sqlx::query(
+                    "UPDATE v2_job_status SET workflow_as_code_status = \
+                     workflow_as_code_status #- '{_checkpoint,pending_steps}' \
+                     WHERE id = $1",
+                )
+                .bind(&job.id)
+                .execute(db)
+                .await;
+
                 // Unsuspend parent so the error propagates instead of a 14-day hang
                 let _ = sqlx::query!(
                     "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE id = $1",
