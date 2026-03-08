@@ -44,13 +44,23 @@ pub struct EnvRefWrapper {
 ///
 /// `Literal` serializes back to a plain JSON string, preserving backwards
 /// compatibility with existing consumers.
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone)]
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum StringOrSecretRef {
     Literal(String),
     SecretRef(SecretKeyRefWrapper),
     EnvRef(EnvRefWrapper),
+}
+
+impl fmt::Debug for StringOrSecretRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Literal(_) => f.write_str("Literal(****)"),
+            Self::SecretRef(w) => f.debug_tuple("SecretRef").field(w).finish(),
+            Self::EnvRef(w) => f.debug_tuple("EnvRef").field(w).finish(),
+        }
+    }
 }
 
 impl StringOrSecretRef {
