@@ -3,7 +3,7 @@
 import asyncio
 import pytest
 
-from wmill.client import WorkflowCtx, _StepSuspend, workflow, task, step, sleep, parallel, _run_workflow
+from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, step, sleep, parallel, _run_workflow
 
 
 @task
@@ -815,13 +815,13 @@ class TestErrorPropagation:
         async def wf(x: int):
             return await double(x=x)
 
-        with pytest.raises(Exception, match="double"):
+        with pytest.raises(TaskError, match="double"):
             _run_workflow(
                 wf,
                 {
                     "completed_steps": {
                         "double": {
-                            "_error": True,
+                            "__wmill_error": True,
                             "message": "Task 'double' failed",
                             "result": {"message": "boom"},
                         }
@@ -844,7 +844,7 @@ class TestErrorPropagation:
             {
                 "completed_steps": {
                     "double": {
-                        "_error": True,
+                        "__wmill_error": True,
                         "message": "Task 'double' failed",
                         "result": {},
                     }
@@ -872,7 +872,7 @@ class TestErrorPropagation:
             wf,
             {
                 "completed_steps": {
-                    "double": {"_error": True, "message": "temporary", "result": {}},
+                    "double": {"__wmill_error": True, "message": "temporary", "result": {}},
                     "double_2": 10,
                 }
             },
@@ -890,11 +890,11 @@ class TestErrorPropagation:
 
         r = _run_workflow(
             wf,
-            {"completed_steps": {"double": {"_error": False, "data": "ok"}}},
+            {"completed_steps": {"double": {"__wmill_error": False, "data": "ok"}}},
             {},
         )
         assert r["type"] == "complete"
-        assert r["result"] == {"_error": False, "data": "ok"}
+        assert r["result"] == {"__wmill_error": False, "data": "ok"}
 
     def test_inline_step_error(self):
         @workflow
@@ -907,7 +907,7 @@ class TestErrorPropagation:
 
         r = _run_workflow(
             wf,
-            {"completed_steps": {"risky": {"_error": True, "message": "step failed", "result": {}}}},
+            {"completed_steps": {"risky": {"__wmill_error": True, "message": "step failed", "result": {}}}},
             {},
         )
         assert r["type"] == "complete"

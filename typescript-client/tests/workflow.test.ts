@@ -47,7 +47,7 @@ class WorkflowCtx {
 
     if (key in this.completed) {
       const value = this.completed[key];
-      if (value && typeof value === "object" && (value as any)._error) {
+      if (value && typeof value === "object" && (value as any).__wmill_error) {
         const err = new Error((value as any).message || `Task '${name}' failed`);
         (err as any).result = (value as any).result;
         (err as any).step_key = (value as any).step_key;
@@ -122,7 +122,7 @@ class WorkflowCtx {
 
     if (key in this.completed) {
       const value = this.completed[key];
-      if (value && typeof value === "object" && (value as any)._error) {
+      if (value && typeof value === "object" && (value as any).__wmill_error) {
         const err = new Error((value as any).message || `Step '${name}' failed`);
         (err as any).result = (value as any).result;
         throw err;
@@ -1209,17 +1209,17 @@ describe("complex mixed workflow: seq → par → seq → par → seq", () => {
 // ERROR PROPAGATION TESTS
 // =====================================================================
 
-describe("error propagation via _error marker", () => {
+describe("error propagation via __wmill_error marker", () => {
   test("task error is thrown on replay", async () => {
     const wf = workflow(async (x: number) => {
       const result = await double(x);
       return result;
     });
-    // Simulate child failure stored as _error marker
+    // Simulate child failure stored as __wmill_error marker
     const checkpoint = {
       completed_steps: {
         step_0: {
-          _error: true,
+          __wmill_error: true,
           message: "WAC task 'double' failed (child job abc-123)",
           result: { message: "division by zero" },
           step_key: "double",
@@ -1249,7 +1249,7 @@ describe("error propagation via _error marker", () => {
     const checkpoint = {
       completed_steps: {
         step_0: {
-          _error: true,
+          __wmill_error: true,
           message: "Task 'double' failed",
           result: { message: "boom" },
         },
@@ -1272,7 +1272,7 @@ describe("error propagation via _error marker", () => {
     });
     const checkpoint = {
       completed_steps: {
-        step_0: { _error: true, message: "double failed", result: {} },
+        step_0: { __wmill_error: true, message: "double failed", result: {} },
         step_1: 3, // add_one succeeded
       },
     };
@@ -1297,7 +1297,7 @@ describe("error propagation via _error marker", () => {
     // First double (step_0) fails, second double (step_1) succeeds
     const checkpoint = {
       completed_steps: {
-        step_0: { _error: true, message: "temporary failure", result: {} },
+        step_0: { __wmill_error: true, message: "temporary failure", result: {} },
         step_1: 10,
       },
     };
@@ -1318,7 +1318,7 @@ describe("error propagation via _error marker", () => {
     });
     const checkpoint = {
       completed_steps: {
-        step_0: { _error: true, message: "inline step failed", result: {} },
+        step_0: { __wmill_error: true, message: "inline step failed", result: {} },
       },
     };
     const result = await runWorkflow(wf, checkpoint, []);
@@ -1326,20 +1326,20 @@ describe("error propagation via _error marker", () => {
     expect(result.result.caught).toContain("inline step failed");
   });
 
-  test("non-error object with _error field is NOT treated as error", async () => {
-    // An object with _error: false should be treated as a normal value
+  test("non-error object with __wmill_error field is NOT treated as error", async () => {
+    // An object with __wmill_error: false should be treated as a normal value
     const wf = workflow(async () => {
       const val = await double(5);
       return val;
     });
     const checkpoint = {
       completed_steps: {
-        step_0: { _error: false, data: "not an error" },
+        step_0: { __wmill_error: false, data: "not an error" },
       },
     };
     const result = await runWorkflow(wf, checkpoint, [5]);
     expect(result.type).toBe("complete");
-    expect(result.result).toEqual({ _error: false, data: "not an error" });
+    expect(result.result).toEqual({ __wmill_error: false, data: "not an error" });
   });
 });
 

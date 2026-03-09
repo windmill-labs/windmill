@@ -311,14 +311,45 @@ export async function getResultMaybe(jobId: string): Promise<any> {
 }
 const STRIP_COMMENTS =
   /(\/\/.*$)|(\/\*[\s\S]*?\*\/)|(\s*=[^,\)]*(('(?:\\'|[^'\r\n])*')|("(?:\\"|[^"\r\n])*"))|(\s*=[^,\)]*))/gm;
-const ARGUMENT_NAMES = /([^\s,]+)/g;
 function getParamNames(func: Function): string[] {
   const fnStr = func.toString().replace(STRIP_COMMENTS, "");
-  let result: string[] | null = fnStr
-    .slice(fnStr.indexOf("(") + 1, fnStr.indexOf(")"))
-    .match(ARGUMENT_NAMES);
-  if (result === null) result = [];
-  return result;
+  // Find the matching closing paren for the parameter list, handling nesting
+  const openIdx = fnStr.indexOf("(");
+  if (openIdx === -1) return [];
+  let depth = 1;
+  let closeIdx = openIdx + 1;
+  for (; closeIdx < fnStr.length && depth > 0; closeIdx++) {
+    if (fnStr[closeIdx] === "(") depth++;
+    else if (fnStr[closeIdx] === ")") depth--;
+  }
+  const paramStr = fnStr.slice(openIdx + 1, closeIdx - 1).trim();
+  if (!paramStr) return [];
+  // Split on commas at depth 0 (skip nested parens, angle brackets, braces)
+  const params: string[] = [];
+  let current = "";
+  let d = 0;
+  for (const ch of paramStr) {
+    if ("(<{".includes(ch)) d++;
+    else if (")>}".includes(ch)) d--;
+    if (ch === "," && d === 0) {
+      params.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) params.push(current.trim());
+  // Extract the parameter name from each param (strip type annotations, destructuring, rest)
+  return params.map((p) => {
+    // Remove rest operator
+    p = p.replace(/^\.\.\./, "");
+    // For destructured params like { url, depth }: Config, use a positional fallback
+    if (p.startsWith("{") || p.startsWith("[")) return "";
+    // Strip type annotation (e.g. "x: number" -> "x", "x?: string" -> "x")
+    const colonIdx = p.indexOf(":");
+    if (colonIdx !== -1) p = p.slice(0, colonIdx);
+    return p.replace(/\?$/, "").trim();
+  }).filter(Boolean);
 }
 
 /**
@@ -1435,7 +1466,6 @@ export interface TaskOptions {
   concurrency_limit?: number;
   concurrency_key?: string;
   concurrency_time_window_s?: number;
-  delete_after_use?: boolean;
 }
 
 export let _workflowCtx: WorkflowCtx | null = null;
@@ -1483,7 +1513,7 @@ export class WorkflowCtx {
 
     if (key in this.completed) {
       const value = this.completed[key];
-      if (value && typeof value === "object" && (value as any)._error) {
+      if (value && typeof value === "object" && (value as any).__wmill_error) {
         const err = new Error((value as any).message || `Task '${name}' failed`);
         (err as any).result = (value as any).result;
         (err as any).step_key = (value as any).step_key;
@@ -1513,10 +1543,9 @@ export class WorkflowCtx {
       if (options.tag !== undefined) stepInfo.tag = options.tag;
       if (options.cache_ttl !== undefined) stepInfo.cache_ttl = options.cache_ttl;
       if (options.priority !== undefined) stepInfo.priority = options.priority;
-      if (options.concurrent_limit !== undefined) stepInfo.concurrent_limit = options.concurrent_limit;
+      if (options.concurrency_limit !== undefined) stepInfo.concurrent_limit = options.concurrency_limit;
       if (options.concurrency_key !== undefined) stepInfo.concurrency_key = options.concurrency_key;
       if (options.concurrency_time_window_s !== undefined) stepInfo.concurrency_time_window_s = options.concurrency_time_window_s;
-      if (options.delete_after_use !== undefined) stepInfo.delete_after_use = options.delete_after_use;
     }
     this.pending.push(stepInfo);
     return {
@@ -1592,7 +1621,7 @@ export class WorkflowCtx {
 
     if (key in this.completed) {
       const value = this.completed[key];
-      if (value && typeof value === "object" && (value as any)._error) {
+      if (value && typeof value === "object" && (value as any).__wmill_error) {
         const err = new Error((value as any).message || `Step '${name}' failed`);
         (err as any).result = (value as any).result;
         (err as any).step_key = (value as any).step_key;

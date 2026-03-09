@@ -87,8 +87,6 @@ pub struct WacStepDispatch {
     pub concurrency_key: Option<String>,
     #[serde(default)]
     pub concurrency_time_window_s: Option<i32>,
-    #[serde(default)]
-    pub delete_after_use: Option<bool>,
 }
 
 fn default_dispatch_type() -> String {
@@ -106,7 +104,17 @@ pub async fn load_checkpoint(db: &DB, job_id: &Uuid) -> error::Result<WacCheckpo
 
     match row {
         Some(Some(status)) => {
-            let checkpoint: WacCheckpoint = serde_json::from_value(status).unwrap_or_default();
+            let checkpoint: WacCheckpoint = match serde_json::from_value(status) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!(
+                        job_id = %job_id,
+                        error = %e,
+                        "Failed to deserialize WAC checkpoint, resetting to empty"
+                    );
+                    WacCheckpoint::default()
+                }
+            };
             Ok(checkpoint)
         }
         _ => Ok(WacCheckpoint::default()),

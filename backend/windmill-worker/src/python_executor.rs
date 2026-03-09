@@ -818,10 +818,85 @@ except BaseException as e:
     };
     write_file(job_dir, "wrapper.py", &wrapper_content)?;
 
-    // For WAC v2, write checkpoint.json before python runs
+    // For WAC v2, write checkpoint.json before python runs.
+    // If resuming from an approval or sleep, inject the result into
+    // completed_steps first (mirrors the logic in bun_executor.rs).
     if is_wac_v2 {
         if let Connection::Sql(db) = conn {
-            let checkpoint = crate::wac_executor::load_checkpoint(db, &job.id).await?;
+            let mut checkpoint = crate::wac_executor::load_checkpoint(db, &job.id).await?;
+
+            // If resuming from an approval, read the approval data from resume_job
+            let is_approval_resume = checkpoint
+                .pending_steps
+                .as_ref()
+                .is_some_and(|p| p.mode == "approval");
+            if is_approval_resume {
+                let approval_key = checkpoint
+                    .pending_steps
+                    .as_ref()
+                    .and_then(|p| p.keys.first().cloned())
+                    .unwrap_or_default();
+
+                let resume_row = sqlx::query_as::<_, (sqlx::types::Json<Box<serde_json::value::RawValue>>, Option<String>, bool)>(
+                    "SELECT value, approver, approved FROM resume_job WHERE job = $1 ORDER BY created_at ASC LIMIT 1",
+                )
+                .bind(&job.id)
+                .fetch_optional(db)
+                .await?;
+
+                let approval_result = if let Some((value, approver, approved)) = resume_row {
+                    serde_json::json!({
+                        "value": serde_json::from_str::<serde_json::Value>(value.get()).unwrap_or(serde_json::Value::Null),
+                        "approver": approver.unwrap_or_else(|| "anonymous".to_string()),
+                        "approved": approved,
+                    })
+                } else {
+                    serde_json::json!({
+                        "value": null,
+                        "approver": null,
+                        "approved": false,
+                    })
+                };
+                checkpoint
+                    .completed_steps
+                    .insert(approval_key.clone(), approval_result);
+                checkpoint.pending_steps = None;
+
+                crate::wac_executor::save_checkpoint(db, &job.id, &checkpoint).await?;
+
+                tracing::info!(
+                    job_id = %job.id,
+                    approval_key = %approval_key,
+                    "WAC v2 (Python) injected approval result into checkpoint"
+                );
+            }
+
+            // If resuming from a sleep, mark the step as complete
+            let is_sleep_resume = checkpoint
+                .pending_steps
+                .as_ref()
+                .is_some_and(|p| p.mode == "sleep");
+            if is_sleep_resume {
+                let sleep_key = checkpoint
+                    .pending_steps
+                    .as_ref()
+                    .and_then(|p| p.keys.first().cloned())
+                    .unwrap_or_default();
+
+                checkpoint
+                    .completed_steps
+                    .insert(sleep_key.clone(), serde_json::Value::Bool(true));
+                checkpoint.pending_steps = None;
+
+                crate::wac_executor::save_checkpoint(db, &job.id, &checkpoint).await?;
+
+                tracing::info!(
+                    job_id = %job.id,
+                    sleep_key = %sleep_key,
+                    "WAC v2 (Python) resumed from sleep"
+                );
+            }
+
             let checkpoint_json = serde_json::to_string(&checkpoint).map_err(|e| {
                 error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
             })?;

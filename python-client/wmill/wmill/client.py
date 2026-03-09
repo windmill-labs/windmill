@@ -2370,6 +2370,22 @@ class _StepSuspend(BaseException):
         self.dispatch_info = dispatch_info
 
 
+class TaskError(Exception):
+    """Raised when a WAC task step failed.
+
+    Attributes:
+        step_key: The checkpoint key of the failed step.
+        child_job_id: The UUID of the failed child job.
+        result: The error result from the child job.
+    """
+
+    def __init__(self, message: str, *, step_key: str = "", child_job_id: str = "", result=None):
+        super().__init__(message)
+        self.step_key = step_key
+        self.child_job_id = child_job_id
+        self.result = result
+
+
 _workflow_ctx: _contextvars.ContextVar["WorkflowCtx"] = _contextvars.ContextVar(
     "_workflow_ctx"
 )
@@ -2400,8 +2416,13 @@ class WorkflowCtx:
 
         if key in self._completed:
             val = self._completed[key]
-            if isinstance(val, dict) and val.get("_error"):
-                raise Exception(val.get("message", f"Task '{name}' failed"))
+            if isinstance(val, dict) and val.get("__wmill_error"):
+                raise TaskError(
+                    val.get("message", f"Task '{name}' failed"),
+                    step_key=val.get("step_key", ""),
+                    child_job_id=val.get("child_job_id", ""),
+                    result=val.get("result"),
+                )
             return self._resolved(val)
 
         if self._executing_key is not None:
@@ -2412,7 +2433,7 @@ class WorkflowCtx:
 
         info = {"name": name or key, "script": script or key, "args": kwargs, "key": key, "dispatch_type": dispatch_type}
         if _task_options:
-            for opt_key in ("timeout", "tag", "cache_ttl", "priority", "concurrent_limit", "concurrency_key", "concurrency_time_window_s", "delete_after_use"):
+            for opt_key in ("timeout", "tag", "cache_ttl", "priority", "concurrent_limit", "concurrency_key", "concurrency_time_window_s"):
                 if opt_key in _task_options and _task_options[opt_key] is not None:
                     info[opt_key] = _task_options[opt_key]
         self._pending.append(info)
@@ -2480,8 +2501,13 @@ class WorkflowCtx:
 
         if key in self._completed:
             val = self._completed[key]
-            if isinstance(val, dict) and val.get("_error"):
-                raise Exception(val.get("message", f"Step '{name}' failed"))
+            if isinstance(val, dict) and val.get("__wmill_error"):
+                raise TaskError(
+                    val.get("message", f"Step '{name}' failed"),
+                    step_key=val.get("step_key", ""),
+                    child_job_id=val.get("child_job_id", ""),
+                    result=val.get("result"),
+                )
             return val
 
         if self._executing_key is not None:
@@ -2510,7 +2536,6 @@ def task(
     concurrency_limit: Optional[int] = None,
     concurrency_key: Optional[str] = None,
     concurrency_time_window_s: Optional[int] = None,
-    delete_after_use: Optional[bool] = None,
 ):
     """Decorator that marks a function as a workflow task.
 
@@ -2539,7 +2564,6 @@ def task(
         "concurrent_limit": concurrency_limit,
         "concurrency_key": concurrency_key,
         "concurrency_time_window_s": concurrency_time_window_s,
-        "delete_after_use": delete_after_use,
     }
     # Remove None values
     _task_opts = {k: v for k, v in _task_opts.items() if v is not None} or None
@@ -2557,8 +2581,11 @@ def task(
                     key = _params_list[i]
                     if key not in merged:
                         merged[key] = arg
+                else:
+                    merged[f"arg{i}"] = arg
             return merged
 
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
             # WAC v2: inside a @workflow context
             ctx = _workflow_ctx.get(None)
@@ -2595,8 +2622,6 @@ def task(
             # Standalone — execute directly
             return func(*args, **kwargs)
 
-        wrapper.__name__ = func.__name__
-        wrapper.__qualname__ = func.__qualname__
         wrapper._is_task = True
         wrapper._task_path = task_path
         return wrapper

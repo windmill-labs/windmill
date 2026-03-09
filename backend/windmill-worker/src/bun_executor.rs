@@ -1056,13 +1056,14 @@ pub async fn handle_bun_job(
     // For WAC v2, inject variable names into unnamed task() calls so the
     // runtime can use them for step naming (timeline, graph).
     // `const double = task(async ...` → `const double = task("double", async ...`
+    // Also handles: export const, let, var, and optional generic type parameters.
     // Skips calls that already have a string argument: `task("path", async ...`
     let inner_content = if is_wac_v2 {
         use regex::Regex;
         use std::borrow::Cow;
         lazy_static::lazy_static! {
             static ref TASK_RE: Regex =
-                Regex::new(r#"(?m)(const\s+)(\w+)(\s*=\s*task\s*\(\s*)(async\b)"#).unwrap();
+                Regex::new(r#"(?m)((?:export\s+)?(?:const|let|var)\s+)(\w+)(\s*=\s*task\s*(?:<[^>]*>)?\s*\(\s*)(async\b)"#).unwrap();
         }
         let replaced = TASK_RE.replace_all(inner_content, r#"${1}${2}${3}"${2}", ${4}"#);
         match replaced {
@@ -2055,7 +2056,21 @@ pub async fn handle_wac_v2_output(
             };
 
             // Pre-generate child UUIDs so we can save them in the checkpoint
-            // before the children become visible to workers
+            // before the children become visible to workers.
+            // Validate key uniqueness — duplicate keys would cause one child's
+            // UUID to be overwritten in the job_ids map, making it unmappable
+            // on completion (the parent would hang).
+            {
+                let mut seen_keys = std::collections::HashSet::new();
+                for s in &steps {
+                    if !seen_keys.insert(&s.key) {
+                        return Err(error::Error::internal_err(format!(
+                            "WAC v2 duplicate step key '{}' — each task call must produce a unique key",
+                            s.key
+                        )));
+                    }
+                }
+            }
             let job_ids: Vec<(String, Uuid)> = steps
                 .iter()
                 .map(|s| (s.key.clone(), ulid::Ulid::new().into()))
@@ -2556,10 +2571,11 @@ pub async fn handle_wac_v2_output(
             .await
             .map_err(|e| error::Error::internal_err(format!("Failed to save checkpoint: {e}")))?;
 
-            // Suspend parent — it will auto-resume when suspend_until passes
-            // suspend=0 + suspend_until in the future → suspended pull query picks it up after the delay
+            // Suspend parent — it will auto-resume when suspend_until passes.
+            // Use suspend=1 (not 0) so the suspended pull query only picks it up
+            // when `suspend_until <= now()`, not via `suspend <= 0`.
             sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = 0, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
+                "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
                 job.id,
                 sleep_secs,
             )

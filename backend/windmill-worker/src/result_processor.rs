@@ -904,8 +904,18 @@ pub(crate) async fn handle_wac_child_completion(
             tracing::warn!(
                 parent_job = %parent_job_id,
                 child_job = %child_job_id,
-                "WAC v2 child completed but no matching step key found in checkpoint"
+                "WAC v2 child completed but no matching step key found in checkpoint, decrementing suspend to avoid parent hang"
             );
+            // Still decrement suspend so the parent doesn't hang indefinitely
+            let _ = sqlx::query_scalar!(
+                "UPDATE v2_job_queue \
+                 SET suspend = GREATEST(suspend - 1, 0) \
+                 WHERE id = $1 \
+                 RETURNING suspend",
+                parent_job_id,
+            )
+            .fetch_optional(db)
+            .await?;
             return Ok(Some(()));
         }
     };
@@ -922,7 +932,7 @@ pub(crate) async fn handle_wac_child_completion(
             "WAC v2 child job failed, storing error for workflow try/catch"
         );
         json!({
-            "_error": true,
+            "__wmill_error": true,
             "message": format!("WAC task '{}' failed (child job {})", step_key, child_job_id),
             "child_job_id": child_job_id.to_string(),
             "step_key": step_key,
@@ -938,12 +948,17 @@ pub(crate) async fn handle_wac_child_completion(
         "WAC v2 child job completed"
     );
 
-    // Atomically merge the completed step into the checkpoint.
+    // Use a transaction to ensure completed_steps merge + suspend decrement
+    // are atomic.  Without this, a crash between the two could strand the parent.
+    let result_json = serde_json::to_value(&result_value)
+        .map_err(|e| error::Error::InternalErr(format!("Failed to serialize step result: {e}")))?;
+
+    let mut tx = db.begin().await?;
+
+    // Merge the completed step into the checkpoint.
     // Uses `|| jsonb_build_object(key, value)` so concurrent children on
     // different workers don't overwrite each other — PostgreSQL serialises
     // concurrent UPDATEs on the same row and each sees the previous write.
-    let result_json = serde_json::to_value(&result_value)
-        .map_err(|e| error::Error::InternalErr(format!("Failed to serialize step result: {e}")))?;
     sqlx::query(
         "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
             workflow_as_code_status,
@@ -955,13 +970,13 @@ pub(crate) async fn handle_wac_child_completion(
     .bind(&parent_job_id)
     .bind(&step_key)
     .bind(&result_json)
-    .execute(db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| error::Error::InternalErr(format!("Failed to add WAC completed step: {e}")))?;
 
-    // Atomically decrement the suspend counter.  The counter was set to N
-    // (number of children) at dispatch time.  When it reaches 0 all children
-    // are done.  Keep suspend_until non-null so the suspended pull query
+    // Decrement the suspend counter.  The counter was set to N (number of
+    // children) at dispatch time.  When it reaches 0 all children are done.
+    // Keep suspend_until non-null so the suspended pull query
     // (`WHERE suspend_until IS NOT NULL AND suspend <= 0`) picks up the parent.
     let new_suspend: Option<i32> = sqlx::query_scalar!(
         "UPDATE v2_job_queue \
@@ -970,7 +985,7 @@ pub(crate) async fn handle_wac_child_completion(
          RETURNING suspend",
         parent_job_id,
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let all_done = new_suspend == Some(0);
@@ -985,9 +1000,13 @@ pub(crate) async fn handle_wac_child_completion(
              WHERE id = $1",
         )
         .bind(&parent_job_id)
-        .execute(db)
+        .execute(&mut *tx)
         .await;
+    }
 
+    tx.commit().await?;
+
+    if all_done {
         tracing::info!(
             parent_job = %parent_job_id,
             "WAC v2 all child jobs completed, unsuspending parent"
