@@ -261,7 +261,9 @@ pub fn parse_deno_signature(
                 for specifier in &named_export.specifiers {
                     if let swc_ecma_ast::ExportSpecifier::Named(spec) = specifier {
                         let export_name = match &spec.exported {
-                            Some(swc_ecma_ast::ModuleExportName::Ident(ident)) => ident.sym.as_ref(),
+                            Some(swc_ecma_ast::ModuleExportName::Ident(ident)) => {
+                                ident.sym.as_ref()
+                            }
                             Some(swc_ecma_ast::ModuleExportName::Str(s)) => s.value.as_ref(),
                             None => match &spec.orig {
                                 swc_ecma_ast::ModuleExportName::Ident(ident) => ident.sym.as_ref(),
@@ -315,7 +317,11 @@ pub fn parse_deno_signature(
 
     let mut c: u16 = 0;
 
-    let no_main_func = entrypoint_params.is_none();
+    let is_wac_v2 = entrypoint_params.is_none()
+        && code.contains("workflow(")
+        && code.contains("task(")
+        && code.contains("windmill-client");
+    let no_main_func = entrypoint_params.is_none() && !is_wac_v2;
     let mut type_resolver = HashMap::new();
     let r = MainArgSignature {
         star_args: false,
@@ -833,7 +839,9 @@ fn tstype_to_typ(
                     false,
                 ),
                 symbol @ _ if symbol.starts_with("DynMultiselect_") => (
-                    Typ::DynMultiselect(symbol.strip_prefix("DynMultiselect_").unwrap().to_string()),
+                    Typ::DynMultiselect(
+                        symbol.strip_prefix("DynMultiselect_").unwrap().to_string(),
+                    ),
                     false,
                 ),
                 symbol @ _ => {
