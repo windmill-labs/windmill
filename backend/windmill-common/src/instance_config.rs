@@ -44,13 +44,23 @@ pub struct EnvRefWrapper {
 ///
 /// `Literal` serializes back to a plain JSON string, preserving backwards
 /// compatibility with existing consumers.
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone)]
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum StringOrSecretRef {
     Literal(String),
     SecretRef(SecretKeyRefWrapper),
     EnvRef(EnvRefWrapper),
+}
+
+impl fmt::Debug for StringOrSecretRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Literal(_) => f.write_str("Literal(****)"),
+            Self::SecretRef(w) => f.debug_tuple("SecretRef").field(w).finish(),
+            Self::EnvRef(w) => f.debug_tuple("EnvRef").field(w).finish(),
+        }
+    }
 }
 
 impl StringOrSecretRef {
@@ -255,25 +265,25 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance_python_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pip_index_url: Option<String>,
+    pub pip_index_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pip_extra_index_url: Option<String>,
+    pub pip_extra_index_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub npm_config_registry: Option<String>,
+    pub npm_config_registry: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub bunfig_install_scopes: Option<String>,
+    pub bunfig_install_scopes: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub npmrc: Option<String>,
+    pub npmrc: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub nuget_config: Option<String>,
+    pub nuget_config: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub maven_repos: Option<String>,
+    pub maven_repos: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ruby_repos: Option<String>,
+    pub ruby_repos: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub powershell_repo_url: Option<String>,
+    pub powershell_repo_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub powershell_repo_pat: Option<String>,
+    pub powershell_repo_pat: Option<StringOrSecretRef>,
 
     // Array settings
     #[serde(skip_serializing_if = "Option::is_none")]

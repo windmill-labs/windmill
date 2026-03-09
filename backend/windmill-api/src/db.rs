@@ -284,6 +284,9 @@ pub async fn migrate(
         20260207000004,
     ];
     for m in migrator.migrations.iter() {
+        if m.migration_type.is_down_migration() {
+            continue;
+        }
         if potentially_stale.contains(&m.version) {
             if let Err(err) =
                 sqlx::query("DELETE FROM _sqlx_migrations WHERE version = $1 AND checksum != $2")

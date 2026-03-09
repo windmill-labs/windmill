@@ -6,9 +6,15 @@
 		extra_params?: Record<string, string>;
 	}
 
-	let { extra_params = $bindable({}) }: Props = $props();
+	let { extra_params = $bindable() }: Props = $props();
 
-	let extra_params_vec: [string, string][] = $state(Object.entries(extra_params))
+	$effect.pre(() => {
+		if (!extra_params) {
+			extra_params = {}
+		}
+	})
+
+	let extra_params_vec: [string, string][] = $state(Object.entries(extra_params ?? {}))
 
 	function sync() {
 		extra_params = Object.fromEntries(extra_params_vec)

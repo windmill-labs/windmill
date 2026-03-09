@@ -94,7 +94,7 @@ pub struct OAuthConfig {
 }
 
 /// OAuth client credentials
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct OAuthClient {
     #[serde(default = "empty_string")]
     pub id: String,
@@ -108,6 +108,21 @@ pub struct OAuthClient {
     pub tenant: Option<String>,
     #[serde(default = "default_grant_types")]
     pub grant_types: Vec<String>,
+}
+
+impl std::fmt::Debug for OAuthClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OAuthClient")
+            .field("id", &self.id)
+            .field("secret", &"***")
+            .field("display_name", &self.display_name)
+            .field("allowed_domains", &self.allowed_domains)
+            .field("connect_config", &self.connect_config)
+            .field("login_config", &self.login_config)
+            .field("tenant", &self.tenant)
+            .field("grant_types", &self.grant_types)
+            .finish()
+    }
 }
 
 fn empty_string() -> String {
@@ -608,7 +623,18 @@ pub async fn refresh_token<'c>(
     .await?;
     let account = windmill_common::utils::not_found_if_none(account, "Account", &id.to_string())?;
 
-    refresh_token_for_account(tx, path, w_id, id, db, account, oauth_clients, http_client, connect_configs_json).await
+    refresh_token_for_account(
+        tx,
+        path,
+        w_id,
+        id,
+        db,
+        account,
+        oauth_clients,
+        http_client,
+        connect_configs_json,
+    )
+    .await
 }
 
 /// Refresh an OAuth token given pre-fetched account info (no additional SELECT).
