@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -97,6 +98,7 @@
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
+	let resetConfirmOpen = $state(false)
 
 	const isValid = $derived(
 		!!kafkaResourcePath &&
@@ -278,24 +280,20 @@
 	}
 
 	async function resetOffsets() {
-		if (
-			!confirm(
-				'Are you sure you want to reset offsets to earliest? This will re-process all messages from the beginning of the topic.'
-			)
-		) {
-			return
-		}
 		resetLoading = true
 		try {
 			await KafkaTriggerService.resetKafkaOffsets({
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
-			sendUserToast('Offset reset triggered. The consumer will restart and re-read from the beginning.')
+			sendUserToast(
+				'Offset reset triggered. The consumer will restart and re-read from the beginning.'
+			)
 		} catch (error) {
 			sendUserToast(error.body || error.message, true)
 		} finally {
 			resetLoading = false
+			resetConfirmOpen = false
 		}
 	}
 
@@ -327,6 +325,18 @@
 		}
 	})
 </script>
+
+<ConfirmationModal
+	title="Reset consumer offset"
+	confirmationText="Reset"
+	open={resetConfirmOpen}
+	loading={resetLoading}
+	onConfirmed={resetOffsets}
+	onCanceled={() => (resetConfirmOpen = false)}
+>
+	This will re-process all messages from the beginning of the topic. The consumer will restart
+	automatically.
+</ConfirmationModal>
 
 {#if mode === 'suspended'}
 	<TriggerSuspendedJobsModal
@@ -478,21 +488,23 @@
 			/>
 
 			{#if edit && can_write}
-				<div class="flex items-center gap-2">
+				<Label label="Consumer offset">
+					{#snippet header()}
+						<span class="text-2xs text-tertiary ml-2">
+							Force re-read all messages from the beginning
+						</span>
+					{/snippet}
 					<Button
 						variant="default"
 						size="xs"
 						startIcon={{ icon: RotateCcw }}
 						disabled={resetLoading}
 						loading={resetLoading}
-						onclick={resetOffsets}
+						onclick={() => (resetConfirmOpen = true)}
 					>
 						Reset offset to earliest
 					</Button>
-					<span class="text-2xs text-tertiary">
-						Force re-read all messages from the beginning
-					</span>
-				</div>
+				</Label>
 			{/if}
 
 			<TriggerFilters bind:filters disabled={!can_write} />
