@@ -79,6 +79,40 @@ export async function main(foo: string, bar: string) {
 '',
 'f/system/hello_preprocessor_dedicated_deno', 123416, 'deno', '');
 
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'system',
+'//native
+export async function preprocessor(foo: string, bar: string) {
+  return { foo: foo + "_preprocessed", bar: bar + "_preprocessed" };
+}
+
+export async function main(foo: string, bar: string) {
+  return "Hello " + foo + " " + bar;
+}
+',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"default":null,"description":"","originalType":"string","type":"string"},"bar":{"default":null,"description":"","originalType":"string","type":"string"}},"required":["foo","bar"],"type":"object"}',
+'',
+'',
+'f/system/hello_preprocessor_bunnative', 123417, 'bunnative', '');
+
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'system',
+'//native
+export async function preprocessor(foo: string, bar: string) {
+  return { foo: foo + "_preprocessed", bar: bar + "_preprocessed" };
+}
+
+export async function main(foo: string, bar: string) {
+  return "Hello " + foo + " " + bar;
+}
+',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"default":null,"description":"","originalType":"string","type":"string"},"bar":{"default":null,"description":"","originalType":"string","type":"string"}},"required":["foo","bar"],"type":"object"}',
+'',
+'',
+'f/system/hello_preprocessor_dedicated_bunnative', 123418, 'bunnative', '');
+
 INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES (
 'test-workspace',
 '',

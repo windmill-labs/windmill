@@ -677,6 +677,7 @@ pub async fn handle_python_job(
         String::new()
     };
     let main_override = main_name.unwrap_or_else(|| "main".to_string());
+    let res_to_json_body = PYTHON_RES_TO_JSON_BODY;
     let wrapper_content: String = format!(
         r#"
 import os
@@ -705,19 +706,7 @@ replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\*\\u0000|Infinity|\-Infinity)
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
 def res_to_json(res, typ):
-    if typ.__name__ == 'DataFrame':
-        if typ.__module__ == 'pandas.core.frame':
-            res = res.values.tolist()
-        elif typ.__module__ == 'polars.dataframe.frame':
-            res = res.rows()
-    elif typ.__name__ == 'bytes':
-        res = to_b_64(res)
-    elif typ.__name__ == 'dict':
-        for k, v in res.items():
-            if type(v).__name__ == 'bytes':
-                res[k] = to_b_64(v)
-    unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
-    return {postprocessor}
+{res_to_json_body}
 
 try:
     {preprocessor}
@@ -2244,6 +2233,23 @@ This is not normal behavior, please make sure all workers have enough memory.\n
     };
 }
 
+/// Python function body for `res_to_json(res, typ)`.
+/// Handles DataFrame, bytes, dict coercion + JSON serialization.
+/// Must be used inside a `format!()` that provides `{postprocessor}`.
+const PYTHON_RES_TO_JSON_BODY: &str = r#"    if typ.__name__ == 'DataFrame':
+        if typ.__module__ == 'pandas.core.frame':
+            res = res.values.tolist()
+        elif typ.__module__ == 'polars.dataframe.frame':
+            res = res.rows()
+    elif typ.__name__ == 'bytes':
+        res = to_b_64(res)
+    elif typ.__name__ == 'dict':
+        for k, v in res.items():
+            if type(v).__name__ == 'bytes':
+                res[k] = to_b_64(v)
+    unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
+    return {postprocessor}"#;
+
 // Returns code snippet that needs to be injected into wrapper to post-process results or leave unprocessed
 fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
     if skip {
@@ -2391,6 +2397,7 @@ pub async fn start_worker(
             String::new()
         };
 
+        let res_to_json_body = PYTHON_RES_TO_JSON_BODY;
         let wrapper_content: String = format!(
             r#"
 import json
@@ -2408,6 +2415,9 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
+def res_to_json(res, typ):
+{res_to_json_body}
+
 def transform_and_run(kwargs):
     args = {{}}
 {indented_transforms}
@@ -2417,19 +2427,7 @@ def transform_and_run(kwargs):
             del args[k]
     res = inner_script.main(**args)
     typ = type(res)
-    if typ.__name__ == 'DataFrame':
-        if typ.__module__ == 'pandas.core.frame':
-            res = res.values.tolist()
-        elif typ.__module__ == 'polars.dataframe.frame':
-            res = res.rows()
-    elif typ.__name__ == 'bytes':
-        res = to_b_64(res)
-    elif typ.__name__ == 'dict':
-        for k, v in res.items():
-            if type(v).__name__ == 'bytes':
-                res[k] = to_b_64(v)
-    unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
-    res_json = {postprocessor}
+    res_json = res_to_json(res, typ)
     sys.stdout.write("wm_res[success]:" + res_json + "\n")
 
 replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\u0000|Infinity|\-Infinity)')

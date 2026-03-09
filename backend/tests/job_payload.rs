@@ -918,4 +918,106 @@ mod job_payload {
         test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_bunnative_preprocessor(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let test = || async {
+            let db = &db;
+            let job = RunJob::from(JobPayload::ScriptHash {
+                hash: ScriptHash(123417),
+                path: "f/system/hello_preprocessor_bunnative".to_string(),
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                dedicated_worker: None,
+                language: ScriptLang::Bunnative,
+                priority: None,
+                apply_preprocessor: true,
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettings::default(),
+                debouncing_settings:
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
+            })
+            .arg("foo", json!("hello"))
+            .arg("bar", json!("world"))
+            .run_until_complete_with(db, false, port, |id| async move {
+                let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+                assert_eq!(job.preprocessed, Some(false));
+            })
+            .await;
+
+            let args = job.args.as_ref().unwrap();
+            assert_eq!(args.get("foo"), Some(&json!("hello_preprocessed")));
+            assert_eq!(args.get("bar"), Some(&json!("world_preprocessed")));
+            assert_eq!(
+                job.json_result().unwrap(),
+                json!("Hello hello_preprocessed world_preprocessed")
+            );
+            let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", job.id)
+                .fetch_one(db)
+                .await
+                .unwrap();
+            assert_eq!(job.preprocessed, Some(true));
+        };
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
+        Ok(())
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_dedicated_worker_preprocessor_bunnative(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let test = || async {
+            let db = &db;
+            let job = RunJob::from(JobPayload::ScriptHash {
+                hash: ScriptHash(123418),
+                path: "f/system/hello_preprocessor_dedicated_bunnative".to_string(),
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                dedicated_worker: Some(true),
+                language: ScriptLang::Bunnative,
+                priority: None,
+                apply_preprocessor: true,
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettings::default(),
+                debouncing_settings:
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
+            })
+            .arg("foo", json!("hello"))
+            .arg("bar", json!("world"))
+            .run_until_complete_with(db, false, port, |id| async move {
+                let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+                assert_eq!(job.preprocessed, Some(false));
+            })
+            .await;
+
+            let args = job.args.as_ref().unwrap();
+            assert_eq!(args.get("foo"), Some(&json!("hello_preprocessed")));
+            assert_eq!(args.get("bar"), Some(&json!("world_preprocessed")));
+            assert_eq!(
+                job.json_result().unwrap(),
+                json!("Hello hello_preprocessed world_preprocessed")
+            );
+            let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", job.id)
+                .fetch_one(db)
+                .await
+                .unwrap();
+            assert_eq!(job.preprocessed, Some(true));
+        };
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
+        Ok(())
+    }
 }
