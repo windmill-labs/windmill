@@ -1364,6 +1364,9 @@ async function run() {{
             if (dispatch.mode === "approval") {{
                 return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form }};
             }}
+            if (dispatch.mode === "sleep") {{
+                return {{ type: "sleep", key: dispatch.key, seconds: dispatch.seconds }};
+            }}
             return {{ type: "dispatch", mode: dispatch.mode ?? "sequential", steps: dispatch.steps ?? [] }};
         }}
         throw e;
@@ -1588,6 +1591,32 @@ try {{
                     job_id = %job.id,
                     approval_key = %approval_key,
                     "WAC v2 injected approval result into checkpoint"
+                );
+            }
+
+            // If resuming from a sleep, mark the step as complete
+            let is_sleep_resume = checkpoint
+                .pending_steps
+                .as_ref()
+                .is_some_and(|p| p.mode == "sleep");
+            if is_sleep_resume {
+                let sleep_key = checkpoint
+                    .pending_steps
+                    .as_ref()
+                    .and_then(|p| p.keys.first().cloned())
+                    .unwrap_or_default();
+
+                checkpoint
+                    .completed_steps
+                    .insert(sleep_key.clone(), serde_json::Value::Bool(true));
+                checkpoint.pending_steps = None;
+
+                crate::wac_executor::save_checkpoint(db, &job.id, &checkpoint).await?;
+
+                tracing::info!(
+                    job_id = %job.id,
+                    sleep_key = %sleep_key,
+                    "WAC v2 resumed from sleep"
                 );
             }
 
@@ -2221,6 +2250,50 @@ pub async fn handle_wac_v2_output(
 
                     let push_args = PushArgs { args: &child_args, extra: None };
 
+                    // Apply step-level overrides to payload (cache, concurrency)
+                    let mut job_payload = job_payload;
+                    if let Some(cache_ttl) = step.cache_ttl {
+                        match &mut job_payload {
+                            JobPayload::ScriptHash { cache_ttl: ref mut ct, .. } => {
+                                *ct = Some(cache_ttl)
+                            }
+                            JobPayload::Code(ref mut code) => code.cache_ttl = Some(cache_ttl),
+                            _ => {}
+                        }
+                    }
+                    if step.concurrent_limit.is_some()
+                        || step.concurrency_key.is_some()
+                        || step.concurrency_time_window_s.is_some()
+                    {
+                        match &mut job_payload {
+                            JobPayload::ScriptHash { concurrency_settings: ref mut cs, .. } => {
+                                if let Some(limit) = step.concurrent_limit {
+                                    cs.concurrent_limit = Some(limit);
+                                }
+                                if let Some(ref key) = step.concurrency_key {
+                                    cs.concurrency_key = Some(key.clone());
+                                }
+                                if let Some(window) = step.concurrency_time_window_s {
+                                    cs.concurrency_time_window_s = Some(window);
+                                }
+                            }
+                            JobPayload::Code(ref mut code) => {
+                                if let Some(limit) = step.concurrent_limit {
+                                    code.concurrency_settings.concurrent_limit = Some(limit);
+                                }
+                                if let Some(ref key) = step.concurrency_key {
+                                    code.concurrency_settings.custom_concurrency_key =
+                                        Some(key.clone());
+                                }
+                                if let Some(window) = step.concurrency_time_window_s {
+                                    code.concurrency_settings.concurrency_time_window_s =
+                                        Some(window);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
                     let (_, mut tx) = push(
                         db,
                         PushIsolationLevel::IsolatedRoot(db.clone()),
@@ -2241,15 +2314,15 @@ pub async fn handle_wac_v2_output(
                         false,             // same_worker
                         None,              // pre_run_error
                         job.visible_to_owner,
-                        Some(job.tag.clone()),
-                        job.timeout,
-                        None,  // flow_step_id
-                        None,  // priority_override
-                        None,  // authed
-                        false, // running
-                        None,  // end_user_email
-                        None,  // trigger
-                        None,  // suspended_mode
+                        step.tag.clone().or_else(|| Some(job.tag.clone())),
+                        step.timeout.or(job.timeout),
+                        None,          // flow_step_id
+                        step.priority, // priority_override
+                        None,          // authed
+                        false,         // running
+                        None,          // end_user_email
+                        None,          // trigger
+                        None,          // suspended_mode
                     )
                     .await?;
 
@@ -2439,6 +2512,73 @@ pub async fn handle_wac_v2_output(
             Err(error::Error::WacSuspended(format!(
                 "WAC v2 job {} suspended waiting for approval (key: {})",
                 job.id, key
+            )))
+        }
+        WacOutput::Sleep { key, seconds } => {
+            let db = match conn {
+                Connection::Sql(db) => db,
+                _ => {
+                    return Err(error::Error::internal_err(
+                        "WAC v2 sleep requires SQL connection".to_string(),
+                    ))
+                }
+            };
+
+            let mut checkpoint = load_checkpoint(db, &job.id).await?;
+            let sleep_secs = seconds.max(1) as f64;
+
+            // Mark this step as pending sleep
+            checkpoint.pending_steps = Some(crate::wac_executor::WacPendingSteps {
+                mode: "sleep".to_string(),
+                keys: vec![key.clone()],
+                job_ids: serde_json::Map::new(),
+            });
+
+            let mut tx = db.begin().await?;
+
+            // Save checkpoint
+            let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
+                error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
+            })?;
+            sqlx::query(
+                "INSERT INTO v2_job_status (id, workflow_as_code_status)
+                 VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
+                 ON CONFLICT (id) DO UPDATE SET
+                    workflow_as_code_status = jsonb_set(
+                        COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+                        '{_checkpoint}',
+                        $2::jsonb
+                    )",
+            )
+            .bind(&job.id)
+            .bind(&status_json)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| error::Error::internal_err(format!("Failed to save checkpoint: {e}")))?;
+
+            // Suspend parent — it will auto-resume when suspend_until passes
+            // suspend=0 + suspend_until in the future → suspended pull query picks it up after the delay
+            sqlx::query!(
+                "UPDATE v2_job_queue SET suspend = 0, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
+                job.id,
+                sleep_secs,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            tx.commit().await?;
+
+            tracing::info!(
+                job_id = %job.id,
+                sleep_key = %key,
+                sleep_secs = sleep_secs,
+                "WAC v2 parent job sleeping for {}s",
+                sleep_secs
+            );
+
+            Err(error::Error::WacSuspended(format!(
+                "WAC v2 job {} sleeping for {}s (key: {})",
+                job.id, seconds, key
             )))
         }
         WacOutput::InlineCheckpoint { key, result: value } => {

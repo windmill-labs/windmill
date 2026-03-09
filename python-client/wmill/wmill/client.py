@@ -2394,12 +2394,15 @@ class WorkflowCtx:
         self._counters[name] = n
         return name if n == 1 else f"{name}_{n}"
 
-    def _next_step(self, name: str, script: str, func=None, dispatch_type: str = "inline", **kwargs):
+    def _next_step(self, name: str, script: str, func=None, dispatch_type: str = "inline", _task_options: Optional[dict] = None, **kwargs):
         """Return an awaitable that either resolves from cache or suspends."""
         key = self._alloc_key(name or script or "step")
 
         if key in self._completed:
-            return self._resolved(self._completed[key])
+            val = self._completed[key]
+            if isinstance(val, dict) and val.get("_error"):
+                raise Exception(val.get("message", f"Task '{name}' failed"))
+            return self._resolved(val)
 
         if self._executing_key is not None:
             if key == self._executing_key:
@@ -2408,6 +2411,10 @@ class WorkflowCtx:
                 return self._never_resolve()
 
         info = {"name": name or key, "script": script or key, "args": kwargs, "key": key, "dispatch_type": dispatch_type}
+        if _task_options:
+            for opt_key in ("timeout", "tag", "cache_ttl", "priority", "concurrent_limit", "concurrency_key", "concurrency_time_window_s", "delete_after_use"):
+                if opt_key in _task_options and _task_options[opt_key] is not None:
+                    info[opt_key] = _task_options[opt_key]
         self._pending.append(info)
         return self._suspend()
 
@@ -2452,11 +2459,30 @@ class WorkflowCtx:
             "steps": [],
         })
 
+    async def _sleep(self, seconds: int):
+        key = self._alloc_key("sleep")
+
+        if key in self._completed:
+            return
+
+        if self._executing_key is not None:
+            await _asyncio.Future()
+
+        raise _StepSuspend({
+            "mode": "sleep",
+            "key": key,
+            "seconds": max(1, int(seconds)),
+            "steps": [],
+        })
+
     async def _run_inline_step(self, name: str, fn):
         key = self._alloc_key(name or "step")
 
         if key in self._completed:
-            return self._completed[key]
+            val = self._completed[key]
+            if isinstance(val, dict) and val.get("_error"):
+                raise Exception(val.get("message", f"Step '{name}' failed"))
+            return val
 
         if self._executing_key is not None:
             await _asyncio.Future()
@@ -2473,7 +2499,19 @@ class WorkflowCtx:
         })
 
 
-def task(_func=None, *, path: Optional[str] = None, tag: Optional[str] = None):
+def task(
+    _func=None,
+    *,
+    path: Optional[str] = None,
+    tag: Optional[str] = None,
+    timeout: Optional[int] = None,
+    cache_ttl: Optional[int] = None,
+    priority: Optional[int] = None,
+    concurrency_limit: Optional[int] = None,
+    concurrency_key: Optional[str] = None,
+    concurrency_time_window_s: Optional[int] = None,
+    delete_after_use: Optional[bool] = None,
+):
     """Decorator that marks a function as a workflow task.
 
     Works in both WAC v1 (sync, HTTP-based dispatch) and WAC v2
@@ -2488,10 +2526,23 @@ def task(_func=None, *, path: Optional[str] = None, tag: Optional[str] = None):
         @task
         async def extract_data(url: str): ...
 
-        @task(path="f/external_script")
+        @task(path="f/external_script", timeout=600, tag="gpu")
         async def run_external(x: int): ...
     """
     from inspect import signature as _sig
+
+    _task_opts = {
+        "timeout": timeout,
+        "tag": tag,
+        "cache_ttl": cache_ttl,
+        "priority": priority,
+        "concurrent_limit": concurrency_limit,
+        "concurrency_key": concurrency_key,
+        "concurrency_time_window_s": concurrency_time_window_s,
+        "delete_after_use": delete_after_use,
+    }
+    # Remove None values
+    _task_opts = {k: v for k, v in _task_opts.items() if v is not None} or None
 
     def decorator(func):
         task_path = path
@@ -2514,7 +2565,7 @@ def task(_func=None, *, path: Optional[str] = None, tag: Optional[str] = None):
             if ctx is not None:
                 script = task_path if task_path else task_name
                 merged = _merge_args(args, kwargs)
-                return ctx._next_step(task_name, script, func, **merged)
+                return ctx._next_step(task_name, script, func, _task_options=_task_opts, **merged)
 
             # WAC v1: running inside a Windmill job but not in a @workflow
             if (
@@ -2557,23 +2608,34 @@ def task(_func=None, *, path: Optional[str] = None, tag: Optional[str] = None):
     return decorator
 
 
-def task_script(path: str):
+def task_script(
+    path: str,
+    *,
+    timeout: Optional[int] = None,
+    tag: Optional[str] = None,
+    cache_ttl: Optional[int] = None,
+    priority: Optional[int] = None,
+    concurrency_limit: Optional[int] = None,
+    concurrency_key: Optional[str] = None,
+    concurrency_time_window_s: Optional[int] = None,
+):
     """Create a task that dispatches to a separate Windmill script.
 
     Usage::
 
-        extract = task_script("f/data/extract")
+        extract = task_script("f/data/extract", timeout=600)
 
         @workflow
         async def main():
             data = await extract(url="https://...")
     """
     name = path.rsplit("/", 1)[-1]
+    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s}.items() if v is not None} or None
 
     def wrapper(**kwargs):
         ctx = _workflow_ctx.get(None)
         if ctx is not None:
-            return ctx._next_step(name, path, dispatch_type="script", **kwargs)
+            return ctx._next_step(name, path, dispatch_type="script", _task_options=_opts, **kwargs)
         raise RuntimeError(f'task_script("{path}") can only be called inside a @workflow')
 
     wrapper.__name__ = name
@@ -2582,23 +2644,34 @@ def task_script(path: str):
     return wrapper
 
 
-def task_flow(path: str):
+def task_flow(
+    path: str,
+    *,
+    timeout: Optional[int] = None,
+    tag: Optional[str] = None,
+    cache_ttl: Optional[int] = None,
+    priority: Optional[int] = None,
+    concurrency_limit: Optional[int] = None,
+    concurrency_key: Optional[str] = None,
+    concurrency_time_window_s: Optional[int] = None,
+):
     """Create a task that dispatches to a separate Windmill flow.
 
     Usage::
 
-        pipeline = task_flow("f/etl/pipeline")
+        pipeline = task_flow("f/etl/pipeline", priority=10)
 
         @workflow
         async def main():
             result = await pipeline(input=data)
     """
     name = path.rsplit("/", 1)[-1]
+    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s}.items() if v is not None} or None
 
     def wrapper(**kwargs):
         ctx = _workflow_ctx.get(None)
         if ctx is not None:
-            return ctx._next_step(name, path, dispatch_type="flow", **kwargs)
+            return ctx._next_step(name, path, dispatch_type="flow", _task_options=_opts, **kwargs)
         raise RuntimeError(f'task_flow("{path}") can only be called inside a @workflow')
 
     wrapper.__name__ = name
@@ -2636,6 +2709,18 @@ async def step(name: str, fn):
     return result
 
 
+async def sleep(seconds: int):
+    """Server-side sleep — suspend the workflow for the given duration without holding a worker.
+
+    Inside a @workflow, the parent job suspends and auto-resumes after ``seconds``.
+    Outside a workflow, falls back to ``asyncio.sleep``.
+    """
+    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    if ctx is not None:
+        return await ctx._sleep(seconds)
+    await _asyncio.sleep(seconds)
+
+
 async def wait_for_approval(
     timeout: int = 1800,
     form: dict | None = None,
@@ -2657,6 +2742,31 @@ async def wait_for_approval(
     if ctx is not None:
         return await ctx._wait_for_approval(timeout=timeout, form=form)
     raise RuntimeError("wait_for_approval can only be called inside a @workflow")
+
+
+async def parallel(items, fn, *, concurrency: Optional[int] = None):
+    """Process items in parallel with optional concurrency control.
+
+    Each item is processed by calling ``fn(item)``, which should be a @task.
+    Items are dispatched in batches of ``concurrency`` (default: all at once).
+
+    Example::
+
+        @task
+        async def process(item: str):
+            ...
+
+        results = await parallel(items, process, concurrency=5)
+    """
+    if not items:
+        return []
+    batch_size = concurrency if concurrency and concurrency > 0 else len(items)
+    results = []
+    for i in range(0, len(items), batch_size):
+        batch = items[i : i + batch_size]
+        batch_results = await _asyncio.gather(*(fn(item) for item in batch))
+        results.extend(batch_results)
+    return results
 
 
 async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
@@ -2691,6 +2801,12 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
                 "key": info["key"],
                 "timeout": info.get("timeout"),
                 "form": info.get("form"),
+            }
+        if mode == "sleep":
+            return {
+                "type": "sleep",
+                "key": info["key"],
+                "seconds": info.get("seconds"),
             }
         return {"type": "dispatch", **info}
     finally:

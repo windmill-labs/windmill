@@ -863,53 +863,44 @@ pub(crate) async fn handle_wac_child_completion(
         }
     });
 
-    if !success {
-        // Child failed — fail the parent job
-        let step_desc = step_key.as_deref().unwrap_or("unknown");
-        tracing::error!(
-            parent_job = %parent_job_id,
-            child_job = %child_job_id,
-            step_key = %step_desc,
-            "WAC v2 child job failed, failing parent"
-        );
-
-        // Unsuspend the parent so it can be completed
-        sqlx::query!(
-            "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE id = $1",
-            parent_job_id,
-        )
-        .execute(db)
-        .await?;
-
-        // Get the parent as MiniCompletedJob and mark it as failed
-        let parent_mini = get_mini_completed_job(&parent_job_id, workspace_id, db).await?;
-        if let Some(parent_mini) = parent_mini {
-            let child_err: Value = serde_json::from_str(result.get()).unwrap_or(Value::Null);
-            let err_value = json!({
-                "message": format!("WAC task '{}' failed (child job {})", step_desc, child_job_id),
-                "child_job_id": child_job_id.to_string(),
-                "step_key": step_desc,
-                "error": child_err,
-            });
-            let _ = windmill_queue::add_completed_job_error(
-                db,
-                &parent_mini,
-                0,
-                None,
-                err_value,
-                "wac_child_handler",
-                false,
-                None,
-            )
-            .await;
-        }
-
-        return Ok(Some(()));
-    }
-
     let step_key = match step_key {
         Some(k) => k,
         None => {
+            if !success {
+                // No step key and failed — can't store error, fail parent immediately
+                tracing::error!(
+                    parent_job = %parent_job_id,
+                    child_job = %child_job_id,
+                    "WAC v2 child job failed but no step key found, failing parent"
+                );
+                sqlx::query!(
+                    "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE id = $1",
+                    parent_job_id,
+                )
+                .execute(db)
+                .await?;
+                let parent_mini = get_mini_completed_job(&parent_job_id, workspace_id, db).await?;
+                if let Some(parent_mini) = parent_mini {
+                    let child_err: Value =
+                        serde_json::from_str(result.get()).unwrap_or(Value::Null);
+                    let err_value = json!({
+                        "message": format!("WAC child job {} failed (no step key)", child_job_id),
+                        "error": child_err,
+                    });
+                    let _ = windmill_queue::add_completed_job_error(
+                        db,
+                        &parent_mini,
+                        0,
+                        None,
+                        err_value,
+                        "wac_child_handler",
+                        false,
+                        None,
+                    )
+                    .await;
+                }
+                return Ok(Some(()));
+            }
             tracing::warn!(
                 parent_job = %parent_job_id,
                 child_job = %child_job_id,
@@ -919,13 +910,31 @@ pub(crate) async fn handle_wac_child_completion(
         }
     };
 
-    // Parse the child result
-    let result_value: Value = serde_json::from_str(result.get()).unwrap_or(Value::Null);
+    // Build result — wrap errors with _error marker so workflow try/catch can handle them
+    let result_value: Value = if success {
+        serde_json::from_str(result.get()).unwrap_or(Value::Null)
+    } else {
+        let child_err: Value = serde_json::from_str(result.get()).unwrap_or(Value::Null);
+        tracing::info!(
+            parent_job = %parent_job_id,
+            child_job = %child_job_id,
+            step_key = %step_key,
+            "WAC v2 child job failed, storing error for workflow try/catch"
+        );
+        json!({
+            "_error": true,
+            "message": format!("WAC task '{}' failed (child job {})", step_key, child_job_id),
+            "child_job_id": child_job_id.to_string(),
+            "step_key": step_key,
+            "result": child_err,
+        })
+    };
 
     tracing::info!(
         parent_job = %parent_job_id,
         child_job = %child_job_id,
         step_key = %step_key,
+        success = success,
         "WAC v2 child job completed"
     );
 

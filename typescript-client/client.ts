@@ -1427,6 +1427,17 @@ export class StepSuspend extends Error {
   }
 }
 
+export interface TaskOptions {
+  timeout?: number;
+  tag?: string;
+  cache_ttl?: number;
+  priority?: number;
+  concurrency_limit?: number;
+  concurrency_key?: string;
+  concurrency_time_window_s?: number;
+  delete_after_use?: boolean;
+}
+
 export let _workflowCtx: WorkflowCtx | null = null;
 export function setWorkflowCtx(ctx: WorkflowCtx | null) {
   _workflowCtx = ctx;
@@ -1443,6 +1454,7 @@ export class WorkflowCtx {
     args: Record<string, any>;
     key: string;
     dispatch_type: string;
+    [k: string]: any;
   }> = [];
   private _suspended = false;
   /** When set, the task matching this key executes its inner function directly */
@@ -1465,11 +1477,19 @@ export class WorkflowCtx {
     script: string,
     args: Record<string, any> = {},
     dispatch_type: string = "inline",
+    options?: TaskOptions,
   ): PromiseLike<any> {
     const key = this._allocKey(name || script || "step");
 
     if (key in this.completed) {
       const value = this.completed[key];
+      if (value && typeof value === "object" && (value as any)._error) {
+        const err = new Error((value as any).message || `Task '${name}' failed`);
+        (err as any).result = (value as any).result;
+        (err as any).step_key = (value as any).step_key;
+        (err as any).child_job_id = (value as any).child_job_id;
+        return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } };
+      }
       return { then: (resolve: any) => resolve(value) };
     }
 
@@ -1487,7 +1507,18 @@ export class WorkflowCtx {
       return { then: () => new Promise(() => {}) };
     }
 
-    this.pending.push({ name: name || key, script: script || key, args, key, dispatch_type });
+    const stepInfo: any = { name: name || key, script: script || key, args, key, dispatch_type };
+    if (options) {
+      if (options.timeout !== undefined) stepInfo.timeout = options.timeout;
+      if (options.tag !== undefined) stepInfo.tag = options.tag;
+      if (options.cache_ttl !== undefined) stepInfo.cache_ttl = options.cache_ttl;
+      if (options.priority !== undefined) stepInfo.priority = options.priority;
+      if (options.concurrent_limit !== undefined) stepInfo.concurrent_limit = options.concurrent_limit;
+      if (options.concurrency_key !== undefined) stepInfo.concurrency_key = options.concurrency_key;
+      if (options.concurrency_time_window_s !== undefined) stepInfo.concurrency_time_window_s = options.concurrency_time_window_s;
+      if (options.delete_after_use !== undefined) stepInfo.delete_after_use = options.delete_after_use;
+    }
+    this.pending.push(stepInfo);
     return {
       then: (): never => {
         // Only the first .then() call throws with all accumulated steps.
@@ -1537,11 +1568,38 @@ export class WorkflowCtx {
     });
   }
 
+  _sleep(seconds: number): PromiseLike<void> {
+    const key = this._allocKey("sleep");
+
+    if (key in this.completed) {
+      return { then: (resolve: any) => resolve(undefined) };
+    }
+
+    if (this._executingKey !== null) {
+      return { then: () => new Promise(() => {}) };
+    }
+
+    throw new StepSuspend({
+      mode: "sleep",
+      key,
+      seconds: Math.max(1, Math.round(seconds)),
+      steps: [],
+    });
+  }
+
   async _runInlineStep<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
     const key = this._allocKey(name || "step");
 
     if (key in this.completed) {
-      return this.completed[key] as T;
+      const value = this.completed[key];
+      if (value && typeof value === "object" && (value as any)._error) {
+        const err = new Error((value as any).message || `Step '${name}' failed`);
+        (err as any).result = (value as any).result;
+        (err as any).step_key = (value as any).step_key;
+        (err as any).child_job_id = (value as any).child_job_id;
+        throw err;
+      }
+      return value as T;
     }
 
     if (this._executingKey !== null) {
@@ -1551,6 +1609,15 @@ export class WorkflowCtx {
     const result = await fn();
     throw new StepSuspend({ mode: "inline_checkpoint", steps: [], key, result });
   }
+}
+
+export async function sleep(seconds: number): Promise<void> {
+  const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+  if (ctx) {
+    return ctx._sleep(seconds) as Promise<void>;
+  }
+  // Outside workflow context, just wait locally
+  await new Promise((r) => setTimeout(r, seconds * 1000));
 }
 
 export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
@@ -1573,16 +1640,20 @@ export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T
  */
 export function task<T extends (...args: any[]) => Promise<any>>(
   fnOrPath: T | string,
-  maybeFn?: T
+  maybeFnOrOptions?: T | TaskOptions,
+  maybeOptions?: TaskOptions,
 ): T {
   let fn: T;
   let taskPath: string | undefined;
+  let taskOptions: TaskOptions | undefined;
 
   if (typeof fnOrPath === "string") {
     taskPath = fnOrPath;
-    fn = maybeFn!;
+    fn = maybeFnOrOptions as T;
+    taskOptions = maybeOptions;
   } else {
     fn = fnOrPath;
+    taskOptions = maybeFnOrOptions as TaskOptions | undefined;
   }
 
   const taskName = fn.name || taskPath || "";
@@ -1606,7 +1677,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
           kwargs[`arg${i}`] = args[i];
         }
       }
-      const stepResult = ctx._nextStep(taskName, script, kwargs);
+      const stepResult = ctx._nextStep(taskName, script, kwargs, "inline", taskOptions);
       // If this step should execute directly (child job mode), run the inner function
       // and throw StepSuspend with mode "step_complete" to signal that we're done
       if ((stepResult as any)?._execute_directly) {
@@ -1661,7 +1732,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
  * const extract = taskScript("f/data/extract");
  * // inside workflow: await extract({ url: "https://..." })
  */
-export function taskScript(path: string): (...args: any[]) => PromiseLike<any> {
+export function taskScript(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any> {
   const name = path.split("/").pop() || path;
   const wrapper = function (...args: any[]) {
     const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
@@ -1669,7 +1740,7 @@ export function taskScript(path: string): (...args: any[]) => PromiseLike<any> {
       const kwargs = args.length === 1 && typeof args[0] === "object" && args[0] !== null
         ? args[0]
         : args.reduce((acc, v, i) => { acc[`arg${i}`] = v; return acc; }, {} as Record<string, any>);
-      return ctx._nextStep(name, path, kwargs, "script");
+      return ctx._nextStep(name, path, kwargs, "script", options);
     }
     throw new Error(`taskScript("${path}") can only be called inside a workflow()`);
   };
@@ -1686,7 +1757,7 @@ export function taskScript(path: string): (...args: any[]) => PromiseLike<any> {
  * const pipeline = taskFlow("f/etl/pipeline");
  * // inside workflow: await pipeline({ input: data })
  */
-export function taskFlow(path: string): (...args: any[]) => PromiseLike<any> {
+export function taskFlow(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any> {
   const name = path.split("/").pop() || path;
   const wrapper = function (...args: any[]) {
     const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
@@ -1694,7 +1765,7 @@ export function taskFlow(path: string): (...args: any[]) => PromiseLike<any> {
       const kwargs = args.length === 1 && typeof args[0] === "object" && args[0] !== null
         ? args[0]
         : args.reduce((acc, v, i) => { acc[`arg${i}`] = v; return acc; }, {} as Record<string, any>);
-      return ctx._nextStep(name, path, kwargs, "flow");
+      return ctx._nextStep(name, path, kwargs, "flow", options);
     }
     throw new Error(`taskFlow("${path}") can only be called inside a workflow()`);
   };
@@ -1738,5 +1809,31 @@ export function waitForApproval(options?: {
     throw new Error("waitForApproval can only be called inside a workflow()");
   }
   return ctx._waitForApproval(options);
+}
+
+/**
+ * Process items in parallel with optional concurrency control.
+ *
+ * Each item is processed by calling `fn(item)`, which should be a task().
+ * Items are dispatched in batches of `concurrency` (default: all at once).
+ *
+ * @example
+ * const process = task(async (item: string) => { ... });
+ * const results = await parallel(items, process, { concurrency: 5 });
+ */
+export async function parallel<T, R>(
+  items: T[],
+  fn: (item: T) => PromiseLike<R> | R,
+  options?: { concurrency?: number },
+): Promise<R[]> {
+  const concurrency = options?.concurrency ?? items.length;
+  if (concurrency <= 0 || items.length === 0) return [];
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const batchResults = await Promise.all(batch.map((item) => fn(item)));
+    results.push(...batchResults);
+  }
+  return results;
 }
 

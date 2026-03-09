@@ -53,6 +53,9 @@ pub enum WacOutput {
     /// when a user hits the resume/cancel endpoint.
     #[serde(rename = "approval")]
     Approval { key: String, timeout: Option<u32>, form: Option<Value> },
+    /// Server-side sleep — suspend the workflow for a duration without holding a worker.
+    #[serde(rename = "sleep")]
+    Sleep { key: String, seconds: u32 },
 }
 
 /// A step dispatched by the WAC SDK.
@@ -69,6 +72,23 @@ pub struct WacStepDispatch {
     pub key: String,
     #[serde(default = "default_dispatch_type")]
     pub dispatch_type: String,
+    // Per-task options forwarded to push()
+    #[serde(default)]
+    pub timeout: Option<i32>,
+    #[serde(default)]
+    pub tag: Option<String>,
+    #[serde(default)]
+    pub cache_ttl: Option<i32>,
+    #[serde(default)]
+    pub priority: Option<i16>,
+    #[serde(default)]
+    pub concurrent_limit: Option<i32>,
+    #[serde(default)]
+    pub concurrency_key: Option<String>,
+    #[serde(default)]
+    pub concurrency_time_window_s: Option<i32>,
+    #[serde(default)]
+    pub delete_after_use: Option<bool>,
 }
 
 fn default_dispatch_type() -> String {
