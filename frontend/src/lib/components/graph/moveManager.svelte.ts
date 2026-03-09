@@ -22,6 +22,7 @@ export type DropZoneRegistration = {
 
 type DragInfo = {
 	moduleId: string
+	selectedIds?: string[]
 }
 
 /**
@@ -54,22 +55,13 @@ export function getSubflowNodeIds(
 	// Include child nodes (e.g. asset/AI tool nodes) of nodes added via edges.
 	// Nodes found through disableMoveIds (like inner module "b") may have children
 	// ("b-asset-in-...") that weren't caught by the initial prefix match on moduleId.
-	// Only scan children of edge-added nodes that aren't already covered by the
-	// moduleId prefix (those children were already captured in the first pass).
-	const newFromEdges: string[] = []
-	for (const id of nodeIds) {
-		if (id !== moduleId && !id.startsWith(nodeIdPrefix)) {
-			newFromEdges.push(id)
-		}
-	}
-	if (newFromEdges.length > 0) {
-		for (const n of allNodes) {
-			if (!nodeIds.has(n.id)) {
-				for (const id of newFromEdges) {
-					if (n.id.startsWith(id + '-')) {
-						nodeIds.add(n.id)
-						break
-					}
+	const edgeMatchedIds = [...nodeIds]
+	for (const n of allNodes) {
+		if (!nodeIds.has(n.id)) {
+			for (const id of edgeMatchedIds) {
+				if (n.id.startsWith(id + '-')) {
+					nodeIds.add(n.id)
+					break
 				}
 			}
 		}
@@ -88,35 +80,57 @@ export class MoveManager {
 	/** The module ID currently being moved via legacy click-to-move */
 	movingModuleId = $state<string | undefined>(undefined)
 
+	/** Multiple module IDs being moved together (multi-select move) */
+	movingIds = $state<string[] | undefined>(undefined)
+
 	toggleMoving(id: string) {
 		if (this.movingModuleId === id) {
 			this.movingModuleId = undefined
 			this.#updateDraggedNodeIds(undefined)
 		} else {
 			this.movingModuleId = id
-			this.#updateDraggedNodeIds(id)
+			this.#updateDraggedNodeIds([id])
+		}
+	}
+
+	toggleMovingMultiple(ids: string[]) {
+		if (
+			this.movingIds &&
+			this.movingIds.length === ids.length &&
+			this.movingIds.every((id, i) => id === ids[i])
+		) {
+			this.movingModuleId = undefined
+			this.movingIds = undefined
+			this.#updateDraggedNodeIds(undefined)
+		} else {
+			this.movingModuleId = ids[0]
+			this.movingIds = ids
+			this.#updateDraggedNodeIds(ids)
 		}
 	}
 
 	setMoving(id: string) {
 		this.movingModuleId = id
-		this.#updateDraggedNodeIds(id)
+		this.#updateDraggedNodeIds([id])
 	}
 
 	clearMoving() {
 		this.movingModuleId = undefined
+		this.movingIds = undefined
 		this.#updateDraggedNodeIds(undefined)
 	}
 
-	#computeDraggedNodeIds: ((moduleId: string) => Set<string>) | undefined
+	#computeDraggedNodeIds: ((moduleIds: string[]) => Set<string>) | undefined
 
-	setComputeDraggedNodeIds(fn: (moduleId: string) => Set<string>) {
+	setComputeDraggedNodeIds(fn: (moduleIds: string[]) => Set<string>) {
 		this.#computeDraggedNodeIds = fn
 	}
 
-	#updateDraggedNodeIds(moduleId: string | undefined) {
+	#updateDraggedNodeIds(moduleIds: string[] | undefined) {
 		this.draggedNodeIds =
-			moduleId && this.#computeDraggedNodeIds ? this.#computeDraggedNodeIds(moduleId) : new Set()
+			moduleIds && moduleIds.length > 0 && this.#computeDraggedNodeIds
+				? this.#computeDraggedNodeIds(moduleIds)
+				: new Set()
 	}
 
 	#screenToFlowPosition: ((pos: { x: number; y: number }) => { x: number; y: number }) | undefined
@@ -134,14 +148,19 @@ export class MoveManager {
 		this.#registeredDropZones.delete(edgeId)
 	}
 
-	startDrag(moduleId: string, screenX: number, screenY: number) {
+	startDrag(moduleId: string, screenX: number, screenY: number, selectedIds?: string[]) {
 		// Clear any active click-to-move so only drag mode is active
 		this.movingModuleId = undefined
-		this.dragging = { moduleId }
+		this.dragging = { moduleId, selectedIds }
 		this.ghostScreenX = screenX
 		this.ghostScreenY = screenY
 		this.nearestDropZone = undefined
-		this.#updateDraggedNodeIds(moduleId)
+		// Compute dragged node IDs for the primary module plus any additional selected modules
+		const allIds =
+			selectedIds && selectedIds.length > 0
+				? [moduleId, ...selectedIds.filter((id) => id !== moduleId)]
+				: [moduleId]
+		this.#updateDraggedNodeIds(allIds)
 	}
 
 	updateDrag(screenX: number, screenY: number) {

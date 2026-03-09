@@ -1,19 +1,27 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { FolderService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import Cell from './table/Cell.svelte'
 
-	export let name: string
-	export let tabular = false
-	export let order = ['scripts', 'flows', 'apps', 'schedules', 'variables', 'resources']
+	interface Props {
+		name: string;
+		tabular?: boolean;
+		order?: any;
+	}
 
-	$: $workspaceStore && loadUsage()
+	let { name, tabular = false, order = ['scripts', 'flows', 'apps', 'schedules', 'variables', 'resources'] }: Props = $props();
 
-	let usage: Record<string, number> = {}
+
+	let usage: Record<string, number> = $state({})
 
 	async function loadUsage() {
 		usage = await FolderService.getFolderUsage({ workspace: $workspaceStore!, name })
 	}
+	run(() => {
+		$workspaceStore && loadUsage()
+	});
 </script>
 
 {#if tabular}

@@ -3,40 +3,41 @@
 	import { displayDate, msToSec } from '$lib/utils'
 	import { onDestroy } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
-	import { ExternalLink, Loader2 } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import TimelineBar from './TimelineBar.svelte'
 	import type { WorkflowStatus } from '$lib/gen'
 
-	export let flow_status: Record<string, WorkflowStatus>
-	export let flowDone = false
+	interface Props {
+		flow_status: Record<string, WorkflowStatus>;
+		flowDone?: boolean;
+	}
 
-	$: min = Object.values(flow_status).reduce(
-		(a, b) => Math.min(a, b.scheduled_for ? new Date(b.scheduled_for).getTime() : Infinity),
-		Infinity
-	)
-	$: max = flowDone
-		? Object.values(flow_status).reduce(
-				(a, b) =>
-					Math.max(a, b.started_at ? new Date(b.started_at).getTime() + (b.duration_ms ?? 0) : 0),
-				0
-		  )
-		: undefined
-	$: total = flowDone && max ? max - min : now - min
+	let { flow_status, flowDone = false }: Props = $props();
 
-	let now = getDbClockNow().getTime()
 
-	let interval = setInterval((x) => {
+	let now = $state(getDbClockNow().getTime())
+
+	let interval = setInterval(() => {
 		if (!max) {
 			now = getDbClockNow().getTime()
-		}
-		if (min && (!max || total == undefined)) {
-			total = max ? max - min : Math.max(now - min, 2000)
 		}
 	}, 30)
 
 	onDestroy(() => {
 		interval && clearInterval(interval)
 	})
+	let min = $derived(Object.values(flow_status).reduce(
+		(a, b) => Math.min(a, b.scheduled_for ? new Date(b.scheduled_for).getTime() : Infinity),
+		Infinity
+	))
+	let max = $derived(flowDone
+		? Object.values(flow_status).reduce(
+				(a, b) =>
+					Math.max(a, b.started_at ? new Date(b.started_at).getTime() + (b.duration_ms ?? 0) : 0),
+				0
+		  )
+		: undefined)
+	let total = $derived(flowDone && max ? max - min : Math.max(now - min, 2000))
 </script>
 
 {#if flow_status}
@@ -71,7 +72,7 @@
 			<div class="overflow-auto max-h-60 shadow-inner dark:shadow-gray-700 relative">
 				<div class="px-2 py-2 text-xs grid grid-cols-6 w-full gap-1">
 					<a target="_blank" class="inline-flex gap-2 items-baseline" href="{base}/run/{k}"
-						>{v.name ?? k} <ExternalLink size={12} /></a
+						>{v.name ?? k}</a
 					>
 					<div class="col-span-5 flex min-h-6 w-full">
 						{#if min && total}

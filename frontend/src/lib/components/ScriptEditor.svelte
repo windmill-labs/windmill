@@ -100,7 +100,7 @@
 		path: string | undefined
 		lang: Preview['language']
 		kind?: string | undefined
-		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
+		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox'
 		tag: string | undefined
 		initialArgs?: Record<string, any>
 		fixedOverflowWidgets?: boolean
@@ -123,7 +123,7 @@
 		lastDeployedCode?: string | undefined
 		disableAi?: boolean
 		assets?: AssetWithAltAccessType[]
-		editor_bar_right?: import('svelte').Snippet
+		editorBarRight?: import('svelte').Snippet
 		enablePreprocessorSnippet?: boolean
 	}
 
@@ -155,7 +155,7 @@
 		lastDeployedCode = undefined,
 		disableAi = false,
 		assets = $bindable(),
-		editor_bar_right,
+		editorBarRight,
 		enablePreprocessorSnippet = false
 	}: Props = $props()
 
@@ -883,7 +883,7 @@
 		}
 	}
 
-	setContext('disableTooltips', customUi?.disableTooltips === true)
+	setContext('disableTooltips', untrack(() => customUi)?.disableTooltips === true)
 
 	let codePanelSize = $state(70)
 	let testPanelSize = $state(30)
@@ -1042,7 +1042,7 @@
 				bind:showHistoryDrawer
 			>
 				{#snippet right()}
-					{@render editor_bar_right?.()}
+					{@render editorBarRight?.()}
 				{/snippet}
 			</EditorBar>
 		{/if}

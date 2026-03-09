@@ -134,8 +134,8 @@ use crate::{
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry,
     worker_utils::ping_job_status,
-    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
-    PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
+    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
+    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
     UV_INDEX_STRATEGY,
 };
 use windmill_common::client::AuthedClient;
@@ -567,6 +567,17 @@ pub async fn handle_python_job(
 
     let annotations = PythonAnnotations::parse(inner_content);
 
+    let is_wac_v2 = job.script_entrypoint_override.is_none()
+        && crate::wac_executor::is_wac_v2_py(inner_content);
+
+    if annotations.sandbox && NSJAIL_AVAILABLE.is_none() {
+        return Err(Error::ExecutionErr(
+            "Script has #sandbox annotation but nsjail is not available on this worker. \
+            Please ensure nsjail is installed or remove the #sandbox annotation."
+                .to_string(),
+        ));
+    }
+
     let (py_version, mut additional_python_paths) = handle_python_deps(
         job_dir,
         requirements_o,
@@ -605,16 +616,14 @@ pub async fn handle_python_job(
     }
 
     {
-        append_logs(
-            &job.id,
-            &job.workspace_id,
-            format!(
-                "\n\n--- PYTHON ({}) CODE EXECUTION ---\n",
-                py_version.clone().to_string()
-            ),
-            conn,
-        )
-        .await;
+        let mut logs = format!(
+            "\n\n--- PYTHON ({}) CODE EXECUTION ---\n",
+            py_version.clone().to_string()
+        );
+        if annotations.sandbox {
+            logs.push_str("sandbox mode (nsjail)\n");
+        }
+        append_logs(&job.id, &job.workspace_id, logs, conn).await;
     }
     let (
         import_loader,
@@ -671,8 +680,68 @@ pub async fn handle_python_job(
         String::new()
     };
     let main_override = main_name.unwrap_or_else(|| "main".to_string());
-    let wrapper_content: String = format!(
-        r#"
+    let wrapper_content: String = if is_wac_v2 {
+        format!(
+            r#"
+import os
+import json
+{import_loader}
+{import_base64}
+{import_datetime}
+import traceback
+import sys
+from {module_dir_dot} import {last} as inner_script
+from wmill.client import _run_workflow
+
+with open("args.json") as f:
+    kwargs = json.load(f, strict=False)
+args = {{}}
+{transforms}
+
+with open("checkpoint.json") as f:
+    checkpoint = json.load(f, strict=False)
+
+result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
+
+# Find the @workflow-decorated function
+workflow_fn = None
+for name in dir(inner_script):
+    obj = getattr(inner_script, name)
+    if callable(obj) and getattr(obj, '_is_workflow', False):
+        workflow_fn = obj
+        break
+
+if workflow_fn is None:
+    raise ValueError("No @workflow function found in script")
+
+for k, v in list(args.items()):
+    if v == '<function call>':
+        del args[k]
+
+try:
+    output = _run_workflow(workflow_fn, checkpoint, args)
+    output_json = json.dumps(output, separators=(',', ':'), default=str)
+    with open(result_json, 'w') as f:
+        f.write(output_json)
+except BaseException as e:
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+    tb = traceback.format_tb(exc_traceback)
+    with open(result_json, 'w') as f:
+        err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
+        extra = e.__dict__
+        if extra and len(extra) > 0:
+            err['extra'] = extra
+        flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
+        if flow_node_id:
+            err['step_id'] = flow_node_id
+        err_json = json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
+        f.write(err_json)
+        sys.exit(1)
+"#,
+        )
+    } else {
+        format!(
+            r#"
 import os
 import json
 {import_loader}
@@ -745,8 +814,25 @@ except BaseException as e:
         f.write(err_json)
         sys.exit(1)
 "#,
-    );
+        )
+    };
     write_file(job_dir, "wrapper.py", &wrapper_content)?;
+
+    // For WAC v2, write checkpoint.json before python runs.
+    if is_wac_v2 {
+        if let Connection::Sql(db) = conn {
+            let checkpoint = crate::wac_executor::load_checkpoint(db, &job.id).await?;
+            let checkpoint =
+                crate::wac_executor::prepare_checkpoint_for_resume(db, &job.id, checkpoint).await?;
+
+            let checkpoint_json = serde_json::to_string(&checkpoint).map_err(|e| {
+                error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
+            })?;
+            write_file(job_dir, "checkpoint.json", &checkpoint_json)?;
+        } else {
+            write_file(job_dir, "checkpoint.json", r#"{"completed_steps":{}}"#)?;
+        }
+    }
 
     tracing::debug!("Finished writing wrapper");
 
@@ -784,7 +870,7 @@ except BaseException as e:
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
 
-    if is_sandboxing_enabled() {
+    if is_sandboxing_enabled() || annotations.sandbox {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -828,14 +914,17 @@ mount {{
         job.id
     );
 
-    let child = if is_sandboxing_enabled() {
+    let child = if is_sandboxing_enabled() || annotations.sandbox {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Python3).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Python3, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -861,7 +950,10 @@ mount {{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Python3).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Python3, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -924,7 +1016,15 @@ mount {{
         *new_args = Some(args.clone());
     }
 
-    read_result(job_dir, handle_result.result_stream).await
+    let result = read_result(job_dir, handle_result.result_stream).await?;
+
+    // WAC v2 post-execution: parse output and handle dispatch/suspend.
+    // Box::pin to avoid bloating handle_python_job's async state machine (stack overflow).
+    if is_wac_v2 {
+        return Box::pin(crate::bun_executor::handle_wac_v2_output(result, job, conn)).await;
+    }
+
+    Ok(result)
 }
 
 async fn prepare_wrapper(

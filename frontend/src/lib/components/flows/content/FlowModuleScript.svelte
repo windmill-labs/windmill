@@ -64,7 +64,7 @@
 		notFound = cachedValues[key]?.notFound ?? false
 	}
 
-	getCachedValues(path, hash)
+	getCachedValues(untrack(() => path), untrack(() => hash))
 
 	async function loadPreviousCode(previousHash: string) {
 		try {

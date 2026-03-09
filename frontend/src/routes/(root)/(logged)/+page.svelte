@@ -32,7 +32,7 @@
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 	import { HOME_SHOW_HUB, HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
 	import { setQuery } from '$lib/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { goto, replaceState } from '$app/navigation'
 	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
 	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
@@ -111,7 +111,7 @@
 
 	onMount(() => {
 		// Check if there's a tutorial parameter in the URL
-		const tutorialParam = $page.url.searchParams.get('tutorial')
+		const tutorialParam = page.url.searchParams.get('tutorial')
 		if (tutorialParam === 'workspace-onboarding') {
 			// Small delay to ensure page is fully loaded
 			setTimeout(() => {
@@ -256,7 +256,7 @@
 						}}
 						summary={appViewerApp?.app.summary ?? ''}
 						noBackend
-						replaceStateFn={(path) => replaceState(path, $page.state)}
+						replaceStateFn={(path) => replaceState(path, page.state)}
 						gotoFn={(path, opt) => goto(path, opt)}
 					/>
 				{/await}
@@ -312,7 +312,7 @@
 						<ToggleButtonGroup
 							bind:selected={subtab}
 							onSelected={(v) => {
-								setQuery($page.url, 'kind', v, window.location.hash)
+								setQuery(page.url, 'kind', v, window.location.hash)
 							}}
 							noWFull
 						>

@@ -5,7 +5,10 @@
 
 use crate::common::schema::extract_resource_types_from_schema;
 use crate::common::scope::parse_mcp_scopes;
-use crate::common::transform::{reverse_transform, reverse_transform_key};
+use crate::common::transform::{
+    extract_hub_version_id_from_hashed, extract_path_prefix_from_hashed, parse_tool_prefix,
+    reverse_transform, reverse_transform_key,
+};
 use crate::common::types::{ResourceInfo, ToolableItem, WorkspaceId};
 use crate::server::backend::{McpAuth, McpBackend};
 use crate::server::endpoints::endpoint_tool_to_mcp_tool;
@@ -81,6 +84,13 @@ impl<B: McpBackend> Runner<B> {
     }
 }
 
+fn find_matching_path<T: ToolableItem>(candidates: Vec<T>, request_name: &str) -> Option<String> {
+    candidates
+        .into_iter()
+        .find(|item| item.get_transformed_path() == request_name)
+        .map(|item| item.get_full_path().to_string())
+}
+
 impl<B: McpBackend> ServerHandler for Runner<B> {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
@@ -120,9 +130,9 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         // Fetch all items concurrently
         let (scripts, flows, resource_types, hub_scripts) = tokio::try_join!(
             self.backend
-                .list_scripts(&auth, &workspace_id, favorites_only),
+                .list_scripts(&auth, &workspace_id, favorites_only, None),
             self.backend
-                .list_flows(&auth, &workspace_id, favorites_only),
+                .list_flows(&auth, &workspace_id, favorites_only, None),
             self.backend.list_resource_types(&auth, &workspace_id),
             async {
                 if let Some(ref apps) = scope_config.hub_apps {
@@ -231,17 +241,6 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         let scope_config =
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
 
-        // Handle truncated tool names
-        if request.name.ends_with("_TRUNC") {
-            return Ok(CallToolResult::error(vec![rmcp::model::Annotated::new(
-                rmcp::model::RawContent::Text(rmcp::model::RawTextContent {
-                    text: "Tool path is too long. Consider shortening it to make it compatible with MCP.".to_string(),
-                    meta: None,
-                }),
-                None,
-            )]));
-        }
-
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
 
         // Check if this is an endpoint tool
@@ -274,10 +273,58 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             }
         }
 
-        // Not an endpoint tool - parse as script/flow
-        let (tool_type, path, is_hub) = reverse_transform(&request.name).map_err(|e| {
-            ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
-        })?;
+        // Resolve the tool name to (type, path, is_hub)
+        let (type_str, is_hub, is_hashed) =
+            parse_tool_prefix(&request.name).map_err(|e| {
+                ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
+            })?;
+
+        let (tool_type, path, is_hub) = if !is_hashed {
+            reverse_transform(&request.name).map_err(|e| {
+                ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
+            })?
+        } else if is_hub {
+            let version_id =
+                extract_hub_version_id_from_hashed(&request.name).map_err(|e| {
+                    ErrorData::internal_error(
+                        format!("Failed to extract hub version_id: {}", e),
+                        None,
+                    )
+                })?;
+            (type_str, version_id, true)
+        } else {
+            let path_prefix = extract_path_prefix_from_hashed(&request.name);
+            let favorites_only = scope_config.favorites;
+            let matched_path = if type_str == "script" {
+                find_matching_path(
+                    self.backend
+                        .list_scripts(&auth, &workspace_id, favorites_only, path_prefix.as_deref())
+                        .await
+                        .map_err(|e| ErrorData::internal_error(e.message, None))?,
+                    &request.name,
+                )
+            } else {
+                find_matching_path(
+                    self.backend
+                        .list_flows(&auth, &workspace_id, favorites_only, path_prefix.as_deref())
+                        .await
+                        .map_err(|e| ErrorData::internal_error(e.message, None))?,
+                    &request.name,
+                )
+            };
+
+            let matched_path = matched_path.ok_or_else(|| {
+                ErrorData::internal_error(
+                    format!(
+                        "No {} found matching hashed tool name '{}'",
+                        type_str, request.name
+                    ),
+                    None,
+                )
+            })?;
+
+            (type_str, matched_path, false)
+        };
 
         // Validate script/flow scope
         if !is_hub && scope_config.granular {

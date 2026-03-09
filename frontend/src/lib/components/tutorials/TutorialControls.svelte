@@ -4,8 +4,12 @@
 	import { createEventDispatcher } from 'svelte'
 	import Alert from '../common/alert/Alert.svelte'
 
-	export let activeIndex: number | undefined = undefined
-	export let totalSteps: number | undefined = undefined
+	interface Props {
+		activeIndex?: number | undefined;
+		totalSteps?: number | undefined;
+	}
+
+	let { activeIndex = undefined, totalSteps = undefined }: Props = $props();
 
 	const dispatch = createEventDispatcher()
 </script>

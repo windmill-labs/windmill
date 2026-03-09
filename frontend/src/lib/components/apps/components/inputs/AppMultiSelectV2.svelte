@@ -47,10 +47,10 @@
 	let items: { value: string; label?: any }[] = $state([])
 
 	const resolvedConfig = $state(
-		initConfig(components['multiselectcomponentv2'].initialData.configuration, configuration)
+		initConfig(components['multiselectcomponentv2'].initialData.configuration, untrack(() => configuration))
 	)
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: [] as string[]
 	})
 
@@ -68,7 +68,7 @@
 		setContextValue(value)
 	}
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string[]) {
 			if (Array.isArray(nvalue)) {
 				setSelectedItemsFromValues(nvalue)
@@ -130,7 +130,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.multiselectcomponentv2, customCss))
+	let css = $state(initCss($app.css?.multiselectcomponentv2, untrack(() => customCss)))
 
 	$effect(() => {
 		resolvedConfig.items && untrack(() => handleItems())
@@ -163,6 +163,7 @@
 <InitializeComponent {id} />
 
 <AlignWrapper {render} hFull {verticalAlignment}>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class={twMerge('w-full', resolvedConfig.allowOverflow ? '' : 'absolute inset-0')}
 		onpointerdown={(e) => {

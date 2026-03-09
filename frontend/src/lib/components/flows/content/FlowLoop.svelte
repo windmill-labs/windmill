@@ -425,7 +425,6 @@
 									on:blur={() => {
 										iteratorFieldFocused = false
 									}}
-									autofocus
 									lang="javascript"
 									bind:code={mod.value.iterator.expr}
 									class="h-full"

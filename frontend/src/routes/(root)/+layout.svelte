@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
@@ -51,12 +51,12 @@
 				}
 			} else {
 				if (
-					!$page.url.pathname.startsWith('/user/') ||
-					$page.url.pathname.startsWith('/user/cli')
+					!page.url.pathname.startsWith('/user/') ||
+					page.url.pathname.startsWith('/user/cli')
 				) {
 					goto(
 						`/user/workspaces?rd=${encodeURIComponent(
-							$page.url.href.replace($page.url.origin, '')
+							page.url.href.replace(page.url.origin, '')
 						)}`
 					)
 				}
@@ -65,8 +65,8 @@
 			}
 		} catch (e) {
 			console.error(e)
-			if ($page.url.pathname != '/user/login' && $page.url.pathname != '/user/logout') {
-				const url = $page.url
+			if (page.url.pathname != '/user/login' && page.url.pathname != '/user/logout') {
+				const url = page.url
 				console.log('logout 5', url.href.replace(url.origin, ''))
 				await logoutWithRedirect(url.href.replace(url.origin, ''))
 			}
@@ -106,7 +106,7 @@
 				}
 
 				if (status == '401') {
-					const url = $page.url
+					const url = page.url
 					console.log('UNAUTHORIZED', url, url.href.replace(url.origin, ''), url.pathname)
 					if (url.pathname != '/user/login' && url.pathname != '/user/logout') {
 						console.log('logout 6', url.pathname, url.href.replace(url.origin, ''))
@@ -132,7 +132,7 @@
 		setLicense()
 		computeDrift()
 
-		if ($page.url.pathname != '/user/login') {
+		if (page.url.pathname != '/user/login') {
 			setUserWorkspaceStore()
 			loadUser()
 			UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
@@ -140,7 +140,7 @@
 
 		let i = 0
 		interval = setInterval(async () => {
-			if ($page.url.pathname != '/user/login') {
+			if (page.url.pathname != '/user/login') {
 				i += 1
 
 				// every 15 mins

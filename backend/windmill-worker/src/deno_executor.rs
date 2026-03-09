@@ -17,6 +17,7 @@ use crate::{
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
+use windmill_common::worker::TypeScriptAnnotations;
 
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use windmill_common::{error::Result, scripts::ScriptLang, worker::write_file, BASE_URL};
@@ -120,11 +121,13 @@ async fn get_common_deno_proc_envs(
     }
 
     // Add proxy envs (including OTEL tracing proxy if enabled for deno)
-    for (k, v) in get_proxy_envs_for_lang(&ScriptLang::Deno)
-        .await
-        .unwrap_or_default()
-    {
-        deno_envs.insert(k.to_string(), v);
+    if let Some(conn) = conn {
+        for (k, v) in get_proxy_envs_for_lang(&ScriptLang::Deno, job_id, w_id, conn)
+            .await
+            .unwrap_or_default()
+        {
+            deno_envs.insert(k.to_string(), v);
+        }
     }
 
     return deno_envs;
@@ -231,8 +234,13 @@ pub async fn handle_deno_job(
     occupancy_metrics: &mut OccupancyMetrics,
     has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
+    let annotations = TypeScriptAnnotations::parse(inner_content);
+
     // let mut start = Instant::now();
-    let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
+    let mut logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
+    if annotations.sandbox {
+        logs1.push_str("sandbox mode (nsjail)\n");
+    }
     append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
     let main_override = job.script_entrypoint_override.as_deref();
@@ -451,7 +459,7 @@ try {{
             for flag in deno_flags {
                 args.push(flag);
             }
-        } else if is_sandboxing_enabled() {
+        } else if is_sandboxing_enabled() || annotations.sandbox {
             args.push("--allow-net");
             args.push("--allow-sys");
             args.push(allow_read.as_str());

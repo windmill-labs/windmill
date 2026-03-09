@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { useOnSelectionChange, useStore, type Node } from '@xyflow/svelte'
 	import type { SelectionManager } from './selectionUtils.svelte'
 	interface Props {
@@ -8,7 +9,7 @@
 
 	let { selectionManager, clearGraphSelection }: Props = $props()
 
-	selectionManager.setClearGraphSelection(clearGraphSelection)
+	untrack(() => selectionManager).setClearGraphSelection(untrack(() => clearGraphSelection))
 
 	// Get store to access selectionRect
 	const store = useStore()

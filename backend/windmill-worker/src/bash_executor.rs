@@ -26,7 +26,12 @@ use windmill_queue::{
 };
 
 lazy_static::lazy_static! {
-    pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| "/bin/bash".to_string());
+    pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| {
+        #[cfg(not(windows))]
+        { "/bin/bash".to_string() }
+        #[cfg(windows)]
+        { "bash".to_string() }
+    });
 }
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
 
@@ -210,7 +215,10 @@ exit $exit_status
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Bash).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Bash, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(cmd_args)
@@ -236,7 +244,10 @@ exit $exit_status
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Bash).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Bash, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())

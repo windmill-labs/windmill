@@ -726,7 +726,7 @@ pub async fn get_token_by_prefix<'c, E: sqlx::Executor<'c, Database = Postgres>>
 ) -> Result<Option<String>> {
     let token = sqlx::query_scalar!(
         r#"
-        SELECT token
+        SELECT token as "token!"
         FROM token
         WHERE token LIKE concat($1::text, '%')
         LIMIT 1

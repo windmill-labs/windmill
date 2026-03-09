@@ -28,6 +28,12 @@ export const CONTEXT_MENU_ITEM_HOVER_CLASS = 'hover:bg-surface-hover'
 export const CONTEXT_MENU_ITEM_HOVER_MELT_CLASS = 'data-[highlighted]:bg-surface-hover'
 
 /**
+ * Delete action styles for context menu items
+ */
+export const CONTEXT_MENU_ITEM_DELETE_CLASS =
+	'text-red-600 dark:text-red-400 data-[highlighted]:bg-red-500/10 dark:data-[highlighted]:bg-red-900/80 dark:data-[highlighted]:text-red-300'
+
+/**
  * Disabled state styles for context menu items
  */
 export const CONTEXT_MENU_ITEM_DISABLED_CLASS = 'pointer-events-none opacity-50'

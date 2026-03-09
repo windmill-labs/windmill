@@ -7,6 +7,7 @@
 			asset.kind === 'ducklake' ||
 			asset.kind === 'datatable' ||
 			asset.kind === 's3object' ||
+			asset.kind === 'volume' ||
 			(asset.kind === 'resource' && isDbType(_resourceMetadata?.resource_type))
 		)
 	}
@@ -16,18 +17,17 @@
 	import { isDbType } from '$lib/components/dbTypes'
 	import { formatAsset, type Asset } from '$lib/components/assets/lib'
 	import { Button, ButtonType } from '$lib/components/common'
-	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
-	import { userStore } from '$lib/stores'
+	import { VolumeService } from '$lib/gen'
+	import { globalDbManagerDrawer, userStore, workspaceStore } from '$lib/stores'
 	import { isS3Uri } from '$lib/utils'
-	import { Database, File } from 'lucide-svelte'
+	import { Database, File, HardDriveIcon } from 'lucide-svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
 
 	const {
 		asset,
 		_resourceMetadata,
 		s3FilePicker,
-		dbManagerDrawer,
 		onClick,
 		class: className = '',
 		noText = false,
@@ -38,7 +38,6 @@
 		asset: Asset
 		_resourceMetadata?: { resource_type?: string }
 		s3FilePicker?: S3FilePicker
-		dbManagerDrawer?: DbManagerDrawer
 		onClick?: () => void
 		class?: string
 		noText?: boolean
@@ -46,6 +45,8 @@
 		btnClasses?: string
 		disabled?: boolean
 	} = $props()
+
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	const assetUri = $derived(formatAsset(asset))
 </script>
 
@@ -67,6 +68,9 @@
 			})
 		} else if (asset.kind === 's3object' && isS3Uri(assetUri)) {
 			s3FilePicker?.open(assetUri)
+		} else if (asset.kind === 'volume') {
+			const storage = (await VolumeService.getVolumeStorage({ workspace: $workspaceStore! })) ?? undefined
+			s3FilePicker?.open({ s3: `volumes/${$workspaceStore}/${asset.path}/`, storage })
 		} else if (asset.kind === 'ducklake') {
 			let ducklake = asset.path.split('/')[0]
 			let specificTable = asset.path.split('/')[1] as string | undefined
@@ -94,9 +98,11 @@
 			? { icon: Database }
 			: asset.kind === 'ducklake'
 				? { icon: DucklakeIcon }
-				: undefined}
+				: asset.kind === 'volume'
+					? { icon: HardDriveIcon }
+					: undefined}
 >
-	{#if asset.kind === 's3object'}
+	{#if asset.kind === 's3object' || asset.kind === 'volume'}
 		<span class:hidden={noText}>Explore</span>
 	{:else if asset.kind === 'resource' || asset.kind === 'ducklake' || asset.kind === 'datatable'}
 		<span class:hidden={noText}>Manage</span>

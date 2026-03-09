@@ -18,6 +18,7 @@ pub enum AssetKind {
     Resource,
     Ducklake,
     DataTable,
+    Volume,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -148,4 +149,5 @@ pub const ASSET_KINDS: &[(&str, AssetKind)] = &[
     ("$res:", AssetKind::Resource),
     ("ducklake://", AssetKind::Ducklake),
     ("datatable://", AssetKind::DataTable),
+    ("volume://", AssetKind::Volume),
 ];

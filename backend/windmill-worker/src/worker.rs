@@ -563,7 +563,16 @@ lazy_static::lazy_static! {
     pub static ref DOTNET_PATH: String = std::env::var("DOTNET_PATH").unwrap_or_else(|_| DOTNET_DEFAULT_PATH.to_string());
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
-    pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    pub static ref HOME_ENV: String = {
+        #[cfg(not(windows))]
+        { std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()) }
+        #[cfg(windows)]
+        {
+            std::env::var("HOME")
+                .or_else(|_| std::env::var("USERPROFILE"))
+                .unwrap_or_else(|_| std::env::temp_dir().to_string_lossy().to_string())
+        }
+    };
     pub static ref GIT_PATH: String = std::env::var("GIT_PATH").unwrap_or_else(|_| "/usr/bin/git".to_string());
 
     pub static ref NODE_PATH: Option<String> = std::env::var("NODE_PATH").ok();
@@ -731,26 +740,69 @@ pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
     }
 }
 
+/// Get OTEL trace context environment variables for a job (TRACEPARENT, OTEL_TRACE_ID, OTEL_SPAN_ID).
+/// Returns an empty vec when OTEL tracing is not enabled or on non-enterprise builds.
+pub fn get_otel_context_envs(job_id: &uuid::Uuid) -> Vec<(&'static str, String)> {
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    if windmill_common::OTEL_TRACING_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+        let trace_id = format!("{:032x}", job_id.as_u128());
+        let span_id = format!("{:016x}", job_id.as_u64_pair().1);
+        let traceparent = format!("00-{}-{}-01", trace_id, span_id);
+        return vec![
+            ("TRACEPARENT", traceparent),
+            ("OTEL_TRACE_ID", trace_id),
+            ("OTEL_SPAN_ID", span_id),
+        ];
+    }
+    let _ = job_id;
+    vec![]
+}
+
 /// Get proxy environment variables for job execution for a specific language.
 /// When OTEL tracing proxy is enabled for this language, routes all traffic through the proxy.
 /// Otherwise, uses the standard HTTP_PROXY/HTTPS_PROXY from environment.
 pub async fn get_proxy_envs_for_lang(
     lang: &ScriptLang,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
 ) -> anyhow::Result<Vec<(&'static str, String)>> {
+    #[allow(unused_mut)]
+    let mut envs;
     #[cfg(all(feature = "private", feature = "enterprise"))]
     if is_otel_tracing_proxy_enabled_for_lang(lang).await {
-        return get_otel_tracing_proxy_envs().await;
+        envs = get_otel_tracing_proxy_envs(job_id, w_id, conn).await?;
+    } else {
+        envs = PROXY_ENVS.clone();
     }
-    let _ = lang;
-    Ok(PROXY_ENVS.clone())
+    #[cfg(not(all(feature = "private", feature = "enterprise")))]
+    {
+        let _ = (lang, w_id, conn);
+        envs = PROXY_ENVS.clone();
+    }
+    envs.extend(get_otel_context_envs(job_id));
+    Ok(envs)
 }
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
-async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, String)>> {
-    let port = crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
+async fn get_otel_tracing_proxy_envs(
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> anyhow::Result<Vec<(&'static str, String)>> {
+    let port = match *crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
         .read()
         .await
-        .ok_or_else(|| anyhow::anyhow!("OTEL tracing proxy port not initialized"))?;
+    {
+        Some(p) => p,
+        None => {
+            let reason = "OTEL tracing proxy is enabled but not available (not initialized yet, or NUM_WORKERS > 1). \
+                This job's HTTP requests will not be traced.";
+            tracing::warn!("{}", reason);
+            append_logs(job_id, w_id, format!("\n[warning] {reason}\n"), conn).await;
+            return Ok(PROXY_ENVS.clone());
+        }
+    };
     let proxy_url = format!("http://127.0.0.1:{}", port);
     Ok(vec![
         ("HTTP_PROXY", proxy_url.clone()),
@@ -3476,6 +3528,13 @@ pub async fn handle_queued_job(
         {
             return Ok(false);
         }
+        if result
+            .as_ref()
+            .is_err_and(|err| matches!(err, &Error::WacSuspended(_)))
+        {
+            // WAC v2 job suspended while waiting for child jobs — don't complete it
+            return Ok(true);
+        }
         process_result(
             cjob,
             result.map(|x| Arc::new(x)),
@@ -3874,7 +3933,7 @@ pub async fn run_language_executor(
     run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
     if language == Some(ScriptLang::Postgresql) {
-        return do_postgresql(
+        return Box::pin(do_postgresql(
             job,
             &client,
             &code,
@@ -3886,7 +3945,7 @@ pub async fn run_language_executor(
             occupancy_metrics,
             parent_runnable_path,
             run_inline,
-        )
+        ))
         .await;
     } else if language == Some(ScriptLang::Mysql) {
         #[cfg(not(feature = "mysql"))]
@@ -3901,7 +3960,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_mysql(
+            return Box::pin(do_mysql(
                 job,
                 &client,
                 &code,
@@ -3912,7 +3971,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Bigquery) {
@@ -3938,7 +3997,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_bigquery(
+            return Box::pin(do_bigquery(
                 job,
                 &client,
                 &code,
@@ -3949,7 +4008,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Snowflake) {
@@ -3967,7 +4026,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_snowflake(
+            return Box::pin(do_snowflake(
                 job,
                 &client,
                 &code,
@@ -3978,7 +4037,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Mssql) {
@@ -4004,7 +4063,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_mssql(
+            return Box::pin(do_mssql(
                 job,
                 &client,
                 &code,
@@ -4015,7 +4074,7 @@ pub async fn run_language_executor(
                 occupancy_metrics,
                 job_dir,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::OracleDB) {
@@ -4041,7 +4100,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_oracledb(
+            return Box::pin(do_oracledb(
                 job,
                 &client,
                 &code,
@@ -4052,7 +4111,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::DuckDb) {
@@ -4066,7 +4125,7 @@ pub async fn run_language_executor(
 
         #[cfg(feature = "duckdb")]
         {
-            return do_duckdb(
+            return Box::pin(do_duckdb(
                 job,
                 &client,
                 &code,
@@ -4078,7 +4137,7 @@ pub async fn run_language_executor(
                 occupancy_metrics,
                 parent_runnable_path,
                 run_inline,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Graphql) {
@@ -4087,7 +4146,7 @@ pub async fn run_language_executor(
                 "Inline execution is not yet supported for this language".to_string(),
             ));
         }
-        return do_graphql(
+        return Box::pin(do_graphql(
             job,
             &client,
             &code,
@@ -4096,7 +4155,7 @@ pub async fn run_language_executor(
             canceled_by,
             worker_name,
             occupancy_metrics,
-        )
+        ))
         .await;
     } else if language == Some(ScriptLang::Nativets) {
         if run_inline {
@@ -4123,7 +4182,7 @@ pub async fn run_language_executor(
                 .collect::<Vec<String>>()
                 .join("\n"));
 
-        let result = do_nativets(
+        let result = Box::pin(do_nativets(
             job,
             &client,
             env_code,
@@ -4134,7 +4193,7 @@ pub async fn run_language_executor(
             worker_name,
             occupancy_metrics,
             has_stream,
-        )
+        ))
         .await?;
         return Ok(result);
     }
@@ -4152,7 +4211,8 @@ pub async fn run_language_executor(
         job.id
     );
 
-    let shared_mount = if job.same_worker && job.script_lang != Some(ScriptLang::Deno) {
+    #[allow(unused_mut)]
+    let mut shared_mount = if job.same_worker && job.script_lang != Some(ScriptLang::Deno) {
         let folder = if job.script_lang == Some(ScriptLang::Go) {
             "/go"
         } else {
@@ -4174,7 +4234,8 @@ mount {{
 
     // println!("handle lang job {:?}",  SystemTime::now());
 
-    let envs = build_envs(envs.as_ref())?;
+    #[allow(unused_mut)]
+    let mut envs = build_envs(envs.as_ref())?;
 
     let Some(language) = language else {
         return Err(Error::ExecutionErr(
@@ -4207,6 +4268,106 @@ mount {{
                 )
                 .await?,
             })
+        }
+    }
+
+    // Volume mount setup (requires workspace S3 storage; CE has file count/size limits)
+    #[cfg(feature = "parquet")]
+    let volume_mounts = {
+        let comment_prefix = match language {
+            ScriptLang::Python3
+            | ScriptLang::Bash
+            | ScriptLang::Powershell
+            | ScriptLang::Ansible
+            | ScriptLang::Ruby => "#",
+            ScriptLang::Deno
+            | ScriptLang::Bun
+            | ScriptLang::Bunnative
+            | ScriptLang::Nativets
+            | ScriptLang::Go => "//",
+            _ => "",
+        };
+        let raw_mounts = windmill_worker_volumes::parse_volume_annotations(&code, comment_prefix);
+        let args_ref = job.args.as_ref().map(|a| &**a);
+        let mut interpolated = Vec::new();
+        for mut v in raw_mounts {
+            v.name = windmill_worker_volumes::interpolate_volume_name(
+                &v.name,
+                args_ref,
+                &job.workspace_id,
+            );
+            if let Err(e) = windmill_worker_volumes::validate_volume_name(&v.name) {
+                return Err(Error::ExecutionErr(e));
+            }
+            if let Err(e) = windmill_worker_volumes::validate_volume_target(&v.target) {
+                return Err(Error::ExecutionErr(e));
+            }
+            interpolated.push(v);
+        }
+        if let Err(e) = windmill_worker_volumes::validate_volume_mounts(&interpolated) {
+            return Err(Error::ExecutionErr(e));
+        }
+        interpolated
+    };
+
+    #[cfg(feature = "parquet")]
+    let mut volume_setup = crate::volume_oss::VolumeSetupResult {
+        states: Vec::new(),
+        writable: Vec::new(),
+        client: None,
+        lease_renewal: crate::volume_oss::LeaseRenewalGuard(None),
+    };
+
+    #[cfg(feature = "parquet")]
+    if !volume_mounts.is_empty() {
+        let vol_summary: Vec<String> = volume_mounts
+            .iter()
+            .map(|v| format!("'{}' -> {}", v.name, v.target))
+            .collect();
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "\n--- VOLUME MOUNTS ---\nPulling {} volume(s): {}\n",
+                volume_mounts.len(),
+                vol_summary.join(", "),
+            ),
+            conn,
+        )
+        .await;
+
+        if let Connection::Sql(db) = conn {
+            volume_setup = crate::volume_oss::setup_volumes_sql_worker(
+                &volume_mounts,
+                db,
+                &job.workspace_id,
+                job.id,
+                &job.permissioned_as,
+                worker_name,
+                job_dir,
+                client,
+                conn,
+                language,
+                &mut envs,
+                &mut shared_mount,
+            )
+            .await?;
+        } else if let Connection::Http(http) = conn {
+            volume_setup = crate::volume_oss::setup_volumes_http_worker(
+                &volume_mounts,
+                http,
+                &job.workspace_id,
+                job.id,
+                &job.permissioned_as,
+                &job.canceled_by,
+                worker_name,
+                job_dir,
+                conn,
+                language,
+                &mut envs,
+                &mut shared_mount,
+            )
+            .await?;
         }
     }
 
@@ -4621,6 +4782,62 @@ mount {{
         // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
+    // Volume sync-back and lease release
+    #[cfg(feature = "parquet")]
+    if !volume_setup.states.is_empty() {
+        // Stop lease renewal before sync-back
+        volume_setup.lease_renewal.0.take().map(|h| h.abort());
+
+        if let Some(ref vol_client) = volume_setup.client {
+            if let Connection::Sql(db) = conn {
+                crate::volume_oss::sync_volumes_sql_worker(
+                    &volume_setup.states,
+                    &volume_setup.writable,
+                    vol_client,
+                    db,
+                    &job.workspace_id,
+                    job.id,
+                    worker_name,
+                    conn,
+                    result.is_ok(),
+                )
+                .await;
+            }
+        }
+
+        if let Connection::Http(http) = conn {
+            crate::volume_oss::sync_volumes_http_worker(
+                &volume_setup.states,
+                &volume_setup.writable,
+                http,
+                &job.workspace_id,
+                job.id,
+                worker_name,
+                conn,
+                result.is_ok(),
+            )
+            .await;
+        }
+
+        // Clean up absolute-path symlinks created by setup_volume_mount_paths
+        if !is_sandboxing_enabled() {
+            #[allow(unused_variables)] // state is only used on unix
+            for state in &volume_setup.states {
+                #[cfg(unix)]
+                if state.mount.target.starts_with('/') {
+                    let target_path = std::path::Path::new(&state.mount.target);
+                    if target_path
+                        .symlink_metadata()
+                        .map(|m| m.file_type().is_symlink())
+                        .unwrap_or(false)
+                    {
+                        std::fs::remove_file(target_path).ok();
+                    }
+                }
+            }
+        }
+    }
+
     tracing::info!(
         workspace_id = %job.workspace_id,
         is_ok = result.is_ok(),

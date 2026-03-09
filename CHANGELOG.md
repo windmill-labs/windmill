@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.651.1](https://github.com/windmill-labs/windmill/compare/v1.651.0...v1.651.1) (2026-03-05)
+
+
+### Bug Fixes
+
+* prevent slow loading toast interval from leaking on promise cancellation ([#8240](https://github.com/windmill-labs/windmill/issues/8240)) ([2e582b1](https://github.com/windmill-labs/windmill/commit/2e582b1bc1c299388a3c97cfddff9d0eb92858f2))
+* suppress unused variable warnings on windows builds ([#8241](https://github.com/windmill-labs/windmill/issues/8241)) ([2d58382](https://github.com/windmill-labs/windmill/commit/2d583826dc065c05684d4cd1d1510f0d1f2d9ae9))
+
+## [1.651.0](https://github.com/windmill-labs/windmill/compare/v1.650.0...v1.651.0) (2026-03-05)
+
+
+### Features
+
+* add sandbox annotations, volume mounts, for AI sandbox starting with claude ([#8058](https://github.com/windmill-labs/windmill/issues/8058)) ([5f0ef93](https://github.com/windmill-labs/windmill/commit/5f0ef936d1d5d07d01c8e07e26ec254feebef8fb))
+* hash-based MCP tool names for long paths ([#8133](https://github.com/windmill-labs/windmill/issues/8133)) ([ce041e8](https://github.com/windmill-labs/windmill/commit/ce041e8a5e7ff105df389875d9981f3843d4ce39))
+
+
+### Bug Fixes
+
+* **python-client:** add delete_s3_object ([#8216](https://github.com/windmill-labs/windmill/issues/8216)) ([90f4c64](https://github.com/windmill-labs/windmill/commit/90f4c64ee12e1d04ce846ff88d6658f667e194e0))
+* update CLI bun template to match UI template ([#8238](https://github.com/windmill-labs/windmill/issues/8238)) ([a8cbe93](https://github.com/windmill-labs/windmill/commit/a8cbe9396ffc51140dce5582d57f4dc59873304e))
+* write fallback package.json for codebase mode nsjail ([#8239](https://github.com/windmill-labs/windmill/issues/8239)) ([d46913b](https://github.com/windmill-labs/windmill/commit/d46913b74a0ffd41d2323e0355cc81954f09e29d))
+
+## [1.650.0](https://github.com/windmill-labs/windmill/compare/v1.649.0...v1.650.0) (2026-03-05)
+
+
+### Features
+
+* add move, delete, and duplicate to flow node context menu ([#8050](https://github.com/windmill-labs/windmill/issues/8050)) ([c0c9388](https://github.com/windmill-labs/windmill/commit/c0c9388415716ce77d841bd08a46f94e0a529685))
+* add variable and resource types to flow env variables ([#8214](https://github.com/windmill-labs/windmill/issues/8214)) ([164e499](https://github.com/windmill-labs/windmill/commit/164e499c64dc5eb76fcfb0f8cefbad2df244f610))
+* Ducklake typechecker ([#8118](https://github.com/windmill-labs/windmill/issues/8118)) ([53caecf](https://github.com/windmill-labs/windmill/commit/53caecf1da8d76e246178dfb9b86d330f0ec52fd))
+* make WINDMILL_DIR configurable via environment variable ([#8215](https://github.com/windmill-labs/windmill/issues/8215)) ([424ca59](https://github.com/windmill-labs/windmill/commit/424ca59dfe3e730f5388d9cac4ea7e69773614d3))
+* make WM_END_USER_EMAIL display users from different workspaces ([#8208](https://github.com/windmill-labs/windmill/issues/8208)) ([baf2bcf](https://github.com/windmill-labs/windmill/commit/baf2bcf14da0c8c95bdbbf511fcaee48be33948b))
+* persistent Db manager state in URI ([#8134](https://github.com/windmill-labs/windmill/issues/8134)) ([4bf827b](https://github.com/windmill-labs/windmill/commit/4bf827bea4d44aca8c5ff7aa67ad449dbcf00673))
+* replace hub error toasts with warning alerts and add disable hub setting ([#8225](https://github.com/windmill-labs/windmill/issues/8225)) ([63ebae8](https://github.com/windmill-labs/windmill/commit/63ebae8829a6dc47a4e23c8670b514f042c9d4be))
+* token expiration notifications ([#8190](https://github.com/windmill-labs/windmill/issues/8190)) ([e56ccd2](https://github.com/windmill-labs/windmill/commit/e56ccd200be29e6ac8ea2b04a341b1ce78a307f6))
+
+
+### Bug Fixes
+
+* handle multipart stream errors gracefully instead of panicking ([#8226](https://github.com/windmill-labs/windmill/issues/8226)) ([19c065b](https://github.com/windmill-labs/windmill/commit/19c065bed5468c484c8e7a50a6b79ab90153cc0e))
+* improve windows compatibility ([077779e](https://github.com/windmill-labs/windmill/commit/077779ec52f7d3e5fcc93951544bf47bd6dc30b6))
+* wrap set_encryption_key in a single database transaction ([#8212](https://github.com/windmill-labs/windmill/issues/8212)) ([62382fd](https://github.com/windmill-labs/windmill/commit/62382fd2869ea0190dd0c0b714f9cbd35ceddd7a))
+
 ## [1.649.0](https://github.com/windmill-labs/windmill/compare/v1.648.0...v1.649.0) (2026-03-03)
 
 

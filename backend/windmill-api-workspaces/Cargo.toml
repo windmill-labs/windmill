@@ -29,6 +29,7 @@ windmill-dep-map.workspace = true
 axum.workspace = true
 chrono.workspace = true
 hex.workspace = true
+magic-crypt.workspace = true
 http.workspace = true
 hyper.workspace = true
 lazy_static.workspace = true
