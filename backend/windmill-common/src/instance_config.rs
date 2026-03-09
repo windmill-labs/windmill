@@ -265,25 +265,25 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance_python_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pip_index_url: Option<String>,
+    pub pip_index_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pip_extra_index_url: Option<String>,
+    pub pip_extra_index_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub npm_config_registry: Option<String>,
+    pub npm_config_registry: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub bunfig_install_scopes: Option<String>,
+    pub bunfig_install_scopes: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub npmrc: Option<String>,
+    pub npmrc: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub nuget_config: Option<String>,
+    pub nuget_config: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub maven_repos: Option<String>,
+    pub maven_repos: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ruby_repos: Option<String>,
+    pub ruby_repos: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub powershell_repo_url: Option<String>,
+    pub powershell_repo_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub powershell_repo_pat: Option<String>,
+    pub powershell_repo_pat: Option<StringOrSecretRef>,
 
     // Array settings
     #[serde(skip_serializing_if = "Option::is_none")]
