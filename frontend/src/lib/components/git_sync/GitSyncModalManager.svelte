@@ -5,7 +5,7 @@
 	import GitSyncSuccessModal from '$lib/components/git_sync/GitSyncSuccessModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 
-	const gitSyncContext = getGitSyncContext()
+	const gitSyncContext = $state(getGitSyncContext())
 
 	function handlePushSuccess() {
 		const pushModal = gitSyncContext.activeModals.push

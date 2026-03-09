@@ -96,8 +96,8 @@
 	let batchRerunOptionsIsOpen = $state(false)
 
 	// Initialize path filter from route param if provided and not already set via query params
-	if (initialPath && !filters.val.path) {
-		filters.val.path = initialPath
+	if (untrack(() => initialPath) && !filters.val.path) {
+		filters.val.path = untrack(() => initialPath)
 	}
 
 	// Apply persistent toggle values from local storage if URL doesn't specify them
@@ -148,7 +148,9 @@
 		(v) => {
 			v.maxTs ? (filters.val.max_ts = new Date(v.maxTs)) : delete filters.val.max_ts
 			v.minTs ? (filters.val.min_ts = new Date(v.minTs)) : delete filters.val.min_ts
-			v.timeframe ? (filters.val.timeframe = v.timeframe) : delete filters.val.timeframe
+			v.timeframe && v.timeframe !== 'Latest runs'
+				? (filters.val.timeframe = v.timeframe)
+				: delete filters.val.timeframe
 		}
 	)
 	let timeframe = $derived(_timeframe.val)

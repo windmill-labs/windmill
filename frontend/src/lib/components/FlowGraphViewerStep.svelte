@@ -19,17 +19,20 @@
 	import HighlightTheme from './HighlightTheme.svelte'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 
-	export let schema: any | undefined = undefined
+	interface Props {
+		schema?: any | undefined
+		stepDetail?: FlowModule | string | undefined
+		jobScriptHash?: string | undefined
+	}
 
-	export let stepDetail: FlowModule | string | undefined = undefined
-	export let jobScriptHash: string | undefined = undefined
-	let codeViewer: Drawer
+	let { schema = undefined, stepDetail = undefined, jobScriptHash = undefined }: Props = $props()
+	let codeViewer: Drawer | undefined = $state()
 </script>
 
 <HighlightTheme />
 
 <Drawer bind:this={codeViewer} size="900px">
-	<DrawerContent title={'Expanded Code'} on:close={codeViewer.closeDrawer}>
+	<DrawerContent title={'Expanded Code'} on:close={codeViewer?.closeDrawer}>
 		{#if stepDetail && typeof stepDetail != 'string'}
 			{#if stepDetail.value.type == 'script'}
 				<div class="mb-4">
@@ -183,7 +186,7 @@
 					<Button
 						unifiedSize="sm"
 						variant="subtle"
-						onClick={codeViewer.openDrawer}
+						onClick={codeViewer?.openDrawer}
 						startIcon={{ icon: Expand }}>Expand</Button
 					>
 				</div>
@@ -221,7 +224,7 @@
 						<Button
 							unifiedSize="sm"
 							variant="subtle"
-							onClick={codeViewer.openDrawer}
+							onClick={codeViewer?.openDrawer}
 							startIcon={{ icon: Expand }}>Expand</Button
 						>
 					</div>

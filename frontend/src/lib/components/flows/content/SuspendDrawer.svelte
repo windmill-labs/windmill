@@ -6,22 +6,26 @@
 	import DrawerContent from '../../common/drawer/DrawerContent.svelte'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 
-	let drawer: Drawer
+	let drawer: Drawer | undefined = $state()
 
-	export let text: string = 'Approval Help'
+	interface Props {
+		text?: string
+	}
+
+	let { text = 'Approval Help' }: Props = $props()
 </script>
 
 <Button
 	size="xs"
 	variant="default"
 	on:click={() => {
-		drawer.openDrawer()
+		drawer?.openDrawer()
 	}}
 	>{text} <HelpCircle size={12} />
 </Button>
 
 <Drawer bind:this={drawer}>
-	<DrawerContent title="Suspend/Approval/Prompt help" on:close={drawer.closeDrawer}>
+	<DrawerContent title="Suspend/Approval/Prompt help" on:close={drawer?.closeDrawer}>
 		<div class="flex flex-col gap-y-6 text-xs text-primary font-normal">
 			<Section label="Form/Payload">
 				To add a form, go to the <b>Form</b> tab, inside the Advanced {'->'} Suspend tab, and add a form.

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '$lib/components/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -32,7 +33,7 @@
 		class: className = ''
 	}: Props = $props()
 
-	let items = togglableItems.map((i) => ({
+	let items = untrack(() => togglableItems).map((i) => ({
 		displayName: i.label,
 		action: () => (selected = i.value),
 		tooltip: i.tooltip

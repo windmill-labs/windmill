@@ -3,7 +3,11 @@
 
 	import FieldHeader from './FieldHeader.svelte'
 
-	export let schema: Schema | { [key: string]: unknown } | undefined
+	interface Props {
+		schema: Schema | { [key: string]: unknown } | undefined;
+	}
+
+	let { schema }: Props = $props();
 </script>
 
 <ul class="my-2">

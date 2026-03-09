@@ -8,7 +8,7 @@
 	interface Props {
 		disabled?: boolean
 		label: string
-		lang?: SupportedLanguage | 'docker' | 'javascript' | undefined
+		lang?: SupportedLanguage | 'docker' | 'javascript' | 'claudesandbox' | undefined
 		id?: string | undefined
 	}
 
@@ -32,6 +32,9 @@
 				<LanguageIcon {lang} />
 			{/if}
 			<span class="text-xs">{label}</span>
+			{#if lang === 'claudesandbox'}
+				<span class="text-primary !text-xs">(new)</span>
+			{/if}
 		</div>
 	</Button>
 	{#snippet text()}

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
@@ -43,21 +43,21 @@
 	let result: any = $state(undefined)
 
 	const resolvedConfig = $state(
-		initConfig(components['displaycomponent'].initialData.configuration, configuration)
+		initConfig(components['displaycomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(value: string) {
 			result = value
 		}
 	}
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
 
-	let css = $state(initCss($app.css?.displaycomponent, customCss))
+	let css = $state(initCss($app.css?.displaycomponent, untrack(() => customCss)))
 	let loading = $state(false)
 </script>
 

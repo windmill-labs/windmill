@@ -10,7 +10,7 @@
 			flow: `/flows/get/${path}`,
 			app: `/apps/get/${path}`,
 			raw_app: `/apps_raw/get/${path}`,
-			asset: `#dbmanager:${path}`
+			asset: '#'
 		}[kind]
 	}
 	export function getFavoriteLabel(path: string, kind: FavoriteKind): string {

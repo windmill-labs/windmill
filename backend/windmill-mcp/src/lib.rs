@@ -14,9 +14,9 @@ pub mod client;
 
 // Re-export common types at crate root for convenience
 pub use common::{
-    convert_schema_to_schema_type, is_resource_allowed, parse_mcp_scopes, transform_path, FlowInfo,
-    HubResponse, HubScriptInfo, ItemSchema, McpScopeConfig, ResourceInfo, ResourceType, SchemaType,
-    ScriptInfo, ToolableItem, WorkspaceId,
+    convert_schema_to_schema_type, is_resource_allowed, parse_mcp_scopes, transform_hub_path,
+    transform_path, FlowInfo, HubResponse, HubScriptInfo, ItemSchema, McpScopeConfig, ResourceInfo,
+    ResourceType, SchemaType, ScriptInfo, ToolableItem, WorkspaceId,
 };
 
 // Re-export client types at crate root for backward compatibility

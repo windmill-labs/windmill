@@ -4,9 +4,13 @@
 	import Modal from '../common/modal/Modal.svelte'
 	import Portal from '../Portal.svelte'
 
-	export let open = false
 
-	export let inputs: string[] = []
+	interface Props {
+		open?: boolean;
+		inputs?: string[];
+	}
+
+	let { open = $bindable(false), inputs = [] }: Props = $props();
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -27,16 +31,18 @@
 			{/each}
 		</ul>
 
-		<Button
-			slot="actions"
-			on:click={() => {
-				open = false
-				dispatch('confirmed')
-			}}
-			color="light"
-			size="sm"
-		>
-			<span class="inline-flex gap-2">Add <Badge color="dark-green">Enter</Badge></span>
-		</Button>
+		{#snippet actions()}
+				<Button
+				
+				on:click={() => {
+					open = false
+					dispatch('confirmed')
+				}}
+				color="light"
+				size="sm"
+			>
+				<span class="inline-flex gap-2">Add <Badge color="dark-green">Enter</Badge></span>
+			</Button>
+			{/snippet}
 	</Modal>
 </Portal>

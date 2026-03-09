@@ -107,9 +107,10 @@ export function useSearchParams<S extends z.ZodType>(schema: S): SearchParamsRes
 				} else {
 					sp.set(key, serializeParam(v))
 				}
+				const hash = window.location.hash
 				const newUrl = sp.toString()
-					? `${window.location.pathname}?${sp}`
-					: window.location.pathname
+					? `${window.location.pathname}?${sp}${hash}`
+					: `${window.location.pathname}${hash}`
 				history.replaceState(history.state, '', newUrl)
 			},
 			enumerable: true,

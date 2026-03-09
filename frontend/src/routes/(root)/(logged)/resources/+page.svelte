@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton, Tab } from '$lib/components/common'
@@ -35,8 +35,7 @@
 		enterpriseLicense,
 		userStore,
 		workspaceStore,
-		userWorkspaces,
-		globalDbManagerDrawer
+		userWorkspaces
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import {
@@ -339,12 +338,12 @@
 	}
 
 	onMount(() => {
-		const callback = $page.url.searchParams.get('callback')
+		const callback = page.url.searchParams.get('callback')
 		if (callback == 'supabase_wizard') {
 			supabaseConnect?.open?.()
 		}
 
-		const connect_app = $page.url.searchParams.get('connect_app')
+		const connect_app = page.url.searchParams.get('connect_app')
 		if (connect_app) {
 			const rt = connect_app ?? undefined
 			if (rt == 'undefined') {
@@ -549,15 +548,13 @@
 	})
 
 	onMount(() => {
-		let hash = $page.url.hash
+		let hash = page.url.hash
 		if (hash.startsWith('#/resource/')) {
 			console.log('hash', hash)
 			let path = hash.slice(11)
 			resourceEditor?.initEdit(path)
 		}
 	})
-
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val) as any
 
 	let showTable = $derived(
 		tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'
@@ -1064,7 +1061,6 @@
 											{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
 												<ExploreAssetButton
 													asset={{ kind: 'resource', path }}
-													{dbManagerDrawer}
 													_resourceMetadata={{ resource_type }}
 													class="w-24"
 												/>

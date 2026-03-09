@@ -62,7 +62,7 @@
 	import { random_adj } from '../random_positive_adjetive'
 	import { sendUserToast } from '$lib/toast'
 	import { SettingService, WorkspaceService, type GetSettingsResponse } from '$lib/gen'
-	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { resource } from 'runed'
@@ -141,7 +141,6 @@
 	}
 
 	let confirmationModal = createAsyncConfirmationModal()
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let dirtyMap = $derived.by(() => {
 		const map: Record<string, boolean> = {}
 		for (let i = 0; i < tempSettings.dataTables.length; i++) {
@@ -245,7 +244,6 @@
 								<CustomInstanceDbSelect
 									class="flex-1"
 									{confirmationModal}
-									{dbManagerDrawer}
 									{customInstanceDbs}
 									bind:value={dataTable.database.resource_path}
 									tag="datatable"
@@ -261,22 +259,19 @@
 							contentClasses="p-2 text-sm text-secondary italic"
 							class="cursor-not-allowed"
 						>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<ExploreAssetButton
 									class="h-9"
 									asset={{ kind: 'datatable', path: dataTable.name }}
-									{dbManagerDrawer}
 									disabled
 								/>
-							</svelte:fragment>
-							<svelte:fragment slot="content">Please save settings first</svelte:fragment>
+							{/snippet}
+							{#snippet content()}
+								Please save settings first
+							{/snippet}
 						</Popover>
 					{:else}
-						<ExploreAssetButton
-							class="h-9"
-							asset={{ kind: 'datatable', path: dataTable.name }}
-							{dbManagerDrawer}
-						/>
+						<ExploreAssetButton class="h-9" asset={{ kind: 'datatable', path: dataTable.name }} />
 					{/if}
 				</Cell>
 				<Cell class="w-12">

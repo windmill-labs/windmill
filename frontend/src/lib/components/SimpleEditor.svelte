@@ -130,7 +130,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	const uri = `file:///${hash}.${langToExt(lang)}`
+	const uri = `file:///${untrack(() => hash)}.${langToExt(untrack(() => lang))}`
 
 	export function getCode(): string {
 		if (valueAfterDispose != undefined) {

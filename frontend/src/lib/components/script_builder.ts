@@ -14,7 +14,7 @@ export interface ScriptBuilderProps {
 	disableAi?: boolean
 	fullyLoaded?: boolean
 	initialPath?: string
-	template?: 'docker' | 'bunnative' | 'script'
+	template?: 'docker' | 'bunnative' | 'claudesandbox' | 'script'
 	initialArgs?: Record<string, any>
 	lockedLanguage?: boolean
 	showMeta?: boolean

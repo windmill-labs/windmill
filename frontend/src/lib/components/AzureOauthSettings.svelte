@@ -1,40 +1,44 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { ExternalLink } from 'lucide-svelte'
 	import OauthScopes from './OauthScopes.svelte'
 
-	export let connect_config: {
+	interface Props {
+		connect_config?: {
 		scopes: string[]
 		auth_url: string
 		token_url: string
 		req_body_auth: boolean
 		extra_params: { tenant_id: string }
 		extra_params_callback: Record<string, any>
-	} = {
-		scopes: ['offline_access'],
-		auth_url: '',
-		token_url: '',
-		req_body_auth: true,
-		extra_params: { tenant_id: '' },
-		extra_params_callback: {}
+	};
 	}
 
-	$: if (!connect_config) {
-		connect_config = {
-			scopes: ['offline_access'],
-			auth_url: '',
-			token_url: '',
-			req_body_auth: true,
-			extra_params: { tenant_id: '' },
-			extra_params_callback: {}
+	let { connect_config = $bindable() }: Props = $props();
+
+	run(() => {
+		if (!connect_config) {
+			connect_config = {
+				scopes: ['offline_access'],
+				auth_url: '',
+				token_url: '',
+				req_body_auth: true,
+				extra_params: { tenant_id: '' },
+				extra_params_callback: {}
+			}
 		}
-	}
+	});
 
-	$: if (connect_config.extra_params.tenant_id) {
-		connect_config.auth_url = `https://login.microsoftonline.com/${connect_config.extra_params.tenant_id}/oauth2/v2.0/authorize`
-		connect_config.token_url = `https://login.microsoftonline.com/${connect_config.extra_params.tenant_id}/oauth2/v2.0/token`
-	}
+	run(() => {
+		if (connect_config?.extra_params?.tenant_id) {
+			connect_config.auth_url = `https://login.microsoftonline.com/${connect_config.extra_params.tenant_id}/oauth2/v2.0/authorize`
+			connect_config.token_url = `https://login.microsoftonline.com/${connect_config.extra_params.tenant_id}/oauth2/v2.0/token`
+		}
+	});
 </script>
 
+{#if connect_config}
 <label class="flex flex-col gap-1" for="tenant-id">
 	<span class="text-primary font-semibold text-xs flex gap-2 items-center"> Azure tenant id </span>
 	<span class="text-secondary font-normal text-xs">
@@ -63,3 +67,4 @@
 		<OauthScopes bind:scopes={connect_config.scopes} />
 	</div>
 </label>
+{/if}

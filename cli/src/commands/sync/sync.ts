@@ -2673,6 +2673,7 @@ export async function push(
         let [_basePath, changes] = queue.shift()!;
         const promise = (async () => {
           const alreadySynced: string[] = [];
+          const deletedVarsResPaths: string[] = [];
           const isRawApp = isRawAppFile(changes[0].path);
           if (isRawApp) {
             const deleteRawApp = changes.find(
@@ -2922,12 +2923,23 @@ export async function push(
                     name: change.path.split(SEP)[1],
                   });
                   break;
-                case "resource":
-                  await wmill.deleteResource({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".resource.json"),
-                  });
+                case "resource": {
+                  const resourcePath = removeSuffix(target, ".resource.json");
+                  try {
+                    await wmill.deleteResource({
+                      workspace: workspaceId,
+                      path: resourcePath,
+                    });
+                  } catch (e: any) {
+                    if (e?.status === 404 && deletedVarsResPaths.includes(resourcePath)) {
+                      log.debug(`Resource ${resourcePath} already deleted by linked variable`);
+                    } else {
+                      throw e;
+                    }
+                  }
+                  deletedVarsResPaths.push(resourcePath);
                   break;
+                }
                 case "resource-type":
                   await wmill.deleteResourceType({
                     workspace: workspaceId,
@@ -3064,12 +3076,23 @@ export async function push(
                   });
                   break;
                 }
-                case "variable":
-                  await wmill.deleteVariable({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".variable.json"),
-                  });
+                case "variable": {
+                  const variablePath = removeSuffix(target, ".variable.json");
+                  try {
+                    await wmill.deleteVariable({
+                      workspace: workspaceId,
+                      path: variablePath,
+                    });
+                  } catch (e: any) {
+                    if (e?.status === 404 && deletedVarsResPaths.includes(variablePath)) {
+                      log.debug(`Variable ${variablePath} already deleted by linked resource`);
+                    } else {
+                      throw e;
+                    }
+                  }
+                  deletedVarsResPaths.push(variablePath);
                   break;
+                }
                 case "user": {
                   const users = await wmill.listUsers({
                     workspace: workspaceId,

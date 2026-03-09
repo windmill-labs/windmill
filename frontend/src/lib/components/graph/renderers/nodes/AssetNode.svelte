@@ -235,7 +235,7 @@
 	import type { Edge, Node } from '@xyflow/svelte'
 
 	import { getNodeColorClasses, NODE } from '../../util'
-	import { globalDbManagerDrawer, userStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import { deepEqual } from 'fast-equals'
 	import { slide } from 'svelte/transition'
 	import AssetColumnBadges from '$lib/components/assets/AssetColumnBadges.svelte'
@@ -303,7 +303,9 @@
 				{#if data.asset.kind === 'resource' && cachedResourceMetadata === undefined}
 					<Tooltip class={'pr-1 flex items-center justify-center'}>
 						<AlertTriangle size={16} class="text-orange-500" />
-						<svelte:fragment slot="text">Could not find resource</svelte:fragment>
+						{#snippet text()}
+												Could not find resource
+											{/snippet}
 					</Tooltip>
 				{:else if isSelected && assetCanBeExplored(data.asset, cachedResourceMetadata) && !$userStore?.operator}
 					<div transition:slide={{ axis: 'x', duration: 100 }}>
@@ -313,34 +315,35 @@
 							noText
 							buttonVariant="accent"
 							s3FilePicker={flowGraphAssetsCtx?.val.s3FilePicker}
-							dbManagerDrawer={globalDbManagerDrawer.val}
 							_resourceMetadata={cachedResourceMetadata}
 						/>
 					</div>
 				{/if}
 			</div>
-			<svelte:fragment slot="text">
-				{#if usageCount !== undefined}
-					Used in {pluralize(usageCount, 'step')}<br />
-				{/if}
-				<a
-					href={undefined}
-					class={twMerge(
-						'text-xs',
-						data.asset.kind === 'resource' ? 'text-accent cursor-pointer' : 'text-hint'
-					)}
-					onclick={() => {
-						if (data.asset.kind === 'resource')
-							flowGraphAssetsCtx?.val.resourceEditorDrawer?.initEdit(data.asset.path)
-					}}
-				>
-					{data.asset.path}
-				</a><br />
-				<span class="text-hint text-xs">
-					{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
-				>
-				<AssetColumnBadges columns={assetColumns} disableTooltip />
-			</svelte:fragment>
+			{#snippet text()}
+					
+					{#if usageCount !== undefined}
+						Used in {pluralize(usageCount, 'step')}<br />
+					{/if}
+					<a
+						href={undefined}
+						class={twMerge(
+							'text-xs',
+							data.asset.kind === 'resource' ? 'text-accent cursor-pointer' : 'text-hint'
+						)}
+						onclick={() => {
+							if (data.asset.kind === 'resource')
+								flowGraphAssetsCtx?.val.resourceEditorDrawer?.initEdit(data.asset.path)
+						}}
+					>
+						{data.asset.path}
+					</a><br />
+					<span class="text-hint text-xs">
+						{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
+					>
+					<AssetColumnBadges columns={assetColumns} disableTooltip />
+				
+					{/snippet}
 		</Tooltip>
 	{/snippet}
 </NodeWrapper>

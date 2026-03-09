@@ -27,12 +27,12 @@ export type InsertKind =
 export type InlineScript = {
 	language: RawScript['language']
 	kind: Script['kind']
-	subkind: 'pgsql' | 'flow'
+	subkind: 'pgsql' | 'flow' | 'claudesandbox'
 	summary?: string
 	instructions?: string
 }
 
-export type onSelectedIteration = (
+export type OnSelectedIteration = (
 	detail:
 		| { id: string; index: number; manuallySet: true; moduleId: string }
 		| { manuallySet: false; moduleId: string }
@@ -56,7 +56,8 @@ export type GraphEventHandlers = {
 	delete: (detail: { id: string }, label: string) => void
 	newBranch: (id: string) => void
 	move: (detail: { id: string }) => void
-	selectedIteration: onSelectedIteration
+	duplicate: (detail: { id: string }) => void
+	selectedIteration: OnSelectedIteration
 	changeId: (newId: string) => void
 	simplifyFlow: (b: boolean) => void
 	expandSubflow: (id: string, path: string) => void

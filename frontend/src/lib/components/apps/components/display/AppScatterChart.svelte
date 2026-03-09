@@ -17,7 +17,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import type { ChartOptions, ChartData } from 'chart.js'
 	import { initCss } from '../../utils'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initOutput } from '../../editor/appUtils'
 	import { twMerge } from 'tailwind-merge'
@@ -47,7 +47,7 @@
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
@@ -91,7 +91,7 @@
 		datasets: result ?? []
 	} as ChartData<'scatter', (number | Point)[], unknown>)
 
-	let css = $state(initCss($app.css?.scatterchartcomponent, customCss))
+	let css = $state(initCss($app.css?.scatterchartcomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}

@@ -70,6 +70,9 @@ mod sanitized_sql_params;
 mod schema;
 pub mod sql_utils;
 mod universal_pkg_installer;
+#[cfg(feature = "private")]
+mod volume_ee;
+mod volume_oss;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;

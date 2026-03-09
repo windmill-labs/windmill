@@ -913,7 +913,7 @@
 			<SettingsPageHeader
 				title="OTEL/Prometheus"
 				description="Configure OpenTelemetry and Prometheus metrics export for monitoring your Windmill instance."
-				link="https://www.windmill.dev/docs/core_concepts/otel"
+				link="https://www.windmill.dev/docs/misc/guides/otel"
 			/>
 		{:else if category == 'Indexer'}
 			<SettingsPageHeader
@@ -1038,7 +1038,11 @@
 						{oauths}
 						warning={setting.key === 'base_url' && baseUrlIsFallback
 							? 'Auto-detected from browser — not yet saved'
-							: undefined}
+							: setting.key === 'nuget_config' &&
+								  $values['nuget_config'] &&
+								  !/<clear\s*\/>/.test($values['nuget_config'])
+								? 'Missing <clear /> in <packageSources>. Without it, default sources (like nuget.org) are merged with your custom sources, which is likely not what you want.'
+								: undefined}
 					/>
 				{/if}
 				{#if quickSetup && category === 'Core' && setting.key === 'base_url'}

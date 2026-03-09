@@ -22,7 +22,7 @@ use crate::{
         get_reserved_variables, read_result, start_child_process, MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
-    COMPOSER_CACHE_DIR, COMPOSER_PATH, is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
+    is_sandboxing_enabled, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
 };
 use windmill_common::client::AuthedClient;
 
@@ -316,6 +316,7 @@ try {{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(crate::get_otel_context_envs(&job.id))
             .env("COMPOSER_HOME", &*COMPOSER_CACHE_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(args)
@@ -332,6 +333,7 @@ try {{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(crate::get_otel_context_envs(&job.id))
             .env("COMPOSER_HOME", &*COMPOSER_CACHE_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .stdin(Stdio::null())
