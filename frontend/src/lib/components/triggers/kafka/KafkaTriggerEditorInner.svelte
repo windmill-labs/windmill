@@ -5,11 +5,16 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { KafkaTriggerService, type ErrorHandler, type Retry, type TriggerMode } from '$lib/gen'
+	import {
+		KafkaTriggerService,
+		type ErrorHandler,
+		type Retry,
+		type TriggerMode
+	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2 } from 'lucide-svelte'
+	import { Loader2, RotateCcw } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
 	import { untrack, type Snippet } from 'svelte'
@@ -80,7 +85,9 @@
 	let kafkaCfgValid = $state(false)
 	let kafkaResourcePath = $state('')
 	let kafkaCfg: Record<string, any> = $state({})
+	let autoOffsetReset = $state('latest')
 	let deploymentLoading = $state(false)
+	let resetLoading = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
@@ -166,6 +173,7 @@
 				group_id: nDefaultValues?.group_id ?? '',
 				topics: nDefaultValues?.topics ?? ['']
 			}
+			autoOffsetReset = nDefaultValues?.auto_offset_reset ?? 'latest'
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
@@ -196,6 +204,7 @@
 			group_id: cfg?.group_id,
 			topics: cfg?.topics
 		}
+		autoOffsetReset = cfg?.auto_offset_reset ?? 'latest'
 		mode = cfg?.mode ?? 'enabled'
 		extra_perms = cfg?.extra_perms
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
@@ -228,6 +237,7 @@
 			group_id: kafkaCfg.group_id,
 			topics: kafkaCfg.topics,
 			filters,
+			auto_offset_reset: autoOffsetReset,
 			mode,
 			extra_perms: extra_perms,
 			error_handler_path,
@@ -264,6 +274,28 @@
 			group_id: kafkaCfg.group_id,
 			topics: structuredClone($state.snapshot(kafkaCfg.topics)),
 			path
+		}
+	}
+
+	async function resetOffsets() {
+		if (
+			!confirm(
+				'Are you sure you want to reset offsets to earliest? This will re-process all messages from the beginning of the topic.'
+			)
+		) {
+			return
+		}
+		resetLoading = true
+		try {
+			await KafkaTriggerService.resetKafkaOffsets({
+				workspace: $workspaceStore!,
+				path: initialPath
+			})
+			sendUserToast('Offset reset triggered. The consumer will restart and re-read from the beginning.')
+		} catch (error) {
+			sendUserToast(error.body || error.message, true)
+		} finally {
+			resetLoading = false
 		}
 	}
 
@@ -439,10 +471,29 @@
 				bind:kafkaCfgValid
 				bind:kafkaResourcePath
 				bind:kafkaCfg
+				bind:autoOffsetReset
 				{path}
 				{can_write}
 				showTestingBadge={isEditor}
 			/>
+
+			{#if edit && can_write}
+				<div class="flex items-center gap-2">
+					<Button
+						variant="default"
+						size="xs"
+						startIcon={{ icon: RotateCcw }}
+						disabled={resetLoading}
+						loading={resetLoading}
+						onclick={resetOffsets}
+					>
+						Reset offset to earliest
+					</Button>
+					<span class="text-2xs text-tertiary">
+						Force re-read all messages from the beginning
+					</span>
+				</div>
+			{/if}
 
 			<TriggerFilters bind:filters disabled={!can_write} />
 
