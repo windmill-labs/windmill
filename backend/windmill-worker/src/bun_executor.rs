@@ -1948,18 +1948,24 @@ async fn handle_dedicated_bunnative(
                         };
 
                         // Run the job: preprocess if needed, then execute main.
-                        // Produces (result, success, preprocessed_args, logs).
-                        let job_outcome: Result<(Arc<Box<RawValue>>, bool, Option<HashMap<String, Box<RawValue>>>, String), _> = async {
-                            warm.wait_ready().await.map_err(|e| {
-                                format!("isolate init failed: {e}")
-                            })?;
+                        // Uses a labeled block to unify error handling with a single JobCompleted send.
+                        let (result, success, preprocessed_args, logs) = 'job: {
+                            if let Err(e) = warm.wait_ready().await {
+                                break 'job (
+                                    Arc::new(to_raw_value(&serde_json::json!({"message": format!("isolate init failed: {e}"), "name": "Error"}))),
+                                    false, None, init_log.clone(),
+                                );
+                            }
 
                             let needs_preprocessing = job.preprocessed == Some(false);
 
                             let (main_args, preprocessed) = if needs_preprocessing {
-                                let pre_names = pre_arg_names.as_ref().ok_or_else(|| {
-                                    "preprocessor function is missing".to_string()
-                                })?;
+                                let Some(ref pre_names) = pre_arg_names else {
+                                    break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": "preprocessor function is missing", "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    );
+                                };
 
                                 let mut pre_isolate = pre_warm.take().unwrap_or_else(|| {
                                     PrewarmedIsolate::spawn(
@@ -1970,9 +1976,12 @@ async fn handle_dedicated_bunnative(
                                         Some("preprocessor".to_string()),
                                     )
                                 });
-                                pre_isolate.wait_ready().await.map_err(|e| {
-                                    format!("preprocessor isolate init failed: {e}")
-                                })?;
+                                if let Err(e) = pre_isolate.wait_ready().await {
+                                    break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": format!("preprocessor isolate init failed: {e}"), "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    );
+                                }
 
                                 let pre_executing = pre_isolate.start_execution(args.clone());
                                 // Pipeline: start pre-warming the next preprocessor isolate
@@ -1984,20 +1993,31 @@ async fn handle_dedicated_bunnative(
                                     Some("preprocessor".to_string()),
                                 ));
 
-                                let pre_result = pre_executing.wait().await.map_err(|e| {
-                                    format!("preprocessor failed: {e}")
-                                })?;
+                                let pre_result = match pre_executing.wait().await {
+                                    Ok(r) => r,
+                                    Err(e) => break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": format!("preprocessor failed: {e}"), "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    ),
+                                };
                                 if !pre_result.logs.is_empty() {
                                     append_logs(&id, &job.workspace_id, pre_result.logs, &db.into()).await;
                                 }
-                                let raw = pre_result.result.map_err(|e| {
-                                    format!("preprocessor failed: {e}")
-                                })?;
+                                let raw = match pre_result.result {
+                                    Ok(r) => r,
+                                    Err(e) => break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": format!("preprocessor failed: {e}"), "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    ),
+                                };
 
-                                let preprocessed: HashMap<String, Box<RawValue>> =
-                                    serde_json::from_str(raw.get()).map_err(|e| {
-                                        format!("error deserializing preprocessed args: {e:#}")
-                                    })?;
+                                let preprocessed: HashMap<String, Box<RawValue>> = match serde_json::from_str(raw.get()) {
+                                    Ok(v) => v,
+                                    Err(e) => break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": format!("error deserializing preprocessed args: {e:#}"), "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    ),
+                                };
                                 let main_args = serde_json::to_string(&preprocessed)
                                     .unwrap_or_else(|_| "{}".to_string());
                                 (main_args, Some(preprocessed))
@@ -2015,9 +2035,13 @@ async fn handle_dedicated_bunnative(
                                 None,
                             );
 
-                            let main_result = executing.wait().await.map_err(|e| {
-                                format!("{e}")
-                            })?;
+                            let main_result = match executing.wait().await {
+                                Ok(r) => r,
+                                Err(e) => break 'job (
+                                    Arc::new(to_raw_value(&serde_json::json!({"message": format!("{e}"), "name": "Error"}))),
+                                    false, preprocessed, init_log.clone(),
+                                ),
+                            };
 
                             let mut logs = init_log.clone();
                             if !main_result.logs.is_empty() {
@@ -2035,19 +2059,7 @@ async fn handle_dedicated_bunnative(
                                 ),
                             };
 
-                            Ok((result, success, preprocessed, logs))
-                        }.await;
-
-                        let (result, success, preprocessed_args, logs) = match job_outcome {
-                            Ok(outcome) => outcome,
-                            Err(e) => {
-                                tracing::error!("bunnative dedicated worker error: {e}");
-                                let result = Arc::new(to_raw_value(&serde_json::json!({
-                                    "message": e,
-                                    "name": "Error",
-                                })));
-                                (result, false, None, init_log.clone())
-                            }
+                            (result, success, preprocessed, logs)
                         };
 
                         append_logs(&id, &job.workspace_id, logs, &db.into()).await;
