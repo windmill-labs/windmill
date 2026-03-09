@@ -1,29 +1,47 @@
 <script lang="ts">
+	import { run, createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import RangeSlider from 'svelte-range-slider-pips'
 
-	export let min = 0
-	export let max = 100
-	export let initialValue = 0
-	export let value = typeof initialValue === 'string' ? parseInt(initialValue) : initialValue
-	export let disabled: boolean = false
-	export let defaultValue: number | undefined = undefined
-	export let format: (value: number) => string = (v) => `${v}`
-	export let hideInput: boolean = false
+	interface Props {
+		min?: number
+		max?: number
+		initialValue?: number
+		value?: any
+		disabled?: boolean
+		defaultValue?: number | undefined
+		format?: (value: number) => string
+		hideInput?: boolean
+	}
+
+	let {
+		min = 0,
+		max = 100,
+		initialValue = 0,
+		value = $bindable(typeof initialValue === 'string' ? parseInt(initialValue) : initialValue),
+		disabled = false,
+		defaultValue = undefined,
+		format = (v) => `${v}`,
+		hideInput = false
+	}: Props = $props()
 
 	let step: number = 1
 
-	let slider: HTMLElement
+	let slider: HTMLElement | undefined = $state()
 
 	function calculateAxisStep(min: number, max: number): number {
 		const range = max - min
 		return range < 100 ? 1 : range / 20
 	}
 
-	$: if (value === null) {
-		value = 0
-	}
+	run(() => {
+		if (value === null) {
+			value = 0
+		}
+	})
 
-	$: axisStep = calculateAxisStep(min, max)
+	let axisStep = $derived(calculateAxisStep(min, max))
 
 	function handleKeyDown(event: KeyboardEvent) {
 		if (disabled) return
@@ -44,17 +62,17 @@
 	}
 
 	// Calculate the handle width based on the length of the max value
-	$: handleWidth = `${Math.max(max.toString().length ?? 2, 2)}em`
+	let handleWidth = $derived(`${Math.max(max.toString().length ?? 2, 2)}em`)
 </script>
 
 <div class="flex flex-row w-full mx-2 items-center gap-8">
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 
 	<div
 		class={'grow'}
 		style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; --handle-width: {handleWidth}; --handle-border: 4px;"
-		on:pointerdown|stopPropagation
-		on:keydown={handleKeyDown}
+		onpointerdown={stopPropagation(bubble('pointerdown'))}
+		onkeydown={handleKeyDown}
 		>{#if max <= min}
 			<div class="text-secondary text-sm"
 				>Impossible to display range: {`max (${max}) <= min (${min})`}</div

@@ -7,23 +7,15 @@
 	import TimelineBar from './TimelineBar.svelte'
 	import type { WorkflowStatus } from '$lib/gen'
 
-	export let flow_status: Record<string, WorkflowStatus>
-	export let flowDone = false
+	interface Props {
+		flow_status: Record<string, WorkflowStatus>;
+		flowDone?: boolean;
+	}
 
-	$: min = Object.values(flow_status).reduce(
-		(a, b) => Math.min(a, b.scheduled_for ? new Date(b.scheduled_for).getTime() : Infinity),
-		Infinity
-	)
-	$: max = flowDone
-		? Object.values(flow_status).reduce(
-				(a, b) =>
-					Math.max(a, b.started_at ? new Date(b.started_at).getTime() + (b.duration_ms ?? 0) : 0),
-				0
-		  )
-		: undefined
-	$: total = flowDone && max ? max - min : now - min
+	let { flow_status, flowDone = false }: Props = $props();
 
-	let now = getDbClockNow().getTime()
+
+	let now = $state(getDbClockNow().getTime())
 
 	let interval = setInterval((x) => {
 		if (!max) {
@@ -37,6 +29,18 @@
 	onDestroy(() => {
 		interval && clearInterval(interval)
 	})
+	let min = $derived(Object.values(flow_status).reduce(
+		(a, b) => Math.min(a, b.scheduled_for ? new Date(b.scheduled_for).getTime() : Infinity),
+		Infinity
+	))
+	let max = $derived(flowDone
+		? Object.values(flow_status).reduce(
+				(a, b) =>
+					Math.max(a, b.started_at ? new Date(b.started_at).getTime() + (b.duration_ms ?? 0) : 0),
+				0
+		  )
+		: undefined)
+	let total = $derived(flowDone && max ? max - min : now - min)
 </script>
 
 {#if flow_status}

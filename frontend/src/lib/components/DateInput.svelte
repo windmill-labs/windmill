@@ -69,6 +69,7 @@
 	let randomId = 'datetarget-' + Math.random().toString(36).substring(7)
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="flex flex-row gap-1 items-center w-full"
 	id={randomId}

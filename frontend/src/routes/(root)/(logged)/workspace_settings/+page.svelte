@@ -170,13 +170,15 @@
 		resourceType: 's3',
 		resourcePath: undefined,
 		publicResource: undefined,
-		secondaryStorage: undefined
+		secondaryStorage: undefined,
+		volumeStorage: undefined
 	})
 	let s3ResourceSavedSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
 		resourcePath: undefined,
 		publicResource: undefined,
-		secondaryStorage: undefined
+		secondaryStorage: undefined,
+		volumeStorage: undefined
 	})
 
 	let dataTableSettings: DataTableSettingsType = $state({ dataTables: [] })

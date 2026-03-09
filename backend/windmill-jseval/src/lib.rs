@@ -152,6 +152,21 @@ pub fn try_exact_property_access(
     None
 }
 
+/// JS runtime properties (not methods) that cannot be resolved by PostgreSQL's
+/// #> JSON path operator. Function calls like .map(...) already don't match the
+/// RE_FULL regex due to parentheses, so only property accesses need listing here.
+const JS_ONLY_PROPERTIES: &[&str] = &["length"];
+
+fn ends_with_js_only_property(rest: Option<&str>) -> bool {
+    match rest {
+        None => false,
+        Some(rest) => {
+            let last_segment = rest.rsplit('.').next().unwrap_or("");
+            JS_ONLY_PROPERTIES.contains(&last_segment)
+        }
+    }
+}
+
 pub async fn handle_full_regex(
     expr: &str,
     authed_client: &AuthedClient,
@@ -162,6 +177,13 @@ pub async fn handle_full_regex(
         let obj_key = captures.get(2).unwrap().as_str();
         let idx_o = captures.get(3).map(|y| y.as_str());
         let rest = captures.get(4).map(|y| y.as_str());
+
+        // Skip the SQL fast path when the expression accesses a JS runtime
+        // property (e.g. .length) that the PostgreSQL #> operator can't resolve.
+        if ends_with_js_only_property(rest) {
+            return None;
+        }
+
         let query = if let Some(idx) = idx_o {
             match rest {
                 Some(rest) => Some(format!("{}{}", idx, rest)),

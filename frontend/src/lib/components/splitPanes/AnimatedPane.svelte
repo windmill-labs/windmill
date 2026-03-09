@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type ComponentProps } from 'svelte'
+	import { type ComponentProps, untrack } from 'svelte'
 	import { Pane } from 'svelte-splitpanes'
 	import { cubicOut } from 'svelte/easing'
 
@@ -18,7 +18,7 @@
 		size: number
 	} = $props()
 
-	let t = $state(opened ? 1 : 0)
+	let t = $state(untrack(() => opened) ? 1 : 0)
 	let computedSize = $derived((opened ? easing(t) : 1 - easing(1 - t)) * size)
 
 	let lastTValue = 0

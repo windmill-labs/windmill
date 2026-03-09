@@ -33,16 +33,16 @@
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = $state(
-		initConfig(components['selectstepcomponent'].initialData.configuration, configuration)
+		initConfig(components['selectstepcomponent'].initialData.configuration, untrack(() => configuration))
 	)
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined as string | undefined
 	})
 
 	let selected: string = $state('')
 	let selectedIndex: number = $state(0)
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			selected = nvalue
 			selectedIndex = resolvedConfig.items.findIndex((item) => getValue(item) === nvalue)
@@ -88,7 +88,7 @@
 		return typeof item == 'string' ? item : item.label
 	}
 
-	let css = $state(initCss($app.css?.selectstepcomponent, customCss))
+	let css = $state(initCss($app.css?.selectstepcomponent, untrack(() => customCss)))
 	$effect(() => {
 		resolvedConfig.defaultValue != undefined && untrack(() => setDefaultValue())
 	})
@@ -125,6 +125,7 @@
 	class={twMerge(css?.container?.class, 'wm-select-step')}
 	style={css?.container?.style}
 >
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="w-full" onpointerdown={onPointerDown}>
 		<Stepper
 			tabs={(resolvedConfig?.items ?? []).map((item) => getLabel(item))}

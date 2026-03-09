@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setContext } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import type { ListInputs, ListContext } from '../../types'
 	import { writable } from 'svelte/store'
 
@@ -14,7 +14,11 @@
 
 	let { index, value, disabled = false, onSet, onRemove, children }: Props = $props()
 
-	const ctx = writable({ index, value, disabled })
+	const ctx = writable({
+		index: untrack(() => index),
+		value: untrack(() => value),
+		disabled: untrack(() => disabled)
+	})
 
 	$effect(() => {
 		$ctx = { index, value, disabled }

@@ -86,7 +86,7 @@
 	}
 
 	const resolvedConfig = $state(
-		initConfig(components['dbexplorercomponent'].initialData.configuration, configuration)
+		initConfig(components['dbexplorercomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	let timeoutInput: number | undefined = undefined
@@ -180,7 +180,7 @@
 		)
 	}
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		selectedRowIndex: 0,
 		selectedRow: {},
 		selectedRows: [] as any[],

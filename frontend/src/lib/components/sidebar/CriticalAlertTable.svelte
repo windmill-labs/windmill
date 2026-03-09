@@ -10,19 +10,34 @@
 	import { Skeleton } from '../common'
 	import Linkify from './Linkify.svelte'
 
-	export let alerts: any[]
-	export let hideAcknowledged = false
-	export let goToNextPage: () => void
-	export let goToPreviousPage: () => void
-	export let acknowledgeAlert: (id: number) => void
-	export let acknowledgeAll: () => void
-	export let numUnacknowledgedCriticalAlerts: number
-	export let page = 1
-	export let hasMore = true
-	export let pageSize = 0
+	interface Props {
+		alerts: any[];
+		hideAcknowledged?: boolean;
+		goToNextPage: () => void;
+		goToPreviousPage: () => void;
+		acknowledgeAlert: (id: number) => void;
+		acknowledgeAll: () => void;
+		numUnacknowledgedCriticalAlerts: number;
+		page?: number;
+		hasMore?: boolean;
+		pageSize?: number;
+	}
 
-	let headerHeight = 0
-	let contentHeight = 0
+	let {
+		alerts,
+		hideAcknowledged = false,
+		goToNextPage,
+		goToPreviousPage,
+		acknowledgeAlert,
+		acknowledgeAll,
+		numUnacknowledgedCriticalAlerts,
+		page = $bindable(1),
+		hasMore = true,
+		pageSize = 0
+	}: Props = $props();
+
+	let headerHeight = $state(0)
+	let contentHeight = $state(0)
 
 	function formatDate(dateString: string | undefined): string {
 		if (!dateString) return ''
@@ -37,7 +52,7 @@
 		}).format(date)
 	}
 
-	$: availableHeight = (contentHeight - headerHeight - pageSize - 1) / pageSize
+	let availableHeight = $derived((contentHeight - headerHeight - pageSize - 1) / pageSize)
 </script>
 
 <div class="relative grow min-h-0 w-full">

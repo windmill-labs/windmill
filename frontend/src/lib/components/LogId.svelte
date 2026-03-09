@@ -1,5 +1,13 @@
 <script lang="ts">
-	export let id: string
+	import { run } from 'svelte/legacy';
 
-	$: id && console.log('updateJobId')
+	interface Props {
+		id: string;
+	}
+
+	let { id }: Props = $props();
+
+	run(() => {
+		id && console.log('updateJobId')
+	});
 </script>

@@ -34,18 +34,18 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['timeinputcomponent'].initialData.configuration, configuration)
+		initConfig(components['timeinputcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	let value: string | undefined = $state(undefined)
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			value = nvalue
 		}
 	}
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined as string | undefined,
 		validity: true as boolean
 	})
@@ -64,7 +64,7 @@
 	function handleDefault(defaultValue: string | undefined) {
 		value = defaultValue
 	}
-	let css = $state(initCss($app.css?.timeinputcomponent, customCss))
+	let css = $state(initCss($app.css?.timeinputcomponent, untrack(() => customCss)))
 	$effect.pre(() => {
 		resolvedConfig.defaultValue
 		!value && untrack(() => handleDefault(resolvedConfig.defaultValue))
