@@ -45,7 +45,7 @@ export async function main(foo: string, bar: string) {
 '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"default":null,"description":"","originalType":"string","type":"string"},"bar":{"default":null,"description":"","originalType":"string","type":"string"}},"required":["foo","bar"],"type":"object"}',
 '',
 '',
-'f/system/hello_preprocessor_dedicated_bun', 123414, 'bun', '');
+'f/system/hello_preprocessor_dedicated_bun', 123414, 'bun', E'{}\n//bun.lock\n{}');
 
 INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
 'test-workspace',
