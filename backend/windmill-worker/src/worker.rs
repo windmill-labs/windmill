@@ -756,10 +756,18 @@ pub async fn get_proxy_envs_for_lang(
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
 async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, String)>> {
-    let port = crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
+    let port = match *crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
         .read()
         .await
-        .ok_or_else(|| anyhow::anyhow!("OTEL tracing proxy port not initialized"))?;
+    {
+        Some(p) => p,
+        None => {
+            tracing::warn!(
+                "OTEL tracing proxy port not initialized yet, falling back to standard proxy envs"
+            );
+            return Ok(PROXY_ENVS.clone());
+        }
+    };
     let proxy_url = format!("http://127.0.0.1:{}", port);
     Ok(vec![
         ("HTTP_PROXY", proxy_url.clone()),
