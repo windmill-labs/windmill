@@ -43,7 +43,7 @@ profiles:
       - Pane 1: backend (cargo watch -x run)
       - Pane 2: frontend (npm run dev)
       To check logs, use: \`tmux capture-pane -t .1 -p -S -50\` (backend) or \`tmux capture-pane -t .2 -p -S -50\` (frontend).
-      When restarting backend or frontend, make sure to use BACKEND_PORT and FRONTEND_PORT environment variables.
+      When restarting backend or frontend, make sure to use ${BACKEND_PORT} and ${FRONTEND_PORT}.
       Because we are running backend with cargo watch, to verify your changes, just check the logs in the backend pane. No need for cargo check.
     panes:
       - id: agent
