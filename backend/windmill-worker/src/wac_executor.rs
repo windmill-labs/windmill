@@ -207,6 +207,82 @@ pub fn all_pending_complete(checkpoint: &WacCheckpoint) -> bool {
     }
 }
 
+/// If the checkpoint has a pending approval or sleep, inject the resume result
+/// into `completed_steps` and save back to DB. Returns the (possibly modified) checkpoint.
+///
+/// Called by both bun and python executors before writing checkpoint.json to disk.
+pub async fn prepare_checkpoint_for_resume(
+    db: &DB,
+    job_id: &Uuid,
+    mut checkpoint: WacCheckpoint,
+) -> error::Result<WacCheckpoint> {
+    let pending_mode = checkpoint.pending_steps.as_ref().map(|p| p.mode.as_str());
+
+    match pending_mode {
+        Some("approval") => {
+            let approval_key = checkpoint
+                .pending_steps
+                .as_ref()
+                .and_then(|p| p.keys.first().cloned())
+                .unwrap_or_default();
+
+            let resume_row = sqlx::query_as::<_, (sqlx::types::Json<Box<serde_json::value::RawValue>>, Option<String>, bool)>(
+                "SELECT value, approver, approved FROM resume_job WHERE job = $1 ORDER BY created_at ASC LIMIT 1",
+            )
+            .bind(job_id)
+            .fetch_optional(db)
+            .await?;
+
+            let approval_result = if let Some((value, approver, approved)) = resume_row {
+                serde_json::json!({
+                    "value": serde_json::from_str::<Value>(value.get()).unwrap_or(Value::Null),
+                    "approver": approver.unwrap_or_else(|| "anonymous".to_string()),
+                    "approved": approved,
+                })
+            } else {
+                serde_json::json!({
+                    "value": null,
+                    "approver": null,
+                    "approved": false,
+                })
+            };
+            checkpoint
+                .completed_steps
+                .insert(approval_key.clone(), approval_result);
+            checkpoint.pending_steps = None;
+            save_checkpoint(db, job_id, &checkpoint).await?;
+
+            tracing::info!(
+                job_id = %job_id,
+                approval_key = %approval_key,
+                "WAC v2 injected approval result into checkpoint"
+            );
+        }
+        Some("sleep") => {
+            let sleep_key = checkpoint
+                .pending_steps
+                .as_ref()
+                .and_then(|p| p.keys.first().cloned())
+                .unwrap_or_default();
+
+            checkpoint
+                .completed_steps
+                .insert(sleep_key.clone(), Value::Bool(true));
+            checkpoint.pending_steps = None;
+            save_checkpoint(db, job_id, &checkpoint).await?;
+
+            tracing::info!(
+                job_id = %job_id,
+                sleep_key = %sleep_key,
+                "WAC v2 resumed from sleep"
+            );
+        }
+        _ => {}
+    }
+
+    Ok(checkpoint)
+}
+
 /// Detect WAC v2 patterns in TypeScript/Bun code.
 /// Checks for `import ... from "windmill-client"` containing workflow/task,
 /// skipping comment lines.
