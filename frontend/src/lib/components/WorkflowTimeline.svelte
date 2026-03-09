@@ -17,12 +17,9 @@
 
 	let now = $state(getDbClockNow().getTime())
 
-	let interval = setInterval((x) => {
+	let interval = setInterval(() => {
 		if (!max) {
 			now = getDbClockNow().getTime()
-		}
-		if (min && (!max || total == undefined)) {
-			total = max ? max - min : Math.max(now - min, 2000)
 		}
 	}, 30)
 
@@ -40,7 +37,7 @@
 				0
 		  )
 		: undefined)
-	let total = $derived(flowDone && max ? max - min : now - min)
+	let total = $derived(flowDone && max ? max - min : Math.max(now - min, 2000))
 </script>
 
 {#if flow_status}

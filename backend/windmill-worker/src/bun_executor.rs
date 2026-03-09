@@ -1725,7 +1725,7 @@ try {{
 
             let result = crate::js_eval::eval_fetch_timeout(
                 env_code,
-                inner_content.clone(),
+                inner_content.to_string(),
                 js_code,
                 job_args,
                 job.script_entrypoint_override.clone(),
