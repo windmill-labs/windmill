@@ -677,7 +677,7 @@ pub async fn handle_python_job(
         String::new()
     };
     let main_override = main_name.unwrap_or_else(|| "main".to_string());
-    let res_to_json_body = PYTHON_RES_TO_JSON_BODY;
+    let res_to_json_body = python_res_to_json_body(postprocessor);
     let wrapper_content: String = format!(
         r#"
 import os
@@ -2235,8 +2235,9 @@ This is not normal behavior, please make sure all workers have enough memory.\n
 
 /// Python function body for `res_to_json(res, typ)`.
 /// Handles DataFrame, bytes, dict coercion + JSON serialization.
-/// Must be used inside a `format!()` that provides `{postprocessor}`.
-const PYTHON_RES_TO_JSON_BODY: &str = r#"    if typ.__name__ == 'DataFrame':
+fn python_res_to_json_body(postprocessor: &str) -> String {
+    format!(
+        r#"    if typ.__name__ == 'DataFrame':
         if typ.__module__ == 'pandas.core.frame':
             res = res.values.tolist()
         elif typ.__module__ == 'polars.dataframe.frame':
@@ -2248,7 +2249,9 @@ const PYTHON_RES_TO_JSON_BODY: &str = r#"    if typ.__name__ == 'DataFrame':
             if type(v).__name__ == 'bytes':
                 res[k] = to_b_64(v)
     unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
-    return {postprocessor}"#;
+    return {postprocessor}"#
+    )
+}
 
 // Returns code snippet that needs to be injected into wrapper to post-process results or leave unprocessed
 fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
@@ -2397,7 +2400,7 @@ pub async fn start_worker(
             String::new()
         };
 
-        let res_to_json_body = PYTHON_RES_TO_JSON_BODY;
+        let res_to_json_body = python_res_to_json_body(postprocessor);
         let wrapper_content: String = format!(
             r#"
 import json
