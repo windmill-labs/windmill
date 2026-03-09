@@ -464,7 +464,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Nuget Config',
-			description: 'Write a nuget.config file to set custom package sources and credentials',
+			description:
+				'Write a nuget.config file to set custom package sources and credentials. Use <clear /> inside <packageSources> to remove default sources and only use your custom ones',
 			key: 'nuget_config',
 			fieldType: 'codearea',
 			codeAreaLang: 'xml',

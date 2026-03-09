@@ -4159,14 +4159,16 @@ This is a paragraph.
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'mysql',
-								value: ''
+								value: '',
+								allowTypeChange: false
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
 								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
-								value: undefined
+								value: undefined,
+								allowTypeChange: false
 							}
 						},
 						ms_sql_server: {
@@ -4174,14 +4176,16 @@ This is a paragraph.
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'ms_sql_server',
-								value: ''
+								value: '',
+								allowTypeChange: false
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
 								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
-								value: undefined
+								value: undefined,
+								allowTypeChange: false
 							}
 						},
 						snowflake: {
@@ -4189,14 +4193,16 @@ This is a paragraph.
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'snowflake',
-								value: ''
+								value: '',
+								allowTypeChange: false
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
 								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
-								value: undefined
+								value: undefined,
+								allowTypeChange: false
 							}
 						},
 						bigquery: {
@@ -4204,14 +4210,16 @@ This is a paragraph.
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'bigquery',
-								value: ''
+								value: '',
+								allowTypeChange: false
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
 								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
-								value: undefined
+								value: undefined,
+								allowTypeChange: false
 							}
 						},
 						ducklake: {
@@ -4219,14 +4227,16 @@ This is a paragraph.
 								type: 'static',
 								fieldType: 'ducklake',
 								subFieldType: 'ducklake',
-								value: ''
+								value: '',
+								allowTypeChange: false
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
 								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
-								value: undefined
+								value: undefined,
+								allowTypeChange: false
 							}
 						},
 						datatable: {
@@ -4234,14 +4244,16 @@ This is a paragraph.
 								type: 'static',
 								fieldType: 'datatable',
 								subFieldType: 'datatable',
-								value: ''
+								value: '',
+								allowTypeChange: false
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
 								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
-								value: undefined
+								value: undefined,
+								allowTypeChange: false
 							}
 						}
 					}

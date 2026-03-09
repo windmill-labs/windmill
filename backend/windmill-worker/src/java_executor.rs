@@ -618,6 +618,7 @@ async fn run<'a>(
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables)
+            .envs(crate::get_otel_context_envs(&job.id))
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -675,7 +676,8 @@ async fn run<'a>(
             .env("HOME", &*JAVA_HOME_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
-            .envs(reserved_variables);
+            .envs(reserved_variables)
+            .envs(crate::get_otel_context_envs(&job.id));
         if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
             cmd.args(&[
                 &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
