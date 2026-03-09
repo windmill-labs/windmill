@@ -933,6 +933,30 @@ mount {{
     read_result(job_dir, handle_result.result_stream).await
 }
 
+/// Generate Python code to spread preprocessor args from `kwargs` into `pre_args`.
+/// The `indent` parameter controls the join separator for multi-arg spreads.
+fn python_preprocessor_spread(sig: windmill_parser::MainArgSignature, indent: &str) -> String {
+    if sig.star_kwargs {
+        "pre_args = kwargs".to_string()
+    } else {
+        sig.args
+            .into_iter()
+            .map(|x| {
+                let name = &x.name;
+                if x.default.is_none() {
+                    format!("pre_args[\"{name}\"] = kwargs.get(\"{name}\")")
+                } else {
+                    format!(
+                        r#"pre_args["{name}"] = kwargs.get("{name}")
+{indent}if pre_args["{name}"] is None:
+{indent}    del pre_args["{name}"]"#
+                    )
+                }
+            })
+            .join(&format!("\n{indent}"))
+    }
+}
+
 async fn prepare_wrapper(
     job_dir: &str,
     job_flow_step_id: Option<&str>,
@@ -1099,31 +1123,7 @@ async fn prepare_wrapper(
             .join("\n    ")
     };
 
-    let pre_spread = if let Some(pre_sig) = pre_sig {
-        let spread = if pre_sig.star_kwargs {
-            "pre_args = kwargs".to_string()
-        } else {
-            pre_sig
-                .args
-                .into_iter()
-                .map(|x| {
-                    let name = &x.name;
-                    if x.default.is_none() {
-                        format!("pre_args[\"{name}\"] = kwargs.get(\"{name}\")")
-                    } else {
-                        format!(
-                            r#"pre_args["{name}"] = kwargs.get("{name}")
-        if pre_args["{name}"] is None:
-            del pre_args["{name}"]"#
-                        )
-                    }
-                })
-                .join("\n        ")
-        };
-        Some(spread)
-    } else {
-        None
-    };
+    let pre_spread = pre_sig.map(|sig| python_preprocessor_spread(sig, "        "));
 
     let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
 
@@ -2339,6 +2339,16 @@ pub async fn start_worker(
         _,
     ) = prepare_wrapper(job_dir, None, None, None, inner_content, script_path).await?;
 
+    // Parse preprocessor signature if the script has one
+    let pre_spread = windmill_parser_py::parse_python_signature(
+        inner_content,
+        Some("preprocessor".to_string()),
+        false,
+    )
+    .ok()
+    .filter(|sig| !sig.args.is_empty())
+    .map(|sig| python_preprocessor_spread(sig, "            "));
+
     {
         let postprocessor = get_result_postprocessor(annotations.skip_result_postprocessing);
         let indented_transforms = transforms
@@ -2346,6 +2356,63 @@ pub async fn start_worker(
             .map(|x| format!("    {}", x))
             .collect::<Vec<String>>()
             .join("\n");
+
+        let preprocessor_logic = if let Some(ref pre_spread) = pre_spread {
+            format!(
+                r#"
+    if line.startswith('preprocess:'):
+        pre_input = line[len('preprocess:'):]
+        kwargs = json.loads(pre_input, strict=False)
+        if not hasattr(inner_script, 'preprocessor') or not callable(inner_script.preprocessor):
+            err_json = json.dumps({{"message": "preprocessor function is missing", "name": "Error"}}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+            sys.stdout.flush()
+            continue
+        try:
+            pre_args = {{}}
+            {pre_spread}
+            for k, v in list(pre_args.items()):
+                if v == '<function call>':
+                    del pre_args[k]
+            preprocessed_kwargs = inner_script.preprocessor(**pre_args)
+            preprocessed_json = json.dumps(preprocessed_kwargs, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
+            # Now call main with preprocessed args
+            kwargs = preprocessed_kwargs
+            args = {{}}
+{indented_transforms}
+            {spread}
+            for k, v in list(args.items()):
+                if v == '<function call>':
+                    del args[k]
+            res = inner_script.main(**args)
+            typ = type(res)
+            if typ.__name__ == 'DataFrame':
+                if typ.__module__ == 'pandas.core.frame':
+                    res = res.values.tolist()
+                elif typ.__module__ == 'polars.dataframe.frame':
+                    res = res.rows()
+            elif typ.__name__ == 'bytes':
+                res = to_b_64(res)
+            elif typ.__name__ == 'dict':
+                for k, v in res.items():
+                    if type(v).__name__ == 'bytes':
+                        res[k] = to_b_64(v)
+            unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
+            res_json = {postprocessor}
+            sys.stdout.write("wm_res[success]:" + res_json + "\n")
+        except BaseException as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            tb = traceback.format_tb(exc_traceback)
+            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+        sys.stdout.flush()
+        continue
+"#
+            )
+        } else {
+            String::new()
+        };
 
         let wrapper_content: String = format!(
             r#"
@@ -2370,6 +2437,8 @@ sys.stdout.write('start\n')
 for line in sys.stdin:
     if line == 'end\n':
         break
+    line = line.strip()
+    {preprocessor_logic}
     kwargs = json.loads(line, strict=False)
     args = {{}}
 {indented_transforms}

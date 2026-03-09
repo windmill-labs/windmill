@@ -80,10 +80,12 @@ pub const BUN_DEDICATED_WORKER_ARGS: &[&str] = &["run", "-i", "--prefer-offline"
 /// - `arg_names`: The argument names for the main function (e.g., ["x", "y"])
 /// - `main_import`: The import path for the main module (e.g., "./main.ts")
 /// - `date_conversions`: Optional date conversion statements for Datetime args
+/// - `preprocessor_spread`: If the script has a preprocessor function, the comma-separated arg names for it
 pub fn generate_dedicated_worker_wrapper(
     arg_names: &[&str],
     main_import: &str,
     date_conversions: Option<&str>,
+    preprocessor_spread: Option<&str>,
 ) -> String {
     let spread = arg_names.join(",");
     let dates = date_conversions.unwrap_or("");
@@ -92,6 +94,36 @@ pub fn generate_dedicated_worker_wrapper(
         r#"console.log(line);"#
     } else {
         ""
+    };
+
+    let preprocessor_logic = if let Some(pre_spread) = preprocessor_spread {
+        format!(
+            r#"
+    if (rawLine.startsWith("preprocess:")) {{
+        const preInput = rawLine.slice("preprocess:".length);
+        const parsedArgs = JSON.parse(preInput);
+        if (Main.preprocessor === undefined || typeof Main.preprocessor !== 'function') {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}));
+            continue;
+        }}
+        try {{
+            function preArgsObjToArr({{ {pre_spread} }}) {{
+                return [ {pre_spread} ];
+            }}
+            const preprocessedArgs = await Main.preprocessor(...preArgsObjToArr(parsedArgs));
+            console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value));
+            // Now call main with preprocessed args
+            const mainArgs = getArgs(JSON.stringify(preprocessedArgs ?? {{}}));
+            const res = await Main.main(...mainArgs);
+            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
+        }} catch (e) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: rawLine }}));
+        }}
+        continue;
+    }}"#
+        )
+    } else {
+        String::new()
     };
 
     format!(
@@ -114,15 +146,17 @@ function getArgs(line) {{
 for await (const line of Readline.createInterface({{ input: process.stdin }})) {{
     {print_lines}
 
-    if (line === "end") {{
+    const rawLine = line;
+    if (rawLine === "end") {{
         process.exit(0);
     }}
+    {preprocessor_logic}
     try {{
-        const args = getArgs(line);
+        const args = getArgs(rawLine);
         const res = await Main.main(...args);
         console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
     }} catch (e) {{
-        console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}));
+        console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: rawLine }}));
     }}
 }}
 "#
@@ -2172,6 +2206,18 @@ pub async fn start_worker(
             .join("\n");
 
         let arg_names: Vec<&str> = args.iter().map(|x| x.name.as_str()).collect();
+
+        // Parse preprocessor signature if it exists
+        let pre_spread = windmill_parser_ts::parse_deno_signature(
+            inner_content,
+            true,
+            false,
+            Some("preprocessor".to_string()),
+        )
+        .ok()
+        .filter(|sig| !sig.args.is_empty())
+        .map(|sig| sig.args.into_iter().map(|x| x.name).join(","));
+
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
 
@@ -2185,7 +2231,12 @@ pub async fn start_worker(
         } else {
             Some(dates.as_str())
         };
-        let wrapper_content = generate_dedicated_worker_wrapper(&arg_names, main_import, dates_opt);
+        let wrapper_content = generate_dedicated_worker_wrapper(
+            &arg_names,
+            main_import,
+            dates_opt,
+            pre_spread.as_deref(),
+        );
         write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
     }
 

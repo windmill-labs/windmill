@@ -30,6 +30,55 @@ export async function main(foo: string, bar: string) {
 '',
 'f/system/hello_with_preprocessor', 123413, 'deno', '');
 
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'system',
+'
+export async function preprocessor(foo: string, bar: string) {
+  return { foo: foo + "_preprocessed", bar: bar + "_preprocessed" };
+}
+
+export async function main(foo: string, bar: string) {
+  return "Hello " + foo + " " + bar;
+}
+',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"default":null,"description":"","originalType":"string","type":"string"},"bar":{"default":null,"description":"","originalType":"string","type":"string"}},"required":["foo","bar"],"type":"object"}',
+'',
+'',
+'f/system/hello_preprocessor_dedicated_bun', 123414, 'bun', '');
+
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'system',
+'
+def preprocessor(foo: str, bar: str):
+    return {"foo": foo + "_preprocessed", "bar": bar + "_preprocessed"}
+
+def main(foo: str, bar: str):
+    return "Hello " + foo + " " + bar
+',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"default":null,"description":"","originalType":"string","type":"string"},"bar":{"default":null,"description":"","originalType":"string","type":"string"}},"required":["foo","bar"],"type":"object"}',
+'',
+'',
+'f/system/hello_preprocessor_dedicated_python', 123415, 'python3', '');
+
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'system',
+'
+export async function preprocessor(foo: string, bar: string) {
+  return { foo: foo + "_preprocessed", bar: bar + "_preprocessed" };
+}
+
+export async function main(foo: string, bar: string) {
+  return "Hello " + foo + " " + bar;
+}
+',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"default":null,"description":"","originalType":"string","type":"string"},"bar":{"default":null,"description":"","originalType":"string","type":"string"}},"required":["foo","bar"],"type":"object"}',
+'',
+'',
+'f/system/hello_preprocessor_dedicated_deno', 123416, 'deno', '');
+
 INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES (
 'test-workspace',
 '',
