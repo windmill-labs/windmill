@@ -1518,7 +1518,7 @@ export class WorkflowCtx {
         (err as any).result = (value as any).result;
         (err as any).step_key = (value as any).step_key;
         (err as any).child_job_id = (value as any).child_job_id;
-        return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } };
+        return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } } as PromiseLike<any>;
       }
       return { then: (resolve: any) => resolve(value) };
     }
