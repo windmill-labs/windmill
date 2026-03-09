@@ -104,6 +104,13 @@ import {
   getNonDottedPaths,
 } from "../../utils/resource_folders.ts";
 
+// Parse cliBehavior version string (e.g. "v1", "v2") into a number. Returns 0 if absent/invalid.
+export function parseCliBehavior(value?: string): number {
+  if (!value) return 0;
+  const match = value.match(/^v(\d+)$/);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
   T extends GlobalOptions & SyncOptions & { repository?: string },
@@ -1855,7 +1862,7 @@ export async function pull(
     resourceTypeToFormatExtension,
     resourceTypeToIsFileset,
     true,
-    parseFloat(opts.version ?? "0") >= 0.1,
+    parseCliBehavior(opts.cliBehavior) >= 1,
   );
 
   const local = !opts.stateful
@@ -2385,7 +2392,7 @@ export async function push(
     resourceTypeToFormatExtension,
     resourceTypeToIsFileset,
     false,
-    parseFloat(opts.version ?? "0") >= 0.1,
+    parseCliBehavior(opts.cliBehavior) >= 1,
   );
 
   const local = await FSFSElement(path.join(process.cwd(), ""), codebases, false);
@@ -2586,7 +2593,7 @@ export async function push(
 
     // Build permissioned_as context (only when respectVirtualUserPermissions is enabled)
     let permissionedAsContext: PermissionedAsContext | undefined = undefined;
-    if (opts.version && parseFloat(opts.version) >= 0.1) {
+    if (parseCliBehavior(opts.cliBehavior) >= 1) {
       const user = await wmill.whoami({ workspace: workspace.workspaceId });
       const userIsAdminOrDeployer =
         user.is_admin || (user.groups ?? []).includes("wm_deployers");
