@@ -15,6 +15,9 @@ lifecycleHooks:
   postCreate: bash ./scripts/post-create.sh
   preRemove: bash ./scripts/pre-remove.sh
 
+auto_name:
+  model: gemini-2.5-flash-lite
+
 # Each service defines a port env var that webmux injects into pane and agent
 # process environments when creating a worktree. Ports are auto-assigned:
 # base + (slot x step).
