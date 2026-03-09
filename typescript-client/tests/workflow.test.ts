@@ -40,12 +40,20 @@ class WorkflowCtx {
   _nextStep(
     name: string,
     script: string,
-    args: Record<string, any> = {}
+    args: Record<string, any> = {},
+    options?: Record<string, any>,
   ): PromiseLike<any> {
     const key = this._allocKey();
 
     if (key in this.completed) {
       const value = this.completed[key];
+      if (value && typeof value === "object" && (value as any)._error) {
+        const err = new Error((value as any).message || `Task '${name}' failed`);
+        (err as any).result = (value as any).result;
+        (err as any).step_key = (value as any).step_key;
+        (err as any).child_job_id = (value as any).child_job_id;
+        return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } };
+      }
       return { then: (resolve: any) => resolve(value) };
     }
 
@@ -62,7 +70,9 @@ class WorkflowCtx {
       return { then: () => new Promise(() => {}) };
     }
 
-    this.pending.push({ name, script, args, key });
+    const stepInfo: any = { name, script, args, key };
+    if (options) Object.assign(stepInfo, options);
+    this.pending.push(stepInfo);
     return {
       then: (): never => {
         if (this._suspended) return new Promise(() => {}) as never;
@@ -88,6 +98,22 @@ class WorkflowCtx {
     return steps;
   }
 
+  _sleep(seconds: number): PromiseLike<void> {
+    const key = this._allocKey();
+    if (key in this.completed) {
+      return { then: (resolve: any) => resolve(undefined) };
+    }
+    if (this._executingKey !== null) {
+      return { then: () => new Promise(() => {}) };
+    }
+    throw new StepSuspend({
+      mode: "sleep",
+      key,
+      seconds: Math.max(1, Math.round(seconds)),
+      steps: [],
+    });
+  }
+
   async _runInlineStep<T>(
     name: string,
     fn: () => T | Promise<T>
@@ -95,7 +121,13 @@ class WorkflowCtx {
     const key = this._allocKey();
 
     if (key in this.completed) {
-      return this.completed[key] as T;
+      const value = this.completed[key];
+      if (value && typeof value === "object" && (value as any)._error) {
+        const err = new Error((value as any).message || `Step '${name}' failed`);
+        (err as any).result = (value as any).result;
+        throw err;
+      }
+      return value as T;
     }
 
     if (this._executingKey !== null) {
@@ -124,16 +156,20 @@ function getParamNames(fn: Function): string[] {
 
 function task<T extends (...args: any[]) => Promise<any>>(
   fnOrPath: T | string,
-  maybeFn?: T
+  maybeFnOrOptions?: T | Record<string, any>,
+  maybeOptions?: Record<string, any>,
 ): T {
   let fn: T;
   let taskPath: string | undefined;
+  let taskOptions: Record<string, any> | undefined;
 
   if (typeof fnOrPath === "string") {
     taskPath = fnOrPath;
-    fn = maybeFn!;
+    fn = maybeFnOrOptions as T;
+    taskOptions = maybeOptions;
   } else {
     fn = fnOrPath;
+    taskOptions = maybeFnOrOptions as Record<string, any> | undefined;
   }
 
   const taskName = fn.name || "anonymous";
@@ -153,7 +189,7 @@ function task<T extends (...args: any[]) => Promise<any>>(
           kwargs[`arg${i}`] = args[i];
         }
       }
-      const stepResult = ctx._nextStep(taskName, script, kwargs);
+      const stepResult = ctx._nextStep(taskName, script, kwargs, taskOptions);
       if ((stepResult as any)?._execute_directly) {
         return (async () => {
           const result = await fn(...args);
@@ -185,6 +221,30 @@ async function step<T>(
     return ctx._runInlineStep(name, fn);
   }
   return fn();
+}
+
+async function sleep(seconds: number): Promise<void> {
+  const ctx = _workflowCtx;
+  if (ctx) {
+    return ctx._sleep(seconds) as Promise<void>;
+  }
+  await new Promise((r) => setTimeout(r, seconds * 1000));
+}
+
+async function parallel<T, R>(
+  items: T[],
+  fn: (item: T) => PromiseLike<R> | R,
+  options?: { concurrency?: number },
+): Promise<R[]> {
+  const concurrency = options?.concurrency ?? items.length;
+  if (concurrency <= 0 || items.length === 0) return [];
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const batchResults = await Promise.all(batch.map((item) => fn(item)));
+    results.push(...batchResults);
+  }
+  return results;
 }
 
 function workflow<T>(fn: (...args: any[]) => Promise<T>) {
@@ -225,6 +285,12 @@ async function runWorkflow(
           key: info.key,
           result: info.result,
         };
+      }
+      if (info.mode === "approval") {
+        return { type: "approval", key: info.key, timeout: info.timeout, form: info.form };
+      }
+      if (info.mode === "sleep") {
+        return { type: "sleep", key: info.key, seconds: info.seconds };
       }
       return { type: "dispatch", ...info };
     }
@@ -1136,5 +1202,395 @@ describe("complex mixed workflow: seq → par → seq → par → seq", () => {
     );
     expect(r.type).toBe("complete");
     expect(r.result).toBe("final");
+  });
+});
+
+// =====================================================================
+// ERROR PROPAGATION TESTS
+// =====================================================================
+
+describe("error propagation via _error marker", () => {
+  test("task error is thrown on replay", async () => {
+    const wf = workflow(async (x: number) => {
+      const result = await double(x);
+      return result;
+    });
+    // Simulate child failure stored as _error marker
+    const checkpoint = {
+      completed_steps: {
+        step_0: {
+          _error: true,
+          message: "WAC task 'double' failed (child job abc-123)",
+          result: { message: "division by zero" },
+          step_key: "double",
+          child_job_id: "abc-123",
+        },
+      },
+    };
+    try {
+      await runWorkflow(wf, checkpoint, [5]);
+      expect(true).toBe(false); // should not reach here
+    } catch (e: any) {
+      expect(e.message).toContain("double");
+      expect(e.result).toEqual({ message: "division by zero" });
+      expect(e.child_job_id).toBe("abc-123");
+    }
+  });
+
+  test("error is catchable with try/catch in workflow", async () => {
+    const wf = workflow(async (x: number) => {
+      try {
+        const result = await double(x);
+        return { success: true, result };
+      } catch (e: any) {
+        return { success: false, error: e.message };
+      }
+    });
+    const checkpoint = {
+      completed_steps: {
+        step_0: {
+          _error: true,
+          message: "Task 'double' failed",
+          result: { message: "boom" },
+        },
+      },
+    };
+    const result = await runWorkflow(wf, checkpoint, [5]);
+    expect(result.type).toBe("complete");
+    expect(result.result.success).toBe(false);
+    expect(result.result.error).toContain("double");
+  });
+
+  test("error in parallel — one fails, caught by Promise.all reject", async () => {
+    const wf = workflow(async () => {
+      try {
+        const [a, b] = await Promise.all([double(1), add_one(2)]);
+        return { a, b };
+      } catch (e: any) {
+        return { caught: true, error: e.message };
+      }
+    });
+    const checkpoint = {
+      completed_steps: {
+        step_0: { _error: true, message: "double failed", result: {} },
+        step_1: 3, // add_one succeeded
+      },
+    };
+    const result = await runWorkflow(wf, checkpoint, []);
+    expect(result.type).toBe("complete");
+    expect(result.result.caught).toBe(true);
+  });
+
+  test("retry pattern with try/catch + loop", async () => {
+    // Simulates: first attempt fails, second succeeds
+    const wf = workflow(async (x: number) => {
+      for (let i = 0; i < 3; i++) {
+        try {
+          const result = await double(x);
+          return { result, attempts: i + 1 };
+        } catch (e) {
+          if (i === 2) throw e;
+          // retry on next iteration
+        }
+      }
+    });
+    // First double (step_0) fails, second double (step_1) succeeds
+    const checkpoint = {
+      completed_steps: {
+        step_0: { _error: true, message: "temporary failure", result: {} },
+        step_1: 10,
+      },
+    };
+    const result = await runWorkflow(wf, checkpoint, [5]);
+    expect(result.type).toBe("complete");
+    expect(result.result.result).toBe(10);
+    expect(result.result.attempts).toBe(2);
+  });
+
+  test("inline step error is thrown", async () => {
+    const wf = workflow(async () => {
+      try {
+        const val = await step("risky", () => 42);
+        return { val };
+      } catch (e: any) {
+        return { caught: e.message };
+      }
+    });
+    const checkpoint = {
+      completed_steps: {
+        step_0: { _error: true, message: "inline step failed", result: {} },
+      },
+    };
+    const result = await runWorkflow(wf, checkpoint, []);
+    expect(result.type).toBe("complete");
+    expect(result.result.caught).toContain("inline step failed");
+  });
+
+  test("non-error object with _error field is NOT treated as error", async () => {
+    // An object with _error: false should be treated as a normal value
+    const wf = workflow(async () => {
+      const val = await double(5);
+      return val;
+    });
+    const checkpoint = {
+      completed_steps: {
+        step_0: { _error: false, data: "not an error" },
+      },
+    };
+    const result = await runWorkflow(wf, checkpoint, [5]);
+    expect(result.type).toBe("complete");
+    expect(result.result).toEqual({ _error: false, data: "not an error" });
+  });
+});
+
+// =====================================================================
+// TASK OPTIONS TESTS
+// =====================================================================
+
+describe("task options", () => {
+  test("options are forwarded in dispatch step info", async () => {
+    const heavy = task(
+      async function heavy(x: number) { return x; },
+      { timeout: 600, tag: "gpu", cache_ttl: 3600, priority: 10 },
+    );
+    const wf = workflow(async (x: number) => {
+      return await heavy(x);
+    });
+    const result = await runWorkflow(wf, {}, [42]);
+    expect(result.type).toBe("dispatch");
+    expect(result.steps[0].timeout).toBe(600);
+    expect(result.steps[0].tag).toBe("gpu");
+    expect(result.steps[0].cache_ttl).toBe(3600);
+    expect(result.steps[0].priority).toBe(10);
+  });
+
+  test("task without options has no extra fields", async () => {
+    const simple = task(async function simple(x: number) { return x; });
+    const wf = workflow(async (x: number) => {
+      return await simple(x);
+    });
+    const result = await runWorkflow(wf, {}, [1]);
+    expect(result.steps[0].timeout).toBeUndefined();
+    expect(result.steps[0].tag).toBeUndefined();
+  });
+
+  test("concurrency options forwarded", async () => {
+    const limited = task(
+      async function limited(x: number) { return x; },
+      { concurrent_limit: 5, concurrency_key: "my-key", concurrency_time_window_s: 60 },
+    );
+    const wf = workflow(async (x: number) => {
+      return await limited(x);
+    });
+    const result = await runWorkflow(wf, {}, [1]);
+    expect(result.steps[0].concurrent_limit).toBe(5);
+    expect(result.steps[0].concurrency_key).toBe("my-key");
+    expect(result.steps[0].concurrency_time_window_s).toBe(60);
+  });
+
+  test("task with path and options", async () => {
+    const ext = task(
+      "f/gpu_script",
+      async function ext(x: number) { return x; },
+      { timeout: 300, tag: "gpu" },
+    );
+    const wf = workflow(async (x: number) => {
+      return await ext(x);
+    });
+    const result = await runWorkflow(wf, {}, [1]);
+    expect(result.steps[0].script).toBe("f/gpu_script");
+    expect(result.steps[0].timeout).toBe(300);
+    expect(result.steps[0].tag).toBe("gpu");
+  });
+});
+
+// =====================================================================
+// SLEEP TESTS
+// =====================================================================
+
+describe("sleep", () => {
+  test("first invocation returns sleep output", async () => {
+    const wf = workflow(async () => {
+      await double(1);
+      await sleep(60);
+      await add_one(2);
+      return "done";
+    });
+    // step_0 (double) complete, step_1 is sleep
+    const result = await runWorkflow(
+      wf,
+      { completed_steps: { step_0: 2 } },
+      [],
+    );
+    expect(result.type).toBe("sleep");
+    expect(result.key).toBe("step_1");
+    expect(result.seconds).toBe(60);
+  });
+
+  test("sleep completes on replay when stored in checkpoint", async () => {
+    const wf = workflow(async () => {
+      await double(1);
+      await sleep(60);
+      await add_one(2);
+      return "done";
+    });
+    // step_0 (double) and step_1 (sleep) complete
+    const result = await runWorkflow(
+      wf,
+      { completed_steps: { step_0: 2, step_1: true } },
+      [],
+    );
+    expect(result.type).toBe("dispatch");
+    expect(result.steps[0].name).toBe("add_one");
+    expect(result.steps[0].key).toBe("step_2");
+  });
+
+  test("all steps including sleep complete returns result", async () => {
+    const wf = workflow(async () => {
+      await double(1);
+      await sleep(60);
+      await add_one(2);
+      return "done";
+    });
+    const result = await runWorkflow(
+      wf,
+      { completed_steps: { step_0: 2, step_1: true, step_2: 3 } },
+      [],
+    );
+    expect(result.type).toBe("complete");
+    expect(result.result).toBe("done");
+  });
+
+  test("sleep enforces minimum of 1 second", async () => {
+    const wf = workflow(async () => {
+      await sleep(0);
+      return "done";
+    });
+    const result = await runWorkflow(wf, {}, []);
+    expect(result.type).toBe("sleep");
+    expect(result.seconds).toBe(1);
+  });
+
+  test("sleep rounds to nearest integer", async () => {
+    const wf = workflow(async () => {
+      await sleep(3.7);
+      return "done";
+    });
+    const result = await runWorkflow(wf, {}, []);
+    expect(result.type).toBe("sleep");
+    expect(result.seconds).toBe(4);
+  });
+});
+
+// =====================================================================
+// PARALLEL UTILITY TESTS
+// =====================================================================
+
+describe("parallel utility", () => {
+  test("processes all items with default concurrency", async () => {
+    const wf = workflow(async () => {
+      const items = [1, 2, 3];
+      const results = await parallel(items, double);
+      return results;
+    });
+    // All 3 items dispatched in parallel: step_0, step_1, step_2
+    const result = await runWorkflow(wf, {}, []);
+    expect(result.type).toBe("dispatch");
+    expect(result.mode).toBe("parallel");
+    expect(result.steps).toHaveLength(3);
+    expect(result.steps[0].args).toEqual({ x: 1 });
+    expect(result.steps[1].args).toEqual({ x: 2 });
+    expect(result.steps[2].args).toEqual({ x: 3 });
+  });
+
+  test("completes when all parallel items done", async () => {
+    const wf = workflow(async () => {
+      const items = [1, 2, 3];
+      const results = await parallel(items, double);
+      return results;
+    });
+    const result = await runWorkflow(
+      wf,
+      { completed_steps: { step_0: 2, step_1: 4, step_2: 6 } },
+      [],
+    );
+    expect(result.type).toBe("complete");
+    expect(result.result).toEqual([2, 4, 6]);
+  });
+
+  test("batched concurrency dispatches first batch", async () => {
+    const wf = workflow(async () => {
+      const items = [1, 2, 3, 4, 5];
+      const results = await parallel(items, double, { concurrency: 2 });
+      return results;
+    });
+    // First batch: items[0..2] → step_0, step_1
+    const result = await runWorkflow(wf, {}, []);
+    expect(result.type).toBe("dispatch");
+    expect(result.mode).toBe("parallel");
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[0].args).toEqual({ x: 1 });
+    expect(result.steps[1].args).toEqual({ x: 2 });
+  });
+
+  test("batched concurrency dispatches second batch after first completes", async () => {
+    const wf = workflow(async () => {
+      const items = [1, 2, 3, 4, 5];
+      const results = await parallel(items, double, { concurrency: 2 });
+      return results;
+    });
+    // First batch done, second batch: items[2..4] → step_2, step_3
+    const result = await runWorkflow(
+      wf,
+      { completed_steps: { step_0: 2, step_1: 4 } },
+      [],
+    );
+    expect(result.type).toBe("dispatch");
+    expect(result.mode).toBe("parallel");
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[0].args).toEqual({ x: 3 });
+    expect(result.steps[1].args).toEqual({ x: 4 });
+  });
+
+  test("batched concurrency last batch may be smaller", async () => {
+    const wf = workflow(async () => {
+      const items = [1, 2, 3, 4, 5];
+      const results = await parallel(items, double, { concurrency: 2 });
+      return results;
+    });
+    // Two batches done, third batch: items[4..5] → step_4
+    const result = await runWorkflow(
+      wf,
+      { completed_steps: { step_0: 2, step_1: 4, step_2: 6, step_3: 8 } },
+      [],
+    );
+    expect(result.type).toBe("dispatch");
+    expect(result.steps).toHaveLength(1);
+    expect(result.steps[0].args).toEqual({ x: 5 });
+  });
+
+  test("batched concurrency completes with all results in order", async () => {
+    const wf = workflow(async () => {
+      const items = [1, 2, 3, 4, 5];
+      const results = await parallel(items, double, { concurrency: 2 });
+      return results;
+    });
+    const result = await runWorkflow(
+      wf,
+      { completed_steps: { step_0: 2, step_1: 4, step_2: 6, step_3: 8, step_4: 10 } },
+      [],
+    );
+    expect(result.type).toBe("complete");
+    expect(result.result).toEqual([2, 4, 6, 8, 10]);
+  });
+
+  test("empty items returns empty array", async () => {
+    const wf = workflow(async () => {
+      const results = await parallel([], double);
+      return results;
+    });
+    const result = await runWorkflow(wf, {}, []);
+    expect(result.type).toBe("complete");
+    expect(result.result).toEqual([]);
   });
 });
