@@ -1,9 +1,9 @@
 # Project display name in the dashboard
-name: windmill
+name: Windmill
 
 workspace:
   mainBranch: main
-  worktreeRoot: ../__worktrees
+  worktreeRoot: ../windmill__worktrees
   defaultAgent: claude
 
 startupEnvs:
