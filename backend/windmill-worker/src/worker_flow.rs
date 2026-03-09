@@ -865,7 +865,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .and_then(|x| x.stop_after_all_iters_if.as_ref())
                     {
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
-                        evaluate_stop_after_all_iters_if(
+                        if let Err(e) = evaluate_stop_after_all_iters_if(
                             db,
                             stop_after_all_iters_if,
                             module_status,
@@ -879,7 +879,16 @@ pub async fn update_flow_status_after_job_completion_internal(
                             flow,
                             &old_status,
                         )
-                        .await?;
+                        .await
+                        {
+                            tracing::error!("error evaluating stop_after_all_iters_if: {e:#}");
+                            stop_early = true;
+                            skip_if_stop_early = false;
+                            stop_early_err_msg = Some(format!(
+                                "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
+                                stop_after_all_iters_if.expr
+                            ));
+                        }
                     }
 
                     let new_status = if
@@ -1074,7 +1083,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     {
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
 
-                        evaluate_stop_after_all_iters_if(
+                        if let Err(e) = evaluate_stop_after_all_iters_if(
                             db,
                             stop_after_all_iters_if,
                             module_status,
@@ -1088,7 +1097,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                             flow,
                             &old_status,
                         )
-                        .await?;
+                        .await
+                        {
+                            stop_early = true;
+                            skip_if_stop_early = false;
+                            stop_early_err_msg = Some(format!(
+                                "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
+                                stop_after_all_iters_if.expr
+                            ));
+                        }
                     }
                 }
 
