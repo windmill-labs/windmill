@@ -784,11 +784,15 @@
 			{/if}
 			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
 				{#if job?.workflow_as_code_status && job.job_kind !== 'aiagent'}
-					<div class="mt-10"></div>
-					<WorkflowTimeline
-						flow_status={asWorkflowStatus(job.workflow_as_code_status)}
-						flowDone={job.type == 'CompletedJob'}
-					/>
+					<div class="mr-2 sm:mr-0 mt-12 mb-6">
+						<h3 class="text-xs font-semibold text-emphasis mb-1">Workflow Timeline</h3>
+						<div class="border rounded-md overflow-hidden">
+							<WorkflowTimeline
+								flow_status={asWorkflowStatus(job.workflow_as_code_status)}
+								flowDone={job.type == 'CompletedJob'}
+							/>
+						</div>
+					</div>
 				{/if}
 				{#if scriptProgress}
 					<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true} />

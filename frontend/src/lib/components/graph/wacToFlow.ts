@@ -53,7 +53,7 @@ export function isWorkflowAsCode(code: string, language: string): boolean {
 		return (
 			/workflow\s*\(/.test(code) &&
 			/task\s*\(/.test(code) &&
-			/import.*(?:workflow|task).*from\s+['"]windmill-client['"]/.test(code)
+			/import.*(?:workflow|task).*from\s+['"]windmill-client(?:@[^'"]*)?['"]/.test(code)
 		)
 	}
 	return false

@@ -33,8 +33,6 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { PreviewPanelUi } from '../custom_ui'
 	import { getStringError } from '../copilot/chat/utils'
-	import { isWorkflowAsCode, parseWacCode, type WacParseResult } from '../graph/wacToFlow'
-	import WacGraph from '../graph/WacGraph.svelte'
 
 	interface Props {
 		lang: Preview['language'] | undefined
@@ -47,7 +45,6 @@
 		workspace?: string | undefined
 		showCaptures?: boolean
 		customUi?: PreviewPanelUi | undefined
-		code?: string | undefined
 		children?: import('svelte').Snippet
 		capturesTab?: import('svelte').Snippet
 		customResultPanel?: import('svelte').Snippet
@@ -65,17 +62,12 @@
 		workspace = undefined,
 		showCaptures = false,
 		customUi = undefined,
-		code = undefined,
 		children,
 		capturesTab,
 		customResultPanel,
 		showCustomResultPanel = false
 	}: Props = $props()
 
-	let isWac = $derived(code && lang ? isWorkflowAsCode(code, lang) : false)
-	let wacResult: WacParseResult | undefined = $derived(
-		isWac && code && lang ? parseWacCode(code, lang) : undefined
-	)
 
 	type DContent = {
 		mode: 'json' | Preview['language'] | 'plain'
@@ -144,9 +136,6 @@
 		{/if}
 		{#if customUi?.disableTracing !== true}
 			<Tab value="tracing" label="Tracing" />
-		{/if}
-		{#if isWac}
-			<Tab value="graph" label="Graph" />
 		{/if}
 
 		{#snippet content()}
@@ -327,15 +316,6 @@
 							Run a preview to see HTTP request traces
 						</div>
 					{/if}
-				{/if}
-				{#if selectedTab === 'graph' && isWac}
-					<div class="h-full w-full">
-						<WacGraph
-							{wacResult}
-							wacStatus={previewJob?.workflow_as_code_status}
-							flowDone={previewJob?.type === 'CompletedJob'}
-						/>
-					</div>
 				{/if}
 			</div>
 		{/snippet}

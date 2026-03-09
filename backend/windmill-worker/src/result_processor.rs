@@ -840,7 +840,7 @@ pub async fn process_completed_job(
 ///     worker sees the previous worker's writes.
 ///   - The suspend counter (set to N at dispatch time) is decremented atomically
 ///     with `RETURNING` to determine the "all done" condition.
-async fn handle_wac_child_completion(
+pub(crate) async fn handle_wac_child_completion(
     db: &DB,
     child_job_id: &Uuid,
     parent_job_id: Uuid,

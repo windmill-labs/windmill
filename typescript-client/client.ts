@@ -1436,12 +1436,13 @@ export function setWorkflowCtx(ctx: WorkflowCtx | null) {
 
 export class WorkflowCtx {
   private completed: Record<string, any>;
-  private stepIndex = 0;
+  private counters: Record<string, number> = {};
   private pending: Array<{
     name: string;
     script: string;
     args: Record<string, any>;
     key: string;
+    dispatch_type: string;
   }> = [];
   private _suspended = false;
   /** When set, the task matching this key executes its inner function directly */
@@ -1452,17 +1453,20 @@ export class WorkflowCtx {
     this._executingKey = checkpoint?._executing_key ?? null;
   }
 
-  /** Counter-based key: relies on deterministic call order across replays. */
-  _allocKey(): string {
-    return `step_${this.stepIndex++}`;
+  /** Name-based key: `double` for first call, `double_2`, `double_3` for subsequent. */
+  _allocKey(name: string): string {
+    const n = (this.counters[name] ?? 0) + 1;
+    this.counters[name] = n;
+    return n === 1 ? name : `${name}_${n}`;
   }
 
   _nextStep(
     name: string,
     script: string,
     args: Record<string, any> = {},
+    dispatch_type: string = "inline",
   ): PromiseLike<any> {
-    const key = this._allocKey();
+    const key = this._allocKey(name || script || "step");
 
     if (key in this.completed) {
       const value = this.completed[key];
@@ -1483,7 +1487,7 @@ export class WorkflowCtx {
       return { then: () => new Promise(() => {}) };
     }
 
-    this.pending.push({ name, script, args, key });
+    this.pending.push({ name: name || key, script: script || key, args, key, dispatch_type });
     return {
       then: (): never => {
         // Only the first .then() call throws with all accumulated steps.
@@ -1501,14 +1505,40 @@ export class WorkflowCtx {
     };
   }
   /** Return and clear any pending (unawaited) steps. */
-  _flushPending(): Array<{ name: string; script: string; args: Record<string, any>; key: string }> {
+  _flushPending(): Array<{ name: string; script: string; args: Record<string, any>; key: string; dispatch_type: string }> {
     const steps = [...this.pending];
     this.pending = [];
     return steps;
   }
 
+  _waitForApproval(options?: {
+    timeout?: number;
+    form?: object;
+  }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
+    const key = this._allocKey("approval");
+
+    if (key in this.completed) {
+      const value = this.completed[key];
+      return { then: (resolve: any) => resolve(value) };
+    }
+
+    // In child job mode, return never-resolving thenable (same as _nextStep)
+    if (this._executingKey !== null) {
+      return { then: () => new Promise(() => {}) };
+    }
+
+    // Throw immediately — approval is always a blocking step
+    throw new StepSuspend({
+      mode: "approval",
+      key,
+      timeout: options?.timeout ?? 1800,
+      form: options?.form,
+      steps: [],
+    });
+  }
+
   async _runInlineStep<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
-    const key = this._allocKey();
+    const key = this._allocKey(name || "step");
 
     if (key in this.completed) {
       return this.completed[key] as T;
@@ -1555,7 +1585,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
     fn = fnOrPath;
   }
 
-  const taskName = fn.name || "anonymous";
+  const taskName = fn.name || taskPath || "";
 
   // NOT async — in workflow context we return the thenable directly so that
   // unawaited task calls leave the step in ctx.pending (for _flushPending).
@@ -1625,6 +1655,56 @@ export function task<T extends (...args: any[]) => Promise<any>>(
 }
 
 /**
+ * Create a task that dispatches to a separate Windmill script.
+ *
+ * @example
+ * const extract = taskScript("f/data/extract");
+ * // inside workflow: await extract({ url: "https://..." })
+ */
+export function taskScript(path: string): (...args: any[]) => PromiseLike<any> {
+  const name = path.split("/").pop() || path;
+  const wrapper = function (...args: any[]) {
+    const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+    if (ctx) {
+      const kwargs = args.length === 1 && typeof args[0] === "object" && args[0] !== null
+        ? args[0]
+        : args.reduce((acc, v, i) => { acc[`arg${i}`] = v; return acc; }, {} as Record<string, any>);
+      return ctx._nextStep(name, path, kwargs, "script");
+    }
+    throw new Error(`taskScript("${path}") can only be called inside a workflow()`);
+  };
+  Object.defineProperty(wrapper, "name", { value: name });
+  (wrapper as any)._is_task = true;
+  (wrapper as any)._task_path = path;
+  return wrapper;
+}
+
+/**
+ * Create a task that dispatches to a separate Windmill flow.
+ *
+ * @example
+ * const pipeline = taskFlow("f/etl/pipeline");
+ * // inside workflow: await pipeline({ input: data })
+ */
+export function taskFlow(path: string): (...args: any[]) => PromiseLike<any> {
+  const name = path.split("/").pop() || path;
+  const wrapper = function (...args: any[]) {
+    const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+    if (ctx) {
+      const kwargs = args.length === 1 && typeof args[0] === "object" && args[0] !== null
+        ? args[0]
+        : args.reduce((acc, v, i) => { acc[`arg${i}`] = v; return acc; }, {} as Record<string, any>);
+      return ctx._nextStep(name, path, kwargs, "flow");
+    }
+    throw new Error(`taskFlow("${path}") can only be called inside a workflow()`);
+  };
+  Object.defineProperty(wrapper, "name", { value: name });
+  (wrapper as any)._is_task = true;
+  (wrapper as any)._task_path = path;
+  return wrapper;
+}
+
+/**
  * Mark an async function as a workflow-as-code entry point.
  *
  * The function must be **deterministic**: given the same inputs it must call
@@ -1636,5 +1716,27 @@ export function task<T extends (...args: any[]) => Promise<any>>(
 export function workflow<T>(fn: (...args: any[]) => Promise<T>) {
   (fn as any)._is_workflow = true;
   return fn;
+}
+
+/**
+ * Suspend the workflow and wait for an external approval.
+ *
+ * Use `getResumeUrls()` (wrapped in `step()`) to obtain resume/cancel/approvalPage
+ * URLs before calling this function.
+ *
+ * @example
+ * const urls = await step("urls", () => getResumeUrls());
+ * await step("notify", () => sendEmail(urls.approvalPage));
+ * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ */
+export function waitForApproval(options?: {
+  timeout?: number;
+  form?: object;
+}): PromiseLike<{ value: any; approver: string; approved: boolean }> {
+  const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+  if (!ctx) {
+    throw new Error("waitForApproval can only be called inside a workflow()");
+  }
+  return ctx._waitForApproval(options);
 }
 

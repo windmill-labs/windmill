@@ -44,14 +44,19 @@
 
 	let jobIdsByKey: Record<string, string> = $derived.by(() => {
 		const ids: Record<string, string> = {}
+		// Use persistent job_ids first (accumulated across all dispatch rounds)
+		for (const [key, val] of Object.entries(checkpoint?.job_ids ?? {})) {
+			if (typeof val === 'string') ids[key] = val
+		}
+		// Overlay pending_steps.job_ids for currently running steps
 		for (const [key, val] of Object.entries(pendingSteps?.job_ids ?? {})) {
 			if (typeof val === 'string') ids[key] = val
 		}
 		return ids
 	})
 
-	function stepName(key: string, jobId?: string): string {
-		return jobId ? (childJobs[jobId]?.name ?? key) : key
+	function stepName(key: string, _jobId?: string): string {
+		return key
 	}
 
 	let steps: StepInfo[] = $derived.by(() => {

@@ -2384,19 +2384,19 @@ class WorkflowCtx:
     def __init__(self, checkpoint: dict | None = None):
         checkpoint = checkpoint or {}
         self._completed: dict = checkpoint.get("completed_steps", {})
-        self._step_index: int = 0
+        self._counters: dict[str, int] = {}
         self._pending: list = []
         self._executing_key: str | None = checkpoint.get("_executing_key")
 
-    def _alloc_key(self) -> str:
-        """Counter-based key: relies on deterministic call order across replays."""
-        key = f"step_{self._step_index}"
-        self._step_index += 1
-        return key
+    def _alloc_key(self, name: str = "step") -> str:
+        """Name-based key: ``double`` for first call, ``double_2``, ``double_3`` for subsequent."""
+        n = self._counters.get(name, 0) + 1
+        self._counters[name] = n
+        return name if n == 1 else f"{name}_{n}"
 
-    def _next_step(self, name: str, script: str, func=None, **kwargs):
+    def _next_step(self, name: str, script: str, func=None, dispatch_type: str = "inline", **kwargs):
         """Return an awaitable that either resolves from cache or suspends."""
-        key = self._alloc_key()
+        key = self._alloc_key(name or script or "step")
 
         if key in self._completed:
             return self._resolved(self._completed[key])
@@ -2407,7 +2407,7 @@ class WorkflowCtx:
             else:
                 return self._never_resolve()
 
-        info = {"name": name, "script": script, "args": kwargs, "key": key}
+        info = {"name": name or key, "script": script or key, "args": kwargs, "key": key, "dispatch_type": dispatch_type}
         self._pending.append(info)
         return self._suspend()
 
@@ -2433,8 +2433,27 @@ class WorkflowCtx:
             }
         )
 
+    async def _wait_for_approval(
+        self, timeout: int = 1800, form: dict | None = None
+    ):
+        key = self._alloc_key("approval")
+
+        if key in self._completed:
+            return self._completed[key]
+
+        if self._executing_key is not None:
+            await _asyncio.Future()
+
+        raise _StepSuspend({
+            "mode": "approval",
+            "key": key,
+            "timeout": timeout,
+            "form": form,
+            "steps": [],
+        })
+
     async def _run_inline_step(self, name: str, fn):
-        key = self._alloc_key()
+        key = self._alloc_key(name or "step")
 
         if key in self._completed:
             return self._completed[key]
@@ -2538,6 +2557,56 @@ def task(_func=None, *, path: Optional[str] = None, tag: Optional[str] = None):
     return decorator
 
 
+def task_script(path: str):
+    """Create a task that dispatches to a separate Windmill script.
+
+    Usage::
+
+        extract = task_script("f/data/extract")
+
+        @workflow
+        async def main():
+            data = await extract(url="https://...")
+    """
+    name = path.rsplit("/", 1)[-1]
+
+    def wrapper(**kwargs):
+        ctx = _workflow_ctx.get(None)
+        if ctx is not None:
+            return ctx._next_step(name, path, dispatch_type="script", **kwargs)
+        raise RuntimeError(f'task_script("{path}") can only be called inside a @workflow')
+
+    wrapper.__name__ = name
+    wrapper._is_task = True
+    wrapper._task_path = path
+    return wrapper
+
+
+def task_flow(path: str):
+    """Create a task that dispatches to a separate Windmill flow.
+
+    Usage::
+
+        pipeline = task_flow("f/etl/pipeline")
+
+        @workflow
+        async def main():
+            result = await pipeline(input=data)
+    """
+    name = path.rsplit("/", 1)[-1]
+
+    def wrapper(**kwargs):
+        ctx = _workflow_ctx.get(None)
+        if ctx is not None:
+            return ctx._next_step(name, path, dispatch_type="flow", **kwargs)
+        raise RuntimeError(f'task_flow("{path}") can only be called inside a @workflow')
+
+    wrapper.__name__ = name
+    wrapper._is_task = True
+    wrapper._task_path = path
+    return wrapper
+
+
 def workflow(func):
     """Decorator marking an async function as a workflow-as-code entry point.
 
@@ -2567,6 +2636,29 @@ async def step(name: str, fn):
     return result
 
 
+async def wait_for_approval(
+    timeout: int = 1800,
+    form: dict | None = None,
+) -> dict:
+    """Suspend the workflow and wait for an external approval.
+
+    Use ``get_resume_urls()`` (wrapped in ``step()``) to obtain
+    resume/cancel/approval URLs before calling this function.
+
+    Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
+
+    Example::
+
+        urls = await step("urls", lambda: get_resume_urls())
+        await step("notify", lambda: send_email(urls["approvalPage"]))
+        result = await wait_for_approval(timeout=3600)
+    """
+    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    if ctx is not None:
+        return await ctx._wait_for_approval(timeout=timeout, form=form)
+    raise RuntimeError("wait_for_approval can only be called inside a @workflow")
+
+
 async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
     ctx = WorkflowCtx(checkpoint)
     token = _workflow_ctx.set(ctx)
@@ -2592,6 +2684,13 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
                 "type": "inline_checkpoint",
                 "key": info["key"],
                 "result": info.get("result"),
+            }
+        if mode == "approval":
+            return {
+                "type": "approval",
+                "key": info["key"],
+                "timeout": info.get("timeout"),
+                "form": info.get("form"),
             }
         return {"type": "dispatch", **info}
     finally:

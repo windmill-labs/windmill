@@ -17,6 +17,11 @@ pub struct WacCheckpoint {
     pub pending_steps: Option<WacPendingSteps>,
     #[serde(default)]
     pub input_args: serde_json::Map<String, Value>,
+    /// Accumulated map of step_key → child job UUID across all dispatch rounds.
+    /// Unlike `pending_steps.job_ids` (cleared after completion), this persists
+    /// so the frontend can always resolve step keys to child job names.
+    #[serde(default)]
+    pub job_ids: serde_json::Map<String, Value>,
     /// When set on a child job's checkpoint, indicates which step this child
     /// should execute directly (instead of dispatching).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,19 +48,31 @@ pub enum WacOutput {
     /// checkpoint and re-run immediately (no child job, no suspend).
     #[serde(rename = "inline_checkpoint")]
     InlineCheckpoint { key: String, result: Value },
+    /// Suspend the workflow waiting for an external approval event.
+    /// No child job is dispatched — the parent suspends directly and resumes
+    /// when a user hits the resume/cancel endpoint.
+    #[serde(rename = "approval")]
+    Approval { key: String, timeout: Option<u32>, form: Option<Value> },
 }
 
 /// A step dispatched by the WAC SDK.
 ///
-/// Note: `script` and `args` are metadata used for logging and frontend display.
-/// The backend does NOT dispatch to `script` — all children re-run the parent
-/// workflow with `_executing_key` set so only the matching step executes.
+/// `dispatch_type` determines how the child job is created:
+/// - `"inline"` (default): re-runs the parent workflow with `_executing_key` set
+/// - `"script"`: runs a separate Windmill script resolved from `script` path
+/// - `"flow"`: runs a separate Windmill flow resolved from `script` path
 #[derive(Debug, Deserialize, Clone)]
 pub struct WacStepDispatch {
     pub name: String,
     pub script: String,
     pub args: serde_json::Map<String, Value>,
     pub key: String,
+    #[serde(default = "default_dispatch_type")]
+    pub dispatch_type: String,
+}
+
+fn default_dispatch_type() -> String {
+    "inline".to_string()
 }
 
 /// Load the WAC checkpoint from `v2_job_status.workflow_as_code_status._checkpoint`.
@@ -118,13 +135,18 @@ pub fn update_checkpoint_for_dispatch(
     mode: &str,
     job_ids: &[(String, Uuid)],
 ) {
+    let ids_map: serde_json::Map<String, Value> = job_ids
+        .iter()
+        .map(|(key, id)| (key.clone(), Value::String(id.to_string())))
+        .collect();
+    // Accumulate into persistent job_ids (survives pending_steps clearing)
+    for (k, v) in ids_map.iter() {
+        checkpoint.job_ids.insert(k.clone(), v.clone());
+    }
     let pending = WacPendingSteps {
         mode: mode.to_string(),
         keys: steps.iter().map(|s| s.key.clone()).collect(),
-        job_ids: job_ids
-            .iter()
-            .map(|(key, id)| (key.clone(), Value::String(id.to_string())))
-            .collect(),
+        job_ids: ids_map,
     };
     checkpoint.pending_steps = Some(pending);
 }

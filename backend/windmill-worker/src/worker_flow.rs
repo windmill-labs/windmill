@@ -1705,8 +1705,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 chat_ai_info.conversation_id,
             )
             .await?;
-            let duration = if success {
-                let (_, duration, _) = add_completed_job(
+            let (duration, wac_job_ids) = if success {
+                let (_, duration, wac_job_ids) = add_completed_job(
                     db,
                     &cflow_job,
                     true,
@@ -1720,9 +1720,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                duration
+                (duration, wac_job_ids)
             } else {
-                let (_, duration, _) = add_completed_job(
+                let (_, duration, wac_job_ids) = add_completed_job(
                     db,
                     &cflow_job,
                     false,
@@ -1740,11 +1740,30 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                duration
+                (duration, wac_job_ids)
             };
             flow_job_duration = flow_job
                 .started_at
                 .map(|x| FlowJobDuration { started_at: x, duration_ms: duration });
+
+            // If this flow is a WAC child (not a flow step, has parent),
+            // notify the WAC parent of completion.
+            if !flow_job.is_flow_step() {
+                if let Some(parent_job) = flow_job.parent_job {
+                    if let Some(job_ids) = wac_job_ids {
+                        let _ = crate::result_processor::handle_wac_child_completion(
+                            db,
+                            &flow_job.id,
+                            parent_job,
+                            &flow_job.workspace_id,
+                            nresult.clone(),
+                            success,
+                            job_ids,
+                        )
+                        .await;
+                    }
+                }
+            }
         }
         true
     } else {

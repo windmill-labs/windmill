@@ -1053,6 +1053,27 @@ pub async fn handle_bun_job(
 
     let is_wac_v2 = main_override.is_none() && crate::wac_executor::is_wac_v2_ts(inner_content);
 
+    // For WAC v2, inject variable names into unnamed task() calls so the
+    // runtime can use them for step naming (timeline, graph).
+    // `const double = task(async ...` → `const double = task("double", async ...`
+    // Skips calls that already have a string argument: `task("path", async ...`
+    let inner_content = if is_wac_v2 {
+        use regex::Regex;
+        use std::borrow::Cow;
+        lazy_static::lazy_static! {
+            static ref TASK_RE: Regex =
+                Regex::new(r#"(?m)(const\s+)(\w+)(\s*=\s*task\s*\(\s*)(async\b)"#).unwrap();
+        }
+        let replaced = TASK_RE.replace_all(inner_content, r#"${1}${2}${3}"${2}", ${4}"#);
+        match replaced {
+            Cow::Borrowed(_) => inner_content.to_string(),
+            Cow::Owned(s) => s,
+        }
+    } else {
+        inner_content.to_string()
+    };
+    let inner_content = inner_content.as_str();
+
     // WAC v2 scripts can't use bundle caching because the wrapper imports
     // windmill-client from node_modules, which isn't available in bundle mode
     if is_wac_v2 && has_bundle_cache {
@@ -1340,6 +1361,9 @@ async function run() {{
             if (dispatch.mode === "inline_checkpoint") {{
                 return {{ type: "inline_checkpoint", key: dispatch.key, result: dispatch.result ?? null }};
             }}
+            if (dispatch.mode === "approval") {{
+                return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form }};
+            }}
             return {{ type: "dispatch", mode: dispatch.mode ?? "sequential", steps: dispatch.steps ?? [] }};
         }}
         throw e;
@@ -1516,7 +1540,57 @@ try {{
     // For WAC v2, write checkpoint.json before bun runs
     if is_wac_v2 {
         if let Connection::Sql(db) = conn {
-            let checkpoint = crate::wac_executor::load_checkpoint(db, &job.id).await?;
+            let mut checkpoint = crate::wac_executor::load_checkpoint(db, &job.id).await?;
+
+            // If resuming from an approval, read the approval data from resume_job
+            // and inject it into completed_steps before running the workflow
+            let is_approval_resume = checkpoint
+                .pending_steps
+                .as_ref()
+                .is_some_and(|p| p.mode == "approval");
+            if is_approval_resume {
+                let approval_key = checkpoint
+                    .pending_steps
+                    .as_ref()
+                    .and_then(|p| p.keys.first().cloned())
+                    .unwrap_or_default();
+
+                let resume_row = sqlx::query_as::<_, (sqlx::types::Json<Box<serde_json::value::RawValue>>, Option<String>, bool)>(
+                    "SELECT value, approver, approved FROM resume_job WHERE job = $1 ORDER BY created_at ASC LIMIT 1",
+                )
+                .bind(&job.id)
+                .fetch_optional(db)
+                .await?;
+
+                let approval_result = if let Some((value, approver, approved)) = resume_row {
+                    serde_json::json!({
+                        "value": serde_json::from_str::<serde_json::Value>(value.get()).unwrap_or(serde_json::Value::Null),
+                        "approver": approver.unwrap_or_else(|| "anonymous".to_string()),
+                        "approved": approved,
+                    })
+                } else {
+                    // Timed out — no resume_job entry. Inject a timeout result.
+                    serde_json::json!({
+                        "value": null,
+                        "approver": null,
+                        "approved": false,
+                    })
+                };
+                checkpoint
+                    .completed_steps
+                    .insert(approval_key.clone(), approval_result);
+                checkpoint.pending_steps = None;
+
+                // Save the updated checkpoint back to DB
+                crate::wac_executor::save_checkpoint(db, &job.id, &checkpoint).await?;
+
+                tracing::info!(
+                    job_id = %job.id,
+                    approval_key = %approval_key,
+                    "WAC v2 injected approval result into checkpoint"
+                );
+            }
+
             let checkpoint_json = serde_json::to_string(&checkpoint).map_err(|e| {
                 error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
             })?;
@@ -1839,7 +1913,8 @@ pub async fn handle_wac_v2_output(
         WacOutput,
     };
     use serde_json::Value;
-    use windmill_common::jobs::{JobKind, JobPayload, RawCode};
+    use windmill_common::get_latest_flow_version_info_for_path;
+    use windmill_common::jobs::{script_path_to_payload, JobKind, JobPayload, RawCode};
     use windmill_common::runnable_settings::{
         ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
     };
@@ -2041,7 +2116,7 @@ pub async fn handle_wac_v2_output(
                     let child_id_str = child_id.to_string();
                     let timeline_val = serde_json::json!({
                         "scheduled_for": chrono::Utc::now().to_rfc3339(),
-                        "name": step.name,
+                        "name": step.key,
                     });
                     sqlx::query(
                         "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
@@ -2091,8 +2166,60 @@ pub async fn handle_wac_v2_output(
             let mut pushed_ids: Vec<Uuid> = Vec::with_capacity(num_steps);
             let push_result: error::Result<()> = async {
                 for (step, (_, child_uuid)) in steps.iter().zip(job_ids.iter()) {
-                    let job_payload = job_payload_template.clone();
-                    let push_args = PushArgs { args: &parent_args, extra: None };
+                    // Resolve job payload based on dispatch_type
+                    let (job_payload, child_args, is_external) = match step.dispatch_type.as_str() {
+                        "script" => {
+                            // Resolve script path to job payload (handles hash, lang, etc.)
+                            let (payload, _, _, _, _) = script_path_to_payload(
+                                &step.script,
+                                None, // no authed db for background workers
+                                db.clone(),
+                                &job.workspace_id,
+                                Some(true), // skip preprocessor
+                            )
+                            .await?;
+                            let step_args: HashMap<String, Box<RawValue>> = step
+                                .args
+                                .iter()
+                                .map(|(k, v)| {
+                                    let raw = serde_json::value::to_raw_value(v).unwrap();
+                                    (k.clone(), raw)
+                                })
+                                .collect();
+                            (payload, step_args, true)
+                        }
+                        "flow" => {
+                            let flow_info = get_latest_flow_version_info_for_path(
+                                None,
+                                db,
+                                &job.workspace_id,
+                                &step.script,
+                                true,
+                            )
+                            .await?;
+                            let payload = JobPayload::Flow {
+                                path: step.script.clone(),
+                                dedicated_worker: flow_info.dedicated_worker,
+                                apply_preprocessor: false,
+                                version: flow_info.version,
+                            };
+                            let step_args: HashMap<String, Box<RawValue>> = step
+                                .args
+                                .iter()
+                                .map(|(k, v)| {
+                                    let raw = serde_json::value::to_raw_value(v).unwrap();
+                                    (k.clone(), raw)
+                                })
+                                .collect();
+                            (payload, step_args, true)
+                        }
+                        _ => {
+                            // "inline" — re-run parent with _executing_key
+                            (job_payload_template.clone(), parent_args.clone(), false)
+                        }
+                    };
+
+                    let push_args = PushArgs { args: &child_args, extra: None };
 
                     let (_, mut tx) = push(
                         db,
@@ -2126,29 +2253,34 @@ pub async fn handle_wac_v2_output(
                     )
                     .await?;
 
-                    // Seed child checkpoint in the same transaction as push,
-                    // so the child can't be picked up before its checkpoint exists.
-                    let child_checkpoint_json = serde_json::json!({
-                        "completed_steps": &checkpoint.completed_steps,
-                        "_executing_key": &step.key,
-                    });
-                    sqlx::query(
-                        "INSERT INTO v2_job_status (id, workflow_as_code_status)
-                         VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
-                         ON CONFLICT (id) DO UPDATE SET
-                            workflow_as_code_status = jsonb_set(
-                                COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
-                                '{_checkpoint}',
-                                $2::jsonb
-                            )",
-                    )
-                    .bind(child_uuid)
-                    .bind(&child_checkpoint_json)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|e| {
-                        error::Error::internal_err(format!("Failed to seed child checkpoint: {e}"))
-                    })?;
+                    // Seed child checkpoint only for inline tasks (they need
+                    // _executing_key to know which step to run). External
+                    // scripts/flows don't need a WAC checkpoint.
+                    if !is_external {
+                        let child_checkpoint_json = serde_json::json!({
+                            "completed_steps": &checkpoint.completed_steps,
+                            "_executing_key": &step.key,
+                        });
+                        sqlx::query(
+                            "INSERT INTO v2_job_status (id, workflow_as_code_status)
+                             VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
+                             ON CONFLICT (id) DO UPDATE SET
+                                workflow_as_code_status = jsonb_set(
+                                    COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+                                    '{_checkpoint}',
+                                    $2::jsonb
+                                )",
+                        )
+                        .bind(child_uuid)
+                        .bind(&child_checkpoint_json)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| {
+                            error::Error::internal_err(format!(
+                                "Failed to seed child checkpoint: {e}"
+                            ))
+                        })?;
+                    }
 
                     tx.commit().await.map_err(|e| {
                         error::Error::internal_err(format!("Failed to commit child push: {e}"))
@@ -2221,6 +2353,92 @@ pub async fn handle_wac_v2_output(
             Err(error::Error::WacSuspended(format!(
                 "WAC v2 job {} suspended waiting for {} child job(s)",
                 job.id, num_steps
+            )))
+        }
+        WacOutput::Approval { key, timeout, form } => {
+            let db = match conn {
+                Connection::Sql(db) => db,
+                _ => {
+                    return Err(error::Error::internal_err(
+                        "WAC v2 approval requires SQL connection".to_string(),
+                    ))
+                }
+            };
+
+            let mut checkpoint = load_checkpoint(db, &job.id).await?;
+            let timeout_secs = timeout.unwrap_or(1800) as f64;
+
+            // Mark this step as pending approval
+            checkpoint.pending_steps = Some(crate::wac_executor::WacPendingSteps {
+                mode: "approval".to_string(),
+                keys: vec![key.clone()],
+                job_ids: serde_json::Map::new(),
+            });
+
+            let mut tx = db.begin().await?;
+
+            // Save checkpoint
+            let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
+                error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
+            })?;
+            sqlx::query(
+                "INSERT INTO v2_job_status (id, workflow_as_code_status)
+                 VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
+                 ON CONFLICT (id) DO UPDATE SET
+                    workflow_as_code_status = jsonb_set(
+                        COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+                        '{_checkpoint}',
+                        $2::jsonb
+                    )",
+            )
+            .bind(&job.id)
+            .bind(&status_json)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| error::Error::internal_err(format!("Failed to save checkpoint: {e}")))?;
+
+            // Store approval form metadata for the approval page endpoint
+            let approval_meta = serde_json::json!({
+                "key": key,
+                "form": form,
+                "timeout": timeout_secs as u32,
+            });
+            sqlx::query(
+                "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+                    COALESCE(workflow_as_code_status, '{}'::jsonb),
+                    '{_approval}',
+                    $2::jsonb
+                ) WHERE id = $1",
+            )
+            .bind(&job.id)
+            .bind(&approval_meta)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!("Failed to save approval meta: {e}"))
+            })?;
+
+            // Suspend parent with suspend=1 (waiting for 1 approval event)
+            sqlx::query!(
+                "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
+                job.id,
+                timeout_secs,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            tx.commit().await?;
+
+            tracing::info!(
+                job_id = %job.id,
+                approval_key = %key,
+                timeout_secs = timeout_secs,
+                "WAC v2 parent job suspended waiting for approval"
+            );
+
+            Err(error::Error::WacSuspended(format!(
+                "WAC v2 job {} suspended waiting for approval (key: {})",
+                job.id, key
             )))
         }
         WacOutput::InlineCheckpoint { key, result: value } => {
