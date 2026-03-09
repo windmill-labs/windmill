@@ -3,7 +3,7 @@
 	import { displayDate, msToSec } from '$lib/utils'
 	import { onDestroy } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
-	import { ExternalLink, Loader2 } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import TimelineBar from './TimelineBar.svelte'
 	import type { WorkflowStatus } from '$lib/gen'
 
@@ -17,12 +17,9 @@
 
 	let now = $state(getDbClockNow().getTime())
 
-	let interval = setInterval((x) => {
+	let interval = setInterval(() => {
 		if (!max) {
 			now = getDbClockNow().getTime()
-		}
-		if (min && (!max || total == undefined)) {
-			total = max ? max - min : Math.max(now - min, 2000)
 		}
 	}, 30)
 
@@ -40,7 +37,7 @@
 				0
 		  )
 		: undefined)
-	let total = $derived(flowDone && max ? max - min : now - min)
+	let total = $derived(flowDone && max ? max - min : Math.max(now - min, 2000))
 </script>
 
 {#if flow_status}
@@ -75,7 +72,7 @@
 			<div class="overflow-auto max-h-60 shadow-inner dark:shadow-gray-700 relative">
 				<div class="px-2 py-2 text-xs grid grid-cols-6 w-full gap-1">
 					<a target="_blank" class="inline-flex gap-2 items-baseline" href="{base}/run/{k}"
-						>{v.name ?? k} <ExternalLink size={12} /></a
+						>{v.name ?? k}</a
 					>
 					<div class="col-span-5 flex min-h-6 w-full">
 						{#if min && total}
