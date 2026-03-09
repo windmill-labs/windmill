@@ -53,7 +53,7 @@ import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
 import { execSync } from "node:child_process";
 import { NewScript, Script } from "../../../gen/types.gen.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
-import { resolvePermissionedAsEmail } from "../../core/permissioned_as.ts";
+import { resolvePermissionedAsRule } from "../../core/permissioned_as.ts";
 import {
   isRawAppBackendPath as isRawAppBackendPathInternal,
   isAppInlineScriptPath as isAppInlineScriptPathInternal,
@@ -433,16 +433,18 @@ export async function handleFile(
         if (remote.on_behalf_of_email) {
           requestBodyCommon.on_behalf_of_email = remote.on_behalf_of_email;
           requestBodyCommon.preserve_on_behalf_of = true;
+          log.info(`Preserving ${remote.on_behalf_of_email} as permissioned_as for script ${remotePath}`);
         }
       } else {
         // Creating: apply defaultPermissionedAs rule if one matches
-        const ruleEmail = resolvePermissionedAsEmail(
+        const rule = resolvePermissionedAsRule(
           remotePath,
           permissionedAsContext.rules
         );
-        if (ruleEmail) {
-          requestBodyCommon.on_behalf_of_email = ruleEmail;
+        if (rule) {
+          requestBodyCommon.on_behalf_of_email = rule.email;
           requestBodyCommon.preserve_on_behalf_of = true;
+          log.info(`Setting script ${remotePath} to run permissioned as ${rule.email} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
         }
       }
     }

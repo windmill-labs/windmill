@@ -38,7 +38,7 @@ import { requireLogin } from "../../core/auth.ts";
 import { validatePath, resolveWorkspace } from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import {
-  resolvePermissionedAsEmail,
+  resolvePermissionedAsRule,
   lookupUsernameByEmail,
 } from "../../core/permissioned_as.ts";
 
@@ -175,21 +175,23 @@ export async function pushTrigger<K extends TriggerType>(
       preserveFields.preserve_email = true;
       if ((trigger as any).edited_by) {
         preserveFields.email = (trigger as any).edited_by;
+        log.info(`Preserving ${(trigger as any).edited_by} as permissioned_as for trigger ${path}`);
       }
     } else {
       // Creating: apply defaultPermissionedAs rule if one matches
-      const ruleEmail = resolvePermissionedAsEmail(
+      const rule = resolvePermissionedAsRule(
         path,
         permissionedAsContext.rules
       );
-      if (ruleEmail) {
+      if (rule) {
         const username = await lookupUsernameByEmail(
           workspace,
-          ruleEmail,
+          rule.email,
           permissionedAsContext.emailToUsernameCache
         );
         preserveFields.email = username;
         preserveFields.preserve_email = true;
+        log.info(`Setting trigger ${path} to run permissioned as ${rule.email} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
       }
     }
   }

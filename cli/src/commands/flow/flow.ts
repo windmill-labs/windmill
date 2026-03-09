@@ -21,7 +21,7 @@ import { Flow, OpenFlowWPath } from "../../../gen/types.gen.ts";
 import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { generateFlowLockInternal } from "./flow_metadata.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
-import { resolvePermissionedAsEmail } from "../../core/permissioned_as.ts";
+import { resolvePermissionedAsRule } from "../../core/permissioned_as.ts";
 
 export interface FlowFile {
   summary: string;
@@ -76,16 +76,18 @@ export async function pushFlow(
       if (flow.on_behalf_of_email) {
         preserveFields.on_behalf_of_email = flow.on_behalf_of_email;
         preserveFields.preserve_on_behalf_of = true;
+        log.info(`Preserving ${flow.on_behalf_of_email} as permissioned_as for flow ${remotePath}`);
       }
     } else {
       // Creating: apply defaultPermissionedAs rule if one matches
-      const ruleEmail = resolvePermissionedAsEmail(
+      const rule = resolvePermissionedAsRule(
         remotePath,
         permissionedAsContext.rules
       );
-      if (ruleEmail) {
-        preserveFields.on_behalf_of_email = ruleEmail;
+      if (rule) {
+        preserveFields.on_behalf_of_email = rule.email;
         preserveFields.preserve_on_behalf_of = true;
+        log.info(`Setting flow ${remotePath} to run permissioned as ${rule.email} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
       }
     }
   }

@@ -5,7 +5,7 @@
 import { expect, test, describe } from "bun:test";
 import {
   validatePermissionedAsRules,
-  resolvePermissionedAsEmail,
+  resolvePermissionedAsRule,
   type PermissionedAsRule,
 } from "../src/core/permissioned_as.ts";
 
@@ -203,59 +203,58 @@ describe("validatePermissionedAsRules", () => {
 });
 
 // =============================================================================
-// resolvePermissionedAsEmail
+// resolvePermissionedAsRule
 // =============================================================================
 
-describe("resolvePermissionedAsEmail", () => {
+describe("resolvePermissionedAsRule", () => {
   const rules: PermissionedAsRule[] = [
     { email: "prod@company.com", path_pattern: "f/production/**" },
     { email: "staging@company.com", path_pattern: "f/staging/**" },
     { email: "default@company.com", path_pattern: "f/**" },
   ];
 
-  test("returns matching email for specific path", () => {
-    expect(
-      resolvePermissionedAsEmail("f/production/my_script", rules)
-    ).toBe("prod@company.com");
+  test("returns matching rule for specific path", () => {
+    const rule = resolvePermissionedAsRule("f/production/my_script", rules);
+    expect(rule?.email).toBe("prod@company.com");
+    expect(rule?.path_pattern).toBe("f/production/**");
   });
 
   test("returns first matching rule (production over default)", () => {
-    expect(
-      resolvePermissionedAsEmail("f/production/deep/nested", rules)
-    ).toBe("prod@company.com");
+    const rule = resolvePermissionedAsRule("f/production/deep/nested", rules);
+    expect(rule?.email).toBe("prod@company.com");
+    expect(rule?.path_pattern).toBe("f/production/**");
   });
 
-  test("returns staging email for staging path", () => {
-    expect(
-      resolvePermissionedAsEmail("f/staging/my_flow", rules)
-    ).toBe("staging@company.com");
+  test("returns staging rule for staging path", () => {
+    const rule = resolvePermissionedAsRule("f/staging/my_flow", rules);
+    expect(rule?.email).toBe("staging@company.com");
+    expect(rule?.path_pattern).toBe("f/staging/**");
   });
 
   test("falls through to default rule", () => {
-    expect(
-      resolvePermissionedAsEmail("f/other/my_script", rules)
-    ).toBe("default@company.com");
+    const rule = resolvePermissionedAsRule("f/other/my_script", rules);
+    expect(rule?.email).toBe("default@company.com");
+    expect(rule?.path_pattern).toBe("f/**");
   });
 
   test("returns undefined when no rule matches", () => {
     expect(
-      resolvePermissionedAsEmail("u/admin/my_script", rules)
+      resolvePermissionedAsRule("u/admin/my_script", rules)
     ).toBeUndefined();
   });
 
   test("returns undefined for empty rules", () => {
-    expect(resolvePermissionedAsEmail("f/anything", [])).toBeUndefined();
+    expect(resolvePermissionedAsRule("f/anything", [])).toBeUndefined();
   });
 
   test("handles exact path patterns", () => {
     const exactRules: PermissionedAsRule[] = [
       { email: "exact@company.com", path_pattern: "f/specific/script" },
     ];
+    const rule = resolvePermissionedAsRule("f/specific/script", exactRules);
+    expect(rule?.email).toBe("exact@company.com");
     expect(
-      resolvePermissionedAsEmail("f/specific/script", exactRules)
-    ).toBe("exact@company.com");
-    expect(
-      resolvePermissionedAsEmail("f/specific/other", exactRules)
+      resolvePermissionedAsRule("f/specific/other", exactRules)
     ).toBeUndefined();
   });
 
@@ -263,11 +262,10 @@ describe("resolvePermissionedAsEmail", () => {
     const wildcardRules: PermissionedAsRule[] = [
       { email: "wild@company.com", path_pattern: "f/*/scripts" },
     ];
+    const rule = resolvePermissionedAsRule("f/team_a/scripts", wildcardRules);
+    expect(rule?.email).toBe("wild@company.com");
     expect(
-      resolvePermissionedAsEmail("f/team_a/scripts", wildcardRules)
-    ).toBe("wild@company.com");
-    expect(
-      resolvePermissionedAsEmail("f/team_a/nested/scripts", wildcardRules)
+      resolvePermissionedAsRule("f/team_a/nested/scripts", wildcardRules)
     ).toBeUndefined();
   });
 });

@@ -84,16 +84,16 @@ export function validatePermissionedAsRules(
 }
 
 /**
- * Resolves which email should be used for a new item based on defaultPermissionedAs rules.
- * Returns undefined if no rule matches.
+ * Resolves which rule should be used for a new item based on defaultPermissionedAs rules.
+ * Returns the matching rule, or undefined if no rule matches.
  */
-export function resolvePermissionedAsEmail(
+export function resolvePermissionedAsRule(
   path: string,
   rules: PermissionedAsRule[]
-): string | undefined {
+): PermissionedAsRule | undefined {
   for (const rule of rules) {
     if (minimatch(path, rule.path_pattern)) {
-      return rule.email;
+      return rule;
     }
   }
   return undefined;

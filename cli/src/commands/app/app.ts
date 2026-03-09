@@ -18,7 +18,7 @@ import newCommand from "./new.ts";
 import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
-import { resolvePermissionedAsEmail, lookupUsernameByEmail } from "../../core/permissioned_as.ts";
+import { resolvePermissionedAsRule, lookupUsernameByEmail } from "../../core/permissioned_as.ts";
 
 export interface AppFile {
   value: any;
@@ -165,26 +165,28 @@ export async function pushApp(
         (localApp.policy as any).on_behalf_of = remoteOnBehalfOf;
         (localApp.policy as any).on_behalf_of_email = remoteOnBehalfOfEmail;
         preserveFields.preserve_on_behalf_of = true;
+        log.info(`Preserving ${remoteOnBehalfOfEmail ?? remoteOnBehalfOf} as permissioned_as for app ${remotePath}`);
       }
     } else {
       // Creating: apply defaultPermissionedAs rule if one matches
-      const ruleEmail = resolvePermissionedAsEmail(
+      const rule = resolvePermissionedAsRule(
         remotePath,
         permissionedAsContext.rules
       );
-      if (ruleEmail) {
+      if (rule) {
         // Set both on_behalf_of and on_behalf_of_email on the policy
         // The backend requires on_behalf_of to be set for preserve to work
         if (localApp.policy) {
           const username = await lookupUsernameByEmail(
             workspace,
-            ruleEmail,
+            rule.email,
             permissionedAsContext.emailToUsernameCache
           );
           (localApp.policy as any).on_behalf_of = `u/${username}`;
-          (localApp.policy as any).on_behalf_of_email = ruleEmail;
+          (localApp.policy as any).on_behalf_of_email = rule.email;
         }
         preserveFields.preserve_on_behalf_of = true;
+        log.info(`Setting app ${remotePath} to run permissioned as ${rule.email} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
       }
     }
   }

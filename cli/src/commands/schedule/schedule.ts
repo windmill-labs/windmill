@@ -19,7 +19,7 @@ import {
 import { Schedule } from "../../../gen/types.gen.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import {
-  resolvePermissionedAsEmail,
+  resolvePermissionedAsRule,
   lookupUsernameByEmail,
 } from "../../core/permissioned_as.ts";
 
@@ -126,21 +126,23 @@ export async function pushSchedule(
       preserveFields.preserve_email = true;
       if ((schedule as Schedule).edited_by) {
         preserveFields.email = (schedule as Schedule).edited_by;
+        log.info(`Preserving ${(schedule as Schedule).edited_by} as permissioned_as for schedule ${path}`);
       }
     } else {
       // Creating: apply defaultPermissionedAs rule if one matches
-      const ruleEmail = resolvePermissionedAsEmail(
+      const rule = resolvePermissionedAsRule(
         path,
         permissionedAsContext.rules
       );
-      if (ruleEmail) {
+      if (rule) {
         const username = await lookupUsernameByEmail(
           workspace,
-          ruleEmail,
+          rule.email,
           permissionedAsContext.emailToUsernameCache
         );
         preserveFields.email = username;
         preserveFields.preserve_email = true;
+        log.info(`Setting schedule ${path} to run permissioned as ${rule.email} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
       }
     }
   }
