@@ -2377,30 +2377,7 @@ pub async fn start_worker(
             preprocessed_kwargs = inner_script.preprocessor(**pre_args)
             preprocessed_json = json.dumps(preprocessed_kwargs, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
-            # Now call main with preprocessed args
-            kwargs = preprocessed_kwargs
-            args = {{}}
-{indented_transforms}
-            {spread}
-            for k, v in list(args.items()):
-                if v == '<function call>':
-                    del args[k]
-            res = inner_script.main(**args)
-            typ = type(res)
-            if typ.__name__ == 'DataFrame':
-                if typ.__module__ == 'pandas.core.frame':
-                    res = res.values.tolist()
-                elif typ.__module__ == 'polars.dataframe.frame':
-                    res = res.rows()
-            elif typ.__name__ == 'bytes':
-                res = to_b_64(res)
-            elif typ.__name__ == 'dict':
-                for k, v in res.items():
-                    if type(v).__name__ == 'bytes':
-                        res[k] = to_b_64(v)
-            unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
-            res_json = {postprocessor}
-            sys.stdout.write("wm_res[success]:" + res_json + "\n")
+            transform_and_run(preprocessed_kwargs)
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
@@ -2431,6 +2408,30 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
+def transform_and_run(kwargs):
+    args = {{}}
+{indented_transforms}
+    {spread}
+    for k, v in list(args.items()):
+        if v == '<function call>':
+            del args[k]
+    res = inner_script.main(**args)
+    typ = type(res)
+    if typ.__name__ == 'DataFrame':
+        if typ.__module__ == 'pandas.core.frame':
+            res = res.values.tolist()
+        elif typ.__module__ == 'polars.dataframe.frame':
+            res = res.rows()
+    elif typ.__name__ == 'bytes':
+        res = to_b_64(res)
+    elif typ.__name__ == 'dict':
+        for k, v in res.items():
+            if type(v).__name__ == 'bytes':
+                res[k] = to_b_64(v)
+    unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
+    res_json = {postprocessor}
+    sys.stdout.write("wm_res[success]:" + res_json + "\n")
+
 replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\u0000|Infinity|\-Infinity)')
 sys.stdout.write('start\n')
 
@@ -2440,30 +2441,8 @@ for line in sys.stdin:
     line = line.strip()
     {preprocessor_logic}
     kwargs = json.loads(line, strict=False)
-    args = {{}}
-{indented_transforms}
-    {spread}
-    for k, v in list(args.items()):
-        if v == '<function call>':
-            del args[k]
-
     try:
-        res = inner_script.main(**args)
-        typ = type(res)
-        if typ.__name__ == 'DataFrame':
-            if typ.__module__ == 'pandas.core.frame':
-                res = res.values.tolist()
-            elif typ.__module__ == 'polars.dataframe.frame':
-                res = res.rows()
-        elif typ.__name__ == 'bytes':
-            res = to_b_64(res)
-        elif typ.__name__ == 'dict':
-            for k, v in res.items():
-                if type(v).__name__ == 'bytes':
-                    res[k] = to_b_64(v)
-        unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
-        res_json = {postprocessor}
-        sys.stdout.write("wm_res[success]:" + res_json + "\n")
+        transform_and_run(kwargs)
     except BaseException as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         tb = traceback.format_tb(exc_traceback)
