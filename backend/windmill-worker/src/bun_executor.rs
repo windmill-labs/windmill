@@ -2054,6 +2054,7 @@ pub async fn handle_wac_v2_output(
                         dedicated_worker: None,
                         concurrency_settings: ConcurrencySettingsWithCustom::default(),
                         debouncing_settings: DebouncingSettings::default(),
+                        modules: None,
                     }))
                 }
                 _ => Err(error::Error::internal_err(format!(
