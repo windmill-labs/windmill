@@ -44,13 +44,23 @@ pub struct EnvRefWrapper {
 ///
 /// `Literal` serializes back to a plain JSON string, preserving backwards
 /// compatibility with existing consumers.
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone)]
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum StringOrSecretRef {
     Literal(String),
     SecretRef(SecretKeyRefWrapper),
     EnvRef(EnvRefWrapper),
+}
+
+impl fmt::Debug for StringOrSecretRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Literal(_) => f.write_str("Literal(****)"),
+            Self::SecretRef(w) => f.debug_tuple("SecretRef").field(w).finish(),
+            Self::EnvRef(w) => f.debug_tuple("EnvRef").field(w).finish(),
+        }
+    }
 }
 
 impl StringOrSecretRef {
@@ -255,25 +265,25 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance_python_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pip_index_url: Option<String>,
+    pub pip_index_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pip_extra_index_url: Option<String>,
+    pub pip_extra_index_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub npm_config_registry: Option<String>,
+    pub npm_config_registry: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub bunfig_install_scopes: Option<String>,
+    pub bunfig_install_scopes: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub npmrc: Option<String>,
+    pub npmrc: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub nuget_config: Option<String>,
+    pub nuget_config: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub maven_repos: Option<String>,
+    pub maven_repos: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ruby_repos: Option<String>,
+    pub ruby_repos: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub powershell_repo_url: Option<String>,
+    pub powershell_repo_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub powershell_repo_pat: Option<String>,
+    pub powershell_repo_pat: Option<StringOrSecretRef>,
 
     // Array settings
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -924,7 +934,7 @@ fn redact_string(s: &str) -> String {
     }
 }
 
-fn format_setting_value(key: &str, value: &serde_json::Value) -> String {
+pub fn format_setting_value(key: &str, value: &serde_json::Value) -> String {
     if SENSITIVE_SETTINGS.contains(&key) {
         return match value {
             serde_json::Value::String(s) => format!("\"{}\"", redact_string(s)),
@@ -2207,6 +2217,25 @@ mod tests {
 
         let v: StringOrSecretRef = String::from("world").into();
         assert_eq!(v, *"world");
+    }
+
+    #[test]
+    fn string_or_secret_ref_debug_masks_literal() {
+        let v = StringOrSecretRef::Literal("super-secret-value".to_string());
+        let debug = format!("{v:?}");
+        assert_eq!(debug, "Literal(****)");
+        assert!(!debug.contains("super-secret-value"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_oauth_secrets() {
+        let val = serde_json::json!({
+            "google": {"id": "client-id", "secret": "my-super-secret-12345"}
+        });
+        let formatted = format_setting_value("oauths", &val);
+        assert!(!formatted.contains("my-super-secret-12345"));
+        assert!(formatted.contains("client-id"));
+        assert!(formatted.contains("****"));
     }
 
     #[test]

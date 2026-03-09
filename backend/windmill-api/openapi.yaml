@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.651.1
+  version: 1.652.0
   title: Windmill API
 
   contact:
@@ -18803,7 +18803,6 @@ components:
       required:
         - path
         - summary
-        - description
         - content
         - language
 

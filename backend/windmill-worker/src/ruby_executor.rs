@@ -812,7 +812,10 @@ mount {{
             .envs(envs)
             .envs(reserved_variables)
             .envs(RUBY_PROXY_ENVS.clone())
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Ruby).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Ruby, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -851,7 +854,10 @@ mount {{
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(reserved_variables)
             .envs(RUBY_PROXY_ENVS.clone())
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Ruby).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Ruby, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .envs(envs);
 
         cmd.stdin(Stdio::null())
