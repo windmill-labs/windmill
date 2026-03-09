@@ -509,7 +509,8 @@ export async function getEffectiveSettings(
   promotion?: string,
   skipBranchValidation?: boolean,
   suppressLogs?: boolean,
-  branchOverride?: string
+  branchOverride?: string,
+  targetWorkspace?: { workspaceId: string; remote: string },
 ): Promise<SyncOptions> {
   // Start with top-level settings from config
   const { gitBranches, ...topLevelSettings } = config;
@@ -595,6 +596,28 @@ export async function getEffectiveSettings(
     log.debug(
       `No branch-specific overrides found for '${currentBranch}', using top-level settings`
     );
+  }
+
+  // If a target workspace is provided, resolve defaultPermissionedAs from the
+  // branch config that matches it (rules are workspace-specific)
+  if (targetWorkspace && gitBranches) {
+    const matchingEntry = Object.entries(gitBranches).find(
+      ([_, branchConfig]) =>
+        branchConfig.workspaceId === targetWorkspace.workspaceId &&
+        branchConfig.baseUrl === targetWorkspace.remote
+    );
+    if (matchingEntry) {
+      const [, branchConfig] = matchingEntry;
+      if (branchConfig.defaultPermissionedAs) {
+        effective.defaultPermissionedAs = branchConfig.defaultPermissionedAs;
+      } else {
+        // Matching branch has no rules — fall back to root-level
+        effective.defaultPermissionedAs = topLevelSettings.defaultPermissionedAs;
+      }
+    } else {
+      // No branch matches the target workspace — use root-level rules
+      effective.defaultPermissionedAs = topLevelSettings.defaultPermissionedAs;
+    }
   }
 
   return effective;

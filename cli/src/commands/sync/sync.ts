@@ -119,7 +119,10 @@ async function resolveEffectiveSyncOptions(
   promotion?: string,
   branchOverride?: string,
 ): Promise<SyncOptions> {
-  return await getEffectiveSettings(localConfig, promotion, false, false, branchOverride);
+  return await getEffectiveSettings(localConfig, promotion, false, false, branchOverride, {
+    workspaceId: workspace.workspaceId,
+    remote: workspace.remote,
+  });
 }
 
 type DynFSElement = {
@@ -2920,13 +2923,10 @@ export async function push(
                   });
                   break;
                 case "resource":
-                  console.log("ASDASDASDSAD")
-                  log.error("Deleting resourceee");
                   await wmill.deleteResource({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".resource.json"),
                   });
-                  log.error("no reach here right?")
                   break;
                 case "resource-type":
                   await wmill.deleteResourceType({
@@ -3065,7 +3065,6 @@ export async function push(
                   break;
                 }
                 case "variable":
-                  log.error("Deleting variableeee");
                   await wmill.deleteVariable({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".variable.json"),
