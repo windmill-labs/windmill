@@ -472,6 +472,7 @@ pub struct NewScript {
     pub path: String,
     pub parent_hash: Option<ScriptHash>,
     pub summary: String,
+    #[serde(default)]
     pub description: String,
     pub content: String,
     pub schema: Option<Schema>,

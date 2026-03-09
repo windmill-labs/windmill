@@ -22,6 +22,12 @@ httpx = ">=0.24"
 requires = ["poetry>=1.0.2", "poetry-dynamic-versioning"]
 build-backend = "poetry.masonry.api"
 
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.0.2",
+]
+
 [tool.poetry-dynamic-versioning]
 enable = true
 vcs = "git"

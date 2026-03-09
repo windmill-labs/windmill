@@ -741,26 +741,69 @@ pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
     }
 }
 
+/// Get OTEL trace context environment variables for a job (TRACEPARENT, OTEL_TRACE_ID, OTEL_SPAN_ID).
+/// Returns an empty vec when OTEL tracing is not enabled or on non-enterprise builds.
+pub fn get_otel_context_envs(job_id: &uuid::Uuid) -> Vec<(&'static str, String)> {
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    if windmill_common::OTEL_TRACING_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+        let trace_id = format!("{:032x}", job_id.as_u128());
+        let span_id = format!("{:016x}", job_id.as_u64_pair().1);
+        let traceparent = format!("00-{}-{}-01", trace_id, span_id);
+        return vec![
+            ("TRACEPARENT", traceparent),
+            ("OTEL_TRACE_ID", trace_id),
+            ("OTEL_SPAN_ID", span_id),
+        ];
+    }
+    let _ = job_id;
+    vec![]
+}
+
 /// Get proxy environment variables for job execution for a specific language.
 /// When OTEL tracing proxy is enabled for this language, routes all traffic through the proxy.
 /// Otherwise, uses the standard HTTP_PROXY/HTTPS_PROXY from environment.
 pub async fn get_proxy_envs_for_lang(
     lang: &ScriptLang,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
 ) -> anyhow::Result<Vec<(&'static str, String)>> {
+    #[allow(unused_mut)]
+    let mut envs;
     #[cfg(all(feature = "private", feature = "enterprise"))]
     if is_otel_tracing_proxy_enabled_for_lang(lang).await {
-        return get_otel_tracing_proxy_envs().await;
+        envs = get_otel_tracing_proxy_envs(job_id, w_id, conn).await?;
+    } else {
+        envs = PROXY_ENVS.clone();
     }
-    let _ = lang;
-    Ok(PROXY_ENVS.clone())
+    #[cfg(not(all(feature = "private", feature = "enterprise")))]
+    {
+        let _ = (lang, w_id, conn);
+        envs = PROXY_ENVS.clone();
+    }
+    envs.extend(get_otel_context_envs(job_id));
+    Ok(envs)
 }
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
-async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, String)>> {
-    let port = crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
+async fn get_otel_tracing_proxy_envs(
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> anyhow::Result<Vec<(&'static str, String)>> {
+    let port = match *crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
         .read()
         .await
-        .ok_or_else(|| anyhow::anyhow!("OTEL tracing proxy port not initialized"))?;
+    {
+        Some(p) => p,
+        None => {
+            let reason = "OTEL tracing proxy is enabled but not available (not initialized yet, or NUM_WORKERS > 1). \
+                This job's HTTP requests will not be traced.";
+            tracing::warn!("{}", reason);
+            append_logs(job_id, w_id, format!("\n[warning] {reason}\n"), conn).await;
+            return Ok(PROXY_ENVS.clone());
+        }
+    };
     let proxy_url = format!("http://127.0.0.1:{}", port);
     Ok(vec![
         ("HTTP_PROXY", proxy_url.clone()),
@@ -3486,6 +3529,13 @@ pub async fn handle_queued_job(
         {
             return Ok(false);
         }
+        if result
+            .as_ref()
+            .is_err_and(|err| matches!(err, &Error::WacSuspended(_)))
+        {
+            // WAC v2 job suspended while waiting for child jobs — don't complete it
+            return Ok(true);
+        }
         process_result(
             cjob,
             result.map(|x| Arc::new(x)),
@@ -3951,7 +4001,7 @@ pub async fn run_language_executor(
     }
 
     if language == Some(ScriptLang::Postgresql) {
-        return do_postgresql(
+        return Box::pin(do_postgresql(
             job,
             &client,
             &code,
@@ -3963,7 +4013,7 @@ pub async fn run_language_executor(
             occupancy_metrics,
             parent_runnable_path,
             run_inline,
-        )
+        ))
         .await;
     } else if language == Some(ScriptLang::Mysql) {
         #[cfg(not(feature = "mysql"))]
@@ -3978,7 +4028,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_mysql(
+            return Box::pin(do_mysql(
                 job,
                 &client,
                 &code,
@@ -3989,7 +4039,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Bigquery) {
@@ -4015,7 +4065,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_bigquery(
+            return Box::pin(do_bigquery(
                 job,
                 &client,
                 &code,
@@ -4026,7 +4076,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Snowflake) {
@@ -4044,7 +4094,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_snowflake(
+            return Box::pin(do_snowflake(
                 job,
                 &client,
                 &code,
@@ -4055,7 +4105,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Mssql) {
@@ -4081,7 +4131,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_mssql(
+            return Box::pin(do_mssql(
                 job,
                 &client,
                 &code,
@@ -4092,7 +4142,7 @@ pub async fn run_language_executor(
                 occupancy_metrics,
                 job_dir,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::OracleDB) {
@@ -4118,7 +4168,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_oracledb(
+            return Box::pin(do_oracledb(
                 job,
                 &client,
                 &code,
@@ -4129,7 +4179,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::DuckDb) {
@@ -4143,7 +4193,7 @@ pub async fn run_language_executor(
 
         #[cfg(feature = "duckdb")]
         {
-            return do_duckdb(
+            return Box::pin(do_duckdb(
                 job,
                 &client,
                 &code,
@@ -4155,7 +4205,7 @@ pub async fn run_language_executor(
                 occupancy_metrics,
                 parent_runnable_path,
                 run_inline,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Graphql) {
@@ -4164,7 +4214,7 @@ pub async fn run_language_executor(
                 "Inline execution is not yet supported for this language".to_string(),
             ));
         }
-        return do_graphql(
+        return Box::pin(do_graphql(
             job,
             &client,
             &code,
@@ -4173,7 +4223,7 @@ pub async fn run_language_executor(
             canceled_by,
             worker_name,
             occupancy_metrics,
-        )
+        ))
         .await;
     } else if language == Some(ScriptLang::Nativets) {
         if run_inline {
@@ -4200,7 +4250,7 @@ pub async fn run_language_executor(
                 .collect::<Vec<String>>()
                 .join("\n"));
 
-        let result = do_nativets(
+        let result = Box::pin(do_nativets(
             job,
             &client,
             env_code,
@@ -4211,7 +4261,7 @@ pub async fn run_language_executor(
             worker_name,
             occupancy_metrics,
             has_stream,
-        )
+        ))
         .await?;
         return Ok(result);
     }

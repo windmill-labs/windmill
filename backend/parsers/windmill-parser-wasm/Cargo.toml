@@ -38,6 +38,7 @@ csharp-parser = [ "dep:windmill-parser-csharp"]
 nu-parser = [ "dep:windmill-parser-nu"]
 java-parser = [ "dep:windmill-parser-java"]
 ruby-parser = [ "dep:windmill-parser-ruby"]
+wac-parser = [ "dep:windmill-parser-wac"]
 
 [dependencies]
 anyhow.workspace = true
@@ -55,6 +56,7 @@ windmill-parser-csharp = { workspace = true, optional = true }
 windmill-parser-nu = { workspace = true, optional = true }
 windmill-parser-java = { workspace = true, optional = true }
 windmill-parser-ruby = { workspace = true, optional = true }
+windmill-parser-wac = { workspace = true, optional = true }
 wasm-bindgen.workspace = true
 
 serde_json.workspace = true

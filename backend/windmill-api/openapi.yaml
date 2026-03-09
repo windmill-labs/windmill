@@ -18815,7 +18815,6 @@ components:
       required:
         - path
         - summary
-        - description
         - content
         - language
 

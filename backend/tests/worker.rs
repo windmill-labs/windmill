@@ -3571,3 +3571,170 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
 
     Ok(())
 }
+
+#[cfg(all(feature = "quickjs", feature = "python"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_stop_after_all_iters_if_bad_expr_parallel_branchall(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let port = 123;
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "branches": [
+                        {"modules": [{
+                            "id": "b",
+                            "value": {
+                                "input_transforms": { "n": { "type": "javascript", "expr": "flow_input.n" } },
+                                "type": "rawscript",
+                                "language": "python3",
+                                "content": "def main(n): return n",
+                            },
+                        }]}
+                    ],
+                    "type": "branchall",
+                    "parallel": true,
+                },
+                "stop_after_all_iters_if": {
+                    "expr": "invalid!!!syntax",
+                    "skip_if_stopped": false,
+                },
+            },
+        ],
+    }))
+    .unwrap();
+    let job = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
+
+    let cjob = RunJob::from(job)
+        .arg("n", json!(42))
+        .run_until_complete(&db, false, port)
+        .await;
+
+    assert!(
+        !cjob.success,
+        "flow should fail when stop_after_all_iters_if has bad expression"
+    );
+
+    let result = cjob.json_result().unwrap();
+    let error_msg = result["error"]["message"].as_str().unwrap_or("");
+    assert!(
+        error_msg.contains("stop_after_all_iters_if"),
+        "error should mention stop_after_all_iters_if, got: {error_msg}"
+    );
+
+    Ok(())
+}
+
+#[cfg(all(feature = "quickjs", feature = "python"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_stop_after_all_iters_if_bad_expr_parallel_forloop(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let port = 123;
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": { "type": "javascript", "expr": "result.items" },
+                    "skip_failures": false,
+                    "parallel": true,
+                    "modules": [{
+                        "value": {
+                            "input_transforms": {
+                                "n": { "type": "javascript", "expr": "flow_input.iter.value" },
+                            },
+                            "type": "rawscript",
+                            "language": "python3",
+                            "content": "def main(n): return n",
+                        },
+                    }],
+                },
+                "stop_after_all_iters_if": {
+                    "expr": "invalid!!!syntax",
+                    "skip_if_stopped": false,
+                },
+            },
+        ],
+    }))
+    .unwrap();
+    let job = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
+
+    let cjob = RunJob::from(job)
+        .arg("items", json!([1, 2, 3]))
+        .run_until_complete(&db, false, port)
+        .await;
+
+    assert!(
+        !cjob.success,
+        "flow should fail when stop_after_all_iters_if has bad expression"
+    );
+
+    let result = cjob.json_result().unwrap();
+    let error_msg = result["error"]["message"].as_str().unwrap_or("");
+    assert!(
+        error_msg.contains("stop_after_all_iters_if"),
+        "error should mention stop_after_all_iters_if, got: {error_msg}"
+    );
+
+    Ok(())
+}
+
+#[cfg(all(feature = "quickjs", feature = "python"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_results_length_in_input_transform(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Step a returns a list, step b accesses results.a.length via input transform.
+    // This tests that the handle_full_regex fast path falls through to QuickJS
+    // when the SQL JSON path operator can't resolve JS properties like .length.
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "type": "rawscript",
+                    "language": "python3",
+                    "content": "def main(): return [10, 20, 30]",
+                },
+            },
+            {
+                "id": "b",
+                "value": {
+                    "input_transforms": {
+                        "v": { "type": "javascript", "expr": "results.a.length" },
+                    },
+                    "type": "rawscript",
+                    "language": "python3",
+                    "content": "def main(v): return v",
+                },
+            },
+        ],
+    }))
+    .unwrap();
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, port)
+            .await
+            .json_result()
+            .unwrap();
+
+    assert_eq!(
+        result,
+        json!(3),
+        "results.a.length should resolve to 3, not null"
+    );
+
+    Ok(())
+}
