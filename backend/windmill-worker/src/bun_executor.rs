@@ -1904,6 +1904,17 @@ async fn handle_dedicated_bunnative(
             None,
         );
 
+        // Pre-warm preprocessor isolate if the script has a preprocessor
+        let mut pre_warm = pre_arg_names.as_ref().map(|pre_names| {
+            PrewarmedIsolate::spawn(
+                env_code.clone(),
+                js_code.clone(),
+                ann.clone(),
+                pre_names.clone(),
+                Some("preprocessor".to_string()),
+            )
+        });
+
         let init_log = format!("dedicated worker nativets: {worker_name}\n\n");
         let alive = true;
         let mut killpill_rx = killpill_rx;
@@ -1973,15 +1984,17 @@ async fn handle_dedicated_bunnative(
 
                         if needs_preprocessing {
                             if let Some(ref pre_names) = pre_arg_names {
-                                // Run preprocessor in a separate isolate
-                                let mut pre_warm = PrewarmedIsolate::spawn(
-                                    env_code.clone(),
-                                    js_code.clone(),
-                                    ann.clone(),
-                                    pre_names.clone(),
-                                    Some("preprocessor".to_string()),
-                                );
-                                if let Err(e) = pre_warm.wait_ready().await {
+                                // Use the pre-warmed preprocessor isolate
+                                let mut pre_isolate = pre_warm.take().unwrap_or_else(|| {
+                                    PrewarmedIsolate::spawn(
+                                        env_code.clone(),
+                                        js_code.clone(),
+                                        ann.clone(),
+                                        pre_names.clone(),
+                                        Some("preprocessor".to_string()),
+                                    )
+                                });
+                                if let Err(e) = pre_isolate.wait_ready().await {
                                     tracing::error!("preprocessor isolate failed during init: {e}");
                                     let result = Arc::new(to_raw_value(&serde_json::json!({
                                         "message": format!("preprocessor isolate init failed: {e}"),
@@ -2011,10 +2024,25 @@ async fn handle_dedicated_bunnative(
                                         arg_names.clone(),
                                         None,
                                     );
+                                    pre_warm = Some(PrewarmedIsolate::spawn(
+                                        env_code.clone(),
+                                        js_code.clone(),
+                                        ann.clone(),
+                                        pre_names.clone(),
+                                        Some("preprocessor".to_string()),
+                                    ));
                                     continue;
                                 }
 
-                                let pre_executing = pre_warm.start_execution(args.clone());
+                                let pre_executing = pre_isolate.start_execution(args.clone());
+                                // Pipeline: start pre-warming the next preprocessor isolate
+                                pre_warm = Some(PrewarmedIsolate::spawn(
+                                    env_code.clone(),
+                                    js_code.clone(),
+                                    ann.clone(),
+                                    pre_names.clone(),
+                                    Some("preprocessor".to_string()),
+                                ));
                                 match pre_executing.wait().await {
                                     Ok(pre_result) => {
                                         if !pre_result.logs.is_empty() {
@@ -2097,8 +2125,8 @@ async fn handle_dedicated_bunnative(
                                                             preprocessed_args: None,
                                                             has_stream: Some(false),
                                                             from_cache: None,
-                                                            flow_runners: None,
-                                                            done_tx: None,
+                                                            flow_runners,
+                                                            done_tx,
                                                         }, true).await?;
                                                     }
                                                 }
@@ -2263,8 +2291,8 @@ async fn handle_dedicated_bunnative(
                                     preprocessed_args: None,
                                     has_stream: Some(false),
                                     from_cache: None,
-                                    flow_runners: None,
-                                    done_tx: None,
+                                    flow_runners,
+                                    done_tx,
                                 }, true).await?;
                             }
                         }
