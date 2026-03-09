@@ -68,6 +68,7 @@
 		showCustomResultPanel = false
 	}: Props = $props()
 
+
 	type DContent = {
 		mode: 'json' | Preview['language'] | 'plain'
 		title: string
@@ -92,7 +93,12 @@
 	}
 
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
-		return x as Record<string, WorkflowStatus>
+		if (!x || typeof x !== 'object') return {}
+		const result: Record<string, WorkflowStatus> = {}
+		for (const [k, v] of Object.entries(x)) {
+			if (!k.startsWith('_')) result[k] = v as WorkflowStatus
+		}
+		return result
 	}
 
 	let forceJson = $state(false)
