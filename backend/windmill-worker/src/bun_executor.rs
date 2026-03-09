@@ -1947,44 +1947,20 @@ async fn handle_dedicated_bunnative(
                             "{}".to_string()
                         };
 
-                        if let Err(e) = warm.wait_ready().await {
-                            tracing::error!("pre-warmed isolate failed during init: {e}");
-                            let result = Arc::new(to_raw_value(&serde_json::json!({
-                                "message": format!("isolate init failed: {e}"),
-                                "name": "Error",
-                            })));
-                            append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
-                            job_completed_tx.send_job(JobCompleted {
-                                job: MiniCompletedJob::from(job),
-                                result,
-                                result_columns: None,
-                                mem_peak: 0,
-                                canceled_by: None,
-                                success: false,
-                                cached_res_path: None,
-                                token: token.to_string(),
-                                duration: None,
-                                preprocessed_args: None,
-                                has_stream: Some(false),
-                                from_cache: None,
-                                flow_runners,
-                                done_tx,
-                            }, true).await?;
-                            warm = PrewarmedIsolate::spawn(
-                                env_code.clone(),
-                                js_code.clone(),
-                                ann.clone(),
-                                arg_names.clone(),
-                                None,
-                            );
-                            continue;
-                        }
+                        // Run the job: preprocess if needed, then execute main.
+                        // Produces (result, success, preprocessed_args, logs).
+                        let job_outcome: Result<(Arc<Box<RawValue>>, bool, Option<HashMap<String, Box<RawValue>>>, String), _> = async {
+                            warm.wait_ready().await.map_err(|e| {
+                                format!("isolate init failed: {e}")
+                            })?;
 
-                        let needs_preprocessing = job.preprocessed == Some(false);
+                            let needs_preprocessing = job.preprocessed == Some(false);
 
-                        if needs_preprocessing {
-                            if let Some(ref pre_names) = pre_arg_names {
-                                // Use the pre-warmed preprocessor isolate
+                            let (main_args, preprocessed) = if needs_preprocessing {
+                                let pre_names = pre_arg_names.as_ref().ok_or_else(|| {
+                                    "preprocessor function is missing".to_string()
+                                })?;
+
                                 let mut pre_isolate = pre_warm.take().unwrap_or_else(|| {
                                     PrewarmedIsolate::spawn(
                                         env_code.clone(),
@@ -1994,45 +1970,9 @@ async fn handle_dedicated_bunnative(
                                         Some("preprocessor".to_string()),
                                     )
                                 });
-                                if let Err(e) = pre_isolate.wait_ready().await {
-                                    tracing::error!("preprocessor isolate failed during init: {e}");
-                                    let result = Arc::new(to_raw_value(&serde_json::json!({
-                                        "message": format!("preprocessor isolate init failed: {e}"),
-                                        "name": "Error",
-                                    })));
-                                    append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
-                                    job_completed_tx.send_job(JobCompleted {
-                                        job: MiniCompletedJob::from(job),
-                                        result,
-                                        result_columns: None,
-                                        mem_peak: 0,
-                                        canceled_by: None,
-                                        success: false,
-                                        cached_res_path: None,
-                                        token: token.to_string(),
-                                        duration: None,
-                                        preprocessed_args: None,
-                                        has_stream: Some(false),
-                                        from_cache: None,
-                                        flow_runners,
-                                        done_tx,
-                                    }, true).await?;
-                                    warm = PrewarmedIsolate::spawn(
-                                        env_code.clone(),
-                                        js_code.clone(),
-                                        ann.clone(),
-                                        arg_names.clone(),
-                                        None,
-                                    );
-                                    pre_warm = Some(PrewarmedIsolate::spawn(
-                                        env_code.clone(),
-                                        js_code.clone(),
-                                        ann.clone(),
-                                        pre_names.clone(),
-                                        Some("preprocessor".to_string()),
-                                    ));
-                                    continue;
-                                }
+                                pre_isolate.wait_ready().await.map_err(|e| {
+                                    format!("preprocessor isolate init failed: {e}")
+                                })?;
 
                                 let pre_executing = pre_isolate.start_execution(args.clone());
                                 // Pipeline: start pre-warming the next preprocessor isolate
@@ -2043,259 +1983,90 @@ async fn handle_dedicated_bunnative(
                                     pre_names.clone(),
                                     Some("preprocessor".to_string()),
                                 ));
-                                match pre_executing.wait().await {
-                                    Ok(pre_result) => {
-                                        if !pre_result.logs.is_empty() {
-                                            append_logs(&id, &job.workspace_id, pre_result.logs, &db.into()).await;
-                                        }
-                                        match pre_result.result {
-                                            Ok(raw) => {
-                                                let preprocessed: HashMap<String, Box<RawValue>> =
-                                                    serde_json::from_str(raw.get()).map_err(|e| {
-                                                        error::Error::internal_err(format!(
-                                                            "error deserializing preprocessed args: {e:#}"
-                                                        ))
-                                                    })?;
-                                                let preprocessed_args_json = serde_json::to_string(&preprocessed)
-                                                    .unwrap_or_else(|_| "{}".to_string());
 
-                                                // Run main with preprocessed args
-                                                let executing = warm.start_execution(preprocessed_args_json);
-                                                warm = PrewarmedIsolate::spawn(
-                                                    env_code.clone(),
-                                                    js_code.clone(),
-                                                    ann.clone(),
-                                                    arg_names.clone(),
-                                                    None,
-                                                );
-
-                                                match executing.wait().await {
-                                                    Ok(main_result) => {
-                                                        let mut logs = init_log.clone();
-                                                        if !main_result.logs.is_empty() {
-                                                            logs.push_str(&main_result.logs);
-                                                        }
-                                                        append_logs(&id, &job.workspace_id, logs, &db.into()).await;
-
-                                                        let (result, success) = match main_result.result {
-                                                            Ok(raw) => (Arc::new(raw), true),
-                                                            Err(e) => (
-                                                                Arc::new(to_raw_value(&serde_json::json!({
-                                                                    "message": e,
-                                                                    "name": "Error",
-                                                                }))),
-                                                                false,
-                                                            ),
-                                                        };
-
-                                                        job_completed_tx.send_job(JobCompleted {
-                                                            job: MiniCompletedJob::from(job),
-                                                            result,
-                                                            result_columns: None,
-                                                            mem_peak: 0,
-                                                            canceled_by: None,
-                                                            success,
-                                                            cached_res_path: None,
-                                                            token: token.to_string(),
-                                                            duration: None,
-                                                            preprocessed_args: Some(preprocessed),
-                                                            has_stream: Some(false),
-                                                            from_cache: None,
-                                                            flow_runners,
-                                                            done_tx,
-                                                        }, true).await?;
-                                                    }
-                                                    Err(e) => {
-                                                        tracing::error!("isolate execution failed after preprocessing: {e}");
-                                                        append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
-                                                        let result = Arc::new(to_raw_value(&serde_json::json!({
-                                                            "message": format!("{e}"),
-                                                            "name": "Error",
-                                                        })));
-                                                        job_completed_tx.send_job(JobCompleted {
-                                                            job: MiniCompletedJob::from(job),
-                                                            result,
-                                                            result_columns: None,
-                                                            mem_peak: 0,
-                                                            canceled_by: None,
-                                                            success: false,
-                                                            cached_res_path: None,
-                                                            token: token.to_string(),
-                                                            duration: None,
-                                                            preprocessed_args: None,
-                                                            has_stream: Some(false),
-                                                            from_cache: None,
-                                                            flow_runners,
-                                                            done_tx,
-                                                        }, true).await?;
-                                                    }
-                                                }
-                                            }
-                                            Err(e) => {
-                                                tracing::error!("preprocessor execution failed: {e}");
-                                                append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
-                                                let result = Arc::new(to_raw_value(&serde_json::json!({
-                                                    "message": format!("preprocessor failed: {e}"),
-                                                    "name": "Error",
-                                                })));
-                                                job_completed_tx.send_job(JobCompleted {
-                                                    job: MiniCompletedJob::from(job),
-                                                    result,
-                                                    result_columns: None,
-                                                    mem_peak: 0,
-                                                    canceled_by: None,
-                                                    success: false,
-                                                    cached_res_path: None,
-                                                    token: token.to_string(),
-                                                    duration: None,
-                                                    preprocessed_args: None,
-                                                    has_stream: Some(false),
-                                                    from_cache: None,
-                                                    flow_runners,
-                                                    done_tx,
-                                                }, true).await?;
-                                                warm = PrewarmedIsolate::spawn(
-                                                    env_code.clone(),
-                                                    js_code.clone(),
-                                                    ann.clone(),
-                                                    arg_names.clone(),
-                                                    None,
-                                                );
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        tracing::error!("preprocessor isolate failed: {e}");
-                                        append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
-                                        let result = Arc::new(to_raw_value(&serde_json::json!({
-                                            "message": format!("preprocessor failed: {e}"),
-                                            "name": "Error",
-                                        })));
-                                        job_completed_tx.send_job(JobCompleted {
-                                            job: MiniCompletedJob::from(job),
-                                            result,
-                                            result_columns: None,
-                                            mem_peak: 0,
-                                            canceled_by: None,
-                                            success: false,
-                                            cached_res_path: None,
-                                            token: token.to_string(),
-                                            duration: None,
-                                            preprocessed_args: None,
-                                            has_stream: Some(false),
-                                            from_cache: None,
-                                            flow_runners,
-                                            done_tx,
-                                        }, true).await?;
-                                        warm = PrewarmedIsolate::spawn(
-                                            env_code.clone(),
-                                            js_code.clone(),
-                                            ann.clone(),
-                                            arg_names.clone(),
-                                            None,
-                                        );
-                                    }
+                                let pre_result = pre_executing.wait().await.map_err(|e| {
+                                    format!("preprocessor failed: {e}")
+                                })?;
+                                if !pre_result.logs.is_empty() {
+                                    append_logs(&id, &job.workspace_id, pre_result.logs, &db.into()).await;
                                 }
-                                continue;
+                                let raw = pre_result.result.map_err(|e| {
+                                    format!("preprocessor failed: {e}")
+                                })?;
+
+                                let preprocessed: HashMap<String, Box<RawValue>> =
+                                    serde_json::from_str(raw.get()).map_err(|e| {
+                                        format!("error deserializing preprocessed args: {e:#}")
+                                    })?;
+                                let main_args = serde_json::to_string(&preprocessed)
+                                    .unwrap_or_else(|_| "{}".to_string());
+                                (main_args, Some(preprocessed))
                             } else {
-                                // No preprocessor function found but job needs preprocessing
-                                tracing::error!("job requires preprocessing but script has no preprocessor function");
-                                let result = Arc::new(to_raw_value(&serde_json::json!({
-                                    "message": "preprocessor function is missing",
-                                    "name": "Error",
-                                })));
-                                append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
-                                job_completed_tx.send_job(JobCompleted {
-                                    job: MiniCompletedJob::from(job),
-                                    result,
-                                    result_columns: None,
-                                    mem_peak: 0,
-                                    canceled_by: None,
-                                    success: false,
-                                    cached_res_path: None,
-                                    token: token.to_string(),
-                                    duration: None,
-                                    preprocessed_args: None,
-                                    has_stream: Some(false),
-                                    from_cache: None,
-                                    flow_runners,
-                                    done_tx,
-                                }, true).await?;
-                                continue;
+                                (args, None)
+                            };
+
+                            let executing = warm.start_execution(main_args);
+                            // Pipeline: start pre-warming the next main isolate
+                            warm = PrewarmedIsolate::spawn(
+                                env_code.clone(),
+                                js_code.clone(),
+                                ann.clone(),
+                                arg_names.clone(),
+                                None,
+                            );
+
+                            let main_result = executing.wait().await.map_err(|e| {
+                                format!("{e}")
+                            })?;
+
+                            let mut logs = init_log.clone();
+                            if !main_result.logs.is_empty() {
+                                logs.push_str(&main_result.logs);
                             }
-                        }
 
-                        let executing = warm.start_execution(args);
+                            let (result, success) = match main_result.result {
+                                Ok(raw) => (Arc::new(raw), true),
+                                Err(e) => (
+                                    Arc::new(to_raw_value(&serde_json::json!({
+                                        "message": e,
+                                        "name": "Error",
+                                    }))),
+                                    false,
+                                ),
+                            };
 
-                        warm = PrewarmedIsolate::spawn(
-                            env_code.clone(),
-                            js_code.clone(),
-                            ann.clone(),
-                            arg_names.clone(),
-                            None,
-                        );
+                            Ok((result, success, preprocessed, logs))
+                        }.await;
 
-                        match executing.wait().await {
-                            Ok(prewarmed_result) => {
-                                let mut logs = init_log.clone();
-                                if !prewarmed_result.logs.is_empty() {
-                                    logs.push_str(&prewarmed_result.logs);
-                                }
-                                append_logs(&id, &job.workspace_id, logs, &db.into()).await;
-
-                                let (result, success) = match prewarmed_result.result {
-                                    Ok(raw) => (Arc::new(raw), true),
-                                    Err(e) => (
-                                        Arc::new(to_raw_value(&serde_json::json!({
-                                            "message": e,
-                                            "name": "Error",
-                                        }))),
-                                        false,
-                                    ),
-                                };
-
-                                job_completed_tx.send_job(JobCompleted {
-                                    job: MiniCompletedJob::from(job),
-                                    result,
-                                    result_columns: None,
-                                    mem_peak: 0,
-                                    canceled_by: None,
-                                    success,
-                                    cached_res_path: None,
-                                    token: token.to_string(),
-                                    duration: None,
-                                    preprocessed_args: None,
-                                    has_stream: Some(false),
-                                    from_cache: None,
-                                    flow_runners,
-                                    done_tx,
-                                }, true).await?;
-                            }
+                        let (result, success, preprocessed_args, logs) = match job_outcome {
+                            Ok(outcome) => outcome,
                             Err(e) => {
-                                tracing::error!("isolate execution failed: {e}");
-                                append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
+                                tracing::error!("bunnative dedicated worker error: {e}");
                                 let result = Arc::new(to_raw_value(&serde_json::json!({
-                                    "message": format!("{e}"),
+                                    "message": e,
                                     "name": "Error",
                                 })));
-                                job_completed_tx.send_job(JobCompleted {
-                                    job: MiniCompletedJob::from(job),
-                                    result,
-                                    result_columns: None,
-                                    mem_peak: 0,
-                                    canceled_by: None,
-                                    success: false,
-                                    cached_res_path: None,
-                                    token: token.to_string(),
-                                    duration: None,
-                                    preprocessed_args: None,
-                                    has_stream: Some(false),
-                                    from_cache: None,
-                                    flow_runners,
-                                    done_tx,
-                                }, true).await?;
+                                (result, false, None, init_log.clone())
                             }
-                        }
+                        };
+
+                        append_logs(&id, &job.workspace_id, logs, &db.into()).await;
+                        job_completed_tx.send_job(JobCompleted {
+                            job: MiniCompletedJob::from(job),
+                            result,
+                            result_columns: None,
+                            mem_peak: 0,
+                            canceled_by: None,
+                            success,
+                            cached_res_path: None,
+                            token: token.to_string(),
+                            duration: None,
+                            preprocessed_args,
+                            has_stream: Some(false),
+                            from_cache: None,
+                            flow_runners,
+                            done_tx,
+                        }, true).await?;
                     } else {
                         tracing::debug!("job channel closed for nativets dedicated worker");
                         break;
