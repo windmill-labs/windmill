@@ -121,11 +121,13 @@ async fn get_common_deno_proc_envs(
     }
 
     // Add proxy envs (including OTEL tracing proxy if enabled for deno)
-    for (k, v) in get_proxy_envs_for_lang(&ScriptLang::Deno)
-        .await
-        .unwrap_or_default()
-    {
-        deno_envs.insert(k.to_string(), v);
+    if let Some(conn) = conn {
+        for (k, v) in get_proxy_envs_for_lang(&ScriptLang::Deno, job_id, w_id, conn)
+            .await
+            .unwrap_or_default()
+        {
+            deno_envs.insert(k.to_string(), v);
+        }
     }
 
     return deno_envs;

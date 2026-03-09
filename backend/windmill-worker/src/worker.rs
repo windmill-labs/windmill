@@ -745,21 +745,37 @@ pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
 /// Otherwise, uses the standard HTTP_PROXY/HTTPS_PROXY from environment.
 pub async fn get_proxy_envs_for_lang(
     lang: &ScriptLang,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
 ) -> anyhow::Result<Vec<(&'static str, String)>> {
     #[cfg(all(feature = "private", feature = "enterprise"))]
     if is_otel_tracing_proxy_enabled_for_lang(lang).await {
-        return get_otel_tracing_proxy_envs().await;
+        return get_otel_tracing_proxy_envs(job_id, w_id, conn).await;
     }
-    let _ = lang;
+    let _ = (lang, job_id, w_id, conn);
     Ok(PROXY_ENVS.clone())
 }
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
-async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, String)>> {
-    let port = crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
+async fn get_otel_tracing_proxy_envs(
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> anyhow::Result<Vec<(&'static str, String)>> {
+    let port = match *crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
         .read()
         .await
-        .ok_or_else(|| anyhow::anyhow!("OTEL tracing proxy port not initialized"))?;
+    {
+        Some(p) => p,
+        None => {
+            let reason = "OTEL tracing proxy is enabled but not available (not initialized yet, or NUM_WORKERS > 1). \
+                This job's HTTP requests will not be traced.";
+            tracing::warn!("{}", reason);
+            append_logs(job_id, w_id, format!("\n[warning] {reason}\n"), conn).await;
+            return Ok(PROXY_ENVS.clone());
+        }
+    };
     let proxy_url = format!("http://127.0.0.1:{}", port);
     Ok(vec![
         ("HTTP_PROXY", proxy_url.clone()),
