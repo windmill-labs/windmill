@@ -288,6 +288,16 @@ def load_s3_file_reader(s3object: S3Object | str, s3_resource_path: str | None) 
 # '''
 def write_s3_file(s3object: S3Object | str | None, file_content: BufferedReader | bytes, s3_resource_path: str | None, content_type: str | None = None, content_disposition: str | None = None) -> S3Object
 
+# Permanently delete a file from the workspace S3 bucket.
+# 
+# '''python
+# from wmill import S3Object
+# 
+# s3_obj = S3Object(s3="/path/to/my_file.txt")
+# client.delete_s3_object(s3_obj)
+# '''
+def delete_s3_object(s3object: S3Object | str, s3_resource_path: str | None = None) -> None
+
 # Sign S3 objects for use by anonymous users in public apps.
 # 
 # Args:
@@ -506,18 +516,6 @@ def boto3_connection_settings(s3_resource_path: str = '') -> Boto3ConnectionSett
 #     State path string
 def get_state_path() -> str
 
-# Decorator to mark a function as a workflow task.
-# 
-# When executed inside a Windmill job, the decorated function runs as a
-# separate workflow step. Outside Windmill, it executes normally.
-# 
-# Args:
-#     tag: Optional worker tag for execution
-# 
-# Returns:
-#     Decorated function
-def task(*args, **kwargs)
-
 # Parse resource syntax from string.
 def parse_resource_syntax(s: str) -> Optional[str]
 
@@ -580,4 +578,94 @@ def execute()
 def infer_sql_type(value) -> str
 
 def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
+
+# Decorator that marks a function as a workflow task.
+# 
+# Works in both WAC v1 (sync, HTTP-based dispatch) and WAC v2
+# (async, checkpoint/replay) modes:
+# 
+# - **v2 (inside @workflow)**: dispatches as a checkpoint step.
+# - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
+# - **Standalone**: executes the function body directly.
+# 
+# Usage::
+# 
+#     @task
+#     async def extract_data(url: str): ...
+# 
+#     @task(path="f/external_script", timeout=600, tag="gpu")
+#     async def run_external(x: int): ...
+def task(_func = None, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+
+# Create a task that dispatches to a separate Windmill script.
+# 
+# Usage::
+# 
+#     extract = task_script("f/data/extract", timeout=600)
+# 
+#     @workflow
+#     async def main():
+#         data = await extract(url="https://...")
+def task_script(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+
+# Create a task that dispatches to a separate Windmill flow.
+# 
+# Usage::
+# 
+#     pipeline = task_flow("f/etl/pipeline", priority=10)
+# 
+#     @workflow
+#     async def main():
+#         result = await pipeline(input=data)
+def task_flow(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+
+# Decorator marking an async function as a workflow-as-code entry point.
+# 
+# The function must be **deterministic**: given the same inputs it must call
+# tasks in the same order on every replay. Branching on task results is fine
+# (results are replayed from checkpoint), but branching on external state
+# (current time, random values, external API calls) must use ``step()`` to
+# checkpoint the value so replays see the same result.
+def workflow(func)
+
+# Execute ``fn`` inline and checkpoint the result.
+# 
+# On replay the cached value is returned without re-executing ``fn``.
+# Use for lightweight deterministic operations (timestamps, random IDs,
+# config reads) that should not incur the overhead of a child job.
+async def step(name: str, fn)
+
+# Server-side sleep — suspend the workflow for the given duration without holding a worker.
+# 
+# Inside a @workflow, the parent job suspends and auto-resumes after ``seconds``.
+# Outside a workflow, falls back to ``asyncio.sleep``.
+async def sleep(seconds: int)
+
+# Suspend the workflow and wait for an external approval.
+# 
+# Use ``get_resume_urls()`` (wrapped in ``step()``) to obtain
+# resume/cancel/approval URLs before calling this function.
+# 
+# Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
+# 
+# Example::
+# 
+#     urls = await step("urls", lambda: get_resume_urls())
+#     await step("notify", lambda: send_email(urls["approvalPage"]))
+#     result = await wait_for_approval(timeout=3600)
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None) -> dict
+
+# Process items in parallel with optional concurrency control.
+# 
+# Each item is processed by calling ``fn(item)``, which should be a @task.
+# Items are dispatched in batches of ``concurrency`` (default: all at once).
+# 
+# Example::
+# 
+#     @task
+#     async def process(item: str):
+#         ...
+# 
+#     results = await parallel(items, process, concurrency=5)
+async def parallel(items, fn, concurrency: Optional[int] = None)
 
