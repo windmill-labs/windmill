@@ -79,7 +79,7 @@ async fn get_job_metrics(
     >,
 ) -> error::JsonResult<JobStatsResponse> {
     let records = sqlx::query_as::<_, JobStatsRecord>(
-        "SELECT workspace_id, job_id, metric_id, metric_name, metric_kind, scalar_int, scalar_float, timestamps, timeseries_int, timeseries_float, timeseries_start, offsets_ms FROM job_stats WHERE workspace_id = $1 AND job_id = $2",
+        "SELECT workspace_id, job_id, metric_id, metric_name, metric_kind, scalar_int, scalar_float, timestamps, timeseries_int, timeseries_float, timeseries_start, offsets_cs FROM job_stats WHERE workspace_id = $1 AND job_id = $2",
     )
     .bind(w_id)
     .bind(job_id)
