@@ -38,3 +38,20 @@ CREATE INDEX ix_audit_partitioned_timestamps ON audit_partitioned (timestamp DES
 CREATE INDEX idx_audit_partitioned_recent_login_activities
     ON audit_partitioned (timestamp, username)
     WHERE operation IN ('users.login', 'oauth.login', 'users.token.refresh');
+
+-- Grants (match the old audit table)
+GRANT ALL ON audit_partitioned TO windmill_user;
+GRANT ALL ON audit_partitioned TO windmill_admin;
+
+-- RLS (match the old audit table)
+ALTER TABLE audit_partitioned ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY admin_policy ON audit_partitioned FOR ALL TO windmill_admin USING (true);
+CREATE POLICY see_own ON audit_partitioned FOR ALL TO windmill_user
+    USING ((username)::text = current_setting('session.user'::text));
+CREATE POLICY schedule ON audit_partitioned FOR INSERT TO windmill_user
+    WITH CHECK ((username)::text ~~ 'schedule-%'::text);
+CREATE POLICY schedule_audit ON audit_partitioned FOR INSERT TO windmill_user
+    WITH CHECK ((parameters ->> 'end_user'::text) ~~ 'schedule-%'::text);
+CREATE POLICY webhook ON audit_partitioned FOR INSERT TO windmill_user
+    WITH CHECK ((username)::text ~~ 'webhook-%'::text);

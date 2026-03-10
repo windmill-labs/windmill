@@ -1033,8 +1033,10 @@ pub async fn delete_expired_items(db: &DB) -> () {
         let v = *AUDIT_LOG_RETENTION_DAYS.read().await;
         if v > 0 {
             v
-        } else {
+        } else if cfg!(feature = "enterprise") {
             365
+        } else {
+            14
         }
     };
     let audit_retention_secs: i64 = audit_retention_days * 60 * 60 * 24;
@@ -1049,9 +1051,6 @@ pub async fn delete_expired_items(db: &DB) -> () {
     {
         tracing::error!("Error deleting audit log: {:?}", e);
     }
-
-    // Manage audit_partitioned: create future partitions, drop expired ones
-    manage_audit_partitions(db, audit_retention_days).await;
 
     if let Err(e) = sqlx::query_scalar!(
         "DELETE FROM autoscaling_event WHERE applied_at <= now() - ($1::bigint::text || ' s')::interval",
@@ -1581,7 +1580,7 @@ pub async fn reload_audit_log_retention_days_setting(conn: &Connection) {
         conn,
         AUDIT_LOG_RETENTION_DAYS_SETTING,
         "AUDIT_LOG_RETENTION_DAYS",
-        365,
+        0, // 0 means use default: 365 for EE, 14 for CE
         AUDIT_LOG_RETENTION_DAYS.clone(),
         |x| x,
     )
@@ -2208,6 +2207,25 @@ pub async fn monitor_db(
         }
     };
 
+    // run every hour (120 iterations * 30s = 3600s)
+    let manage_audit_partitions_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
+            if let Some(db) = conn.as_sql() {
+                let audit_retention_days = {
+                    let v = *AUDIT_LOG_RETENTION_DAYS.read().await;
+                    if v > 0 {
+                        v
+                    } else if cfg!(feature = "enterprise") {
+                        365
+                    } else {
+                        14
+                    }
+                };
+                manage_audit_partitions(&db, audit_retention_days).await;
+            }
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -2230,6 +2248,7 @@ pub async fn monitor_db(
         native_triggers_sync_f,
         cleanup_notify_events_f,
         check_expiring_tokens_f,
+        manage_audit_partitions_f,
     );
 }
 
