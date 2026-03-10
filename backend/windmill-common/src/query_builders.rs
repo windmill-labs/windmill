@@ -26,6 +26,41 @@ where
 
 const WM_INTERNAL_PREFIX: &str = "-- WM_INTERNAL_DB_";
 
+/// Fields extracted from a WM_INTERNAL_DB marker for validation against app_version grid.
+pub struct MarkerIdentity {
+    pub table: serde_json::Value,
+    pub column_defs: serde_json::Value,
+    pub where_clause: serde_json::Value,
+}
+
+/// Extracts the identity fields (table, columnDefs, whereClause) from a WM_INTERNAL_DB marker.
+/// Returns `None` if the code is not a marker or is an operation we don't validate (e.g. UPDATE).
+pub fn extract_marker_identity(code: &str) -> Option<MarkerIdentity> {
+    let first_line = code.lines().next()?;
+    if !first_line.starts_with(WM_INTERNAL_PREFIX) {
+        return None;
+    }
+    let after_prefix = &first_line[WM_INTERNAL_PREFIX.len()..];
+    let (op, json_str) = match after_prefix.find(' ') {
+        Some(pos) => (&after_prefix[..pos], after_prefix[pos + 1..].trim()),
+        None => return None,
+    };
+
+    let json: serde_json::Value = serde_json::from_str(json_str).ok()?;
+    let table = json.get("table")?.clone();
+    let column_defs = match op {
+        "SELECT" | "COUNT" => json.get("columnDefs")?.clone(),
+        "DELETE" | "INSERT" => json.get("columns")?.clone(),
+        _ => return None,
+    };
+    let where_clause = json
+        .get("whereClause")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+
+    Some(MarkerIdentity { table, column_defs, where_clause })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DbType {

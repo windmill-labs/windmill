@@ -2025,6 +2025,7 @@ async fn execute_component(
             // - flow: `flow/<payload.path>`
             // - script: `script/<payload.path>`
             // - inline script: `rawscript/<sha256(raw_code.content)>`
+            let app_path = path;
             let path = match &payload {
                 // flow or script: just use the `payload.path`.
                 ExecuteApp { path: Some(path), .. } => path,
@@ -2060,8 +2061,43 @@ async fn execute_component(
                 .or(match policy.execution_mode {
                     ExecutionMode::Viewer => Some(&policy_triggerables_default),
                     _ => None,
-                })
-                .ok_or_else(|| Error::BadRequest(format!("Path {path} forbidden by policy")))?;
+                });
+
+            let policy_triggerables = match policy_triggerables {
+                Some(pt) => pt,
+                None => {
+                    // If the script is a WM_INTERNAL_DB marker, validate it against the
+                    // app_version grid: check that a dbexplorercomponent exists with matching
+                    // table, columnDefs, and whereClause.
+                    let validated = if let Some(raw_code) = &payload.raw_code {
+                        if let Some(identity) =
+                            windmill_common::query_builders::extract_marker_identity(
+                                &raw_code.content,
+                            )
+                        {
+                            validate_wm_internal_marker(
+                                &db,
+                                app_path,
+                                &w_id,
+                                payload.version,
+                                &identity,
+                            )
+                            .await?
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+                    if validated {
+                        &policy_triggerables_default
+                    } else {
+                        return Err(Error::BadRequest(format!(
+                            "Path {path} forbidden by policy"
+                        )));
+                    }
+                }
+            };
 
             (policy, policy_triggerables)
         }
@@ -2207,6 +2243,164 @@ async fn execute_component(
     tx.commit().await?;
 
     Ok(uuid.to_string())
+}
+
+/// DB type keys as they appear in the dbexplorercomponent's `type.selected` field,
+/// mapped to possible sub-configuration keys where the `table` field lives.
+const DB_EXPLORER_TYPE_KEYS: &[&str] = &[
+    "postgresql",
+    "mysql",
+    "ms_sql_server",
+    "snowflake",
+    "snowflake_oauth",
+    "bigquery",
+    "ducklake",
+    "datatable",
+];
+
+/// Validates a WM_INTERNAL_DB marker against the app_version grid.
+/// Checks that at least one dbexplorercomponent has matching table, columnDefs, and whereClause.
+async fn validate_wm_internal_marker(
+    db: &DB,
+    app_path: &str,
+    w_id: &str,
+    version: Option<i64>,
+    identity: &windmill_common::query_builders::MarkerIdentity,
+) -> Result<bool> {
+    let value: Option<serde_json::Value> = if let Some(v) = version {
+        sqlx::query_scalar!("SELECT value FROM app_version WHERE id = $1", v)
+            .fetch_optional(db)
+            .await?
+    } else {
+        sqlx::query_scalar!(
+            "SELECT av.value FROM app_version av
+             JOIN app a ON a.id = av.app_id
+             WHERE a.path = $1 AND a.workspace_id = $2
+             ORDER BY av.id DESC LIMIT 1",
+            app_path,
+            w_id,
+        )
+        .fetch_optional(db)
+        .await?
+    };
+
+    let value = match value {
+        Some(v) => v,
+        None => return Ok(false),
+    };
+
+    // Search grid and subgrids for matching dbexplorercomponent
+    if let Some(grid) = value.get("grid").and_then(|g| g.as_array()) {
+        if grid_contains_matching_dbexplorer(grid, identity) {
+            return Ok(true);
+        }
+    }
+    if let Some(subgrids) = value.get("subgrids").and_then(|s| s.as_object()) {
+        for (_key, sub_grid) in subgrids {
+            if let Some(items) = sub_grid.as_array() {
+                if grid_contains_matching_dbexplorer(items, identity) {
+                    return Ok(true);
+                }
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+fn grid_contains_matching_dbexplorer(
+    grid: &[serde_json::Value],
+    identity: &windmill_common::query_builders::MarkerIdentity,
+) -> bool {
+    for item in grid {
+        let data = match item.get("data") {
+            Some(d) => d,
+            None => continue,
+        };
+
+        if data.get("type").and_then(|t| t.as_str()) != Some("dbexplorercomponent") {
+            continue;
+        }
+
+        let config = match data.get("configuration") {
+            Some(c) => c,
+            None => continue,
+        };
+
+        // Check columnDefs
+        let stored_column_defs = config.get("columnDefs").and_then(|cd| cd.get("value"));
+        if stored_column_defs != Some(&identity.column_defs) {
+            continue;
+        }
+
+        // Check whereClause
+        let stored_where = config.get("whereClause").and_then(|wc| wc.get("value"));
+        let marker_where = match &identity.where_clause {
+            serde_json::Value::Null => None,
+            v => Some(v),
+        };
+        // Stored where is typically a string (possibly empty). Treat empty string and null/missing as equivalent.
+        let stored_is_empty = stored_where
+            .map(|v| v.as_str().map_or(v.is_null(), |s| s.is_empty()))
+            .unwrap_or(true);
+        let marker_is_empty = marker_where
+            .map(|v| v.as_str().map_or(v.is_null(), |s| s.is_empty()))
+            .unwrap_or(true);
+
+        if stored_is_empty && marker_is_empty {
+            // Both empty — match
+        } else if stored_where != marker_where.or(Some(&serde_json::Value::Null)) {
+            continue;
+        }
+
+        // Check table: look in the selected db type's configuration
+        let type_config = match config.get("type") {
+            Some(tc) => tc,
+            None => continue,
+        };
+        let selected = type_config.get("selected").and_then(|s| s.as_str());
+        let mut table_matched = false;
+
+        if let Some(sel) = selected {
+            if let Some(stored_table) = type_config
+                .get("configuration")
+                .and_then(|c| c.get(sel))
+                .and_then(|db_conf| db_conf.get("table"))
+                .and_then(|t| t.get("value"))
+            {
+                if stored_table == &identity.table {
+                    table_matched = true;
+                }
+            }
+        }
+
+        // Fallback: check all known db type keys
+        if !table_matched {
+            if let Some(configurations) =
+                type_config.get("configuration").and_then(|c| c.as_object())
+            {
+                for key in DB_EXPLORER_TYPE_KEYS {
+                    if let Some(stored_table) = configurations
+                        .get(*key)
+                        .and_then(|db_conf| db_conf.get("table"))
+                        .and_then(|t| t.get("value"))
+                    {
+                        if stored_table == &identity.table {
+                            table_matched = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if !table_matched {
+            continue;
+        }
+
+        return true;
+    }
+    false
 }
 
 #[cfg(not(feature = "parquet"))]
