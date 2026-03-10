@@ -1,0 +1,59 @@
+name: Git Sync Integration Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/windmill-common/src/workspaces.rs"
+      - "backend/windmill-git-sync/**"
+      - "backend/ee-repo-ref.txt"
+      - "frontend/src/lib/hubPaths.json"
+      - "integration_tests/test/git_sync_test.py"
+      - "integration_tests/test/wmill_integration_test_utils.py"
+      - "integration_tests/docker-compose.git-sync.yml"
+      - "integration_tests/run_git_sync.sh"
+      - ".github/workflows/git-sync-test.yml"
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "backend/windmill-common/src/workspaces.rs"
+      - "backend/windmill-git-sync/**"
+      - "backend/ee-repo-ref.txt"
+      - "frontend/src/lib/hubPaths.json"
+      - "integration_tests/test/git_sync_test.py"
+      - "integration_tests/test/wmill_integration_test_utils.py"
+      - "integration_tests/docker-compose.git-sync.yml"
+      - "integration_tests/run_git_sync.sh"
+      - ".github/workflows/git-sync-test.yml"
+
+concurrency:
+  group: git-sync-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  git_sync_test:
+    runs-on: ubicloud
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Pull EE image
+        run: |
+          source integration_tests/common.sh
+          docker pull ${WM_IMAGE}:${WM_VERSION}
+
+      - name: Run git sync tests
+        timeout-minutes: 15
+        env:
+          LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
+        run: cd integration_tests && ./run_git_sync.sh
+
+      - name: Archive logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Git Sync Integration Tests Logs
+          path: |
+            integration_tests/logs
