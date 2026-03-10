@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.653.0](https://github.com/windmill-labs/windmill/compare/v1.652.0...v1.653.0) (2026-03-10)
+
+
+### Features
+
+* add indexer time window setting (default 7 days) ([#8290](https://github.com/windmill-labs/windmill/issues/8290)) ([0c4d72c](https://github.com/windmill-labs/windmill/commit/0c4d72cfe38d61cf3f6e9bc31056005f1adb494d))
+* add slack connection fields to workspace settings export/import ([#8287](https://github.com/windmill-labs/windmill/issues/8287)) ([39e77ec](https://github.com/windmill-labs/windmill/commit/39e77ecd002b41630fa8d146ee0f15369656acda))
+
+
+### Performance Improvements
+
+* optimize job_stats storage for timestamps and zero-memory jobs ([#8289](https://github.com/windmill-labs/windmill/issues/8289)) ([2d8335d](https://github.com/windmill-labs/windmill/commit/2d8335dc43a7cb182eb5a058119d8b0be067cdfd))
+
 ## [1.652.0](https://github.com/windmill-labs/windmill/compare/v1.651.1...v1.652.0) (2026-03-09)
 
 
