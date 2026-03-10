@@ -20,11 +20,17 @@ use crate::ai::{
 // Query Builder Implementation
 // ============================================================================
 
-pub struct GoogleAIQueryBuilder;
+pub struct GoogleAIQueryBuilder {
+    platform: AIPlatform,
+}
 
 impl GoogleAIQueryBuilder {
-    pub fn new() -> Self {
-        Self
+    pub fn new(platform: AIPlatform) -> Self {
+        Self { platform }
+    }
+
+    fn is_vertex(&self) -> bool {
+        self.platform == AIPlatform::GoogleVertexAi
     }
 
     async fn build_text_request(
@@ -260,14 +266,30 @@ impl QueryBuilder for GoogleAIQueryBuilder {
     }
 
     fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String {
-        match output_type {
-            OutputType::Text => {
-                format!("{}/models/{}:streamGenerateContent?alt=sse", base_url, model)
+        let base_url = base_url.trim_end_matches('/');
+        if self.is_vertex() {
+            // Vertex AI: base_url is .../publishers/google/models
+            match output_type {
+                OutputType::Text => {
+                    format!("{}/{}:streamGenerateContent?alt=sse", base_url, model)
+                }
+                OutputType::Image => {
+                    let url_suffix =
+                        if model.contains("imagen") { "predict" } else { "generateContent" };
+                    format!("{}/{}:{}", base_url, model, url_suffix)
+                }
             }
-            OutputType::Image => {
-                let url_suffix =
-                    if model.contains("imagen") { "predict" } else { "generateContent" };
-                format!("{}/models/{}:{}", base_url, model, url_suffix)
+        } else {
+            // Standard Google AI: base_url is generativelanguage.googleapis.com/v1beta
+            match output_type {
+                OutputType::Text => {
+                    format!("{}/models/{}:streamGenerateContent?alt=sse", base_url, model)
+                }
+                OutputType::Image => {
+                    let url_suffix =
+                        if model.contains("imagen") { "predict" } else { "generateContent" };
+                    format!("{}/models/{}:{}", base_url, model, url_suffix)
+                }
             }
         }
     }
@@ -278,6 +300,12 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         _base_url: &str,
         _output_type: &OutputType,
     ) -> Vec<(&'static str, String)> {
-        vec![("x-goog-api-key", api_key.to_string())]
+        if self.is_vertex() {
+            // Vertex AI uses OAuth2 Bearer token
+            vec![("Authorization", format!("Bearer {}", api_key))]
+        } else {
+            // Standard Google AI uses API key
+            vec![("x-goog-api-key", api_key.to_string())]
+        }
     }
 }
