@@ -517,6 +517,51 @@ fn print_help() {
     println!("- At startup, Windmill logs currently set configuration keys for visibility.");
 }
 
+async fn resync_custom_instance_user_pwd_if_needed(db: &Pool<Postgres>) {
+    use windmill_common::utils::get_custom_pg_instance_password;
+    use windmill_common::{get_database_url, PgDatabase};
+
+    let user_pwd = match get_custom_pg_instance_password(db).await {
+        Ok(pwd) => pwd,
+        Err(_) => {
+            // Setting doesn't exist yet (fresh install or pre-migration), skip check
+            return;
+        }
+    };
+
+    let mut pg_creds = match get_database_url().await {
+        Ok(url) => match PgDatabase::parse_uri(&url.as_str().await) {
+            Ok(creds) => creds,
+            Err(e) => {
+                tracing::warn!("Failed to parse database URL for custom_instance_user check: {e}");
+                return;
+            }
+        },
+        Err(e) => {
+            tracing::warn!("Failed to get database URL for custom_instance_user check: {e}");
+            return;
+        }
+    };
+
+    pg_creds.user = Some("custom_instance_user".to_string());
+    pg_creds.password = Some(user_pwd);
+
+    match pg_creds.connect().await {
+        Ok(_) => {
+            tracing::info!("custom_instance_user password is in sync");
+        }
+        Err(e) => {
+            tracing::warn!("custom_instance_user password is out of sync ({e}), refreshing...");
+            if let Err(e) = windmill_api_settings::refresh_custom_instance_user_pwd_inner(db).await
+            {
+                tracing::error!("Failed to refresh custom_instance_user password: {e}");
+            } else {
+                tracing::info!("Successfully refreshed custom_instance_user password");
+            }
+        }
+    }
+}
+
 async fn windmill_main() -> anyhow::Result<()> {
     let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
@@ -837,6 +882,9 @@ async fn windmill_main() -> anyhow::Result<()> {
         .await?;
 
         // NOTE: Variable/resource cache initialization moved to API server in windmill-api
+
+        // Check if custom_instance_user password is in sync
+        resync_custom_instance_user_pwd_if_needed(&db).await;
 
         Connection::Sql(db)
     };

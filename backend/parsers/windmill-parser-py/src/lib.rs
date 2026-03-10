@@ -296,11 +296,14 @@ pub fn parse_python_signature(
 
     // Check if main function was found
     if params.is_none() {
+        let is_wac_v2 = (code.contains("@workflow") || code.contains("workflow("))
+            && (code.contains("@task") || code.contains("task("))
+            && (code.contains("import wmill") || code.contains("from wmill"));
         return Ok(MainArgSignature {
             star_args: false,
             star_kwargs: false,
             args: vec![],
-            no_main_func: Some(true),
+            no_main_func: Some(!is_wac_v2),
             has_preprocessor: Some(has_preprocessor),
         });
     }
