@@ -89,7 +89,7 @@
 			disabled={eeOnly && !$enterpriseLicense}
 			on:change={(e) => {
 				if (e.detail) {
-					if (name === 'teams' || name === 'microsoft') {
+					if (name === 'teams') {
 						value = { id: '', secret: '', tenant: '' }
 					} else {
 						value = { id: '', secret: '' }
