@@ -1,4 +1,4 @@
-import { JobService, ResourceService, type ScriptLang } from '$lib/gen'
+import { JobService, ResourceService } from '$lib/gen'
 
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 import type { DbInput } from '$lib/components/dbTypes'
@@ -106,23 +106,6 @@ export async function loadAllTablesMetaData(
 		const dbArg = getDatabaseArg(input)
 		const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
 
-		// BigQuery all-tables uses bun language (not SQL) — can't use a marker
-		if (input.type === 'database' && input.resourceType === 'bigquery') {
-			let { language, query } = await makeBigQueryAllTablesQuery(input, workspace)
-			let result = (await runScriptAndPollResult({
-				workspace,
-				requestBody: { language, content: query, args: dbArg }
-			})) as ({ table_name: string; schema_name?: string } & object)[]
-			const map: Record<string, TableMetadata> = {}
-			for (const _col of result) {
-				const col = lowercaseKeys(_col)
-				const tableKey = col.schema_name ? `${col.schema_name}.${col.table_name}` : col.table_name
-				map[tableKey] ??= []
-				map[tableKey].push(col)
-			}
-			return map
-		}
-
 		// MySQL needs the database name for metadata queries
 		let databaseName: string | undefined
 		if (input.type === 'database' && input.resourceType === 'mysql') {
@@ -160,47 +143,6 @@ export async function loadAllTablesMetaData(
 		sendUserToast('Error loading tables metadata: ' + e, 'error')
 		throw e
 	}
-}
-
-/**
- * BigQuery all-tables metadata uses bun (JS) language, not SQL.
- * This cannot be a WM_INTERNAL_DB marker.
- */
-async function makeBigQueryAllTablesQuery(
-	input: DbInput,
-	_workspace: string
-): Promise<{ query: string; language: ScriptLang }> {
-	const query = `import { BigQuery } from '@google-cloud/bigquery@7.5.0';
-export async function main(database: bigquery) {
-const bq = new BigQuery({
-	credentials: database
-})
-const [datasets] = await bq.getDatasets();
-if (!datasets) return {}
-const schema = {} as any
-let queries = datasets.map(dataset => \`
-	(SELECT
-    c.COLUMN_NAME as field,
-		'\${dataset.id}' as schema_name,
-		c.TABLE_NAME as table_name,
-    DATA_TYPE as DataType,
-    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
-    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,
-    'No' as IsIdentity,
-    IS_NULLABLE as IsNullable,
-    false as IsEnum
-FROM
-    \\\`\${dataset.id}\\\`.INFORMATION_SCHEMA.COLUMNS c
-    LEFT JOIN
-    \\\`\${dataset.id}\\\`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
-    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
-ORDER BY c.ORDINAL_POSITION)\`
-)
-let query = queries.join('\\nUNION ALL \\n')
-const [rows] = await bq.query(query)
-return rows
-}`
-	return { query, language: 'bun' }
 }
 
 type SnowflakeShowPrimaryKeysResult = {

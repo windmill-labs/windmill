@@ -190,14 +190,23 @@ fn wrap_ducklake_query(query: &str, ducklake: &str) -> String {
     format!("{}{}{}", &query[..insert_pos], attach, &query[insert_pos..])
 }
 
+/// Result of expanding a WM_INTERNAL_DB marker.
+#[derive(Debug, PartialEq)]
+pub struct ExpandedQuery {
+    pub code: String,
+    /// If set, the worker should use this language instead of the original.
+    /// Used when the expanded code is in a different language (e.g. BigQuery all-tables uses Bun).
+    pub language_override: Option<ScriptLang>,
+}
+
 /// Checks if a SQL script is a WM_INTERNAL_DB marker and expands it into real SQL.
 /// Returns `None` if the script is not a marker (regular SQL passthrough).
-/// Returns `Some(Ok(sql))` on successful expansion.
+/// Returns `Some(Ok(expanded))` on successful expansion.
 /// Returns `Some(Err(msg))` if the marker is detected but malformed.
 pub fn try_expand_internal_db_query(
     code: &str,
     lang: &ScriptLang,
-) -> Option<Result<String, String>> {
+) -> Option<Result<ExpandedQuery, String>> {
     let first_line = code.lines().next()?;
     if !first_line.starts_with(WM_INTERNAL_PREFIX) {
         return None;
@@ -224,25 +233,37 @@ pub fn try_expand_internal_db_query(
 
     let result = match op {
         // Data operations
-        "SELECT" => expand_select(json_str, db_type),
-        "COUNT" => expand_count(json_str, db_type),
-        "DELETE" => expand_delete(json_str, db_type),
-        "INSERT" => expand_insert(json_str, db_type),
-        "UPDATE" => expand_update(json_str, db_type),
+        "SELECT" => expand_select(json_str, db_type).map(ExpandedQuery::sql),
+        "COUNT" => expand_count(json_str, db_type).map(ExpandedQuery::sql),
+        "DELETE" => expand_delete(json_str, db_type).map(ExpandedQuery::sql),
+        "INSERT" => expand_insert(json_str, db_type).map(ExpandedQuery::sql),
+        "UPDATE" => expand_update(json_str, db_type).map(ExpandedQuery::sql),
         // Schema DDL operations
-        "DROP_TABLE" => expand_drop_table(json_str, db_type),
-        "CREATE_TABLE" => expand_create_table(json_str, db_type),
-        "ALTER_TABLE" => expand_alter_table(json_str, db_type),
-        "CREATE_SCHEMA" => expand_create_schema(json_str, db_type),
-        "DROP_SCHEMA" => expand_drop_schema(json_str, db_type),
+        "DROP_TABLE" => expand_drop_table(json_str, db_type).map(ExpandedQuery::sql),
+        "CREATE_TABLE" => expand_create_table(json_str, db_type).map(ExpandedQuery::sql),
+        "ALTER_TABLE" => expand_alter_table(json_str, db_type).map(ExpandedQuery::sql),
+        "CREATE_SCHEMA" => expand_create_schema(json_str, db_type).map(ExpandedQuery::sql),
+        "DROP_SCHEMA" => expand_drop_schema(json_str, db_type).map(ExpandedQuery::sql),
         // Metadata queries
         "LOAD_TABLE_METADATA" => expand_load_table_metadata(json_str, db_type),
-        "FOREIGN_KEYS" => expand_foreign_keys(json_str, db_type),
-        "PRIMARY_KEY_CONSTRAINT" => expand_primary_key_constraint(json_str, db_type),
+        "FOREIGN_KEYS" => expand_foreign_keys(json_str, db_type).map(ExpandedQuery::sql),
+        "PRIMARY_KEY_CONSTRAINT" => {
+            expand_primary_key_constraint(json_str, db_type).map(ExpandedQuery::sql)
+        }
         _ => Err(format!("Unknown WM_INTERNAL_DB operation: {}", op)),
     };
 
     Some(result)
+}
+
+impl ExpandedQuery {
+    fn sql(code: String) -> Self {
+        Self { code, language_override: None }
+    }
+
+    fn with_language(code: String, lang: ScriptLang) -> Self {
+        Self { code, language_override: Some(lang) }
+    }
 }
 
 fn expand_select(json_str: &str, db_type: DbType) -> Result<String, String> {
@@ -2121,12 +2142,22 @@ fn render_rename_column(
 // Metadata queries
 // ===========================================================================
 
-fn expand_load_table_metadata(json_str: &str, db_type: DbType) -> Result<String, String> {
+fn expand_load_table_metadata(json_str: &str, db_type: DbType) -> Result<ExpandedQuery, String> {
     let p: LoadTableMetadataPayload = serde_json::from_str(json_str)
         .map_err(|e| format!("Invalid LOAD_TABLE_METADATA payload: {}", e))?;
+
+    // BigQuery all-tables requires a Bun (JS) script, not SQL
+    if db_type == DbType::Bigquery && p.table.is_none() {
+        let code = make_bigquery_all_tables_bun_script();
+        return Ok(ExpandedQuery::with_language(code, ScriptLang::Bun));
+    }
+
     let query =
         make_load_table_metadata_query(db_type, p.table.as_deref(), p.database_name.as_deref())?;
-    Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+    Ok(ExpandedQuery::sql(maybe_wrap_ducklake(
+        query,
+        p.ducklake.as_deref(),
+    )))
 }
 
 fn make_load_table_metadata_query(
@@ -2244,22 +2275,55 @@ WHERE table_schema = current_schema()",
             ))
         }
         DbType::Bigquery => {
-            if let Some(t) = table {
-                let parts: Vec<&str> = t.splitn(2, '.').collect();
-                if parts.len() < 2 {
-                    return Err("BigQuery table must be in dataset.table format".to_string());
-                }
-                let dataset = parts[0];
-                let tname = parts[1];
-                Ok(format!(
-                    "SELECT \n    c.COLUMN_NAME as field,\n    DATA_TYPE as DataType,\n    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,\n    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,\n    'No' as IsIdentity,\n    IS_NULLABLE as IsNullable,\n    false as IsEnum\nFROM\n    {}.INFORMATION_SCHEMA.COLUMNS c\n    LEFT JOIN\n    {}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p\n    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME\nWHERE   \n    c.TABLE_NAME = '{}'\norder by c.ORDINAL_POSITION;",
-                    dataset, dataset, tname
-                ))
-            } else {
-                Err("BigQuery all-tables metadata is not supported via markers (requires Bun runtime)".to_string())
+            let t = table.ok_or("BigQuery table must be in dataset.table format")?;
+            let parts: Vec<&str> = t.splitn(2, '.').collect();
+            if parts.len() < 2 {
+                return Err("BigQuery table must be in dataset.table format".to_string());
             }
+            let dataset = parts[0];
+            let tname = parts[1];
+            Ok(format!(
+                "SELECT \n    c.COLUMN_NAME as field,\n    DATA_TYPE as DataType,\n    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,\n    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,\n    'No' as IsIdentity,\n    IS_NULLABLE as IsNullable,\n    false as IsEnum\nFROM\n    {}.INFORMATION_SCHEMA.COLUMNS c\n    LEFT JOIN\n    {}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p\n    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME\nWHERE   \n    c.TABLE_NAME = '{}'\norder by c.ORDINAL_POSITION;",
+                dataset, dataset, tname
+            ))
         }
     }
+}
+
+/// BigQuery all-tables metadata requires querying each dataset's INFORMATION_SCHEMA,
+/// which can only be done via the BigQuery JS SDK. This generates a Bun script.
+fn make_bigquery_all_tables_bun_script() -> String {
+    r#"import { BigQuery } from '@google-cloud/bigquery@7.5.0';
+export async function main(database: bigquery) {
+const bq = new BigQuery({
+	credentials: database
+})
+const [datasets] = await bq.getDatasets();
+if (!datasets) return {}
+const schema = {} as any
+let queries = datasets.map(dataset => `
+	(SELECT
+    c.COLUMN_NAME as field,
+		'${dataset.id}' as schema_name,
+		c.TABLE_NAME as table_name,
+    DATA_TYPE as DataType,
+    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
+    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,
+    'No' as IsIdentity,
+    IS_NULLABLE as IsNullable,
+    false as IsEnum
+FROM
+    \`${dataset.id}\`.INFORMATION_SCHEMA.COLUMNS c
+    LEFT JOIN
+    \`${dataset.id}\`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
+    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
+ORDER BY c.ORDINAL_POSITION)`
+)
+let query = queries.join('\nUNION ALL \n')
+const [rows] = await bq.query(query)
+return rows
+}"#
+    .to_string()
 }
 
 // --- Relational keys queries ---
@@ -3214,12 +3278,20 @@ mod tests {
     // WM_INTERNAL_DB expansion
     // -----------------------------------------------------------------------
 
+    /// Helper: expand a marker and return just the SQL code string.
+    fn expand_code(marker: &str, lang: &ScriptLang) -> String {
+        try_expand_internal_db_query(marker, lang)
+            .expect("should be recognized as a marker")
+            .expect("expansion should succeed")
+            .code
+    }
+
     #[test]
     fn test_expand_select_marker() {
         let marker = r#"-- WM_INTERNAL_DB_SELECT {"table":"my_table","columnDefs":[{"field":"id","datatype":"int4"},{"field":"name","datatype":"text"}]}"#;
         let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql);
         assert!(result.is_some());
-        let sql = result.unwrap().unwrap();
+        let sql = result.unwrap().unwrap().code;
         assert!(sql.contains("SELECT \"id\"::text, \"name\"::text FROM my_table"));
         assert!(sql.contains("LIMIT $1::INT OFFSET $2::INT"));
     }
@@ -3227,8 +3299,7 @@ mod tests {
     #[test]
     fn test_expand_select_with_where_and_options() {
         let marker = r#"-- WM_INTERNAL_DB_SELECT {"table":"t","columnDefs":[{"field":"id","datatype":"int4"}],"whereClause":"active = true","limit":50,"offset":10,"fixPgIntTypes":true}"#;
-        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql);
-        let sql = result.unwrap().unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("WHERE active = true AND"));
         assert!(sql.contains("pg_typeof(\"id\")"));
     }
@@ -3236,8 +3307,7 @@ mod tests {
     #[test]
     fn test_expand_count_marker() {
         let marker = r#"-- WM_INTERNAL_DB_COUNT {"table":"my_table","columnDefs":[{"field":"id","datatype":"int4"}]}"#;
-        let result = try_expand_internal_db_query(marker, &ScriptLang::Mysql);
-        let sql = result.unwrap().unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(sql.contains("SELECT COUNT(*) as count FROM my_table"));
         assert!(sql.contains(":quicksearch"));
     }
@@ -3245,8 +3315,7 @@ mod tests {
     #[test]
     fn test_expand_delete_marker() {
         let marker = r#"-- WM_INTERNAL_DB_DELETE {"table":"my_table","columns":[{"field":"id","datatype":"int4"}]}"#;
-        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql);
-        let sql = result.unwrap().unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("DELETE FROM my_table"));
         assert!(sql.contains("RETURNING 1;"));
     }
@@ -3254,16 +3323,14 @@ mod tests {
     #[test]
     fn test_expand_insert_marker() {
         let marker = r#"-- WM_INTERNAL_DB_INSERT {"table":"my_table","columns":[{"field":"id","datatype":"int4"},{"field":"name","datatype":"text"}]}"#;
-        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql);
-        let sql = result.unwrap().unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("INSERT INTO my_table (id, name) VALUES ($1::int4, $2::text)"));
     }
 
     #[test]
     fn test_expand_update_marker() {
         let marker = r#"-- WM_INTERNAL_DB_UPDATE {"table":"my_table","column":{"field":"name","datatype":"text"},"columns":[{"field":"id","datatype":"int4"}]}"#;
-        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql);
-        let sql = result.unwrap().unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("UPDATE my_table SET name = $1::text::text"));
         assert!(sql.contains("RETURNING 1"));
     }
@@ -3271,8 +3338,7 @@ mod tests {
     #[test]
     fn test_expand_with_ducklake() {
         let marker = r#"-- WM_INTERNAL_DB_SELECT {"table":"my_table","columnDefs":[{"field":"id","datatype":"int4"}],"ducklake":"my_lake"}"#;
-        let result = try_expand_internal_db_query(marker, &ScriptLang::DuckDb);
-        let sql = result.unwrap().unwrap();
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.contains("ATTACH 'ducklake://my_lake' AS dl;USE dl;"));
         assert!(sql.contains("SELECT \"id\" FROM my_table"));
     }
@@ -3301,8 +3367,7 @@ mod tests {
     #[test]
     fn test_expand_mysql_select() {
         let marker = r#"-- WM_INTERNAL_DB_SELECT {"table":"users","columnDefs":[{"field":"id","datatype":"int"},{"field":"name","datatype":"varchar"}]}"#;
-        let result = try_expand_internal_db_query(marker, &ScriptLang::Mysql);
-        let sql = result.unwrap().unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(sql.contains("SELECT `id`, `name` FROM users"));
         assert!(sql.contains("LIMIT :limit OFFSET :offset"));
     }
@@ -3473,36 +3538,28 @@ mod tests {
     #[test]
     fn test_expand_drop_table_simple() {
         let marker = r#"-- WM_INTERNAL_DB_DROP_TABLE {"table":"users"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert_eq!(sql, "DROP TABLE users;");
     }
 
     #[test]
     fn test_expand_drop_table_with_schema() {
         let marker = r#"-- WM_INTERNAL_DB_DROP_TABLE {"table":"users","schema":"myschema"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert_eq!(sql, "DROP TABLE myschema.users;");
     }
 
     #[test]
     fn test_expand_drop_table_mysql_ignores_schema() {
         let marker = r#"-- WM_INTERNAL_DB_DROP_TABLE {"table":"users","schema":"myschema"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mysql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mysql);
         assert_eq!(sql, "DROP TABLE users;");
     }
 
     #[test]
     fn test_expand_drop_table_with_ducklake() {
         let marker = r#"-- WM_INTERNAL_DB_DROP_TABLE {"table":"users","ducklake":"my_lake"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::DuckDb)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.contains("ATTACH 'ducklake://my_lake' AS dl;USE dl;"));
         assert!(sql.contains("DROP TABLE users;"));
     }
@@ -3514,27 +3571,21 @@ mod tests {
     #[test]
     fn test_expand_create_schema() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_SCHEMA {"schema":"new_schema"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert_eq!(sql, "CREATE SCHEMA new_schema;");
     }
 
     #[test]
     fn test_expand_drop_schema() {
         let marker = r#"-- WM_INTERNAL_DB_DROP_SCHEMA {"schema":"old_schema"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert_eq!(sql, "DROP SCHEMA old_schema CASCADE;");
     }
 
     #[test]
     fn test_expand_create_schema_with_ducklake() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_SCHEMA {"schema":"s","ducklake":"lake"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::DuckDb)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
         assert!(sql.contains("CREATE SCHEMA s;"));
     }
@@ -3546,9 +3597,7 @@ mod tests {
     #[test]
     fn test_expand_create_table_basic() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"users","columns":[{"name":"id","datatype":"INT","primaryKey":true,"nullable":false},{"name":"name","datatype":"TEXT","nullable":true}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("CREATE TABLE users ("));
         assert!(sql.contains("id INT NOT NULL PRIMARY KEY"));
         assert!(sql.contains("name TEXT"));
@@ -3558,18 +3607,14 @@ mod tests {
     #[test]
     fn test_expand_create_table_with_schema() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"users","columns":[{"name":"id","datatype":"INT","primaryKey":true}],"schema":"myschema"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("CREATE TABLE myschema.users ("));
     }
 
     #[test]
     fn test_expand_create_table_composite_pk() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"t","columns":[{"name":"a","datatype":"INT","primaryKey":true},{"name":"b","datatype":"INT","primaryKey":true}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         // Composite PK should be separate constraint, not inline
         assert!(!sql.contains("a INT PRIMARY KEY"));
         assert!(sql.contains("PRIMARY KEY (a, b)"));
@@ -3578,18 +3623,14 @@ mod tests {
     #[test]
     fn test_expand_create_table_bigquery_pk_not_enforced() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"t","columns":[{"name":"id","datatype":"INT64","primaryKey":true}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Bigquery)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Bigquery);
         assert!(sql.contains("PRIMARY KEY NOT ENFORCED"));
     }
 
     #[test]
     fn test_expand_create_table_with_foreign_key() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"orders","columns":[{"name":"id","datatype":"INT","primaryKey":true},{"name":"user_id","datatype":"INT"}],"foreignKeys":[{"targetTable":"users","columns":[{"sourceColumn":"user_id","targetColumn":"id"}],"onDelete":"CASCADE","onUpdate":"NO ACTION"}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("FOREIGN KEY (user_id) REFERENCES users (id)"));
         assert!(sql.contains("ON DELETE CASCADE"));
         assert!(!sql.contains("ON UPDATE NO ACTION")); // NO ACTION is omitted
@@ -3598,27 +3639,21 @@ mod tests {
     #[test]
     fn test_expand_create_table_with_default_value() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"t","columns":[{"name":"status","datatype":"TEXT","defaultValue":"active","nullable":false}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("status TEXT NOT NULL DEFAULT CAST('active' AS TEXT)"));
     }
 
     #[test]
     fn test_expand_create_table_varchar_with_length() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"t","columns":[{"name":"email","datatype":"VARCHAR","datatype_length":100}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mysql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(sql.contains("email VARCHAR(100)"));
     }
 
     #[test]
     fn test_expand_create_table_snowflake_default_schema() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"t","columns":[{"name":"id","datatype":"INT"}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Snowflake)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Snowflake);
         // Snowflake defaults to PUBLIC schema
         assert!(sql.contains("CREATE TABLE PUBLIC.t ("));
     }
@@ -3626,9 +3661,7 @@ mod tests {
     #[test]
     fn test_expand_create_table_with_ducklake() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"t","columns":[{"name":"id","datatype":"INT"}],"ducklake":"lake"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::DuckDb)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
         assert!(sql.contains("CREATE TABLE t ("));
     }
@@ -3640,9 +3673,7 @@ mod tests {
     #[test]
     fn test_expand_alter_table_add_column() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"users","operations":[{"kind":"addColumn","column":{"name":"age","datatype":"INT","nullable":true}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("BEGIN;"));
         assert!(sql.contains("ALTER TABLE users ADD COLUMN age INT;"));
         assert!(sql.contains("COMMIT;"));
@@ -3651,36 +3682,28 @@ mod tests {
     #[test]
     fn test_expand_alter_table_drop_column() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"users","operations":[{"kind":"dropColumn","name":"old_col"}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("ALTER TABLE users DROP COLUMN \"old_col\";"));
     }
 
     #[test]
     fn test_expand_alter_table_rename_table() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"old_name","operations":[{"kind":"renameTable","to":"new_name"}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("ALTER TABLE old_name RENAME TO new_name;"));
     }
 
     #[test]
     fn test_expand_alter_table_rename_table_snowflake_with_schema() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"old","operations":[{"kind":"renameTable","to":"new"}],"schema":"MY_SCHEMA"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Snowflake)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Snowflake);
         assert!(sql.contains("ALTER TABLE MY_SCHEMA.old RENAME TO MY_SCHEMA.new;"));
     }
 
     #[test]
     fn test_expand_alter_table_add_foreign_key() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"orders","operations":[{"kind":"addForeignKey","foreignKey":{"targetTable":"users","columns":[{"sourceColumn":"user_id","targetColumn":"id"}],"onDelete":"CASCADE","onUpdate":"NO ACTION"}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("ALTER TABLE orders ADD CONSTRAINT fk_"));
         assert!(sql.contains("FOREIGN KEY (user_id) REFERENCES users (id)"));
         assert!(sql.contains("ON DELETE CASCADE"));
@@ -3689,9 +3712,7 @@ mod tests {
     #[test]
     fn test_expand_alter_table_drop_foreign_key_mysql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"orders","operations":[{"kind":"dropForeignKey","fk_constraint_name":"fk_orders_user"}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mysql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mysql);
         // MySQL uses DROP FOREIGN KEY
         assert!(sql.contains("DROP FOREIGN KEY `fk_orders_user`"));
     }
@@ -3699,9 +3720,7 @@ mod tests {
     #[test]
     fn test_expand_alter_table_drop_foreign_key_postgresql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"orders","operations":[{"kind":"dropForeignKey","fk_constraint_name":"fk_orders_user"}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         // PostgreSQL uses DROP CONSTRAINT
         assert!(sql.contains("DROP CONSTRAINT \"fk_orders_user\""));
     }
@@ -3709,18 +3728,14 @@ mod tests {
     #[test]
     fn test_expand_alter_table_add_primary_key() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addPrimaryKey","columns":["a","b"]}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("ALTER TABLE t ADD PRIMARY KEY (a, b);"));
     }
 
     #[test]
     fn test_expand_alter_table_add_primary_key_snowflake() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addPrimaryKey","columns":["id"]}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Snowflake)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Snowflake);
         // Snowflake uses named constraint
         assert!(sql.contains("ADD CONSTRAINT t_pk PRIMARY KEY (id)"));
     }
@@ -3728,153 +3743,119 @@ mod tests {
     #[test]
     fn test_expand_alter_table_add_primary_key_bigquery() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addPrimaryKey","columns":["id"]}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Bigquery)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Bigquery);
         assert!(sql.contains("ADD PRIMARY KEY (id) NOT ENFORCED;"));
     }
 
     #[test]
     fn test_expand_alter_table_drop_primary_key_mysql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"dropPrimaryKey"}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mysql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(sql.contains("ALTER TABLE t DROP PRIMARY KEY;"));
     }
 
     #[test]
     fn test_expand_alter_table_drop_primary_key_with_constraint() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"dropPrimaryKey","pk_constraint_name":"pk_t"}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("DROP CONSTRAINT \"pk_t\""));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_datatype() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT"},"changes":{"datatype":"BIGINT"}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("ALTER TABLE t ALTER COLUMN col TYPE BIGINT;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_datatype_mysql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT"},"changes":{"datatype":"BIGINT"}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mysql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(sql.contains("ALTER TABLE t MODIFY COLUMN col BIGINT;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_datatype_mssql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT"},"changes":{"datatype":"BIGINT"}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mssql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mssql);
         assert!(sql.contains("ALTER TABLE t ALTER COLUMN col BIGINT;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_nullable() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT"},"changes":{"nullable":false}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("ALTER TABLE t ALTER COLUMN col SET NOT NULL;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_drop_not_null() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT"},"changes":{"nullable":true}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("ALTER TABLE t ALTER COLUMN col DROP NOT NULL;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_nullable_mssql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT"},"changes":{"nullable":false}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mssql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mssql);
         assert!(sql.contains("ALTER TABLE t ALTER COLUMN col INT NOT NULL;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_nullable_mysql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT"},"changes":{"nullable":true}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mysql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(sql.contains("ALTER TABLE t MODIFY COLUMN col INT NULL;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_rename() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"old_col","datatype":"INT"},"changes":{"name":"new_col"}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("ALTER TABLE t RENAME COLUMN old_col TO new_col;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_rename_mssql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"old_col","datatype":"INT"},"changes":{"name":"new_col"}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mssql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mssql);
         assert!(sql.contains("EXEC sp_rename 't.old_col', 'new_col', 'COLUMN';"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_set_default() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"TEXT"},"changes":{"defaultValue":"hello"}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("ALTER TABLE t ALTER COLUMN col SET DEFAULT CAST('hello' AS TEXT);"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_drop_default() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"TEXT","defaultValue":"old"},"changes":{"defaultValue":null}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("ALTER TABLE t ALTER COLUMN col DROP DEFAULT;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_drop_default_mssql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT","defaultValue":"0"},"defaultConstraintName":"DF_t_col","changes":{"defaultValue":null}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mssql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mssql);
         assert!(sql.contains("DROP CONSTRAINT [DF_t_col]"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_varchar_with_length() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"VARCHAR","datatype_length":50},"changes":{"datatype":"VARCHAR","datatype_length":100}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("ALTER TABLE t ALTER COLUMN col TYPE VARCHAR(100);"));
     }
 
     #[test]
     fn test_expand_alter_table_transactional_postgresql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addColumn","column":{"name":"a","datatype":"INT"}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.starts_with("BEGIN;\n"));
         assert!(sql.ends_with("\nCOMMIT;"));
     }
@@ -3882,9 +3863,7 @@ mod tests {
     #[test]
     fn test_expand_alter_table_transactional_mssql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addColumn","column":{"name":"a","datatype":"INT"}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mssql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mssql);
         assert!(sql.starts_with("BEGIN TRANSACTION;\n"));
         assert!(sql.ends_with("\nCOMMIT TRANSACTION;"));
     }
@@ -3892,9 +3871,7 @@ mod tests {
     #[test]
     fn test_expand_alter_table_no_transaction_mysql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addColumn","column":{"name":"a","datatype":"INT"}}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mysql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(!sql.contains("BEGIN"));
         assert!(!sql.contains("COMMIT"));
         assert!(sql.contains("ALTER TABLE t ADD COLUMN a INT;"));
@@ -3903,18 +3880,14 @@ mod tests {
     #[test]
     fn test_expand_alter_table_with_schema() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addColumn","column":{"name":"a","datatype":"INT"}}],"schema":"myschema"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("ALTER TABLE myschema.t ADD COLUMN a INT;"));
     }
 
     #[test]
     fn test_expand_alter_table_multiple_operations() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addColumn","column":{"name":"a","datatype":"INT"}},{"kind":"dropColumn","name":"b"}]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("ADD COLUMN a INT;"));
         assert!(sql.contains("DROP COLUMN \"b\";"));
     }
@@ -3922,18 +3895,14 @@ mod tests {
     #[test]
     fn test_expand_alter_table_empty_operations() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[]}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert_eq!(sql, "");
     }
 
     #[test]
     fn test_expand_alter_table_with_ducklake() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addColumn","column":{"name":"a","datatype":"INT"}}],"ducklake":"lake"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::DuckDb)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
         assert!(sql.contains("ALTER TABLE t ADD COLUMN a INT;"));
     }
@@ -3945,9 +3914,7 @@ mod tests {
     #[test]
     fn test_expand_load_table_metadata_postgresql_single_table() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"users"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("a.attname as field"));
         assert!(sql.contains("pg_catalog.format_type"));
         assert!(sql.contains("relname = 'users'"));
@@ -3959,9 +3926,7 @@ mod tests {
     #[test]
     fn test_expand_load_table_metadata_postgresql_all_tables() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("schema_name"));
         assert!(sql.contains("table_name"));
         assert!(sql.contains("c.relkind = 'r'"));
@@ -3970,9 +3935,7 @@ mod tests {
     #[test]
     fn test_expand_load_table_metadata_postgresql_schema_table() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"myschema.users"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("relname = 'users'"));
         assert!(sql.contains("ns.nspname = 'myschema'"));
     }
@@ -3981,9 +3944,7 @@ mod tests {
     fn test_expand_load_table_metadata_mysql_single_table() {
         let marker =
             r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"users","databaseName":"mydb"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mysql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(sql.contains("COLUMN_NAME as field"));
         assert!(sql.contains("TABLE_NAME = 'users'"));
         assert!(sql.contains("TABLE_SCHEMA = 'mydb'"));
@@ -3992,9 +3953,7 @@ mod tests {
     #[test]
     fn test_expand_load_table_metadata_mysql_all_tables() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mysql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(sql.contains("TABLE_NAME as table_name"));
         assert!(sql.contains("TABLE_SCHEMA NOT IN"));
     }
@@ -4002,9 +3961,7 @@ mod tests {
     #[test]
     fn test_expand_load_table_metadata_mssql_single_table() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"users"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mssql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mssql);
         assert!(sql.contains("c.COLUMN_NAME as field"));
         assert!(sql.contains("c.TABLE_NAME = 'users'"));
         assert!(sql.contains("default_constraint_name"));
@@ -4013,9 +3970,7 @@ mod tests {
     #[test]
     fn test_expand_load_table_metadata_mssql_all_tables() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mssql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mssql);
         assert!(sql.contains("TABLE_NAME as table_name"));
         assert!(!sql.contains("WHERE"));
     }
@@ -4023,9 +3978,7 @@ mod tests {
     #[test]
     fn test_expand_load_table_metadata_snowflake_single_table() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"MY_TABLE"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Snowflake)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Snowflake);
         assert!(sql.contains("COLUMN_NAME as field"));
         assert!(sql.contains("table_name = 'MY_TABLE'"));
         assert!(sql.contains("table_schema = 'PUBLIC'"));
@@ -4034,9 +3987,7 @@ mod tests {
     #[test]
     fn test_expand_load_table_metadata_snowflake_all_tables() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Snowflake)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Snowflake);
         assert!(sql.contains("table_name as table_name"));
         assert!(sql.contains("table_schema as schema_name"));
         assert!(sql.contains("table_schema <> 'INFORMATION_SCHEMA'"));
@@ -4045,27 +3996,27 @@ mod tests {
     #[test]
     fn test_expand_load_table_metadata_bigquery_single_table() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"dataset.my_table"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Bigquery)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Bigquery);
         assert!(sql.contains("dataset.INFORMATION_SCHEMA.COLUMNS"));
         assert!(sql.contains("TABLE_NAME = 'my_table'"));
     }
 
     #[test]
-    fn test_expand_load_table_metadata_bigquery_all_tables_error() {
+    fn test_expand_load_table_metadata_bigquery_all_tables_bun_script() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {}"#;
-        let result = try_expand_internal_db_query(marker, &ScriptLang::Bigquery).unwrap();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Bun runtime"));
+        let expanded = try_expand_internal_db_query(marker, &ScriptLang::Bigquery)
+            .expect("should be recognized as a marker")
+            .expect("expansion should succeed");
+        // BigQuery all-tables returns a Bun script, not SQL
+        assert_eq!(expanded.language_override, Some(ScriptLang::Bun));
+        assert!(expanded.code.contains("BigQuery"));
+        assert!(expanded.code.contains("INFORMATION_SCHEMA.COLUMNS"));
     }
 
     #[test]
     fn test_expand_load_table_metadata_duckdb() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"users"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::DuckDb)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.contains("COLUMN_NAME as field"));
         assert!(sql.contains("TABLE_NAME = 'users'"));
     }
@@ -4073,9 +4024,7 @@ mod tests {
     #[test]
     fn test_expand_load_table_metadata_with_ducklake() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"users","ducklake":"lake"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::DuckDb)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
         assert!(sql.contains("TABLE_NAME = 'users'"));
     }
@@ -4087,9 +4036,7 @@ mod tests {
     #[test]
     fn test_expand_foreign_keys_postgresql() {
         let marker = r#"-- WM_INTERNAL_DB_FOREIGN_KEYS {"table":"users"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("tc.constraint_name as fk_constraint_name"));
         assert!(sql.contains("tc.table_name = 'users'"));
         assert!(sql.contains("tc.table_schema = 'public'"));
@@ -4098,18 +4045,14 @@ mod tests {
     #[test]
     fn test_expand_foreign_keys_with_schema() {
         let marker = r#"-- WM_INTERNAL_DB_FOREIGN_KEYS {"table":"users","schema":"myschema"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("tc.table_schema = 'myschema'"));
     }
 
     #[test]
     fn test_expand_foreign_keys_schema_in_table_name() {
         let marker = r#"-- WM_INTERNAL_DB_FOREIGN_KEYS {"table":"myschema.users"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("tc.table_name = 'users'"));
         assert!(sql.contains("tc.table_schema = 'myschema'"));
     }
@@ -4117,9 +4060,7 @@ mod tests {
     #[test]
     fn test_expand_foreign_keys_mysql() {
         let marker = r#"-- WM_INTERNAL_DB_FOREIGN_KEYS {"table":"orders"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mysql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(sql.contains("kcu.TABLE_NAME = 'orders'"));
         assert!(sql.contains("TABLE_SCHEMA = DATABASE()"));
     }
@@ -4127,18 +4068,14 @@ mod tests {
     #[test]
     fn test_expand_foreign_keys_mysql_with_schema() {
         let marker = r#"-- WM_INTERNAL_DB_FOREIGN_KEYS {"table":"orders","schema":"mydb"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mysql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(sql.contains("TABLE_SCHEMA = 'mydb'"));
     }
 
     #[test]
     fn test_expand_foreign_keys_mssql() {
         let marker = r#"-- WM_INTERNAL_DB_FOREIGN_KEYS {"table":"orders"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mssql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mssql);
         assert!(sql.contains("t.name = 'orders'"));
         assert!(sql.contains("s.name = 'dbo'"));
     }
@@ -4146,18 +4083,14 @@ mod tests {
     #[test]
     fn test_expand_foreign_keys_snowflake() {
         let marker = r#"-- WM_INTERNAL_DB_FOREIGN_KEYS {"table":"orders","schema":"MY_SCHEMA"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Snowflake)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Snowflake);
         assert!(sql.contains("SHOW IMPORTED KEYS IN TABLE MY_SCHEMA.orders"));
     }
 
     #[test]
     fn test_expand_foreign_keys_bigquery() {
         let marker = r#"-- WM_INTERNAL_DB_FOREIGN_KEYS {"table":"dataset.orders"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Bigquery)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Bigquery);
         assert!(sql.contains("INFORMATION_SCHEMA.TABLE_CONSTRAINTS"));
         assert!(sql.contains("tc.table_name = 'orders'"));
     }
@@ -4165,9 +4098,7 @@ mod tests {
     #[test]
     fn test_expand_foreign_keys_duckdb() {
         let marker = r#"-- WM_INTERNAL_DB_FOREIGN_KEYS {"table":"orders"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::DuckDb)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.contains("fk_constraint.table_name = 'orders'"));
         assert!(sql.contains("fk_constraint.table_schema = 'public'"));
     }
@@ -4175,9 +4106,7 @@ mod tests {
     #[test]
     fn test_expand_foreign_keys_with_ducklake() {
         let marker = r#"-- WM_INTERNAL_DB_FOREIGN_KEYS {"table":"orders","ducklake":"lake"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::DuckDb)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
     }
 
@@ -4188,9 +4117,7 @@ mod tests {
     #[test]
     fn test_expand_primary_key_constraint_postgresql() {
         let marker = r#"-- WM_INTERNAL_DB_PRIMARY_KEY_CONSTRAINT {"table":"users"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("constraint_type = 'PRIMARY KEY'"));
         assert!(sql.contains("tc.table_name = 'users'"));
         assert!(sql.contains("tc.table_schema = 'public'"));
@@ -4199,9 +4126,7 @@ mod tests {
     #[test]
     fn test_expand_primary_key_constraint_with_schema() {
         let marker = r#"-- WM_INTERNAL_DB_PRIMARY_KEY_CONSTRAINT {"table":"myschema.users"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("tc.table_name = 'users'"));
         assert!(sql.contains("tc.table_schema = 'myschema'"));
     }
@@ -4209,9 +4134,7 @@ mod tests {
     #[test]
     fn test_expand_primary_key_constraint_mysql() {
         let marker = r#"-- WM_INTERNAL_DB_PRIMARY_KEY_CONSTRAINT {"table":"users"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mysql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(sql.contains("CONSTRAINT_TYPE = 'PRIMARY KEY'"));
         assert!(sql.contains("TABLE_NAME = 'users'"));
         assert!(sql.contains("TABLE_SCHEMA = DATABASE()"));
@@ -4220,9 +4143,7 @@ mod tests {
     #[test]
     fn test_expand_primary_key_constraint_mssql() {
         let marker = r#"-- WM_INTERNAL_DB_PRIMARY_KEY_CONSTRAINT {"table":"users"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Mssql)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Mssql);
         assert!(sql.contains("kc.type = 'PK'"));
         assert!(sql.contains("t.name = 'users'"));
         assert!(sql.contains("s.name = 'dbo'"));
@@ -4232,9 +4153,7 @@ mod tests {
     fn test_expand_primary_key_constraint_snowflake() {
         let marker =
             r#"-- WM_INTERNAL_DB_PRIMARY_KEY_CONSTRAINT {"table":"users","schema":"MY_SCHEMA"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Snowflake)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Snowflake);
         assert!(sql.contains("constraint_type = 'PRIMARY KEY'"));
         assert!(sql.contains("table_name = 'users'"));
         assert!(sql.contains("table_schema = 'MY_SCHEMA'"));
@@ -4243,9 +4162,7 @@ mod tests {
     #[test]
     fn test_expand_primary_key_constraint_bigquery() {
         let marker = r#"-- WM_INTERNAL_DB_PRIMARY_KEY_CONSTRAINT {"table":"dataset.users"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::Bigquery)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::Bigquery);
         assert!(sql.contains("INFORMATION_SCHEMA.TABLE_CONSTRAINTS"));
         assert!(sql.contains("table_name = 'users'"));
     }
@@ -4253,9 +4170,7 @@ mod tests {
     #[test]
     fn test_expand_primary_key_constraint_duckdb() {
         let marker = r#"-- WM_INTERNAL_DB_PRIMARY_KEY_CONSTRAINT {"table":"users"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::DuckDb)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.contains("constraint_type = 'PRIMARY KEY'"));
         assert!(sql.contains("tc.table_name = 'users'"));
         assert!(sql.contains("tc.table_schema = 'public'"));
@@ -4265,9 +4180,7 @@ mod tests {
     fn test_expand_primary_key_constraint_with_ducklake() {
         let marker =
             r#"-- WM_INTERNAL_DB_PRIMARY_KEY_CONSTRAINT {"table":"users","ducklake":"lake"}"#;
-        let sql = try_expand_internal_db_query(marker, &ScriptLang::DuckDb)
-            .unwrap()
-            .unwrap();
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
     }
 }
