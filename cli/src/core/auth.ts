@@ -7,6 +7,7 @@ import { GlobalUserInfo } from "../../gen/types.gen.ts";
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
 import { GlobalOptions } from "../types.ts";
 
+
 /**
  * Main authentication function - moved from context.ts to break circular dependencies
  * This function maintains the original API signature from context.ts
@@ -33,6 +34,14 @@ export async function requireLogin(
     const errorMsg = error instanceof Error ? error.message : String(error);
     if (errorMsg.includes('fetch') || errorMsg.includes('connection') || errorMsg.includes('ECONNREFUSED') || errorMsg.includes('refused')) {
       throw new Error(`Network error: Could not connect to Windmill server at ${workspace.remote}`);
+    }
+
+    // If the user explicitly provided credentials via flags, fail immediately
+    // rather than falling back to interactive login — they expect their explicit
+    // credentials to work and should fix them if they don't.
+    if (opts.token || opts.baseUrl) {
+      log.info(colors.red("Could not authenticate with the provided credentials. Please check your --token and --base-url and try again."));
+      return process.exit(1);
     }
 
     log.info(
