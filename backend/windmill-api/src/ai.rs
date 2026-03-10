@@ -832,6 +832,7 @@ async fn proxy(
     if matches!(provider, AIProvider::GoogleAI) {
         let api_key = request_config.api_key.as_deref().unwrap_or("");
         let base_url = request_config.base_url.trim_end_matches('/');
+        let is_vertex = request_config.platform == AIPlatform::GoogleVertexAi;
 
         let mut tx = db.begin().await?;
         audit_log(
@@ -848,9 +849,11 @@ async fn proxy(
 
         return match ai_path.as_str() {
             "chat/completions" => {
-                crate::google::handle_google_ai_chat(&body, api_key, base_url).await
+                crate::google::handle_google_ai_chat(&body, api_key, base_url, is_vertex).await
             }
-            "models" => crate::google::handle_google_ai_models(api_key, base_url).await,
+            "models" => {
+                crate::google::handle_google_ai_models(api_key, base_url, is_vertex).await
+            }
             _ => Err(Error::BadRequest(format!(
                 "Unsupported Google AI path: {}",
                 ai_path
