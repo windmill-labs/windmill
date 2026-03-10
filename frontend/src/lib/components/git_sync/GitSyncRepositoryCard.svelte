@@ -455,7 +455,7 @@
 							variant="accent"
 							onclick={() => {
 								if (repo) {
-									repo.script_path = ''
+									repo.script_path = undefined
 								}
 							}}
 						>
