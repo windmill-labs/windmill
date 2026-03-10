@@ -219,7 +219,7 @@ export class NoteEditor {
 	/**
 	 * Clean up group notes using DAG path completion
 	 */
-	cleanupGroupNotes(flowNodes: { id: string; parentIds?: string[]; offset?: number }[]): void {
+	cleanupGroupNotes(flowNodes: { id: string; parentIds?: string[] }[]): void {
 		if (!this.isAvailable()) {
 			return
 		}
