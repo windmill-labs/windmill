@@ -193,5 +193,21 @@ describe("migrateToGroupedFormat", () => {
     expect("webhook" in result).toBe(false);
     expect("deploy_to" in result).toBe(false);
     expect("color" in result).toBe(false);
+    expect("slack_team_id" in result).toBe(false);
+    expect("slack_name" in result).toBe(false);
+    expect("slack_command_script" in result).toBe(false);
+  });
+
+  test("copies slack fields through", () => {
+    const settings = {
+      name: "ws",
+      slack_team_id: "T12345",
+      slack_name: "my-team",
+      slack_command_script: "u/admin/slack_handler",
+    };
+    const result = migrateToGroupedFormat(settings);
+    expect(result.slack_team_id).toBe("T12345");
+    expect(result.slack_name).toBe("my-team");
+    expect(result.slack_command_script).toBe("u/admin/slack_handler");
   });
 });

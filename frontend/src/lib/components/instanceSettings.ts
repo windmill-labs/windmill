@@ -85,7 +85,8 @@ const indexerSettingsSchema = z
 		refresh_index_period: positiveNumber.optional(),
 		max_indexed_job_log_size: positiveNumber.optional(),
 		commit_log_max_batch_size: positiveNumber.optional(),
-		refresh_log_index_period: positiveNumber.optional()
+		refresh_log_index_period: positiveNumber.optional(),
+		max_index_time_window_secs: positiveNumber.optional()
 	})
 	.passthrough()
 

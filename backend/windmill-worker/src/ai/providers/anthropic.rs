@@ -355,21 +355,21 @@ pub struct AnthropicResponse {
 pub struct AnthropicQueryBuilder {
     #[allow(dead_code)]
     provider_kind: AIProvider,
-    platform: AnthropicPlatform,
+    platform: AIPlatform,
     enable_1m_context: bool,
 }
 
 impl AnthropicQueryBuilder {
     pub fn new(
         provider_kind: AIProvider,
-        platform: AnthropicPlatform,
+        platform: AIPlatform,
         enable_1m_context: bool,
     ) -> Self {
         Self { provider_kind, platform, enable_1m_context }
     }
 
     fn is_vertex(&self) -> bool {
-        self.platform == AnthropicPlatform::GoogleVertexAi
+        self.platform == AIPlatform::GoogleVertexAi
     }
 
     async fn build_text_request(
