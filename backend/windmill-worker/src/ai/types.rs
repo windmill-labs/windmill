@@ -158,7 +158,7 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
 
 #[derive(Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub enum AnthropicPlatform {
+pub enum AIPlatform {
     #[default]
     Standard,
     GoogleVertexAi,
@@ -196,7 +196,7 @@ pub struct ProviderResource {
     pub aws_session_token: Option<String>,
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
-    pub platform: AnthropicPlatform,
+    pub platform: AIPlatform,
     /// Enable 1M context window for Anthropic
     #[serde(alias = "enable_1M_context", default)]
     pub enable_1m_context: bool,
@@ -244,7 +244,7 @@ impl ProviderWithResource {
         self.resource.aws_session_token.as_deref()
     }
 
-    pub fn get_platform(&self) -> &AnthropicPlatform {
+    pub fn get_platform(&self) -> &AIPlatform {
         &self.resource.platform
     }
 

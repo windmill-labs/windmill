@@ -135,10 +135,10 @@ struct AIOAuthResource {
     user: Option<String>,
 }
 
-/// Platform for Anthropic API
+/// Platform for AI providers that support Google Vertex AI
 #[derive(Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(rename_all = "snake_case")]
-enum AnthropicPlatform {
+enum AIPlatform {
     #[default]
     Standard,
     GoogleVertexAi,
@@ -174,7 +174,7 @@ struct AIStandardResource {
     aws_session_token: Option<String>,
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
-    platform: AnthropicPlatform,
+    platform: AIPlatform,
     /// Enable 1M context window for Anthropic
     #[serde(alias = "enable_1M_context", default)]
     enable_1m_context: bool,
@@ -207,7 +207,7 @@ struct AIRequestConfig {
     pub aws_secret_access_key: Option<String>,
     #[allow(dead_code)]
     pub aws_session_token: Option<String>,
-    pub platform: AnthropicPlatform,
+    pub platform: AIPlatform,
     pub enable_1m_context: bool,
 }
 
@@ -301,7 +301,7 @@ impl AIRequestConfig {
                     None,
                     None,
                     None,
-                    AnthropicPlatform::Standard,
+                    AIPlatform::Standard,
                     false,
                 )
             }
@@ -374,7 +374,7 @@ impl AIRequestConfig {
         let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
         let is_anthropic_vertex =
-            is_anthropic && self.platform == AnthropicPlatform::GoogleVertexAi;
+            is_anthropic && self.platform == AIPlatform::GoogleVertexAi;
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
         let is_google_ai = matches!(provider, AIProvider::GoogleAI);
 
