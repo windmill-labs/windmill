@@ -3040,11 +3040,18 @@ impl PulledJobResult {
 
                 let new_value = to_raw_value(&accumulated_arg);
 
+                let original_value = j
+                    .args
+                    .as_ref()
+                    .and_then(|a| a.get(arg_name_to_accumulate))
+                    .map(|v| v.get().to_string())
+                    .unwrap_or_else(|| "null".to_string());
+
                 append_logs(
                     &j_id,
                     &j.workspace_id,
                     format!(
-                        "Substituting `{arg_name_to_accumulate}` with: {}\n\n",
+                        "Accumulating debounced argument `{arg_name_to_accumulate}`:\n  original: {original_value}\n  accumulated: {}\n\n",
                         &new_value
                     ),
                     &(db.into()),
@@ -3055,6 +3062,18 @@ impl PulledJobResult {
                     .get_or_insert(Json(Default::default()))
                     .as_mut()
                     .insert(arg_name_to_accumulate.to_owned(), new_value);
+
+                // Persist accumulated args to v2_job so that flow steps
+                // re-reading from the DB (via get_mini_pulled_job) see them
+                if let Some(ref args) = j.args {
+                    sqlx::query!(
+                        "UPDATE v2_job SET args = $2 WHERE id = $1",
+                        j_id,
+                        args as &Json<HashMap<String, Box<RawValue>>>,
+                    )
+                    .execute(db)
+                    .await?;
+                }
             }
 
             // Handle dependency job debouncing cleanup when a job is pulled for execution

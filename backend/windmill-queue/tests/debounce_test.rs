@@ -975,7 +975,7 @@ mod debounce {
         Ok(())
     }
 
-    /// Test: Post-preprocessing debounce with max count limit resets the batch.
+    /// Test: Post-preprocessing debounce with max count limit deletes the debounce_key entry.
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     async fn test_post_preprocessing_debounce_max_count_resets(
         db: Pool<Postgres>,
@@ -1018,13 +1018,14 @@ mod debounce {
         assert!(results[1].is_some(), "second job should get scheduled_for");
         assert!(results[2].is_some(), "third job should get scheduled_for");
 
-        // Job 4 (the one that exceeds the limit): when limit is exceeded,
-        // the batch resets and the job executes immediately (no scheduled_for delay)
-        // The exact behavior depends on whether the limit check happens before or after the
-        // new job is counted. Let's just verify the debounce_key is reset.
-        let dk = get_debounce_key(&db, "pp_max_count_key").await.unwrap();
-        // debounced_times should have been reset at some point
-        assert!(dk.0 == jobs[3], "debounce_key should point to last job");
+        // Job 4 exceeds the limit: the debounce_key entry should be DELETED
+        // (not just reset) so that a stale entry doesn't cause the next incoming
+        // flow to incorrectly debounce this already-executing job.
+        let dk = get_debounce_key(&db, "pp_max_count_key").await;
+        assert!(
+            dk.is_none(),
+            "debounce_key entry should be deleted when limits exceeded"
+        );
 
         Ok(())
     }
@@ -1526,16 +1527,18 @@ mod debounce {
             "job 5 should return None (limit exceeded, batch reset)"
         );
 
-        // After reset, debounced_times should be 0
-        let dk = get_debounce_key(&db, "pp_count_boundary_key")
-            .await
-            .unwrap();
-        assert_eq!(dk.2, 0, "debounced_times should be reset to 0 after limit");
+        // After limit exceeded, the debounce_key entry should be deleted
+        let dk = get_debounce_key(&db, "pp_count_boundary_key").await;
+        assert!(
+            dk.is_none(),
+            "debounce_key entry should be deleted when limits exceeded"
+        );
 
         Ok(())
     }
 
-    /// Test: after a max_count reset, a new batch starts fresh and debouncing works again.
+    /// Test: after a max_count limit exceeded, a new batch starts completely fresh.
+    /// The debounce_key entry is deleted, so the next cycle starts with a fresh INSERT.
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     async fn test_post_preprocessing_max_count_reset_new_batch(
         db: Pool<Postgres>,
@@ -1549,8 +1552,8 @@ mod debounce {
         let args_hm = empty_args();
 
         // Limit check is `debounced_times > max`, so with max=2 we need 4 jobs
-        // to trigger reset (debounced_times=3 on the 4th job, 3>2=true).
-        // Cycle 1: jobs 1-4 (job 4 exceeds limit → reset)
+        // to trigger limit (debounced_times=3 on the 4th job, 3>2=true).
+        // Cycle 1: jobs 1-4 (job 4 exceeds limit → entry deleted)
         let mut cycle1 = Vec::new();
         for _ in 0..4 {
             let id = Uuid::new_v4();
@@ -1579,14 +1582,17 @@ mod debounce {
         );
         assert!(
             cycle1_results[3].is_none(),
-            "cycle1 job4 should reset (over limit)"
+            "cycle1 job4 should execute immediately (over limit)"
         );
 
-        // Verify debounced_times is reset to 0
-        let dk = get_debounce_key(&db, "pp_reset_cycle_key").await.unwrap();
-        assert_eq!(dk.2, 0, "debounced_times should be 0 after reset");
+        // Verify debounce_key entry is deleted after limit exceeded
+        let dk = get_debounce_key(&db, "pp_reset_cycle_key").await;
+        assert!(
+            dk.is_none(),
+            "debounce_key entry should be deleted after limit exceeded"
+        );
 
-        // Cycle 2: jobs 5-8 (new batch, should debounce independently)
+        // Cycle 2: jobs 5-8 (completely fresh batch since entry was deleted)
         let mut cycle2 = Vec::new();
         for _ in 0..4 {
             let id = Uuid::new_v4();
@@ -1607,19 +1613,17 @@ mod debounce {
             .await?;
             cycle2_results.push(r);
         }
-        // After cycle 1 reset, debounced_times=0. Cycle 2's first job hits ON CONFLICT
-        // and increments to 1 (unlike cycle 1's first job which was a fresh insert at 0).
-        // So cycle 2 reaches the limit one job sooner:
-        //   job5: dt=1, job6: dt=2, job7: dt=3 (>2 → reset), job8: dt=1
-        assert!(cycle2_results[0].is_some(), "cycle2 job1 scheduled (dt=1)");
-        assert!(cycle2_results[1].is_some(), "cycle2 job2 scheduled (dt=2)");
+        // Cycle 2 starts fresh (INSERT, not CONFLICT), so it behaves identically to cycle 1:
+        //   job5: dt=0 (INSERT), job6: dt=1, job7: dt=2, job8: dt=3 (>2 → limit)
         assert!(
-            cycle2_results[2].is_none(),
-            "cycle2 job3 should reset (dt=3 > 2)"
+            cycle2_results[0].is_some(),
+            "cycle2 job1 scheduled (dt=0, fresh INSERT)"
         );
+        assert!(cycle2_results[1].is_some(), "cycle2 job2 scheduled (dt=1)");
+        assert!(cycle2_results[2].is_some(), "cycle2 job3 scheduled (dt=2)");
         assert!(
-            cycle2_results[3].is_some(),
-            "cycle2 job4 scheduled (fresh after reset, dt=1)"
+            cycle2_results[3].is_none(),
+            "cycle2 job4 should execute immediately (dt=3 > 2)"
         );
 
         Ok(())
@@ -3074,6 +3078,29 @@ mod debounce {
         let other: String = serde_json::from_str(other_raw.get())?;
         assert_eq!(other, "x", "non-accumulated arg should be unchanged");
 
+        // Verify accumulated args were persisted to v2_job (needed for flows
+        // where subsequent steps re-read args from the DB)
+        let db_args: Option<serde_json::Value> =
+            sqlx::query_scalar!("SELECT args FROM v2_job WHERE id = $1", survivor_id,)
+                .fetch_one(&db)
+                .await?;
+        let db_args = db_args.expect("v2_job args should not be null after accumulation");
+        let db_items = db_args
+            .get("items")
+            .expect("persisted args should contain 'items'");
+        let db_items: Vec<i64> =
+            serde_json::from_value::<Vec<serde_json::Value>>(db_items.clone())?
+                .iter()
+                .map(|v| v.as_i64().unwrap())
+                .collect();
+        let mut db_items_sorted = db_items.clone();
+        db_items_sorted.sort();
+        assert_eq!(
+            db_items_sorted,
+            vec![1, 2, 3, 4, 5, 6],
+            "persisted args in v2_job should contain all accumulated items"
+        );
+
         Ok(())
     }
 
@@ -3504,6 +3531,27 @@ mod debounce {
 
         assert_accumulated_items(&result, &[10, 20, 30, 40, 50], "items");
 
+        // Verify accumulated args were persisted to v2_job
+        let db_args: Option<serde_json::Value> =
+            sqlx::query_scalar!("SELECT args FROM v2_job WHERE id = $1", survivor_id,)
+                .fetch_one(&db)
+                .await?;
+        let db_items = db_args
+            .expect("v2_job args should not be null")
+            .get("items")
+            .expect("persisted args should contain 'items'")
+            .clone();
+        let mut db_items: Vec<i64> = serde_json::from_value::<Vec<serde_json::Value>>(db_items)?
+            .iter()
+            .map(|v| v.as_i64().unwrap())
+            .collect();
+        db_items.sort();
+        assert_eq!(
+            db_items,
+            vec![10, 20, 30, 40, 50],
+            "persisted args in v2_job should contain all accumulated items"
+        );
+
         Ok(())
     }
 
@@ -3603,6 +3651,33 @@ mod debounce {
         let extra_raw = job.job.args.as_ref().unwrap().get("extra").unwrap();
         let extra: String = serde_json::from_str(extra_raw.get())?;
         assert_eq!(extra, "v", "non-accumulated arg should be unchanged");
+
+        // Verify accumulated args were persisted to v2_job
+        let db_args: Option<serde_json::Value> =
+            sqlx::query_scalar!("SELECT args FROM v2_job WHERE id = $1", survivor_id,)
+                .fetch_one(&db)
+                .await?;
+        let db_args = db_args.expect("v2_job args should not be null");
+        let db_items = db_args
+            .get("items")
+            .expect("persisted args should contain 'items'")
+            .clone();
+        let mut db_items: Vec<i64> = serde_json::from_value::<Vec<serde_json::Value>>(db_items)?
+            .iter()
+            .map(|v| v.as_i64().unwrap())
+            .collect();
+        db_items.sort();
+        assert_eq!(
+            db_items,
+            vec![100, 200, 300, 400, 500, 600],
+            "persisted args in v2_job should contain all accumulated items"
+        );
+        // "extra" should also be persisted unchanged
+        let db_extra = db_args.get("extra").unwrap().as_str().unwrap();
+        assert_eq!(
+            db_extra, "v",
+            "persisted non-accumulated arg should be unchanged"
+        );
 
         Ok(())
     }
