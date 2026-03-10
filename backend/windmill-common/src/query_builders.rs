@@ -234,10 +234,6 @@ pub fn try_expand_internal_db_query(
     Some(result)
 }
 
-fn normalize_where_clause(wc: Option<String>) -> Option<String> {
-    wc.filter(|s| !s.trim().is_empty())
-}
-
 fn expand_select(json_str: &str, db_type: DbType) -> Result<String, String> {
     let payload: SelectPayload =
         serde_json::from_str(json_str).map_err(|e| format!("Invalid SELECT payload: {}", e))?;
@@ -246,12 +242,11 @@ fn expand_select(json_str: &str, db_type: DbType) -> Result<String, String> {
     let breaking = payload
         .fix_pg_int_types
         .map(|v| BreakingFeatures { fix_pg_int_types: v });
-    let where_clause = normalize_where_clause(payload.where_clause);
 
     let query = make_select_query(
         &payload.table,
         &payload.column_defs,
-        where_clause.as_deref(),
+        payload.where_clause.as_deref(),
         db_type,
         Some(&options),
         breaking.as_ref(),
@@ -264,11 +259,10 @@ fn expand_count(json_str: &str, db_type: DbType) -> Result<String, String> {
     let payload: CountPayload =
         serde_json::from_str(json_str).map_err(|e| format!("Invalid COUNT payload: {}", e))?;
 
-    let where_clause = normalize_where_clause(payload.where_clause);
     let query = make_count_query(
         db_type,
         &payload.table,
-        where_clause.as_deref(),
+        payload.where_clause.as_deref(),
         &payload.column_defs,
     )?;
 
