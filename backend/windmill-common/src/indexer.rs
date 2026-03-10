@@ -13,6 +13,7 @@ pub struct TantivyIndexerSettings {
     pub refresh_index_period: u64,
     pub refresh_log_index_period: u64,
     pub max_indexed_job_log_size: usize,
+    pub max_index_time_window_secs: i64,
     pub should_clear_job_index: bool,
     pub should_clear_log_index: bool,
 }
@@ -26,6 +27,7 @@ impl Default for TantivyIndexerSettings {
             refresh_index_period: 300,
             refresh_log_index_period: 300,
             max_indexed_job_log_size: 1_000_000,
+            max_index_time_window_secs: 60 * 60 * 24 * 7, // 7 days
             should_clear_job_index: false,
             should_clear_log_index: false,
         }
@@ -39,6 +41,7 @@ pub struct TantivyIndexerSettingsOpt {
     pub refresh_index_period: Option<u64>,
     pub refresh_log_index_period: Option<u64>,
     pub max_indexed_job_log_size: Option<usize>,
+    pub max_index_time_window_secs: Option<i64>,
     pub should_clear_job_index: Option<bool>,
     pub should_clear_log_index: Option<bool>,
 }
@@ -58,6 +61,7 @@ pub async fn load_indexer_config(db: &DB) -> error::Result<TantivyIndexerSetting
         refresh_index_period,
         refresh_log_index_period,
         max_indexed_job_log_size,
+        max_index_time_window_secs,
         writer_memory_budget,
         should_clear_job_index,
         should_clear_log_index,
@@ -78,6 +82,9 @@ pub async fn load_indexer_config(db: &DB) -> error::Result<TantivyIndexerSetting
         max_indexed_job_log_size: config
             .max_indexed_job_log_size
             .unwrap_or(max_indexed_job_log_size),
+        max_index_time_window_secs: config
+            .max_index_time_window_secs
+            .unwrap_or(max_index_time_window_secs),
         should_clear_job_index: config
             .should_clear_job_index
             .unwrap_or(should_clear_job_index),
@@ -122,6 +129,9 @@ pub fn get_indexer_rates_from_env() -> TantivyIndexerSettings {
     }
     if let Some(b) = get_env_var("TANTIVY_MAX_INDEXED_JOB_LOG_SIZE__KB") {
         settings.max_indexed_job_log_size = (b * BYTES_PER_KB) as usize;
+    }
+    if let Some(b) = get_env_var("TANTIVY_MAX_INDEX_TIME_WINDOW__S") {
+        settings.max_index_time_window_secs = b as i64;
     }
 
     settings

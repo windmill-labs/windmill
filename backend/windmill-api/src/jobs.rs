@@ -2255,12 +2255,13 @@ async fn resume_suspended_job_internal(
     let value = value.unwrap_or(serde_json::Value::Null);
     verify_suspended_secret(&w_id, &db, job_id, resume_id, &approver, secret).await?;
 
-    // Get flow info - works for both step-level (job_id is a step) and flow-level (job_id is the flow)
-    let (flow_info, is_flow_level) = get_flow_info_for_resume(job_id, &db).await?;
+    // Get flow info - works for step-level, flow-level, and WAC approval
+    let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &db).await?;
 
     // For step-level resumes, verify user auth and flow status
     // For flow-level resumes (pre-approvals), the flow might not be at a suspended step yet
-    if !is_flow_level {
+    // For WAC approvals, skip flow status checks (there is no flow)
+    if !is_flow_level && !is_wac {
         let parent_flow = GetQuery::new()
             .without_logs()
             .without_code()
@@ -2322,6 +2323,16 @@ async fn resume_suspended_job_internal(
         )
         .execute(&mut *tx)
         .await?;
+    } else if is_wac {
+        // WAC approval: decrement suspend counter directly on the WAC parent job
+        if flow_info.suspend > 0 {
+            sqlx::query!(
+                "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1",
+                flow_info.id,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
     } else if is_flow_level {
         // For flow-level resumes, decrement the suspend counter if the flow is currently suspended
         // The approval will be matched when the worker checks for resumes (both step-level and flow-level)
@@ -2479,10 +2490,15 @@ struct FlowInfo {
     email: Option<String>,
 }
 
-/// Get flow info from either a step job (by looking up its parent) or a flow job directly.
-/// Returns (FlowInfo, is_flow_level) where is_flow_level indicates if job_id was a flow job.
-async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowInfo, bool)> {
-    // Single query that determines if job_id is a flow or step, and fetches the appropriate flow info
+/// Get flow info from either a step job (by looking up its parent), a flow job directly,
+/// or a WAC workflow job (self-suspended for approval).
+/// Returns (FlowInfo, is_flow_level, is_wac) where:
+/// - is_flow_level: job_id was a flow job (pre-approval)
+/// - is_wac: job_id is a WAC workflow suspended for approval (target is itself)
+async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowInfo, bool, bool)> {
+    // Single query that determines if job_id is a flow, step, or WAC job,
+    // and fetches the appropriate suspended job info.
+    // For WAC jobs (no parent, not a flow), the job itself is the suspended target.
     let result = sqlx::query!(
         r#"
         WITH job_info AS (
@@ -2496,14 +2512,15 @@ async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowI
             q.suspend AS "suspend!",
             j.runnable_path AS script_path,
             j.permissioned_as_email AS email,
-            (ji.kind IN ('flow', 'flowpreview')) AS "is_flow_level!"
+            (ji.kind IN ('flow', 'flowpreview')) AS "is_flow_level!",
+            (ji.kind NOT IN ('flow', 'flowpreview') AND q.id = ji.id) AS "is_wac!"
         FROM job_info ji
         JOIN v2_job_queue q ON q.id = CASE
             WHEN ji.kind IN ('flow', 'flowpreview') THEN ji.id
-            ELSE ji.parent_job
+            ELSE COALESCE(ji.parent_job, ji.id)
         END
         JOIN v2_job j ON j.id = q.id
-        JOIN v2_job_status s ON s.id = q.id
+        LEFT JOIN v2_job_status s ON s.id = q.id
         FOR UPDATE OF q
         "#,
         job_id,
@@ -2520,7 +2537,7 @@ async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowI
         email: Some(result.email),
     };
 
-    Ok((flow_info, result.is_flow_level))
+    Ok((flow_info, result.is_flow_level, result.is_wac))
 }
 
 async fn get_suspended_flow_info<'c>(

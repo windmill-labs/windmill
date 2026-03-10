@@ -934,7 +934,7 @@ fn redact_string(s: &str) -> String {
     }
 }
 
-fn format_setting_value(key: &str, value: &serde_json::Value) -> String {
+pub fn format_setting_value(key: &str, value: &serde_json::Value) -> String {
     if SENSITIVE_SETTINGS.contains(&key) {
         return match value {
             serde_json::Value::String(s) => format!("\"{}\"", redact_string(s)),
@@ -2217,6 +2217,25 @@ mod tests {
 
         let v: StringOrSecretRef = String::from("world").into();
         assert_eq!(v, *"world");
+    }
+
+    #[test]
+    fn string_or_secret_ref_debug_masks_literal() {
+        let v = StringOrSecretRef::Literal("super-secret-value".to_string());
+        let debug = format!("{v:?}");
+        assert_eq!(debug, "Literal(****)");
+        assert!(!debug.contains("super-secret-value"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_oauth_secrets() {
+        let val = serde_json::json!({
+            "google": {"id": "client-id", "secret": "my-super-secret-12345"}
+        });
+        let formatted = format_setting_value("oauths", &val);
+        assert!(!formatted.contains("my-super-secret-12345"));
+        assert!(formatted.contains("client-id"));
+        assert!(formatted.contains("****"));
     }
 
     #[test]
