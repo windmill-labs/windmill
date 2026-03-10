@@ -4,25 +4,23 @@ on:
   push:
     branches: [main]
     paths:
-      - "backend/windmill-common/src/workspaces.rs"
       - "backend/windmill-git-sync/**"
+      - "backend/windmill-api-workspaces/src/workspaces.rs"
       - "backend/windmill-api-integration-tests/tests/git_sync*"
       - "backend/ee-repo-ref.txt"
       - "integration_tests/test/git_sync_test.py"
       - "integration_tests/test/wmill_integration_test_utils.py"
-      - "integration_tests/docker-compose.git-sync.yml"
       - "integration_tests/run_git_sync.sh"
       - ".github/workflows/git-sync-test.yml"
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - "backend/windmill-common/src/workspaces.rs"
       - "backend/windmill-git-sync/**"
+      - "backend/windmill-api-workspaces/src/workspaces.rs"
       - "backend/windmill-api-integration-tests/tests/git_sync*"
       - "backend/ee-repo-ref.txt"
       - "integration_tests/test/git_sync_test.py"
       - "integration_tests/test/wmill_integration_test_utils.py"
-      - "integration_tests/docker-compose.git-sync.yml"
       - "integration_tests/run_git_sync.sh"
       - ".github/workflows/git-sync-test.yml"
 
@@ -31,7 +29,63 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-relevance:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if git sync related files changed
+        id: check
+        env:
+          WINDMILL_EE_PRIVATE_ACCESS: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE=${{ github.event.pull_request.base.sha }}
+          else
+            BASE=${{ github.event.before }}
+          fi
+
+          CHANGED_FILES=$(git diff --name-only "$BASE"..HEAD 2>/dev/null || echo "")
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # Direct git sync file changes — always relevant
+          if echo "$CHANGED_FILES" | grep -qE '^(backend/windmill-git-sync/|integration_tests/test/git_sync|integration_tests/run_git_sync|\.github/workflows/git-sync-test\.yml)'; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Relevant: direct git sync file changes"
+            exit 0
+          fi
+
+          # If ee-repo-ref.txt changed, check if the EE diff touches windmill-git-sync/
+          if echo "$CHANGED_FILES" | grep -q '^backend/ee-repo-ref.txt$'; then
+            NEW_REF=$(cat backend/ee-repo-ref.txt)
+            OLD_REF=$(git show "$BASE:backend/ee-repo-ref.txt" 2>/dev/null || echo "")
+
+            if [ -n "$OLD_REF" ] && [ "$OLD_REF" != "$NEW_REF" ]; then
+              # Clone EE repo and check diff
+              git clone --bare "https://x-access-token:${WINDMILL_EE_PRIVATE_ACCESS}@github.com/windmill-labs/windmill-ee-private.git" /tmp/ee-repo 2>/dev/null
+              EE_CHANGED=$(git -C /tmp/ee-repo diff --name-only "$OLD_REF".."$NEW_REF" 2>/dev/null || echo "")
+              echo "EE changed files:"
+              echo "$EE_CHANGED"
+
+              if echo "$EE_CHANGED" | grep -q '^windmill-git-sync/'; then
+                echo "should_run=true" >> "$GITHUB_OUTPUT"
+                echo "Relevant: EE git sync files changed"
+                exit 0
+              fi
+            fi
+          fi
+
+          echo "should_run=false" >> "$GITHUB_OUTPUT"
+          echo "No git sync relevant changes detected, skipping tests"
+
   git_sync_e2e:
+    needs: [check-relevance]
+    if: needs.check-relevance.outputs.should_run == 'true'
     runs-on: ubicloud-standard-16
     services:
       postgres:
