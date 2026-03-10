@@ -2054,33 +2054,6 @@ async fn execute_component(
                 .as_ref()
                 .ok_or_else(|| Error::BadRequest(format!("Policy is missing triggerables")))?;
 
-            // For WM_INTERNAL_DB markers, the policy may have been generated with the
-            // expanded SQL prior to the introduction of the WM_INTERNAL_DB markers.
-            // If the marker digest doesn't match, try expanding and retrying.
-            let expanded_path;
-            let path = {
-                let found = triggerables_v2
-                    .get(path)
-                    .or_else(|| triggerables_v2.get(&format!("{}:{}", payload.component, &path)));
-                if found.is_some() {
-                    path
-                } else if let Some(raw_code) = &payload.raw_code {
-                    if let Some(Ok(expanded)) =
-                        windmill_common::query_builders::try_expand_internal_db_query(
-                            &raw_code.content,
-                            &raw_code.language,
-                        )
-                    {
-                        expanded_path = digest(&expanded);
-                        &expanded_path
-                    } else {
-                        path
-                    }
-                } else {
-                    path
-                }
-            };
-
             let policy_triggerables = triggerables_v2
                 .get(path) // start with `path` in case we can avoid the next` format!`.
                 .or_else(|| triggerables_v2.get(&format!("{}:{}", payload.component, &path)))
