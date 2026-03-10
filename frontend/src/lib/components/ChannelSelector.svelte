@@ -26,7 +26,7 @@
 	let {
 		disabled = false,
 		placeholder = 'Select channel',
-		selectedChannel = $bindable(undefined),
+		selectedChannel = $bindable(),
 		containerClass = 'w-64',
 		minWidth = '160px',
 		channels = undefined,
@@ -39,8 +39,6 @@
 	let isFetching = $state(false)
 	let loadedChannels = $state<ChannelItem[]>([])
 	let loadedForTeamId = $state<string | undefined>(undefined)
-
-	let selectedChannelId = $state<string | undefined>(selectedChannel?.channel_id)
 
 	const searchMode = $derived(!channels && !!teamId)
 
@@ -55,21 +53,17 @@
 		return baseChannels
 	})
 
-	$effect(() => {
-		const newChannel = selectedChannelId
-			? displayChannels.find((c) => c.channel_id === selectedChannelId)
-			: undefined
-
-		if (newChannel?.channel_id !== selectedChannel?.channel_id) {
-			selectedChannel = newChannel
+	// Single setter to bridge Select's string value -> selectedChannel object.
+	function setSelectedChannelById(newId: string | undefined) {
+		if (newId) {
+			const channel = displayChannels.find((c) => c.channel_id === newId)
+			if (channel && channel.channel_id !== selectedChannel?.channel_id) {
+				selectedChannel = channel
+			}
+		} else if (selectedChannel !== undefined) {
+			selectedChannel = undefined
 		}
-	})
-
-	$effect(() => {
-		if (selectedChannel?.channel_id !== selectedChannelId) {
-			selectedChannelId = selectedChannel?.channel_id
-		}
-	})
+	}
 
 	let previousChannelId = $state<string | undefined>(undefined)
 
@@ -136,7 +130,10 @@
 						clearable
 						disabled={disabled || !teamId}
 						loading={isFetching}
-						bind:value={selectedChannelId}
+						bind:value={
+							() => selectedChannel?.channel_id,
+							(newId) => setSelectedChannelById(newId)
+						}
 					/>
 				{:else}
 					<Select
@@ -150,7 +147,10 @@
 						{placeholder}
 						clearable
 						disabled={disabled || displayChannels.length === 0}
-						bind:value={selectedChannelId}
+						bind:value={
+							() => selectedChannel?.channel_id,
+							(newId) => setSelectedChannelById(newId)
+						}
 					/>
 				{/if}
 			</div>
