@@ -245,8 +245,10 @@
 				{/if}
 				<div class="text-sm">
 					Note that new runs might take a while to become searchable (by default ~5min).
-					Search only covers a recent time window (default: 7 days), configurable in
-					instance settings under Indexer.
+					{#if indexMetadata?.max_index_time_window_secs}
+						Search only covers the last {Math.round(indexMetadata.max_index_time_window_secs / 86400)} day(s),
+						configurable in instance settings under Indexer.
+					{/if}
 				</div>
 				{#if !$enterpriseLicense}
 					<div class="py-6"></div>

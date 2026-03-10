@@ -526,8 +526,8 @@
 				<div class="flex flex-col justify-center items-center h-full gap-2">
 					<span>No logs</span>
 					<span class="text-2xs text-tertiary"
-						>Search only covers a recent time window (default: 7 days), configurable in
-						instance settings under Indexer.</span
+						>Search only covers a recent time window, configurable in instance settings
+						under Indexer.</span
 					>
 				</div>
 			{:else if minTs && maxTs}
