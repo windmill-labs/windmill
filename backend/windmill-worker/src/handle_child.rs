@@ -737,21 +737,24 @@ where
                 let update_job_row = i == 2 || (!*SLOW_LOGS && (i < 20 || (i < 120 && i % 5 == 0) || i % 10 == 0)) || i % 20 == 0;
                 if update_job_row && job_id != Uuid::nil() {
                     if let Connection::Sql(ref db) = conn {
-                        // tracking metric starting at i >= 2 b/c first point it useless and we don't want to track metric for super fast jobs
-                        if i == 2 {
-                            memory_metric_id = job_metrics::register_metric_for_job(
-                                &db,
-                                w_id.to_string(),
-                                job_id,
-                                "memory_kb".to_string(),
-                                job_metrics::MetricKind::TimeseriesInt,
-                                Some("Job Memory Footprint (kB)".to_string()),
-                            )
-                            .await;
-                        }
-                        if let Ok(ref metric_id) = memory_metric_id {
-                            if let Err(err) = job_metrics::record_metric(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem)).await {
-                                tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                        // Only track memory when it's non-zero (avoids storing all-zero timeseries for jobs that don't report memory)
+                        if current_mem > 0 {
+                            // Register on first non-zero reading (deferred from i==2 to avoid metric for jobs with no memory reporting)
+                            if memory_metric_id.is_err() {
+                                memory_metric_id = job_metrics::register_metric_for_job(
+                                    &db,
+                                    w_id.to_string(),
+                                    job_id,
+                                    "memory_kb".to_string(),
+                                    job_metrics::MetricKind::TimeseriesInt,
+                                    Some("Job Memory Footprint (kB)".to_string()),
+                                )
+                                .await;
+                            }
+                            if let Ok(ref metric_id) = memory_metric_id {
+                                if let Err(err) = job_metrics::record_timeseries_value(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem), job_metrics::MetricKind::TimeseriesInt).await {
+                                    tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                                }
                             }
                         }
                     }
