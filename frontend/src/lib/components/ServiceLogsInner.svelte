@@ -523,7 +523,13 @@
 			{#if allLogs == undefined}
 				<div class="text-center pb-2"><Loader2 class="animate-spin" /></div>
 			{:else if Object.keys(allLogs).length == 0}
-				<div class="flex justify-center items-center h-full">No logs</div>
+				<div class="flex flex-col justify-center items-center h-full gap-2">
+					<span>No logs</span>
+					<span class="text-2xs text-tertiary"
+						>Search only covers a recent time window (default: 7 days), configurable in
+						instance settings under Indexer.</span
+					>
+				</div>
 			{:else if minTs && maxTs}
 				{@const minTsN = new Date(minTs).getTime()}
 				{@const maxTsN = new Date(maxTs).getTime()}

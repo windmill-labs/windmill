@@ -244,7 +244,9 @@
 					<div class="text-sm">There were no completed runs that match your query</div>
 				{/if}
 				<div class="text-sm">
-					Note that new runs might take a while to become searchable (by default ~5min)
+					Note that new runs might take a while to become searchable (by default ~5min).
+					Search only covers a recent time window (default: 7 days), configurable in
+					instance settings under Indexer.
 				</div>
 				{#if !$enterpriseLicense}
 					<div class="py-6"></div>
