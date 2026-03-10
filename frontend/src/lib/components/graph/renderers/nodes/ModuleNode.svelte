@@ -53,8 +53,7 @@
 		if (data.isCollapsedContainer) return data.containerModules?.length ?? 0
 		const v = data.module.value
 		if (v.type === 'branchall') return v.branches.flatMap((b) => b.modules).length
-		if (v.type === 'branchone')
-			return v.default.length + v.branches.flatMap((b) => b.modules).length
+		if (v.type === 'branchone') return v.default.length + v.branches.flatMap((b) => b.modules).length
 		if (v.type === 'forloopflow' || v.type === 'whileloopflow') return v.modules.length
 		return 0
 	})
@@ -62,7 +61,7 @@
 	// Define context menu items
 	let noteDisabled = $derived(
 		!noteEditorContext?.noteEditor ||
-			(noteEditorContext?.noteEditor?.isNodeOnlyMemberOfGroupNote(data.id) ?? false)
+		(noteEditorContext?.noteEditor?.isNodeOnlyMemberOfGroupNote(data.id) ?? false)
 	)
 
 	let isPreprocessor = $derived(data.id === 'preprocessor')

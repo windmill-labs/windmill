@@ -86,11 +86,12 @@
 		if (group.module_ids.length === 0) return null
 		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(group.module_ids, allNodes)
 		const padding = 16
+		const topPadding = 28
 		return {
 			x: minX - padding,
-			y: minY - padding,
+			y: minY - topPadding,
 			width: maxX - minX + 2 * padding,
-			height: maxY - minY + 2 * padding
+			height: maxY - minY + topPadding + padding
 		}
 	}
 
@@ -166,7 +167,7 @@
 		// Include the header node itself in the bounds
 		const allIds = [node.id, ...innerIds]
 		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(allIds, allNodes)
-		const padding = 8
+		const padding = 16
 		return {
 			x: minX - padding,
 			y: minY - padding,
@@ -197,11 +198,11 @@
 			<ViewportPortal target="front">
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
-					class="absolute flex items-start justify-end"
+					class="absolute flex items-start justify-between"
 					style="pointer-events: auto; transform: translate({bounds.x}px, {bounds.y}px); width: {bounds.width}px;"
 					style:z-index="4"
 				>
-					<div class="relative" style="margin-right: 16px;">
+					<div class="relative" style="margin-left: 16px;">
 						<StepCountTab
 							stepCount={group.module_ids.length}
 							color={group.color}
@@ -209,43 +210,42 @@
 							short
 							onExpand={() => toggleCollapse(group.id)}
 						/>
+						{#if editingGroupId === group.id}
+							{@const textColorClass =
+								NOTE_COLORS[(group.color as NoteColor) ?? NoteColor.BLUE]?.text ?? ''}
+							<input
+								bind:this={summaryInputEl}
+								bind:value={summaryInput}
+								class="absolute !text-3xs !font-medium !h-4 !bg-transparent !outline-none {textColorClass}"
+								style="top: 2px; left:-3px; width: 160px; padding: 2px 2px;"
+								onblur={() => saveSummary(group.id)}
+								onkeydown={(e) => handleSummaryKeydown(e, group.id)}
+								onclick={stopPropagation(preventDefault(() => {}))}
+								onpointerdown={stopPropagation(preventDefault(() => {}))}
+								spellcheck={false}
+							/>
+						{:else}
+							{@const textColorClass =
+								NOTE_COLORS[(group.color as NoteColor) ?? NoteColor.BLUE]?.text ?? ''}
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<span
+								class="absolute text-3xs font-medium truncate max-w-[150px] text-opacity-60 {textColorClass} {editMode
+									? 'cursor-text rounded px-0.5 -mx-0.5 hover:text-opacity-100'
+									: ''}"
+								style="top: 2px; left: 0px;"
+								onclick={editMode
+									? stopPropagation(
+											preventDefault(() => startEditingSummary(group.id, group.summary ?? ''))
+										)
+									: undefined}
+								onpointerdown={editMode ? stopPropagation(preventDefault(() => {})) : undefined}
+								>{group.summary || (editMode ? 'Group' : '')}</span
+							>
+						{/if}
 					</div>
-
-					{#if editingGroupId === group.id}
-						{@const textColorClass =
-							NOTE_COLORS[(group.color as NoteColor) ?? NoteColor.BLUE]?.text ?? ''}
-						<input
-							bind:this={summaryInputEl}
-							bind:value={summaryInput}
-							class="absolute !text-3xs !font-medium !h-4 !bg-transparent !outline-none {textColorClass}"
-							style="top: -18px; left:-3px; width: 160px; padding: 2px 2px;"
-							onblur={() => saveSummary(group.id)}
-							onkeydown={(e) => handleSummaryKeydown(e, group.id)}
-							onclick={stopPropagation(preventDefault(() => {}))}
-							onpointerdown={stopPropagation(preventDefault(() => {}))}
-							spellcheck={false}
-						/>
-					{:else}
-						{@const textColorClass =
-							NOTE_COLORS[(group.color as NoteColor) ?? NoteColor.BLUE]?.text ?? ''}
-						<!-- svelte-ignore a11y_click_events_have_key_events -->
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
-						<span
-							class="absolute text-3xs font-medium truncate max-w-[150px] text-opacity-60 {textColorClass} {editMode
-								? 'cursor-text rounded px-0.5 -mx-0.5 hover:text-opacity-100'
-								: ''}"
-							style="top: -18px; left: 0px;"
-							onclick={editMode
-								? stopPropagation(
-										preventDefault(() => startEditingSummary(group.id, group.summary ?? ''))
-									)
-								: undefined}
-							onpointerdown={editMode ? stopPropagation(preventDefault(() => {})) : undefined}
-							>{group.summary || (editMode ? 'Group' : '')}</span
-						>
-					{/if}
 					{#if editMode}
-						<div class="absolute" style="top: 0px; right: 16px;">
+						<div class="relative" style="margin-top: -8px;">
 							<GroupActionBar
 								note={group.note}
 								color={group.color}
