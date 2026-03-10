@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::ai_providers::{
-    empty_string_as_none, AIProvider, ProviderConfig, ProviderModel,
+    empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
@@ -133,15 +133,6 @@ struct AIOAuthResource {
     client_secret: String,
     token_url: String,
     user: Option<String>,
-}
-
-/// Platform for AI providers that support Google Vertex AI
-#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
-#[serde(rename_all = "snake_case")]
-enum AIPlatform {
-    #[default]
-    Standard,
-    GoogleVertexAi,
 }
 
 #[derive(Deserialize, Debug)]
@@ -424,7 +415,9 @@ impl AIRequestConfig {
             if is_azure {
                 request = request.header("api-key", api_key.clone())
             } else if is_google_ai {
-                // Native Gemini API uses x-goog-api-key, not Authorization: Bearer
+                // Note: GoogleAI requests are intercepted earlier (see the GoogleAI
+                // handler block above) and never reach this code path. This branch
+                // is kept as a safety net for the standard Gemini API auth format.
                 request = request.header("x-goog-api-key", api_key.clone())
             } else {
                 request = request.header("authorization", format!("Bearer {}", api_key.clone()))

@@ -23,7 +23,8 @@ use windmill_common::{
 use windmill_parser::Typ;
 use windmill_types::s3::S3Object;
 
-// Re-export shared types from windmill_common::ai_types
+// Re-export shared types from windmill_common
+pub use windmill_common::ai_providers::AIPlatform;
 pub use windmill_common::ai_types::{
     ContentPart, ImageUrlData, OpenAIContent, OpenAIMessage, ToolDef, ToolDefFunction, UrlCitation,
 };
@@ -154,14 +155,6 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
             credentials_check: raw.credentials_check.unwrap_or(false),
         }
     }
-}
-
-#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum AIPlatform {
-    #[default]
-    Standard,
-    GoogleVertexAi,
 }
 
 #[derive(Deserialize, Debug)]
