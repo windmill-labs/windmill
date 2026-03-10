@@ -2574,7 +2574,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             ),
             increment_counter AS (
                 INSERT INTO zombie_job_counter (job_id, counter)
-                SELECT id, 1 FROM to_update
+                SELECT id, 1 FROM to_update WHERE counter < $2
                 ON CONFLICT (job_id) DO UPDATE
                 SET counter = zombie_job_counter.counter + 1
             ),
