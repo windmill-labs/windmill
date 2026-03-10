@@ -2825,7 +2825,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 &windmill_queue::MiniCompletedJob::from(job),
                 memory_peak,
                 None,
-                error::Error::ExecutionErr(error_message),
+                error::Error::ExecutionErr(error_message.clone()),
                 matches!(error_kind, ErrorMessage::SameWorker), // unrecoverable if the job is a same worker zombie
                 Some(&same_worker_tx_never_used),
                 "",
@@ -2836,8 +2836,72 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 &mut windmill_common::bench::BenchmarkIter::new(),
             )
             .await;
+
+            // If handle_job_error failed (e.g. schedule push failure rolled back the tx),
+            // the job is still in the queue. Force-complete it to prevent infinite zombie loops.
+            if let Err(e) = force_complete_zombie_job(db, &job_id, &error_message).await {
+                tracing::error!("Failed to force-complete zombie job {}: {e:#}", job_id);
+            }
         }
     }
+}
+
+/// Force-complete a zombie job that handle_job_error failed to complete.
+/// This is a minimal fallback: it inserts a failed completed job and deletes
+/// from the queue in a single transaction, without schedule pushing or
+/// error handler logic that could cause the completion to fail.
+async fn force_complete_zombie_job(
+    db: &Pool<Postgres>,
+    job_id: &Uuid,
+    error_message: &str,
+) -> error::Result<()> {
+    let still_queued = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM v2_job_queue WHERE id = $1)",
+        job_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    if !still_queued {
+        return Ok(());
+    }
+
+    tracing::error!(
+        "Zombie job {job_id} was not completed by handle_job_error, force-completing it"
+    );
+
+    let error_value = serde_json::json!({
+        "message": error_message,
+        "name": "ExecutionErr",
+    });
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        "INSERT INTO v2_job_completed
+            (workspace_id, id, started_at, duration_ms, result, memory_peak, status, worker)
+        SELECT q.workspace_id, q.id, q.started_at,
+            COALESCE((EXTRACT('epoch' FROM now()) - EXTRACT('epoch' FROM COALESCE(q.started_at, now()))) * 1000, 0)::bigint,
+            $2::jsonb, r.memory_peak, 'failure'::job_status, q.worker
+        FROM v2_job_queue q
+        LEFT JOIN v2_job_runtime r ON r.id = q.id
+        WHERE q.id = $1
+        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb",
+        job_id,
+        error_value,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!("DELETE FROM v2_job_queue WHERE id = $1", job_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    tracing::info!("Force-completed zombie job {job_id}");
+    Ok(())
 }
 
 async fn cleanup_concurrency_counters_orphaned_keys(db: &DB) -> error::Result<()> {
