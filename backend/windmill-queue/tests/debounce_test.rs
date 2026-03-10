@@ -585,7 +585,9 @@ mod debounce {
         Ok(())
     }
 
-    /// Test: max_total_debounces_amount limit - debounce batch resets when exceeded.
+    /// Test: max_total_debounces_amount limit - push-time debounce deletes key and
+    /// completes previous job when limit is reached. With max=2, the 2nd event
+    /// (debounced_times=1, total events=2) triggers the limit.
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     async fn test_debounce_max_count_limit(db: Pool<Postgres>) -> anyhow::Result<()> {
         let settings = DebouncingSettings {
@@ -596,8 +598,10 @@ mod debounce {
         };
         let args_hm = empty_args();
 
-        // Push 4 jobs: after the 3rd debounce (exceeding limit of 2), batch should reset
+        // With max=2: job1 debounced (dt=0), job2 triggers limit (dt=1, 1+1>=2),
+        // job3 debounced (fresh INSERT), job4 triggers limit (dt=1 again)
         let mut jobs = Vec::new();
+        let mut scheduled_fors = Vec::new();
         for _ in 0..4 {
             let job_id = Uuid::new_v4();
             insert_noop_job(&db, job_id, "test-workspace").await;
@@ -620,11 +624,44 @@ mod debounce {
             )
             .await?;
             tx.commit().await?;
+            scheduled_fors.push(scheduled_for);
         }
 
-        // The debounce_key entry should still exist
+        // Job 1: debounced (scheduled_for set)
+        assert!(
+            scheduled_fors[0].is_some(),
+            "job1 should be debounced (scheduled_for set)"
+        );
+        // Job 2: limit exceeded → scheduled_for cleared, previous job completed
+        assert!(
+            scheduled_fors[1].is_none(),
+            "job2 should execute immediately (limit exceeded)"
+        );
+        assert!(
+            is_completed(&db, &jobs[0]).await,
+            "job1 should be completed (debounced by job2 at limit)"
+        );
+        // Job 3: new batch (fresh INSERT after DELETE)
+        assert!(
+            scheduled_fors[2].is_some(),
+            "job3 should be debounced (new batch)"
+        );
+        // Job 4: limit exceeded again
+        assert!(
+            scheduled_fors[3].is_none(),
+            "job4 should execute immediately (limit exceeded)"
+        );
+        assert!(
+            is_completed(&db, &jobs[2]).await,
+            "job3 should be completed (debounced by job4 at limit)"
+        );
+
+        // The debounce_key entry should be deleted after the last limit exceeded
         let dk = get_debounce_key(&db, "count_limit_key").await;
-        assert!(dk.is_some(), "debounce_key entry should exist");
+        assert!(
+            dk.is_none(),
+            "debounce_key entry should be deleted after limit exceeded"
+        );
 
         Ok(())
     }
@@ -975,7 +1012,8 @@ mod debounce {
         Ok(())
     }
 
-    /// Test: Post-preprocessing debounce with max count limit deletes the debounce_key entry.
+    /// Test: Post-preprocessing debounce with max count limit deletes the debounce_key entry
+    /// and completes the previous job. With max=2, the 2nd event triggers the limit.
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     async fn test_post_preprocessing_debounce_max_count_resets(
         db: Pool<Postgres>,
@@ -988,7 +1026,8 @@ mod debounce {
         };
         let args_hm = empty_args();
 
-        // Push 4 jobs. After 3rd debounce (exceeding limit of 2), batch should reset.
+        // With max=2: job1 debounced (dt=0), job2 limit exceeded (dt=1, 1+1>=2),
+        // job3 debounced (fresh INSERT), job4 limit exceeded (dt=1 again)
         let mut jobs = Vec::new();
         let mut results = Vec::new();
         for _ in 0..4 {
@@ -1011,16 +1050,36 @@ mod debounce {
             results.push(result);
         }
 
-        // First job always gets scheduled_for
+        // Job 1: debounced (first in batch)
         assert!(results[0].is_some(), "first job should get scheduled_for");
 
-        // Jobs 2 and 3 should also get scheduled_for (debouncing within limit)
-        assert!(results[1].is_some(), "second job should get scheduled_for");
-        assert!(results[2].is_some(), "third job should get scheduled_for");
+        // Job 2: limit exceeded → execute immediately, complete job1
+        assert!(
+            results[1].is_none(),
+            "second job should execute immediately (limit exceeded)"
+        );
+        assert!(
+            is_completed(&db, &jobs[0]).await,
+            "job1 should be completed (debounced by job2 at limit)"
+        );
 
-        // Job 4 exceeds the limit: the debounce_key entry should be DELETED
-        // (not just reset) so that a stale entry doesn't cause the next incoming
-        // flow to incorrectly debounce this already-executing job.
+        // Job 3: new batch (fresh INSERT after DELETE)
+        assert!(
+            results[2].is_some(),
+            "third job should get scheduled_for (new batch)"
+        );
+
+        // Job 4: limit exceeded again → execute immediately, complete job3
+        assert!(
+            results[3].is_none(),
+            "fourth job should execute immediately (limit exceeded)"
+        );
+        assert!(
+            is_completed(&db, &jobs[2]).await,
+            "job3 should be completed (debounced by job4 at limit)"
+        );
+
+        // debounce_key should be deleted after the last limit exceeded
         let dk = get_debounce_key(&db, "pp_max_count_key").await;
         assert!(
             dk.is_none(),
@@ -1391,20 +1450,23 @@ mod debounce {
             &db,
         )
         .await?;
-        // When limit is exceeded, the function resets and returns None (execute immediately)
+        // When limit is exceeded, the function returns None (execute immediately)
         assert!(
             r2.is_none(),
             "should return None when time limit is exceeded"
         );
 
-        // Verify the batch was reset: debounced_times should be 0
-        let dk = get_debounce_key(&db, "pp_time_limit_key").await.unwrap();
-        assert_eq!(dk.2, 0, "debounced_times should be reset to 0");
-
-        // Job 1 should NOT be completed (time limit reset skips debouncing the previous job)
+        // Verify the debounce_key entry is deleted (not just reset)
+        let dk = get_debounce_key(&db, "pp_time_limit_key").await;
         assert!(
-            is_queued(&db, &job1).await,
-            "job1 should still be queued (time limit reset doesn't debounce)"
+            dk.is_none(),
+            "debounce_key entry should be deleted when time limit exceeded"
+        );
+
+        // Job 1 should be completed (debounced by job2 when limit exceeded)
+        assert!(
+            is_completed(&db, &job1).await,
+            "job1 should be completed (debounced by job2 at time limit)"
         );
 
         Ok(())
@@ -1467,16 +1529,31 @@ mod debounce {
         )
         .await?;
         tx.commit().await?;
-        // scheduled_for is still set (push-time doesn't clear it on limit exceed)
-        // but the batch should be reset
-        let dk = get_debounce_key(&db, "push_time_limit_key").await.unwrap();
-        assert_eq!(dk.2, 0, "debounced_times should be reset to 0");
+
+        // scheduled_for should be cleared (execute immediately when limit exceeded)
+        assert!(
+            sf2.is_none(),
+            "scheduled_for should be cleared when time limit exceeded"
+        );
+
+        // debounce_key should be deleted (not just reset)
+        let dk = get_debounce_key(&db, "push_time_limit_key").await;
+        assert!(
+            dk.is_none(),
+            "debounce_key entry should be deleted when time limit exceeded"
+        );
+
+        // Job 1 should be completed (debounced by job2 at time limit)
+        assert!(
+            is_completed(&db, &job1).await,
+            "job1 should be completed (debounced by job2 at time limit)"
+        );
 
         Ok(())
     }
 
-    /// Test: max_count boundary — at exactly the limit, debouncing still works.
-    /// One over the limit triggers reset.
+    /// Test: max_count boundary — with max=3, the 3rd event (debounced_times=2,
+    /// total events=3) triggers the limit. Events 1-2 debounce, event 3 launches.
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     async fn test_post_preprocessing_max_count_exact_boundary(
         db: Pool<Postgres>,
@@ -1491,7 +1568,8 @@ mod debounce {
 
         let mut jobs = Vec::new();
         let mut results = Vec::new();
-        // Push 5 jobs: job 1 (no debounce), jobs 2-4 (debounce, count 1-3), job 5 (count 4 > limit 3 → reset)
+        // With max=3: job1 dt=0 (1 event), job2 dt=1 (2 events), job3 dt=2 (3 events → limit),
+        // job4 dt=0 (new batch), job5 dt=1 (2 events)
         for _ in 0..5 {
             let id = Uuid::new_v4();
             insert_flow_job(&db, id, "test-workspace", "f/test/flow").await;
@@ -1512,26 +1590,31 @@ mod debounce {
             results.push(result);
         }
 
-        // Jobs 1-4 should return Some (scheduled_for) — debouncing within limit
-        for (i, r) in results.iter().enumerate().take(4) {
-            assert!(
-                r.is_some(),
-                "job {} should get scheduled_for (within limit)",
-                i + 1
-            );
-        }
+        // Jobs 1-2: debounced (within limit)
+        assert!(results[0].is_some(), "job 1 should get scheduled_for");
+        assert!(results[1].is_some(), "job 2 should get scheduled_for");
 
-        // Job 5 (debounced_times=4, exceeds limit=3) should return None (batch reset)
+        // Job 3: limit exceeded (dt=2, 2+1=3 >= 3) → execute immediately
         assert!(
-            results[4].is_none(),
-            "job 5 should return None (limit exceeded, batch reset)"
+            results[2].is_none(),
+            "job 3 should return None (limit exceeded)"
         );
 
-        // After limit exceeded, the debounce_key entry should be deleted
+        // Jobs 4-5: new batch after DELETE
+        assert!(
+            results[3].is_some(),
+            "job 4 should get scheduled_for (new batch)"
+        );
+        assert!(
+            results[4].is_some(),
+            "job 5 should get scheduled_for (within limit)"
+        );
+
+        // debounce_key should exist (pointing to job5, within new batch)
         let dk = get_debounce_key(&db, "pp_count_boundary_key").await;
         assert!(
-            dk.is_none(),
-            "debounce_key entry should be deleted when limits exceeded"
+            dk.is_some(),
+            "debounce_key entry should exist (new batch in progress)"
         );
 
         Ok(())
@@ -1539,6 +1622,7 @@ mod debounce {
 
     /// Test: after a max_count limit exceeded, a new batch starts completely fresh.
     /// The debounce_key entry is deleted, so the next cycle starts with a fresh INSERT.
+    /// With max=2: every 2 events forms a batch (1st debounced, 2nd triggers limit).
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     async fn test_post_preprocessing_max_count_reset_new_batch(
         db: Pool<Postgres>,
@@ -1551,9 +1635,8 @@ mod debounce {
         };
         let args_hm = empty_args();
 
-        // Limit check is `debounced_times > max`, so with max=2 we need 4 jobs
-        // to trigger limit (debounced_times=3 on the 4th job, 3>2=true).
-        // Cycle 1: jobs 1-4 (job 4 exceeds limit → entry deleted)
+        // With max=2: job1 debounced, job2 triggers limit (completes job1),
+        // job3 debounced (new batch), job4 triggers limit (completes job3)
         let mut cycle1 = Vec::new();
         for _ in 0..4 {
             let id = Uuid::new_v4();
@@ -1574,15 +1657,18 @@ mod debounce {
             .await?;
             cycle1_results.push(r);
         }
-        assert!(cycle1_results[0].is_some(), "cycle1 job1 scheduled");
-        assert!(cycle1_results[1].is_some(), "cycle1 job2 scheduled");
+        assert!(cycle1_results[0].is_some(), "cycle1 job1 debounced");
+        assert!(
+            cycle1_results[1].is_none(),
+            "cycle1 job2 should execute immediately (limit)"
+        );
         assert!(
             cycle1_results[2].is_some(),
-            "cycle1 job3 scheduled (at limit)"
+            "cycle1 job3 debounced (new batch)"
         );
         assert!(
             cycle1_results[3].is_none(),
-            "cycle1 job4 should execute immediately (over limit)"
+            "cycle1 job4 should execute immediately (limit)"
         );
 
         // Verify debounce_key entry is deleted after limit exceeded
@@ -1592,7 +1678,7 @@ mod debounce {
             "debounce_key entry should be deleted after limit exceeded"
         );
 
-        // Cycle 2: jobs 5-8 (completely fresh batch since entry was deleted)
+        // Cycle 2: completely fresh batch since entry was deleted
         let mut cycle2 = Vec::new();
         for _ in 0..4 {
             let id = Uuid::new_v4();
@@ -1613,17 +1699,22 @@ mod debounce {
             .await?;
             cycle2_results.push(r);
         }
-        // Cycle 2 starts fresh (INSERT, not CONFLICT), so it behaves identically to cycle 1:
-        //   job5: dt=0 (INSERT), job6: dt=1, job7: dt=2, job8: dt=3 (>2 → limit)
+        // Cycle 2 behaves identically: [debounced, limit, debounced, limit]
         assert!(
             cycle2_results[0].is_some(),
-            "cycle2 job1 scheduled (dt=0, fresh INSERT)"
+            "cycle2 job1 debounced (fresh INSERT)"
         );
-        assert!(cycle2_results[1].is_some(), "cycle2 job2 scheduled (dt=1)");
-        assert!(cycle2_results[2].is_some(), "cycle2 job3 scheduled (dt=2)");
+        assert!(
+            cycle2_results[1].is_none(),
+            "cycle2 job2 should execute immediately (limit)"
+        );
+        assert!(
+            cycle2_results[2].is_some(),
+            "cycle2 job3 debounced (new batch)"
+        );
         assert!(
             cycle2_results[3].is_none(),
-            "cycle2 job4 should execute immediately (dt=3 > 2)"
+            "cycle2 job4 should execute immediately (limit)"
         );
 
         Ok(())
@@ -1740,6 +1831,7 @@ mod debounce {
     }
 
     /// Test: after a max_count reset, the new batch gets a different batch ID.
+    /// With max=3: batch of 3 events (2 debounced + 1 limit trigger), then new batch.
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     async fn test_post_preprocessing_batch_id_changes_on_reset(
         db: Pool<Postgres>,
@@ -1747,14 +1839,14 @@ mod debounce {
         let settings = DebouncingSettings {
             debounce_delay_s: Some(5),
             debounce_key: Some("pp_batch_reset_id_test".to_string()),
-            max_total_debounces_amount: Some(2),
+            max_total_debounces_amount: Some(3),
             ..Default::default()
         };
         let args_hm = empty_args();
 
-        // Batch 1: jobs 1-4 (job 4 triggers reset at debounced_times=3 > 2)
+        // With max=3: jobs 1-2 debounced (dt=0,1), job 3 triggers limit (dt=2, 2+1>=3)
         let mut batch1_jobs = Vec::new();
-        for _ in 0..4 {
+        for _ in 0..3 {
             let id = Uuid::new_v4();
             insert_flow_job(&db, id, "test-workspace", "f/test/flow").await;
             batch1_jobs.push(id);
@@ -1772,7 +1864,7 @@ mod debounce {
             .await?;
         }
 
-        // Batch 2: jobs 5-6 (new batch after reset)
+        // Batch 2: jobs 4-5 (new batch after DELETE, within limit)
         let mut batch2_jobs = Vec::new();
         for _ in 0..2 {
             let id = Uuid::new_v4();
@@ -1799,17 +1891,17 @@ mod debounce {
         .fetch_one(&db)
         .await?;
 
-        // Job 4 (the one that triggered reset) should have a different batch from jobs 1-3
+        // Job 3 (the one that triggered limit) should have a different batch from jobs 1-2
         let reset_batch: i64 = sqlx::query_scalar!(
             "SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1",
-            batch1_jobs[3],
+            batch1_jobs[2],
         )
         .fetch_one(&db)
         .await?;
 
         assert_ne!(
             batch1_id, reset_batch,
-            "reset job should have a different batch ID"
+            "limit-triggered job should have a different batch ID"
         );
 
         // Batch 2 jobs should share the same batch but different from batch 1
@@ -2325,6 +2417,118 @@ mod debounce {
         assert_eq!(dk.0, job3, "should point to job3");
         assert_eq!(dk.1, Some(job2), "previous should be job2");
         assert_eq!(dk.2, 2, "debounced_times should be 2");
+
+        Ok(())
+    }
+
+    /// Test: 5 webhook calls with max_total_debounces_amount=2 and debounce_args_to_accumulate.
+    /// Simulates the flow described by the user: debounce_delay_s=50, max=2, accumulate x.
+    ///
+    /// Expected behavior:
+    ///   Call 1: debounced (first in batch, scheduled_for set)
+    ///   Call 2: launched immediately (limit reached at 2 total events, completes call 1)
+    ///   Call 3: debounced (new batch starts fresh)
+    ///   Call 4: launched immediately (limit reached again, completes call 3)
+    ///   Call 5: debounced (new batch, waiting for delay or more events)
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_post_preprocessing_webhook_5_calls_max_2(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(50),
+            debounce_key: Some("webhook_5calls_key".to_string()),
+            max_total_debounces_amount: Some(2),
+            debounce_args_to_accumulate: Some(vec!["x".to_string()]),
+            ..Default::default()
+        };
+
+        let mut jobs = Vec::new();
+        let mut results = Vec::new();
+
+        for i in 0..5 {
+            let id = Uuid::new_v4();
+            let args_val = serde_json::json!({"x": [i + 1]});
+            insert_flow_job_with_args(&db, id, "test-workspace", "f/test/flow", &args_val).await;
+            jobs.push(id);
+
+            let args_hm: HashMap<String, Box<RawValue>> = serde_json::from_value(args_val).unwrap();
+            let args = PushArgs::from(&args_hm);
+            let result = windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+                &settings,
+                &Some("f/test/flow".to_string()),
+                "test-workspace",
+                id,
+                &args,
+                &db,
+            )
+            .await?;
+            results.push(result);
+        }
+
+        // Call 1: debounced (first in batch)
+        assert!(
+            results[0].is_some(),
+            "call 1 should be debounced (scheduled_for set)"
+        );
+
+        // Call 2: launched immediately (limit exceeded: dt=1, 1+1 >= 2)
+        assert!(
+            results[1].is_none(),
+            "call 2 should launch immediately (limit reached at 2 total events)"
+        );
+
+        // Call 3: debounced (new batch, fresh INSERT after key was deleted by call 2)
+        assert!(
+            results[2].is_some(),
+            "call 3 should be debounced (new batch started)"
+        );
+
+        // Call 4: launched immediately (limit exceeded again)
+        assert!(
+            results[3].is_none(),
+            "call 4 should launch immediately (limit reached again)"
+        );
+
+        // Call 5: debounced (new batch)
+        assert!(
+            results[4].is_some(),
+            "call 5 should be debounced (new batch, waiting for delay)"
+        );
+
+        // Verify final state after all 5 calls:
+        // Completed: jobs[0] (debounced by call 2), jobs[2] (debounced by call 4)
+        assert!(
+            is_completed(&db, &jobs[0]).await,
+            "job from call 1 should be completed (debounced by call 2)"
+        );
+        assert!(
+            is_completed(&db, &jobs[2]).await,
+            "job from call 3 should be completed (debounced by call 4)"
+        );
+
+        // Queued: jobs[1] (launched immediately), jobs[3] (launched immediately), jobs[4] (debounced, waiting)
+        assert!(
+            is_queued(&db, &jobs[1]).await,
+            "call 2's job should be queued (launched immediately)"
+        );
+        assert!(
+            is_queued(&db, &jobs[3]).await,
+            "call 4's job should be queued (launched immediately)"
+        );
+        assert!(
+            is_queued(&db, &jobs[4]).await,
+            "call 5's job should be queued (debounced, waiting)"
+        );
+
+        // debounce_key should exist pointing to call 5's job (the active batch)
+        let dk = get_debounce_key(&db, "webhook_5calls_key").await;
+        assert!(dk.is_some(), "debounce_key should exist for call 5's batch");
+        let (dk_job_id, _, dk_times) = dk.unwrap();
+        assert_eq!(dk_job_id, jobs[4], "debounce_key should point to call 5");
+        assert_eq!(
+            dk_times, 0,
+            "debounced_times should be 0 (first in new batch)"
+        );
 
         Ok(())
     }

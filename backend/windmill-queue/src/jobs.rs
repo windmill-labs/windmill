@@ -3622,7 +3622,8 @@ pub async fn check_debouncing_within_limits(
     );
 
     if allowed_amount
-        .map(|allowed_amount| current_amount > allowed_amount)
+        .filter(|&a| a > 0)
+        .map(|allowed_amount| current_amount + 1 >= allowed_amount)
         .unwrap_or_default()
         && no_legacy_compat
     {
