@@ -172,7 +172,7 @@ struct AIStandardResource {
         deserialize_with = "empty_string_as_none"
     )]
     aws_session_token: Option<String>,
-    /// Platform for Anthropic API (standard or google_vertex_ai)
+    /// Platform (standard or google_vertex_ai)
     #[serde(default)]
     platform: AIPlatform,
     /// Enable 1M context window for Anthropic
