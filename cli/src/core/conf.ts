@@ -14,6 +14,15 @@ import { execSync } from "node:child_process";
 import { setNonDottedPaths } from "../utils/resource_folders.ts";
 import type { PermissionedAsRule } from "./permissioned_as.ts";
 
+export const SUPPORTED_CLI_BEHAVIOR_VERSION = 1;
+
+// Parse cliBehavior version string (e.g. "v1", "v2") into a number. Returns 0 if absent/invalid.
+export function parseCliBehavior(value?: string): number {
+  if (!value) return 0;
+  const match = value.match(/^v(\d+)$/);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
 export let showDiffs = false;
 export function setShowDiffs(value: boolean) {
   showDiffs = value;
@@ -293,6 +302,15 @@ export async function readConfigFile(): Promise<SyncOptions> {
 
     // Initialize global nonDottedPaths setting from config
     setNonDottedPaths(conf?.nonDottedPaths ?? false);
+
+    // Exit if the config specifies a cliBehavior version higher than what this CLI supports
+    const cliBehaviorVersion = parseCliBehavior(conf?.cliBehavior);
+    if (cliBehaviorVersion > SUPPORTED_CLI_BEHAVIOR_VERSION) {
+      log.error(
+        `Your wmill.yaml specifies cliBehavior: ${conf!.cliBehavior}, but this CLI only supports up to v${SUPPORTED_CLI_BEHAVIOR_VERSION}. Run 'wmill upgrade' to update.`
+      );
+      process.exit(1);
+    }
 
     return typeof conf == "object" ? conf : ({} as SyncOptions);
   } catch (e) {

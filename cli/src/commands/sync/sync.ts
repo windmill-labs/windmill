@@ -45,6 +45,7 @@ import {
 import {
   getEffectiveSettings,
   mergeConfigWithConfigFile,
+  parseCliBehavior,
   SyncOptions,
   validateBranchConfiguration,
 } from "../../core/conf.ts";
@@ -103,13 +104,6 @@ import {
   getFolderSuffixWithSep,
   getNonDottedPaths,
 } from "../../utils/resource_folders.ts";
-
-// Parse cliBehavior version string (e.g. "v1", "v2") into a number. Returns 0 if absent/invalid.
-export function parseCliBehavior(value?: string): number {
-  if (!value) return 0;
-  const match = value.match(/^v(\d+)$/);
-  return match ? parseInt(match[1], 10) : 0;
-}
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<

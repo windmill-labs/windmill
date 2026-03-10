@@ -1,5 +1,5 @@
 import { expect, test, describe } from "bun:test";
-import { parseCliBehavior } from "../src/commands/sync/sync.ts";
+import { parseCliBehavior } from "../src/core/conf.ts";
 
 describe("parseCliBehavior", () => {
   test("parses v1 to 1", () => {
