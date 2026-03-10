@@ -2951,7 +2951,13 @@ impl PulledJobResult {
                 .and_then(|x| x.get("triggered_by_relative_import"))
                 .is_some();
 
-        if (is_djob_to_debounce || debounce_delay_s.filter(|x| *x > 0).is_some())
+        let has_debounce_args = debounce_args_to_accumulate
+            .as_ref()
+            .map_or(false, |v| !v.is_empty());
+
+        if (is_djob_to_debounce
+            || debounce_delay_s.filter(|x| *x > 0).is_some()
+            || has_debounce_args)
             && MIN_VERSION_SUPPORTS_DEBOUNCING.met().await
             && !*WMDEBUG_NO_DEBOUNCING
         {
