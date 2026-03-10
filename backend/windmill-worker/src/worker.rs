@@ -740,6 +740,24 @@ pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
     }
 }
 
+/// Get OTEL trace context environment variables for a job (TRACEPARENT, OTEL_TRACE_ID, OTEL_SPAN_ID).
+/// Returns an empty vec when OTEL tracing is not enabled or on non-enterprise builds.
+pub fn get_otel_context_envs(job_id: &uuid::Uuid) -> Vec<(&'static str, String)> {
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    if windmill_common::OTEL_TRACING_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+        let trace_id = format!("{:032x}", job_id.as_u128());
+        let span_id = format!("{:016x}", job_id.as_u64_pair().1);
+        let traceparent = format!("00-{}-{}-01", trace_id, span_id);
+        return vec![
+            ("TRACEPARENT", traceparent),
+            ("OTEL_TRACE_ID", trace_id),
+            ("OTEL_SPAN_ID", span_id),
+        ];
+    }
+    let _ = job_id;
+    vec![]
+}
+
 /// Get proxy environment variables for job execution for a specific language.
 /// When OTEL tracing proxy is enabled for this language, routes all traffic through the proxy.
 /// Otherwise, uses the standard HTTP_PROXY/HTTPS_PROXY from environment.
@@ -749,12 +767,21 @@ pub async fn get_proxy_envs_for_lang(
     w_id: &str,
     conn: &Connection,
 ) -> anyhow::Result<Vec<(&'static str, String)>> {
+    #[allow(unused_mut)]
+    let mut envs;
     #[cfg(all(feature = "private", feature = "enterprise"))]
     if is_otel_tracing_proxy_enabled_for_lang(lang).await {
-        return get_otel_tracing_proxy_envs(job_id, w_id, conn).await;
+        envs = get_otel_tracing_proxy_envs(job_id, w_id, conn).await?;
+    } else {
+        envs = PROXY_ENVS.clone();
     }
-    let _ = (lang, job_id, w_id, conn);
-    Ok(PROXY_ENVS.clone())
+    #[cfg(not(all(feature = "private", feature = "enterprise")))]
+    {
+        let _ = (lang, w_id, conn);
+        envs = PROXY_ENVS.clone();
+    }
+    envs.extend(get_otel_context_envs(job_id));
+    Ok(envs)
 }
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
@@ -3500,6 +3527,13 @@ pub async fn handle_queued_job(
             .is_err_and(|err| matches!(err, &Error::AlreadyCompleted(_)))
         {
             return Ok(false);
+        }
+        if result
+            .as_ref()
+            .is_err_and(|err| matches!(err, &Error::WacSuspended(_)))
+        {
+            // WAC v2 job suspended while waiting for child jobs — don't complete it
+            return Ok(true);
         }
         process_result(
             cjob,
