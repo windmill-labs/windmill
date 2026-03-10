@@ -22,7 +22,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { getUserExt } from '$lib/user'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import FlowModuleSchemaMap from './flows/map/FlowModuleSchemaMap.svelte'
@@ -110,7 +110,7 @@
 	}
 
 	let darkModeToggle: DarkModeToggle | undefined = $state()
-	let darkMode: boolean | undefined = $state(undefined)
+	let darkMode: boolean = $state(document.documentElement.classList.contains('dark'))
 	let modeInitialized = $state(false)
 	function initializeMode() {
 		modeInitialized = true
@@ -170,11 +170,12 @@
 	let loadingCodebaseButton = $state(false)
 	let lastCommandId = ''
 
-	if (initial) {
-		if (initial.type == 'script') {
-			replaceScript(initial.script)
-		} else if (initial.type == 'flow') {
-			replaceFlow(initial.flow)
+	const untrackedInitial = untrack(() => initial)
+	if (untrackedInitial) {
+		if (untrackedInitial.type == 'script') {
+			replaceScript(untrackedInitial.script)
+		} else if (untrackedInitial.type == 'flow') {
+			replaceFlow(untrackedInitial.flow)
 		}
 		modeInitialized = true
 	}
@@ -601,9 +602,9 @@
 			}
 		})
 	}
-	let token = $derived($page.url.searchParams.get('wm_token') ?? undefined)
-	let workspace = $derived($page.url.searchParams.get('workspace') ?? undefined)
-	let themeDarkRaw = $derived($page.url.searchParams.get('activeColorTheme'))
+	let token = $derived(page.url.searchParams.get('wm_token') ?? undefined)
+	let workspace = $derived(page.url.searchParams.get('workspace') ?? undefined)
+	let themeDarkRaw = $derived(page.url.searchParams.get('activeColorTheme'))
 	let themeDark = $derived(themeDarkRaw == '2' || themeDarkRaw == '4')
 
 	$effect.pre(() => {

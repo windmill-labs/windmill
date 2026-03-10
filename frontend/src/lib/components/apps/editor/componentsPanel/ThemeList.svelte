@@ -19,14 +19,14 @@
 	const { previewTheme, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let cssString: string | undefined = $app?.theme?.type === 'inlined' ? $app.theme.css : undefined
-	$: type = $app?.theme?.type
+	let type = $derived($app?.theme?.type)
 
 	let themes: Array<{
 		name: string
 		path: string
-	}> = []
+	}> = $state([])
 
-	let loading: boolean = false
+	let loading: boolean = $state(false)
 
 	async function getThemes() {
 		loading = true
@@ -62,8 +62,8 @@
 		}
 	}
 
-	let nameField: string = ''
-	let previewThemePath: string | undefined = undefined
+	let nameField: string = $state('')
+	let previewThemePath: string | undefined = $state(undefined)
 
 	onMount(() => {
 		getThemes()

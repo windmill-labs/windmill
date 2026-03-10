@@ -286,7 +286,7 @@
 		}
 	}
 
-	let jsonView: boolean = $state(customUi?.jsonOnly == true)
+	let jsonView: boolean = $state(untrack(() => customUi)?.jsonOnly == true)
 	let schemaString: string = $state(JSON.stringify(schema, null, '\t'))
 	let error: string | undefined = $state(undefined)
 	let editor: SimpleEditor | undefined = $state(undefined)
@@ -296,8 +296,8 @@
 		editor?.setCode(schemaString)
 	}
 
-	const editTabDefaultSize = noPreview ? 100 : 50
-	editPanelSize = editTab ? (editPanelInitialSize ?? editTabDefaultSize) : 0
+	const editTabDefaultSize = untrack(() => noPreview) ? 100 : 50
+	editPanelSize = untrack(() => editTab) ? (untrack(() => editPanelInitialSize) ?? editTabDefaultSize) : 0
 	let inputPanelSize = $state(100 - editPanelSize)
 	let editPanelSizeSmooth = tweened(editPanelSize, {
 		duration: 150
@@ -592,7 +592,7 @@
 												{argName}
 												{#if !uiOnly}
 													<div onclick={stopPropagation(preventDefault(bubble('click')))}>
-														<Popover placement="bottom-end" containerClasses="p-4" closeButton>
+														<Popover placement="bottom-end" closeButton>
 															{#snippet trigger()}
 																<Button
 																	variant="subtle"

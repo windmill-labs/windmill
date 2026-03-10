@@ -557,6 +557,14 @@ pub async fn create_token_internal(
         ));
     }
 
+    register_token_expiry_notification(
+        &mut *tx,
+        &token,
+        token_config.label.as_deref(),
+        token_config.expiration,
+    )
+    .await;
+
     audit_log(
         &mut *tx,
         authed,
@@ -570,6 +578,31 @@ pub async fn create_token_internal(
     .await?;
 
     Ok(token)
+}
+
+/// Insert a pending expiry notification row for user tokens that have an expiration.
+pub async fn register_token_expiry_notification(
+    tx: &mut sqlx::PgConnection,
+    token: &str,
+    label: Option<&str>,
+    expiration: Option<chrono::DateTime<chrono::Utc>>,
+) {
+    let Some(expiration) = expiration else { return };
+    if label == Some("session")
+        || label.is_some_and(|l| l.starts_with("ephemeral") || l.starts_with("Ephemeral"))
+    {
+        return;
+    }
+    if let Err(e) = sqlx::query!(
+        "INSERT INTO token_expiry_notification (token, expiration) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        token,
+        expiration,
+    )
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!("Failed to register token expiry notification: {}", e);
+    }
 }
 
 // ------------ Permission helpers ------------

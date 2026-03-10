@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { isMac } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 
@@ -18,11 +19,11 @@
 		children
 	}: Props = $props()
 
-	if (small) {
+	if (untrack(() => small)) {
 		kbdClass = twMerge(
 			kbdClass,
 			'!text-[10px]  px-1',
-			isModifier && isMac() ? '!text-lg ' : 'text-xs',
+			untrack(() => isModifier) && isMac() ? '!text-lg ' : 'text-xs',
 			'leading-none'
 		)
 	} else {

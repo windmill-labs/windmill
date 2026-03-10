@@ -412,7 +412,7 @@
 	const lang = 'template'
 	const dispatch = createEventDispatcher()
 
-	const uri = `file:///${hash}.ts`
+	const uri = `file:///${untrack(() => hash)}.ts`
 
 	export function insertAtCursor(code: string): void {
 		if (editor) {
@@ -438,7 +438,6 @@
 	let cip
 	let extraModel
 
-	let width = $state(0)
 	// let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
 
 	let initialized = $state(false)
@@ -545,9 +544,6 @@
 				if (divEl) {
 					divEl.style.height = `${contentHeight}px`
 				}
-				try {
-					editor?.layout({ width, height: contentHeight })
-				} catch {}
 			}
 			editor.onDidContentSizeChange(updateHeight)
 			updateHeight()
@@ -718,7 +714,6 @@
 		bind:this={divEl}
 		style="height: 18px;"
 		class="template nonmain-editor rounded-md overflow-clip {!editor ? 'hidden' : ''}"
-		bind:clientWidth={width}
 	></div>
 </div>
 

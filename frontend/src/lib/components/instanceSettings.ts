@@ -85,7 +85,8 @@ const indexerSettingsSchema = z
 		refresh_index_period: positiveNumber.optional(),
 		max_indexed_job_log_size: positiveNumber.optional(),
 		commit_log_max_batch_size: positiveNumber.optional(),
-		refresh_log_index_period: positiveNumber.optional()
+		refresh_log_index_period: positiveNumber.optional(),
+		max_index_time_window_secs: positiveNumber.optional()
 	})
 	.passthrough()
 
@@ -331,6 +332,16 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hiddenIfEmpty: true
+		},
+		{
+			label: 'Disable Hub',
+			description:
+				'Disable the Windmill Hub integration entirely. Enable this if your instance runs in a closed environment without internet access and you do not have a private hub setup.',
+			key: 'disable_hub',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			requiresReloadOnChange: true
 		}
 	],
 	SMTP: [
@@ -454,7 +465,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Nuget Config',
-			description: 'Write a nuget.config file to set custom package sources and credentials',
+			description:
+				'Write a nuget.config file to set custom package sources and credentials. Use <clear /> inside <packageSources> to remove default sources and only use your custom ones',
 			key: 'nuget_config',
 			fieldType: 'codearea',
 			codeAreaLang: 'xml',
@@ -560,6 +572,15 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			requiresReloadOnChange: true,
 			ee_only: 'Critical alerts in UI are only available in the EE version'
+		},
+		{
+			label: 'Alert on token expiry',
+			description:
+				'Send critical alerts when API tokens are about to expire (within 7 days) or have expired',
+			key: 'critical_alerts_on_token_expiry',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
 		},
 		{
 			label: 'Slack',

@@ -20,11 +20,10 @@
 	import {
 		graphBuilder,
 		isTriggerStep,
-		topologicalSort,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
-		type onSelectedIteration,
+		type OnSelectedIteration,
 		type SimplifiableFlow
 	} from './graphBuilder.svelte'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
@@ -36,7 +35,6 @@
 	import ResultNode from './renderers/nodes/ResultNode.svelte'
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
-	import { sugiyama, dagStratify, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
 	import { Expand, MousePointer, Hand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
@@ -74,6 +72,7 @@
 	import type { MoveManager } from './moveManager.svelte'
 	import DragCoordinator from './DragCoordinator.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
+	import { compoundLayout } from './compoundLayout'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
@@ -165,7 +164,7 @@
 		onDuplicate?: (id: string) => void
 		onUpdateMock?: (detail: { mock: FlowModule['mock']; id: string }) => void
 		onTestUpTo?: ((id: string) => void) | undefined
-		onSelectedIteration?: onSelectedIteration
+		onSelectedIteration?: OnSelectedIteration
 		onEditInput?: (moduleId: string, key: string) => void
 		onTestFlow?: () => void
 		onCancelTestFlow?: () => void
@@ -275,7 +274,7 @@
 	let hoveredNodeId = $state<string | null>(null)
 
 	// Selection manager - create one if not provided
-	let selectionManager = selectionManagerProp || new SelectionManager()
+	let selectionManager = untrack(() => selectionManagerProp) || new SelectionManager()
 	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const noteEditorContext = getNoteEditorContext()
@@ -301,22 +300,22 @@
 	}
 
 	// Calculate note gap based on current nodes and notes
-	const topPadding = editMode ? 100 : 24
-	const yOffset = calculateNoteGap(notes) + topPadding
+	const topPadding = untrack(() => editMode) ? 100 : 24
+	const yOffset = calculateNoteGap(untrack(() => notes)) + topPadding
 
 	setGraphContext({
 		selectionManager: selectionManager,
 		useDataflow,
 		showAssets,
 		noteManager,
-		moveManager,
+		moveManager: untrack(() => moveManager),
 		clearFlowSelection,
 		yOffset,
 		diffManager
 	} as any)
 
-	if (triggerContext && allowSimplifiedPoll) {
-		if (isSimplifiable(modules)) {
+	if (triggerContext && untrack(() => allowSimplifiedPoll)) {
+		if (isSimplifiable(untrack(() => modules))) {
 			triggerContext?.simplifiedPoll?.set(true)
 		}
 		triggerContext?.simplifiedPoll.subscribe((value) => {
@@ -346,7 +345,6 @@
 	type NodeDep = {
 		id: string
 		parentIds?: string[]
-		offset?: number
 		data?: { assets?: AssetWithAltAccessType[] }
 	}
 	type NodePos = { position: { x: number; y: number } }
@@ -367,59 +365,21 @@
 			seenId.push(n.id)
 		}
 
-		let nodeWidths: Record<string, number> = {}
-		const nodes2: (NodeDep & NodePos)[] = nodes.map((n) => {
-			return { ...n, position: { x: 0, y: 0 } }
+		// Run recursive compound layout
+		const { positions, bbox } = compoundLayout(nodes, {
+			nodeWidth: NODE.width,
+			nodeHeight: NODE.height,
+			gapH: NODE.gap.horizontal,
+			gapV: NODE.gap.vertical
 		})
-		for (const n of topologicalSort(nodes)) {
-			const endId = n.id + '-end'
 
-			if (nodeWidths[endId] != undefined) {
-				nodeWidths[n.id] = Math.max(nodeWidths[n.id] ?? 0, nodeWidths[endId])
-			}
-			if (n.parentIds && n.parentIds?.length == 1) {
-				const parent = n.parentIds[0]
-				const nodeWidth = nodeWidths[n.id] ?? 1
-				nodeWidths[parent] = (nodeWidths[parent] ?? 0) + nodeWidth
-			}
-		}
-
-		const dag = dagStratify().id(({ id }: NodeDep & NodePos) => id)(nodes2)
-
-		let boxSize: any
-		try {
-			const layout = sugiyama()
-				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
-				.coord(coordCenter())
-				.nodeSize((d) => {
-					return [
-						(nodeWidths[d?.data?.['id'] ?? ''] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
-						NODE.height + NODE.gap.vertical
-					] as readonly [number, number]
-				})
-			boxSize = layout(dag as any)
-		} catch {
-			const layout = sugiyama()
-				.decross(decrossTwoLayer())
-				.coord(coordCenter())
-				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
-			boxSize = layout(dag as any)
-		}
-
-		const newNodes = dag.descendants().map((des) => ({
-			id: des.data.id,
+		// Center horizontally
+		const xCenter = (fullSize ? fullWidth : width) / 2 - bbox.width / 2 - (width - fullWidth) / 2
+		const newNodes = nodes.map((n) => ({
+			id: n.id,
 			position: {
-				x: des.x
-					? // @ts-ignore
-						(des.data.offset ?? 0) +
-						// @ts-ignore
-						des.x +
-						(fullSize ? fullWidth : width) / 2 -
-						boxSize.width / 2 -
-						NODE.width / 2 -
-						(width - fullWidth) / 2
-					: 0,
-				y: des.y || 0
+				x: (positions.get(n.id)?.x ?? 0) + xCenter - NODE.width / 2,
+				y: positions.get(n.id)?.y ?? 0
 			}
 		}))
 
@@ -653,7 +613,6 @@
 			Object.values(graph.nodes).map((n) => ({
 				id: n.id,
 				parentIds: n.parentIds,
-				offset: n.data.offset ?? 0,
 				data: { assets: (n.data as any).assets }
 			}))
 		)
@@ -662,7 +621,7 @@
 		let assetNodesResult = $showAssets
 			? computeAssetNodes(
 					newNodes.map((n) => ({
-						data: { assets: n.data?.assets as AssetWithAltAccessType[], offset: n.data?.offset as number },
+						data: { assets: n.data?.assets as AssetWithAltAccessType[] },
 						id: n.id,
 						position: n.position
 					}))
@@ -693,7 +652,6 @@
 						id: n.id,
 						position: n.position,
 						parentIds: n.parentIds,
-						offset: n.data?.offset ?? 0,
 						data: { assets: (n.data as any)?.assets },
 						type: n.type
 					})),
@@ -1031,7 +989,12 @@
 		<SvelteFlowProvider>
 			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
 			{#if moveManager}
-				<DragCoordinator {moveManager} eventHandlers={eventHandler} {edges} nodes={nodesWithOffset} />
+				<DragCoordinator
+					{moveManager}
+					eventHandlers={eventHandler}
+					{edges}
+					nodes={nodesWithOffset}
+				/>
 			{/if}
 			{#if sharedViewport && onViewportChange}
 				<ViewportSynchronizer
@@ -1101,8 +1064,8 @@
 
 				{#if multiSelectEnabled}
 					<SelectionBoundingBox
-						selectedNodes={selectionManager.selectedIds.filter(id =>
-							nodesWithOffset.some(n => n.id === id)
+						selectedNodes={selectionManager.selectedIds.filter((id) =>
+							nodesWithOffset.some((n) => n.id === id)
 						)}
 						allNodes={nodesWithOffset as (Node & { type: string })[]}
 						onDeleteSelected={() => onDeleteMultiple?.(resolvedModuleIds)}
@@ -1129,7 +1092,12 @@
 						{@render leftHeader()}
 					</div>
 				{:else}
-					<Controls position="top-right" orientation="horizontal" showLock={false}>
+					<Controls
+						position="top-right"
+						orientation="horizontal"
+						showLock={false}
+						fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'note') }}
+					>
 						{#if multiSelectEnabled}
 							<div class="flex items-center gap-2">
 								<Tooltip>

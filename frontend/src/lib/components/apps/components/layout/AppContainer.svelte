@@ -31,14 +31,14 @@
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let everRender = $state(render)
+	let everRender = $state(untrack(() => render))
 	$effect.pre(() => {
 		render && !everRender && (everRender = true)
 	})
 
 	let groupContext = writable({})
 
-	let outputs = initOutput($worldStore, id, { group: $groupContext })
+	let outputs = initOutput($worldStore, untrack(() => id), { group: $groupContext })
 
 	$effect.pre(() => {
 		$groupContext
@@ -65,7 +65,7 @@
 		}
 	})
 
-	let css = $state(initCss($app.css?.containercomponent, customCss))
+	let css = $state(initCss($app.css?.containercomponent, untrack(() => customCss)))
 </script>
 
 <InitializeComponent {id} />

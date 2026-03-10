@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { clickOutside } from '$lib/utils'
 	import { createFloatingActions, type ComputeConfig } from 'svelte-floating-ui'
@@ -28,7 +29,7 @@
 
 	// export let containerClasses: string = 'rounded-lg shadow-md border p-4 bg-surface'
 	// export let floatingClasses: string = ''
-	const [floatingRef, floatingContent] = createFloatingActions(floatingConfig)
+	const [floatingRef, floatingContent] = createFloatingActions(untrack(() => floatingConfig))
 
 	function close() {
 		open = false

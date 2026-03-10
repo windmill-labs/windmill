@@ -87,10 +87,10 @@ export type FlowValue = {
     cache_ttl?: number;
     cache_ignore_s3_path?: boolean;
     /**
-     * Environment variables available to all steps
+     * Environment variables available to all steps. Values can be strings, JSON values, or special references: '$var:path' (workspace variable) or '$res:path' (resource).
      */
     flow_env?: {
-        [key: string]: (string);
+        [key: string]: unknown;
     };
     /**
      * Execution priority (higher numbers run first)
@@ -462,7 +462,7 @@ export type RawScript = {
         /**
          * Type of asset
          */
-        kind: 's3object' | 'resource' | 'ducklake' | 'datatable';
+        kind: 's3object' | 'resource' | 'ducklake' | 'datatable' | 'volume';
         /**
          * Access level for this asset
          */
@@ -1305,7 +1305,7 @@ export type EndpointTool = {
 
 export type AIProvider = 'openai' | 'azure_openai' | 'anthropic' | 'mistral' | 'deepseek' | 'googleai' | 'groq' | 'openrouter' | 'togetherai' | 'aws_bedrock' | 'customai';
 
-export type GitSyncObjectType = 'script' | 'flow' | 'app' | 'folder' | 'resource' | 'variable' | 'secret' | 'resourcetype' | 'schedule' | 'user' | 'group' | 'trigger' | 'settings' | 'key';
+export type GitSyncObjectType = 'script' | 'flow' | 'app' | 'folder' | 'resource' | 'variable' | 'secret' | 'resourcetype' | 'schedule' | 'user' | 'group' | 'trigger' | 'settings' | 'key' | 'workspacedependencies';
 
 export type AIProviderModel = {
     model: string;
@@ -1420,7 +1420,7 @@ export type NewScript = {
     path: string;
     parent_hash?: string;
     summary: string;
-    description: string;
+    description?: string;
     content: string;
     schema?: {
         [key: string]: unknown;
@@ -1454,6 +1454,10 @@ export type NewScript = {
     codebase?: string;
     has_preprocessor?: boolean;
     on_behalf_of_email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it.
+     */
+    preserve_on_behalf_of?: boolean;
     assets?: Array<{
         path: string;
         kind: AssetKind;
@@ -1968,6 +1972,7 @@ export type Preview = {
     kind?: 'code' | 'identity' | 'http';
     dedicated_worker?: boolean;
     lock?: string;
+    flow_path?: string;
 };
 
 export type PreviewInline = {
@@ -1977,6 +1982,10 @@ export type PreviewInline = {
     content: string;
     args: ScriptArgs;
     language: ScriptLang;
+};
+
+export type InlineScriptArgs = {
+    args?: ScriptArgs;
 };
 
 export type WorkflowTask = {
@@ -2067,11 +2076,13 @@ export type ResourceType = {
     created_by?: string;
     edited_at?: string;
     format_extension?: string;
+    is_fileset?: boolean;
 };
 
 export type EditResourceType = {
     schema?: unknown;
     description?: string;
+    is_fileset?: boolean;
 };
 
 export type Schedule = {
@@ -2280,6 +2291,14 @@ export type NewSchedule = {
      * Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
      */
     dynamic_skip?: string | null;
+    /**
+     * Email of the user who the scheduled jobs run as. Used during deployment to preserve the original schedule owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type EditSchedule = {
@@ -2352,6 +2371,14 @@ export type EditSchedule = {
      * Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
      */
     dynamic_skip?: string | null;
+    /**
+     * Email of the user who the scheduled jobs run as. Used during deployment to preserve the original schedule owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 /**
@@ -2620,6 +2647,14 @@ export type NewHttpTrigger = {
      * Retry configuration for failed executions
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type EditHttpTrigger = {
@@ -2712,6 +2747,14 @@ export type EditHttpTrigger = {
      * Retry configuration for failed executions
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type TriggersCount = {
@@ -2841,6 +2884,14 @@ export type NewWebsocketTrigger = {
      * Retry configuration for failed executions
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type EditWebsocketTrigger = {
@@ -2895,6 +2946,14 @@ export type EditWebsocketTrigger = {
      * Retry configuration for failed executions
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type WebsocketTriggerInitialMessage = {
@@ -3027,6 +3086,14 @@ export type NewMqttTrigger = {
      * Retry configuration for failed executions
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type EditMqttTrigger = {
@@ -3079,6 +3146,14 @@ export type EditMqttTrigger = {
      * Retry configuration for failed executions
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 /**
@@ -3206,6 +3281,14 @@ export type GcpTriggerData = {
      * Retry configuration for failed executions.
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type GetAllTopicSubscription = {
@@ -3329,6 +3412,14 @@ export type NewSqsTrigger = {
      * Retry configuration for failed executions
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type EditSqsTrigger = {
@@ -3373,6 +3464,14 @@ export type EditSqsTrigger = {
      * Retry configuration for failed executions
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type Slot = {
@@ -3489,6 +3588,14 @@ export type NewPostgresTrigger = {
      * Retry configuration for failed executions
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type EditPostgresTrigger = {
@@ -3533,6 +3640,14 @@ export type EditPostgresTrigger = {
      * Retry configuration for failed executions
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type KafkaTrigger = TriggerExtraProperty & {
@@ -3620,6 +3735,14 @@ export type NewKafkaTrigger = {
      * Retry configuration for failed executions
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type EditKafkaTrigger = {
@@ -3663,6 +3786,14 @@ export type EditKafkaTrigger = {
      * Retry configuration for failed executions
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type NatsTrigger = TriggerExtraProperty & {
@@ -3758,6 +3889,14 @@ export type NewNatsTrigger = {
      * Retry configuration for failed executions
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type EditNatsTrigger = {
@@ -3805,6 +3944,14 @@ export type EditNatsTrigger = {
      * Retry configuration for failed executions
      */
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type EmailTrigger = TriggerExtraProperty & {
@@ -3825,6 +3972,14 @@ export type NewEmailTrigger = {
     error_handler_args?: ScriptArgs;
     retry?: Retry;
     mode?: TriggerMode;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type EditEmailTrigger = {
@@ -3836,6 +3991,14 @@ export type EditEmailTrigger = {
     error_handler_path?: string;
     error_handler_args?: ScriptArgs;
     retry?: Retry;
+    /**
+     * Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+     */
+    email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it.
+     */
+    preserve_email?: boolean;
 };
 
 export type Group = {
@@ -4013,6 +4176,10 @@ export type OpenFlowWPath = OpenFlow & {
     timeout?: number;
     visible_to_runner_only?: boolean;
     on_behalf_of_email?: string;
+    /**
+     * When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it.
+     */
+    preserve_on_behalf_of?: boolean;
 };
 
 export type FlowPreview = {
@@ -4292,6 +4459,7 @@ export type GitRepositorySettings = {
     git_repo_resource_path: string;
     use_individual_branch?: boolean;
     group_by_folder?: boolean;
+    force_branch?: string;
     collapsed?: boolean;
     settings?: {
         include_path?: Array<(string)>;
@@ -4692,11 +4860,24 @@ export type AssetUsageKind = 'script' | 'flow' | 'job';
 
 export type AssetUsageAccessType = 'r' | 'w' | 'rw';
 
-export type AssetKind = 's3object' | 'resource' | 'ducklake' | 'datatable';
+export type AssetKind = 's3object' | 'resource' | 'ducklake' | 'datatable' | 'volume';
 
 export type Asset = {
     path: string;
     kind: AssetKind;
+};
+
+export type Volume = {
+    name: string;
+    size_bytes: number;
+    file_count: number;
+    created_at: string;
+    created_by: string;
+    updated_at?: string | null;
+    last_used_at?: string | null;
+    extra_perms?: {
+        [key: string]: unknown;
+    };
 };
 
 /**
@@ -4961,9 +5142,9 @@ export type ParameterPage = number;
 export type ParameterPerPage = number;
 
 /**
- * trigger kind (schedule, http, websocket...)
+ * filter by trigger kind. Supports comma-separated list (e.g. 'schedule,webhook') and negation by prefixing all values with '!' (e.g. '!schedule,!webhook')
  */
-export type ParameterJobTriggerKind = JobTriggerKind;
+export type ParameterJobTriggerKind = string;
 
 /**
  * order by desc order (default true)
@@ -4971,17 +5152,17 @@ export type ParameterJobTriggerKind = JobTriggerKind;
 export type ParameterOrderDesc = boolean;
 
 /**
- * mask to filter exact matching user creator
+ * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
  */
 export type ParameterCreatedBy = string;
 
 /**
- * mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
+ * filter by exact matching job label. Supports comma-separated list (e.g. 'deploy,release') and negation by prefixing all values with '!' (e.g. '!deploy,!release')
  */
 export type ParameterLabel = string;
 
 /**
- * worker this job was ran on
+ * filter by worker this job ran on. Supports comma-separated list (e.g. 'worker-1,worker-2') and negation by prefixing all values with '!' (e.g. '!worker-1,!worker-2')
  */
 export type ParameterWorker = string;
 
@@ -5031,7 +5212,7 @@ export type ParameterSkipPreprocessor = boolean;
 export type ParameterPayload = string;
 
 /**
- * mask to filter matching starting path
+ * filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')
  */
 export type ParameterScriptStartPath = string;
 
@@ -5041,12 +5222,12 @@ export type ParameterScriptStartPath = string;
 export type ParameterSchedulePath = string;
 
 /**
- * mask to filter by trigger path
+ * filter by trigger path. Supports comma-separated list (e.g. 'f/trigger1,f/trigger2') and negation by prefixing all values with '!' (e.g. '!f/trigger1,!f/trigger2')
  */
 export type ParameterTriggerPath = string;
 
 /**
- * mask to filter exact matching path
+ * filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')
  */
 export type ParameterScriptExactPath = string;
 
@@ -5131,7 +5312,7 @@ export type ParameterAllowWildcards = boolean;
 export type ParameterArgsFilter = string;
 
 /**
- * filter on jobs with a given tag/worker group
+ * filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')
  */
 export type ParameterTag = string;
 
@@ -5166,7 +5347,7 @@ export type ParameterResourceName = string;
 export type ParameterActionKind = 'Create' | 'Update' | 'Delete' | 'Execute';
 
 /**
- * filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+ * filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')
  */
 export type ParameterJobKinds = string;
 
@@ -6920,9 +7101,21 @@ export type ExistsVariableResponse = boolean;
 
 export type ListVariableData = {
     /**
+     * broad search across multiple fields (case-insensitive substring match)
+     */
+    broadFilter?: string;
+    /**
+     * pattern match filter for description field (case-insensitive)
+     */
+    description?: string;
+    /**
      * which page to return (start at 1, default 1)
      */
     page?: number;
+    /**
+     * exact path match filter
+     */
+    path?: string;
     /**
      * filter variables by path prefix
      */
@@ -6931,6 +7124,10 @@ export type ListVariableData = {
      * number of items to return for a given page (default 30, max 100)
      */
     perPage?: number;
+    /**
+     * pattern match filter for non-secret variable values (case-insensitive)
+     */
+    value?: string;
     workspace: string;
 };
 
@@ -7231,9 +7428,21 @@ export type ExistsResourceResponse = boolean;
 
 export type ListResourceData = {
     /**
+     * broad search across multiple fields (case-insensitive substring match)
+     */
+    broadFilter?: string;
+    /**
+     * pattern match filter for description field (case-insensitive)
+     */
+    description?: string;
+    /**
      * which page to return (start at 1, default 1)
      */
     page?: number;
+    /**
+     * exact path match filter
+     */
+    path?: string;
     /**
      * filter resources by path prefix
      */
@@ -7250,6 +7459,10 @@ export type ListResourceData = {
      * resource_types to not list from, separated by ',',
      */
     resourceTypeExclude?: string;
+    /**
+     * JSONB subset match filter using base64 encoded JSON
+     */
+    value?: string;
     workspace: string;
 };
 
@@ -7301,7 +7514,12 @@ export type FileResourceTypeToFileExtMapData = {
     workspace: string;
 };
 
-export type FileResourceTypeToFileExtMapResponse = unknown;
+export type FileResourceTypeToFileExtMapResponse = {
+    [key: string]: {
+        format_extension?: string | null;
+        is_fileset?: boolean;
+    };
+};
 
 export type DeleteResourceTypeData = {
     path: string;
@@ -7480,7 +7698,7 @@ export type ListSearchFlowResponse = Array<{
 
 export type ListFlowsData = {
     /**
-     * mask to filter exact matching user creator
+     * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
      */
     createdBy?: string;
     /**
@@ -7763,7 +7981,7 @@ export type ListSearchAppResponse = Array<{
 
 export type ListAppsData = {
     /**
-     * mask to filter exact matching user creator
+     * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
      */
     createdBy?: string;
     /**
@@ -7821,6 +8039,10 @@ export type CreateAppData = {
         draft_only?: boolean;
         deployment_message?: string;
         custom_path?: string;
+        /**
+         * When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it.
+         */
+        preserve_on_behalf_of?: boolean;
     };
     workspace: string;
 };
@@ -7840,6 +8062,10 @@ export type CreateAppRawData = {
             draft_only?: boolean;
             deployment_message?: string;
             custom_path?: string;
+            /**
+             * When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it.
+             */
+            preserve_on_behalf_of?: boolean;
         };
         js?: string;
         css?: string;
@@ -7968,6 +8194,10 @@ export type UpdateAppData = {
         policy?: Policy;
         deployment_message?: string;
         custom_path?: string;
+        /**
+         * When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it.
+         */
+        preserve_on_behalf_of?: boolean;
     };
     workspace: string;
 };
@@ -7986,6 +8216,10 @@ export type UpdateAppRawData = {
             policy?: Policy;
             deployment_message?: string;
             custom_path?: string;
+            /**
+             * When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it.
+             */
+            preserve_on_behalf_of?: boolean;
         };
         js?: string;
         css?: string;
@@ -8174,7 +8408,7 @@ export type ListSearchScriptResponse = Array<{
 
 export type ListScriptsData = {
     /**
-     * mask to filter exact matching user creator
+     * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
      */
     createdBy?: string;
     /**
@@ -9485,6 +9719,28 @@ export type RunScriptPreviewInlineData = {
 
 export type RunScriptPreviewInlineResponse = unknown;
 
+export type RunScriptByPathInlineData = {
+    path: string;
+    /**
+     * script args
+     */
+    requestBody: InlineScriptArgs;
+    workspace: string;
+};
+
+export type RunScriptByPathInlineResponse = unknown;
+
+export type RunScriptByHashInlineData = {
+    hash: string;
+    /**
+     * script args
+     */
+    requestBody: InlineScriptArgs;
+    workspace: string;
+};
+
+export type RunScriptByHashInlineResponse = unknown;
+
 export type RunScriptPreviewAndWaitResultData = {
     /**
      * preview
@@ -9588,7 +9844,7 @@ export type ListQueueData = {
      */
     args?: string;
     /**
-     * mask to filter exact matching user creator
+     * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
      */
     createdBy?: string;
     /**
@@ -9596,7 +9852,7 @@ export type ListQueueData = {
      */
     isNotSchedule?: boolean;
     /**
-     * filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+     * filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')
      */
     jobKinds?: string;
     /**
@@ -9636,11 +9892,11 @@ export type ListQueueData = {
      */
     scriptHash?: string;
     /**
-     * mask to filter exact matching path
+     * filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')
      */
     scriptPathExact?: string;
     /**
-     * mask to filter matching starting path
+     * filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')
      */
     scriptPathStart?: string;
     /**
@@ -9660,19 +9916,19 @@ export type ListQueueData = {
      */
     suspended?: boolean;
     /**
-     * filter on jobs with a given tag/worker group
+     * filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')
      */
     tag?: string;
     /**
-     * trigger kind (schedule, http, websocket...)
+     * filter by trigger kind. Supports comma-separated list (e.g. 'schedule,webhook') and negation by prefixing all values with '!' (e.g. '!schedule,!webhook')
      */
-    triggerKind?: JobTriggerKind;
+    triggerKind?: string;
     /**
-     * mask to filter by trigger path
+     * filter by trigger path. Supports comma-separated list (e.g. 'f/trigger1,f/trigger2') and negation by prefixing all values with '!' (e.g. '!f/trigger1,!f/trigger2')
      */
     triggerPath?: string;
     /**
-     * worker this job was ran on
+     * filter by worker this job ran on. Supports comma-separated list (e.g. 'worker-1,worker-2') and negation by prefixing all values with '!' (e.g. '!worker-1,!worker-2')
      */
     worker?: string;
     workspace: string;
@@ -9745,7 +10001,7 @@ export type ListFilteredJobsUuidsData = {
      */
     createdBeforeQueue?: string;
     /**
-     * mask to filter exact matching user creator
+     * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
      */
     createdBy?: string;
     /**
@@ -9765,11 +10021,11 @@ export type ListFilteredJobsUuidsData = {
      */
     isSkipped?: boolean;
     /**
-     * filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+     * filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')
      */
     jobKinds?: string;
     /**
-     * mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
+     * filter by exact matching job label. Supports comma-separated list (e.g. 'deploy,release') and negation by prefixing all values with '!' (e.g. '!deploy,!release')
      */
     label?: string;
     /**
@@ -9805,11 +10061,11 @@ export type ListFilteredJobsUuidsData = {
      */
     scriptHash?: string;
     /**
-     * mask to filter exact matching path
+     * filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')
      */
     scriptPathExact?: string;
     /**
-     * mask to filter matching starting path
+     * filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')
      */
     scriptPathStart?: string;
     /**
@@ -9829,11 +10085,11 @@ export type ListFilteredJobsUuidsData = {
      */
     suspended?: boolean;
     /**
-     * filter on jobs with a given tag/worker group
+     * filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')
      */
     tag?: string;
     /**
-     * worker this job was ran on
+     * filter by worker this job ran on. Supports comma-separated list (e.g. 'worker-1,worker-2') and negation by prefixing all values with '!' (e.g. '!worker-1,!worker-2')
      */
     worker?: string;
     workspace: string;
@@ -9856,7 +10112,7 @@ export type ListFilteredQueueUuidsData = {
     args?: string;
     concurrencyKey?: string;
     /**
-     * mask to filter exact matching user creator
+     * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
      */
     createdBy?: string;
     /**
@@ -9864,7 +10120,7 @@ export type ListFilteredQueueUuidsData = {
      */
     isNotSchedule?: boolean;
     /**
-     * filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+     * filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')
      */
     jobKinds?: string;
     /**
@@ -9904,11 +10160,11 @@ export type ListFilteredQueueUuidsData = {
      */
     scriptHash?: string;
     /**
-     * mask to filter exact matching path
+     * filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')
      */
     scriptPathExact?: string;
     /**
-     * mask to filter matching starting path
+     * filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')
      */
     scriptPathStart?: string;
     /**
@@ -9928,7 +10184,7 @@ export type ListFilteredQueueUuidsData = {
      */
     suspended?: boolean;
     /**
-     * filter on jobs with a given tag/worker group
+     * filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')
      */
     tag?: string;
     workspace: string;
@@ -9966,7 +10222,7 @@ export type ListCompletedJobsData = {
      */
     args?: string;
     /**
-     * mask to filter exact matching user creator
+     * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
      */
     createdBy?: string;
     /**
@@ -9986,11 +10242,11 @@ export type ListCompletedJobsData = {
      */
     isSkipped?: boolean;
     /**
-     * filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+     * filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')
      */
     jobKinds?: string;
     /**
-     * mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
+     * filter by exact matching job label. Supports comma-separated list (e.g. 'deploy,release') and negation by prefixing all values with '!' (e.g. '!deploy,!release')
      */
     label?: string;
     /**
@@ -10022,11 +10278,11 @@ export type ListCompletedJobsData = {
      */
     scriptHash?: string;
     /**
-     * mask to filter exact matching path
+     * filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')
      */
     scriptPathExact?: string;
     /**
-     * mask to filter matching starting path
+     * filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')
      */
     scriptPathStart?: string;
     /**
@@ -10042,11 +10298,11 @@ export type ListCompletedJobsData = {
      */
     success?: boolean;
     /**
-     * filter on jobs with a given tag/worker group
+     * filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')
      */
     tag?: string;
     /**
-     * worker this job was ran on
+     * filter by worker this job ran on. Supports comma-separated list (e.g. 'worker-1,worker-2') and negation by prefixing all values with '!' (e.g. '!worker-1,!worker-2')
      */
     worker?: string;
     workspace: string;
@@ -10117,6 +10373,10 @@ export type ListJobsData = {
      */
     args?: string;
     /**
+     * broad search across multiple fields (case-insensitive substring match on path, tag, schedule path, trigger kind, label)
+     */
+    broadFilter?: string;
+    /**
      * filter on started after (exclusive) timestamp
      */
     completedAfter?: string;
@@ -10141,7 +10401,7 @@ export type ListJobsData = {
      */
     createdBeforeQueue?: string;
     /**
-     * mask to filter exact matching user creator
+     * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
      */
     createdBy?: string;
     /**
@@ -10161,11 +10421,11 @@ export type ListJobsData = {
      */
     isSkipped?: boolean;
     /**
-     * filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+     * filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')
      */
     jobKinds?: string;
     /**
-     * mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
+     * filter by exact matching job label. Supports comma-separated list (e.g. 'deploy,release') and negation by prefixing all values with '!' (e.g. '!deploy,!release')
      */
     label?: string;
     /**
@@ -10197,11 +10457,11 @@ export type ListJobsData = {
      */
     scriptHash?: string;
     /**
-     * mask to filter exact matching path
+     * filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')
      */
     scriptPathExact?: string;
     /**
-     * mask to filter matching starting path
+     * filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')
      */
     scriptPathStart?: string;
     /**
@@ -10221,15 +10481,15 @@ export type ListJobsData = {
      */
     suspended?: boolean;
     /**
-     * filter on jobs with a given tag/worker group
+     * filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')
      */
     tag?: string;
     /**
-     * trigger kind (schedule, http, websocket...)
+     * filter by trigger kind. Supports comma-separated list (e.g. 'schedule,webhook') and negation by prefixing all values with '!' (e.g. '!schedule,!webhook')
      */
-    triggerKind?: JobTriggerKind;
+    triggerKind?: string;
     /**
-     * worker this job was ran on
+     * filter by worker this job ran on. Supports comma-separated list (e.g. 'worker-1,worker-2') and negation by prefixing all values with '!' (e.g. '!worker-1,!worker-2')
      */
     worker?: string;
     workspace: string;
@@ -10488,12 +10748,14 @@ export type GetResumeUrlsResponse = {
 
 export type GetSlackApprovalPayloadData = {
     approver?: string;
+    cancelButtonText?: string;
     channelId: string;
     defaultArgsJson?: string;
     dynamicEnumsJson?: string;
     flowStepId: string;
     id: string;
     message?: string;
+    resumeButtonText?: string;
     slackResourcePath: string;
     workspace: string;
 };
@@ -10502,12 +10764,14 @@ export type GetSlackApprovalPayloadResponse = unknown;
 
 export type GetTeamsApprovalPayloadData = {
     approver?: string;
+    cancelButtonText?: string;
     channelName: string;
     defaultArgsJson?: string;
     dynamicEnumsJson?: string;
     flowStepId: string;
     id: string;
     message?: string;
+    resumeButtonText?: string;
     teamName: string;
     workspace: string;
 };
@@ -10643,7 +10907,7 @@ export type ListExtendedJobsData = {
      */
     createdBeforeQueue?: string;
     /**
-     * mask to filter exact matching user creator
+     * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
      */
     createdBy?: string;
     /**
@@ -10663,11 +10927,11 @@ export type ListExtendedJobsData = {
      */
     isSkipped?: boolean;
     /**
-     * filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+     * filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')
      */
     jobKinds?: string;
     /**
-     * mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
+     * filter by exact matching job label. Supports comma-separated list (e.g. 'deploy,release') and negation by prefixing all values with '!' (e.g. '!deploy,!release')
      */
     label?: string;
     /**
@@ -10704,11 +10968,11 @@ export type ListExtendedJobsData = {
      */
     scriptHash?: string;
     /**
-     * mask to filter exact matching path
+     * filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')
      */
     scriptPathExact?: string;
     /**
-     * mask to filter matching starting path
+     * filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')
      */
     scriptPathStart?: string;
     /**
@@ -10724,13 +10988,13 @@ export type ListExtendedJobsData = {
      */
     success?: boolean;
     /**
-     * filter on jobs with a given tag/worker group
+     * filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')
      */
     tag?: string;
     /**
-     * trigger kind (schedule, http, websocket...)
+     * filter by trigger kind. Supports comma-separated list (e.g. 'schedule,webhook') and negation by prefixing all values with '!' (e.g. '!schedule,!webhook')
      */
-    triggerKind?: JobTriggerKind;
+    triggerKind?: string;
     workspace: string;
 };
 
@@ -10788,7 +11052,7 @@ export type ListConversationMessagesResponse = Array<FlowConversationMessage>;
 
 export type ListRawAppsData = {
     /**
-     * mask to filter exact matching user creator
+     * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
      */
     createdBy?: string;
     /**
@@ -10942,6 +11206,14 @@ export type ListSchedulesData = {
      */
     args?: string;
     /**
+     * broad search across multiple fields (case-insensitive substring match)
+     */
+    broadFilter?: string;
+    /**
+     * pattern match filter for description field (case-insensitive)
+     */
+    description?: string;
+    /**
      * filter schedules by whether they target a flow
      */
     isFlow?: boolean;
@@ -10950,7 +11222,7 @@ export type ListSchedulesData = {
      */
     page?: number;
     /**
-     * filter by path
+     * filter by path (script path)
      */
     path?: string;
     /**
@@ -10961,6 +11233,14 @@ export type ListSchedulesData = {
      * number of items to return for a given page (default 30, max 100)
      */
     perPage?: number;
+    /**
+     * exact match on the schedule's path
+     */
+    schedulePath?: string;
+    /**
+     * pattern match filter for summary field (case-insensitive)
+     */
+    summary?: string;
     workspace: string;
 };
 
@@ -12638,7 +12918,7 @@ export type ListBlacklistedAgentTokensResponse = Array<{
 export type GetMinVersionResponse = string;
 
 export type GetGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger' | 'email_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger' | 'email_trigger' | 'volume';
     path: string;
     workspace: string;
 };
@@ -12648,7 +12928,7 @@ export type GetGranularAclsResponse = {
 };
 
 export type AddGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger' | 'email_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger' | 'email_trigger' | 'volume';
     path: string;
     /**
      * acl to add
@@ -12663,7 +12943,7 @@ export type AddGranularAclsData = {
 export type AddGranularAclsResponse = string;
 
 export type RemoveGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger' | 'email_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger' | 'email_trigger' | 'volume';
     path: string;
     /**
      * acl to add
@@ -13267,6 +13547,10 @@ export type SearchJobsIndexResponse = {
          * Is the current indexer service being replaced
          */
         lost_lock_ownership?: boolean;
+        /**
+         * Maximum time window in seconds for indexing
+         */
+        max_index_time_window_secs?: number;
     };
 };
 
@@ -13315,6 +13599,38 @@ export type ClearIndexData = {
 
 export type ClearIndexResponse = string;
 
+export type GetIndexStorageSizesResponse = {
+    job_index?: {
+        disk_size_bytes?: number | null;
+        s3_size_bytes?: number | null;
+    };
+    service_log_index?: {
+        disk_size_bytes?: number | null;
+        s3_size_bytes?: number | null;
+    };
+};
+
+export type GetIndexerStatusResponse = {
+    job_indexer?: {
+        is_alive?: boolean;
+        last_locked_at?: string | null;
+        owner?: string | null;
+        storage?: {
+            disk_size_bytes?: number | null;
+            s3_size_bytes?: number | null;
+        };
+    };
+    log_indexer?: {
+        is_alive?: boolean;
+        last_locked_at?: string | null;
+        owner?: string | null;
+        storage?: {
+            disk_size_bytes?: number | null;
+            s3_size_bytes?: number | null;
+        };
+    };
+};
+
 export type ListAssetsData = {
     /**
      * Filter by asset kinds (multiple values allowed)
@@ -13325,6 +13641,14 @@ export type ListAssetsData = {
      */
     assetPath?: string;
     /**
+     * broad search across multiple fields (case-insensitive substring match)
+     */
+    broadFilter?: string;
+    /**
+     * JSONB subset match filter for columns using base64 encoded JSON
+     */
+    columns?: string;
+    /**
      * Cursor timestamp for pagination (created_at of last item from previous page)
      */
     cursorCreatedAt?: string;
@@ -13332,6 +13656,10 @@ export type ListAssetsData = {
      * Cursor ID for pagination (id of last item from previous page)
      */
     cursorId?: number;
+    /**
+     * exact path match filter
+     */
+    path?: string;
     /**
      * Number of items per page (max 1000, default 50)
      */
@@ -13423,6 +13751,34 @@ export type ListFavoriteAssetsResponse = Array<{
      */
     path: string;
 }>;
+
+export type ListVolumesData = {
+    workspace: string;
+};
+
+export type ListVolumesResponse = Array<Volume>;
+
+export type GetVolumeStorageData = {
+    workspace: string;
+};
+
+export type GetVolumeStorageResponse = string | null;
+
+export type CreateVolumeData = {
+    requestBody: {
+        name: string;
+    };
+    workspace: string;
+};
+
+export type CreateVolumeResponse = string;
+
+export type DeleteVolumeData = {
+    name: string;
+    workspace: string;
+};
+
+export type DeleteVolumeResponse = string;
 
 export type ListMcpToolsData = {
     workspace: string;
@@ -16509,9 +16865,21 @@ export type $OpenApiTs = {
         get: {
             req: {
                 /**
+                 * broad search across multiple fields (case-insensitive substring match)
+                 */
+                broadFilter?: string;
+                /**
+                 * pattern match filter for description field (case-insensitive)
+                 */
+                description?: string;
+                /**
                  * which page to return (start at 1, default 1)
                  */
                 page?: number;
+                /**
+                 * exact path match filter
+                 */
+                path?: string;
                 /**
                  * filter variables by path prefix
                  */
@@ -16520,6 +16888,10 @@ export type $OpenApiTs = {
                  * number of items to return for a given page (default 30, max 100)
                  */
                 perPage?: number;
+                /**
+                 * pattern match filter for non-secret variable values (case-insensitive)
+                 */
+                value?: string;
                 workspace: string;
             };
             res: {
@@ -16997,9 +17369,21 @@ export type $OpenApiTs = {
         get: {
             req: {
                 /**
+                 * broad search across multiple fields (case-insensitive substring match)
+                 */
+                broadFilter?: string;
+                /**
+                 * pattern match filter for description field (case-insensitive)
+                 */
+                description?: string;
+                /**
                  * which page to return (start at 1, default 1)
                  */
                 page?: number;
+                /**
+                 * exact path match filter
+                 */
+                path?: string;
                 /**
                  * filter resources by path prefix
                  */
@@ -17016,6 +17400,10 @@ export type $OpenApiTs = {
                  * resource_types to not list from, separated by ',',
                  */
                 resourceTypeExclude?: string;
+                /**
+                 * JSONB subset match filter using base64 encoded JSON
+                 */
+                value?: string;
                 workspace: string;
             };
             res: {
@@ -17103,9 +17491,14 @@ export type $OpenApiTs = {
             };
             res: {
                 /**
-                 * map from resource type to file ext
+                 * map from resource type to file resource info
                  */
-                200: unknown;
+                200: {
+                    [key: string]: {
+                        format_extension?: string | null;
+                        is_fileset?: boolean;
+                    };
+                };
             };
         };
     };
@@ -17401,7 +17794,7 @@ export type $OpenApiTs = {
         get: {
             req: {
                 /**
-                 * mask to filter exact matching user creator
+                 * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
                  */
                 createdBy?: string;
                 /**
@@ -17846,7 +18239,7 @@ export type $OpenApiTs = {
         get: {
             req: {
                 /**
-                 * mask to filter exact matching user creator
+                 * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
                  */
                 createdBy?: string;
                 /**
@@ -17911,6 +18304,10 @@ export type $OpenApiTs = {
                     draft_only?: boolean;
                     deployment_message?: string;
                     custom_path?: string;
+                    /**
+                     * When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it.
+                     */
+                    preserve_on_behalf_of?: boolean;
                 };
                 workspace: string;
             };
@@ -17937,6 +18334,10 @@ export type $OpenApiTs = {
                         draft_only?: boolean;
                         deployment_message?: string;
                         custom_path?: string;
+                        /**
+                         * When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it.
+                         */
+                        preserve_on_behalf_of?: boolean;
                     };
                     js?: string;
                     css?: string;
@@ -18170,6 +18571,10 @@ export type $OpenApiTs = {
                     policy?: Policy;
                     deployment_message?: string;
                     custom_path?: string;
+                    /**
+                     * When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it.
+                     */
+                    preserve_on_behalf_of?: boolean;
                 };
                 workspace: string;
             };
@@ -18195,6 +18600,10 @@ export type $OpenApiTs = {
                         policy?: Policy;
                         deployment_message?: string;
                         custom_path?: string;
+                        /**
+                         * When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it.
+                         */
+                        preserve_on_behalf_of?: boolean;
                     };
                     js?: string;
                     css?: string;
@@ -18467,7 +18876,7 @@ export type $OpenApiTs = {
         get: {
             req: {
                 /**
-                 * mask to filter exact matching user creator
+                 * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
                  */
                 createdBy?: string;
                 /**
@@ -20203,6 +20612,42 @@ export type $OpenApiTs = {
             };
         };
     };
+    '/w/{workspace}/jobs/run_inline/p/{path}': {
+        post: {
+            req: {
+                path: string;
+                /**
+                 * script args
+                 */
+                requestBody: InlineScriptArgs;
+                workspace: string;
+            };
+            res: {
+                /**
+                 * script result
+                 */
+                200: unknown;
+            };
+        };
+    };
+    '/w/{workspace}/jobs/run_inline/h/{hash}': {
+        post: {
+            req: {
+                hash: string;
+                /**
+                 * script args
+                 */
+                requestBody: InlineScriptArgs;
+                workspace: string;
+            };
+            res: {
+                /**
+                 * script result
+                 */
+                200: unknown;
+            };
+        };
+    };
     '/w/{workspace}/jobs/run_wait_result/preview': {
         post: {
             req: {
@@ -20350,7 +20795,7 @@ export type $OpenApiTs = {
                  */
                 args?: string;
                 /**
-                 * mask to filter exact matching user creator
+                 * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
                  */
                 createdBy?: string;
                 /**
@@ -20358,7 +20803,7 @@ export type $OpenApiTs = {
                  */
                 isNotSchedule?: boolean;
                 /**
-                 * filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+                 * filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')
                  */
                 jobKinds?: string;
                 /**
@@ -20398,11 +20843,11 @@ export type $OpenApiTs = {
                  */
                 scriptHash?: string;
                 /**
-                 * mask to filter exact matching path
+                 * filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')
                  */
                 scriptPathExact?: string;
                 /**
-                 * mask to filter matching starting path
+                 * filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')
                  */
                 scriptPathStart?: string;
                 /**
@@ -20422,19 +20867,19 @@ export type $OpenApiTs = {
                  */
                 suspended?: boolean;
                 /**
-                 * filter on jobs with a given tag/worker group
+                 * filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')
                  */
                 tag?: string;
                 /**
-                 * trigger kind (schedule, http, websocket...)
+                 * filter by trigger kind. Supports comma-separated list (e.g. 'schedule,webhook') and negation by prefixing all values with '!' (e.g. '!schedule,!webhook')
                  */
-                triggerKind?: JobTriggerKind;
+                triggerKind?: string;
                 /**
-                 * mask to filter by trigger path
+                 * filter by trigger path. Supports comma-separated list (e.g. 'f/trigger1,f/trigger2') and negation by prefixing all values with '!' (e.g. '!f/trigger1,!f/trigger2')
                  */
                 triggerPath?: string;
                 /**
-                 * worker this job was ran on
+                 * filter by worker this job ran on. Supports comma-separated list (e.g. 'worker-1,worker-2') and negation by prefixing all values with '!' (e.g. '!worker-1,!worker-2')
                  */
                 worker?: string;
                 workspace: string;
@@ -20535,7 +20980,7 @@ export type $OpenApiTs = {
                  */
                 createdBeforeQueue?: string;
                 /**
-                 * mask to filter exact matching user creator
+                 * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
                  */
                 createdBy?: string;
                 /**
@@ -20555,11 +21000,11 @@ export type $OpenApiTs = {
                  */
                 isSkipped?: boolean;
                 /**
-                 * filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+                 * filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')
                  */
                 jobKinds?: string;
                 /**
-                 * mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
+                 * filter by exact matching job label. Supports comma-separated list (e.g. 'deploy,release') and negation by prefixing all values with '!' (e.g. '!deploy,!release')
                  */
                 label?: string;
                 /**
@@ -20595,11 +21040,11 @@ export type $OpenApiTs = {
                  */
                 scriptHash?: string;
                 /**
-                 * mask to filter exact matching path
+                 * filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')
                  */
                 scriptPathExact?: string;
                 /**
-                 * mask to filter matching starting path
+                 * filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')
                  */
                 scriptPathStart?: string;
                 /**
@@ -20619,11 +21064,11 @@ export type $OpenApiTs = {
                  */
                 suspended?: boolean;
                 /**
-                 * filter on jobs with a given tag/worker group
+                 * filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')
                  */
                 tag?: string;
                 /**
-                 * worker this job was ran on
+                 * filter by worker this job ran on. Supports comma-separated list (e.g. 'worker-1,worker-2') and negation by prefixing all values with '!' (e.g. '!worker-1,!worker-2')
                  */
                 worker?: string;
                 workspace: string;
@@ -20653,7 +21098,7 @@ export type $OpenApiTs = {
                 args?: string;
                 concurrencyKey?: string;
                 /**
-                 * mask to filter exact matching user creator
+                 * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
                  */
                 createdBy?: string;
                 /**
@@ -20661,7 +21106,7 @@ export type $OpenApiTs = {
                  */
                 isNotSchedule?: boolean;
                 /**
-                 * filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+                 * filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')
                  */
                 jobKinds?: string;
                 /**
@@ -20701,11 +21146,11 @@ export type $OpenApiTs = {
                  */
                 scriptHash?: string;
                 /**
-                 * mask to filter exact matching path
+                 * filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')
                  */
                 scriptPathExact?: string;
                 /**
-                 * mask to filter matching starting path
+                 * filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')
                  */
                 scriptPathStart?: string;
                 /**
@@ -20725,7 +21170,7 @@ export type $OpenApiTs = {
                  */
                 suspended?: boolean;
                 /**
-                 * filter on jobs with a given tag/worker group
+                 * filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')
                  */
                 tag?: string;
                 workspace: string;
@@ -20784,7 +21229,7 @@ export type $OpenApiTs = {
                  */
                 args?: string;
                 /**
-                 * mask to filter exact matching user creator
+                 * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
                  */
                 createdBy?: string;
                 /**
@@ -20804,11 +21249,11 @@ export type $OpenApiTs = {
                  */
                 isSkipped?: boolean;
                 /**
-                 * filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+                 * filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')
                  */
                 jobKinds?: string;
                 /**
-                 * mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
+                 * filter by exact matching job label. Supports comma-separated list (e.g. 'deploy,release') and negation by prefixing all values with '!' (e.g. '!deploy,!release')
                  */
                 label?: string;
                 /**
@@ -20840,11 +21285,11 @@ export type $OpenApiTs = {
                  */
                 scriptHash?: string;
                 /**
-                 * mask to filter exact matching path
+                 * filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')
                  */
                 scriptPathExact?: string;
                 /**
-                 * mask to filter matching starting path
+                 * filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')
                  */
                 scriptPathStart?: string;
                 /**
@@ -20860,11 +21305,11 @@ export type $OpenApiTs = {
                  */
                 success?: boolean;
                 /**
-                 * filter on jobs with a given tag/worker group
+                 * filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')
                  */
                 tag?: string;
                 /**
-                 * worker this job was ran on
+                 * filter by worker this job ran on. Supports comma-separated list (e.g. 'worker-1,worker-2') and negation by prefixing all values with '!' (e.g. '!worker-1,!worker-2')
                  */
                 worker?: string;
                 workspace: string;
@@ -20977,6 +21422,10 @@ export type $OpenApiTs = {
                  */
                 args?: string;
                 /**
+                 * broad search across multiple fields (case-insensitive substring match on path, tag, schedule path, trigger kind, label)
+                 */
+                broadFilter?: string;
+                /**
                  * filter on started after (exclusive) timestamp
                  */
                 completedAfter?: string;
@@ -21001,7 +21450,7 @@ export type $OpenApiTs = {
                  */
                 createdBeforeQueue?: string;
                 /**
-                 * mask to filter exact matching user creator
+                 * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
                  */
                 createdBy?: string;
                 /**
@@ -21021,11 +21470,11 @@ export type $OpenApiTs = {
                  */
                 isSkipped?: boolean;
                 /**
-                 * filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+                 * filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')
                  */
                 jobKinds?: string;
                 /**
-                 * mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
+                 * filter by exact matching job label. Supports comma-separated list (e.g. 'deploy,release') and negation by prefixing all values with '!' (e.g. '!deploy,!release')
                  */
                 label?: string;
                 /**
@@ -21057,11 +21506,11 @@ export type $OpenApiTs = {
                  */
                 scriptHash?: string;
                 /**
-                 * mask to filter exact matching path
+                 * filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')
                  */
                 scriptPathExact?: string;
                 /**
-                 * mask to filter matching starting path
+                 * filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')
                  */
                 scriptPathStart?: string;
                 /**
@@ -21081,15 +21530,15 @@ export type $OpenApiTs = {
                  */
                 suspended?: boolean;
                 /**
-                 * filter on jobs with a given tag/worker group
+                 * filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')
                  */
                 tag?: string;
                 /**
-                 * trigger kind (schedule, http, websocket...)
+                 * filter by trigger kind. Supports comma-separated list (e.g. 'schedule,webhook') and negation by prefixing all values with '!' (e.g. '!schedule,!webhook')
                  */
-                triggerKind?: JobTriggerKind;
+                triggerKind?: string;
                 /**
-                 * worker this job was ran on
+                 * filter by worker this job ran on. Supports comma-separated list (e.g. 'worker-1,worker-2') and negation by prefixing all values with '!' (e.g. '!worker-1,!worker-2')
                  */
                 worker?: string;
                 workspace: string;
@@ -21524,12 +21973,14 @@ export type $OpenApiTs = {
         get: {
             req: {
                 approver?: string;
+                cancelButtonText?: string;
                 channelId: string;
                 defaultArgsJson?: string;
                 dynamicEnumsJson?: string;
                 flowStepId: string;
                 id: string;
                 message?: string;
+                resumeButtonText?: string;
                 slackResourcePath: string;
                 workspace: string;
             };
@@ -21545,12 +21996,14 @@ export type $OpenApiTs = {
         get: {
             req: {
                 approver?: string;
+                cancelButtonText?: string;
                 channelName: string;
                 defaultArgsJson?: string;
                 dynamicEnumsJson?: string;
                 flowStepId: string;
                 id: string;
                 message?: string;
+                resumeButtonText?: string;
                 teamName: string;
                 workspace: string;
             };
@@ -21743,7 +22196,7 @@ export type $OpenApiTs = {
                  */
                 createdBeforeQueue?: string;
                 /**
-                 * mask to filter exact matching user creator
+                 * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
                  */
                 createdBy?: string;
                 /**
@@ -21763,11 +22216,11 @@ export type $OpenApiTs = {
                  */
                 isSkipped?: boolean;
                 /**
-                 * filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+                 * filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')
                  */
                 jobKinds?: string;
                 /**
-                 * mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
+                 * filter by exact matching job label. Supports comma-separated list (e.g. 'deploy,release') and negation by prefixing all values with '!' (e.g. '!deploy,!release')
                  */
                 label?: string;
                 /**
@@ -21804,11 +22257,11 @@ export type $OpenApiTs = {
                  */
                 scriptHash?: string;
                 /**
-                 * mask to filter exact matching path
+                 * filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')
                  */
                 scriptPathExact?: string;
                 /**
-                 * mask to filter matching starting path
+                 * filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')
                  */
                 scriptPathStart?: string;
                 /**
@@ -21824,13 +22277,13 @@ export type $OpenApiTs = {
                  */
                 success?: boolean;
                 /**
-                 * filter on jobs with a given tag/worker group
+                 * filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')
                  */
                 tag?: string;
                 /**
-                 * trigger kind (schedule, http, websocket...)
+                 * filter by trigger kind. Supports comma-separated list (e.g. 'schedule,webhook') and negation by prefixing all values with '!' (e.g. '!schedule,!webhook')
                  */
-                triggerKind?: JobTriggerKind;
+                triggerKind?: string;
                 workspace: string;
             };
             res: {
@@ -21916,7 +22369,7 @@ export type $OpenApiTs = {
         get: {
             req: {
                 /**
-                 * mask to filter exact matching user creator
+                 * filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')
                  */
                 createdBy?: string;
                 /**
@@ -22140,6 +22593,14 @@ export type $OpenApiTs = {
                  */
                 args?: string;
                 /**
+                 * broad search across multiple fields (case-insensitive substring match)
+                 */
+                broadFilter?: string;
+                /**
+                 * pattern match filter for description field (case-insensitive)
+                 */
+                description?: string;
+                /**
                  * filter schedules by whether they target a flow
                  */
                 isFlow?: boolean;
@@ -22148,7 +22609,7 @@ export type $OpenApiTs = {
                  */
                 page?: number;
                 /**
-                 * filter by path
+                 * filter by path (script path)
                  */
                 path?: string;
                 /**
@@ -22159,6 +22620,14 @@ export type $OpenApiTs = {
                  * number of items to return for a given page (default 30, max 100)
                  */
                 perPage?: number;
+                /**
+                 * exact match on the schedule's path
+                 */
+                schedulePath?: string;
+                /**
+                 * pattern match filter for summary field (case-insensitive)
+                 */
+                summary?: string;
                 workspace: string;
             };
             res: {
@@ -24938,7 +25407,7 @@ export type $OpenApiTs = {
     '/w/{workspace}/acls/get/{kind}/{path}': {
         get: {
             req: {
-                kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger' | 'email_trigger';
+                kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger' | 'email_trigger' | 'volume';
                 path: string;
                 workspace: string;
             };
@@ -24955,7 +25424,7 @@ export type $OpenApiTs = {
     '/w/{workspace}/acls/add/{kind}/{path}': {
         post: {
             req: {
-                kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger' | 'email_trigger';
+                kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger' | 'email_trigger' | 'volume';
                 path: string;
                 /**
                  * acl to add
@@ -24977,7 +25446,7 @@ export type $OpenApiTs = {
     '/w/{workspace}/acls/remove/{kind}/{path}': {
         post: {
             req: {
-                kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger' | 'email_trigger';
+                kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger' | 'email_trigger' | 'volume';
                 path: string;
                 /**
                  * acl to add
@@ -25905,6 +26374,10 @@ export type $OpenApiTs = {
                          * Is the current indexer service being replaced
                          */
                         lost_lock_ownership?: boolean;
+                        /**
+                         * Maximum time window in seconds for indexing
+                         */
+                        max_index_time_window_secs?: number;
                     };
                 };
             };
@@ -25963,16 +26436,64 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/srch/index/delete/{idx_name}': {
+    '/indexer/delete/{idx_name}': {
         delete: {
             req: {
                 idxName: 'JobIndex' | 'ServiceLogIndex';
             };
             res: {
                 /**
-                 * idx to be deleted and container restarting
+                 * idx to be deleted and indexer restarting
                  */
                 200: string;
+            };
+        };
+    };
+    '/indexer/storage': {
+        get: {
+            res: {
+                /**
+                 * storage sizes for each index
+                 */
+                200: {
+                    job_index?: {
+                        disk_size_bytes?: number | null;
+                        s3_size_bytes?: number | null;
+                    };
+                    service_log_index?: {
+                        disk_size_bytes?: number | null;
+                        s3_size_bytes?: number | null;
+                    };
+                };
+            };
+        };
+    };
+    '/indexer/status': {
+        get: {
+            res: {
+                /**
+                 * indexer status for each index
+                 */
+                200: {
+                    job_indexer?: {
+                        is_alive?: boolean;
+                        last_locked_at?: string | null;
+                        owner?: string | null;
+                        storage?: {
+                            disk_size_bytes?: number | null;
+                            s3_size_bytes?: number | null;
+                        };
+                    };
+                    log_indexer?: {
+                        is_alive?: boolean;
+                        last_locked_at?: string | null;
+                        owner?: string | null;
+                        storage?: {
+                            disk_size_bytes?: number | null;
+                            s3_size_bytes?: number | null;
+                        };
+                    };
+                };
             };
         };
     };
@@ -25988,6 +26509,14 @@ export type $OpenApiTs = {
                  */
                 assetPath?: string;
                 /**
+                 * broad search across multiple fields (case-insensitive substring match)
+                 */
+                broadFilter?: string;
+                /**
+                 * JSONB subset match filter for columns using base64 encoded JSON
+                 */
+                columns?: string;
+                /**
                  * Cursor timestamp for pagination (created_at of last item from previous page)
                  */
                 cursorCreatedAt?: string;
@@ -25995,6 +26524,10 @@ export type $OpenApiTs = {
                  * Cursor ID for pagination (id of last item from previous page)
                  */
                 cursorId?: number;
+                /**
+                 * exact path match filter
+                 */
+                path?: string;
                 /**
                  * Number of items per page (max 1000, default 50)
                  */
@@ -26103,6 +26636,62 @@ export type $OpenApiTs = {
                      */
                     path: string;
                 }>;
+            };
+        };
+    };
+    '/w/{workspace}/volumes/list': {
+        get: {
+            req: {
+                workspace: string;
+            };
+            res: {
+                /**
+                 * list of volumes
+                 */
+                200: Array<Volume>;
+            };
+        };
+    };
+    '/w/{workspace}/volumes/storage': {
+        get: {
+            req: {
+                workspace: string;
+            };
+            res: {
+                /**
+                 * volume storage name or null
+                 */
+                200: string | null;
+            };
+        };
+    };
+    '/w/{workspace}/volumes/create': {
+        post: {
+            req: {
+                requestBody: {
+                    name: string;
+                };
+                workspace: string;
+            };
+            res: {
+                /**
+                 * volume created
+                 */
+                200: string;
+            };
+        };
+    };
+    '/w/{workspace}/volumes/delete/{name}': {
+        delete: {
+            req: {
+                name: string;
+                workspace: string;
+            };
+            res: {
+                /**
+                 * volume deleted
+                 */
+                200: string;
             };
         };
     };

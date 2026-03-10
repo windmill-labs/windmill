@@ -53,8 +53,7 @@ fn get_windows_program_files() -> String {
 
 #[cfg(windows)]
 fn windows_gopath() -> String {
-    let tmp_dir = get_windows_tmp_dir();
-    GO_CACHE_DIR.replace("/tmp", &tmp_dir).replace("/", r"\\")
+    GO_CACHE_DIR.replace('/', "\\")
 }
 
 #[cfg(windows)]
@@ -355,7 +354,7 @@ func Run(req Req) (interface{{}}, error){{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Go).await?)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Go, &job.id, &job.workspace_id, conn).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -376,7 +375,7 @@ func Run(req Req) (interface{{}}, error){{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Go).await?)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Go, &job.id, &job.workspace_id, conn).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)

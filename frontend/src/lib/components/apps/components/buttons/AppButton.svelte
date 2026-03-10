@@ -72,17 +72,25 @@
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	let resolvedConfig = $state(
-		initConfig(components['buttoncomponent'].initialData.configuration, configuration)
+		initConfig(
+			components['buttoncomponent'].initialData.configuration,
+			untrack(() => configuration)
+		)
 	)
 
-	let outputs = initOutput($worldStore, id, {
-		result: undefined,
-		loading: false,
-		jobId: undefined
-	})
+	let outputs = initOutput(
+		$worldStore,
+		untrack(() => id),
+		{
+			result: undefined,
+			loading: false,
+			jobId: undefined
+		}
+	)
 
-	if (controls) {
-		$componentControl[id] = controls
+	const untrackedControls = untrack(() => controls)
+	if (untrackedControls) {
+		$componentControl[untrack(() => id)] = untrackedControls
 	}
 
 	let runnableComponent: RunnableComponent | undefined = $state()
@@ -203,7 +211,12 @@
 	let loading = $state(false)
 	let backgroundClickFeedback = $state(false)
 
-	let css = $state(initCss($app.css?.buttoncomponent, customCss))
+	let css = $state(
+		initCss(
+			$app.css?.buttoncomponent,
+			untrack(() => customCss)
+		)
+	)
 	$effect(() => {
 		errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
 	})

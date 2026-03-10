@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { WindmillIcon } from '$lib/components/icons'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -9,7 +9,7 @@
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
 	import { enterpriseLicense, whitelabelNameStore } from '$lib/stores'
 
-	const token = $page.url.searchParams.get('token') ?? ''
+	const token = page.url.searchParams.get('token') ?? ''
 
 	let newPassword = $state('')
 	let confirmPassword = $state('')

@@ -81,6 +81,7 @@
 				count: number
 			}
 		>
+		allowDelete?: boolean
 		replaceUnauthorizedWarning?: Snippet
 		listStoredFilesRequest?: (d: ListStoredFilesData) => CancelablePromise<ListStoredFilesResponse>
 		loadFilePreviewRequest?: (d: LoadFilePreviewData) => CancelablePromise<LoadFilePreviewResponse>
@@ -102,11 +103,12 @@
 		folderOnly = false,
 		regexFilter = undefined,
 		hideS3SpecificDetails = false,
-		rootPath = '',
+		rootPath: initialRootPath = '',
 		workspaceSettingsInitialized = $bindable(true),
 		storage = $bindable(undefined),
 		uploadModalOpen = $bindable(false),
 		allFilesByKey = $bindable({}),
+		allowDelete = false,
 		replaceUnauthorizedWarning,
 		listStoredFilesRequest = HelpersService.listStoredFiles,
 		loadFilePreviewRequest = HelpersService.loadFilePreview,
@@ -116,6 +118,7 @@
 		testConnectionRequest = HelpersService.datasetStorageTestConnection
 	}: Props = $props()
 
+	let rootPath = $state(initialRootPath)
 	let rootPathNestingLevel = $derived(1 * (rootPath.split('/').length - 1))
 
 	let csvSeparatorChar: string = $state(',')
@@ -263,7 +266,7 @@
 				}
 			}
 		}
-		displayedFileKeys = displayedFileKeys.sort()
+		displayedFileKeys = [...new Set(displayedFileKeys)].sort()
 		fileListLoading = false
 		fileInfoLoading = false
 	}
@@ -381,7 +384,7 @@
 				}
 			}
 		}
-		displayedFileKeys = displayedFileKeys.sort()
+		displayedFileKeys = [...new Set(displayedFileKeys)].sort()
 	}
 
 	async function clearAndLoadFiles({ keepFilter }: { keepFilter?: boolean } = {}) {
@@ -424,9 +427,16 @@
 	export async function open(_preSelectedFileKey: S3Object | undefined = undefined) {
 		const preSelectedFileKey = _preSelectedFileKey && parseS3Object(_preSelectedFileKey)
 		storage = preSelectedFileKey?.storage
-		if (preSelectedFileKey !== undefined) {
+		if (preSelectedFileKey !== undefined && preSelectedFileKey.s3.endsWith('/')) {
+			rootPath = preSelectedFileKey.s3
+			filter = ''
+			selectedFileKey = undefined
+		} else if (preSelectedFileKey !== undefined) {
+			rootPath = ''
 			initialFileKey = { ...preSelectedFileKey }
 			selectedFileKey = { ...preSelectedFileKey }
+		} else {
+			rootPath = ''
 		}
 		reloadContent()
 	}
@@ -461,7 +471,7 @@
 		if (selectedFileKey !== undefined) {
 			if (allFilesByKey[selectedFileKey.s3] === undefined) {
 				selectedFileKey = { s3: '', storage }
-			} else {
+			} else if (allFilesByKey[selectedFileKey.s3].type !== 'folder') {
 				loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 			}
 		}
@@ -518,7 +528,7 @@
 					}
 				}
 			}
-			displayedFileKeys = displayedFileKeys.sort()
+			displayedFileKeys = [...new Set(displayedFileKeys)].sort()
 		} else {
 			selectedFileKey = {
 				s3: item_key,
@@ -719,8 +729,10 @@
 											startIcon={{ icon: MoveRight }}
 											iconOnly={true}
 										/>
+									{/if}
+									{#if !readOnlyMode || allowDelete}
 										<Button
-											title="Delete file from S3"
+											title="Delete file"
 											variant="default"
 											on:click={() => {
 												deletionModalOpen = true

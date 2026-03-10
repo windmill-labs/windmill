@@ -59,9 +59,9 @@
 		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path)
 	}: Props = $props()
 
-	migrateApp(app)
+	migrateApp(untrack(() => app))
 
-	const appStore = writable<App>(app)
+	const appStore = writable<App>(untrack(() => app))
 	const selectedComponent = writable<string[] | undefined>(undefined)
 	const mode = writable<EditorMode>('preview')
 
@@ -74,11 +74,11 @@
 	const allIdsInPath = writable<string[]>([])
 
 	let ncontext: any = {
-		...context,
-		workspace,
+		...untrack(() => context),
+		workspace: untrack(() => workspace),
 		mode: 'viewer',
-		summary: summary,
-		author: policy.on_behalf_of_email
+		summary: untrack(() => summary),
+		author: untrack(() => policy).on_behalf_of_email
 	}
 
 	function resizeWindow() {
@@ -90,7 +90,7 @@
 	const parentWidth = writable(0)
 
 	let previousDarkMode = document.documentElement.classList.contains('dark')
-	const darkMode: Writable<boolean> = writable(app?.darkMode ?? previousDarkMode)
+	const darkMode: Writable<boolean> = writable(untrack(() => app)?.darkMode ?? previousDarkMode)
 
 	onDestroy(() => {
 		setTheme(previousDarkMode)
@@ -132,7 +132,7 @@
 		})
 	}
 
-	let writablePath = writable(appPath)
+	let writablePath = writable(untrack(() => appPath))
 
 	function onPathChange() {
 		writablePath.set(appPath)
@@ -146,21 +146,21 @@
 			runnableInitialized: {}
 		}),
 		app: appStore,
-		summary: writable(summary),
+		summary: writable(untrack(() => summary)),
 		selectedComponent,
 		bgRuns: writable([]),
 		mode,
 		connectingInput,
-		breakpoint,
+		breakpoint: untrack(() => breakpoint),
 		runnableComponents: writable({}),
 		appPath: writablePath,
-		workspace,
+		workspace: untrack(() => workspace),
 		onchange: undefined,
-		isEditor,
+		isEditor: untrack(() => isEditor),
 		jobs: parentContext?.jobs ?? writable([]),
 		jobsById: parentContext?.jobsById ?? writable({}),
 		staticExporter: writable({}),
-		noBackend,
+		noBackend: untrack(() => noBackend),
 		errorByComponent: writable({}),
 		openDebugRun: writable(undefined),
 		focusedGrid: writable(undefined),
@@ -174,9 +174,9 @@
 		cssEditorOpen: writable(false),
 		previewTheme: writable(undefined),
 		debuggingComponents: writable({}),
-		replaceStateFn,
-		gotoFn,
-		policy,
+		replaceStateFn: untrack(() => replaceStateFn),
+		gotoFn: untrack(() => gotoFn),
+		policy: untrack(() => policy),
 		recomputeAllContext: writable({
 			loading: false,
 			componentNumber: 0,
@@ -319,6 +319,7 @@
 				<GridViewer allIdsInPath={$allIdsInPath} items={app.grid} {maxRow} breakpoint={$breakpoint}>
 					{#snippet children({ dataItem })}
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							class={'h-full w-full center-center'}
 							onpointerdown={() => ($selectedComponent = [dataItem.id])}

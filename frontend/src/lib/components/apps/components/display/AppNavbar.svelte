@@ -2,7 +2,7 @@
 	import { createBubbler, preventDefault } from 'svelte/legacy'
 
 	const bubble = createBubbler()
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
@@ -27,18 +27,18 @@
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['navbarcomponent'].initialData.configuration, configuration)
+		initConfig(components['navbarcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	let output = $state(
-		initOutput($worldStore, id, {
+		initOutput($worldStore, untrack(() => id), {
 			result: {
 				currentPath: undefined as string | undefined
 			}
 		})
 	)
 
-	let css = $state(initCss($app.css?.navbarcomponent, customCss))
+	let css = $state(initCss($app.css?.navbarcomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(components['navbarcomponent'].initialData.configuration) as key (key)}

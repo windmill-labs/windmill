@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.649.0
+  version: 1.653.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -688,6 +688,7 @@ components:
                   - resource
                   - ducklake
                   - datatable
+                  - volume
               access_type:
                 type: string
                 nullable: true

@@ -7,10 +7,19 @@
 	import { workspaceStore } from '$lib/stores'
 	import Tooltip from '../Tooltip.svelte'
 
-	export let kind: 'script' | 'flow'
-	export let scriptOrFlowPath: string
-	export let errorHandlerMuted: boolean | undefined
-	export let iconOnly: boolean = true
+	interface Props {
+		kind: 'script' | 'flow';
+		scriptOrFlowPath: string;
+		errorHandlerMuted: boolean | undefined;
+		iconOnly?: boolean;
+	}
+
+	let {
+		kind,
+		scriptOrFlowPath,
+		errorHandlerMuted = $bindable(),
+		iconOnly = true
+	}: Props = $props();
 
 	async function toggleErrorHandler(): Promise<void> {
 		if ($workspaceStore !== undefined) {

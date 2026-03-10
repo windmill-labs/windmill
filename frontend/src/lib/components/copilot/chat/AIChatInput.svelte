@@ -11,7 +11,7 @@
 	import type { Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
-	import { tick } from 'svelte'
+	import { tick, untrack } from 'svelte'
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -77,7 +77,7 @@
 
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
 	let instructionsTextareaComponent: HTMLTextAreaElement | undefined = $state()
-	let instructions = $state(initialInstructions)
+	let instructions = $state(untrack(() => initialInstructions))
 
 	// App mode @ mention state
 	let showAppContextTooltip = $state(false)
@@ -363,26 +363,30 @@
 		{#if showContext}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
 				<Popover>
-					<svelte:fragment slot="trigger">
-						<div
-							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-							>@</div
-						>
-					</svelte:fragment>
-					<svelte:fragment slot="content" let:close>
-						<AvailableContextList
-							{availableContext}
-							{selectedContext}
-							onSelect={(element) => {
-								addContextToSelection(element)
-								close()
-							}}
-							onSelectWorkspaceItem={(element) => {
-								addContextToSelection(element)
-								close()
-							}}
-						/>
-					</svelte:fragment>
+					{#snippet trigger()}
+									
+							<div
+								class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
+								>@</div
+							>
+						
+									{/snippet}
+					{#snippet content({ close })}
+									
+							<AvailableContextList
+								{availableContext}
+								{selectedContext}
+								onSelect={(element) => {
+									addContextToSelection(element)
+									close()
+								}}
+								onSelectWorkspaceItem={(element) => {
+									addContextToSelection(element)
+									close()
+								}}
+							/>
+						
+									{/snippet}
 				</Popover>
 				{#each selectedContext as element}
 					<ContextElementBadge
@@ -418,22 +422,26 @@
 		{#if showContext}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
 				<Popover>
-					<svelte:fragment slot="trigger">
-						<div
-							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-							>@</div
-						>
-					</svelte:fragment>
-					<svelte:fragment slot="content" let:close>
-						<AppAvailableContextList
-							{availableContext}
-							{selectedContext}
-							onSelect={(element) => {
-								addContextToSelection(element)
-								close()
-							}}
-						/>
-					</svelte:fragment>
+					{#snippet trigger()}
+											
+							<div
+								class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
+								>@</div
+							>
+						
+											{/snippet}
+					{#snippet content({ close })}
+											
+							<AppAvailableContextList
+								{availableContext}
+								{selectedContext}
+								onSelect={(element) => {
+									addContextToSelection(element)
+									close()
+								}}
+							/>
+						
+											{/snippet}
 				</Popover>
 				{#each selectedContext as element (element.type + '-' + element.title)}
 					<ContextElementBadge

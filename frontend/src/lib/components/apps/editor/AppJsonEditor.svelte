@@ -10,12 +10,12 @@
 	import { createEventDispatcher } from 'svelte'
 	import { Globe, Loader2, Save } from 'lucide-svelte'
 
-	let jsonViewerDrawer: Drawer
+	let jsonViewerDrawer: Drawer | undefined = $state()
 
-	let code: string = ''
+	let code: string = $state('')
 	let path: string = ''
-	let useDraft: boolean = false
-	let loading = true
+	let useDraft: boolean = $state(false)
+	let loading = $state(true)
 	const dispatch = createEventDispatcher()
 
 	let app: any | undefined = undefined
@@ -73,7 +73,7 @@
 </script>
 
 <Drawer bind:this={jsonViewerDrawer} size="800px">
-	<DrawerContent title="App JSON" on:close={() => jsonViewerDrawer.toggleDrawer()}>
+	<DrawerContent title="App JSON" on:close={() => jsonViewerDrawer?.toggleDrawer()}>
 		{#if useDraft}
 			<div class="mb-1">
 				<Badge small color="indigo" baseClass="border border-indigo-200">+Draft</Badge>
