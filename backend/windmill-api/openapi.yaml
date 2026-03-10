@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.652.0
+  version: 1.653.0
   title: Windmill API
 
   contact:
@@ -16876,6 +16876,9 @@ paths:
                       lost_lock_ownership:
                         description: Is the current indexer service being replaced
                         type: boolean
+                      max_index_time_window_secs:
+                        description: Maximum time window in seconds for indexing
+                        type: number
 
   /srch/index/search/service_logs:
     get:
@@ -18456,6 +18459,7 @@ components:
         - trigger
         - settings
         - key
+        - workspacedependencies
 
     AIProviderModel:
       type: object

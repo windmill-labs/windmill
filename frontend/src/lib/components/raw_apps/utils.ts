@@ -107,7 +107,11 @@ function hiddenRunnableToTsType(runnable: Runnable) {
 			return '{}'
 		}
 	} else if (isRunnableByPath(runnable)) {
-		return schemaToTsType(removeStaticFields(runnable?.schema, runnable?.fields ?? {}))
+		if (runnable?.schema) {
+			return schemaToTsType(removeStaticFields(runnable.schema, runnable?.fields ?? {}))
+		} else {
+			return '{}'
+		}
 	} else {
 		return '{}'
 	}
