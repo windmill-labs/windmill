@@ -15,8 +15,17 @@ import type { DBSchema, GraphqlSchema, SQLSchema } from '$lib/stores'
 
 import { stringifyGraphqlSchema, stringifySchema } from '$lib/components/copilot/lib'
 import type { DbType } from '$lib/components/dbTypes'
-import { getDatabaseArg } from '$lib/components/dbOps'
+import { getDatabaseArg, getDbType } from '$lib/components/dbOps'
 import { sendUserToast } from '$lib/toast'
+
+function makeMetadataMarker(
+	op: string,
+	payload: Record<string, unknown>,
+	ducklake: string | undefined
+): string {
+	if (ducklake) payload.ducklake = ducklake
+	return `-- WM_INTERNAL_DB_${op} ${JSON.stringify(payload)}`
+}
 
 export async function loadTableMetaData(
 	input: DbInput,
@@ -25,11 +34,26 @@ export async function loadTableMetaData(
 ): Promise<TableMetadata | undefined> {
 	if (!input || !table || !workspace) return undefined
 
-	let { language, query } = await makeLoadTableMetaDataQuery(input, workspace, table)
+	const dbType = getDbType(input)
+	const language = getLanguageByResourceType(dbType)
+	const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
+	const dbArg = getDatabaseArg(input)
+
+	// MySQL needs the database name for metadata queries
+	let databaseName: string | undefined
+	if (input.type === 'database' && input.resourceType === 'mysql') {
+		const resourceObj = (await ResourceService.getResourceValue({
+			workspace,
+			path: input.resourcePath
+		})) as any
+		databaseName = resourceObj?.database
+	}
+
+	const content = makeMetadataMarker('LOAD_TABLE_METADATA', { table, databaseName }, ducklake)
 
 	const job = await JobService.runScriptPreview({
-		workspace: workspace,
-		requestBody: { language, content: query, args: getDatabaseArg(input) }
+		workspace,
+		requestBody: { language, content, args: dbArg }
 	})
 
 	const maxRetries = 8
@@ -39,7 +63,7 @@ export async function loadTableMetaData(
 			await new Promise((resolve) => setTimeout(resolve, 1000 * (attempts || 0.6)))
 
 			const testResult = (await JobService.getCompletedJob({
-				workspace: workspace,
+				workspace,
 				id: job
 			})) as any
 
@@ -78,10 +102,47 @@ export async function loadAllTablesMetaData(
 	if (!input || !workspace) return undefined
 
 	try {
-		let { language, query } = await makeLoadTableMetaDataQuery(input, workspace, undefined)
+		const dbType = getDbType(input)
+		const dbArg = getDatabaseArg(input)
+		const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
+
+		// BigQuery all-tables uses bun language (not SQL) — can't use a marker
+		if (input.type === 'database' && input.resourceType === 'bigquery') {
+			let { language, query } = await makeBigQueryAllTablesQuery(input, workspace)
+			let result = (await runScriptAndPollResult({
+				workspace,
+				requestBody: { language, content: query, args: dbArg }
+			})) as ({ table_name: string; schema_name?: string } & object)[]
+			const map: Record<string, TableMetadata> = {}
+			for (const _col of result) {
+				const col = lowercaseKeys(_col)
+				const tableKey = col.schema_name ? `${col.schema_name}.${col.table_name}` : col.table_name
+				map[tableKey] ??= []
+				map[tableKey].push(col)
+			}
+			return map
+		}
+
+		// MySQL needs the database name for metadata queries
+		let databaseName: string | undefined
+		if (input.type === 'database' && input.resourceType === 'mysql') {
+			const resourceObj = (await ResourceService.getResourceValue({
+				workspace,
+				path: input.resourcePath
+			})) as any
+			databaseName = resourceObj?.database
+		}
+
+		const language = getLanguageByResourceType(dbType)
+		const content = makeMetadataMarker(
+			'LOAD_TABLE_METADATA',
+			{ table: undefined, databaseName },
+			ducklake
+		)
+
 		let result = (await runScriptAndPollResult({
-			workspace: workspace,
-			requestBody: { language, content: query, args: getDatabaseArg(input) }
+			workspace,
+			requestBody: { language, content, args: dbArg }
 		})) as ({ table_name: string; schema_name?: string } & object)[]
 		const map: Record<string, TableMetadata> = {}
 
@@ -101,205 +162,15 @@ export async function loadAllTablesMetaData(
 	}
 }
 
-async function makeLoadTableMetaDataQuery(
+/**
+ * BigQuery all-tables metadata uses bun (JS) language, not SQL.
+ * This cannot be a WM_INTERNAL_DB marker.
+ */
+async function makeBigQueryAllTablesQuery(
 	input: DbInput,
-	workspace: string,
-	table: string | undefined
+	_workspace: string
 ): Promise<{ query: string; language: ScriptLang }> {
-	if (input.type === 'ducklake') {
-		const query = `ATTACH 'ducklake://${input.ducklake}' AS __ducklake__;
-		SELECT
-			COLUMN_NAME as field,
-			DATA_TYPE as DataType,
-			COLUMN_DEFAULT as DefaultValue,
-			false as IsPrimaryKey,
-			false as IsIdentity,
-			IS_NULLABLE as IsNullable,
-			false as IsEnum,
-			TABLE_NAME as table_name
-		FROM information_schema.columns c
-		WHERE table_catalog = '__ducklake__' AND table_schema = current_schema()`
-		return { query, language: 'duckdb' }
-	} else if (input.resourceType === 'mysql') {
-		const resourceObj = (await ResourceService.getResourceValue({
-			workspace,
-			path: input.resourcePath
-		})) as any
-		const query = `
-	SELECT 
-			COLUMN_NAME as field,
-			COLUMN_TYPE as DataType,
-			COLUMN_DEFAULT as DefaultValue,
-			CASE WHEN COLUMN_KEY = 'PRI' THEN 1 ELSE 0 END as IsPrimaryKey,
-			CASE WHEN EXTRA like '%auto_increment%' THEN 'YES' ELSE 'NO' END as IsIdentity,
-			CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-			CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum${
-				table
-					? ''
-					: `,
-			TABLE_NAME as table_name`
-			}
-	FROM 
-			INFORMATION_SCHEMA.COLUMNS${
-				table
-					? `
-	WHERE
-			TABLE_NAME = '${table.split('.').reverse()[0]}' AND TABLE_SCHEMA = '${
-				table.split('.').reverse()[1] ?? resourceObj?.database ?? ''
-			}'`
-					: `
-	WHERE
-			TABLE_SCHEMA NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys')`
-			}
-	ORDER BY
-			TABLE_NAME,
-			ORDINAL_POSITION;
-	`
-		return { query, language: 'mysql' }
-	} else if (input.resourceType === 'postgresql') {
-		const query = `
-	SELECT 
-		a.attname as field,
-		pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
-		(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
-		 FROM pg_catalog.pg_attrdef d
-		 WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) as DefaultValue,
-		(SELECT CASE WHEN i.indisprimary THEN true ELSE 'NO' END
-		 FROM pg_catalog.pg_class tbl, pg_catalog.pg_class idx, pg_catalog.pg_index i, pg_catalog.pg_attribute att
-		 WHERE tbl.oid = a.attrelid AND idx.oid = i.indexrelid AND att.attrelid = tbl.oid
-								 AND i.indrelid = tbl.oid AND att.attnum = any(i.indkey) AND att.attname = a.attname LIMIT 1) as IsPrimaryKey,
-		CASE a.attidentity
-				WHEN 'd' THEN 'By Default'
-				WHEN 'a' THEN 'Always'
-				ELSE 'No'
-		END as IsIdentity,
-		CASE a.attnotnull
-				WHEN false THEN 'YES'
-				ELSE 'NO'
-		END as IsNullable,
-		(SELECT true
-		 FROM pg_catalog.pg_enum e
-		 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum${
-				table
-					? ''
-					: `,
-    ns.nspname AS schema_name,
-    c.relname AS table_name`
-			}
-	FROM pg_catalog.pg_attribute a${
-		table
-			? `
-	WHERE a.attrelid = (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid WHERE relname = '${
-		table.split('.').reverse()[0]
-	}' AND ns.nspname = '${table.split('.').reverse()[1] ?? 'public'}')
-		AND a.attnum > 0 AND NOT a.attisdropped
-		`
-			: `
-	JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
-	JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid
-	WHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped
-		AND ns.nspname != 'pg_catalog' AND ns.nspname != 'information_schema'`
-	}
-	ORDER BY ${table ? 'a.attnum' : 'ns.nspname, c.relname, a.attnum'};
-	
-	`
-		return { query, language: 'postgresql' }
-	} else if (input.resourceType === 'ms_sql_server') {
-		const query = `
-		SELECT
-    c.COLUMN_NAME as field,
-    c.DATA_TYPE as DataType,
-    c.COLUMN_DEFAULT as DefaultValue,
-    CASE WHEN COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
-    CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as IsPrimaryKey,
-    CASE WHEN c.IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-    CASE WHEN c.DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum,
-    dc.name as default_constraint_name${
-			table
-				? ''
-				: `,
-		c.TABLE_NAME as table_name`
-		}
-FROM
-    INFORMATION_SCHEMA.COLUMNS c
-    LEFT JOIN (
-        SELECT
-            ku.TABLE_SCHEMA,
-            ku.TABLE_NAME,
-            ku.COLUMN_NAME
-        FROM
-            INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-            INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
-                ON tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
-                AND tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-                AND tc.TABLE_SCHEMA = ku.TABLE_SCHEMA
-                AND tc.TABLE_NAME = ku.TABLE_NAME
-    ) pk ON c.TABLE_SCHEMA = pk.TABLE_SCHEMA
-        AND c.TABLE_NAME = pk.TABLE_NAME
-        AND c.COLUMN_NAME = pk.COLUMN_NAME
-    LEFT JOIN sys.default_constraints dc
-        ON dc.parent_object_id = OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME)
-        AND dc.parent_column_id = COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'ColumnId')${
-					table
-						? `
-WHERE
-    c.TABLE_NAME = '${table}'`
-						: ''
-				}
-ORDER BY
-    c.ORDINAL_POSITION;
-	`
-		return { query, language: 'mssql' }
-	} else if (
-		input.resourceType === 'snowflake' ||
-		(input.resourceType as any) === 'snowflake_oauth'
-	) {
-		const query = `
-		select COLUMN_NAME as field,
-		DATA_TYPE as DataType,
-		COLUMN_DEFAULT as DefaultValue,
-		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 'By Default' ELSE 'No' END as IsIdentity,
-		0 as IsPrimaryKey, -- a one-query solution is not trivial, we will use SHOW PRIMARY KEYS separately
-		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum${
-			table
-				? ''
-				: `,
-		table_name as table_name,
-		table_schema as schema_name`
-		}
-	from information_schema.columns${
-		table
-			? `
-	where table_name = '${table.split('.').reverse()[0]}' and table_schema = '${
-		table.split('.').reverse()[1] ?? 'PUBLIC'
-	}'`
-			: "\nwhere table_schema <> 'INFORMATION_SCHEMA'\n"
-	}
-	order by ORDINAL_POSITION;
-	`
-		return { query, language: 'snowflake' }
-	} else if (input.resourceType === 'bigquery') {
-		if (table) {
-			const query = `SELECT 
-    c.COLUMN_NAME as field,
-    DATA_TYPE as DataType,
-    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
-    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,
-    'No' as IsIdentity,
-    IS_NULLABLE as IsNullable,
-    false as IsEnum
-FROM
-    ${table.split('.')[0]}.INFORMATION_SCHEMA.COLUMNS c
-    LEFT JOIN
-    ${table.split('.')[0]}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
-    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
-WHERE   
-    c.TABLE_NAME = '${table.split('.')[1]}'
-order by c.ORDINAL_POSITION;`
-			return { query, language: 'bigquery' }
-		} else {
-			const query = `import { BigQuery } from '@google-cloud/bigquery@7.5.0';
+	const query = `import { BigQuery } from '@google-cloud/bigquery@7.5.0';
 export async function main(database: bigquery) {
 const bq = new BigQuery({
 	credentials: database
@@ -308,7 +179,7 @@ const [datasets] = await bq.getDatasets();
 if (!datasets) return {}
 const schema = {} as any
 let queries = datasets.map(dataset => \`
-	(SELECT 
+	(SELECT
     c.COLUMN_NAME as field,
 		'\${dataset.id}' as schema_name,
 		c.TABLE_NAME as table_name,
@@ -329,11 +200,7 @@ let query = queries.join('\\nUNION ALL \\n')
 const [rows] = await bq.query(query)
 return rows
 }`
-			return { query, language: 'bun' }
-		}
-	} else {
-		throw new Error('Unsupported database type:' + input.resourceType)
-	}
+	return { query, language: 'bun' }
 }
 
 type SnowflakeShowPrimaryKeysResult = {

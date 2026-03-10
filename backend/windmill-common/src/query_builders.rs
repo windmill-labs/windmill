@@ -223,11 +223,22 @@ pub fn try_expand_internal_db_query(
     };
 
     let result = match op {
+        // Data operations
         "SELECT" => expand_select(json_str, db_type),
         "COUNT" => expand_count(json_str, db_type),
         "DELETE" => expand_delete(json_str, db_type),
         "INSERT" => expand_insert(json_str, db_type),
         "UPDATE" => expand_update(json_str, db_type),
+        // Schema DDL operations
+        "DROP_TABLE" => expand_drop_table(json_str, db_type),
+        "CREATE_TABLE" => expand_create_table(json_str, db_type),
+        "ALTER_TABLE" => expand_alter_table(json_str, db_type),
+        "CREATE_SCHEMA" => expand_create_schema(json_str, db_type),
+        "DROP_SCHEMA" => expand_drop_schema(json_str, db_type),
+        // Metadata queries
+        "LOAD_TABLE_METADATA" => expand_load_table_metadata(json_str, db_type),
+        "FOREIGN_KEYS" => expand_foreign_keys(json_str, db_type),
+        "PRIMARY_KEY_CONSTRAINT" => expand_primary_key_constraint(json_str, db_type),
         _ => Err(format!("Unknown WM_INTERNAL_DB operation: {}", op)),
     };
 
@@ -1371,6 +1382,1006 @@ pub fn make_update_query(
 }
 
 // ---------------------------------------------------------------------------
+// ===========================================================================
+// Schema DDL operations
+// ===========================================================================
+
+// --- Payload structs ---
+
+#[derive(Deserialize)]
+struct DropTablePayload {
+    table: String,
+    schema: Option<String>,
+    ducklake: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CreateSchemaPayload {
+    schema: String,
+    ducklake: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DropSchemaPayload {
+    schema: String,
+    ducklake: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TableEditorColumn {
+    name: String,
+    datatype: String,
+    #[serde(rename = "primaryKey")]
+    primary_key: Option<bool>,
+    #[serde(rename = "defaultValue")]
+    default_value: Option<String>,
+    nullable: Option<bool>,
+    datatype_length: Option<i64>,
+    #[serde(rename = "initialName")]
+    initial_name: Option<String>,
+    default_constraint_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ForeignKeyColumn {
+    #[serde(rename = "sourceColumn")]
+    source_column: Option<String>,
+    #[serde(rename = "targetColumn")]
+    target_column: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TableEditorForeignKey {
+    #[serde(rename = "targetTable")]
+    target_table: Option<String>,
+    columns: Vec<ForeignKeyColumn>,
+    #[serde(rename = "onDelete", default = "default_no_action")]
+    on_delete: String,
+    #[serde(rename = "onUpdate", default = "default_no_action")]
+    on_update: String,
+    fk_constraint_name: Option<String>,
+}
+
+fn default_no_action() -> String {
+    "NO ACTION".to_string()
+}
+
+#[derive(Deserialize)]
+struct CreateTablePayload {
+    name: String,
+    columns: Vec<TableEditorColumn>,
+    #[serde(rename = "foreignKeys", default)]
+    foreign_keys: Vec<TableEditorForeignKey>,
+    schema: Option<String>,
+    ducklake: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind")]
+enum AlterTableOperation {
+    #[serde(rename = "addColumn")]
+    AddColumn { column: TableEditorColumn },
+    #[serde(rename = "dropColumn")]
+    DropColumn { name: String },
+    #[serde(rename = "alterColumn")]
+    AlterColumn {
+        original: TableEditorColumn,
+        #[serde(rename = "defaultConstraintName")]
+        default_constraint_name: Option<String>,
+        changes: serde_json::Value,
+    },
+    #[serde(rename = "addForeignKey")]
+    AddForeignKey {
+        #[serde(rename = "foreignKey")]
+        foreign_key: TableEditorForeignKey,
+    },
+    #[serde(rename = "dropForeignKey")]
+    DropForeignKey { fk_constraint_name: String },
+    #[serde(rename = "renameTable")]
+    RenameTable { to: String },
+    #[serde(rename = "addPrimaryKey")]
+    AddPrimaryKey { columns: Vec<String> },
+    #[serde(rename = "dropPrimaryKey")]
+    DropPrimaryKey { pk_constraint_name: Option<String> },
+}
+
+#[derive(Deserialize)]
+struct AlterTablePayload {
+    name: String,
+    operations: Vec<AlterTableOperation>,
+    schema: Option<String>,
+    ducklake: Option<String>,
+}
+
+// --- Metadata payload structs ---
+
+#[derive(Deserialize)]
+struct LoadTableMetadataPayload {
+    table: Option<String>,
+    /// MySQL requires the database name for metadata queries.
+    #[serde(rename = "databaseName")]
+    database_name: Option<String>,
+    ducklake: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ForeignKeysPayload {
+    table: String,
+    schema: Option<String>,
+    ducklake: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PrimaryKeyConstraintPayload {
+    table: String,
+    schema: Option<String>,
+    ducklake: Option<String>,
+}
+
+// --- Helper functions ---
+
+fn db_supports_schemas(db_type: DbType) -> bool {
+    matches!(
+        db_type,
+        DbType::Postgresql | DbType::Snowflake | DbType::Bigquery
+    )
+}
+
+fn db_supports_transactional_ddl(db_type: DbType) -> bool {
+    matches!(db_type, DbType::Postgresql | DbType::MsSqlServer)
+}
+
+fn datatype_has_length(datatype: &str) -> bool {
+    let dt = datatype.to_lowercase();
+    matches!(
+        dt.as_str(),
+        "varchar"
+            | "char"
+            | "nvarchar"
+            | "nchar"
+            | "varbinary"
+            | "binary"
+            | "bit"
+            | "character varying"
+            | "character"
+    )
+}
+
+fn table_ref(table: &str, schema: Option<&str>, db_type: DbType) -> String {
+    if db_supports_schemas(db_type) {
+        if let Some(s) = schema.filter(|s| !s.is_empty()) {
+            return format!("{}.{}", s.trim(), table);
+        }
+    }
+    table.to_string()
+}
+
+fn format_default_value(s: &str, datatype: &str, db_type: DbType) -> String {
+    if s.is_empty() {
+        return String::new();
+    }
+    if s.starts_with('{') && s.ends_with('}') {
+        return s[1..s.len() - 1].to_string();
+    }
+    if db_type == DbType::Postgresql {
+        return format!("CAST('{}' AS {})", s, datatype);
+    }
+    format!("'{}'", s)
+}
+
+fn render_column_ddl(c: &TableEditorColumn, db_type: DbType, pk_modifier: bool) -> String {
+    let datatype = match c.datatype_length {
+        Some(l) if datatype_has_length(&c.datatype) => format!("{}({})", c.datatype, l),
+        _ => c.datatype.clone(),
+    };
+    let def_val = c
+        .default_value
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|s| format_default_value(s, &datatype, db_type));
+
+    let mut s = format!("{} {}", c.name, datatype);
+    if c.nullable == Some(false) {
+        s.push_str(" NOT NULL");
+    }
+    if let Some(ref d) = def_val {
+        if !d.is_empty() {
+            s.push_str(&format!(" DEFAULT {}", d));
+        }
+    }
+    if pk_modifier {
+        s.push_str(" PRIMARY KEY");
+    }
+    s
+}
+
+fn render_fk_ddl(
+    fk: &TableEditorForeignKey,
+    use_schema: bool,
+    _db_type: DbType,
+    table_name: &str,
+) -> String {
+    let source_cols: Vec<&str> = fk
+        .columns
+        .iter()
+        .filter_map(|c| c.source_column.as_deref())
+        .collect();
+    let target_cols: Vec<&str> = fk
+        .columns
+        .iter()
+        .filter_map(|c| c.target_column.as_deref())
+        .collect();
+    let target_table = match &fk.target_table {
+        Some(t) => {
+            if use_schema || !t.contains('.') {
+                t.clone()
+            } else {
+                t.split('.').last().unwrap_or(t).to_string()
+            }
+        }
+        None => String::new(),
+    };
+
+    let mut sql = String::from("CONSTRAINT ");
+    let name_parts: Vec<&str> = std::iter::once(table_name)
+        .chain(source_cols.iter().map(|c| &c[..c.len().min(10)]))
+        .chain(std::iter::once(target_table.as_str()))
+        .chain(target_cols.iter().map(|c| &c[..c.len().min(10)]))
+        .collect();
+    let constraint_name = name_parts.join("_").replace('.', "_");
+    let constraint_name = &constraint_name[..constraint_name.len().min(60)];
+    sql.push_str(&format!("fk_{} ", constraint_name));
+
+    sql.push_str(&format!(
+        "FOREIGN KEY ({}) REFERENCES {} ({})",
+        source_cols.join(", "),
+        target_table,
+        target_cols.join(", ")
+    ));
+    if fk.on_delete != "NO ACTION" {
+        sql.push_str(&format!(" ON DELETE {}", fk.on_delete));
+    }
+    if fk.on_update != "NO ACTION" {
+        sql.push_str(&format!(" ON UPDATE {}", fk.on_update));
+    }
+    sql
+}
+
+// --- Schema DDL expand functions ---
+
+fn expand_drop_table(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let p: DropTablePayload =
+        serde_json::from_str(json_str).map_err(|e| format!("Invalid DROP_TABLE payload: {}", e))?;
+    let tref = table_ref(&p.table, p.schema.as_deref(), db_type);
+    let query = format!("DROP TABLE {};", tref);
+    Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+}
+
+fn expand_create_schema(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let p: CreateSchemaPayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid CREATE_SCHEMA payload: {}", e))?;
+    let _ = db_type;
+    let query = format!("CREATE SCHEMA {};", p.schema);
+    Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+}
+
+fn expand_drop_schema(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let p: DropSchemaPayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid DROP_SCHEMA payload: {}", e))?;
+    let _ = db_type;
+    let query = format!("DROP SCHEMA {} CASCADE;", p.schema);
+    Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+}
+
+fn expand_create_table(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let p: CreateTablePayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid CREATE_TABLE payload: {}", e))?;
+    let query = make_create_table_query(&p, db_type);
+    Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+}
+
+fn make_create_table_query(p: &CreateTablePayload, db_type: DbType) -> String {
+    let pk_count = p
+        .columns
+        .iter()
+        .filter(|c| c.primary_key == Some(true))
+        .count();
+    let use_schema = db_supports_schemas(db_type);
+    let schema = if db_type == DbType::Snowflake {
+        Some(p.schema.as_deref().unwrap_or("PUBLIC"))
+    } else {
+        p.schema.as_deref()
+    };
+
+    let mut lines: Vec<String> = p
+        .columns
+        .iter()
+        .map(|c| {
+            let pk_inline = pk_count == 1 && c.primary_key == Some(true);
+            let mut line = format!("  {}", render_column_ddl(c, db_type, false));
+            if pk_inline {
+                if db_type == DbType::Bigquery {
+                    line.push_str(" PRIMARY KEY NOT ENFORCED");
+                } else {
+                    line.push_str(" PRIMARY KEY");
+                }
+            }
+            line
+        })
+        .collect();
+
+    for fk in &p.foreign_keys {
+        lines.push(format!("  {}", render_fk_inline(fk, use_schema)));
+    }
+
+    if pk_count > 1 {
+        let pk_cols: Vec<&str> = p
+            .columns
+            .iter()
+            .filter(|c| c.primary_key == Some(true))
+            .map(|c| c.name.as_str())
+            .collect();
+        let mut pk = format!("  PRIMARY KEY ({})", pk_cols.join(", "));
+        if db_type == DbType::Bigquery {
+            pk.push_str(" NOT ENFORCED");
+        }
+        lines.push(pk);
+    }
+
+    let tref = if use_schema {
+        match schema.filter(|s| !s.is_empty()) {
+            Some(s) => format!("{}.{}", s.trim(), p.name.trim()),
+            None => p.name.trim().to_string(),
+        }
+    } else {
+        p.name.trim().to_string()
+    };
+
+    format!("CREATE TABLE {} (\n{}\n);", tref, lines.join(",\n"))
+}
+
+/// Render FK for CREATE TABLE (inline, no CONSTRAINT name prefix).
+fn render_fk_inline(fk: &TableEditorForeignKey, use_schema: bool) -> String {
+    let source_cols: Vec<&str> = fk
+        .columns
+        .iter()
+        .filter_map(|c| c.source_column.as_deref())
+        .collect();
+    let target_cols: Vec<&str> = fk
+        .columns
+        .iter()
+        .filter_map(|c| c.target_column.as_deref())
+        .collect();
+    let target_table = match &fk.target_table {
+        Some(t) => {
+            if use_schema || !t.contains('.') {
+                t.clone()
+            } else {
+                t.split('.').last().unwrap_or(t).to_string()
+            }
+        }
+        None => String::new(),
+    };
+    let mut sql = format!(
+        "FOREIGN KEY ({}) REFERENCES {} ({})",
+        source_cols.join(", "),
+        target_table,
+        target_cols.join(", ")
+    );
+    if fk.on_delete != "NO ACTION" {
+        sql.push_str(&format!(" ON DELETE {}", fk.on_delete));
+    }
+    if fk.on_update != "NO ACTION" {
+        sql.push_str(&format!(" ON UPDATE {}", fk.on_update));
+    }
+    sql
+}
+
+// --- ALTER TABLE ---
+
+fn expand_alter_table(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let p: AlterTablePayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid ALTER_TABLE payload: {}", e))?;
+    let queries = make_alter_table_queries(&p, db_type)?;
+    if queries.is_empty() {
+        return Ok(String::new());
+    }
+    let joined = queries.join("\n");
+    let query = if db_supports_transactional_ddl(db_type) {
+        if db_type == DbType::MsSqlServer {
+            format!("BEGIN TRANSACTION;\n{}\nCOMMIT TRANSACTION;", joined)
+        } else {
+            format!("BEGIN;\n{}\nCOMMIT;", joined)
+        }
+    } else {
+        joined
+    };
+    Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+}
+
+fn make_alter_table_queries(p: &AlterTablePayload, db_type: DbType) -> Result<Vec<String>, String> {
+    let use_schema = db_supports_schemas(db_type);
+    let tref = if use_schema {
+        match p.schema.as_deref().filter(|s| !s.is_empty()) {
+            Some(s) => format!("{}.{}", s.trim(), p.name),
+            None => p.name.clone(),
+        }
+    } else {
+        p.name.clone()
+    };
+
+    let mut queries = Vec::new();
+
+    for op in &p.operations {
+        match op {
+            AlterTableOperation::AddColumn { column } => {
+                queries.push(format!(
+                    "ALTER TABLE {} ADD COLUMN {};",
+                    tref,
+                    render_column_ddl(column, db_type, false)
+                ));
+            }
+            AlterTableOperation::DropColumn { name } => {
+                queries.push(format!(
+                    "ALTER TABLE {} DROP COLUMN {};",
+                    tref,
+                    render_db_quoted_identifier(name, db_type)
+                ));
+            }
+            AlterTableOperation::AlterColumn { original, default_constraint_name, changes } => {
+                queries.extend(render_alter_column(
+                    &tref,
+                    original,
+                    default_constraint_name.as_deref(),
+                    changes,
+                    db_type,
+                )?);
+            }
+            AlterTableOperation::AddForeignKey { foreign_key } => {
+                queries.push(format!(
+                    "ALTER TABLE {} ADD {};",
+                    tref,
+                    render_fk_ddl(foreign_key, use_schema, db_type, &p.name)
+                ));
+            }
+            AlterTableOperation::DropForeignKey { fk_constraint_name } => {
+                if db_type == DbType::Mysql {
+                    queries.push(format!(
+                        "ALTER TABLE {} DROP FOREIGN KEY {};",
+                        tref,
+                        render_db_quoted_identifier(fk_constraint_name, db_type)
+                    ));
+                } else {
+                    queries.push(format!(
+                        "ALTER TABLE {} DROP CONSTRAINT {};",
+                        tref,
+                        render_db_quoted_identifier(fk_constraint_name, db_type)
+                    ));
+                }
+            }
+            AlterTableOperation::RenameTable { to } => {
+                let new_ref = if db_type == DbType::Snowflake {
+                    match p.schema.as_deref().filter(|s| !s.is_empty()) {
+                        Some(s) => format!("{}.{}", s.trim(), to),
+                        None => to.clone(),
+                    }
+                } else {
+                    to.clone()
+                };
+                queries.push(format!("ALTER TABLE {} RENAME TO {};", tref, new_ref));
+            }
+            AlterTableOperation::AddPrimaryKey { columns } => {
+                if db_type == DbType::Snowflake {
+                    let cname = format!("{}_pk", p.name);
+                    queries.push(format!(
+                        "ALTER TABLE {} ADD CONSTRAINT {} PRIMARY KEY ({});",
+                        tref,
+                        cname,
+                        columns.join(", ")
+                    ));
+                } else {
+                    let not_enforced = if db_type == DbType::Bigquery {
+                        " NOT ENFORCED"
+                    } else {
+                        ""
+                    };
+                    queries.push(format!(
+                        "ALTER TABLE {} ADD PRIMARY KEY ({}){};",
+                        tref,
+                        columns.join(", "),
+                        not_enforced
+                    ));
+                }
+            }
+            AlterTableOperation::DropPrimaryKey { pk_constraint_name } => {
+                if db_type == DbType::Mysql || pk_constraint_name.is_none() {
+                    queries.push(format!("ALTER TABLE {} DROP PRIMARY KEY;", tref));
+                } else {
+                    queries.push(format!(
+                        "ALTER TABLE {} DROP CONSTRAINT {};",
+                        tref,
+                        render_db_quoted_identifier(
+                            pk_constraint_name.as_deref().unwrap_or(""),
+                            db_type
+                        )
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(queries)
+}
+
+fn render_alter_column(
+    table_ref: &str,
+    original: &TableEditorColumn,
+    default_constraint_name: Option<&str>,
+    changes: &serde_json::Value,
+    db_type: DbType,
+) -> Result<Vec<String>, String> {
+    let mut queries = Vec::new();
+
+    let base_datatype = changes
+        .get("datatype")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&original.datatype);
+    let dt_length = if datatype_has_length(base_datatype) {
+        changes
+            .get("datatype_length")
+            .and_then(|v| v.as_i64())
+            .or(original.datatype_length)
+    } else {
+        None
+    };
+    let datatype = match dt_length {
+        Some(l) => format!("{}({})", base_datatype, l),
+        None => base_datatype.to_string(),
+    };
+
+    // Alter datatype
+    if changes.get("datatype").is_some() || changes.get("datatype_length").is_some() {
+        queries.push(render_alter_datatype(
+            table_ref,
+            &original.name,
+            &datatype,
+            db_type,
+        ));
+    }
+
+    // Default value changes
+    if let Some(def_val) = changes.get("defaultValue") {
+        if def_val.is_null() && original.default_value.is_some() {
+            queries.push(render_drop_default_value(
+                table_ref,
+                &original.name,
+                &datatype,
+                db_type,
+                default_constraint_name,
+            ));
+        } else if let Some(s) = def_val.as_str() {
+            let formatted = format_default_value(s, &original.datatype, db_type);
+            queries.push(render_add_default_value(
+                table_ref,
+                &original.name,
+                &formatted,
+                db_type,
+            ));
+        }
+    }
+
+    // Nullable changes
+    if let Some(nullable) = changes.get("nullable").and_then(|v| v.as_bool()) {
+        queries.push(render_alter_nullable(
+            table_ref,
+            &original.name,
+            nullable,
+            &datatype,
+            db_type,
+        ));
+    }
+
+    // Rename
+    if let Some(new_name) = changes.get("name").and_then(|v| v.as_str()) {
+        queries.push(render_rename_column(
+            table_ref,
+            &original.name,
+            new_name,
+            db_type,
+        ));
+    }
+
+    Ok(queries)
+}
+
+fn render_alter_datatype(table_ref: &str, col: &str, datatype: &str, db_type: DbType) -> String {
+    match db_type {
+        DbType::Postgresql | DbType::Duckdb => {
+            format!(
+                "ALTER TABLE {} ALTER COLUMN {} TYPE {};",
+                table_ref, col, datatype
+            )
+        }
+        DbType::MsSqlServer => {
+            format!(
+                "ALTER TABLE {} ALTER COLUMN {} {};",
+                table_ref, col, datatype
+            )
+        }
+        DbType::Mysql => {
+            format!(
+                "ALTER TABLE {} MODIFY COLUMN {} {};",
+                table_ref, col, datatype
+            )
+        }
+        DbType::Snowflake | DbType::Bigquery => {
+            format!(
+                "ALTER TABLE {} ALTER COLUMN {} SET DATA TYPE {};",
+                table_ref, col, datatype
+            )
+        }
+    }
+}
+
+fn render_drop_default_value(
+    table_ref: &str,
+    col: &str,
+    _datatype: &str,
+    db_type: DbType,
+    constraint_name: Option<&str>,
+) -> String {
+    match db_type {
+        DbType::MsSqlServer => format!(
+            "ALTER TABLE {} DROP CONSTRAINT {};",
+            table_ref,
+            render_db_quoted_identifier(constraint_name.unwrap_or(""), db_type)
+        ),
+        _ => format!(
+            "ALTER TABLE {} ALTER COLUMN {} DROP DEFAULT;",
+            table_ref, col
+        ),
+    }
+}
+
+fn render_add_default_value(
+    table_ref: &str,
+    col: &str,
+    default_value: &str,
+    db_type: DbType,
+) -> String {
+    match db_type {
+        DbType::MsSqlServer => format!(
+            "ALTER TABLE {} ADD CONSTRAINT DF_{}_{} DEFAULT {} FOR {};",
+            table_ref,
+            table_ref.replace('.', "_"),
+            col,
+            default_value,
+            col
+        ),
+        _ => format!(
+            "ALTER TABLE {} ALTER COLUMN {} SET DEFAULT {};",
+            table_ref, col, default_value
+        ),
+    }
+}
+
+fn render_alter_nullable(
+    table_ref: &str,
+    col: &str,
+    nullable: bool,
+    datatype: &str,
+    db_type: DbType,
+) -> String {
+    match db_type {
+        DbType::Postgresql | DbType::Duckdb | DbType::Snowflake | DbType::Bigquery => {
+            let action = if nullable { "DROP" } else { "SET" };
+            format!(
+                "ALTER TABLE {} ALTER COLUMN {} {} NOT NULL;",
+                table_ref, col, action
+            )
+        }
+        DbType::MsSqlServer => {
+            let null_str = if nullable { "NULL" } else { "NOT NULL" };
+            format!(
+                "ALTER TABLE {} ALTER COLUMN {} {} {};",
+                table_ref, col, datatype, null_str
+            )
+        }
+        DbType::Mysql => {
+            let null_str = if nullable { "NULL" } else { "NOT NULL" };
+            format!(
+                "ALTER TABLE {} MODIFY COLUMN {} {} {};",
+                table_ref, col, datatype, null_str
+            )
+        }
+    }
+}
+
+fn render_rename_column(
+    table_ref: &str,
+    old_name: &str,
+    new_name: &str,
+    db_type: DbType,
+) -> String {
+    match db_type {
+        DbType::MsSqlServer => {
+            format!(
+                "EXEC sp_rename '{}.{}', '{}', 'COLUMN';",
+                table_ref, old_name, new_name
+            )
+        }
+        _ => format!(
+            "ALTER TABLE {} RENAME COLUMN {} TO {};",
+            table_ref, old_name, new_name
+        ),
+    }
+}
+
+// ===========================================================================
+// Metadata queries
+// ===========================================================================
+
+fn expand_load_table_metadata(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let p: LoadTableMetadataPayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid LOAD_TABLE_METADATA payload: {}", e))?;
+    let query =
+        make_load_table_metadata_query(db_type, p.table.as_deref(), p.database_name.as_deref())?;
+    Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+}
+
+fn make_load_table_metadata_query(
+    db_type: DbType,
+    table: Option<&str>,
+    database_name: Option<&str>,
+) -> Result<String, String> {
+    match db_type {
+        DbType::Duckdb => {
+            // For ducklake, the ducklake ATTACH is handled by the ducklake wrapper.
+            let mut q = String::from(
+                "SELECT
+    COLUMN_NAME as field,
+    DATA_TYPE as DataType,
+    COLUMN_DEFAULT as DefaultValue,
+    false as IsPrimaryKey,
+    false as IsIdentity,
+    IS_NULLABLE as IsNullable,
+    false as IsEnum,
+    TABLE_NAME as table_name
+FROM information_schema.columns c
+WHERE table_schema = current_schema()",
+            );
+            if let Some(t) = table {
+                q.push_str(&format!(" AND TABLE_NAME = '{}'", t));
+            }
+            Ok(q)
+        }
+        DbType::Mysql => {
+            let db_name = database_name.unwrap_or("");
+            let table_filter = if let Some(t) = table {
+                let parts: Vec<&str> = t.rsplitn(2, '.').collect();
+                let tname = parts[0];
+                let schema = if parts.len() > 1 { parts[1] } else { db_name };
+                format!(
+                    "\nWHERE\n    TABLE_NAME = '{}' AND TABLE_SCHEMA = '{}'",
+                    tname, schema
+                )
+            } else {
+                "\nWHERE\n    TABLE_SCHEMA NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys')".to_string()
+            };
+            let extra_col = if table.is_none() {
+                ",\n    TABLE_NAME as table_name"
+            } else {
+                ""
+            };
+            Ok(format!(
+                "SELECT \n    COLUMN_NAME as field,\n    COLUMN_TYPE as DataType,\n    COLUMN_DEFAULT as DefaultValue,\n    CASE WHEN COLUMN_KEY = 'PRI' THEN 1 ELSE 0 END as IsPrimaryKey,\n    CASE WHEN EXTRA like '%auto_increment%' THEN 'YES' ELSE 'NO' END as IsIdentity,\n    CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,\n    CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum{}\nFROM \n    INFORMATION_SCHEMA.COLUMNS{}\nORDER BY\n    TABLE_NAME,\n    ORDINAL_POSITION;",
+                extra_col, table_filter
+            ))
+        }
+        DbType::Postgresql => {
+            let (where_clause, extra_cols, joins, order) = if let Some(t) = table {
+                let parts: Vec<&str> = t.rsplitn(2, '.').collect();
+                let tname = parts[0];
+                let schema = if parts.len() > 1 { parts[1] } else { "public" };
+                (
+                    format!(
+                        "\nWHERE a.attrelid = (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid WHERE relname = '{}' AND ns.nspname = '{}')\n    AND a.attnum > 0 AND NOT a.attisdropped",
+                        tname, schema
+                    ),
+                    String::new(),
+                    String::new(),
+                    "a.attnum".to_string(),
+                )
+            } else {
+                (
+                    "\nWHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped\n    AND ns.nspname != 'pg_catalog' AND ns.nspname != 'information_schema'".to_string(),
+                    ",\n    ns.nspname AS schema_name,\n    c.relname AS table_name".to_string(),
+                    "\nJOIN pg_catalog.pg_class c ON a.attrelid = c.oid\nJOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid".to_string(),
+                    "ns.nspname, c.relname, a.attnum".to_string(),
+                )
+            };
+            Ok(format!(
+                "SELECT \n    a.attname as field,\n    pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,\n    (SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)\n     FROM pg_catalog.pg_attrdef d\n     WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) as DefaultValue,\n    (SELECT CASE WHEN i.indisprimary THEN true ELSE 'NO' END\n     FROM pg_catalog.pg_class tbl, pg_catalog.pg_class idx, pg_catalog.pg_index i, pg_catalog.pg_attribute att\n     WHERE tbl.oid = a.attrelid AND idx.oid = i.indexrelid AND att.attrelid = tbl.oid\n                     AND i.indrelid = tbl.oid AND att.attnum = any(i.indkey) AND att.attname = a.attname LIMIT 1) as IsPrimaryKey,\n    CASE a.attidentity\n            WHEN 'd' THEN 'By Default'\n            WHEN 'a' THEN 'Always'\n            ELSE 'No'\n    END as IsIdentity,\n    CASE a.attnotnull\n            WHEN false THEN 'YES'\n            ELSE 'NO'\n    END as IsNullable,\n    (SELECT true\n     FROM pg_catalog.pg_enum e\n     WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum{}\nFROM pg_catalog.pg_attribute a{}{}\nORDER BY {};",
+                extra_cols, joins, where_clause, order
+            ))
+        }
+        DbType::MsSqlServer => {
+            let table_filter = if let Some(t) = table {
+                format!("\nWHERE\n    c.TABLE_NAME = '{}'", t)
+            } else {
+                String::new()
+            };
+            let extra_col = if table.is_none() {
+                ",\n    c.TABLE_NAME as table_name"
+            } else {
+                ""
+            };
+            Ok(format!(
+                "SELECT\n    c.COLUMN_NAME as field,\n    c.DATA_TYPE as DataType,\n    c.COLUMN_DEFAULT as DefaultValue,\n    CASE WHEN COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,\n    CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as IsPrimaryKey,\n    CASE WHEN c.IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,\n    CASE WHEN c.DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum,\n    dc.name as default_constraint_name{}\nFROM\n    INFORMATION_SCHEMA.COLUMNS c\n    LEFT JOIN (\n        SELECT\n            ku.TABLE_SCHEMA,\n            ku.TABLE_NAME,\n            ku.COLUMN_NAME\n        FROM\n            INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc\n            INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku\n                ON tc.CONSTRAINT_TYPE = 'PRIMARY KEY'\n                AND tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME\n                AND tc.TABLE_SCHEMA = ku.TABLE_SCHEMA\n                AND tc.TABLE_NAME = ku.TABLE_NAME\n    ) pk ON c.TABLE_SCHEMA = pk.TABLE_SCHEMA\n        AND c.TABLE_NAME = pk.TABLE_NAME\n        AND c.COLUMN_NAME = pk.COLUMN_NAME\n    LEFT JOIN sys.default_constraints dc\n        ON dc.parent_object_id = OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME)\n        AND dc.parent_column_id = COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'ColumnId'){}\nORDER BY\n    c.ORDINAL_POSITION;",
+                extra_col, table_filter
+            ))
+        }
+        DbType::Snowflake => {
+            let table_filter = if let Some(t) = table {
+                let parts: Vec<&str> = t.rsplitn(2, '.').collect();
+                let tname = parts[0];
+                let schema = if parts.len() > 1 { parts[1] } else { "PUBLIC" };
+                format!(
+                    "\nwhere table_name = '{}' and table_schema = '{}'",
+                    tname, schema
+                )
+            } else {
+                "\nwhere table_schema <> 'INFORMATION_SCHEMA'\n".to_string()
+            };
+            let extra_col = if table.is_none() {
+                ",\n    table_name as table_name,\n    table_schema as schema_name"
+            } else {
+                ""
+            };
+            Ok(format!(
+                "select COLUMN_NAME as field,\n    DATA_TYPE as DataType,\n    COLUMN_DEFAULT as DefaultValue,\n    CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 'By Default' ELSE 'No' END as IsIdentity,\n    0 as IsPrimaryKey,\n    CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,\n    CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum{}\nfrom information_schema.columns{}\norder by ORDINAL_POSITION;",
+                extra_col, table_filter
+            ))
+        }
+        DbType::Bigquery => {
+            if let Some(t) = table {
+                let parts: Vec<&str> = t.splitn(2, '.').collect();
+                if parts.len() < 2 {
+                    return Err("BigQuery table must be in dataset.table format".to_string());
+                }
+                let dataset = parts[0];
+                let tname = parts[1];
+                Ok(format!(
+                    "SELECT \n    c.COLUMN_NAME as field,\n    DATA_TYPE as DataType,\n    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,\n    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,\n    'No' as IsIdentity,\n    IS_NULLABLE as IsNullable,\n    false as IsEnum\nFROM\n    {}.INFORMATION_SCHEMA.COLUMNS c\n    LEFT JOIN\n    {}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p\n    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME\nWHERE   \n    c.TABLE_NAME = '{}'\norder by c.ORDINAL_POSITION;",
+                    dataset, dataset, tname
+                ))
+            } else {
+                Err("BigQuery all-tables metadata is not supported via markers (requires Bun runtime)".to_string())
+            }
+        }
+    }
+}
+
+// --- Relational keys queries ---
+
+fn expand_foreign_keys(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let p: ForeignKeysPayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid FOREIGN_KEYS payload: {}", e))?;
+    let query = make_foreign_keys_query(db_type, &p.table, p.schema.as_deref())?;
+    Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+}
+
+fn expand_primary_key_constraint(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let p: PrimaryKeyConstraintPayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid PRIMARY_KEY_CONSTRAINT payload: {}", e))?;
+    let query = make_primary_key_constraint_query(db_type, &p.table, p.schema.as_deref())?;
+    Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+}
+
+fn make_foreign_keys_query(
+    db_type: DbType,
+    table: &str,
+    default_schema: Option<&str>,
+) -> Result<String, String> {
+    let parts: Vec<&str> = table.rsplitn(2, '.').collect();
+    let table_name = parts[0];
+    let schema_name = if parts.len() > 1 {
+        parts[1]
+    } else {
+        default_schema.unwrap_or(match db_type {
+            DbType::Postgresql | DbType::Duckdb => "public",
+            DbType::Mysql => "",
+            DbType::MsSqlServer => "dbo",
+            DbType::Snowflake => "PUBLIC",
+            DbType::Bigquery => return Err("BigQuery requires a schema for FK queries".to_string()),
+        })
+    };
+
+    match db_type {
+        DbType::Postgresql => Ok(format!(
+            "SELECT\n    tc.constraint_name as fk_constraint_name,\n    kcu.column_name as source_column,\n    ccu.table_schema || '.' || ccu.table_name as target_table,\n    ccu.column_name as target_column,\n    COALESCE(rc.delete_rule, 'NO ACTION') as on_delete,\n    COALESCE(rc.update_rule, 'NO ACTION') as on_update\nFROM\n    information_schema.table_constraints AS tc\n    JOIN information_schema.key_column_usage AS kcu\n        ON tc.constraint_name = kcu.constraint_name\n        AND tc.table_schema = kcu.table_schema\n    JOIN information_schema.constraint_column_usage AS ccu\n        ON ccu.constraint_name = tc.constraint_name\n        AND ccu.table_schema = tc.table_schema\n    LEFT JOIN information_schema.referential_constraints AS rc\n        ON rc.constraint_name = tc.constraint_name\n        AND rc.constraint_schema = tc.table_schema\nWHERE\n    tc.constraint_type = 'FOREIGN KEY'\n    AND tc.table_name = '{}'\n    AND tc.table_schema = '{}'\nORDER BY\n    tc.constraint_name, kcu.ordinal_position;",
+            table_name, schema_name
+        )),
+        DbType::Mysql => {
+            let where_schema = if schema_name.is_empty() {
+                "AND kcu.TABLE_SCHEMA = DATABASE()".to_string()
+            } else {
+                format!("AND kcu.TABLE_SCHEMA = '{}'", schema_name)
+            };
+            Ok(format!(
+                "SELECT\n    kcu.CONSTRAINT_NAME as fk_constraint_name,\n    kcu.COLUMN_NAME as source_column,\n    CONCAT(kcu.REFERENCED_TABLE_SCHEMA, '.', kcu.REFERENCED_TABLE_NAME) as target_table,\n    kcu.REFERENCED_COLUMN_NAME as target_column,\n    COALESCE(rc.DELETE_RULE, 'NO ACTION') as on_delete,\n    COALESCE(rc.UPDATE_RULE, 'NO ACTION') as on_update\nFROM\n    INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu\n    JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc\n        ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME\n        AND kcu.TABLE_SCHEMA = rc.CONSTRAINT_SCHEMA\nWHERE\n    kcu.TABLE_NAME = '{}'\n    {}\n    AND kcu.REFERENCED_TABLE_NAME IS NOT NULL\nORDER BY\n    kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION;",
+                table_name, where_schema
+            ))
+        }
+        DbType::MsSqlServer => Ok(format!(
+            "SELECT\n    fk.name as fk_constraint_name,\n    COL_NAME(fkc.parent_object_id, fkc.parent_column_id) as source_column,\n    OBJECT_SCHEMA_NAME(fkc.referenced_object_id) + '.' + OBJECT_NAME(fkc.referenced_object_id) as target_table,\n    COL_NAME(fkc.referenced_object_id, fkc.referenced_column_id) as target_column,\n    CASE fk.delete_referential_action\n        WHEN 0 THEN 'NO ACTION'\n        WHEN 1 THEN 'CASCADE'\n        WHEN 2 THEN 'SET NULL'\n        WHEN 3 THEN 'SET DEFAULT'\n    END as on_delete,\n    CASE fk.update_referential_action\n        WHEN 0 THEN 'NO ACTION'\n        WHEN 1 THEN 'CASCADE'\n        WHEN 2 THEN 'SET NULL'\n        WHEN 3 THEN 'SET DEFAULT'\n    END as on_update\nFROM\n    sys.foreign_keys fk\n    INNER JOIN sys.foreign_key_columns fkc\n        ON fk.object_id = fkc.constraint_object_id\n    INNER JOIN sys.tables t\n        ON fk.parent_object_id = t.object_id\n    INNER JOIN sys.schemas s\n        ON t.schema_id = s.schema_id\nWHERE\n    t.name = '{}'\n    AND s.name = '{}'\nORDER BY\n    fk.name, fkc.constraint_column_id;",
+            table_name, schema_name
+        )),
+        DbType::Snowflake => Ok(format!(
+            "SHOW IMPORTED KEYS IN TABLE {}.{}",
+            schema_name, table_name
+        )),
+        DbType::Bigquery => Ok(format!(
+            "SELECT\n    tc.constraint_name as fk_constraint_name,\n    kcu.column_name as source_column,\n    ccu.table_name as target_table,\n    ccu.column_name as target_column,\n    'NO ACTION' as on_delete,\n    'NO ACTION' as on_update\nFROM\n    `{}.INFORMATION_SCHEMA.TABLE_CONSTRAINTS` tc\n    JOIN `{}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` kcu\n        ON tc.constraint_name = kcu.constraint_name\n    JOIN `{}.INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE` ccu\n        ON tc.constraint_name = ccu.constraint_name\nWHERE\n    tc.constraint_type = 'FOREIGN KEY'\n    AND tc.table_name = '{}'\nORDER BY\n    tc.constraint_name, kcu.ordinal_position;",
+            schema_name, schema_name, schema_name, table_name
+        )),
+        DbType::Duckdb => Ok(format!(
+            "SELECT\n    fk_constraint.constraint_name as fk_constraint_name,\n    kcu.column_name as source_column,\n    ccu.table_schema || '.' || ccu.table_name as target_table,\n    ccu.column_name as target_column,\n    'NO ACTION' as on_delete,\n    'NO ACTION' as on_update\nFROM\n    information_schema.table_constraints fk_constraint\n    JOIN information_schema.key_column_usage kcu\n        ON fk_constraint.constraint_name = kcu.constraint_name\n        AND fk_constraint.constraint_schema = kcu.constraint_schema\n    JOIN information_schema.constraint_column_usage ccu\n        ON fk_constraint.constraint_name = ccu.constraint_name\n        AND fk_constraint.constraint_schema = ccu.constraint_schema\nWHERE\n    fk_constraint.constraint_type = 'FOREIGN KEY'\n    AND fk_constraint.table_name = '{}'\n    AND fk_constraint.table_schema = '{}'\nORDER BY\n    fk_constraint.constraint_name, kcu.ordinal_position;",
+            table_name, schema_name
+        )),
+    }
+}
+
+fn make_primary_key_constraint_query(
+    db_type: DbType,
+    table: &str,
+    default_schema: Option<&str>,
+) -> Result<String, String> {
+    let parts: Vec<&str> = table.rsplitn(2, '.').collect();
+    let table_name = parts[0];
+    let schema_name = if parts.len() > 1 {
+        parts[1]
+    } else {
+        default_schema.unwrap_or(match db_type {
+            DbType::Postgresql | DbType::Duckdb => "public",
+            DbType::Mysql => "",
+            DbType::MsSqlServer => "dbo",
+            DbType::Snowflake => "PUBLIC",
+            DbType::Bigquery => return Err("BigQuery requires a schema for PK queries".to_string()),
+        })
+    };
+
+    match db_type {
+        DbType::Postgresql | DbType::Duckdb => Ok(format!(
+            "SELECT\n    tc.constraint_name\nFROM\n    information_schema.table_constraints AS tc\nWHERE\n    tc.constraint_type = 'PRIMARY KEY'\n    AND tc.table_name = '{}'\n    AND tc.table_schema = '{}'\nLIMIT 1;",
+            table_name, schema_name
+        )),
+        DbType::Mysql => {
+            let where_schema = if schema_name.is_empty() {
+                "AND tc.TABLE_SCHEMA = DATABASE()".to_string()
+            } else {
+                format!("AND tc.TABLE_SCHEMA = '{}'", schema_name)
+            };
+            Ok(format!(
+                "SELECT\n    tc.CONSTRAINT_NAME as constraint_name\nFROM\n    INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc\nWHERE\n    tc.CONSTRAINT_TYPE = 'PRIMARY KEY'\n    AND tc.TABLE_NAME = '{}'\n    {}\nLIMIT 1;",
+                table_name, where_schema
+            ))
+        }
+        DbType::MsSqlServer => Ok(format!(
+            "SELECT\n    kc.name as constraint_name\nFROM\n    sys.key_constraints kc\n    INNER JOIN sys.tables t\n        ON kc.parent_object_id = t.object_id\n    INNER JOIN sys.schemas s\n        ON t.schema_id = s.schema_id\nWHERE\n    kc.type = 'PK'\n    AND t.name = '{}'\n    AND s.name = '{}';",
+            table_name, schema_name
+        )),
+        DbType::Snowflake => Ok(format!(
+            "SELECT\n    constraint_name\nFROM\n    information_schema.table_constraints\nWHERE\n    constraint_type = 'PRIMARY KEY'\n    AND table_name = '{}'\n    AND table_schema = '{}'\nLIMIT 1;",
+            table_name, schema_name
+        )),
+        DbType::Bigquery => Ok(format!(
+            "SELECT\n    constraint_name\nFROM\n    `{}.INFORMATION_SCHEMA.TABLE_CONSTRAINTS`\nWHERE\n    constraint_type = 'PRIMARY KEY'\n    AND table_name = '{}'\nLIMIT 1;",
+            schema_name, table_name
+        )),
+    }
+}
+
 // Tests
 // ---------------------------------------------------------------------------
 
