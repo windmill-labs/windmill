@@ -1598,7 +1598,21 @@ async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
             min_version: "1.597.0".into(),
         })
     } else {
-        Ok(())
+        // Check node-level debouncing on individual flow modules
+        let flow_value = nf.parse_flow_value()?;
+        let has_node_debouncing = flow_value.modules.iter().any(|m| {
+            m.debouncing
+                .as_ref()
+                .is_some_and(|d| d.debounce_delay_s.is_some_and(|s| s > 0))
+        });
+        if has_node_debouncing && !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await {
+            Err(Error::WorkersAreBehind {
+                feature: "Flow node debouncing".into(),
+                min_version: "1.597.0".into(),
+            })
+        } else {
+            Ok(())
+        }
     }
 }
 

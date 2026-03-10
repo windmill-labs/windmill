@@ -3689,4 +3689,329 @@ mod debounce {
 
         Ok(())
     }
+
+    // =========================================================================
+    // Tests for maybe_debounce_flow_node (flow node debouncing)
+    // =========================================================================
+
+    /// Helper: insert a child job with a parent flow.
+    async fn insert_child_job_with_parent(
+        db: &Pool<Postgres>,
+        child_id: Uuid,
+        parent_id: Uuid,
+        workspace_id: &str,
+    ) {
+        sqlx::query!(
+            "INSERT INTO v2_job (id, kind, tag, created_by, permissioned_as, permissioned_as_email, workspace_id, parent_job)
+             VALUES ($1, 'noop', 'deno', 'test-user', 'u/test-user', 'test@windmill.dev', $2, $3)",
+            child_id,
+            workspace_id,
+            parent_id,
+        )
+        .execute(db)
+        .await
+        .expect("insert v2_job (child)");
+
+        sqlx::query!(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag)
+             VALUES ($1, $2, now(), 'deno')",
+            child_id,
+            workspace_id,
+        )
+        .execute(db)
+        .await
+        .expect("insert v2_job_queue (child)");
+
+        sqlx::query!("INSERT INTO v2_job_runtime (id) VALUES ($1)", child_id)
+            .execute(db)
+            .await
+            .expect("insert v2_job_runtime (child)");
+    }
+
+    /// Test: First flow node job in a debounce batch should set scheduled_for
+    /// and create a debounce_key entry. The parent flow should remain in queue.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_flow_node_debounce_first_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let flow_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+        insert_flow_job(&db, flow_id, "test-workspace", "f/test/my_flow").await;
+        insert_child_job_with_parent(&db, child_id, flow_id, "test-workspace").await;
+
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some("test_flow_node_first".to_string()),
+            ..Default::default()
+        };
+        let args_hm = empty_args();
+        let args = PushArgs::from(&args_hm);
+        let mut tx = db.begin().await?;
+
+        let result = windmill_queue::jobs_ee::maybe_debounce_flow_node(
+            &settings,
+            child_id,
+            flow_id,
+            "f/test/my_flow",
+            "step_a",
+            "test-workspace",
+            &args,
+            &mut tx,
+            &db,
+        )
+        .await?;
+
+        tx.commit().await?;
+
+        assert!(
+            matches!(
+                result,
+                windmill_queue::jobs_ee::FlowNodeDebounceResult::Execute
+            ),
+            "first job should execute"
+        );
+
+        // Child job should still be in queue with delayed scheduled_for
+        assert!(is_queued(&db, &child_id).await, "child should be queued");
+        let sf = sqlx::query_scalar!(
+            "SELECT scheduled_for FROM v2_job_queue WHERE id = $1",
+            child_id
+        )
+        .fetch_one(&db)
+        .await?;
+        let diff = (sf - Utc::now()).num_seconds();
+        assert!(
+            diff >= 0 && diff <= 6,
+            "scheduled_for should be in the future (up to ~5s), got {diff}s"
+        );
+
+        // Parent flow should still be in queue
+        assert!(
+            is_queued(&db, &flow_id).await,
+            "parent flow should still be queued"
+        );
+        assert!(
+            !is_completed(&db, &flow_id).await,
+            "parent flow should not be completed"
+        );
+
+        // debounce_key should exist
+        let dk = get_debounce_key(&db, "test_flow_node_first").await;
+        assert!(dk.is_some(), "debounce_key entry should exist");
+        let (dk_job, dk_prev, dk_times) = dk.unwrap();
+        assert_eq!(dk_job, child_id);
+        assert!(dk_prev.is_none());
+        assert_eq!(dk_times, 0);
+
+        Ok(())
+    }
+
+    /// Test: Second flow node job with same key should cancel the first child and
+    /// complete the first parent flow with "Debounced by" result.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_flow_node_debounce_second_cancels_first(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        // Flow 1 with child 1
+        let flow1 = Uuid::new_v4();
+        let child1 = Uuid::new_v4();
+        insert_flow_job(&db, flow1, "test-workspace", "f/test/my_flow").await;
+        insert_child_job_with_parent(&db, child1, flow1, "test-workspace").await;
+
+        // Flow 2 with child 2
+        let flow2 = Uuid::new_v4();
+        let child2 = Uuid::new_v4();
+        insert_flow_job(&db, flow2, "test-workspace", "f/test/my_flow").await;
+        insert_child_job_with_parent(&db, child2, flow2, "test-workspace").await;
+
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some("test_flow_node_cancel".to_string()),
+            ..Default::default()
+        };
+        let args_hm = empty_args();
+
+        // Push child 1
+        {
+            let args = PushArgs::from(&args_hm);
+            let mut tx = db.begin().await?;
+            windmill_queue::jobs_ee::maybe_debounce_flow_node(
+                &settings,
+                child1,
+                flow1,
+                "f/test/my_flow",
+                "step_a",
+                "test-workspace",
+                &args,
+                &mut tx,
+                &db,
+            )
+            .await?;
+            tx.commit().await?;
+        }
+
+        // Push child 2 — should cancel child 1 and complete flow 1
+        {
+            let args = PushArgs::from(&args_hm);
+            let mut tx = db.begin().await?;
+            windmill_queue::jobs_ee::maybe_debounce_flow_node(
+                &settings,
+                child2,
+                flow2,
+                "f/test/my_flow",
+                "step_a",
+                "test-workspace",
+                &args,
+                &mut tx,
+                &db,
+            )
+            .await?;
+            tx.commit().await?;
+        }
+
+        // child1 should be completed (debounced/skipped)
+        assert!(
+            is_completed(&db, &child1).await,
+            "child1 should be completed"
+        );
+        assert!(
+            !is_queued(&db, &child1).await,
+            "child1 should not be in queue"
+        );
+
+        // flow1 (parent of child1) should also be completed
+        assert!(
+            is_completed(&db, &flow1).await,
+            "flow1 should be completed (debounced)"
+        );
+        assert!(
+            !is_queued(&db, &flow1).await,
+            "flow1 should not be in queue"
+        );
+
+        // Check flow1 result contains "Debounced by"
+        let result = sqlx::query_scalar!(
+            "SELECT result::text FROM v2_job_completed WHERE id = $1",
+            flow1
+        )
+        .fetch_one(&db)
+        .await?;
+        assert!(
+            result.as_ref().is_some_and(|r| r.contains("Debounced by")),
+            "flow1 result should contain 'Debounced by', got: {:?}",
+            result
+        );
+
+        // child2 should still be in queue (it's the winner)
+        assert!(
+            is_queued(&db, &child2).await,
+            "child2 should still be queued"
+        );
+        assert!(
+            !is_completed(&db, &child2).await,
+            "child2 should not be completed"
+        );
+
+        // flow2 should still be in queue
+        assert!(is_queued(&db, &flow2).await, "flow2 should still be queued");
+
+        // debounce_key should point to child2
+        let dk = get_debounce_key(&db, "test_flow_node_cancel").await;
+        assert!(dk.is_some());
+        let (dk_job, _, dk_times) = dk.unwrap();
+        assert_eq!(dk_job, child2);
+        assert_eq!(dk_times, 1);
+
+        Ok(())
+    }
+
+    /// Test: Default debounce key for flow nodes uses $workspace/flow/$path-$step_id.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_flow_node_debounce_default_key(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let flow_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+        insert_flow_job(&db, flow_id, "test-workspace", "f/test/my_flow").await;
+        insert_child_job_with_parent(&db, child_id, flow_id, "test-workspace").await;
+
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: None, // No custom key — use default
+            ..Default::default()
+        };
+        let args_hm = empty_args();
+        let args = PushArgs::from(&args_hm);
+        let mut tx = db.begin().await?;
+
+        windmill_queue::jobs_ee::maybe_debounce_flow_node(
+            &settings,
+            child_id,
+            flow_id,
+            "f/test/my_flow",
+            "step_a",
+            "test-workspace",
+            &args,
+            &mut tx,
+            &db,
+        )
+        .await?;
+
+        tx.commit().await?;
+
+        // Default key should be: test-workspace/flow/f/test/my_flow-step_a
+        let expected_key = "test-workspace/flow/f/test/my_flow-step_a";
+        let dk = get_debounce_key(&db, expected_key).await;
+        assert!(dk.is_some(), "debounce_key with default key should exist");
+
+        Ok(())
+    }
+
+    /// Test: Flow node debounce tracks debounced_times counter correctly.
+    /// Each debounce call increments the counter in the debounce_key table.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_flow_node_debounce_counter_tracking(db: Pool<Postgres>) -> anyhow::Result<()> {
+        // No limits set so counter never resets
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some("test_flow_node_counter".to_string()),
+            ..Default::default()
+        };
+        let args_hm = empty_args();
+
+        // Push 4 jobs. Each subsequent one increments debounced_times.
+        for _ in 0..4 {
+            let flow_id = Uuid::new_v4();
+            let child_id = Uuid::new_v4();
+            insert_flow_job(&db, flow_id, "test-workspace", "f/test/flow").await;
+            insert_child_job_with_parent(&db, child_id, flow_id, "test-workspace").await;
+
+            let args = PushArgs::from(&args_hm);
+            let mut tx = db.begin().await?;
+            windmill_queue::jobs_ee::maybe_debounce_flow_node(
+                &settings,
+                child_id,
+                flow_id,
+                "f/test/flow",
+                "step_a",
+                "test-workspace",
+                &args,
+                &mut tx,
+                &db,
+            )
+            .await?;
+            tx.commit().await?;
+        }
+
+        // After 4 jobs, debounced_times should be 3 (first job creates the entry with 0,
+        // subsequent 3 jobs each increment it)
+        let debounced_times = sqlx::query_scalar!(
+            "SELECT debounced_times FROM debounce_key WHERE key = $1",
+            "test_flow_node_counter"
+        )
+        .fetch_one(&db)
+        .await?;
+        assert_eq!(
+            debounced_times, 3,
+            "debounced_times should be 3 after 4 jobs"
+        );
+
+        Ok(())
+    }
 }

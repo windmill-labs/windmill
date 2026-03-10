@@ -326,6 +326,27 @@ components:
         retry:
           description: Retry configuration if this step fails
           $ref: '#/components/schemas/Retry'
+        debouncing:
+          description: Debounce configuration for this step
+          type: object
+          properties:
+            debounce_delay_s:
+              type: number
+              description: Delay in seconds to debounce this step's executions across flow runs
+            debounce_key:
+              type: string
+              description: "Expression to group debounced executions. Supports $workspace and $args[name]. Default: $workspace/flow/<flow_path>-<step_id>"
+            debounce_args_to_accumulate:
+              type: array
+              description: Array-type arguments to accumulate across debounced executions
+              items:
+                type: string
+            max_total_debouncing_time:
+              type: number
+              description: Maximum total time in seconds before forced execution
+            max_total_debounces_amount:
+              type: number
+              description: Maximum number of debounces before forced execution
       required:
         - value
         - id
