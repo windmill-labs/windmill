@@ -3,12 +3,7 @@ import {
 	type ColumnDef,
 	type TableMetadata
 } from './apps/components/display/dbtable/utils'
-import { makeSelectQuery } from './apps/components/display/dbtable/queries/select'
 import { runScriptAndPollResult } from './jobs/utils'
-import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
-import { makeUpdateQuery } from './apps/components/display/dbtable/queries/update'
-import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delete'
-import { makeInsertQuery } from './apps/components/display/dbtable/queries/insert'
 import { makeDeleteTableQuery } from './apps/components/display/dbtable/queries/deleteTable'
 import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
@@ -63,28 +58,35 @@ export function dbTableOpsWithPreviewScripts({
 	const dbType = getDbType(input)
 	const language = getLanguageByResourceType(dbType)
 	const dbArg = getDatabaseArg(input)
+	const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
+
+	function makeMarker(op: string, payload: Record<string, unknown>): string {
+		if (ducklake) payload.ducklake = ducklake
+		return `-- WM_INTERNAL_DB_${op} ${JSON.stringify(payload)}`
+	}
+
 	return {
 		dbType,
 		tableKey,
 		colDefs,
 		getCount: async ({ quicksearch }) => {
-			let countQuery = makeCountQuery(dbType, tableKey, undefined, colDefs)
-			if (input.type === 'ducklake') countQuery = wrapDucklakeQuery(countQuery, input.ducklake)
+			const content = makeMarker('COUNT', { table: tableKey, columnDefs: colDefs })
 			const result = await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, quicksearch }, language, content: countQuery }
+				requestBody: { args: { ...dbArg, quicksearch }, language, content }
 			})
 			const count = result?.[0].count as number
 			return count
 		},
 		getRows: async (params) => {
-			let query = makeSelectQuery(tableKey, colDefs, undefined, dbType, undefined, {
+			const content = makeMarker('SELECT', {
+				table: tableKey,
+				columnDefs: colDefs,
 				fixPgIntTypes: true
 			})
-			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
 			let items = (await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, ...params }, language, content: query }
+				requestBody: { args: { ...dbArg, ...params }, language, content }
 			})) as unknown[]
 			if (!items || !Array.isArray(items)) {
 				throw 'items is not an array'
@@ -92,31 +94,32 @@ export function dbTableOpsWithPreviewScripts({
 			return items
 		},
 		onUpdate: async ({ values }, colDef, newValue) => {
-			let updateQuery = makeUpdateQuery(tableKey, colDef, colDefs, dbType)
-			if (input.type === 'ducklake') updateQuery = wrapDucklakeQuery(updateQuery, input.ducklake)
+			const content = makeMarker('UPDATE', {
+				table: tableKey,
+				column: colDef,
+				columns: colDefs
+			})
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: {
 					args: { ...dbArg, value_to_update: newValue, ...values },
 					language,
-					content: updateQuery
+					content
 				}
 			})
 		},
 		onDelete: async ({ values }) => {
-			let deleteQuery = makeDeleteQuery(tableKey, colDefs, dbType)
-			if (input.type === 'ducklake') deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
+			const content = makeMarker('DELETE', { table: tableKey, columns: colDefs })
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, ...values }, language, content: deleteQuery }
+				requestBody: { args: { ...dbArg, ...values }, language, content }
 			})
 		},
 		onInsert: async ({ values }) => {
-			let insertQuery = makeInsertQuery(tableKey, colDefs, dbType)
-			if (input.type === 'ducklake') insertQuery = wrapDucklakeQuery(insertQuery, input.ducklake)
+			const content = makeMarker('INSERT', { table: tableKey, columns: colDefs })
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, ...values }, language, content: insertQuery }
+				requestBody: { args: { ...dbArg, ...values }, language, content }
 			})
 		}
 	}

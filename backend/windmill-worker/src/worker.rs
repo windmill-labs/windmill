@@ -3925,6 +3925,26 @@ pub async fn run_language_executor(
     lock: &Option<String>,
     run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
+    // Expand WM_INTERNAL_DB markers into real SQL before dispatching
+    let expanded_code: String;
+    let code = if let Some(ref lang) = language {
+        match windmill_common::query_builders::try_expand_internal_db_query(code, lang) {
+            Some(Ok(sql)) => {
+                expanded_code = sql;
+                &expanded_code
+            }
+            Some(Err(e)) => {
+                return Err(Error::ExecutionErr(format!(
+                    "Failed to expand WM_INTERNAL_DB marker: {}",
+                    e
+                )));
+            }
+            None => code, // Not a marker, use original code
+        }
+    } else {
+        code
+    };
+
     if language == Some(ScriptLang::Postgresql) {
         return Box::pin(do_postgresql(
             job,

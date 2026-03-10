@@ -1,4 +1,7 @@
 use serde::{Deserialize, Serialize};
+use windmill_types::scripts::ScriptLang;
+
+const WM_INTERNAL_PREFIX: &str = "-- WM_INTERNAL_DB_";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -9,6 +12,20 @@ pub enum DbType {
     Snowflake,
     Bigquery,
     Duckdb,
+}
+
+impl DbType {
+    pub fn from_script_lang(lang: &ScriptLang) -> Option<Self> {
+        match lang {
+            ScriptLang::Postgresql => Some(DbType::Postgresql),
+            ScriptLang::Mysql => Some(DbType::Mysql),
+            ScriptLang::Mssql => Some(DbType::MsSqlServer),
+            ScriptLang::Snowflake => Some(DbType::Snowflake),
+            ScriptLang::Bigquery => Some(DbType::Bigquery),
+            ScriptLang::DuckDb => Some(DbType::Duckdb),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,19 +44,29 @@ impl Default for ColumnIdentity {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColumnDef {
     pub field: String,
     pub datatype: String,
+    #[serde(default)]
     pub defaultvalue: String,
+    #[serde(default)]
     pub isprimarykey: bool,
+    #[serde(default)]
     pub isidentity: ColumnIdentity,
+    #[serde(default)]
     pub isnullable: String,
+    #[serde(default)]
     pub isenum: bool,
+    #[serde(default)]
     pub ignored: Option<bool>,
+    #[serde(default, rename = "hideInsert")]
     pub hide_insert: Option<bool>,
+    #[serde(default, rename = "overrideDefaultValue")]
     pub override_default_value: Option<bool>,
+    #[serde(default, rename = "defaultUserValue")]
     pub default_user_value: Option<serde_json::Value>,
+    #[serde(default, rename = "defaultValueNull")]
     pub default_value_null: Option<bool>,
 }
 
@@ -63,6 +90,7 @@ impl ColumnDef {
 }
 
 /// A simpler column reference used in buildParameters and some query contexts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimpleColumn {
     pub field: String,
     pub datatype: String,
@@ -71,6 +99,182 @@ pub struct SimpleColumn {
 pub struct SelectOptions {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+}
+
+// ---------------------------------------------------------------------------
+// WM_INTERNAL_DB expansion: marker detection and SQL generation
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct SelectPayload {
+    table: String,
+    #[serde(rename = "columnDefs")]
+    column_defs: Vec<ColumnDef>,
+    #[serde(rename = "whereClause")]
+    where_clause: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    #[serde(rename = "fixPgIntTypes")]
+    fix_pg_int_types: Option<bool>,
+    ducklake: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CountPayload {
+    table: String,
+    #[serde(rename = "columnDefs")]
+    column_defs: Vec<ColumnDef>,
+    #[serde(rename = "whereClause")]
+    where_clause: Option<String>,
+    ducklake: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DeletePayload {
+    table: String,
+    columns: Vec<ColumnDef>,
+    ducklake: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct InsertPayload {
+    table: String,
+    columns: Vec<ColumnDef>,
+    ducklake: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct UpdatePayload {
+    table: String,
+    column: SimpleColumn,
+    columns: Vec<SimpleColumn>,
+    ducklake: Option<String>,
+}
+
+fn wrap_ducklake_query(query: &str, ducklake: &str) -> String {
+    let attach = format!("ATTACH 'ducklake://{}' AS dl;USE dl;\n", ducklake);
+    // Insert after all leading comment lines (matching JS: /^(--.*\n)*/)
+    let mut insert_pos = 0;
+    for line in query.lines() {
+        if line.starts_with("--") {
+            insert_pos += line.len() + 1; // +1 for \n
+        } else {
+            break;
+        }
+    }
+    // Clamp to string length in case there's no trailing newline
+    insert_pos = insert_pos.min(query.len());
+    format!("{}{}{}", &query[..insert_pos], attach, &query[insert_pos..])
+}
+
+/// Checks if a SQL script is a WM_INTERNAL_DB marker and expands it into real SQL.
+/// Returns `None` if the script is not a marker (regular SQL passthrough).
+/// Returns `Some(Ok(sql))` on successful expansion.
+/// Returns `Some(Err(msg))` if the marker is detected but malformed.
+pub fn try_expand_internal_db_query(
+    code: &str,
+    lang: &ScriptLang,
+) -> Option<Result<String, String>> {
+    let first_line = code.lines().next()?;
+    if !first_line.starts_with(WM_INTERNAL_PREFIX) {
+        return None;
+    }
+
+    let db_type = match DbType::from_script_lang(lang) {
+        Some(dt) => dt,
+        None => {
+            return Some(Err(format!(
+                "WM_INTERNAL_DB markers are not supported for language {:?}",
+                lang
+            )));
+        }
+    };
+
+    // Extract operation and JSON: "-- WM_INTERNAL_DB_SELECT {...}"
+    let after_prefix = &first_line[WM_INTERNAL_PREFIX.len()..];
+    let (op, json_str) = match after_prefix.find(' ') {
+        Some(pos) => (&after_prefix[..pos], after_prefix[pos + 1..].trim()),
+        None => {
+            return Some(Err("WM_INTERNAL_DB marker missing JSON payload".to_string()));
+        }
+    };
+
+    let result = match op {
+        "SELECT" => expand_select(json_str, db_type),
+        "COUNT" => expand_count(json_str, db_type),
+        "DELETE" => expand_delete(json_str, db_type),
+        "INSERT" => expand_insert(json_str, db_type),
+        "UPDATE" => expand_update(json_str, db_type),
+        _ => Err(format!("Unknown WM_INTERNAL_DB operation: {}", op)),
+    };
+
+    Some(result)
+}
+
+fn expand_select(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let payload: SelectPayload =
+        serde_json::from_str(json_str).map_err(|e| format!("Invalid SELECT payload: {}", e))?;
+
+    let options = SelectOptions { limit: payload.limit, offset: payload.offset };
+    let breaking = payload
+        .fix_pg_int_types
+        .map(|v| BreakingFeatures { fix_pg_int_types: v });
+
+    let query = make_select_query(
+        &payload.table,
+        &payload.column_defs,
+        payload.where_clause.as_deref(),
+        db_type,
+        Some(&options),
+        breaking.as_ref(),
+    )?;
+
+    Ok(maybe_wrap_ducklake(query, payload.ducklake.as_deref()))
+}
+
+fn expand_count(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let payload: CountPayload =
+        serde_json::from_str(json_str).map_err(|e| format!("Invalid COUNT payload: {}", e))?;
+
+    let query = make_count_query(
+        db_type,
+        &payload.table,
+        payload.where_clause.as_deref(),
+        &payload.column_defs,
+    )?;
+
+    Ok(maybe_wrap_ducklake(query, payload.ducklake.as_deref()))
+}
+
+fn expand_delete(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let payload: DeletePayload =
+        serde_json::from_str(json_str).map_err(|e| format!("Invalid DELETE payload: {}", e))?;
+
+    let query = make_delete_query(&payload.table, &payload.columns, db_type);
+    Ok(maybe_wrap_ducklake(query, payload.ducklake.as_deref()))
+}
+
+fn expand_insert(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let payload: InsertPayload =
+        serde_json::from_str(json_str).map_err(|e| format!("Invalid INSERT payload: {}", e))?;
+
+    let query = make_insert_query(&payload.table, &payload.columns, db_type)?;
+    Ok(maybe_wrap_ducklake(query, payload.ducklake.as_deref()))
+}
+
+fn expand_update(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let payload: UpdatePayload =
+        serde_json::from_str(json_str).map_err(|e| format!("Invalid UPDATE payload: {}", e))?;
+
+    let query = make_update_query(&payload.table, &payload.column, &payload.columns, db_type);
+    Ok(maybe_wrap_ducklake(query, payload.ducklake.as_deref()))
+}
+
+fn maybe_wrap_ducklake(query: String, ducklake: Option<&str>) -> String {
+    match ducklake {
+        Some(dl) => wrap_ducklake_query(&query, dl),
+        None => query,
+    }
 }
 
 pub struct BreakingFeatures {
@@ -1970,5 +2174,122 @@ mod tests {
 
         // Numeric value should not be quoted
         assert!(result.contains("VALUES ($1::text, 5)"));
+    }
+
+    // -----------------------------------------------------------------------
+    // WM_INTERNAL_DB expansion
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_expand_select_marker() {
+        let marker = r#"-- WM_INTERNAL_DB_SELECT {"table":"my_table","columnDefs":[{"field":"id","datatype":"int4"},{"field":"name","datatype":"text"}]}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql);
+        assert!(result.is_some());
+        let sql = result.unwrap().unwrap();
+        assert!(sql.contains("SELECT \"id\"::text, \"name\"::text FROM my_table"));
+        assert!(sql.contains("LIMIT $1::INT OFFSET $2::INT"));
+    }
+
+    #[test]
+    fn test_expand_select_with_where_and_options() {
+        let marker = r#"-- WM_INTERNAL_DB_SELECT {"table":"t","columnDefs":[{"field":"id","datatype":"int4"}],"whereClause":"active = true","limit":50,"offset":10,"fixPgIntTypes":true}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql);
+        let sql = result.unwrap().unwrap();
+        assert!(sql.contains("WHERE active = true AND"));
+        assert!(sql.contains("pg_typeof(\"id\")"));
+    }
+
+    #[test]
+    fn test_expand_count_marker() {
+        let marker = r#"-- WM_INTERNAL_DB_COUNT {"table":"my_table","columnDefs":[{"field":"id","datatype":"int4"}]}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Mysql);
+        let sql = result.unwrap().unwrap();
+        assert!(sql.contains("SELECT COUNT(*) as count FROM my_table"));
+        assert!(sql.contains(":quicksearch"));
+    }
+
+    #[test]
+    fn test_expand_delete_marker() {
+        let marker = r#"-- WM_INTERNAL_DB_DELETE {"table":"my_table","columns":[{"field":"id","datatype":"int4"}]}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql);
+        let sql = result.unwrap().unwrap();
+        assert!(sql.contains("DELETE FROM my_table"));
+        assert!(sql.contains("RETURNING 1;"));
+    }
+
+    #[test]
+    fn test_expand_insert_marker() {
+        let marker = r#"-- WM_INTERNAL_DB_INSERT {"table":"my_table","columns":[{"field":"id","datatype":"int4"},{"field":"name","datatype":"text"}]}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql);
+        let sql = result.unwrap().unwrap();
+        assert!(sql.contains("INSERT INTO my_table (id, name) VALUES ($1::int4, $2::text)"));
+    }
+
+    #[test]
+    fn test_expand_update_marker() {
+        let marker = r#"-- WM_INTERNAL_DB_UPDATE {"table":"my_table","column":{"field":"name","datatype":"text"},"columns":[{"field":"id","datatype":"int4"}]}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql);
+        let sql = result.unwrap().unwrap();
+        assert!(sql.contains("UPDATE my_table SET name = $1::text::text"));
+        assert!(sql.contains("RETURNING 1"));
+    }
+
+    #[test]
+    fn test_expand_with_ducklake() {
+        let marker = r#"-- WM_INTERNAL_DB_SELECT {"table":"my_table","columnDefs":[{"field":"id","datatype":"int4"}],"ducklake":"my_lake"}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::DuckDb);
+        let sql = result.unwrap().unwrap();
+        assert!(sql.contains("ATTACH 'ducklake://my_lake' AS dl;USE dl;"));
+        assert!(sql.contains("SELECT \"id\" FROM my_table"));
+    }
+
+    #[test]
+    fn test_expand_not_a_marker() {
+        let regular_sql = "SELECT * FROM my_table";
+        let result = try_expand_internal_db_query(regular_sql, &ScriptLang::Postgresql);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_expand_invalid_json() {
+        let marker = "-- WM_INTERNAL_DB_SELECT {invalid json}";
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql);
+        assert!(result.unwrap().is_err());
+    }
+
+    #[test]
+    fn test_expand_unknown_operation() {
+        let marker = "-- WM_INTERNAL_DB_TRUNCATE {}";
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql);
+        assert!(result.unwrap().is_err());
+    }
+
+    #[test]
+    fn test_expand_mysql_select() {
+        let marker = r#"-- WM_INTERNAL_DB_SELECT {"table":"users","columnDefs":[{"field":"id","datatype":"int"},{"field":"name","datatype":"varchar"}]}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Mysql);
+        let sql = result.unwrap().unwrap();
+        assert!(sql.contains("SELECT `id`, `name` FROM users"));
+        assert!(sql.contains("LIMIT :limit OFFSET :offset"));
+    }
+
+    #[test]
+    fn test_column_def_serde_roundtrip() {
+        let json = r#"{"field":"id","datatype":"int4","hideInsert":true,"defaultValueNull":true,"isidentity":"No"}"#;
+        let col: ColumnDef = serde_json::from_str(json).unwrap();
+        assert_eq!(col.field, "id");
+        assert_eq!(col.hide_insert, Some(true));
+        assert_eq!(col.default_value_null, Some(true));
+        assert_eq!(col.isidentity, ColumnIdentity::No);
+    }
+
+    #[test]
+    fn test_wrap_ducklake_query() {
+        let query = "-- $1 limit\n-- $2 offset\nSELECT * FROM t";
+        let wrapped = wrap_ducklake_query(query, "my_lake");
+        assert_eq!(
+            wrapped,
+            "-- $1 limit\n-- $2 offset\nATTACH 'ducklake://my_lake' AS dl;USE dl;\nSELECT * FROM t"
+        );
     }
 }
