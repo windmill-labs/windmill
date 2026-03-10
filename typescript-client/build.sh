@@ -40,7 +40,7 @@ cp "${script_dirpath}/sqlUtils.ts" "${script_dirpath}/src/"
 echo "" >> "${script_dirpath}/src/index.ts"
 echo 'export type { DenoS3LightClientSettings } from "./s3Types";' >> "${script_dirpath}/src/index.ts"
 echo "" >> "${script_dirpath}/src/index.ts"
-echo 'export { type Base64, setClient, getVariable, setVariable, getResource, setResource, getResumeUrls, setState, setProgress, getProgress, getState, getIdToken, denoS3LightClientSettings, loadS3FileStream, loadS3File, writeS3File, signS3Objects, signS3Object, getPresignedS3PublicUrls, getPresignedS3PublicUrl, task, runScript, runScriptAsync, runScriptByPath, runScriptByHash, runScriptByPathAsync, runScriptByHashAsync, runFlow, runFlowAsync, waitJob, getRootJobId, setFlowUserState, getFlowUserState, usernameToEmail, requestInteractiveSlackApproval, type Sql, requestInteractiveTeamsApproval, appendToResultStream, streamResult, datatable, ducklake, type DatatableSqlTemplateFunction, type SqlTemplateFunction, type S3Object, type S3ObjectRecord, type S3ObjectURI } from "./client";' >> "${script_dirpath}/src/index.ts"
+echo 'export { type Base64, setClient, getVariable, setVariable, getResource, setResource, getResumeUrls, setState, setProgress, getProgress, getState, getIdToken, denoS3LightClientSettings, loadS3FileStream, loadS3File, writeS3File, signS3Objects, signS3Object, getPresignedS3PublicUrls, getPresignedS3PublicUrl, task, taskScript, taskFlow, workflow, step, sleep, parallel, waitForApproval, type TaskOptions, WorkflowCtx, _workflowCtx, setWorkflowCtx, StepSuspend, runScript, runScriptAsync, runScriptByPath, runScriptByHash, runScriptByPathAsync, runScriptByHashAsync, runFlow, runFlowAsync, waitJob, getRootJobId, setFlowUserState, getFlowUserState, usernameToEmail, requestInteractiveSlackApproval, type Sql, requestInteractiveTeamsApproval, appendToResultStream, streamResult, datatable, ducklake, type DatatableSqlTemplateFunction, type SqlTemplateFunction, type S3Object, type S3ObjectRecord, type S3ObjectURI } from "./client";' >> "${script_dirpath}/src/index.ts"
 
 # Build default export by combining client utilities + services
 # This preserves backward compatibility for `import wmill from "windmill-client"`
@@ -68,6 +68,17 @@ import {
   getPresignedS3PublicUrls,
   getPresignedS3PublicUrl,
   task,
+  taskScript,
+  taskFlow,
+  workflow,
+  step,
+  sleep,
+  parallel,
+  waitForApproval,
+  WorkflowCtx,
+  _workflowCtx,
+  setWorkflowCtx,
+  StepSuspend,
   runScript,
   runScriptAsync,
   runScriptByPath,
@@ -141,6 +152,17 @@ const wmill = {
   getPresignedS3PublicUrls,
   getPresignedS3PublicUrl,
   task,
+  taskScript,
+  taskFlow,
+  workflow,
+  step,
+  sleep,
+  parallel,
+  waitForApproval,
+  WorkflowCtx,
+  _workflowCtx,
+  setWorkflowCtx,
+  StepSuspend,
   runScript,
   runScriptAsync,
   runScriptByPath,
