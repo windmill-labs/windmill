@@ -6781,6 +6781,39 @@ paths:
                     type: string
                     format: uuid
 
+  /w/{workspace}/scripts/raw_temp/store:
+    post:
+      summary: store raw script content temporarily for CLI lock generation
+      operationId: storeRawScriptTemp
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: script content to store
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+      responses:
+        "200":
+          description: hash of stored content
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - hash
+                properties:
+                  hash:
+                    type: string
+
   /w/{workspace}/jobs/list_selected_job_groups:
     # We use post because sending a huge array as a query param can produce
     # URLs that may be too long

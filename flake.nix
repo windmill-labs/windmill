@@ -6,8 +6,7 @@
     nixpkgs-oapi-gen.url =
       "nixpkgs/2d068ae5c6516b2d04562de50a58c682540de9bf"; # openapi-generator-cli pin to 7.10.0
   };
-  outputs = { self, nixpkgs, flake-utils, rust-overlay
-    , nixpkgs-oapi-gen }:
+  outputs = { self, nixpkgs, flake-utils, rust-overlay, nixpkgs-oapi-gen }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -64,8 +63,14 @@
           hash = "sha256-8E0WtDFc7RcqmftDigMyy1xXUkjgL4X4kpf7h1GdE48=";
         };
 
-        PKG_CONFIG_PATH = pkgs.lib.makeSearchPath "lib/pkgconfig"
-          (with pkgs; [ openssl.dev libxml2.dev xmlsec.dev libxslt.dev cyrus_sasl.dev krb5.dev ]);
+        PKG_CONFIG_PATH = pkgs.lib.makeSearchPath "lib/pkgconfig" (with pkgs; [
+          openssl.dev
+          libxml2.dev
+          xmlsec.dev
+          libxslt.dev
+          cyrus_sasl.dev
+          krb5.dev
+        ]);
         RUSTY_V8_ARCHIVE = let
           # NOTE: needs to be same as in Cargo.toml
           version = "130.0.7";
@@ -106,6 +111,24 @@
             # Needed for extra dependencies
             glibc_multi
           ]);
+
+          # Linker settings for host compilation (build scripts, proc macros)
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER =
+            "${pkgs.llvmPackages_18.clang}/bin/clang";
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER =
+            "${pkgs.llvmPackages_18.clang}/bin/clang";
+          CARGO_HOST_RUSTFLAGS = "-C link-arg=-Wl,-rpath,${
+              pkgs.lib.makeLibraryPath [
+                pkgs.openssl
+                pkgs.libffi
+                pkgs.cyrus_sasl
+                pkgs.krb5
+                pkgs.libxml2
+                pkgs.xmlsec
+                pkgs.libxslt
+                stdenv.cc.cc.lib
+              ]
+            }";
         };
         devShells."cli" = pkgs.mkShell {
           shellHook = ''
@@ -266,8 +289,7 @@
           NODE_ENV = "development";
           NODE_OPTIONS = "--max-old-space-size=16384";
           # DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
-          DATABASE_URL =
-            "postgres://postgres:changeme@127.0.0.1:5432/windmill?sslmode=disable";
+          DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/windmill";
 
           REMOTE = "http://127.0.0.1:8000";
           REMOTE_LSP = "http://127.0.0.1:3001";
@@ -301,12 +323,49 @@
           # RUST_LOG = "kube=debug";
 
           # Override cargo linker to use clang 18 (stdenv brings clang 21 which causes SIGSEGV with mold)
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.llvmPackages_18.clang}/bin/clang";
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.llvmPackages_18.clang}/bin/clang";
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.openssl pkgs.libffi pkgs.cyrus_sasl pkgs.krb5 pkgs.libxml2 pkgs.xmlsec pkgs.libxslt stdenv.cc.cc.lib ]}";
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.openssl pkgs.libffi pkgs.cyrus_sasl pkgs.krb5 pkgs.libxml2 pkgs.xmlsec pkgs.libxslt stdenv.cc.cc.lib ]}";
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER =
+            "${pkgs.llvmPackages_18.clang}/bin/clang";
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER =
+            "${pkgs.llvmPackages_18.clang}/bin/clang";
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS =
+            "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${
+              pkgs.lib.makeLibraryPath [
+                pkgs.openssl
+                pkgs.libffi
+                pkgs.cyrus_sasl
+                pkgs.krb5
+                pkgs.libxml2
+                pkgs.xmlsec
+                pkgs.libxslt
+                stdenv.cc.cc.lib
+              ]
+            }";
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS =
+            "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${
+              pkgs.lib.makeLibraryPath [
+                pkgs.openssl
+                pkgs.libffi
+                pkgs.cyrus_sasl
+                pkgs.krb5
+                pkgs.libxml2
+                pkgs.xmlsec
+                pkgs.libxslt
+                stdenv.cc.cc.lib
+              ]
+            }";
           # rpath for build scripts and proc macros (host compilation)
-          CARGO_HOST_RUSTFLAGS = "-C link-arg=-Wl,-rpath,${pkgs.lib.makeLibraryPath [ pkgs.openssl pkgs.libffi pkgs.cyrus_sasl pkgs.krb5 pkgs.libxml2 pkgs.xmlsec pkgs.libxslt stdenv.cc.cc.lib ]}";
+          CARGO_HOST_RUSTFLAGS = "-C link-arg=-Wl,-rpath,${
+              pkgs.lib.makeLibraryPath [
+                pkgs.openssl
+                pkgs.libffi
+                pkgs.cyrus_sasl
+                pkgs.krb5
+                pkgs.libxml2
+                pkgs.xmlsec
+                pkgs.libxslt
+                stdenv.cc.cc.lib
+              ]
+            }";
 
           # See this issue: https://github.com/NixOS/nixpkgs/issues/370494
           # Allows to build jemalloc on nixos
@@ -317,9 +376,7 @@
 
           # LD_LIBRARY_PATH set in shellHook with a wrapper to avoid leaking into git/ssh
           # LD_LIBRARY_PATH = "${pkgs.gcc.lib}/lib";
-          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
-            pkgs.zlib
-          ];
+          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.zlib ];
 
           # Set C flags for Rust's bindgen program. Unlike ordinary C
           # compilation, bindgen does not invoke $CC directly. Instead it

@@ -82,16 +82,8 @@ fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<NImpo
     }
 }
 
-pub fn parse_relative_imports(code: &str, path: &str) -> error::Result<Vec<String>> {
-    let nimports = parse_code_for_imports(code, path)?;
-    return Ok(nimports
-        .into_iter()
-        .filter_map(|x| match x {
-            NImport::Relative(path) => Some(path),
-            _ => None,
-        })
-        .collect());
-}
+// Re-export from windmill-parser-py for WASM compatibility
+pub use windmill_parser_py::parse_relative_imports;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum NImport {
@@ -264,6 +256,7 @@ pub async fn parse_python_imports(
     version_specifiers: &mut Vec<pep440_rs::VersionSpecifier>,
     locked_v: &mut Option<pep440_rs::Version>,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
+    dependency_tree: &Option<HashMap<String, String>>,
 ) -> error::Result<(Vec<String>, Option<String>)> {
     let mut compile_error_hint: Option<String> = None;
     let mut imports = parse_python_imports_inner(
@@ -276,6 +269,7 @@ pub async fn parse_python_imports(
         &mut None,
         locked_v,
         raw_workspace_dependencies_o,
+        dependency_tree,
     )
     .await?
     .into_values()
@@ -331,6 +325,7 @@ async fn parse_python_imports_inner(
     path_where_annotated_pyv: &mut Option<String>,
     locked_v: &mut Option<pep440_rs::Version>,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
+    dependency_tree: &Option<HashMap<String, String>>,
 ) -> error::Result<HashMap<String, NImportResolved>> {
     tracing::debug!("Parsing python imports for path: {}", path);
     let PythonAnnotations { py310, py311, py312, py313, .. } = PythonAnnotations::parse(&code);
@@ -494,17 +489,31 @@ async fn parse_python_imports_inner(
     for n in nimports.into_iter() {
         let mut nested = match n {
             NImport::Relative(rpath) => {
-                let code = sqlx::query_scalar!(
-                    r#"
-                SELECT content FROM script WHERE path = $1 AND workspace_id = $2
-                AND archived = false ORDER BY created_at DESC LIMIT 1
-                "#,
-                    &rpath,
-                    w_id
-                )
-                .fetch_optional(db)
-                .await?
-                .unwrap_or_else(|| "".to_string());
+                // First check if the path is in dependency_tree (local/modified scripts from CLI)
+                let code = if let Some(hash) = dependency_tree.as_ref().and_then(|dt| dt.get(&rpath)) {
+                    tracing::debug!("Found relative import '{}' in dependency_tree with hash '{}'", rpath, hash);
+                    // Fetch from raw_script_temp using the cache abstraction
+                    match windmill_common::cache::raw_script_temp::load(hash.clone(), db).await {
+                        Ok(content) => content,
+                        Err(e) => {
+                            tracing::warn!("dependency_tree hash '{}' not found in cache: {}, falling back to deployed script", hash, e);
+                            "".to_string()
+                        }
+                    }
+                } else {
+                    // Fall back to deployed script from script table
+                    sqlx::query_scalar!(
+                        r#"
+                    SELECT content FROM script WHERE path = $1 AND workspace_id = $2
+                    AND archived = false ORDER BY created_at DESC LIMIT 1
+                    "#,
+                        &rpath,
+                        w_id
+                    )
+                    .fetch_optional(db)
+                    .await?
+                    .unwrap_or_else(|| "".to_string())
+                };
 
                 if already_visited.contains(&rpath) {
                     vec![]
@@ -522,6 +531,7 @@ async fn parse_python_imports_inner(
                         path_where_annotated_pyv,
                         locked_v,
                         raw_workspace_dependencies_o,
+                        dependency_tree,
                     )
                     .await?
                     .into_values()

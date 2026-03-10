@@ -19,7 +19,10 @@ import {
   filterWorkspaceDependenciesForScripts,
 } from "../../utils/metadata.ts";
 import { ScriptLanguage } from "../../utils/script_common.ts";
+import { extractRelativeImports } from "../../utils/relative_imports.ts";
+import { DoubleLinkedDependencyTree } from "../../utils/dependency_tree.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import * as wmill from "../../../gen/services.gen.ts";
 
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
 import { exts } from "../script/script.ts";
@@ -32,10 +35,10 @@ import { workspaceDependenciesLanguages } from "../../utils/script_common.ts";
 import { extractNameFromFolder, getFolderSuffix } from "../../utils/resource_folders.ts";
 
 const TOP_HASH = "__flow_hash";
+
 async function generateFlowHash(
   rawWorkspaceDependencies: Record<string, string>,
   folder: string,
-  defaultTs: "bun" | "deno" | undefined
 ) {
   const elems = await FSFSElement(path.join(Deno.cwd(), folder), [], true);
   const hashes: Record<string, string> = {};
@@ -59,7 +62,8 @@ export async function generateFlowLockInternal(
     defaultTs?: "bun" | "deno";
   },
   justUpdateMetadataLock?: boolean,
-  noStaleMessage?: boolean
+  noStaleMessage?: boolean,
+  tree?: DoubleLinkedDependencyTree
 ): Promise<string | void> {
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
@@ -80,14 +84,58 @@ export async function generateFlowLockInternal(
   // Filter workspace dependencies based on inline scripts' languages and annotations
   const filteredDeps = await filterWorkspaceDependenciesForFlow(flowValue.value as FlowValue, rawWorkspaceDependencies, folder);
 
+  // Extract inline scripts for tree population
+  const inlineScripts = extractInlineScriptsForFlows(
+    structuredClone(flowValue.value.modules),
+    {},
+    SEP,
+    opts.defaultTs
+  ).filter(s => !s.is_lock);
+
+  // If tree is provided, add inline scripts to it for dependency tracking
+  const folderNormalized = folder.replaceAll(SEP, "/");
+  const inlineScriptTreePaths: string[] = [];
+  if (tree) {
+    for (const script of inlineScripts) {
+      // Resolve !inline references to actual content
+      let content = script.content;
+      if (content.startsWith("!inline ")) {
+        const filePath = folder + SEP + content.replace("!inline ", "");
+        try {
+          content = await Deno.readTextFile(filePath);
+        } catch {
+          continue;
+        }
+      }
+
+      // Path for tree: flow folder + script filename (without extension)
+      const treePath = folderNormalized + "/" + path.basename(script.path, path.extname(script.path));
+      inlineScriptTreePaths.push(treePath);
+
+      const language = script.language as ScriptLanguage;
+      const imports = await extractRelativeImports(content, treePath, language);
+
+      // Use empty string for metadata since inline scripts don't have separate metadata files
+      await tree.addScript(treePath, content, language, "", imports, rawWorkspaceDependencies);
+    }
+  }
+
   let hashes = await generateFlowHash(
     filteredDeps,
-    folder,
-    opts.defaultTs
+    folder
   );
 
+  // Staleness check: use tree if provided, otherwise use existing logic
+  let shouldRegenerate: boolean;
   const conf = await readLockfile();
-  if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
+  if (tree) {
+    // Check if any inline script in this flow is stale (in tree after propagation)
+    shouldRegenerate = inlineScriptTreePaths.some(p => tree.has(p));
+  } else {
+    shouldRegenerate = !(await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH));
+  }
+
+  if (!shouldRegenerate) {
     if (!noStaleMessage) {
       log.info(
         colors.green(`Flow ${remote_path} metadata is up-to-date, skipping`)
@@ -133,12 +181,16 @@ export async function generateFlowLockInternal(
       // (path: string) => Deno.removeSync(path)
     );
 
+    // Build tempScriptRefs from tree if provided
+    const tempScriptRefs = tree?.flattenAll(inlineScriptTreePaths);
+
     //removeChangedLocks
     flowValue.value = await updateFlow(
       workspace,
       flowValue.value,
       remote_path,
-      filteredDeps
+      filteredDeps,
+      tempScriptRefs
     );
 
     const inlineScripts = extractInlineScriptsForFlows(
@@ -160,8 +212,7 @@ export async function generateFlowLockInternal(
 
   hashes = await generateFlowHash(
     filteredDeps,
-    folder,
-    opts.defaultTs
+    folder
   );
   await clearGlobalLock(folder);
   for (const [path, hash] of Object.entries(hashes)) {
@@ -193,11 +244,12 @@ export async function updateFlow(
   workspace: Workspace,
   flow_value: FlowValue,
   remotePath: string,
-  rawWorkspaceDependencies: Record<string, string>
+  rawWorkspaceDependencies: Record<string, string>,
+  tempScriptRefs?: Record<string, string>
 ): Promise<FlowValue | undefined> {
   let rawResponse;
 
-  if (Object.keys(rawWorkspaceDependencies).length > 0) {
+  if (Object.keys(rawWorkspaceDependencies).length > 0 || (tempScriptRefs && Object.keys(tempScriptRefs).length > 0)) {
     log.info(
       colors.blue("Using raw workspace dependencies for flow dependencies")
     );
@@ -217,7 +269,10 @@ export async function updateFlow(
           flow_value,
           path: remotePath,
           use_local_lockfiles: true,
-          raw_workspace_dependencies: rawWorkspaceDependencies,
+          raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0
+            ? rawWorkspaceDependencies : null,
+          temp_script_refs: tempScriptRefs && Object.keys(tempScriptRefs).length > 0
+            ? tempScriptRefs : null,
         }),
       }
     );

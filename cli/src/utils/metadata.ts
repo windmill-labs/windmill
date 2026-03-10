@@ -17,6 +17,8 @@ import { generateHash, readInlinePathSync, getHeaders } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { argSigToJsonSchemaType } from "../../windmill-utils-internal/src/parse/parse-schema.ts";
 import { getIsWin } from "./utils.ts";
+import { extractRelativeImports } from "./relative_imports.ts";
+import { DoubleLinkedDependencyTree } from "./dependency_tree.ts";
 
 export class LockfileGenerationError extends Error {
   constructor(message: string) {
@@ -158,7 +160,8 @@ export async function generateScriptMetadataInternal(
   noStaleMessage: boolean,
   rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[],
-  justUpdateMetadataLock?: boolean
+  justUpdateMetadataLock?: boolean,
+  tree?: DoubleLinkedDependencyTree
 ): Promise<string | undefined> {
   const remotePath = scriptPath
     .substring(0, scriptPath.indexOf("."))
@@ -182,11 +185,25 @@ export async function generateScriptMetadataInternal(
     language
   );
 
-
   // Note: rawWorkspaceDependencies are now passed in as parameter instead of being searched hierarchically
   let hash = await generateScriptHash(filteredRawWorkspaceDependencies, scriptContent, metadataContent);
 
-  if (await checkifMetadataUptodate(remotePath, hash, undefined)) {
+  // If tree is provided, add this script to it (for dependency tracking)
+  if (tree) {
+    const imports = await extractRelativeImports(scriptContent, remotePath, language);
+    await tree.addScript(remotePath, scriptContent, language, metadataContent, imports, rawWorkspaceDependencies);
+  }
+
+  // Staleness check: use tree if provided, otherwise use existing logic
+  let shouldRegenerate: boolean;
+  if (tree) {
+    // After propagateStaleness(), only stale items remain in tree
+    shouldRegenerate = tree.has(remotePath);
+  } else {
+    shouldRegenerate = !(await checkifMetadataUptodate(remotePath, hash, undefined));
+  }
+
+  if (!shouldRegenerate) {
     if (!noStaleMessage) {
       log.info(
         colors.green(`Script ${remotePath} metadata is up-to-date, skipping`)
@@ -219,13 +236,15 @@ export async function generateScriptMetadataInternal(
     const hasCodebase = findCodebase(scriptPath, codebases) != undefined;
 
     if (!hasCodebase) {
+      const tempScriptRefs = tree ? tree.flatten(remotePath) : undefined;
       await updateScriptLock(
         workspace,
         scriptContent,
         language,
         remotePath,
         metadataParsedContent,
-        filteredRawWorkspaceDependencies
+        filteredRawWorkspaceDependencies,
+        tempScriptRefs
       );
     } else {
       metadataParsedContent.lock = "";
@@ -391,6 +410,7 @@ async function fetchScriptLock(
   language: ScriptLanguage,
   remotePath: string,
   rawWorkspaceDependencies: Record<string, string>,
+  tempScriptRefs?: Record<string, string>
 ): Promise<string> {
   const hasRawDeps = Object.keys(rawWorkspaceDependencies).length > 0;
   const cacheKey = hasRawDeps
@@ -422,6 +442,8 @@ async function fetchScriptLock(
         raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0
           ? rawWorkspaceDependencies : null,
         entrypoint: remotePath,
+        temp_script_refs: tempScriptRefs && Object.keys(tempScriptRefs).length > 0
+          ? tempScriptRefs : null,
       }),
     }
   );
@@ -461,7 +483,8 @@ async function updateScriptLock(
   language: ScriptLanguage,
   remotePath: string,
   metadataContent: Record<string, any>,
-  rawWorkspaceDependencies: Record<string, string>
+  rawWorkspaceDependencies: Record<string, string>,
+  tempScriptRefs?: Record<string, string>
 ): Promise<void> {
   if (
     !(
@@ -486,6 +509,7 @@ async function updateScriptLock(
     language,
     remotePath,
     rawWorkspaceDependencies,
+    tempScriptRefs
   );
 
   const lockPath = remotePath + ".script.lock";
@@ -899,10 +923,16 @@ export async function checkifMetadataUptodate(
 export async function generateScriptHash(
   rawWorkspaceDependencies: Record<string, string>,
   scriptContent: string,
-  newMetadataContent: string
+  newMetadataContent: string,
+  importHashes: string[] = []
 ) {
+  // Sort import hashes for determinism
+  const sortedImportHashes = [...importHashes].sort().join("");
   return await generateHash(
-    JSON.stringify(rawWorkspaceDependencies) + scriptContent + newMetadataContent
+    JSON.stringify(rawWorkspaceDependencies) +
+      scriptContent +
+      newMetadataContent +
+      sortedImportHashes
   );
 }
 

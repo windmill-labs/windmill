@@ -40,6 +40,7 @@ pub struct AssetWithAltAccessType {
     pub path: String,
     pub kind: AssetKind,
     pub access_type: Option<AssetUsageAccessType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub alt_access_type: Option<AssetUsageAccessType>,
     /// Map of column name to access type for column-level access tracking
     #[serde(skip_serializing_if = "Option::is_none")]

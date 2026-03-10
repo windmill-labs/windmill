@@ -54,6 +54,10 @@ export interface TestBackend {
   listAllApps?(): Promise<any[]>;
   listAllResources?(): Promise<any[]>;
   listAllVariables?(): Promise<any[]>;
+
+  // Methods for creating apps and flows with custom inline scripts
+  createAppWithInlineScript?(path: string, inlineScriptContent: string, language?: string): Promise<void>;
+  createFlowWithInlineScript?(path: string, inlineScriptContent: string, language?: string): Promise<void>;
 }
 
 /**
@@ -325,6 +329,88 @@ class CargoBackendAdapter implements TestBackend {
     const response = await this.backend.apiRequest(`/api/w/${this.workspace}/variables/list`);
     if (!response.ok) return [];
     return response.json();
+  }
+
+  async createAppWithInlineScript(path: string, inlineScriptContent: string, language: string = "bun"): Promise<void> {
+    const response = await this.backend.apiRequest(`/api/w/${this.workspace}/apps/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path,
+        value: {
+          type: "app",
+          grid: [
+            {
+              id: "button1",
+              data: {
+                type: "buttoncomponent",
+                componentInput: {
+                  type: "runnable",
+                  runnable: {
+                    type: "runnableByName",
+                    inlineScript: {
+                      content: inlineScriptContent,
+                      language,
+                    },
+                  },
+                },
+              },
+            },
+          ],
+          hiddenInlineScripts: [],
+          css: {},
+          norefreshbar: false,
+        },
+        summary: "Test app with inline script",
+        policy: {
+          on_behalf_of: null,
+          on_behalf_of_email: null,
+          triggerables: {},
+          execution_mode: "viewer",
+        },
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to create app ${path}: ${error}`);
+    }
+    await response.text();
+  }
+
+  async createFlowWithInlineScript(path: string, inlineScriptContent: string, language: string = "bun"): Promise<void> {
+    const response = await this.backend.apiRequest(`/api/w/${this.workspace}/flows/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path,
+        summary: "Test flow with inline script",
+        description: `Flow at ${path}`,
+        value: {
+          modules: [
+            {
+              id: "a",
+              value: {
+                type: "rawscript",
+                content: inlineScriptContent,
+                language,
+                input_transforms: {},
+              },
+            },
+          ],
+        },
+        schema: {
+          $schema: "https://json-schema.org/draft/2020-12/schema",
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to create flow ${path}: ${error}`);
+    }
+    await response.text();
   }
 }
 

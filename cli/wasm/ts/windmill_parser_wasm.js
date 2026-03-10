@@ -208,25 +208,8 @@ export function parse_outputs(code) {
 }
 
 /**
- * @param {string} code
- * @returns {string}
- */
-export function parse_assets_ts(code) {
-    let deferred2_0;
-    let deferred2_1;
-    try {
-        const ptr0 = passStringToWasm0(code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.parse_assets_ts(ptr0, len0);
-        deferred2_0 = ret[0];
-        deferred2_1 = ret[1];
-        return getStringFromWasm0(ret[0], ret[1]);
-    } finally {
-        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
-    }
-}
-
-/**
+ * Parse TypeScript imports and return raw import strings.
+ * See [`parse_ts_relative_imports`] for resolved absolute paths.
  * @param {string} code
  * @returns {string}
  */
@@ -237,6 +220,63 @@ export function parse_ts_imports(code) {
         const ptr0 = passStringToWasm0(code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.parse_ts_imports(ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+function takeFromExternrefTable0(idx) {
+    const value = wasm.__wbindgen_export_2.get(idx);
+    wasm.__externref_table_dealloc(idx);
+    return value;
+}
+
+function getArrayJsValueFromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    const mem = getDataViewMemory0();
+    const result = [];
+    for (let i = ptr; i < ptr + 4 * len; i += 4) {
+        result.push(wasm.__wbindgen_export_2.get(mem.getUint32(i, true)));
+    }
+    wasm.__externref_drop_slice(ptr, len);
+    return result;
+}
+/**
+ * Parse TypeScript imports and return relative imports resolved to absolute Windmill paths.
+ * Throws JS error on parse failure.
+ * See [`parse_ts_imports`] for raw import strings.
+ * @param {string} code
+ * @param {string} path
+ * @returns {string[]}
+ */
+export function parse_ts_relative_imports(code, path) {
+    const ptr0 = passStringToWasm0(code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(path, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.parse_ts_relative_imports(ptr0, len0, ptr1, len1);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v3 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v3;
+}
+
+/**
+ * @param {string} code
+ * @returns {string}
+ */
+export function parse_assets_ts(code) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.parse_assets_ts(ptr0, len0);
         deferred2_0 = ret[0];
         deferred2_1 = ret[1];
         return getStringFromWasm0(ret[0], ret[1]);
@@ -263,7 +303,7 @@ const imports = {
             const ret = Object.entries(arg0);
             return ret;
         },
-        __wbg_eval_12755dabbdfa08b1: function(arg0, arg1) {
+        __wbg_eval_3f27e2f5afcdd8e6: function(arg0, arg1) {
             const ret = eval(getStringFromWasm0(arg0, arg1));
             return ret;
         },
@@ -403,6 +443,11 @@ const imports = {
         },
         __wbg_wbindgenthrow_4c11a24fca429ccf: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
+        },
+        __wbindgen_cast_2241b6af4c4b2941: function(arg0, arg1) {
+            // Cast intrinsic for `Ref(String) -> Externref`.
+            const ret = getStringFromWasm0(arg0, arg1);
+            return ret;
         },
         __wbindgen_cast_4625c577ab2ec9ee: function(arg0) {
             // Cast intrinsic for `U64 -> Externref`.

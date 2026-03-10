@@ -16834,6 +16834,8 @@ version = "1.639.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
+ "regex",
+ "regex-lite",
  "rustpython-ast",
  "rustpython-parser",
  "serde_json",
@@ -16863,6 +16865,7 @@ dependencies = [
  "tracing",
  "windmill-common",
  "windmill-parser",
+ "windmill-parser-py",
 ]
 
 [[package]]
@@ -16908,7 +16911,6 @@ dependencies = [
  "serde_json",
  "sqlparser 0.59.0",
  "windmill-parser",
- "windmill-types",
 ]
 
 [[package]]
@@ -17373,6 +17375,7 @@ dependencies = [
  "strum 0.27.2",
  "tracing",
  "uuid",
+ "windmill-parser",
 ]
 
 [[package]]

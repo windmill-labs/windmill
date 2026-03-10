@@ -139,6 +139,13 @@ pub async fn handle_dependency_job(
         .map(|x| x.get("triggered_by_relative_import").is_some())
         .unwrap_or_default();
 
+    // Extract dependency_tree from job args (path -> hash mapping for temp storage)
+    let dependency_tree: Option<HashMap<String, String>> = job
+        .args
+        .as_ref()
+        .and_then(|x| x.get("dependency_tree"))
+        .and_then(|v| serde_json::from_str(v.get()).ok());
+
     let content = capture_dependency_job(
         &job.id,
         job.script_lang.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
@@ -164,6 +171,7 @@ pub async fn handle_dependency_job(
         script_path,
         None,
         "script",
+        &dependency_tree,
     )
     .await;
 
@@ -318,6 +326,13 @@ pub async fn handle_flow_dependency_job(
         .map(|x| x.get("triggered_by_relative_import").is_some())
         .unwrap_or_default();
 
+    // Extract dependency_tree from job args (path -> hash mapping for temp storage)
+    let dependency_tree: Option<HashMap<String, String>> = job
+        .args
+        .as_ref()
+        .and_then(|x| x.get("dependency_tree"))
+        .and_then(|v| serde_json::from_str(v.get()).ok());
+
     let version = if skip_flow_update {
         None
     } else {
@@ -417,6 +432,7 @@ pub async fn handle_flow_dependency_job(
         &mut dependency_map,
         &raw_workspace_dependencies_o,
         triggered_by_relative_import,
+        &dependency_tree,
     )
     .await?;
 
@@ -631,6 +647,7 @@ async fn lock_flow_value<'c>(
     dependency_map: &mut ScopedDependencyMap,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     triggered_by_relative_import: bool,
+    dependency_tree: &Option<HashMap<String, String>>,
 ) -> Result<(
     FlowValue,
     sqlx::Transaction<'c, sqlx::Postgres>,
@@ -661,6 +678,7 @@ async fn lock_flow_value<'c>(
         dependency_map,
         &raw_workspace_dependencies_o,
         triggered_by_relative_import,
+        dependency_tree,
     )
     .await?;
 
@@ -692,6 +710,7 @@ async fn lock_flow_value<'c>(
                 dependency_map,
                 &raw_workspace_dependencies_o,
                 triggered_by_relative_import,
+                dependency_tree,
             )
             .await?;
 
@@ -729,6 +748,7 @@ async fn lock_flow_value<'c>(
             dependency_map,
             raw_workspace_dependencies_o,
             triggered_by_relative_import,
+            dependency_tree,
         )
         .await?;
 
@@ -767,6 +787,7 @@ async fn lock_modules<'c>(
     dependency_map: &mut ScopedDependencyMap, // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     triggered_by_relative_import: bool,
+    dependency_tree: &Option<HashMap<String, String>>,
 ) -> Result<(
     Vec<FlowModule>,
     sqlx::Transaction<'c, sqlx::Postgres>,
@@ -822,6 +843,7 @@ async fn lock_modules<'c>(
                         dependency_map,
                         &raw_workspace_dependencies_o,
                         triggered_by_relative_import,
+                        dependency_tree,
                     ))
                     .await?;
                     e.value = FlowModuleValue::ForloopFlow {
@@ -861,6 +883,7 @@ async fn lock_modules<'c>(
                             dependency_map,
                             raw_workspace_dependencies_o,
                             triggered_by_relative_import,
+                            dependency_tree,
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -892,6 +915,7 @@ async fn lock_modules<'c>(
                         dependency_map,
                         raw_workspace_dependencies_o,
                         triggered_by_relative_import,
+                        dependency_tree,
                     ))
                     .await?;
                     e.value = FlowModuleValue::WhileloopFlow {
@@ -928,6 +952,7 @@ async fn lock_modules<'c>(
                             dependency_map,
                             raw_workspace_dependencies_o,
                             triggered_by_relative_import,
+                            dependency_tree,
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -958,6 +983,7 @@ async fn lock_modules<'c>(
                         dependency_map,
                         raw_workspace_dependencies_o,
                         triggered_by_relative_import,
+                        dependency_tree,
                     ))
                     .await?;
                     errors.extend(ninner_errors);
@@ -1028,6 +1054,7 @@ async fn lock_modules<'c>(
                         dependency_map,
                         raw_workspace_dependencies_o,
                         triggered_by_relative_import,
+                        dependency_tree,
                     ))
                     .await?;
 
@@ -1129,6 +1156,7 @@ async fn lock_modules<'c>(
             job_path,
             Some(&e.id),
             "flow",
+            &dependency_tree,
         )
         .await;
         //
@@ -1536,6 +1564,7 @@ async fn lock_modules_app(
     dependency_map: &mut ScopedDependencyMap,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     triggered_by_relative_import: bool,
+    dependency_tree: &Option<HashMap<String, String>>,
 ) -> Result<Value> {
     match value {
         Value::Object(mut m) => {
@@ -1646,6 +1675,7 @@ async fn lock_modules_app(
                                 &job.runnable_path(),
                                 container_id.as_deref(),
                                 "app",
+                                dependency_tree,
                             )
                             .await;
                             match new_lock {
@@ -1723,6 +1753,7 @@ async fn lock_modules_app(
                         dependency_map,
                         raw_workspace_dependencies_o,
                         triggered_by_relative_import,
+                        dependency_tree,
                     )
                     .await?,
                 );
@@ -1751,6 +1782,7 @@ async fn lock_modules_app(
                         dependency_map,
                         raw_workspace_dependencies_o,
                         triggered_by_relative_import,
+                        dependency_tree,
                     )
                     .await?,
                 );
@@ -1802,6 +1834,13 @@ pub async fn handle_app_dependency_job(
         .map(|x| x.get("triggered_by_relative_import").is_some())
         .unwrap_or_default();
 
+    // Extract dependency_tree from job args (path -> hash mapping for temp storage)
+    let dependency_tree: Option<HashMap<String, String>> = job
+        .args
+        .as_ref()
+        .and_then(|x| x.get("dependency_tree"))
+        .and_then(|v| serde_json::from_str(v.get()).ok());
+
     sqlx::query!(
         "DELETE FROM workspace_runnable_dependencies WHERE app_path = $1 AND workspace_id = $2",
         job_path,
@@ -1849,6 +1888,7 @@ pub async fn handle_app_dependency_job(
             &mut dependency_map,
             &raw_workspace_dependencies_o,
             triggered_by_relative_import,
+            &dependency_tree,
         )
         .await?;
 
@@ -2348,6 +2388,8 @@ async fn capture_dependency_job(
     base_path: &str,
     step_id: Option<&str>,
     runnable_type: &str, // "script", "flow", or "app"
+    // Map of script path -> content hash for resolving imports from temp storage (CLI).
+    dependency_tree: &Option<HashMap<String, String>>,
 ) -> error::Result<String> {
     // Check if we can skip relocking:
     // - Must be triggered by relative import
@@ -2406,12 +2448,13 @@ async fn capture_dependency_job(
                     let (mut version_specifiers, mut locked_v) = (vec![], None);
                     let reqs = windmill_parser_py_imports::parse_python_imports(
                         job_raw_code,
-                        &w_id,
+                        w_id,
                         script_path,
                         &db,
                         &mut version_specifiers,
                         &mut locked_v,
                         raw_workspace_dependencies_o,
+                        dependency_tree,
                     )
                     .await?
                     .0

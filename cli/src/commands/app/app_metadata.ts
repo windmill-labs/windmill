@@ -25,6 +25,8 @@ import {
   workspaceDependenciesLanguages,
 } from "../../utils/script_common.ts";
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
+import { extractRelativeImports } from "../../utils/relative_imports.ts";
+import { DoubleLinkedDependencyTree } from "../../utils/dependency_tree.ts";
 import { exts } from "../script/script.ts";
 import { FSFSElement, yamlOptions } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
@@ -57,7 +59,6 @@ async function generateAppHash(
   rawReqs: Record<string, string> | undefined,
   folder: string,
   rawApp: boolean,
-  defaultTs: "bun" | "deno" | undefined
 ): Promise<Record<string, string>> {
   const runnablesFolder = rawApp
     ? path.join(folder, APP_BACKEND_FOLDER)
@@ -78,8 +79,8 @@ async function generateAppHash(
       if (exts.some((e) => f.path.endsWith(e))) {
         // Embed lock into hash
         // Normalize path to ensure OS-independent hashing
-        const relativePath = normalizeLockPath(f.path.replace(runnablesFolder + SEP, ""));
-        hashes[relativePath] = await generateHash(
+        const normalizedPath = normalizeLockPath(f.path.replace(runnablesFolder + SEP, ""));
+        hashes[normalizedPath] = await generateHash(
           (await f.getContentText()) + JSON.stringify(rawReqs)
         );
       }
@@ -106,7 +107,8 @@ export async function generateAppLocksInternal(
     defaultTs?: "bun" | "deno";
   },
   justUpdateMetadataLock?: boolean,
-  noStaleMessage?: boolean
+  noStaleMessage?: boolean,
+  tree?: DoubleLinkedDependencyTree
 ): Promise<string | void> {
   if (appFolder.endsWith(SEP)) {
     appFolder = appFolder.substring(0, appFolder.length - 1);
@@ -136,19 +138,59 @@ export async function generateAppLocksInternal(
     appFolder
   );
 
+  // If tree is provided, add inline scripts to it for dependency tracking
+  const folderNormalized = appFolder.replaceAll(SEP, "/");
+  const inlineScriptTreePaths: string[] = [];
+  if (tree) {
+    await traverseAndProcessInlineScripts(structuredClone(appValue), async (inlineScript, context) => {
+      if (!inlineScript.content || !inlineScript.language) {
+        return inlineScript;
+      }
+
+      // Resolve !inline references to actual content
+      let content = inlineScript.content;
+      if (typeof content === "string" && content.startsWith("!inline ")) {
+        const filePath = appFolder + SEP + content.replace("!inline ", "");
+        try {
+          content = await Deno.readTextFile(filePath);
+        } catch {
+          return inlineScript;
+        }
+      }
+
+      // Build path for tree: app folder + context path
+      const treePath = folderNormalized + "/" + context.path.join("/");
+      inlineScriptTreePaths.push(treePath);
+
+      const language = inlineScript.language as ScriptLanguage;
+      const imports = await extractRelativeImports(content, treePath, language);
+
+      // Use empty string for metadata since inline scripts don't have separate metadata files
+      await tree.addScript(treePath, content, language, "", imports, rawWorkspaceDependencies);
+
+      return inlineScript;
+    });
+  }
+
   let hashes = await generateAppHash(
     filteredDeps,
     appFolder,
-    rawApp,
-    opts.defaultTs
+    rawApp
   );
 
+  // Staleness check: use tree if provided, otherwise use existing logic
+  let shouldRegenerate: boolean;
   const conf = await import("../../utils/metadata.ts").then((m) =>
     m.readLockfile()
   );
-  if (
-    await checkifMetadataUptodate(appFolder, hashes[TOP_HASH], conf, TOP_HASH)
-  ) {
+  if (tree) {
+    // Check if any inline script in this app is stale (in tree after propagation)
+    shouldRegenerate = inlineScriptTreePaths.some(p => tree.has(p));
+  } else {
+    shouldRegenerate = !(await checkifMetadataUptodate(appFolder, hashes[TOP_HASH], conf, TOP_HASH));
+  }
+
+  if (!shouldRegenerate) {
     if (!noStaleMessage) {
       log.info(
         colors.green(`App ${remote_path} metadata is up-to-date, skipping`)
@@ -186,6 +228,9 @@ export async function generateAppLocksInternal(
         `Recomputing locks of ${changedScripts.join(", ")} in ${appFolder}`
       );
 
+      // Build tempScriptRefs from tree if provided
+      const tempScriptRefs = tree?.flattenAll(inlineScriptTreePaths);
+
       if (rawApp) {
         const runnablesPath = path.join(appFolder, APP_BACKEND_FOLDER);
 
@@ -207,7 +252,8 @@ export async function generateAppLocksInternal(
           remote_path,
           appFolder,
           filteredDeps,
-          opts.defaultTs
+          opts.defaultTs,
+          tempScriptRefs
         );
         // Note: updateRawAppRunnables now writes each runnable to its own file
       } else {
@@ -223,7 +269,8 @@ export async function generateAppLocksInternal(
           remote_path,
           appFolder,
           filteredDeps,
-          opts.defaultTs
+          opts.defaultTs,
+          tempScriptRefs
         );
 
         // Write the updated app file (only for normal apps, raw apps use separate files)
@@ -241,8 +288,7 @@ export async function generateAppLocksInternal(
   hashes = await generateAppHash(
     filteredDeps,
     appFolder,
-    rawApp,
-    opts.defaultTs
+    rawApp
   );
   await clearGlobalLock(appFolder);
   for (const [scriptPath, hash] of Object.entries(hashes)) {
@@ -345,7 +391,8 @@ async function updateRawAppRunnables(
   remotePath: string,
   appFolder: string,
   rawDeps?: Record<string, string>,
-  defaultTs: "bun" | "deno" = "bun"
+  defaultTs: "bun" | "deno" = "bun",
+  tempScriptRefs?: Record<string, string>
 ): Promise<void> {
   const runnablesFolder = path.join(appFolder, APP_BACKEND_FOLDER);
 
@@ -425,7 +472,8 @@ async function updateRawAppRunnables(
         content,
         language,
         `${remotePath}/${runnableId}`,
-        rawDeps
+        rawDeps,
+        tempScriptRefs
       );
 
       // Determine file extension for this language
@@ -484,7 +532,8 @@ async function updateAppInlineScripts(
   remotePath: string,
   appFolder: string,
   rawDeps?: Record<string, string>,
-  defaultTs: "bun" | "deno" = "bun"
+  defaultTs: "bun" | "deno" = "bun",
+  tempScriptRefs?: Record<string, string>
 ): Promise<any> {
   const pathAssigner = newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() });
 
@@ -529,7 +578,8 @@ async function updateAppInlineScripts(
           content,
           language,
           scriptPath,
-          rawDeps
+          rawDeps,
+          tempScriptRefs
         );
       }
       // Determine file extension for this language (following extractInlineScriptsForApps pattern)
@@ -586,7 +636,8 @@ async function generateInlineScriptLock(
   content: string,
   language: string,
   scriptPath: string,
-  rawWorkspaceDependencies: Record<string, string> | undefined
+  rawWorkspaceDependencies: Record<string, string> | undefined,
+  tempScriptRefs?: Record<string, string>
 ): Promise<string> {
   // Filter workspace dependencies to only include those matching this script's language and annotations
   const filteredDeps = rawWorkspaceDependencies
@@ -617,6 +668,9 @@ async function generateInlineScriptLock(
             ? filteredDeps
             : null,
         entrypoint: scriptPath,
+        temp_script_refs: tempScriptRefs && Object.keys(tempScriptRefs).length > 0
+          ? tempScriptRefs
+          : null,
       }),
     }
   );

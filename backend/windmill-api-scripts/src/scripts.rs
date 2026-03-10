@@ -234,6 +234,8 @@ pub fn workspaced_service() -> Router {
             "/history_update/h/:hash/p/*path",
             post(update_script_history),
         )
+        // Temporary raw script storage for CLI lock generation
+        .route("/raw_temp/store", post(store_raw_script_temp))
 }
 
 #[derive(Serialize, FromRow)]
@@ -2404,4 +2406,51 @@ async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+// ============================================================================
+// Temporary Raw Script Storage for CLI Lock Generation
+// ============================================================================
+
+#[derive(Deserialize)]
+struct StoreRawScriptTempRequest {
+    content: String,
+}
+
+#[derive(Serialize)]
+struct StoreRawScriptTempResponse {
+    hash: String,
+}
+
+/// Store raw script content temporarily for CLI lock generation.
+async fn store_raw_script_temp(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<StoreRawScriptTempRequest>,
+) -> Result<Json<StoreRawScriptTempResponse>> {
+    check_scopes(&authed, || "scripts:write".to_string())?;
+
+    let hash = windmill_common::cache::raw_script_temp::compute_hash(&w_id, &req.content);
+
+    // Store to DB
+    sqlx::query!(
+        "INSERT INTO raw_script_temp (workspace_id, hash, content, created_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (workspace_id, hash) DO UPDATE SET created_at = NOW()",
+        &w_id,
+        &hash,
+        &req.content
+    )
+    .execute(&db)
+    .await?;
+
+    // Clean up old entries (1 week TTL)
+    sqlx::query!(
+        "DELETE FROM raw_script_temp WHERE created_at < NOW() - INTERVAL '1 week'"
+    )
+    .execute(&db)
+    .await?;
+
+    Ok(Json(StoreRawScriptTempResponse { hash }))
 }

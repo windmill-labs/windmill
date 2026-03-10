@@ -22,9 +22,11 @@ use rustpython_parser::{
 };
 
 pub mod asset_parser;
+pub mod import_parser;
 pub mod pydantic_parser;
 
 pub use asset_parser::parse_assets;
+pub use import_parser::{parse_python_imports, parse_relative_imports, PythonImport};
 
 const FUNCTION_CALL: &str = "<function call>";
 

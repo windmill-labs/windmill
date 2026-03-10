@@ -9,6 +9,7 @@ name = "windmill_types"
 path = "src/lib.rs"
 
 [dependencies]
+windmill-parser.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true

@@ -16,6 +16,7 @@ regex.workspace = true
 
 [dependencies]
 windmill-parser.workspace = true
+windmill-parser-py.workspace = true
 windmill-common.workspace = true
 rustpython-parser.workspace = true
 malachite.workspace = true

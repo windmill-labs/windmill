@@ -117,6 +117,12 @@ impl Visit for ImportsFinder {
     }
 }
 
+/// Parse TypeScript/JavaScript code and extract all import paths as raw strings.
+///
+/// Returns import paths exactly as written in the code (e.g., `"./module"`, `"../utils"`, `"lodash"`).
+/// Does not resolve relative paths to absolute Windmill paths.
+///
+/// See also: [`parse_relative_imports`] for resolved absolute paths.
 pub fn parse_expr_for_imports(code: &str, skip_type_only: bool) -> anyhow::Result<Vec<String>> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.d.ts".into()).into(), code.into());
@@ -149,6 +155,82 @@ pub fn parse_expr_for_imports(code: &str, skip_type_only: bool) -> anyhow::Resul
     let mut imports: Vec<_> = visitor.imports.into_iter().collect();
     imports.sort();
     Ok(imports)
+}
+
+/// Parse TypeScript/JavaScript code and extract relative imports resolved to absolute Windmill paths.
+///
+/// Takes the script's Windmill path (e.g., `"f/folder/script"`) and resolves relative imports
+/// like `"./module"` or `"../utils"` to absolute paths like `"f/folder/module"` or `"f/utils"`.
+///
+/// Only returns relative imports (those starting with `./`, `../`, or `/`).
+/// External package imports (e.g., `"lodash"`) are filtered out.
+///
+/// See also: [`parse_expr_for_imports`] for raw import strings without resolution.
+///
+/// # Arguments
+/// * `code` - The TypeScript/JavaScript source code
+/// * `path` - The Windmill path of the script (e.g., `"f/folder/script"`)
+///
+/// # Returns
+/// A sorted, deduplicated list of resolved absolute Windmill paths.
+///
+/// # Examples
+/// ```ignore
+/// // Script at "f/folder/script" with: import { x } from "../utils"
+/// // Returns: ["f/utils"]
+/// ```
+pub fn parse_relative_imports(code: &str, path: &str) -> anyhow::Result<Vec<String>> {
+    let imports = parse_expr_for_imports(code, false)?;
+    let script_dir = path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+
+    let mut resolved: Vec<String> = imports
+        .into_iter()
+        .filter(|imp| is_relative_import(imp))
+        .map(|imp| {
+            // Remove .ts extension if present
+            let imp = imp.strip_suffix(".ts").unwrap_or(&imp);
+
+            if imp.starts_with("/") {
+                // Absolute path (e.g., /f/folder/script) - remove leading slash
+                imp[1..].to_string()
+            } else {
+                // Relative path (e.g., ./script or ../folder/script)
+                let combined = format!("{}/{}", script_dir, imp);
+                normalize_path(&combined)
+            }
+        })
+        .collect();
+
+    resolved.sort();
+    resolved.dedup();
+    Ok(resolved)
+}
+
+/// Check if an import path is a relative import (starts with `./`, `../`, or `/`)
+fn is_relative_import(import_path: &str) -> bool {
+    import_path.starts_with("./")
+        || import_path.starts_with("../")
+        || import_path.starts_with("/")
+}
+
+/// Normalize a path by resolving `.` and `..` components
+fn normalize_path(input_path: &str) -> String {
+    let parts: Vec<&str> = input_path.split('/').filter(|p| !p.is_empty()).collect();
+    let mut result: Vec<&str> = Vec::new();
+
+    for part in parts {
+        if part == "." {
+            continue;
+        } else if part == ".." {
+            if !result.is_empty() {
+                result.pop();
+            }
+        } else {
+            result.push(part);
+        }
+    }
+
+    result.join("/")
 }
 
 struct OutputFinder {
