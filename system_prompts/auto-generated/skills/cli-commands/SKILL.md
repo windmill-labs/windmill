@@ -7,7 +7,7 @@ description: MUST use when using the CLI.
 
 The Windmill CLI (`wmill`) provides commands for managing scripts, flows, apps, and other resources.
 
-Current version: 1.642.0
+Current version: 1.651.1
 
 ## Global Options
 
@@ -65,6 +65,15 @@ Launch a dev server that will spawn a webserver with HMR
 **Options:**
 - `--includes <pattern...:string>` - Filter paths givena glob pattern or path
 
+### docs
+
+Search Windmill documentation. Requires Enterprise Edition.
+
+**Arguments:** `<query:string>`
+
+**Options:**
+- `--json` - Output results as JSON.
+
 ### flow
 
 flow related commands
@@ -113,7 +122,7 @@ folder related commands
   - `--json` - Output as JSON (for piping to jq)
 - `folder new <name:string>` - create a new folder locally
   - `--summary <summary:string>` - folder summary
-- `folder push <name:string>` - push a local folder to the remote by name.  This overrides any remote versions.
+- `folder push <name:string>` - push a local folder to the remote by name. This overrides any remote versions.
 - `folder add-missing` - create default folder.meta.yaml for all subdirectories of f/ that are missing one
   - `-y, --yes` - skip confirmation prompt
 
