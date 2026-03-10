@@ -1029,16 +1029,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting log file: {:?}", e),
     }
 
-    let audit_retention_days = {
-        let v = *AUDIT_LOG_RETENTION_DAYS.read().await;
-        if v > 0 {
-            v
-        } else if cfg!(feature = "enterprise") {
-            365
-        } else {
-            14
-        }
-    };
+    let audit_retention_days = audit_log_retention_days().await;
     let audit_retention_secs: i64 = audit_retention_days * 60 * 60 * 24;
 
     // Clean up old (non-partitioned) audit table — will eventually be empty and dropped
@@ -2211,17 +2202,7 @@ pub async fn monitor_db(
     let manage_audit_partitions_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
             if let Some(db) = conn.as_sql() {
-                let audit_retention_days = {
-                    let v = *AUDIT_LOG_RETENTION_DAYS.read().await;
-                    if v > 0 {
-                        v
-                    } else if cfg!(feature = "enterprise") {
-                        365
-                    } else {
-                        14
-                    }
-                };
-                manage_audit_partitions(&db, audit_retention_days).await;
+                manage_audit_partitions(&db, audit_log_retention_days().await).await;
             }
         }
     };
@@ -3414,6 +3395,17 @@ RETURNING job_id
     Ok(())
 }
 
+async fn audit_log_retention_days() -> i64 {
+    let v = *AUDIT_LOG_RETENTION_DAYS.read().await;
+    if v > 0 {
+        v
+    } else if cfg!(feature = "enterprise") {
+        365
+    } else {
+        14
+    }
+}
+
 async fn manage_audit_partitions(db: &DB, retention_days: i64) {
     let today = chrono::Utc::now().date_naive();
 
@@ -3422,8 +3414,9 @@ async fn manage_audit_partitions(db: &DB, retention_days: i64) {
         let date = today + chrono::Duration::days(days_ahead);
         let next_date = date + chrono::Duration::days(1);
         let partition_name = format!("audit_{}", date.format("%Y%m%d"));
+        let quoted_name = format!("\"{}\"", partition_name.replace('"', "\"\""));
         let sql = format!(
-            "CREATE TABLE IF NOT EXISTS {partition_name} PARTITION OF audit_partitioned \
+            "CREATE TABLE IF NOT EXISTS {quoted_name} PARTITION OF audit_partitioned \
              FOR VALUES FROM ('{date}') TO ('{next_date}')"
         );
         if let Err(e) = sqlx::query(&sql).execute(db).await {
@@ -3451,7 +3444,9 @@ async fn manage_audit_partitions(db: &DB, retention_days: i64) {
                 if let Some(date_str) = partition_name.strip_prefix("audit_") {
                     if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y%m%d") {
                         if date < cutoff_date {
-                            let sql = format!("DROP TABLE IF EXISTS {partition_name}");
+                            let quoted_name =
+                                format!("\"{}\"", partition_name.replace('"', "\"\""));
+                            let sql = format!("DROP TABLE IF EXISTS {quoted_name}");
                             match sqlx::query(&sql).execute(db).await {
                                 Ok(_) => tracing::info!(
                                     "Dropped expired audit partition {partition_name}"

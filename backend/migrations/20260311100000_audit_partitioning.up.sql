@@ -35,6 +35,7 @@ END $$;
 
 -- Indexes (auto-propagated to all current and future partitions)
 CREATE INDEX ix_audit_partitioned_timestamps ON audit_partitioned (timestamp DESC);
+CREATE INDEX idx_audit_partitioned_workspace ON audit_partitioned (workspace_id, timestamp DESC);
 CREATE INDEX idx_audit_partitioned_recent_login_activities
     ON audit_partitioned (timestamp, username)
     WHERE operation IN ('users.login', 'oauth.login', 'users.token.refresh');
