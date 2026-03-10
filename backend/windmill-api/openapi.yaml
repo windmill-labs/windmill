@@ -16876,6 +16876,9 @@ paths:
                       lost_lock_ownership:
                         description: Is the current indexer service being replaced
                         type: boolean
+                      max_index_time_window_secs:
+                        description: Maximum time window in seconds for indexing
+                        type: number
 
   /srch/index/search/service_logs:
     get:
