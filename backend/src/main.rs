@@ -884,7 +884,9 @@ async fn windmill_main() -> anyhow::Result<()> {
         // NOTE: Variable/resource cache initialization moved to API server in windmill-api
 
         // Check if custom_instance_user password is in sync
-        resync_custom_instance_user_pwd_if_needed(&db).await;
+        if server_mode {
+            resync_custom_instance_user_pwd_if_needed(&db).await;
+        }
 
         Connection::Sql(db)
     };
