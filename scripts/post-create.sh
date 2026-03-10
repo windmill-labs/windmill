@@ -7,7 +7,7 @@ backend_port="${BACKEND_PORT:-}"
 frontend_port="${FRONTEND_PORT:-}"
 
 if [[ -z "$backend_port" || -z "$frontend_port" ]]; then
-  echo "Missing BACKEND_PORT or FRONTEND_PORT in hook environment" >&2
+  echo "Missing BACKEND_PORT or FRONTEND_PORT in hook environment" >> /home/farhad/Desktop/windmill/hello.txt
   exit 1
 fi
 
@@ -21,5 +21,5 @@ if [[ -n "${CARGO_FEATURES:-}" ]]; then
   echo "CARGO_FEATURES=$CARGO_FEATURES" >> .env.local
 fi
 
-echo "Created .env.local with ports: backend=$backend_port, frontend=$frontend_port"
+echo "Created .env.local with ports: backend=$backend_port, frontend=$frontend_port" >> /home/farhad/Desktop/windmill/hello.txt
 wm_shared_post_create "$(pwd)"

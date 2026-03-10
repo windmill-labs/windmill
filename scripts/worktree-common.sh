@@ -23,42 +23,42 @@ wm_setup_database() {
   db_conn="postgres://postgres:changeme@127.0.0.1:5432"
 
   if ! command -v psql >/dev/null 2>&1; then
-    echo "WARNING: psql not found, skipping per-worktree database creation" >&2
+    echo "WARNING: psql not found, skipping per-worktree database creation" >> /home/farhad/Desktop/windmill/hello.txt
     return
   fi
 
   if psql "$db_conn/postgres" -tc "SELECT 1 FROM pg_database WHERE datname = '${db_name}'" 2>/dev/null | grep -q 1; then
-    echo "Database $db_name already exists"
+    echo "Database $db_name already exists" >> /home/farhad/Desktop/windmill/hello.txt
   else
     if wm_is_true "${WM_CLONE_DB:-}"; then
       psql "$db_conn/postgres" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'windmill' AND pid <> pg_backend_pid();" 2>/dev/null || true
       psql "$db_conn/postgres" -c "CREATE DATABASE ${db_name} TEMPLATE windmill" 2>/dev/null \
-        && echo "Created database $db_name (template: windmill)" \
-        || echo "WARNING: Could not create database $db_name from template windmill" >&2
+        && echo "Created database $db_name (template: windmill)" >> /home/farhad/Desktop/windmill/hello.txt \
+        || echo "WARNING: Could not create database $db_name from template windmill" >> /home/farhad/Desktop/windmill/hello.txt
     else
       psql "$db_conn/postgres" -c "CREATE DATABASE ${db_name}" 2>/dev/null \
-        && echo "Created database $db_name" \
-        || echo "WARNING: Could not create database $db_name (is PostgreSQL running?)" >&2
+        && echo "Created database $db_name" >> /home/farhad/Desktop/windmill/hello.txt \
+        || echo "WARNING: Could not create database $db_name (is PostgreSQL running?)" >> /home/farhad/Desktop/windmill/hello.txt
     fi
   fi
 
   db_url="${db_conn}/${db_name}?sslmode=disable"
   DATABASE_URL="$db_url" sqlx migrate run --source "${repo_root}/backend/migrations" \
     && echo "Migrations applied to $db_name" \
-    || echo "WARNING: Could not run migrations on $db_name" >&2
+    || echo "WARNING: Could not run migrations on $db_name" >> /home/farhad/Desktop/windmill/hello.txt
 
   license_key="$(psql "$db_conn/windmill" -t -A -c "SELECT value FROM global_settings WHERE name = 'license_key'" 2>/dev/null || true)"
   if [[ -n "$license_key" ]]; then
     psql "$db_url" -c "INSERT INTO global_settings (name, value) VALUES ('license_key', '${license_key}'::jsonb) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value" 2>/dev/null \
-      && echo "Copied license_key to $db_name" \
-      || echo "WARNING: Could not copy license_key to $db_name" >&2
+      && echo "Copied license_key to $db_name" >> /home/farhad/Desktop/windmill/hello.txt \
+      || echo "WARNING: Could not copy license_key to $db_name" >> /home/farhad/Desktop/windmill/hello.txt
   fi
 
   cat >> "$env_file" <<EOF
 export DATABASE_URL=$db_url
 WM_DB_NAME=$db_name
 EOF
-  echo "Added DATABASE_URL for database $db_name to .env.local"
+  echo "Added DATABASE_URL for database $db_name to .env.local" >> /home/farhad/Desktop/windmill/hello.txt
 }
 
 wm_copy_dependencies() {
@@ -86,7 +86,7 @@ wm_allow_direnv() {
   local repo_root=$1
   if command -v direnv >/dev/null 2>&1 && [[ -f "${repo_root}/.envrc" ]]; then
     (cd "$repo_root" && direnv allow)
-    echo "direnv allowed"
+    echo "direnv allowed" >> /home/farhad/Desktop/windmill/hello.txt
   fi
 }
 
@@ -202,11 +202,17 @@ wm_shared_post_create() {
   local main_repo_root
 
   main_repo_root="$(wm_main_repo_root "$repo_root")"
+  echo "main_repo_root: $main_repo_root" >> /home/farhad/Desktop/windmill/hello.txt
   wm_allow_direnv "$repo_root"
+  echo "allowed direnv" >> /home/farhad/Desktop/windmill/hello.txt
   wm_setup_database "$repo_root" "${repo_root}/.env.local"
+  echo "setup database" >> /home/farhad/Desktop/windmill/hello.txt
   wm_copy_dependencies "$repo_root" "$main_repo_root"
+  echo "copied dependencies" >> /home/farhad/Desktop/windmill/hello.txt
   wm_trust_claude "$repo_root"
+  echo "trusted claude" >> /home/farhad/Desktop/windmill/hello.txt
   wm_setup_ee_worktree "$repo_root" "$main_repo_root"
+  echo "setup ee worktree" >> /home/farhad/Desktop/windmill/hello.txt
 }
 
 wm_kill_processes_from_env_file() {
