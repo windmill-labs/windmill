@@ -11,7 +11,7 @@
 	let computeAssetNodesCache: [NodeDep[], ReturnType<typeof computeAssetNodes>] | undefined
 
 	type NodeDep = {
-		data: object & { assets?: AssetWithAltAccessType[] | undefined; offset?: number }
+		data: object & { assets?: AssetWithAltAccessType[] | undefined }
 		id: string
 		position: { x: number; y: number }
 	}
@@ -78,14 +78,13 @@
 					width: inputAssetWidth,
 					position: {
 						x:
-							(node.data.offset ?? 0) +
-							(displayedInputAssets.length === 1
+							displayedInputAssets.length === 1
 								? (NODE.width - inputAssetWidth) / 2 - 10 // Ensure we see the edge
 								: (inputAssetWidth + inputAssetXGap) * (i - displayedInputAssets.length / 2) +
 									(NODE.width + inputAssetXGap) / 2 +
 									(overflowedInputAssets.length
 										? (-ASSETS_OVERFLOWED_NODE_WIDTH - inputAssetXGap) / 2
-										: 0)),
+										: 0),
 						y: READ_ASSET_Y_OFFSET
 					},
 					selectable: false
@@ -116,14 +115,13 @@
 					width: outputAssetWidth,
 					position: {
 						x:
-							(node.data.offset ?? 0) +
-							(displayedOutputAssets.length === 1
+							displayedOutputAssets.length === 1
 								? (NODE.width - outputAssetWidth) / 2 - 10 // Ensure we see the edge
 								: (outputAssetWidth + outputAssetXGap) * (i - displayedOutputAssets.length / 2) +
 									(NODE.width + outputAssetXGap) / 2 +
 									(overflowedOutputAssets.length
 										? (-ASSETS_OVERFLOWED_NODE_WIDTH - outputAssetXGap) / 2
-										: 0)),
+										: 0),
 						y: WRITE_ASSET_Y_OFFSET
 					},
 					selectable: false
@@ -157,7 +155,7 @@
 					parentId: node.id,
 					width: ASSETS_OVERFLOWED_NODE_WIDTH,
 					position: {
-						x: (node.data.offset ?? 0) + MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
+						x: MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
 						y: READ_ASSET_Y_OFFSET
 					}
 				} satisfies Node & AssetsOverflowedN)
@@ -176,7 +174,7 @@
 					parentId: node.id,
 					width: ASSETS_OVERFLOWED_NODE_WIDTH,
 					position: {
-						x: (node.data.offset ?? 0) + MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
+						x: MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
 						y: WRITE_ASSET_Y_OFFSET
 					}
 				} satisfies Node & AssetsOverflowedN)
