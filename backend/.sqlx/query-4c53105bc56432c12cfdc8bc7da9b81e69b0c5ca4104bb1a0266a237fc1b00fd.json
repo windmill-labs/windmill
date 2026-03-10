@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(\n                        SELECT 1 FROM v2_job\n                        WHERE parent_job = $1\n                        AND id != $2\n                        AND id IN (SELECT id FROM v2_job_queue)\n                    )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4c53105bc56432c12cfdc8bc7da9b81e69b0c5ca4104bb1a0266a237fc1b00fd"
+}
