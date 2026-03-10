@@ -149,14 +149,14 @@ async fn get_job_metrics(
     Ok(Json(response))
 }
 
-/// Reconstruct full timestamps from `timeseries_start` + `offsets_ms` if available,
+/// Reconstruct full timestamps from `timeseries_start` + `offsets_cs` if available,
 /// otherwise fall back to legacy `timestamps` column.
 fn resolve_timestamps(record: &JobStatsRecord) -> Vec<chrono::DateTime<chrono::Utc>> {
-    if let (Some(start), Some(offsets)) = (record.timeseries_start, &record.offsets_ms) {
+    if let (Some(start), Some(offsets)) = (record.timeseries_start, &record.offsets_cs) {
         if !offsets.is_empty() {
             return offsets
                 .iter()
-                .map(|&ms| start + chrono::Duration::milliseconds(ms as i64))
+                .map(|&cs| start + chrono::Duration::milliseconds(cs as i64 * 10))
                 .collect();
         }
     }

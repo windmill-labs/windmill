@@ -16,7 +16,7 @@ pub struct JobStatsRecord {
     pub timeseries_int: Option<Vec<i32>>,
     pub timeseries_float: Option<Vec<f32>>,
     pub timeseries_start: Option<chrono::DateTime<chrono::Utc>>,
-    pub offsets_ms: Option<Vec<i32>>,
+    pub offsets_cs: Option<Vec<i32>>,
 }
 
 #[derive(sqlx::Type, Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -68,7 +68,7 @@ pub async fn register_metric_for_job(
     };
 
     sqlx::query(
-        "INSERT INTO job_stats (workspace_id, job_id, metric_id, metric_name, metric_kind, scalar_int, scalar_float, timeseries_int, timeseries_float, timeseries_start, offsets_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $10 THEN now() ELSE NULL END, CASE WHEN $10 THEN ARRAY[]::int[] ELSE NULL END)",
+        "INSERT INTO job_stats (workspace_id, job_id, metric_id, metric_name, metric_kind, scalar_int, scalar_float, timeseries_int, timeseries_float, timeseries_start, offsets_cs) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $10 THEN now() ELSE NULL END, CASE WHEN $10 THEN ARRAY[]::int[] ELSE NULL END)",
     )
     .bind(workspace_id)
     .bind(job_id)
@@ -178,7 +178,7 @@ async fn record_metric_impl(
         }
         MetricKind::TimeseriesInt => {
             sqlx::query!(
-                "UPDATE job_stats SET offsets_ms = array_append(offsets_ms, (EXTRACT(EPOCH FROM (now() - timeseries_start)) * 1000)::int), timeseries_int = array_append(timeseries_int, $4) WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
+                "UPDATE job_stats SET offsets_cs = array_append(offsets_cs, (EXTRACT(EPOCH FROM (now() - timeseries_start)) * 100)::int), timeseries_int = array_append(timeseries_int, $4) WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
                 &workspace_id,
                 &job_id,
                 &metric_id,
@@ -187,7 +187,7 @@ async fn record_metric_impl(
         }
         MetricKind::TimeseriesFloat => {
             sqlx::query!(
-                "UPDATE job_stats SET offsets_ms = array_append(offsets_ms, (EXTRACT(EPOCH FROM (now() - timeseries_start)) * 1000)::int), timeseries_float = array_append(timeseries_float, $4) WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
+                "UPDATE job_stats SET offsets_cs = array_append(offsets_cs, (EXTRACT(EPOCH FROM (now() - timeseries_start)) * 100)::int), timeseries_float = array_append(timeseries_float, $4) WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
                 &workspace_id,
                 &job_id,
                 &metric_id,
