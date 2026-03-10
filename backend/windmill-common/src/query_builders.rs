@@ -1,5 +1,28 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use windmill_types::scripts::ScriptLang;
+
+fn deserialize_bool_from_null<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<bool>::deserialize(deserializer).map(|v| v.unwrap_or(false))
+}
+
+fn deserialize_string_from_null<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(|v| v.unwrap_or_default())
+}
+
+fn deserialize_column_identity_from_null<'de, D>(
+    deserializer: D,
+) -> Result<ColumnIdentity, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<ColumnIdentity>::deserialize(deserializer).map(|v| v.unwrap_or_default())
+}
 
 const WM_INTERNAL_PREFIX: &str = "-- WM_INTERNAL_DB_";
 
@@ -48,15 +71,15 @@ impl Default for ColumnIdentity {
 pub struct ColumnDef {
     pub field: String,
     pub datatype: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_string_from_null")]
     pub defaultvalue: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_bool_from_null")]
     pub isprimarykey: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_column_identity_from_null")]
     pub isidentity: ColumnIdentity,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_string_from_null")]
     pub isnullable: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_bool_from_null")]
     pub isenum: bool,
     #[serde(default)]
     pub ignored: Option<bool>,
@@ -2281,6 +2304,18 @@ mod tests {
         assert_eq!(col.hide_insert, Some(true));
         assert_eq!(col.default_value_null, Some(true));
         assert_eq!(col.isidentity, ColumnIdentity::No);
+    }
+
+    #[test]
+    fn test_column_def_with_null_fields() {
+        let json = r#"{"field":"id","datatype":"int4","isprimarykey":null,"isenum":null,"isidentity":null,"isnullable":null,"defaultvalue":null}"#;
+        let col: ColumnDef = serde_json::from_str(json).unwrap();
+        assert_eq!(col.field, "id");
+        assert!(!col.isprimarykey);
+        assert!(!col.isenum);
+        assert_eq!(col.isidentity, ColumnIdentity::No);
+        assert_eq!(col.isnullable, "");
+        assert_eq!(col.defaultvalue, "");
     }
 
     #[test]
