@@ -2,10 +2,13 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { CollapsedGroupN } from '../../graphBuilder.svelte'
 	import { getGraphContext } from '../../graphContext'
-	import GroupNodeCard from '../../GroupNodeCard.svelte'
+	import GroupHeader from '../../GroupHeader.svelte'
 	import GroupActionBar from '../../GroupActionBar.svelte'
+	import GroupModuleIcons from '../../GroupModuleIcons.svelte'
+	import GroupNoteArea from '../../GroupNoteArea.svelte'
 	import { getGroupEditorContext } from '../../groupEditor.svelte'
-	import StepCountTab from '../../StepCountTab.svelte'
+	import { NOTE_COLORS, NoteColor } from '../../noteColors'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		data: CollapsedGroupN['data']
@@ -23,6 +26,10 @@
 		groupEditorContext?.groupEditor.getGroups().find((g) => g.id === data.groupId)
 	)
 
+	let noteColorConfig = $derived(
+		NOTE_COLORS[(data.color as NoteColor) ?? NoteColor.BLUE] ?? NOTE_COLORS[NoteColor.BLUE]
+	)
+
 	let hover = $state(false)
 	let menuOpen = $state(false)
 </script>
@@ -31,27 +38,47 @@
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
-			<StepCountTab
-				stepCount={data.stepCount}
-				color={data.color}
-				onExpand={() => data.eventHandlers.expandGroup(data.groupId)}
-			/>
+			<div
+				class={twMerge(
+					'w-full module cursor-pointer max-w-full',
+					'rounded-md overflow-clip outline outline-1 -outline-offset-1',
+					noteColorConfig.outlineHover,
+					noteColorConfig.backgroundLight
+				)}
+				style="width: 275px;"
+			>
+				<div class="relative z-1">
+					<GroupHeader
+						summary={data.summary}
+						color={data.color}
+						collapsed={true}
+						editMode={data.editMode}
+						onToggleCollapse={() => data.eventHandlers.expandGroup(data.groupId)}
+						onSummaryUpdate={(text) =>
+							groupEditorContext?.groupEditor.updateSummary(data.groupId, text)}
+					/>
+					{#if data.modules && data.modules.length > 0}
+						<div class="flex items-center justify-center w-full gap-1.5 px-2 h-[34px]">
+							<GroupModuleIcons modules={data.modules} />
+						</div>
+					{/if}
+				</div>
 
-			<GroupNodeCard
-				summary={data.summary}
-				color={data.color}
-				{selected}
-				note={data.note}
-				showNote={data.showNotes && data.note != null}
-				editMode={data.editMode}
-				modules={data.modules}
-				onSummaryUpdate={(text) =>
-					groupEditorContext?.groupEditor.updateSummary(data.groupId, text)}
-				onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(data.groupId, text)}
-				onHeightChange={(h) => {
-					groupEditorContext?.groupEditor.setNoteHeight(data.groupId, h)
-				}}
-			/>
+				{#if data.showNotes && data.note != null}
+					<div class="relative z-1">
+						<GroupNoteArea
+							note={data.note ?? ''}
+							color={data.color}
+							editMode={data.editMode}
+							onHeightChange={(h) => {
+								groupEditorContext?.groupEditor.setNoteHeight(data.groupId, h)
+							}}
+							onNoteUpdate={(text) =>
+								groupEditorContext?.groupEditor.updateNote(data.groupId, text)}
+						/>
+					</div>
+				{/if}
+			</div>
 
 			{#if data.editMode}
 				<GroupActionBar

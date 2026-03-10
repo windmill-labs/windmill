@@ -40,12 +40,10 @@
 	})
 </script>
 
-<div class="flex items-center">
+<div class="flex items-center gap-1">
 	{#each displayModules as mod, i (mod.id)}
 		<div
-			class="w-6 h-6 rounded-full overflow-hidden bg-surface-secondary flex items-center justify-center shrink-0 shadow-sm"
-			style:z-index={displayModules.length - i}
-			class:-ml-1={i > 0}
+			class="w-6 h-6 rounded-full overflow-hidden bg-surface-tertiary flex items-center justify-center shrink-0 shadow-sm"
 		>
 			<FlowModuleIcon module={mod} size={14} />
 		</div>

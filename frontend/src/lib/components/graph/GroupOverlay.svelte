@@ -4,9 +4,8 @@
 	import { getGroupEditorContext, type FlowGroup } from './groupEditor.svelte'
 	import { NoteColor, NOTE_COLORS } from './noteColors'
 	import GroupActionBar from './GroupActionBar.svelte'
-	import StepCountTab from './StepCountTab.svelte'
+	import GroupHeader from './GroupHeader.svelte'
 	import type { CollapsedSubflowN } from './graphBuilder.svelte'
-	import { stopPropagation, preventDefault } from 'svelte/legacy'
 
 	interface Props {
 		hoveredNodeId: string | null
@@ -20,35 +19,6 @@
 
 	// Menu open state
 	let menuOpen = $state(false)
-
-	// Inline summary editing
-	let editingGroupId = $state<string | null>(null)
-	let summaryInput = $state('')
-	let summaryInputEl = $state<HTMLInputElement | undefined>(undefined)
-
-	function startEditingSummary(groupId: string, current: string) {
-		if (!editMode) return
-		editingGroupId = groupId
-		summaryInput = current
-		requestAnimationFrame(() => {
-			summaryInputEl?.focus()
-			summaryInputEl?.select()
-		})
-	}
-
-	function saveSummary(groupId: string) {
-		editingGroupId = null
-		const trimmed = summaryInput.trim()
-		groupEditorContext?.groupEditor.updateSummary(groupId, trimmed)
-	}
-
-	function handleSummaryKeydown(event: KeyboardEvent, groupId: string) {
-		if (event.key === 'Enter') {
-			saveSummary(groupId)
-		} else if (event.key === 'Escape') {
-			editingGroupId = null
-		}
-	}
 
 	// Action bar hover state to prevent flicker
 	let actionBarHovered = $state(false)
@@ -86,63 +56,27 @@
 		if (group.module_ids.length === 0) return null
 		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(group.module_ids, allNodes)
 		const padding = 16
-		const topPadding = 28
+		const topPadding = 34
+		const headerHeight = 22
+		const halfHeader = headerHeight / 2
 		return {
 			x: minX - padding,
-			y: minY - topPadding,
+			y: minY - topPadding + halfHeader,
 			width: maxX - minX + 2 * padding,
-			height: maxY - minY + topPadding + padding
+			height: maxY - minY + topPadding - halfHeader + padding,
+			headerY: minY - topPadding
 		}
 	}
 
-	// Outline color mapping — default uses /60 opacity, hover uses full opacity
-	const GROUP_OUTLINE_COLORS: Record<NoteColor, string> = {
-		[NoteColor.YELLOW]: 'outline-yellow-400/60 dark:outline-yellow-600/60',
-		[NoteColor.BLUE]: 'outline-blue-400/60 dark:outline-blue-600/60',
-		[NoteColor.GREEN]: 'outline-green-400/60 dark:outline-green-600/60',
-		[NoteColor.PURPLE]: 'outline-purple-400/60 dark:outline-purple-600/60',
-		[NoteColor.PINK]: 'outline-pink-400/60 dark:outline-pink-600/60',
-		[NoteColor.ORANGE]: 'outline-orange-400/60 dark:outline-orange-600/60',
-		[NoteColor.RED]: 'outline-red-400/60 dark:outline-red-600/60',
-		[NoteColor.CYAN]: 'outline-cyan-400/60 dark:outline-cyan-600/60',
-		[NoteColor.LIME]: 'outline-lime-400/60 dark:outline-lime-600/60',
-		[NoteColor.GRAY]: 'outline-gray-400/60 dark:outline-gray-600/60'
-	}
-
-	const GROUP_OUTLINE_COLORS_HOVER: Record<NoteColor, string> = {
-		[NoteColor.YELLOW]: 'outline-yellow-400 dark:outline-yellow-600',
-		[NoteColor.BLUE]: 'outline-blue-400 dark:outline-blue-600',
-		[NoteColor.GREEN]: 'outline-green-400 dark:outline-green-600',
-		[NoteColor.PURPLE]: 'outline-purple-400 dark:outline-purple-600',
-		[NoteColor.PINK]: 'outline-pink-400 dark:outline-pink-600',
-		[NoteColor.ORANGE]: 'outline-orange-400 dark:outline-orange-600',
-		[NoteColor.RED]: 'outline-red-400 dark:outline-red-600',
-		[NoteColor.CYAN]: 'outline-cyan-400 dark:outline-cyan-600',
-		[NoteColor.LIME]: 'outline-lime-400 dark:outline-lime-600',
-		[NoteColor.GRAY]: 'outline-gray-400 dark:outline-gray-600'
-	}
-
 	function getOutlineColorClass(color?: string, hovered?: boolean): string {
-		const map = hovered ? GROUP_OUTLINE_COLORS_HOVER : GROUP_OUTLINE_COLORS
-		return map[(color as NoteColor) ?? NoteColor.BLUE] ?? map[NoteColor.BLUE]
-	}
-
-	const GROUP_BG_COLORS: Record<NoteColor, string> = {
-		[NoteColor.YELLOW]: 'bg-yellow-400/5 dark:bg-yellow-600/5',
-		[NoteColor.BLUE]: 'bg-blue-400/5 dark:bg-blue-600/5',
-		[NoteColor.GREEN]: 'bg-green-400/5 dark:bg-green-600/5',
-		[NoteColor.PURPLE]: 'bg-purple-400/5 dark:bg-purple-600/5',
-		[NoteColor.PINK]: 'bg-pink-400/5 dark:bg-pink-600/5',
-		[NoteColor.ORANGE]: 'bg-orange-400/5 dark:bg-orange-600/5',
-		[NoteColor.RED]: 'bg-red-400/5 dark:bg-red-600/5',
-		[NoteColor.CYAN]: 'bg-cyan-400/5 dark:bg-cyan-600/5',
-		[NoteColor.LIME]: 'bg-lime-400/5 dark:bg-lime-600/5',
-		[NoteColor.GRAY]: 'bg-gray-400/5 dark:bg-gray-600/5'
+		const config = NOTE_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ?? NOTE_COLORS[NoteColor.BLUE]
+		return hovered ? config.outline : config.outlineHover
 	}
 
 	function getBgColorClass(color?: string): string {
 		return (
-			GROUP_BG_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ?? GROUP_BG_COLORS[NoteColor.BLUE]
+			NOTE_COLORS[(color as NoteColor) ?? NoteColor.BLUE]?.backgroundLight ??
+			NOTE_COLORS[NoteColor.BLUE].backgroundLight
 		)
 	}
 
@@ -184,7 +118,7 @@
 			<!-- Bounding box background + outline (behind nodes) -->
 			<ViewportPortal target="back">
 				<div
-					class="absolute rounded-lg outline outline-1 pointer-events-none transition-colors duration-150 {getOutlineColorClass(
+					class="absolute rounded-lg outline outline-1 -outline-offset-1 pointer-events-none transition-colors duration-150 {getOutlineColorClass(
 						group.color,
 						visibleGroup?.id === group.id
 					)} {getBgColorClass(group.color)}"
@@ -194,58 +128,25 @@
 				></div>
 			</ViewportPortal>
 
-			<!-- StepCountTab (left) + summary + ellipsis menu (right) -->
+			<!-- Group header + ellipsis menu -->
 			<ViewportPortal target="front">
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
-					class="absolute flex items-start justify-between"
-					style="pointer-events: auto; transform: translate({bounds.x}px, {bounds.y}px); width: {bounds.width}px;"
+					class="absolute flex flex-col items-center"
+					style="pointer-events: auto; transform: translate({bounds.x}px, {bounds.headerY}px); width: {bounds.width}px;"
 					style:z-index="4"
 				>
-					<div class="relative" style="margin-left: 16px;">
-						<StepCountTab
-							stepCount={group.module_ids.length}
+					<div class="relative" style="width: 275px;">
+						<GroupHeader
+							summary={group.summary}
 							color={group.color}
 							collapsed={false}
-							short
-							onExpand={() => toggleCollapse(group.id)}
+							{editMode}
+							onToggleCollapse={() => toggleCollapse(group.id)}
+							onSummaryUpdate={(text) =>
+								groupEditorContext?.groupEditor.updateSummary(group.id, text)}
 						/>
-						{#if editingGroupId === group.id}
-							{@const textColorClass =
-								NOTE_COLORS[(group.color as NoteColor) ?? NoteColor.BLUE]?.text ?? ''}
-							<input
-								bind:this={summaryInputEl}
-								bind:value={summaryInput}
-								class="absolute !text-3xs !font-medium !h-4 !bg-transparent !outline-none {textColorClass}"
-								style="top: 2px; left:-3px; width: 160px; padding: 2px 2px;"
-								onblur={() => saveSummary(group.id)}
-								onkeydown={(e) => handleSummaryKeydown(e, group.id)}
-								onclick={stopPropagation(preventDefault(() => {}))}
-								onpointerdown={stopPropagation(preventDefault(() => {}))}
-								spellcheck={false}
-							/>
-						{:else}
-							{@const textColorClass =
-								NOTE_COLORS[(group.color as NoteColor) ?? NoteColor.BLUE]?.text ?? ''}
-							<!-- svelte-ignore a11y_click_events_have_key_events -->
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
-							<span
-								class="absolute text-3xs font-medium truncate max-w-[150px] text-opacity-60 {textColorClass} {editMode
-									? 'cursor-text rounded px-0.5 -mx-0.5 hover:text-opacity-100'
-									: ''}"
-								style="top: 2px; left: 0px;"
-								onclick={editMode
-									? stopPropagation(
-											preventDefault(() => startEditingSummary(group.id, group.summary ?? ''))
-										)
-									: undefined}
-								onpointerdown={editMode ? stopPropagation(preventDefault(() => {})) : undefined}
-								>{group.summary || (editMode ? 'Group' : '')}</span
-							>
-						{/if}
-					</div>
-					{#if editMode}
-						<div class="relative" style="margin-top: -8px;">
+						{#if editMode}
 							<GroupActionBar
 								note={group.note}
 								color={group.color}
@@ -262,8 +163,8 @@
 									visibleGroup = undefined
 								}}
 							/>
-						</div>
-					{/if}
+						{/if}
+					</div>
 				</div>
 			</ViewportPortal>
 		{/if}
