@@ -3078,6 +3078,29 @@ mod debounce {
         let other: String = serde_json::from_str(other_raw.get())?;
         assert_eq!(other, "x", "non-accumulated arg should be unchanged");
 
+        // Verify accumulated args were persisted to v2_job (needed for flows
+        // where subsequent steps re-read args from the DB)
+        let db_args: Option<serde_json::Value> =
+            sqlx::query_scalar!("SELECT args FROM v2_job WHERE id = $1", survivor_id,)
+                .fetch_one(&db)
+                .await?;
+        let db_args = db_args.expect("v2_job args should not be null after accumulation");
+        let db_items = db_args
+            .get("items")
+            .expect("persisted args should contain 'items'");
+        let db_items: Vec<i64> =
+            serde_json::from_value::<Vec<serde_json::Value>>(db_items.clone())?
+                .iter()
+                .map(|v| v.as_i64().unwrap())
+                .collect();
+        let mut db_items_sorted = db_items.clone();
+        db_items_sorted.sort();
+        assert_eq!(
+            db_items_sorted,
+            vec![1, 2, 3, 4, 5, 6],
+            "persisted args in v2_job should contain all accumulated items"
+        );
+
         Ok(())
     }
 
@@ -3508,6 +3531,27 @@ mod debounce {
 
         assert_accumulated_items(&result, &[10, 20, 30, 40, 50], "items");
 
+        // Verify accumulated args were persisted to v2_job
+        let db_args: Option<serde_json::Value> =
+            sqlx::query_scalar!("SELECT args FROM v2_job WHERE id = $1", survivor_id,)
+                .fetch_one(&db)
+                .await?;
+        let db_items = db_args
+            .expect("v2_job args should not be null")
+            .get("items")
+            .expect("persisted args should contain 'items'")
+            .clone();
+        let mut db_items: Vec<i64> = serde_json::from_value::<Vec<serde_json::Value>>(db_items)?
+            .iter()
+            .map(|v| v.as_i64().unwrap())
+            .collect();
+        db_items.sort();
+        assert_eq!(
+            db_items,
+            vec![10, 20, 30, 40, 50],
+            "persisted args in v2_job should contain all accumulated items"
+        );
+
         Ok(())
     }
 
@@ -3607,6 +3651,33 @@ mod debounce {
         let extra_raw = job.job.args.as_ref().unwrap().get("extra").unwrap();
         let extra: String = serde_json::from_str(extra_raw.get())?;
         assert_eq!(extra, "v", "non-accumulated arg should be unchanged");
+
+        // Verify accumulated args were persisted to v2_job
+        let db_args: Option<serde_json::Value> =
+            sqlx::query_scalar!("SELECT args FROM v2_job WHERE id = $1", survivor_id,)
+                .fetch_one(&db)
+                .await?;
+        let db_args = db_args.expect("v2_job args should not be null");
+        let db_items = db_args
+            .get("items")
+            .expect("persisted args should contain 'items'")
+            .clone();
+        let mut db_items: Vec<i64> = serde_json::from_value::<Vec<serde_json::Value>>(db_items)?
+            .iter()
+            .map(|v| v.as_i64().unwrap())
+            .collect();
+        db_items.sort();
+        assert_eq!(
+            db_items,
+            vec![100, 200, 300, 400, 500, 600],
+            "persisted args in v2_job should contain all accumulated items"
+        );
+        // "extra" should also be persisted unchanged
+        let db_extra = db_args.get("extra").unwrap().as_str().unwrap();
+        assert_eq!(
+            db_extra, "v",
+            "persisted non-accumulated arg should be unchanged"
+        );
 
         Ok(())
     }
