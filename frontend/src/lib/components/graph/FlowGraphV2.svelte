@@ -599,10 +599,7 @@
 		let assetNodesResult = $showAssets
 			? computeAssetNodes(
 					newNodes.map((n) => ({
-						data: {
-							assets: n.data?.assets as AssetWithAltAccessType[],
-							offset: n.data?.offset as number
-						},
+						data: { assets: n.data?.assets as AssetWithAltAccessType[] },
 						id: n.id,
 						position: n.position
 					}))
