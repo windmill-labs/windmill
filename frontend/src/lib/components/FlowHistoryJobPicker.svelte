@@ -12,13 +12,15 @@
 		selected?: string | undefined
 		selectInitial?: boolean
 		loading?: boolean
+		newFlow?: boolean
 	}
 
 	let {
 		path,
 		selected = undefined,
 		selectInitial = false,
-		loading = $bindable(false)
+		loading = $bindable(false),
+		newFlow = false
 	}: Props = $props()
 	const dispatch = createEventDispatcher()
 
@@ -41,7 +43,9 @@
 	}
 
 	$effect(() => {
-		$workspaceStore && untrack(() => loadInitial())
+		if ($workspaceStore && !newFlow) {
+			untrack(() => loadInitial())
+		}
 	})
 </script>
 
