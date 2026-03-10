@@ -51,10 +51,16 @@ export async function downloadZip(
   );
 
   if (!zipResponse.ok) {
-    console.log(
-      colors.red("Failed to request tarball from API " + zipResponse.statusText)
-    );
-    throw new Error(await zipResponse.text());
+    const body = await zipResponse.text();
+    if (zipResponse.status === 404 || body.includes("no rows returned")) {
+      log.info(colors.red(`Workspace '${workspace.workspaceId}' not found on ${workspace.remote}. Please check your --workspace and try again.`));
+    } else {
+      log.info(colors.red(`Failed to request tarball from API: ${zipResponse.status} ${zipResponse.statusText}`));
+      if (body) {
+        log.info(colors.red(body));
+      }
+    }
+    return process.exit(1);
   } else {
     log.debug(`Downloaded zip/tarball successfully`);
   }

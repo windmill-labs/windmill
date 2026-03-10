@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.651.1
+  version: 1.653.0
   title: Windmill API
 
   contact:
@@ -12004,6 +12004,19 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/kafka_triggers/reset_offsets/{path}:
+    post:
+      summary: reset kafka trigger offsets to earliest
+      operationId: resetKafkaOffsets
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: kafka trigger offsets reset successfully
+
   /w/{workspace}/nats_triggers/create:
     post:
       summary: create nats trigger
@@ -16876,6 +16889,9 @@ paths:
                       lost_lock_ownership:
                         description: Is the current indexer service being replaced
                         type: boolean
+                      max_index_time_window_secs:
+                        description: Maximum time window in seconds for indexing
+                        type: number
 
   /srch/index/search/service_logs:
     get:
@@ -18456,6 +18472,7 @@ components:
         - trigger
         - settings
         - key
+        - workspacedependencies
 
     AIProviderModel:
       type: object
@@ -22057,7 +22074,7 @@ components:
           description: Path to the Kafka resource containing connection configuration
         group_id:
           type: string
-          description: Kafka consumer group ID for this trigger 
+          description: Kafka consumer group ID for this trigger
         topics:
           type: array
           items:
@@ -22074,6 +22091,13 @@ components:
             required:
               - key
               - value
+        auto_offset_reset:
+          type: string
+          enum:
+            - latest
+            - earliest
+          default: latest
+          description: "Initial offset behavior when consumer group has no committed offset. 'latest' starts from new messages only, 'earliest' starts from the beginning."
         server_id:
           type: string
           description: ID of the server currently handling this trigger (internal)
@@ -22134,6 +22158,13 @@ components:
             required:
               - key
               - value
+        auto_offset_reset:
+          type: string
+          enum:
+            - latest
+            - earliest
+          default: latest
+          description: "Initial offset behavior when consumer group has no committed offset."
         mode:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
@@ -22186,6 +22217,13 @@ components:
             required:
               - key
               - value
+        auto_offset_reset:
+          type: string
+          enum:
+            - latest
+            - earliest
+          default: latest
+          description: "Initial offset behavior when consumer group has no committed offset."
         path:
           type: string
           description: The unique path identifier for this trigger
