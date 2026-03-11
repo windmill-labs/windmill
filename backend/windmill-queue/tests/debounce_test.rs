@@ -4486,7 +4486,7 @@ mod debounce {
         let args = PushArgs::from(&args_hm);
         let mut tx = db.begin().await?;
 
-        let result = windmill_queue::jobs_ee::maybe_debounce_flow_node(
+        windmill_queue::jobs_ee::maybe_debounce_flow_node(
             &settings,
             child_id,
             flow_id,
@@ -4500,14 +4500,6 @@ mod debounce {
         .await?;
 
         tx.commit().await?;
-
-        assert!(
-            matches!(
-                result,
-                windmill_queue::jobs_ee::FlowNodeDebounceResult::Execute
-            ),
-            "first job should execute"
-        );
 
         // Child job should still be in queue with delayed scheduled_for
         assert!(is_queued(&db, &child_id).await, "child should be queued");

@@ -20,6 +20,18 @@
 	let max_total_debouncing_time = $state(flowModule.debouncing?.max_total_debouncing_time)
 	let max_total_debounces_amount = $state(flowModule.debouncing?.max_total_debounces_amount)
 
+	// Re-sync local state when flowModule identity changes (e.g. switching selected module)
+	$effect(() => {
+		// Reading flowModule.id to track identity changes
+		flowModule.id
+		debounce_delay_s = flowModule.debouncing?.debounce_delay_s
+		debounce_key = flowModule.debouncing?.debounce_key
+		debounce_args_to_accumulate = flowModule.debouncing?.debounce_args_to_accumulate
+		max_total_debouncing_time = flowModule.debouncing?.max_total_debouncing_time
+		max_total_debounces_amount = flowModule.debouncing?.max_total_debounces_amount
+	})
+
+	// Write back to flowModule when local state changes
 	$effect(() => {
 		if (debounce_delay_s !== undefined && debounce_delay_s > 0) {
 			flowModule.debouncing = {

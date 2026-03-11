@@ -70,7 +70,7 @@ components:
           type: number
           description: Time window in seconds for concurrent_limit
         debounce_delay_s:
-          type: number
+          type: integer
           description: Delay in seconds to debounce flow executions
         debounce_key:
           type: string
@@ -81,10 +81,10 @@ components:
           items:
             type: string
         max_total_debouncing_time:
-          type: number
+          type: integer
           description: Maximum total time in seconds that a job can be debounced
         max_total_debounces_amount:
-          type: number
+          type: integer
           description: Maximum number of times a job can be debounced
         skip_expr:
           type: string
@@ -331,7 +331,7 @@ components:
           type: object
           properties:
             debounce_delay_s:
-              type: number
+              type: integer
               description: Delay in seconds to debounce this step's executions across flow runs
             debounce_key:
               type: string
@@ -342,10 +342,10 @@ components:
               items:
                 type: string
             max_total_debouncing_time:
-              type: number
+              type: integer
               description: Maximum total time in seconds before forced execution
             max_total_debounces_amount:
-              type: number
+              type: integer
               description: Maximum number of debounces before forced execution
       required:
         - value

@@ -1127,11 +1127,11 @@
 														label="Suspend"
 													/>
 													<Tab value="sleep" active={Boolean(flowModule.sleep)} label="Sleep" />
-												<Tab
-													value="debounce"
-													active={Boolean(flowModule.debouncing?.debounce_delay_s)}
-													label="Debounce"
-												/>
+													<Tab
+														value="debounce"
+														active={Boolean(flowModule.debouncing?.debounce_delay_s)}
+														label="Debounce"
+													/>
 													<Tab
 														value="mock"
 														active={Boolean(flowModule.mock?.enabled)}

@@ -1576,44 +1576,54 @@ async fn archive_flow_by_path(
 /// Validates that flow debouncing configuration is supported by all workers
 /// Returns an error if debouncing is configured but workers are behind required version
 async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
-    if !MIN_VERSION_SUPPORTS_DEBOUNCING.met().await
-        && !nf.parse_flow_value()?.debouncing_settings.is_default()
+    let flow_value = nf.parse_flow_value()?;
+
+    if !MIN_VERSION_SUPPORTS_DEBOUNCING.met().await && !flow_value.debouncing_settings.is_default()
     {
         tracing::warn!(
             "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
         );
-        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.566.0".into() })
-    } else if !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
-        && !nf
-            .parse_flow_value()?
-            .debouncing_settings
-            .is_legacy_compatible()
+        return Err(Error::WorkersAreBehind {
+            feature: "Debouncing".into(),
+            min_version: "1.566.0".into(),
+        });
+    }
+
+    if !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
+        && !flow_value.debouncing_settings.is_legacy_compatible()
         && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
     {
         tracing::warn!(
             "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
         );
-        Err(Error::WorkersAreBehind {
+        return Err(Error::WorkersAreBehind {
             feature: "V2 Debouncing".into(),
             min_version: "1.597.0".into(),
-        })
-    } else {
-        // Check node-level debouncing on individual flow modules
-        let flow_value = nf.parse_flow_value()?;
-        let has_node_debouncing = flow_value.modules.iter().any(|m| {
-            m.debouncing
-                .as_ref()
-                .is_some_and(|d| d.debounce_delay_s.is_some_and(|s| s > 0))
         });
-        if has_node_debouncing && !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await {
-            Err(Error::WorkersAreBehind {
-                feature: "Flow node debouncing".into(),
-                min_version: "1.597.0".into(),
-            })
-        } else {
-            Ok(())
-        }
     }
+
+    // Check node-level debouncing on all modules (including nested branches/loops)
+    let mut has_node_debouncing = false;
+    let check_result = FlowModule::traverse_modules(&flow_value.modules, &mut |m| {
+        if m.debouncing
+            .as_ref()
+            .is_some_and(|d| d.debounce_delay_s.is_some_and(|s| s > 0))
+        {
+            has_node_debouncing = true;
+        }
+        Ok(())
+    });
+    if let Err(e) = check_result {
+        tracing::warn!("Failed to traverse flow modules for debounce guard: {e}");
+    }
+    if has_node_debouncing && !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await {
+        return Err(Error::WorkersAreBehind {
+            feature: "Flow node debouncing".into(),
+            min_version: "1.597.0".into(),
+        });
+    }
+
+    Ok(())
 }
 
 #[derive(Deserialize)]
