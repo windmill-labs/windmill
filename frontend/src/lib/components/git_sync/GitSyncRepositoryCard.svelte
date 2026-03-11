@@ -373,7 +373,7 @@
 			</div>
 			{#if !emptyString(repo.git_repo_resource_path)}
 				<Button
-					disabled={emptyString(repo.script_path)}
+					disabled={emptyString(repo.git_repo_resource_path)}
 					variant="accent"
 					onclick={runGitSyncTestJob}
 					size="xs"

@@ -541,7 +541,7 @@ export function createGitSyncContext(workspace: string) {
 
 	async function runTestJob(idx: number) {
 		const repo = repositories[idx]
-		if (!repo?.git_repo_resource_path || !repo?.script_path) {
+		if (!repo?.git_repo_resource_path) {
 			return
 		}
 
