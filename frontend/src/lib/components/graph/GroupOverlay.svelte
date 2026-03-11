@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
-	import { calculateNodesBoundsWithOffset } from './util'
+	import { calculateNodesBoundsWithOffset, expandWithContainerDescendants } from './util'
 	import { getGroupEditorContext, GROUP_HEADER_HEIGHT, GROUP_TOP_MARGIN, type FlowGroup } from './groupEditor.svelte'
 	import { NoteColor, NOTE_COLORS } from './noteColors'
 	import GroupActionBar from './GroupActionBar.svelte'
@@ -13,9 +13,10 @@
 		allNodes: (Node & { type: string })[]
 		editMode: boolean
 		showNotes: boolean
+		containerDescendants: Map<string, string[]>
 	}
 
-	let { hoveredNodeId, allNodes, editMode, showNotes }: Props = $props()
+	let { hoveredNodeId, allNodes, editMode, showNotes, containerDescendants }: Props = $props()
 
 	const groupEditorContext = getGroupEditorContext()
 
@@ -66,40 +67,52 @@
 		return showNotes ? (noteHeights[groupId] ?? 0) : 0
 	}
 
-	// Compute bounds for each group (no header card when expanded)
-	function computeGroupBounds(group: FlowGroup) {
-		if (group.module_ids.length === 0) return null
-		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(group.module_ids, allNodes)
-		const padding = 16
-		const noteHeight = getGroupNoteHeight(group.id)
-		const topPadding = GROUP_HEADER_HEIGHT + noteHeight + GROUP_TOP_MARGIN
-		const halfHeader = GROUP_HEADER_HEIGHT / 2
-		return {
-			x: minX - padding,
-			y: minY - topPadding + halfHeader,
-			width: maxX - minX + 2 * padding,
-			height: maxY - minY + topPadding - halfHeader + padding,
-			headerY: minY - topPadding
+	// Pre-compute bounds for all groups reactively (tracks allNodes measured changes)
+	let groupBoundsMap = $derived.by(() => {
+		const map: Record<string, { x: number; y: number; width: number; height: number; headerY: number } | null> = {}
+		for (const group of allGroups) {
+			if (group.module_ids.length === 0) {
+				map[group.id] = null
+				continue
+			}
+			if (groupEditorContext?.groupEditor.isRuntimeCollapsed(group.id)) {
+				// Collapsed group bounds
+				const nodeId = `collapsed-group:${group.id}`
+				const node = allNodes.find((n) => n.id === nodeId)
+				if (!node) {
+					map[group.id] = null
+					continue
+				}
+				const width = node.measured?.width ?? 275
+				const nodeHeight = node.measured?.height ?? 34
+				const noteHeight = getGroupNoteHeight(group.id)
+				const headerTotal = GROUP_HEADER_HEIGHT + noteHeight
+				map[group.id] = {
+					x: node.position.x,
+					y: node.position.y - noteHeight,
+					width,
+					height: nodeHeight + noteHeight,
+					headerY: node.position.y - headerTotal
+				}
+			} else {
+				// Expanded group bounds — expand module_ids to include container descendants
+				const expandedIds = expandWithContainerDescendants(group.module_ids, containerDescendants)
+				const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(expandedIds, allNodes)
+				const padding = 16
+				const noteHeight = getGroupNoteHeight(group.id)
+				const topPadding = GROUP_HEADER_HEIGHT + noteHeight + GROUP_TOP_MARGIN
+				const halfHeader = GROUP_HEADER_HEIGHT / 2
+				map[group.id] = {
+					x: minX - padding,
+					y: minY - topPadding + halfHeader,
+					width: maxX - minX + 2 * padding,
+					height: maxY - minY + topPadding - halfHeader + padding,
+					headerY: minY - topPadding
+				}
+			}
 		}
-	}
-
-	// Compute bounds for a collapsed group (tight around the single collapsed node)
-	function computeCollapsedGroupBounds(group: FlowGroup) {
-		const nodeId = `collapsed-group:${group.id}`
-		const node = allNodes.find((n) => n.id === nodeId)
-		if (!node) return null
-		const width = node.measured?.width ?? 275
-		const nodeHeight = node.measured?.height ?? 34
-		const noteHeight = getGroupNoteHeight(group.id)
-		const headerTotal = GROUP_HEADER_HEIGHT + noteHeight
-		return {
-			x: node.position.x,
-			y: node.position.y - noteHeight,
-			width,
-			height: nodeHeight + noteHeight,
-			headerY: node.position.y - headerTotal
-		}
-	}
+		return map
+	})
 
 	function getOutlineColorClass(color?: string, hovered?: boolean): string {
 		const config = NOTE_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ?? NOTE_COLORS[NoteColor.BLUE]
@@ -152,7 +165,7 @@
 
 {#each allGroups as group (group.id)}
 	{#if groupEditorContext?.groupEditor.isRuntimeCollapsed(group.id)}
-		{@const bounds = computeCollapsedGroupBounds(group)}
+		{@const bounds = groupBoundsMap[group.id]}
 		{#if bounds}
 			<!-- Collapsed: bounding box background + border on sides/bottom only (behind nodes) -->
 			<ViewportPortal target="back">
@@ -220,7 +233,7 @@
 			</ViewportPortal>
 		{/if}
 	{:else}
-		{@const bounds = computeGroupBounds(group)}
+		{@const bounds = groupBoundsMap[group.id]}
 		{#if bounds}
 			<!-- Uncollapsed: bounding box background + outline (behind nodes) -->
 			<ViewportPortal target="back">

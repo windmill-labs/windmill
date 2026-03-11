@@ -349,6 +349,7 @@
 	}
 	type NodePos = { position: { x: number; y: number } }
 	let lastNodes: [NodeDep[], (NodeDep & NodePos)[]] | undefined = undefined
+	let currentContainerDescendants: Map<string, string[]> = new Map()
 
 	function layoutNodes(nodes: NodeDep[]): (NodeDep & NodePos)[] {
 		let lastResult = lastNodes?.[1]
@@ -366,7 +367,7 @@
 		}
 
 		// Run recursive compound layout
-		const { positions, bbox } = compoundLayout(nodes, {
+		const { positions, bbox, containerDescendants: layoutContainerDescendants } = compoundLayout(nodes, {
 			nodeWidth: NODE.width,
 			nodeHeight: NODE.height,
 			gapH: NODE.gap.horizontal,
@@ -383,6 +384,7 @@
 			}
 		}))
 
+		currentContainerDescendants = layoutContainerDescendants ?? new Map()
 		lastNodes = [nodes, newNodes]
 		return newNodes
 	}
@@ -1111,6 +1113,7 @@
 					allNodes={nodesWithOffset as (Node & { type: string })[]}
 					{editMode}
 					{showNotes}
+					containerDescendants={currentContainerDescendants}
 				/>
 
 				<!-- SelectionTool for handling selection changes and filtering -->

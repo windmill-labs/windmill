@@ -27,6 +27,7 @@ type LayoutResult = {
 	positions: Map<string, { x: number; y: number }>
 	bbox: { width: number; height: number }
 	contentMinX: number
+	containerDescendants?: Map<string, string[]>
 }
 
 const LOOP_INDENT = 25
@@ -237,6 +238,7 @@ function layoutLevel(
 	allNodes: Map<string, LayoutNode>,
 	constants: LayoutConstants,
 	childrenMap: Map<string, string[]>,
+	containerDescendants: Map<string, string[]>,
 	depth: number = 0
 ): LayoutResult {
 	const positions = new Map<string, { x: number; y: number }>()
@@ -296,6 +298,15 @@ function layoutLevel(
 		}
 	}
 
+	// Populate containerDescendants for each top-level container group
+	for (const group of topLevelGroups) {
+		const owned: string[] = [group.endId]
+		for (const branch of group.branches) {
+			owned.push(branch.labelId, ...branch.innerIds)
+		}
+		containerDescendants.set(group.headId, owned)
+	}
+
 	// Step 2-3: Recursively lay out each group and compute wrapper sizes
 	type GroupLayout = {
 		group: CompoundGroup
@@ -322,7 +333,14 @@ function layoutLevel(
 			const branchNodeIds = [branch.labelId, ...branch.innerIds]
 
 			// Find sub-groups within this branch
-			const result = layoutLevel(branchNodeIds, allNodes, constants, childrenMap, depth + 1)
+			const result = layoutLevel(
+				branchNodeIds,
+				allNodes,
+				constants,
+				childrenMap,
+				containerDescendants,
+				depth + 1
+			)
 
 			branchLayouts.push({
 				labelId: branch.labelId,
@@ -528,7 +546,8 @@ export function compoundLayout(
 	}
 
 	const nodeIds = nodes.map((n) => n.id)
-	const result = layoutLevel(nodeIds, allNodes, c, childrenMap)
+	const containerDescendants = new Map<string, string[]>()
+	const result = layoutLevel(nodeIds, allNodes, c, childrenMap, containerDescendants)
 
 	// Shift positions so minX=0 (left-aligned).
 	// FlowGraphV2 centers with: xCenter = viewport/2 - bbox.width/2
@@ -551,5 +570,5 @@ export function compoundLayout(
 		)
 	}
 
-	return result
+	return { ...result, containerDescendants }
 }

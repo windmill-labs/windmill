@@ -227,6 +227,7 @@ export function calculateNodesBoundsWithOffset(
 		id: string
 		position: { x: number; y: number }
 		type: string
+		measured?: { width?: number; height?: number }
 	}>
 ): {
 	minX: number
@@ -239,11 +240,13 @@ export function calculateNodesBoundsWithOffset(
 
 	return nodesToCalculate.reduce(
 		(acc, node) => {
+			const w = node.measured?.width ?? NODE.width
+			const h = node.measured?.height ?? NODE.height
 			return {
 				minX: Math.min(acc.minX, node.position.x),
 				minY: Math.min(acc.minY, node.position.y),
-				maxX: Math.max(acc.maxX, node.position.x + NODE.width),
-				maxY: Math.max(acc.maxY, node.position.y + NODE.height)
+				maxX: Math.max(acc.maxX, node.position.x + w),
+				maxY: Math.max(acc.maxY, node.position.y + h)
 			}
 		},
 		{
@@ -253,6 +256,33 @@ export function calculateNodesBoundsWithOffset(
 			maxY: -Infinity
 		}
 	)
+}
+
+/**
+ * Expand a list of node IDs to include all structurally-owned descendants of containers.
+ * Uses the containerDescendants map (container head → owned node IDs) built by compoundLayout,
+ * which correctly bounds traversal at container end nodes (unlike the flow-topology childrenMap
+ * which would leak past container boundaries into downstream nodes).
+ */
+export function expandWithContainerDescendants(
+	nodeIds: string[],
+	containerDescendants: Map<string, string[]>
+): string[] {
+	const result = new Set<string>(nodeIds)
+	const queue = [...nodeIds]
+	let qi = 0
+	while (qi < queue.length) {
+		const current = queue[qi++]
+		const owned = containerDescendants.get(current)
+		if (!owned) continue
+		for (const id of owned) {
+			if (!result.has(id)) {
+				result.add(id)
+				queue.push(id)
+			}
+		}
+	}
+	return Array.from(result)
 }
 
 /**
@@ -267,17 +297,19 @@ function getAllRelatedSubflowNodes(
 		id: string
 		position: { x: number; y: number }
 		type: string
+		measured?: { width?: number; height?: number }
 	}>
 ): Array<{
 	id: string
 	position: { x: number; y: number }
+	measured?: { width?: number; height?: number }
 }> {
 	const relatedNodeIds = new Set<string>()
 
 	// Add original target nodes
 	targetNodeIds.forEach((id) => relatedNodeIds.add(id))
 
-	// For each target node, check if it's a subflow and find expanded nodes
+	// For each target node, check if it's a subflow or container and find child nodes
 	targetNodeIds.forEach((nodeId) => {
 		// Find nodes like "subflow:{nodeId}:*"
 		const subflowNodes = allNodes.filter(
