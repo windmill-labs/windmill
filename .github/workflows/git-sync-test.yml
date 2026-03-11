@@ -8,7 +8,6 @@ on:
       - "backend/windmill-api-integration-tests/tests/git_sync*"
       - "backend/ee-repo-ref.txt"
       - "integration_tests/test/git_sync_test.py"
-      - "integration_tests/run_git_sync.sh"
       - ".github/workflows/git-sync-test.yml"
   pull_request:
     types: [opened, synchronize, reopened]
@@ -17,7 +16,6 @@ on:
       - "backend/windmill-api-integration-tests/tests/git_sync*"
       - "backend/ee-repo-ref.txt"
       - "integration_tests/test/git_sync_test.py"
-      - "integration_tests/run_git_sync.sh"
       - ".github/workflows/git-sync-test.yml"
 
 concurrency:
@@ -50,7 +48,7 @@ jobs:
           echo "$CHANGED_FILES"
 
           # Direct git sync file changes — always relevant
-          if echo "$CHANGED_FILES" | grep -qE '^(backend/windmill-git-sync/|backend/windmill-api-integration-tests/tests/git_sync|integration_tests/test/git_sync|integration_tests/run_git_sync|\.github/workflows/git-sync-test\.yml)'; then
+          if echo "$CHANGED_FILES" | grep -qE '^(backend/windmill-git-sync/|backend/windmill-api-integration-tests/tests/git_sync|integration_tests/test/git_sync|\.github/workflows/git-sync-test\.yml)'; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             echo "Relevant: direct git sync file changes"
             exit 0

@@ -14,9 +14,11 @@ class WindmillClient:
 
     _client: httpx.Client
 
-    def __init__(self):
-        self._workspace = "integration-tests"
-        self._url = "http://localhost:8000"
+    def __init__(self, workspace: str = "integration-tests", url: str = None):
+        if url is None:
+            url = os.environ.get("WINDMILL_BASE_URL", "http://localhost:8000")
+        self._workspace = workspace
+        self._url = url
         self._token = self._login()
 
         self._client = self._init_client()
@@ -496,6 +498,58 @@ class WindmillClient:
         jobs = self.get_completed_jobs(job_kinds="deploymentcallback")
         return len(jobs)
 
+    def create_workspace_fork_branch(self, fork_id: str, fork_name: str) -> list:
+        """Create git branches for a workspace fork. Returns list of job UUIDs to wait on."""
+        print(f"Creating fork branch for {fork_id} from {self._workspace}")
+        response = self._client.post(
+            f"/api/w/{self._workspace}/workspaces/create_workspace_fork_branch",
+            json={"id": fork_id, "name": fork_name},
+        )
+        if response.status_code // 100 != 2:
+            raise Exception(response.content.decode())
+        return response.json()
+
+    def create_workspace_fork(self, fork_id: str, fork_name: str) -> str:
+        """Create a forked workspace (call after fork branch jobs complete)."""
+        print(f"Creating fork workspace {fork_id} from {self._workspace}")
+        response = self._client.post(
+            f"/api/w/{self._workspace}/workspaces/create_fork",
+            json={"id": fork_id, "name": fork_name},
+        )
+        if response.status_code // 100 != 2:
+            raise Exception(response.content.decode())
+        return response.content.decode()
+
+    def wait_for_jobs_by_ids(self, job_ids: list, timeout: int = 90):
+        """Wait for specific jobs (by UUID) to complete."""
+        start = time.time()
+        while time.time() - start < timeout:
+            all_done = True
+            for job_id in job_ids:
+                response = self._client.get(
+                    f"/api/w/{self._workspace}/jobs_u/get/{job_id}",
+                )
+                if response.status_code // 100 != 2:
+                    all_done = False
+                    break
+                job = response.json()
+                if job.get("type") != "CompletedJob":
+                    all_done = False
+                    break
+            if all_done:
+                return
+            time.sleep(2)
+        raise TimeoutError(f"Timed out waiting for jobs {job_ids} after {timeout}s")
+
+    def delete_workspace(self, workspace_id: str):
+        """Delete a workspace."""
+        print(f"Deleting workspace {workspace_id}")
+        response = self._client.post(
+            f"/api/w/{workspace_id}/workspaces/delete",
+        )
+        if response.status_code // 100 != 2 and response.status_code != 404:
+            print(f"Warning: failed to delete workspace {workspace_id}: {response.content.decode()}")
+
     def create_agent_token(self, worker_group="agent", tags=None, exp=None):
         """
         Create an agent JWT token using superadmin privilege.
@@ -634,11 +688,50 @@ class GiteaClient:
 
     def get_host_clone_url(self, name: str) -> str:
         """Return host-accessible clone URL with credentials."""
-        return f"http://{GITEA_ADMIN_USER}:{GITEA_ADMIN_PASSWORD}@localhost:3000/{GITEA_ADMIN_USER}/{name}.git"
+        from urllib.parse import urlparse
+        parsed = urlparse(self._host_url)
+        return f"http://{GITEA_ADMIN_USER}:{GITEA_ADMIN_PASSWORD}@{parsed.netloc}/{GITEA_ADMIN_USER}/{name}.git"
 
     def get_docker_clone_url(self, name: str) -> str:
-        """Return docker-internal clone URL with credentials."""
-        return f"http://{GITEA_ADMIN_USER}:{GITEA_ADMIN_PASSWORD}@gitea:3000/{GITEA_ADMIN_USER}/{name}.git"
+        """Return clone URL accessible from the Windmill backend (docker or local)."""
+        from urllib.parse import urlparse
+        parsed = urlparse(self._docker_url)
+        return f"http://{GITEA_ADMIN_USER}:{GITEA_ADMIN_PASSWORD}@{parsed.netloc}/{GITEA_ADMIN_USER}/{name}.git"
+
+    def create_file(self, repo_name: str, file_path: str, content: str, branch: str = "main"):
+        """Create or update a file in the repo via Gitea API."""
+        import base64
+        encoded = base64.b64encode(content.encode()).decode()
+        with httpx.Client(base_url=self._host_url, timeout=30.0) as client:
+            # Check if file exists (to get SHA for update)
+            resp = client.get(
+                f"/api/v1/repos/{GITEA_ADMIN_USER}/{repo_name}/contents/{file_path}",
+                params={"ref": branch},
+                headers=self._headers(),
+            )
+            body = {
+                "content": encoded,
+                "message": f"Add {file_path}",
+                "branch": branch,
+            }
+            if resp.status_code == 200:
+                # File exists — update with PUT
+                body["sha"] = resp.json()["sha"]
+                resp = client.put(
+                    f"/api/v1/repos/{GITEA_ADMIN_USER}/{repo_name}/contents/{file_path}",
+                    json=body,
+                    headers=self._headers(),
+                )
+            else:
+                # File doesn't exist — create with POST
+                resp = client.post(
+                    f"/api/v1/repos/{GITEA_ADMIN_USER}/{repo_name}/contents/{file_path}",
+                    json=body,
+                    headers=self._headers(),
+                )
+            if resp.status_code // 100 != 2:
+                raise Exception(f"Failed to create file {file_path}: {resp.status_code} {resp.text}")
+            print(f"Created file {file_path} in {repo_name}")
 
     def delete_repo(self, name: str):
         with httpx.Client(base_url=self._host_url, timeout=30.0) as client:
