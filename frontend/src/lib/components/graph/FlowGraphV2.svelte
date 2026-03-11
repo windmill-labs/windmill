@@ -63,7 +63,7 @@
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import GroupOverlay from './GroupOverlay.svelte'
-	import { getGroupEditorContext, computeGroupSpacing, GROUP_HEADER_HEIGHT, GROUP_TOP_MARGIN } from './groupEditor.svelte'
+	import { getGroupEditorContext, GROUP_HEADER_HEIGHT, GROUP_TOP_MARGIN } from './groupEditor.svelte'
 	import SelectionTool from './SelectionTool.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
@@ -75,6 +75,9 @@
 	import { compoundLayout } from './compoundLayout'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
+	import { assetDisplaysAsInputInFlowGraph, assetDisplaysAsOutputInFlowGraph, NODE_WITH_READ_ASSET_Y_OFFSET, NODE_WITH_WRITE_ASSET_Y_OFFSET } from './renderers/nodes/AssetNode.svelte'
+	import { AI_TOOL_BASE_OFFSET, AI_TOOL_ROW_OFFSET, BELOW_ADDITIONAL_OFFSET } from './renderers/nodes/AIToolNode.svelte'
+	import { topologicalSort } from './graphBuilder.svelte'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { setGraphContext } from './graphContext'
 	import { computeNoteNodes } from './noteUtils.svelte'
@@ -345,15 +348,129 @@
 	type NodeDep = {
 		id: string
 		parentIds?: string[]
-		data?: { assets?: AssetWithAltAccessType[] }
+		data?: { assets?: AssetWithAltAccessType[]; module?: any }
 	}
 	type NodePos = { position: { x: number; y: number } }
-	let lastNodes: [NodeDep[], (NodeDep & NodePos)[]] | undefined = undefined
+	let lastNodes: [NodeDep[], Map<string, { top: number; bottom: number }> | undefined, (NodeDep & NodePos)[]] | undefined = undefined
 	let currentContainerDescendants: Map<string, string[]> = new Map()
 
-	function layoutNodes(nodes: NodeDep[]): (NodeDep & NodePos)[] {
-		let lastResult = lastNodes?.[1]
-		if (lastResult && deepEqual(nodes, lastNodes?.[0])) {
+	const MAX_TOOLS_PER_ROW = 2
+
+	/**
+	 * Pre-compute extra top/bottom space each node needs for decorations
+	 * (assets, AI tools, group headers, group notes).
+	 */
+	function computeNodeExtraSpace(
+		graphNodes: NodeDep[]
+	): Map<string, { top: number; bottom: number }> | undefined {
+		const extraSpace = new Map<string, { top: number; bottom: number }>()
+
+		// 1. Assets
+		if ($showAssets) {
+			for (const node of graphNodes) {
+				const assets = node.data?.assets ?? []
+				if (!assets.length) continue
+				const hasRead = assets.some(assetDisplaysAsInputInFlowGraph)
+				const hasWrite = assets.some(assetDisplaysAsOutputInFlowGraph)
+				if (hasRead || hasWrite) {
+					const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0 }
+					extraSpace.set(node.id, {
+						top: prev.top + (hasRead ? NODE_WITH_READ_ASSET_Y_OFFSET : 0),
+						bottom: prev.bottom + (hasWrite ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)
+					})
+				}
+			}
+		}
+
+		// 2. AI tools
+		for (const node of graphNodes) {
+			const mod = node.data?.module
+			if (!mod || mod.value?.type !== 'aiagent') continue
+
+			const agentActions = !insertable && flowModuleStates?.[node.id]?.agent_actions
+
+			if (agentActions) {
+				// Execution mode: tools below
+				const totalRows = Math.ceil(agentActions.length / MAX_TOOLS_PER_ROW)
+				const space = AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET * totalRows + BELOW_ADDITIONAL_OFFSET
+				const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0 }
+				extraSpace.set(node.id, { top: prev.top, bottom: prev.bottom + space })
+			} else {
+				// Edit mode: tools above
+				const tools = mod.value.tools ?? []
+				const totalRows = Math.ceil(tools.length / MAX_TOOLS_PER_ROW) + (insertable ? 1 : 0)
+				const space = AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET * totalRows
+				const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0 }
+				extraSpace.set(node.id, { top: prev.top + space, bottom: prev.bottom })
+			}
+		}
+
+		// 3. Group notes (text above topmost node in each group note)
+		if (showNotes) {
+			const groupNotes = (notes ?? []).filter((n) => n.type === 'group')
+			if (groupNotes.length > 0) {
+				const sortedNodes = topologicalSort(graphNodes).reverse()
+				for (const groupNote of groupNotes) {
+					if (!groupNote.contained_node_ids?.length) continue
+					const topmostNodeId = sortedNodes.find((node) =>
+						groupNote.contained_node_ids?.includes(node.id)
+					)?.id
+					if (topmostNodeId) {
+						const textHeight = noteTextHeights[groupNote.id] || 60
+						const spacing = textHeight + 16 // padding
+						const prev = extraSpace.get(topmostNodeId) ?? { top: 0, bottom: 0 }
+						extraSpace.set(topmostNodeId, {
+							top: Math.max(prev.top, spacing + prev.top),
+							bottom: prev.bottom
+						})
+					}
+				}
+			}
+		}
+
+		// 4. Group headers (header + note + margin above topmost node in each group)
+		const groups = groupEditorContext?.groupEditor.getGroups() ?? []
+		if (groups.length > 0) {
+			const groupNoteHeights = showNotes ? (groupEditorContext?.groupEditor.getNoteHeights() ?? {}) : {}
+			// Need to find topmost node per group - use topological sort
+			const sortedNodes = topologicalSort(graphNodes).reverse()
+			for (const group of groups) {
+				if (group.module_ids.length === 0) continue
+				// Check if it's collapsed
+				const collapsedNodeId = `collapsed-group:${group.id}`
+				const hasCollapsedNode = graphNodes.some((n) => n.id === collapsedNodeId)
+				let topmostNodeId: string | undefined
+				let isCollapsed = false
+
+				if (hasCollapsedNode) {
+					topmostNodeId = collapsedNodeId
+					isCollapsed = true
+				} else {
+					topmostNodeId = sortedNodes.find((node) =>
+						group.module_ids.includes(node.id)
+					)?.id
+				}
+
+				if (topmostNodeId) {
+					const noteHeight = groupNoteHeights[group.id] ?? 0
+					const spacing = isCollapsed
+						? GROUP_HEADER_HEIGHT + noteHeight
+						: GROUP_HEADER_HEIGHT + noteHeight + GROUP_TOP_MARGIN
+					const prev = extraSpace.get(topmostNodeId) ?? { top: 0, bottom: 0 }
+					extraSpace.set(topmostNodeId, {
+						top: prev.top + spacing,
+						bottom: prev.bottom
+					})
+				}
+			}
+		}
+
+		return extraSpace.size > 0 ? extraSpace : undefined
+	}
+
+	function layoutNodes(nodes: NodeDep[], nodeExtraSpace?: Map<string, { top: number; bottom: number }>): (NodeDep & NodePos)[] {
+		let lastResult = lastNodes?.[2]
+		if (lastResult && deepEqual(nodes, lastNodes?.[0]) && deepEqual(nodeExtraSpace, lastNodes?.[1])) {
 			console.debug('layoutNodes', 'same nodes')
 			return lastResult
 		}
@@ -366,13 +483,13 @@
 			seenId.push(n.id)
 		}
 
-		// Run recursive compound layout
+		// Run recursive compound layout with pre-computed extra space
 		const { positions, bbox, containerDescendants: layoutContainerDescendants } = compoundLayout(nodes, {
 			nodeWidth: NODE.width,
 			nodeHeight: NODE.height,
 			gapH: NODE.gap.horizontal,
 			gapV: NODE.gap.vertical
-		})
+		}, nodeExtraSpace)
 
 		// Center horizontally
 		const xCenter = (fullSize ? fullWidth : width) / 2 - bbox.width / 2 - (width - fullWidth) / 2
@@ -385,7 +502,7 @@
 		}))
 
 		currentContainerDescendants = layoutContainerDescendants ?? new Map()
-		lastNodes = [nodes, newNodes]
+		lastNodes = [nodes, nodeExtraSpace, newNodes]
 		return newNodes
 	}
 
@@ -609,17 +726,20 @@
 			return
 		}
 
-		// console.log('compute')
+		const graphNodeDeps = Object.values(graph.nodes).map((n) => ({
+			id: n.id,
+			parentIds: n.parentIds,
+			data: { assets: (n.data as any).assets, module: (n.data as any).module }
+		}))
 
-		let layoutedNodes = layoutNodes(
-			Object.values(graph.nodes).map((n) => ({
-				id: n.id,
-				parentIds: n.parentIds,
-				data: { assets: (n.data as any).assets }
-			}))
-		)
+		// Pre-compute extra space per node for assets, AI tools, group notes, group headers
+		const nodeExtraSpace = computeNodeExtraSpace(graphNodeDeps)
+
+		// Layout with extra space baked into sugiyama
+		let layoutedNodes = layoutNodes(graphNodeDeps, nodeExtraSpace)
 		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
 
+		// Compute asset visual nodes (no position remapping)
 		let assetNodesResult = $showAssets
 			? computeAssetNodes(
 					newNodes.map((n) => ({
@@ -629,25 +749,17 @@
 					}))
 				)
 			: undefined
-		if (assetNodesResult) {
-			newNodes = newNodes.map((n) => ({
-				...n,
-				position: assetNodesResult.newNodePositions[n.id]
-			}))
-		}
-		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
-		let nodesAfterAITools = newNodes.map((n) => ({
-			...n,
-			position: aiToolNodesResult.newNodePositions[n.id]
-		}))
 
-		let finalNodes = [
-			...nodesAfterAITools,
+		// Compute AI tool visual nodes (no position remapping)
+		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
+
+		let finalNodes: (Node & NodeLayout)[] = [
+			...newNodes,
 			...(assetNodesResult?.newAssetNodes ?? []),
 			...aiToolNodesResult.toolNodes
 		]
 
-		// Compute note nodes and positions
+		// Compute note nodes (no position remapping)
 		let noteNodesResult = showNotes
 			? computeNoteNodes(
 					finalNodes.map((n) => ({
@@ -668,56 +780,35 @@
 				)
 			: undefined
 
-		// Apply note positioning to nodes if notes are enabled
-		if (noteNodesResult) {
-			finalNodes = finalNodes.map((n) => ({
-				...n,
-				position: noteNodesResult.newNodePositions[n.id] || n.position
-			}))
-		}
-
-		// Apply group label spacing (pushes nodes down like group notes do)
-		const groups = groupEditorContext?.groupEditor.getGroups() ?? []
-		if (groups.length > 0) {
-			const noteHeights = showNotes ? (groupEditorContext?.groupEditor.getNoteHeights() ?? {}) : {}
-			const groupPositions = computeGroupSpacing(
-				groups,
-				finalNodes.map((n) => ({ id: n.id, position: n.position })),
-				noteHeights
-			)
-			finalNodes = finalNodes.map((n) => ({
-				...n,
-				position: groupPositions[n.id] || n.position
-			}))
-		}
-
 		// Compute group header offsets for edges targeting topmost nodes in groups
+		const groups = groupEditorContext?.groupEditor.getGroups() ?? []
 		const groupHeaderOffsets: Record<string, number> = {}
-		if (groups.length > 0) {
-			const noteHeightsForEdges = showNotes ? (groupEditorContext?.groupEditor.getNoteHeights() ?? {}) : {}
+		if (groups.length > 0 && nodeExtraSpace) {
+			// Use nodeExtraSpace directly - nodes with group headers already have the space
+			// The offset for edges equals the group header + note portion of the topPadding
+			const groupNoteHeights = showNotes ? (groupEditorContext?.groupEditor.getNoteHeights() ?? {}) : {}
+			const sortedNodes = topologicalSort(graphNodeDeps).reverse()
 			for (const group of groups) {
 				if (group.module_ids.length === 0) continue
 				const collapsedNodeId = `collapsed-group:${group.id}`
-				let topY = Infinity
+				const hasCollapsedNode = graphNodeDeps.some((n) => n.id === collapsedNodeId)
 				let topNodeId: string | undefined
 				let isCollapsed = false
-				for (const node of finalNodes) {
-					if (node.id === collapsedNodeId && node.position.y < topY) {
-						topY = node.position.y
-						topNodeId = node.id
-						isCollapsed = true
-					} else if (group.module_ids.includes(node.id) && node.position.y < topY) {
-						topY = node.position.y
-						topNodeId = node.id
-						isCollapsed = false
-					}
+
+				if (hasCollapsedNode) {
+					topNodeId = collapsedNodeId
+					isCollapsed = true
+				} else {
+					topNodeId = sortedNodes.find((node) =>
+						group.module_ids.includes(node.id)
+					)?.id
 				}
+
 				if (topNodeId) {
-					const noteHeight = noteHeightsForEdges[group.id] ?? 0
+					const noteHeight = groupNoteHeights[group.id] ?? 0
 					const offset = isCollapsed
 						? GROUP_HEADER_HEIGHT + noteHeight
 						: GROUP_HEADER_HEIGHT + noteHeight + GROUP_TOP_MARGIN
-					// Only set if larger (a node could be topmost in multiple groups theoretically)
 					groupHeaderOffsets[topNodeId] = Math.max(groupHeaderOffsets[topNodeId] ?? 0, offset)
 				}
 			}

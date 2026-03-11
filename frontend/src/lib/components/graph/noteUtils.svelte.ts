@@ -19,13 +19,11 @@ export type NodeDep = {
 
 export type NoteComputeResult = {
 	noteNodes: (Node & NodeLayout)[]
-	newNodePositions: Record<string, { x: number; y: number }>
 }
 
 export type AIToolSpacingInfo = {
 	toolNodes: (Node & NodeLayout)[]
 	toolEdges: any[]
-	newNodePositions: Record<string, { x: number; y: number }>
 }
 
 export interface GroupNoteBounds {
@@ -283,14 +281,9 @@ export function computeNoteNodes(
 
 	const allNoteNodes: (Node & NodeLayout)[] = []
 
-	// Build a map of Y positions that need extra spacing for group notes
-	const yPosMap: Record<number, number> = {} // Y position -> spacing needed
-
-	// Group notes that need spacing
+	// Find topmost node per group note for layout calculation
 	const groupNotes = notes.filter((n) => n.type === 'group')
-
 	const topMostNodesMap: Record<string, string> = {}
-
 	const sortedNodes = topologicalSort(nodes).reverse()
 
 	for (const groupNote of groupNotes) {
@@ -298,46 +291,11 @@ export function computeNoteNodes(
 			const topmostNodeId = sortedNodes.find((node) =>
 				groupNote.contained_node_ids?.includes(node.id)
 			)?.id
-			const topmostNode = nodes.find((node) => node.id === topmostNodeId)
-			if (topmostNode) {
-				const textHeight = noteTextHeights[groupNote.id] || 60
-				const spacing = textHeight + 16 // padding
-				// Mark this Y position as needing spacing
-				yPosMap[topmostNode.position.y] = Math.max(yPosMap[topmostNode.position.y] || 0, spacing)
-				topMostNodesMap[groupNote.id] = topmostNode.id
+			if (topmostNodeId) {
+				topMostNodesMap[groupNote.id] = topmostNodeId
 			}
 		}
 	}
-
-	// Calculate new positions for nodes (offset by group notes)
-	const sortedNewNodes = nodes
-		.map((n) => ({ position: { ...n.position }, id: n.id }))
-		.sort((a, b) => a.position.y - b.position.y)
-
-	let currentYOffset = 0
-	let prevYPos = NaN
-
-	for (const node of sortedNewNodes) {
-		if (node.position.y !== prevYPos) {
-			// Add spacing for group notes at this Y level
-			if (yPosMap[node.position.y]) {
-				currentYOffset += yPosMap[node.position.y]
-			}
-			prevYPos = node.position.y
-		}
-		node.position.y += currentYOffset
-	}
-
-	// Create note nodes AFTER calculating adjusted node positions
-	// For group notes, we need to use the adjusted node positions
-	const adjustedNodes = sortedNewNodes.map((n) => {
-		const origNode = nodes.find((orig) => orig.id === n.id)
-		return {
-			...n,
-			data: origNode?.data,
-			type: origNode?.type
-		}
-	})
 
 	// Calculate all z-indexes at once using hierarchy information
 	const noteZIndexes = calculateAllNoteZIndexes(notes, nodes)
@@ -346,11 +304,11 @@ export function computeNoteNodes(
 		const isGroupNote = note.type === 'group'
 		const zIndex = noteZIndexes[note.id]
 
-		// Calculate position and size using adjusted node positions for group notes
+		// Calculate position and size using node positions for group notes
 		const { position, size } = isGroupNote
 			? calculateGroupNoteLayout(
 					note,
-					adjustedNodes,
+					nodes,
 					noteTextHeights[note.id] || 60,
 					topMostNodesMap[note.id]
 				)
@@ -375,13 +333,8 @@ export function computeNoteNodes(
 		allNoteNodes.push(noteNode)
 	}
 
-	const newNodePositions: Record<string, { x: number; y: number }> = Object.fromEntries(
-		sortedNewNodes.map((n) => [n.id, n.position])
-	)
-
 	const result: NoteComputeResult = {
-		noteNodes: allNoteNodes,
-		newNodePositions
+		noteNodes: allNoteNodes
 	}
 
 	// Cache the result
