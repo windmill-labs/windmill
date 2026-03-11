@@ -251,7 +251,8 @@ async fn test_websocket_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
         "test-workspace",
         "test-user",
         "test@windmill.dev",
-        &[json!({"type": "RawMessage", "content": "hello from e2e test"})] as &[serde_json::Value],
+        &[json!({"type": "RawMessage", "content": "hello from e2e test"})]
+            as &[serde_json::Value],
     )
     .execute(&db)
     .await?;
@@ -302,9 +303,11 @@ async fn test_postgres_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
     sqlx::query("CREATE TABLE test_trigger_table (id serial PRIMARY KEY, data text)")
         .execute(&db)
         .await?;
-    sqlx::query(&format!("CREATE PUBLICATION {pub_name} FOR TABLE test_trigger_table"))
-        .execute(&db)
-        .await?;
+    sqlx::query(&format!(
+        "CREATE PUBLICATION {pub_name} FOR TABLE test_trigger_table"
+    ))
+    .execute(&db)
+    .await?;
     sqlx::query(&format!(
         "SELECT pg_create_logical_replication_slot('{slot_name}', 'pgoutput')"
     ))
@@ -313,10 +316,9 @@ async fn test_postgres_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // Extract the test DB name from the pool so the resource points here,
     // not at the main windmill database.
-    let test_db_name: String =
-        sqlx::query_scalar("SELECT current_database()")
-            .fetch_one(&db)
-            .await?;
+    let test_db_name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&db)
+        .await?;
 
     insert_resource(
         &db,
@@ -455,6 +457,23 @@ async fn test_kafka_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
     let job = poll_for_trigger_job(&db2, script_path, "kafka", Duration::from_secs(30)).await?;
     produce_handle.abort();
     assert!(job.args.is_some(), "job should have args");
+
+    // Verify trigger_info contains partition and offset
+    let args = job.args.unwrap().0;
+    if let Some(wm_trigger) = args.get("wm_trigger") {
+        assert!(
+            wm_trigger.get("partition").is_some(),
+            "wm_trigger should contain partition"
+        );
+        assert!(
+            wm_trigger.get("offset").is_some(),
+            "wm_trigger should contain offset"
+        );
+        assert!(
+            wm_trigger.get("topic").is_some(),
+            "wm_trigger should contain topic"
+        );
+    }
 
     Ok(())
 }

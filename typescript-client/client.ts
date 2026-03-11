@@ -9,6 +9,7 @@ import {
   MetricsService,
   OidcService,
   UserService,
+  KafkaTriggerService,
 } from "./services.gen";
 import { OpenAPI } from "./core/OpenAPI";
 // import type { DenoS3LightClientSettings } from "./index";
@@ -1864,5 +1865,31 @@ export async function parallel<T, R>(
     results.push(...batchResults);
   }
   return results;
+}
+
+/**
+ * Commit Kafka offsets for a trigger with auto_commit disabled.
+ *
+ * Use this in scripts triggered by Kafka triggers that have auto_commit=false.
+ * The topic, partition, and offset values are available in the preprocessor
+ * event payload under wm_trigger.
+ *
+ * @param triggerPath - Path of the Kafka trigger
+ * @param topic - Kafka topic name (from wm_trigger.topic)
+ * @param partition - Partition number (from wm_trigger.partition)
+ * @param offset - Message offset to commit (from wm_trigger.offset)
+ */
+export async function commitKafkaOffsets(
+  triggerPath: string,
+  topic: string,
+  partition: number,
+  offset: number,
+): Promise<void> {
+  const workspace = getWorkspace();
+  await KafkaTriggerService.commitKafkaOffsets({
+    workspace,
+    path: triggerPath,
+    requestBody: { topic, partition, offset },
+  });
 }
 

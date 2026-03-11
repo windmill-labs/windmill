@@ -5,6 +5,8 @@
 	import SchemaForm from '../../SchemaForm.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { Alert } from '$lib/components/common'
 	import { workspaceStore } from '$lib/stores'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import TestingBadge from '../testingBadge.svelte'
@@ -16,6 +18,7 @@
 		kafkaResourcePath?: string
 		kafkaCfg?: Record<string, any>
 		autoOffsetReset?: string
+		autoCommit?: boolean
 		can_write?: boolean
 		showTestingBadge?: boolean
 	}
@@ -26,6 +29,7 @@
 		kafkaResourcePath = $bindable(''),
 		kafkaCfg = $bindable({}),
 		autoOffsetReset = $bindable('latest'),
+		autoCommit = $bindable(true),
 		can_write = true,
 		showTestingBadge = false
 	}: Props = $props()
@@ -122,6 +126,25 @@
 						disabled={!can_write}
 					/>
 				</Label>
+			</div>
+
+			<div class="block grow w-full">
+				<Label label="Auto-commit offsets">
+					{#snippet header()}
+						<span class="text-2xs text-tertiary ml-2">
+							Automatically commit offsets after receiving each message
+						</span>
+					{/snippet}
+					<Toggle
+						bind:checked={autoCommit}
+						disabled={!can_write}
+					/>
+				</Label>
+				{#if !autoCommit}
+					<Alert title="Manual commit mode" type="warning" size="xs" class="mt-2">
+						Offsets will not be committed automatically. You must call the commit_offsets API from your script using the topic, partition, and offset from the event payload. Messages will be re-delivered if offsets are not committed.
+					</Alert>
+				{/if}
 			</div>
 		</div>
 	</Section>

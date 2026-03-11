@@ -1,0 +1,1 @@
+ALTER TABLE kafka_trigger ADD COLUMN auto_commit BOOLEAN NOT NULL DEFAULT TRUE;

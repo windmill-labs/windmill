@@ -87,6 +87,7 @@
 	let kafkaResourcePath = $state('')
 	let kafkaCfg: Record<string, any> = $state({})
 	let autoOffsetReset = $state('latest')
+	let autoCommit = $state(true)
 	let deploymentLoading = $state(false)
 	let resetLoading = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
@@ -176,6 +177,7 @@
 				topics: nDefaultValues?.topics ?? ['']
 			}
 			autoOffsetReset = nDefaultValues?.auto_offset_reset ?? 'latest'
+			autoCommit = nDefaultValues?.auto_commit ?? true
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
@@ -207,6 +209,7 @@
 			topics: cfg?.topics
 		}
 		autoOffsetReset = cfg?.auto_offset_reset ?? 'latest'
+		autoCommit = cfg?.auto_commit ?? true
 		mode = cfg?.mode ?? 'enabled'
 		extra_perms = cfg?.extra_perms
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
@@ -240,6 +243,7 @@
 			topics: kafkaCfg.topics,
 			filters,
 			auto_offset_reset: autoOffsetReset,
+			auto_commit: autoCommit,
 			mode,
 			extra_perms: extra_perms,
 			error_handler_path,
@@ -482,6 +486,7 @@
 				bind:kafkaResourcePath
 				bind:kafkaCfg
 				bind:autoOffsetReset
+				bind:autoCommit
 				{path}
 				{can_write}
 				showTestingBadge={isEditor}
