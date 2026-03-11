@@ -328,6 +328,11 @@ pub async fn initial_load(
         reload_request_size(&conn).await;
         reload_saml_metadata_setting(&conn).await;
         reload_scim_token_setting(&conn).await;
+
+        // Ensure audit partitions exist before any requests arrive
+        if let Some(db) = conn.as_sql() {
+            manage_audit_partitions(&db, audit_log_retention_days().await).await;
+        }
     }
 
     if worker_mode {
