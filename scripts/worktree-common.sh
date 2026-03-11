@@ -202,9 +202,9 @@ wm_shared_post_create() {
   local main_repo_root
 
   main_repo_root="$(wm_main_repo_root "$repo_root")"
+  wm_allow_direnv "$repo_root"
   wm_setup_database "$repo_root" "${repo_root}/.env.local"
   wm_copy_dependencies "$repo_root" "$main_repo_root"
-  wm_allow_direnv "$repo_root"
   wm_trust_claude "$repo_root"
   wm_setup_ee_worktree "$repo_root" "$main_repo_root"
 }

@@ -316,7 +316,11 @@ pub async fn set_global_setting_internal(
              )
              .execute(db)
              .await?;
-            tracing::info!("Set global setting {} to {}", key, v);
+            tracing::info!(
+                "Set global setting {} to {}",
+                key,
+                instance_config::format_setting_value(&key, &v)
+            );
         }
     };
 
@@ -799,11 +803,7 @@ async fn list_custom_instance_pg_databases(
     return Ok(Json(result));
 }
 
-async fn refresh_custom_instance_user_pwd(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-) -> JsonResult<()> {
-    require_super_admin(&db, &authed.email).await?;
+pub async fn refresh_custom_instance_user_pwd_inner(db: &DB) -> Result<()> {
     // 20251208123907_safety_custom_instance_db_user_pwd.up
     let query = r#"
     DO $$
@@ -811,7 +811,7 @@ async fn refresh_custom_instance_user_pwd(
             pwd text;
         BEGIN
             SELECT gen_random_uuid()::text INTO pwd;
-            
+
             IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user') THEN
                 EXECUTE format('ALTER USER custom_instance_user WITH PASSWORD %L', pwd);
                 RAISE NOTICE 'Updated password for existing user custom_instance_user';
@@ -836,7 +836,16 @@ async fn refresh_custom_instance_user_pwd(
         END
         $$;
     "#;
-    sqlx::query(query).execute(&db).await?;
+    sqlx::query(query).execute(db).await?;
+    Ok(())
+}
+
+async fn refresh_custom_instance_user_pwd(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<()> {
+    require_super_admin(&db, &authed.email).await?;
+    refresh_custom_instance_user_pwd_inner(&db).await?;
     Ok(Json(()))
 }
 

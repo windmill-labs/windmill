@@ -339,7 +339,7 @@ async fn fetch_authed_from_permissioned_as_inner(
                 if let Some(r) = r {
                     (r.is_admin, r.operator)
                 } else {
-                    return Err(Error::internal_err(format!(
+                    return Err(Error::NotFound(format!(
                         "user {name} not found in workspace {w_id}"
                     )));
                 }

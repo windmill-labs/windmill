@@ -16,6 +16,7 @@ import type { DBSchema, GraphqlSchema, SQLSchema } from '$lib/stores'
 import { stringifyGraphqlSchema, stringifySchema } from '$lib/components/copilot/lib'
 import type { DbType } from '$lib/components/dbTypes'
 import { getDatabaseArg } from '$lib/components/dbOps'
+import { sendUserToast } from '$lib/toast'
 
 export async function loadTableMetaData(
 	input: DbInput,
@@ -95,7 +96,8 @@ export async function loadAllTablesMetaData(
 
 		return map
 	} catch (e) {
-		throw new Error('Error loading all tables metadata: ' + e)
+		sendUserToast('Error loading tables metadata: ' + e, 'error')
+		throw e
 	}
 }
 

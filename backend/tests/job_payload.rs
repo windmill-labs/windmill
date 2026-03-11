@@ -1,16 +1,16 @@
 mod job_payload {
     use serde_json::json;
     use sqlx::{Pool, Postgres};
+    use windmill_common::flow_status::RestartedFrom;
     use windmill_common::flows::{FlowModule, FlowModuleValue, FlowValue};
     use windmill_common::jobs::JobPayload;
     use windmill_common::scripts::{ScriptHash, ScriptLang};
-    use windmill_common::flow_status::RestartedFrom;
 
-    use windmill_test_utils::*;
     use windmill_common::min_version::{
         MIN_VERSION, MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432,
         MIN_VERSION_IS_AT_LEAST_1_440,
     };
+    use windmill_test_utils::*;
 
     pub async fn initialize_tracing() {
         use std::sync::Once;
@@ -305,7 +305,7 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow".to_string(),
                 dedicated_worker: None,
                 version: 1443253234253454,
-            debouncing_settings: Default::default(),
+                debouncing_settings: Default::default(),
             })
             .run_until_complete(&db, false, port)
             .await
@@ -766,6 +766,258 @@ mod job_payload {
             ]),
         )
         .await;
+        Ok(())
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_dedicated_worker_preprocessor_bun(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let test = || async {
+            let db = &db;
+            let job = RunJob::from(JobPayload::ScriptHash {
+                hash: ScriptHash(123414),
+                path: "f/system/hello_preprocessor_dedicated_bun".to_string(),
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                dedicated_worker: None,
+                language: ScriptLang::Bun,
+                priority: None,
+                apply_preprocessor: true,
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettings::default(),
+                debouncing_settings:
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
+            })
+            .arg("foo", json!("hello"))
+            .arg("bar", json!("world"))
+            .run_until_complete_with(db, false, port, |id| async move {
+                let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+                assert_eq!(job.preprocessed, Some(false));
+            })
+            .await;
+
+            let args = job.args.as_ref().unwrap();
+            assert_eq!(args.get("foo"), Some(&json!("hello_preprocessed")));
+            assert_eq!(args.get("bar"), Some(&json!("world_preprocessed")));
+            assert_eq!(
+                job.json_result().unwrap(),
+                json!("Hello hello_preprocessed world_preprocessed")
+            );
+            let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", job.id)
+                .fetch_one(db)
+                .await
+                .unwrap();
+            assert_eq!(job.preprocessed, Some(true));
+        };
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
+        Ok(())
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_dedicated_worker_preprocessor_python(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let test = || async {
+            let db = &db;
+            let job = RunJob::from(JobPayload::ScriptHash {
+                hash: ScriptHash(123415),
+                path: "f/system/hello_preprocessor_dedicated_python".to_string(),
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                dedicated_worker: None,
+                language: ScriptLang::Python3,
+                priority: None,
+                apply_preprocessor: true,
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettings::default(),
+                debouncing_settings:
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
+            })
+            .arg("foo", json!("hello"))
+            .arg("bar", json!("world"))
+            .run_until_complete_with(db, false, port, |id| async move {
+                let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+                assert_eq!(job.preprocessed, Some(false));
+            })
+            .await;
+
+            let args = job.args.as_ref().unwrap();
+            assert_eq!(args.get("foo"), Some(&json!("hello_preprocessed")));
+            assert_eq!(args.get("bar"), Some(&json!("world_preprocessed")));
+            assert_eq!(
+                job.json_result().unwrap(),
+                json!("Hello hello_preprocessed world_preprocessed")
+            );
+            let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", job.id)
+                .fetch_one(db)
+                .await
+                .unwrap();
+            assert_eq!(job.preprocessed, Some(true));
+        };
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
+        Ok(())
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_dedicated_worker_preprocessor_deno(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let test = || async {
+            let db = &db;
+            let job = RunJob::from(JobPayload::ScriptHash {
+                hash: ScriptHash(123416),
+                path: "f/system/hello_preprocessor_dedicated_deno".to_string(),
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                dedicated_worker: None,
+                language: ScriptLang::Deno,
+                priority: None,
+                apply_preprocessor: true,
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettings::default(),
+                debouncing_settings:
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
+            })
+            .arg("foo", json!("hello"))
+            .arg("bar", json!("world"))
+            .run_until_complete_with(db, false, port, |id| async move {
+                let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+                assert_eq!(job.preprocessed, Some(false));
+            })
+            .await;
+
+            let args = job.args.as_ref().unwrap();
+            assert_eq!(args.get("foo"), Some(&json!("hello_preprocessed")));
+            assert_eq!(args.get("bar"), Some(&json!("world_preprocessed")));
+            assert_eq!(
+                job.json_result().unwrap(),
+                json!("Hello hello_preprocessed world_preprocessed")
+            );
+            let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", job.id)
+                .fetch_one(db)
+                .await
+                .unwrap();
+            assert_eq!(job.preprocessed, Some(true));
+        };
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
+        Ok(())
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_bunnative_preprocessor(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let test = || async {
+            let db = &db;
+            let job = RunJob::from(JobPayload::ScriptHash {
+                hash: ScriptHash(123417),
+                path: "f/system/hello_preprocessor_bunnative".to_string(),
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                dedicated_worker: None,
+                language: ScriptLang::Bunnative,
+                priority: None,
+                apply_preprocessor: true,
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettings::default(),
+                debouncing_settings:
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
+            })
+            .arg("foo", json!("hello"))
+            .arg("bar", json!("world"))
+            .run_until_complete_with(db, false, port, |id| async move {
+                let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+                assert_eq!(job.preprocessed, Some(false));
+            })
+            .await;
+
+            let args = job.args.as_ref().unwrap();
+            assert_eq!(args.get("foo"), Some(&json!("hello_preprocessed")));
+            assert_eq!(args.get("bar"), Some(&json!("world_preprocessed")));
+            assert_eq!(
+                job.json_result().unwrap(),
+                json!("Hello hello_preprocessed world_preprocessed")
+            );
+            let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", job.id)
+                .fetch_one(db)
+                .await
+                .unwrap();
+            assert_eq!(job.preprocessed, Some(true));
+        };
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
+        Ok(())
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_dedicated_worker_preprocessor_bunnative(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let test = || async {
+            let db = &db;
+            let job = RunJob::from(JobPayload::ScriptHash {
+                hash: ScriptHash(123418),
+                path: "f/system/hello_preprocessor_dedicated_bunnative".to_string(),
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                dedicated_worker: None,
+                language: ScriptLang::Bunnative,
+                priority: None,
+                apply_preprocessor: true,
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettings::default(),
+                debouncing_settings:
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
+            })
+            .arg("foo", json!("hello"))
+            .arg("bar", json!("world"))
+            .run_until_complete_with(db, false, port, |id| async move {
+                let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+                assert_eq!(job.preprocessed, Some(false));
+            })
+            .await;
+
+            let args = job.args.as_ref().unwrap();
+            assert_eq!(args.get("foo"), Some(&json!("hello_preprocessed")));
+            assert_eq!(args.get("bar"), Some(&json!("world_preprocessed")));
+            assert_eq!(
+                job.json_result().unwrap(),
+                json!("Hello hello_preprocessed world_preprocessed")
+            );
+            let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", job.id)
+                .fetch_one(db)
+                .await
+                .unwrap();
+            assert_eq!(job.preprocessed, Some(true));
+        };
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
 }

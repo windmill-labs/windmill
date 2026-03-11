@@ -15,6 +15,10 @@ lifecycleHooks:
   postCreate: bash ./scripts/post-create.sh
   preRemove: bash ./scripts/pre-remove.sh
 
+auto_name:
+  provider: claude
+  model: haiku
+
 # Each service defines a port env var that webmux injects into pane and agent
 # process environments when creating a worktree. Ports are auto-assigned:
 # base + (slot x step).
@@ -29,9 +33,21 @@ services:
     portStep: 10
 
 profiles:
-  default:
+  full:
     runtime: host
+    yolo: true
     envPassthrough: []
+    systemPrompt: >
+      You are running inside a tmux session with other panes running services.
+      Pane layout (current window):
+      - Pane 0: this pane (claude agent)
+      - Pane 1: backend (cargo watch -x run)
+      - Pane 2: frontend (npm run dev)
+      To check logs, use: \`tmux capture-pane -t .1 -p -S -50\` (backend) or \`tmux capture-pane -t .2 -p -S -50\` (frontend).
+      When restarting backend or frontend, make sure to use ${BACKEND_PORT} and ${FRONTEND_PORT}.
+      To connect to the database, use this connection string: ${DATABASE_URL}
+      Because we are running backend with cargo watch, to verify your changes, just check the logs in the backend pane. No need for cargo check.
+      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
     panes:
       - id: agent
         kind: agent
@@ -39,14 +55,51 @@ profiles:
       - id: backend
         kind: command
         split: right
-        command: ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/backend" && PORT=${BACKEND_PORT:-8000} cargo watch -x "run ${CARGO_FEATURES:+--features $CARGO_FEATURES}"
+        command: ROOT="$(git rev-parse --show-toplevel)"; cd "$ROOT/backend" && PORT=${BACKEND_PORT:-8000} cargo watch -x "run ${CARGO_FEATURES:+--features $CARGO_FEATURES}"
       - id: frontend
         kind: command
         split: bottom
-        command: ROOT="$(git rev-parse --show-toplevel)"; [ -f "$ROOT/.env.local" ] && source "$ROOT/.env.local"; cd "$ROOT/frontend" && npm run generate-backend-client && REMOTE=${REMOTE:-http://localhost:${BACKEND_PORT:-8000}} npm run dev -- --port ${FRONTEND_PORT:-3000} --host 0.0.0.0
+        command: ROOT="$(git rev-parse --show-toplevel)"; cd "$ROOT/frontend" && npm run generate-backend-client && REMOTE=${REMOTE:-http://localhost:${BACKEND_PORT:-8000}} npm run dev -- --port ${FRONTEND_PORT:-3000} --host 0.0.0.0
+        
+  frontendOnly:
+    runtime: host
+    yolo: true
+    envPassthrough: []
+    systemPrompt: >
+      You are running inside a tmux session with other panes running services.
+      Pane layout (current window):
+      - Pane 0: this pane (claude agent)
+      - Pane 1: frontend (npm run dev)
+      To check logs, use: \`tmux capture-pane -t .1 -p -S -50\` (frontend).
+      When restarting frontend, make sure to use ${FRONTEND_PORT}.
+      To connect to the database, use this connection string: ${DATABASE_URL}
+      Because we are running frontend with npm run dev, to verify your changes, just check the logs in the frontend pane. No need for npm run build.
+      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
+    panes:
+      - id: agent
+        kind: agent
+        focus: true
+      - id: frontend
+        kind: command
+        split: right
+        command: ROOT="$(git rev-parse --show-toplevel)"; cd "$ROOT/frontend" && npm run generate-backend-client && npm run dev -- --port ${FRONTEND_PORT:-3000} --host 0.0.0.0
+
+  agentOnly:
+    runtime: host
+    yolo: true
+    envPassthrough: []
+    systemPrompt: >
+      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
+    panes:
+      - id: agent
+        kind: agent
+        focus: true
 
 integrations:
   github:
-    linkedRepos: []
+    linkedRepos:
+      - repo: windmill-labs/windmill-ee-private
+        alias: ee-private
+        dir: ../windmill-ee-private__worktrees
   linear:
     enabled: true
