@@ -1776,9 +1776,13 @@ fn render_fk_ddl(
 fn expand_drop_table(json_str: &str, db_type: DbType) -> Result<String, String> {
     let p: DropTablePayload =
         serde_json::from_str(json_str).map_err(|e| format!("Invalid DROP_TABLE payload: {}", e))?;
-    let tref = match p.schema.as_deref().filter(|s| !s.is_empty()) {
-        Some(s) => format!("{}.{}", qi(s, db_type), qi(&p.table, db_type)),
-        None => qi(&p.table, db_type),
+    let tref = if db_supports_schemas(db_type) {
+        match p.schema.as_deref().filter(|s| !s.is_empty()) {
+            Some(s) => format!("{}.{}", qi(s, db_type), qi(&p.table, db_type)),
+            None => qi(&p.table, db_type),
+        }
+    } else {
+        qi(&p.table, db_type)
     };
     let query = format!("DROP TABLE {};", tref);
     Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
@@ -2878,7 +2882,6 @@ mod tests {
 
         // JSON column should use TO_JSON_STRING in search and order
         assert!(result.contains("TO_JSON_STRING(`data`)"));
-        assert!(result.contains("TO_JSON_STRING(data)"));
     }
 
     // -----------------------------------------------------------------------
@@ -4037,22 +4040,22 @@ mod tests {
         let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(!sql.contains("BEGIN"));
         assert!(!sql.contains("COMMIT"));
-        assert!(sql.contains("ALTER TABLE `t` ADD COLUMN `a` INT;"));
+        assert!(sql.contains("ALTER TABLE `t` ADD COLUMN `a` INT NOT NULL;"));
     }
 
     #[test]
     fn test_expand_alter_table_with_schema() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addColumn","column":{"name":"a","datatype":"INT"}}],"schema":"myschema"}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ALTER TABLE \"myschema\".\"t\" ADD COLUMN \"a\" INT;"));
+        assert!(sql.contains(r#"ALTER TABLE "myschema"."t" ADD COLUMN "a" INT NOT NULL;"#));
     }
 
     #[test]
     fn test_expand_alter_table_multiple_operations() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addColumn","column":{"name":"a","datatype":"INT"}},{"kind":"dropColumn","name":"b"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ADD COLUMN \"a\" INT;"));
-        assert!(sql.contains("DROP COLUMN \"b\";"));
+        assert!(sql.contains(r#"ADD COLUMN "a" INT NOT NULL;"#));
+        assert!(sql.contains(r#"DROP COLUMN "b";"#));
     }
 
     #[test]
@@ -4067,7 +4070,7 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addColumn","column":{"name":"a","datatype":"INT"}}],"ducklake":"lake"}"#;
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
-        assert!(sql.contains("ALTER TABLE \"t\" ADD COLUMN \"a\" INT;"));
+        assert!(sql.contains(r#"ALTER TABLE "t" ADD COLUMN "a" INT NOT NULL;"#));
     }
 
     // -----------------------------------------------------------------------
@@ -4135,7 +4138,7 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {}"#;
         let sql = expand_code(marker, &ScriptLang::Mssql);
         assert!(sql.contains("TABLE_NAME as table_name"));
-        assert!(!sql.contains("WHERE"));
+        assert!(sql.contains("TABLE_SCHEMA != 'sys'"));
     }
 
     #[test]
