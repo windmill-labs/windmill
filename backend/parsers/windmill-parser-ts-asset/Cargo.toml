@@ -1,12 +1,11 @@
 [package]
-name = "windmill-parser-ts"
+name = "windmill-parser-ts-asset"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
-
 [lib]
-name = "windmill_parser_ts"
+name = "windmill_parser_ts_asset"
 path = "./src/lib.rs"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -15,12 +14,10 @@ serde-wasm-bindgen.workspace = true
 
 [dependencies]
 windmill-parser.workspace = true
+windmill-parser-sql-asset.workspace = true
 swc_common.workspace = true
 triomphe.workspace = true
 swc_ecma_parser.workspace = true
 swc_ecma_ast.workspace = true
 swc_ecma_visit.workspace = true
-serde_json.workspace = true
 anyhow.workspace = true
-regex.workspace = true
-lazy_static.workspace = true
