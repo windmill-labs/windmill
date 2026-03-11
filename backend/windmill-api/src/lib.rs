@@ -64,7 +64,6 @@ use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
 
 mod ai;
-mod google;
 mod apps;
 pub mod args;
 mod audit;
@@ -77,6 +76,7 @@ mod bedrock;
 mod capture;
 mod concurrency_groups;
 mod db;
+mod google;
 
 mod drafts;
 #[cfg(feature = "private")]
@@ -98,6 +98,7 @@ mod indexer_oss;
 mod inkeep_ee;
 mod inkeep_oss;
 mod integration;
+mod internal_db;
 mod live_migrations;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
@@ -539,6 +540,7 @@ pub async fn run_server(
                         .nest("/groups", groups::workspaced_service())
                         .nest("/groups_history", group_history::workspaced_service())
                         .nest("/inputs", windmill_api_inputs::workspaced_service())
+                        .nest("/internal_db", internal_db::workspaced_service())
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())

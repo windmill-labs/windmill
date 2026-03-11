@@ -188,12 +188,15 @@ async function fetchSnowflakePrimaryKeys(
 	dbArg: any,
 	tableKey?: string
 ): Promise<SnowflakeShowPrimaryKeysResult[]> {
+	const payload: Record<string, unknown> = {}
+	if (tableKey) payload.table = tableKey
+	const content = makeMetadataMarker('SNOWFLAKE_PRIMARY_KEYS', payload, undefined)
 	return (await JobService.runScriptPreviewAndWaitResult({
 		workspace,
 		requestBody: {
 			language: 'snowflake',
 			args: dbArg,
-			content: tableKey ? `SHOW PRIMARY KEYS IN TABLE ${tableKey}` : 'SHOW PRIMARY KEYS IN ACCOUNT'
+			content
 		}
 	})) as SnowflakeShowPrimaryKeysResult[]
 }

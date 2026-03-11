@@ -250,6 +250,7 @@ pub fn try_expand_internal_db_query(
         "PRIMARY_KEY_CONSTRAINT" => {
             expand_primary_key_constraint(json_str, db_type).map(ExpandedQuery::sql)
         }
+        "SNOWFLAKE_PRIMARY_KEYS" => expand_snowflake_primary_keys(json_str).map(ExpandedQuery::sql),
         _ => Err(format!("Unknown WM_INTERNAL_DB operation: {}", op)),
     };
 
@@ -578,7 +579,7 @@ pub fn make_select_query(
 
             query.push_str(&format!("SELECT {} FROM {}", select_clause, table));
             query.push_str(&format!(
-                " WHERE {}{}",
+                " WHERE {} {}",
                 where_clause
                     .map(|wc| format!("{} AND", wc))
                     .unwrap_or_default(),
@@ -644,9 +645,9 @@ pub fn make_select_query(
                 table
             ));
             query.push_str(&format!(
-                " WHERE {}{}\n",
+                " WHERE {} {}\n",
                 where_clause
-                    .map(|wc| format!("{} AND ", wc))
+                    .map(|wc| format!("{} AND", wc))
                     .unwrap_or_default(),
                 quicksearch
             ));
@@ -697,7 +698,7 @@ pub fn make_select_query(
 
             query.push_str(&format!("SELECT {} FROM {}", select_clause, table));
             query.push_str(&format!(
-                " WHERE {}{}",
+                " WHERE {} {}",
                 where_clause
                     .map(|wc| format!("{} AND", wc))
                     .unwrap_or_default(),
@@ -760,7 +761,7 @@ pub fn make_select_query(
 
             query.push_str(&format!("SELECT {} FROM {}", select_clause, table));
             query.push_str(&format!(
-                " WHERE {}{}",
+                " WHERE {} {}",
                 where_clause
                     .map(|wc| format!("{} AND", wc))
                     .unwrap_or_default(),
@@ -797,9 +798,9 @@ pub fn make_select_query(
                 table
             ));
             query.push_str(&format!(
-                " WHERE {}{}\n",
+                " WHERE {} {}\n",
                 where_clause
-                    .map(|wc| format!("{} AND ", wc))
+                    .map(|wc| format!("{} AND", wc))
                     .unwrap_or_default(),
                 quicksearch
             ));
@@ -1602,7 +1603,7 @@ fn render_column_ddl(c: &TableEditorColumn, db_type: DbType, pk_modifier: bool) 
         .map(|s| format_default_value(s, &datatype, db_type));
 
     let mut s = format!("{} {}", c.name, datatype);
-    if c.nullable == Some(false) {
+    if c.nullable != Some(true) {
         s.push_str(" NOT NULL");
     }
     if let Some(ref d) = def_val {
@@ -1649,12 +1650,12 @@ fn render_fk_ddl(
         .chain(std::iter::once(target_table.as_str()))
         .chain(target_cols.iter().map(|c| &c[..c.len().min(10)]))
         .collect();
-    let constraint_name = name_parts.join("_").replace('.', "_");
-    let constraint_name = &constraint_name[..constraint_name.len().min(60)];
-    sql.push_str(&format!("fk_{} ", constraint_name));
+    let full_name = format!("fk_{} ", name_parts.join("_").replace('.', "_"));
+    let truncated = &full_name[..full_name.len().min(60)];
+    sql.push_str(truncated);
 
     sql.push_str(&format!(
-        "FOREIGN KEY ({}) REFERENCES {} ({})",
+        " FOREIGN KEY ({}) REFERENCES {} ({})",
         source_cols.join(", "),
         target_table,
         target_cols.join(", ")
@@ -1670,10 +1671,13 @@ fn render_fk_ddl(
 
 // --- Schema DDL expand functions ---
 
-fn expand_drop_table(json_str: &str, db_type: DbType) -> Result<String, String> {
+fn expand_drop_table(json_str: &str, _db_type: DbType) -> Result<String, String> {
     let p: DropTablePayload =
         serde_json::from_str(json_str).map_err(|e| format!("Invalid DROP_TABLE payload: {}", e))?;
-    let tref = table_ref(&p.table, p.schema.as_deref(), db_type);
+    let tref = match p.schema.as_deref().filter(|s| !s.is_empty()) {
+        Some(s) => format!("{}.{}", s, p.table),
+        None => p.table.clone(),
+    };
     let query = format!("DROP TABLE {};", tref);
     Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
 }
@@ -2189,15 +2193,15 @@ WHERE table_schema = current_schema()",
         DbType::Mysql => {
             let db_name = database_name.unwrap_or("");
             let table_filter = if let Some(t) = table {
-                let parts: Vec<&str> = t.rsplitn(2, '.').collect();
-                let tname = parts[0];
-                let schema = if parts.len() > 1 { parts[1] } else { db_name };
+                let parts: Vec<&str> = t.split('.').collect();
+                let tname = parts[parts.len() - 1];
+                let schema = if parts.len() > 1 { parts[0] } else { db_name };
                 format!(
                     "\nWHERE\n    TABLE_NAME = '{}' AND TABLE_SCHEMA = '{}'",
                     tname, schema
                 )
             } else {
-                "\nWHERE\n    TABLE_SCHEMA NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys')".to_string()
+                "\nWHERE\n    TABLE_SCHEMA NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')".to_string()
             };
             let extra_col = if table.is_none() {
                 ",\n    TABLE_NAME as table_name"
@@ -2211,9 +2215,9 @@ WHERE table_schema = current_schema()",
         }
         DbType::Postgresql => {
             let (where_clause, extra_cols, joins, order) = if let Some(t) = table {
-                let parts: Vec<&str> = t.rsplitn(2, '.').collect();
-                let tname = parts[0];
-                let schema = if parts.len() > 1 { parts[1] } else { "public" };
+                let parts: Vec<&str> = t.split('.').collect();
+                let tname = parts[parts.len() - 1];
+                let schema = if parts.len() > 1 { parts[0] } else { "public" };
                 (
                     format!(
                         "\nWHERE a.attrelid = (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid WHERE relname = '{}' AND ns.nspname = '{}')\n    AND a.attnum > 0 AND NOT a.attisdropped",
@@ -2240,7 +2244,7 @@ WHERE table_schema = current_schema()",
             let table_filter = if let Some(t) = table {
                 format!("\nWHERE\n    c.TABLE_NAME = '{}'", t)
             } else {
-                String::new()
+                "\nWHERE\n    c.TABLE_SCHEMA != 'sys'".to_string()
             };
             let extra_col = if table.is_none() {
                 ",\n    c.TABLE_NAME as table_name"
@@ -2254,9 +2258,9 @@ WHERE table_schema = current_schema()",
         }
         DbType::Snowflake => {
             let table_filter = if let Some(t) = table {
-                let parts: Vec<&str> = t.rsplitn(2, '.').collect();
-                let tname = parts[0];
-                let schema = if parts.len() > 1 { parts[1] } else { "PUBLIC" };
+                let parts: Vec<&str> = t.split('.').collect();
+                let tname = parts[parts.len() - 1];
+                let schema = if parts.len() > 1 { parts[0] } else { "PUBLIC" };
                 format!(
                     "\nwhere table_name = '{}' and table_schema = '{}'",
                     tname, schema
@@ -2342,18 +2346,33 @@ fn expand_primary_key_constraint(json_str: &str, db_type: DbType) -> Result<Stri
     Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
 }
 
+#[derive(Deserialize)]
+struct SnowflakePrimaryKeysPayload {
+    table: Option<String>,
+}
+
+fn expand_snowflake_primary_keys(json_str: &str) -> Result<String, String> {
+    let p: SnowflakePrimaryKeysPayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid SNOWFLAKE_PRIMARY_KEYS payload: {}", e))?;
+    match p.table {
+        Some(table) => Ok(format!("SHOW PRIMARY KEYS IN TABLE {}", table)),
+        None => Ok("SHOW PRIMARY KEYS IN ACCOUNT".to_string()),
+    }
+}
+
 fn make_foreign_keys_query(
     db_type: DbType,
     table: &str,
     default_schema: Option<&str>,
 ) -> Result<String, String> {
-    let parts: Vec<&str> = table.rsplitn(2, '.').collect();
-    let table_name = parts[0];
+    let parts: Vec<&str> = table.split('.').collect();
+    let table_name = parts[parts.len() - 1];
     let schema_name = if parts.len() > 1 {
-        parts[1]
+        parts[0]
     } else {
         default_schema.unwrap_or(match db_type {
-            DbType::Postgresql | DbType::Duckdb => "public",
+            DbType::Postgresql => "public",
+            DbType::Duckdb => "main",
             DbType::Mysql => "",
             DbType::MsSqlServer => "dbo",
             DbType::Snowflake => "PUBLIC",
@@ -2401,13 +2420,14 @@ fn make_primary_key_constraint_query(
     table: &str,
     default_schema: Option<&str>,
 ) -> Result<String, String> {
-    let parts: Vec<&str> = table.rsplitn(2, '.').collect();
-    let table_name = parts[0];
+    let parts: Vec<&str> = table.split('.').collect();
+    let table_name = parts[parts.len() - 1];
     let schema_name = if parts.len() > 1 {
-        parts[1]
+        parts[0]
     } else {
         default_schema.unwrap_or(match db_type {
-            DbType::Postgresql | DbType::Duckdb => "public",
+            DbType::Postgresql => "public",
+            DbType::Duckdb => "main",
             DbType::Mysql => "",
             DbType::MsSqlServer => "dbo",
             DbType::Snowflake => "PUBLIC",
@@ -4182,5 +4202,23 @@ mod tests {
             r#"-- WM_INTERNAL_DB_PRIMARY_KEY_CONSTRAINT {"table":"users","ducklake":"lake"}"#;
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
+    }
+
+    // -----------------------------------------------------------------------
+    // SNOWFLAKE_PRIMARY_KEYS
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_expand_snowflake_primary_keys_single_table() {
+        let marker = r#"-- WM_INTERNAL_DB_SNOWFLAKE_PRIMARY_KEYS {"table":"MY_SCHEMA.MY_TABLE"}"#;
+        let sql = expand_code(marker, &ScriptLang::Snowflake);
+        assert_eq!(sql, "SHOW PRIMARY KEYS IN TABLE MY_SCHEMA.MY_TABLE");
+    }
+
+    #[test]
+    fn test_expand_snowflake_primary_keys_all() {
+        let marker = r#"-- WM_INTERNAL_DB_SNOWFLAKE_PRIMARY_KEYS {}"#;
+        let sql = expand_code(marker, &ScriptLang::Snowflake);
+        assert_eq!(sql, "SHOW PRIMARY KEYS IN ACCOUNT");
     }
 }
