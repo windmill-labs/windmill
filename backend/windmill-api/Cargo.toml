@@ -63,6 +63,7 @@ windmill-object-store.workspace = true
 windmill-audit.workspace = true
 windmill-parser.workspace = true
 windmill-parser-sql.workspace = true
+windmill-parser-sql-asset.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-py = { workspace = true, optional = true }
 windmill-parser-py-imports = { workspace = true, optional = true }

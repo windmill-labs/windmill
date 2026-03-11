@@ -187,28 +187,28 @@ pub fn parse_ruby(code: &str) -> String {
     wrap_sig(windmill_parser_ruby::parse_ruby_signature(code))
 }
 
-#[cfg(feature = "sql-parser")]
+#[cfg(feature = "asset-parser")]
 #[wasm_bindgen]
 pub fn parse_assets_sql(code: &str) -> String {
-    match windmill_parser_sql::parse_assets(code) {
+    match windmill_parser_sql_asset::parse_assets(code) {
         Ok(r) => serde_json::to_string(&r).unwrap(),
         Err(err) => format!("err: {:?}", err),
     }
 }
 
-#[cfg(feature = "ts-parser")]
+#[cfg(feature = "asset-parser")]
 #[wasm_bindgen]
 pub fn parse_assets_ts(code: &str) -> String {
-    match windmill_parser_ts::parse_assets(code) {
+    match windmill_parser_ts_asset::parse_assets(code) {
         Ok(r) => serde_json::to_string(&r).unwrap(),
         Err(err) => format!("err: {:?}", err),
     }
 }
 
-#[cfg(feature = "py-parser")]
+#[cfg(feature = "asset-parser")]
 #[wasm_bindgen]
 pub fn parse_assets_py(code: &str) -> String {
-    match windmill_parser_py::parse_assets(code) {
+    match windmill_parser_py_asset::parse_assets(code) {
         Ok(r) => serde_json::to_string(&r).unwrap(),
         Err(err) => format!("err: {:?}", err),
     }
