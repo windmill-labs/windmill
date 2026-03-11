@@ -116,7 +116,6 @@
 	let creatingSlot: boolean = $state(false)
 	let creatingPublication: boolean = $state(false)
 	let pg14: boolean = $derived(postgresVersion.startsWith('14'))
-	let advancedCollapsed = $state(true)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
@@ -855,7 +854,7 @@
 				</div>
 			</Section>
 
-			<Section label="Advanced" collapsable bind:collapsed={advancedCollapsed}>
+			<Section label="Advanced" collapsable>
 				{#snippet header()}
 					<TriggerAdvancedBadges {error_handler_path} {retry} />
 				{/snippet}

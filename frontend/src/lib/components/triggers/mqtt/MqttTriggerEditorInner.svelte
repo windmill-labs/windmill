@@ -105,7 +105,6 @@
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 
-	let advancedCollapsed = $state(true)
 	let optionTabSelected: 'connection_options' | 'error_handler' | 'retries' =
 		$state('connection_options')
 
@@ -470,7 +469,7 @@
 				showTestingBadge={isEditor}
 			/>
 
-			<Section label="Advanced" collapsable bind:collapsed={advancedCollapsed}>
+			<Section label="Advanced" collapsable>
 				{#snippet header()}
 					<TriggerAdvancedBadges {error_handler_path} {retry} extraBadges={[
 						{ name: 'Custom Client ID', active: !!client_id },

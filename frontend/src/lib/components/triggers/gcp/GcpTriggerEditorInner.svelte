@@ -60,7 +60,6 @@
 	let base_endpoint = $derived(`${window.location.origin}${base}`)
 	let auto_acknowledge_msg = $state(true)
 	let ack_deadline: number | undefined = $state()
-	let advancedCollapsed = $state(true)
 	let optionTabSelected: 'settings' | 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
@@ -453,7 +452,7 @@
 				showTestingBadge={isEditor}
 			/>
 
-			<Section label="Advanced" collapsable bind:collapsed={advancedCollapsed}>
+			<Section label="Advanced" collapsable>
 				{#snippet header()}
 					<TriggerAdvancedBadges {error_handler_path} {retry} extraBadges={[
 						{ name: 'Manual Ack', active: !auto_acknowledge_msg }

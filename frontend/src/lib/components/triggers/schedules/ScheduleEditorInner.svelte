@@ -54,7 +54,6 @@
 		trigger = undefined
 	} = $props()
 
-	let advancedCollapsed = $state(true)
 	let optionTabSelected:
 		| 'error_handler'
 		| 'recovery_handler'
@@ -912,7 +911,7 @@
 				</div>
 			</Section>
 
-			<Section label="Advanced" collapsable bind:collapsed={advancedCollapsed}>
+			<Section label="Advanced" collapsable>
 				{#snippet header()}
 					<TriggerAdvancedBadges error_handler_path={errorHandlerPath} {retry} extraBadges={[
 						{ name: 'Recovery Handler', active: !!recoveryHandlerPath },

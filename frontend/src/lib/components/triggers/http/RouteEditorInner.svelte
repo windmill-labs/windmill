@@ -122,7 +122,6 @@
 	let drawer = $state<Drawer | undefined>(undefined)
 	let initialConfig: NewHttpTrigger | undefined = undefined
 	let deploymentLoading = $state(false)
-	let advancedCollapsed = $state(true)
 	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 
@@ -696,7 +695,7 @@
 			/>
 
 			{#if !is_static_website}
-				<Section label="Advanced" collapsable bind:collapsed={advancedCollapsed}>
+				<Section label="Advanced" collapsable>
 					{#snippet header()}
 						<TriggerAdvancedBadges {error_handler_path} {retry} extraBadges={[
 							{ name: 'Async', active: request_type === 'async' },

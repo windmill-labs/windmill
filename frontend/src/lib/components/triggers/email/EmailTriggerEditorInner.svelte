@@ -75,7 +75,6 @@
 	let drawer = $state<Drawer | undefined>(undefined)
 	let initialConfig: NewEmailTrigger | undefined = undefined
 	let deploymentLoading = $state(false)
-	let advancedCollapsed = $state(true)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 
@@ -371,7 +370,7 @@
 				isDraftOnly={trigger ? trigger.isDraft : false}
 			/>
 
-			<Section label="Advanced" collapsable bind:collapsed={advancedCollapsed}>
+			<Section label="Advanced" collapsable>
 				{#snippet header()}
 					<TriggerAdvancedBadges {error_handler_path} {retry} />
 				{/snippet}

@@ -106,7 +106,6 @@
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 	let isValid = $state(false)
-	let advancedCollapsed = $state(true)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
@@ -687,7 +686,7 @@
 				</div>
 			</Section>
 
-			<Section label="Advanced" collapsable bind:collapsed={advancedCollapsed}>
+			<Section label="Advanced" collapsable>
 				{#snippet header()}
 					<TriggerAdvancedBadges {error_handler_path} {retry} extraBadges={[
 						{ name: 'Filters', active: filters.length > 0 }
