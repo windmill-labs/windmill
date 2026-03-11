@@ -146,7 +146,7 @@ jobs:
           SQLX_OFFLINE: true
           CARGO_BUILD_JOBS: 12
         run: |
-          cargo build --features enterprise
+          cargo build --features enterprise,private,license,zip
 
       - name: Start Gitea
         run: |
@@ -190,6 +190,7 @@ jobs:
         timeout-minutes: 10
         env:
           GITEA_DOCKER_URL: http://localhost:3000
+          LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
         run: |
           python3 -m venv .venv
           .venv/bin/pip install -r integration_tests/requirements.txt
