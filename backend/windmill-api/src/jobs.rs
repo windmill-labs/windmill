@@ -4851,7 +4851,7 @@ pub struct RunDependenciesRequest {
     /// Map of script path -> content hash for resolving imports from temp storage.
     /// Used by CLI to provide local script content during lock generation.
     #[serde(default)]
-    pub dependency_tree: Option<HashMap<String, String>>,
+    pub temp_script_refs: Option<HashMap<String, String>>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -4911,7 +4911,7 @@ async fn run_dependencies_job(
     let mut hm = HashMap::new();
     req.raw_workspace_dependencies
         .map(|v| hm.insert("raw_workspace_dependencies".to_owned(), to_raw_value(&v)));
-    req.dependency_tree
+    req.temp_script_refs
         .map(|v| hm.insert("dependency_tree".to_owned(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
@@ -4964,7 +4964,7 @@ pub struct RunFlowDependenciesRequest {
     #[serde(default)]
     pub raw_deps: Option<HashMap<String, String>>,
     #[serde(default)]
-    pub dependency_tree: Option<HashMap<String, String>>,
+    pub temp_script_refs: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize)]
@@ -5008,8 +5008,8 @@ async fn run_flow_dependencies_job(
     req.raw_workspace_dependencies
         .map(|v| args_map.insert("raw_workspace_dependencies".to_string(), to_raw_value(&v)));
 
-    // Add dependency_tree to args if present (for CLI local import resolution)
-    req.dependency_tree
+    // Add temp_script_refs to args if present (for CLI local import resolution)
+    req.temp_script_refs
         .map(|v| args_map.insert("dependency_tree".to_string(), to_raw_value(&v)));
 
     let (uuid, tx) = push(

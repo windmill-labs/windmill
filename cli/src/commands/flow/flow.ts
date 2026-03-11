@@ -272,6 +272,9 @@ async function generateLocks(
   } & SyncOptions,
   folder: string | undefined
 ) {
+  log.warn(
+    colors.yellow('This command is deprecated. Use "wmill generate-metadata" instead.')
+  );
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);

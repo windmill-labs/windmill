@@ -29,6 +29,8 @@ async function generateMetadata(
   opts: GlobalOptions & {
     yes?: boolean;
     dryRun?: boolean;
+    lockOnly?: boolean;
+    schemaOnly?: boolean;
   } & SyncOptions
 ) {
   const workspace = await resolveWorkspace(opts);
@@ -159,10 +161,12 @@ async function generateMetadata(
   log.info("Stale items to update:");
   for (const remotePath of staleScripts) {
     const language = tree.getLanguage(remotePath);
-    log.info(colors.green(`+ [script] ${remotePath} (${language})`));
+    const reason = tree.getStaleReason(remotePath);
+    log.info(colors.green(`+ [script] ${remotePath} (${language}) - ${reason}`));
   }
   for (const flowFolder of staleFlows) {
-    log.info(colors.yellow(`+ [flow] ${flowFolder}`));
+    const reason = tree.getStaleReason(flowFolder);
+    log.info(colors.yellow(`+ [flow] ${flowFolder} - ${reason}`));
   }
 
   if (opts.dryRun) {
@@ -222,6 +226,8 @@ const command = new Command()
   .description("Generate metadata (locks, schemas) for all scripts and flows")
   .option("--yes", "Skip confirmation prompt")
   .option("--dry-run", "Perform a dry run without making changes")
+  .option("--lock-only", "Re-generate only the lock files")
+  .option("--schema-only", "Re-generate only script schemas")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which files to include"

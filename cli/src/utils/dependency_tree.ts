@@ -35,6 +35,7 @@ interface DependencyNode {
   metadata: string;
   imports: Set<string>;
   importedBy: Set<string>;
+  staleReason?: string;
 }
 
 export class DoubleLinkedDependencyTree {
@@ -103,11 +104,21 @@ export class DoubleLinkedDependencyTree {
     return this.nodes.get(path)?.metadata;
   }
 
+  getStaleReason(path: string): string | undefined {
+    return this.nodes.get(path)?.staleReason;
+  }
+
   /**
    * Mutates the tree by removing all nodes that are not stale.
    * Uses BFS on reverse graph (importedBy) to find all stale scripts.
    */
   propagateStaleness(directlyStale: Set<string>): void {
+    // Mark directly stale scripts
+    for (const path of directlyStale) {
+      const node = this.nodes.get(path);
+      if (node) node.staleReason = "content changed";
+    }
+
     const allStale = new Set(directlyStale);
     const queue = [...directlyStale];
     const visited = new Set<string>();
@@ -124,6 +135,9 @@ export class DoubleLinkedDependencyTree {
         if (!allStale.has(importer)) {
           allStale.add(importer);
           queue.push(importer);
+          // Set reason for transitively stale scripts
+          const importerNode = this.nodes.get(importer);
+          if (importerNode) importerNode.staleReason = `depends on ${scriptPath}`;
         }
       }
     }
