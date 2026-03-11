@@ -72,6 +72,9 @@ profiles:
 
 integrations:
   github:
-    linkedRepos: []
+    linkedRepos:
+      - repo: windmill-labs/windmill-ee-private
+        alias: ee-private
+        dir: ../windmill-ee-private__worktrees
   linear:
     enabled: true
