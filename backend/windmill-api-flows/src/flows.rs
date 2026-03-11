@@ -1793,6 +1793,7 @@ mod tests {
                     skip_if: None,
                     apply_preprocessor: None,
                     pass_flow_input_directly: None,
+                    debouncing: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1826,6 +1827,7 @@ mod tests {
                     skip_if: None,
                     apply_preprocessor: None,
                     pass_flow_input_directly: None,
+                    debouncing: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -1859,6 +1861,7 @@ mod tests {
                     skip_if: None,
                     apply_preprocessor: None,
                     pass_flow_input_directly: None,
+                    debouncing: None,
                 },
             ],
             failure_module: Some(Box::new(FlowModule {
@@ -1891,6 +1894,7 @@ mod tests {
                 skip_if: None,
                 apply_preprocessor: None,
                 pass_flow_input_directly: None,
+                debouncing: None,
             })),
             preprocessor_module: None,
             same_worker: false,
