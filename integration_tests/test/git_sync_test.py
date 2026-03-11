@@ -502,6 +502,10 @@ class TestGitSync(unittest.TestCase):
             any(new_name in f for f in files2),
             f"Expected new script '{new_name}' in repo: {files2}",
         )
+        self.assertFalse(
+            any(old_name in f for f in files2),
+            f"Expected old script '{old_name}' to be removed: {files2}",
+        )
 
     # ──────────────────────────────────────────────────
     # Promotion mode (individual branches)
