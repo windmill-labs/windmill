@@ -102,10 +102,27 @@
 				const noteHeight = getGroupNoteHeight(group.id)
 				const topPadding = GROUP_HEADER_HEIGHT + noteHeight + GROUP_TOP_MARGIN
 				const halfHeader = GROUP_HEADER_HEIGHT / 2
+				// Find the topmost node's center x to symmetrize the bounding box
+				let topNodeCenterX = (minX + maxX) / 2
+				let topNodeY = Infinity
+				for (const id of group.module_ids) {
+					const node = allNodes.find((n) => n.id === id)
+					if (node && node.position.y < topNodeY) {
+						topNodeY = node.position.y
+						const w = node.measured?.width ?? 275
+						topNodeCenterX = node.position.x + w / 2
+					}
+				}
+				// Symmetrize: extend both sides equally from the top node's center
+				const distLeft = topNodeCenterX - minX + padding
+				const distRight = maxX - topNodeCenterX + padding
+				const halfWidth = Math.max(distLeft, distRight)
+				const symX = topNodeCenterX - halfWidth
+				const symWidth = halfWidth * 2
 				map[group.id] = {
-					x: minX - padding,
+					x: symX,
 					y: minY - topPadding + halfHeader,
-					width: maxX - minX + 2 * padding,
+					width: symWidth,
 					height: maxY - minY + topPadding - halfHeader + padding,
 					headerY: minY - topPadding
 				}
