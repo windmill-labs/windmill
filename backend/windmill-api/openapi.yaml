@@ -12017,15 +12017,14 @@ paths:
         "200":
           description: kafka trigger offsets reset successfully
 
-  /w/{workspace}/kafka_triggers/commit_offsets/{path}:
+  /w/{workspace}/kafka_triggers/commit_offsets:
     post:
-      summary: commit kafka offsets for a trigger
+      summary: commit kafka offsets (must be called from a job triggered by a kafka trigger)
       operationId: commitKafkaOffsets
       tags:
         - kafka_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
       requestBody:
         description: offsets to commit
         required: true

@@ -1869,18 +1869,13 @@ export async function parallel<T, R>(
 
 /**
  * Commit Kafka offsets for a trigger with auto_commit disabled.
- *
- * Use this in scripts triggered by Kafka triggers that have auto_commit=false.
- * The topic, partition, and offset values are available in the preprocessor
- * event payload under wm_trigger.
- *
- * @param triggerPath - Path of the Kafka trigger
- * @param topic - Kafka topic name (from wm_trigger.topic)
- * @param partition - Partition number (from wm_trigger.partition)
- * @param offset - Message offset to commit (from wm_trigger.offset)
+ * Must be called from within a job triggered by a Kafka trigger.
+ * The trigger is automatically inferred from the job token.
+ * @param topic - Kafka topic name (from event.topic)
+ * @param partition - Partition number (from event.partition)
+ * @param offset - Message offset to commit (from event.offset)
  */
 export async function commitKafkaOffsets(
-  triggerPath: string,
   topic: string,
   partition: number,
   offset: number,
@@ -1888,7 +1883,6 @@ export async function commitKafkaOffsets(
   const workspace = getWorkspace();
   await KafkaTriggerService.commitKafkaOffsets({
     workspace,
-    path: triggerPath,
     requestBody: { topic, partition, offset },
   });
 }

@@ -265,13 +265,13 @@ export declare function uint8ArrayToBase64(arrayBuffer: Uint8Array): string;
 export declare function usernameToEmail(username: string): Promise<string>;
 /**
  * Commit Kafka offsets for a trigger with auto_commit disabled.
- * @param triggerPath - Path of the Kafka trigger
- * @param topic - Kafka topic name (from wm_trigger.topic)
- * @param partition - Partition number (from wm_trigger.partition)
- * @param offset - Message offset to commit (from wm_trigger.offset)
+ * Must be called from within a job triggered by a Kafka trigger.
+ * The trigger is automatically inferred from the job token.
+ * @param topic - Kafka topic name (from event.topic)
+ * @param partition - Partition number (from event.partition)
+ * @param offset - Message offset to commit (from event.offset)
  */
 export declare function commitKafkaOffsets(
-  triggerPath: string,
   topic: string,
   partition: number,
   offset: number,
