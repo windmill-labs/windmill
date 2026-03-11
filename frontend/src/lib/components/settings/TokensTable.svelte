@@ -40,7 +40,12 @@
 
 	function isUserToken(label: string | undefined): boolean {
 		if (!label) return true
-		return label !== 'session' && !label.toLowerCase().startsWith('ephemeral')
+		return (
+			label !== 'session' &&
+			!label.toLowerCase().startsWith('ephemeral') &&
+			label !== 'debugger-token' &&
+			!label.startsWith('mcp-oauth-')
+		)
 	}
 
 	function daysUntilExpiration(expiration: string | undefined): number | null {
