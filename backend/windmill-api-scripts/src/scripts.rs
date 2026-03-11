@@ -2412,26 +2412,16 @@ async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
 // Temporary Raw Script Storage for CLI Lock Generation
 // ============================================================================
 
-#[derive(Deserialize)]
-struct StoreRawScriptTempRequest {
-    content: String,
-}
-
-#[derive(Serialize)]
-struct StoreRawScriptTempResponse {
-    hash: String,
-}
-
 /// Store raw script content temporarily for CLI lock generation.
 async fn store_raw_script_temp(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(req): Json<StoreRawScriptTempRequest>,
-) -> Result<Json<StoreRawScriptTempResponse>> {
+    Json(content): Json<String>,
+) -> Result<Json<String>> {
     check_scopes(&authed, || "scripts:write".to_string())?;
 
-    let hash = windmill_common::cache::raw_script_temp::compute_hash(&w_id, &req.content);
+    let hash = windmill_common::cache::raw_script_temp::compute_hash(&w_id, &content);
 
     // Store to DB
     sqlx::query!(
@@ -2440,7 +2430,7 @@ async fn store_raw_script_temp(
          ON CONFLICT (workspace_id, hash) DO UPDATE SET created_at = NOW()",
         &w_id,
         &hash,
-        &req.content
+        &content
     )
     .execute(&db)
     .await?;
@@ -2452,5 +2442,5 @@ async fn store_raw_script_temp(
     .execute(&db)
     .await?;
 
-    Ok(Json(StoreRawScriptTempResponse { hash }))
+    Ok(Json(hash))
 }

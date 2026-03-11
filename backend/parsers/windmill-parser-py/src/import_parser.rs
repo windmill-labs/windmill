@@ -277,7 +277,7 @@ fn process_import(module: Option<String>, path: &str, level: usize) -> Option<Py
 }
 
 /// Parse Python code and extract all imports
-pub fn parse_python_imports(code: &str, path: &str) -> anyhow::Result<Vec<PythonImport>> {
+pub fn parse_code_for_imports(code: &str, path: &str) -> anyhow::Result<Vec<PythonImport>> {
     // Remove everything after main function definition to avoid parsing errors
     let mut code = DEF_MAIN_RE
         .split(code)
@@ -341,7 +341,7 @@ pub fn parse_python_imports(code: &str, path: &str) -> anyhow::Result<Vec<Python
 
 /// Parse Python code and return only the relative imports (local script references)
 pub fn parse_relative_imports(code: &str, path: &str) -> anyhow::Result<Vec<String>> {
-    let imports = parse_python_imports(code, path)?;
+    let imports = parse_code_for_imports(code, path)?;
     Ok(imports
         .into_iter()
         .filter_map(|x| match x {

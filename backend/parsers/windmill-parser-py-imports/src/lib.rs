@@ -489,30 +489,36 @@ async fn parse_python_imports_inner(
     for n in nimports.into_iter() {
         let mut nested = match n {
             NImport::Relative(rpath) => {
-                // First check if the path is in dependency_tree (local/modified scripts from CLI)
-                let code = if let Some(hash) = dependency_tree.as_ref().and_then(|dt| dt.get(&rpath)) {
+                // First try to get content from dependency_tree cache if available
+                let code_from_cache = if let Some(hash) = dependency_tree.as_ref().and_then(|dt| dt.get(&rpath)) {
                     tracing::debug!("Found relative import '{}' in dependency_tree with hash '{}'", rpath, hash);
-                    // Fetch from raw_script_temp using the cache abstraction
                     match windmill_common::cache::raw_script_temp::load(hash.clone(), db).await {
-                        Ok(content) => content,
+                        Ok(content) => Some(content),
                         Err(e) => {
                             tracing::warn!("dependency_tree hash '{}' not found in cache: {}, falling back to deployed script", hash, e);
-                            "".to_string()
+                            None
                         }
                     }
                 } else {
-                    // Fall back to deployed script from script table
-                    sqlx::query_scalar!(
-                        r#"
-                    SELECT content FROM script WHERE path = $1 AND workspace_id = $2
-                    AND archived = false ORDER BY created_at DESC LIMIT 1
-                    "#,
-                        &rpath,
-                        w_id
-                    )
-                    .fetch_optional(db)
-                    .await?
-                    .unwrap_or_else(|| "".to_string())
+                    None
+                };
+
+                // Use cached content if available, otherwise fall back to deployed script
+                let code = match code_from_cache {
+                    Some(content) => content,
+                    None => {
+                        sqlx::query_scalar!(
+                            r#"
+                        SELECT content FROM script WHERE path = $1 AND workspace_id = $2
+                        AND archived = false ORDER BY created_at DESC LIMIT 1
+                        "#,
+                            &rpath,
+                            w_id
+                        )
+                        .fetch_optional(db)
+                        .await?
+                        .unwrap_or_else(|| "".to_string())
+                    }
                 };
 
                 if already_visited.contains(&rpath) {

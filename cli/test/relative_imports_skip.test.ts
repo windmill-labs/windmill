@@ -315,3 +315,61 @@ def main():
     });
   },
 });
+
+// =============================================================================
+// Test 5: Dependency propagation - pinned dep in leaf should appear in importer's lock
+// =============================================================================
+
+Deno.test({
+  name: "Relative imports: pinned dependency in leaf propagates to importer lock",
+  ignore: false,
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await addWorkspace({
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "dep_ws",
+        token: backend.token ?? ""
+      }, { force: true, configDir: backend.testConfigDir });
+
+      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `includes: ["**"]
+excludes: []`);
+
+      await ensureDir(`${tempDir}/f/test`);
+
+      // Python: main imports helper, helper has a pinned pip dependency
+      const mainPy = `from f.test.helper import helper_func
+
+def main():
+    return helper_func()
+`;
+      const helperPy = `import tiny
+
+def helper_func():
+    return tiny.__version__
+`;
+
+      await Deno.writeTextFile(`${tempDir}/f/test/main.py`, mainPy);
+      await Deno.writeTextFile(`${tempDir}/f/test/main.script.yaml`, defaultMetadata);
+      await Deno.writeTextFile(`${tempDir}/f/test/helper.py`, helperPy);
+      await Deno.writeTextFile(`${tempDir}/f/test/helper.script.yaml`, defaultMetadata);
+
+      // Run generate-metadata (not dry-run) to generate locks
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "-i", "f/test/*", "--yes"],
+        tempDir, "dep_ws"
+      );
+      assertEquals(result.code, 0, `generate-metadata failed: ${result.stderr}\n${result.stdout}`);
+
+      // Read the generated lock files
+      const lockMain = await Deno.readTextFile(`${tempDir}/f/test/main.script.lock`).catch(() => "");
+      const lockHelper = await Deno.readTextFile(`${tempDir}/f/test/helper.script.lock`).catch(() => "");
+
+      // Both should have tiny in their lock
+      assertStringIncludes(lockHelper, "tiny", `helper should have tiny in lock: ${lockHelper}`);
+      assertStringIncludes(lockMain, "tiny", `main should have tiny in lock (from imported helper): ${lockMain}`);
+    });
+  },
+});

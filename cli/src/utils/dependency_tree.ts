@@ -18,11 +18,11 @@ export async function uploadScripts(
   for (const path of tree.allPaths()) {
     const content = tree.getContent(path);
     if (content) {
-      const result = await wmill.storeRawScriptTemp({
+      const hash = await wmill.storeRawScriptTemp({
         workspace: workspace.workspaceId,
-        requestBody: { content },
+        requestBody: content,
       });
-      tree.setContentHash(path, result.hash);
+      tree.setContentHash(path, hash);
     }
   }
 }

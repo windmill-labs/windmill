@@ -6795,24 +6795,14 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - content
-              properties:
-                content:
-                  type: string
+              type: string
       responses:
         "200":
           description: hash of stored content
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - hash
-                properties:
-                  hash:
-                    type: string
+                type: string
 
   /w/{workspace}/jobs/list_selected_job_groups:
     # We use post because sending a huge array as a query param can produce
