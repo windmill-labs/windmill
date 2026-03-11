@@ -251,8 +251,8 @@
 		movingIds = undefined
 	}: Props = $props()
 
-	// Runtime state for expanded containers (collapsed by default)
-	let expandedContainers = $state<Set<string>>(new Set())
+	// Runtime state for collapsed containers (expanded by default)
+	let collapsedContainers = $state<Set<string>>(new Set())
 
 	// Initialize note manager with fine-grained reactivity
 	const noteManager = new NoteManager(
@@ -438,10 +438,10 @@
 			groupEditorContext?.groupEditor.expandGroup(groupId)
 		},
 		expandContainer: (moduleId: string) => {
-			expandedContainers = new Set([...expandedContainers, moduleId])
+			collapsedContainers = new Set([...collapsedContainers].filter((id) => id !== moduleId))
 		},
 		collapseContainer: (moduleId: string) => {
-			expandedContainers = new Set([...expandedContainers].filter((id) => id !== moduleId))
+			collapsedContainers = new Set([...collapsedContainers, moduleId])
 		},
 		updateMock: (detail) => {
 			onUpdateMock?.(detail)
@@ -852,7 +852,7 @@
 			triggerNode ? path : undefined,
 			expandedSubflows,
 			collapsedGroups,
-			expandedContainers,
+			collapsedContainers,
 			showNotes
 		)
 	})

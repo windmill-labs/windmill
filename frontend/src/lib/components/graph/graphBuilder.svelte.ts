@@ -412,7 +412,7 @@ export function graphBuilder(
 		collapsed?: boolean
 		module_ids: string[]
 	}>,
-	expandedContainers: Set<string>,
+	collapsedContainers: Set<string>,
 	showNotes: boolean
 	// triggerProps?: {
 	// 	path?: string
@@ -738,7 +738,7 @@ export function graphBuilder(
 						module.value.type === 'branchone' ||
 						module.value.type === 'forloopflow' ||
 						module.value.type === 'whileloopflow'
-					if (isContainer && !expandedContainers.has(module.id)) {
+					if (isContainer && collapsedContainers.has(module.id)) {
 						const containerModules = getContainerModules(module)
 						addNode(module, { isCollapsedContainer: true, containerModules })
 
