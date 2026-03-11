@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 import time
 import unittest
@@ -117,6 +118,7 @@ class TestGitSync(unittest.TestCase):
         """Clone the repo to a temp dir and return the path."""
         host_url = self._gitea.get_host_clone_url(repo_name)
         tmp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp_dir, ignore_errors=True)
         args = {}
         if branch:
             args["branch"] = branch
@@ -127,6 +129,7 @@ class TestGitSync(unittest.TestCase):
         """Clone the repo fetching all branches."""
         host_url = self._gitea.get_host_clone_url(repo_name)
         tmp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp_dir, ignore_errors=True)
         gitpython.Repo.clone_from(host_url, tmp_dir, no_single_branch=True)
         return tmp_dir
 
@@ -713,6 +716,12 @@ gitBranches:
         # Only 1 sync job expected (the excluded one should not trigger)
         self._client.wait_for_sync_jobs(initial_count, min_new=1)
         time.sleep(5)
+        # Verify no extra sync jobs arrived for the excluded script
+        final_count = self._client.count_deployment_callback_jobs()
+        self.assertEqual(
+            final_count, initial_count + 1,
+            f"Expected exactly 1 new sync job, got {final_count - initial_count}",
+        )
 
         repo_dir = self._clone_repo(repo_name)
         files = self._list_repo_files(repo_dir)

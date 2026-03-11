@@ -483,6 +483,7 @@ class WindmillClient:
     def wait_for_sync_jobs(self, initial_count: int, min_new: int = 1, timeout: int = 90) -> list:
         """Poll completed DeploymentCallback jobs until count increases by min_new."""
         start = time.time()
+        current_count = initial_count
         while time.time() - start < timeout:
             jobs = self.get_completed_jobs(job_kinds="deploymentcallback")
             current_count = len(jobs)

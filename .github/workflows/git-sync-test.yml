@@ -168,6 +168,7 @@ jobs:
             fi
             sleep 2
           done
+          curl -sf http://localhost:3000/api/v1/version > /dev/null || { echo "Gitea failed to start"; exit 1; }
 
       - name: Start Windmill
         working-directory: ./backend
@@ -187,6 +188,7 @@ jobs:
             fi
             sleep 2
           done
+          curl -sf http://localhost:8000/api/version > /dev/null || { echo "Windmill failed to start"; exit 1; }
 
       - name: Run git sync E2E tests
         timeout-minutes: 10
