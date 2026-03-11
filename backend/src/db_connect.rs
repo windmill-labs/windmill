@@ -98,7 +98,7 @@ pub async fn connect(
     use sqlx::Executor;
     use std::time::Duration;
     let mut pool_options = sqlx::postgres::PgPoolOptions::new()
-        .min_connections((max_connections / 5).clamp(1, max_connections))
+        .min_connections(0)
         .max_connections(max_connections)
         .max_lifetime(Duration::from_secs(30 * 60)); // 30 mins
     if worker_mode {
