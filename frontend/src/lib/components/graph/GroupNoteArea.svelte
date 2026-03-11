@@ -16,9 +16,15 @@
 		$props()
 
 	let editing = $state(false)
+	let editHeight = $state(0)
 	let textContent = $state('')
 	let textareaElement: HTMLTextAreaElement | undefined = $state(undefined)
 	let containerElement: HTMLDivElement | undefined = $state(undefined)
+
+	function autoResize(el: HTMLTextAreaElement) {
+		el.style.height = 'auto'
+		el.style.height = el.scrollHeight + 'px'
+	}
 
 	let noteColorConfig = $derived(
 		color ? (NOTE_COLORS[color as NoteColor] ?? NOTE_COLORS[NoteColor.BLUE]) : NOTE_COLORS[NoteColor.BLUE]
@@ -50,10 +56,14 @@
 
 	function handleDoubleClick() {
 		if (!editMode) return
+		editHeight = containerElement?.clientHeight ?? 0
 		editing = true
 		textContent = note
 		requestAnimationFrame(() => {
-			textareaElement?.focus()
+			if (textareaElement) {
+				autoResize(textareaElement)
+				textareaElement.focus()
+			}
 		})
 	}
 
@@ -76,25 +86,26 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	bind:this={containerElement}
-	class="nodrag nopan nowheel {collapsed ? 'mx-px' : 'w-full rounded-b-md'}"
+	class="nodrag nopan {collapsed ? 'mx-px' : 'w-full rounded-b-md'}"
 >
 	<div class="{collapsed ? '' : 'w-full rounded-b-md'}">
 	{#if editing}
 		<textarea
 			bind:this={textareaElement}
 			bind:value={textContent}
-			class="w-full shadow-none resize-none text-2xs overflow-y-auto border-none bg-transparent p-2 nodrag nopan nowheel focus:outline-none {noteColorConfig.text}"
+			class="w-full shadow-none resize-none !text-2xs overflow-y-auto border-none bg-transparent p-1 nodrag nopan nowheel focus:outline-none select-text {noteColorConfig.text}"
+			style:max-height="max({editHeight}px, 4lh)"
+			oninput={() => textareaElement && autoResize(textareaElement)}
 			placeholder="Write a note (markdown supported)"
 			onblur={handleSave}
 			onkeydown={handleKeydown}
 			onpointerdown={stopPropagation(() => {})}
 			spellcheck="false"
-			rows="3"
 		></textarea>
 	{:else if note}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="w-full text-2xs break-words overflow-hidden p-2 {noteColorConfig.text}"
+			class="w-full text-2xs break-words overflow-hidden p-2 select-text {noteColorConfig.text} {editMode ? 'cursor-pointer' : ''}"
 			ondblclick={editMode ? stopPropagation(preventDefault(handleDoubleClick)) : undefined}
 			onpointerdown={editMode ? stopPropagation(() => {}) : undefined}
 		>
@@ -103,7 +114,7 @@
 	{:else}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="text-2xs italic opacity-60 p-2 {noteColorConfig.text}"
+			class="text-2xs italic opacity-60 p-2 {noteColorConfig.text} {editMode ? 'cursor-pointer' : ''}"
 			ondblclick={editMode ? stopPropagation(preventDefault(handleDoubleClick)) : undefined}
 			onpointerdown={editMode ? stopPropagation(() => {}) : undefined}
 		>

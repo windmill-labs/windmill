@@ -167,6 +167,7 @@ export class GroupEditor {
 	/** Remove a note from a group */
 	removeNote(groupId: string): void {
 		this.updateNote(groupId, undefined)
+		this.setNoteHeight(groupId, 0)
 	}
 
 	updateCollapsedDefault(groupId: string, collapsed_by_default: boolean): void {
