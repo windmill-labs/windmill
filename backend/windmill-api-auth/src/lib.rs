@@ -581,6 +581,9 @@ pub async fn create_token_internal(
 }
 
 /// Insert a pending expiry notification row for user tokens that have an expiration.
+/// When updating this filter, also update:
+/// - `is_user_token` in src/monitor.rs
+/// - `isUserToken` in frontend/src/lib/components/settings/TokensTable.svelte
 pub async fn register_token_expiry_notification(
     tx: &mut sqlx::PgConnection,
     token: &str,

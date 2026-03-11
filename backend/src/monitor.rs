@@ -873,6 +873,9 @@ struct TokenRow {
     workspace_id: Option<String>,
 }
 
+/// When updating this filter, also update:
+/// - `register_token_expiry_notification` in windmill-api-auth/src/lib.rs
+/// - `isUserToken` in frontend/src/lib/components/settings/TokensTable.svelte
 fn is_user_token(label: Option<&str>) -> bool {
     match label {
         None => true,
