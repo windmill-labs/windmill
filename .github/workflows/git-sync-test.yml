@@ -1,6 +1,7 @@
 name: Git Sync Integration Tests
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
