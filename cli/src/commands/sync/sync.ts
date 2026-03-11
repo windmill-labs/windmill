@@ -600,6 +600,26 @@ function ZipFSElement(
                 undefined, // pathAssigner - let it create one
                 { skipInlineScriptSuffix: getNonDottedPaths() },
               );
+              if (flow.value.failure_module) {
+                inlineScripts.push(...extractInlineScriptsForFlows(
+                  [flow.value.failure_module],
+                  {},
+                  SEP,
+                  defaultTs,
+                  undefined,
+                  { skipInlineScriptSuffix: getNonDottedPaths() },
+                ));
+              }
+              if (flow.value.preprocessor_module) {
+                inlineScripts.push(...extractInlineScriptsForFlows(
+                  [flow.value.preprocessor_module],
+                  {},
+                  SEP,
+                  defaultTs,
+                  undefined,
+                  { skipInlineScriptSuffix: getNonDottedPaths() },
+                ));
+              }
             } catch (error) {
               log.error(
                 `Failed to extract inline scripts for flow at path: ${p}`,

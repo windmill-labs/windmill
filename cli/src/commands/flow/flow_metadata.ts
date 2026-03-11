@@ -121,14 +121,21 @@ export async function generateFlowLockInternal(
     }
 
     log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
+    const fileReader = async (path: string) => await readFile(folder + SEP + path, "utf-8");
     await replaceInlineScripts(
       flowValue.value.modules,
-      async (path: string) => await readFile(folder + SEP + path, "utf-8"),
+      fileReader,
       log,
       folder + SEP!,
       SEP,
       changedScripts
     );
+    if (flowValue.value.failure_module) {
+      await replaceInlineScripts([flowValue.value.failure_module], fileReader, log, folder + SEP!, SEP, changedScripts);
+    }
+    if (flowValue.value.preprocessor_module) {
+      await replaceInlineScripts([flowValue.value.preprocessor_module], fileReader, log, folder + SEP!, SEP, changedScripts);
+    }
 
     //removeChangedLocks
     flowValue.value = await updateFlow(
@@ -144,6 +151,12 @@ export async function generateFlowLockInternal(
       SEP,
       opts.defaultTs
     );
+    if (flowValue.value.failure_module) {
+      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.failure_module], {}, SEP, opts.defaultTs));
+    }
+    if (flowValue.value.preprocessor_module) {
+      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.preprocessor_module], {}, SEP, opts.defaultTs));
+    }
     inlineScripts.forEach((s) => {
       writeIfChanged(process.cwd() + SEP + folder + SEP + s.path, s.content);
     });
@@ -176,7 +189,14 @@ async function filterWorkspaceDependenciesForFlow(
   rawWorkspaceDependencies: Record<string, string>,
   folder: string
 ): Promise<Record<string, string>> {
-  const inlineScripts = extractInlineScriptsForFlows(structuredClone(flowValue.modules), {}, SEP, undefined);
+  const clonedValue = structuredClone(flowValue);
+  const inlineScripts = extractInlineScriptsForFlows(clonedValue.modules, {}, SEP, undefined);
+  if (clonedValue.failure_module) {
+    inlineScripts.push(...extractInlineScriptsForFlows([clonedValue.failure_module], {}, SEP, undefined));
+  }
+  if (clonedValue.preprocessor_module) {
+    inlineScripts.push(...extractInlineScriptsForFlows([clonedValue.preprocessor_module], {}, SEP, undefined));
+  }
 
   // Filter out lock files and map to common interface
   const scripts = inlineScripts
