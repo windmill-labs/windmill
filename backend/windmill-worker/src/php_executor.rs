@@ -8,6 +8,7 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Result},
     scripts::ScriptLang,
+    utils::calculate_hash,
     worker::{write_file, Connection},
     workspace_dependencies::clean_lock_from_annotations,
 };
@@ -78,6 +79,51 @@ pub async fn composer_install(
 ) -> Result<String> {
     check_executor_binary_exists("php", PHP_PATH.as_str(), "php")?;
 
+    // When a lock file is available the dependency set is fully pinned, so we
+    // can cache the installed vendor/ directory and reuse it across executions.
+    let vendor_cache_hit = if let Some(ref lock_content) = lock {
+        let hash = calculate_hash(&format!("{requirements}{lock_content}"));
+        let vendor_cache_path = format!("{}/vendor/{hash}", *COMPOSER_CACHE_DIR);
+        let remote_path = format!("composer/vendor/{hash}");
+
+        let (hit, cache_logs) =
+            crate::global_cache::load_cache(&vendor_cache_path, &remote_path, true).await;
+
+        if hit {
+            append_logs(
+                job_id,
+                w_id,
+                format!("vendor cache hit, skipping composer install\n{cache_logs}"),
+                conn,
+            )
+            .await;
+
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&vendor_cache_path, format!("{job_dir}/vendor")).map_err(
+                |e| error::Error::ExecutionErr(format!("could not symlink cached vendor dir: {e}")),
+            )?;
+
+            #[cfg(not(unix))]
+            windmill_common::worker::copy_dir_recursively(
+                &std::path::PathBuf::from(&vendor_cache_path),
+                &std::path::PathBuf::from(&format!("{job_dir}/vendor")),
+            )?;
+
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    if vendor_cache_hit {
+        return Ok(match lock {
+            Some(l) => format!("{requirements}{COMPOSER_LOCK_SPLIT}{l}"),
+            None => unreachable!("cache hit requires a lock"),
+        });
+    }
+
     write_file(job_dir, "composer.json", &requirements)?;
 
     if let Some(lock) = lock.as_ref() {
@@ -112,15 +158,33 @@ pub async fn composer_install(
     )
     .await?;
 
-    match lock {
-        Some(lock) => Ok(format!("{requirements}{COMPOSER_LOCK_SPLIT}{lock}")),
+    let resolved_lock = match lock {
+        Some(l) => l,
         None => {
-            let mut lock_content = "".to_string();
+            let mut lock_content = String::new();
             let mut lock_file = File::open(format!("{job_dir}/composer.lock")).await?;
             lock_file.read_to_string(&mut lock_content).await?;
-            Ok(format!("{requirements}{COMPOSER_LOCK_SPLIT}{lock_content}"))
+            lock_content
         }
+    };
+
+    // Save the freshly installed vendor/ to the cache for future executions.
+    let hash = calculate_hash(&format!("{requirements}{resolved_lock}"));
+    let vendor_cache_path = format!("{}/vendor/{hash}", *COMPOSER_CACHE_DIR);
+    if let Err(e) = crate::global_cache::save_cache(
+        &vendor_cache_path,
+        &format!("composer/vendor/{hash}"),
+        &format!("{job_dir}/vendor"),
+        true,
+    )
+    .await
+    {
+        tracing::warn!("Could not save composer vendor dir to cache: {e:?}");
     }
+
+    Ok(format!(
+        "{requirements}{COMPOSER_LOCK_SPLIT}{resolved_lock}"
+    ))
 }
 
 fn generate_resource_class(rt_name: &str, arg_name: &str) -> String {
