@@ -17,11 +17,14 @@
 
 	const groupEditorContext = getGroupEditorContext()
 
-	// Menu open state
-	let menuOpen = $state(false)
+	// Track which group's menu is open (only one at a time)
+	let menuOpenGroupId = $state<string | undefined>(undefined)
 
 	// Action bar hover state to prevent flicker
 	let actionBarHovered = $state(false)
+
+	// Header hover state (overlay headers are outside xyflow, so hoveredNodeId doesn't cover them)
+	let headerHoveredGroupId = $state<string | undefined>(undefined)
 
 	// Hide delay to prevent flickering
 	let hideTimeout: ReturnType<typeof setTimeout> | undefined = undefined
@@ -29,6 +32,9 @@
 
 	// Derive the active group from hoveredNodeId
 	let activeGroup = $derived.by(() => {
+		if (headerHoveredGroupId) {
+			return allGroups.find((g) => g.id === headerHoveredGroupId)
+		}
 		if (!hoveredNodeId || !groupEditorContext?.groupEditor) return undefined
 		return groupEditorContext.groupEditor.getClosestGroup(hoveredNodeId)
 	})
@@ -41,7 +47,7 @@
 				hideTimeout = undefined
 			}
 			visibleGroup = activeGroup
-		} else if (!menuOpen && !actionBarHovered) {
+		} else if (!menuOpenGroupId && !actionBarHovered) {
 			hideTimeout = setTimeout(() => {
 				visibleGroup = undefined
 			}, 150)
@@ -68,6 +74,22 @@
 		}
 	}
 
+	// Compute bounds for a collapsed group (tight around the single collapsed node)
+	function computeCollapsedGroupBounds(group: FlowGroup) {
+		const nodeId = `collapsed-group:${group.id}`
+		const node = allNodes.find((n) => n.id === nodeId)
+		if (!node) return null
+		const width = node.measured?.width ?? 275
+		const height = node.measured?.height ?? 34
+		return {
+			x: node.position.x,
+			y: node.position.y,
+			width,
+			height,
+			headerY: node.position.y - 22
+		}
+	}
+
 	function getOutlineColorClass(color?: string, hovered?: boolean): string {
 		const config = NOTE_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ?? NOTE_COLORS[NoteColor.BLUE]
 		return hovered ? config.outline : config.outlineHover
@@ -78,6 +100,12 @@
 			NOTE_COLORS[(color as NoteColor) ?? NoteColor.BLUE]?.backgroundLight ??
 			NOTE_COLORS[NoteColor.BLUE].backgroundLight
 		)
+	}
+
+	/** Derive border classes from the header background classes (bg-* → border-*) */
+	function getHeaderBorderClass(color?: string): string {
+		const config = NOTE_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ?? NOTE_COLORS[NoteColor.BLUE]
+		return config.background.replace(/\bbg-/g, 'border-')
 	}
 
 	function toggleCollapse(groupId: string) {
@@ -112,10 +140,68 @@
 </script>
 
 {#each allGroups as group (group.id)}
-	{#if !groupEditorContext?.groupEditor.isRuntimeCollapsed(group.id)}
+	{#if groupEditorContext?.groupEditor.isRuntimeCollapsed(group.id)}
+		{@const bounds = computeCollapsedGroupBounds(group)}
+		{#if bounds}
+			<!-- Collapsed: bounding box background + border on sides/bottom only (behind nodes) -->
+			<ViewportPortal target="back">
+				<div
+					class="absolute rounded-b-lg border-x border-b pointer-events-none transition-colors duration-150 {getHeaderBorderClass(
+						group.color
+					)} {getBgColorClass(group.color)}"
+					style:transform="translate({bounds.x}px, {bounds.y}px)"
+					style:width="{bounds.width}px"
+					style:height="{bounds.height}px"
+				></div>
+			</ViewportPortal>
+
+			<!-- Collapsed: header + action bar -->
+			<ViewportPortal target="front">
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="absolute flex flex-col items-center"
+					style="pointer-events: auto; transform: translate({bounds.x}px, {bounds.headerY}px); width: {bounds.width}px;"
+					style:z-index="4"
+					onmouseenter={() => (headerHoveredGroupId = group.id)}
+					onmouseleave={() => (headerHoveredGroupId = undefined)}
+				>
+					<div class="relative" style="width: 275px;">
+						<GroupHeader
+							summary={group.summary}
+							color={group.color}
+							collapsed={true}
+							{editMode}
+							onToggleCollapse={() => toggleCollapse(group.id)}
+							onSummaryUpdate={(text) =>
+								groupEditorContext?.groupEditor.updateSummary(group.id, text)}
+						/>
+						{#if editMode}
+							<GroupActionBar
+								note={group.note}
+								color={group.color}
+								collapsedByDefault={group.collapsed_by_default ?? false}
+								visible={visibleGroup?.id === group.id}
+								menuOpen={menuOpenGroupId === group.id}
+								onMenuOpenChange={(open) => (menuOpenGroupId = open ? group.id : undefined)}
+								onAddNote={() => groupEditorContext?.groupEditor.addNote(group.id)}
+								onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(group.id)}
+								onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(group.id, c)}
+								onUpdateCollapsedDefault={(v) =>
+									groupEditorContext?.groupEditor.updateCollapsedDefault(group.id, v)}
+								onDeleteGroup={() => {
+									groupEditorContext?.groupEditor.deleteGroup(group.id)
+									visibleGroup = undefined
+								}}
+							/>
+						{/if}
+					</div>
+				</div>
+			</ViewportPortal>
+		{/if}
+	{:else}
 		{@const bounds = computeGroupBounds(group)}
 		{#if bounds}
-			<!-- Bounding box background + outline (behind nodes) -->
+			<!-- Uncollapsed: bounding box background + outline (behind nodes) -->
 			<ViewportPortal target="back">
 				<div
 					class="absolute rounded-lg outline outline-1 -outline-offset-1 pointer-events-none transition-colors duration-150 {getOutlineColorClass(
@@ -128,13 +214,15 @@
 				></div>
 			</ViewportPortal>
 
-			<!-- Group header + ellipsis menu -->
+			<!-- Uncollapsed: header + action bar -->
 			<ViewportPortal target="front">
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					class="absolute flex flex-col items-center"
 					style="pointer-events: auto; transform: translate({bounds.x}px, {bounds.headerY}px); width: {bounds.width}px;"
 					style:z-index="4"
+					onmouseenter={() => (headerHoveredGroupId = group.id)}
+					onmouseleave={() => (headerHoveredGroupId = undefined)}
 				>
 					<div class="relative" style="width: 275px;">
 						<GroupHeader
@@ -151,8 +239,9 @@
 								note={group.note}
 								color={group.color}
 								collapsedByDefault={group.collapsed_by_default ?? false}
-								visible
-								bind:menuOpen
+								visible={visibleGroup?.id === group.id}
+								menuOpen={menuOpenGroupId === group.id}
+								onMenuOpenChange={(open) => (menuOpenGroupId = open ? group.id : undefined)}
 								onAddNote={() => groupEditorContext?.groupEditor.addNote(group.id)}
 								onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(group.id)}
 								onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(group.id, c)}

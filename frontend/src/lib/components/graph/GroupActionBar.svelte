@@ -12,6 +12,7 @@
 		collapsedByDefault: boolean
 		visible?: boolean
 		menuOpen?: boolean
+		onMenuOpenChange?: (open: boolean) => void
 		onAddNote: () => void
 		onRemoveNote: () => void
 		onUpdateColor: (color: NoteColor) => void
@@ -25,12 +26,17 @@
 		collapsedByDefault,
 		visible = true,
 		menuOpen = $bindable(false),
+		onMenuOpenChange,
 		onAddNote,
 		onRemoveNote,
 		onUpdateColor,
 		onUpdateCollapsedDefault,
 		onDeleteGroup = undefined
 	}: Props = $props()
+
+	$effect(() => {
+		onMenuOpenChange?.(menuOpen)
+	})
 </script>
 
 <div

@@ -176,9 +176,17 @@ export class GroupEditor {
 
 	/**
 	 * Returns the smallest group (by module_ids.length) that contains the given module ID.
+	 * Also matches collapsed group node IDs (collapsed-group:{groupId}).
 	 */
 	getClosestGroup(moduleId: string): FlowGroup | undefined {
 		const groups = this.getGroups()
+
+		// Check if this is a collapsed group node ID
+		if (moduleId.startsWith('collapsed-group:')) {
+			const groupId = moduleId.slice('collapsed-group:'.length)
+			return groups.find((g) => g.id === groupId)
+		}
+
 		let closest: FlowGroup | undefined = undefined
 		for (const group of groups) {
 			if (group.module_ids.includes(moduleId)) {
@@ -328,15 +336,24 @@ export function computeGroupSpacing(
 		if (group.module_ids.length === 0) continue
 
 		// Find topmost node Y position in this group
+		// Check both member nodes (uncollapsed) and collapsed-group node (collapsed)
 		let topY = Infinity
+		let isCollapsed = false
+		const collapsedNodeId = `collapsed-group:${group.id}`
 		for (const node of nodes) {
-			if (group.module_ids.includes(node.id) && node.position.y < topY) {
+			if (node.id === collapsedNodeId && node.position.y < topY) {
 				topY = node.position.y
+				isCollapsed = true
+			} else if (group.module_ids.includes(node.id) && node.position.y < topY) {
+				topY = node.position.y
+				isCollapsed = false
 			}
 		}
 
 		if (topY < Infinity) {
-			yPosMap[topY] = Math.max(yPosMap[topY] || 0, GROUP_HEADER_HEIGHT) + GROUP_TOP_MARGIN
+			// Collapsed groups only need header height (no top padding gap)
+			const spacing = isCollapsed ? GROUP_HEADER_HEIGHT : GROUP_HEADER_HEIGHT + GROUP_TOP_MARGIN
+			yPosMap[topY] = Math.max(yPosMap[topY] || 0, spacing)
 		}
 	}
 
