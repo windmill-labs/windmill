@@ -31,6 +31,10 @@ const NSJAIL_CONFIG_RUN_PHP_CONTENT: &str = include_str!("../nsjail/run.php.conf
 
 lazy_static::lazy_static! {
     static ref RE: Regex = Regex::new(r"^//\s?(\S+)\s*$").unwrap();
+    // Set COMPOSER_VENDOR_CACHE_DISABLED=1 to always run `composer install`
+    // instead of reusing a previously cached vendor directory.
+    pub static ref COMPOSER_VENDOR_CACHE_DISABLED: bool =
+        std::env::var("COMPOSER_VENDOR_CACHE_DISABLED").is_ok();
 }
 
 const COMPOSER_LOCK_SPLIT: &str = "\nLOCK\n";
@@ -81,35 +85,43 @@ pub async fn composer_install(
 
     // When a lock file is available the dependency set is fully pinned, so we
     // can cache the installed vendor/ directory and reuse it across executions.
-    let vendor_cache_hit = if let Some(ref lock_content) = lock {
-        let hash = calculate_hash(&format!("{requirements}{lock_content}"));
-        let vendor_cache_path = format!("{}/vendor/{hash}", *COMPOSER_CACHE_DIR);
-        let remote_path = format!("composer/vendor/{hash}");
+    // Set COMPOSER_VENDOR_CACHE_DISABLED=1 to opt out.
+    let vendor_cache_hit = if !*COMPOSER_VENDOR_CACHE_DISABLED {
+        if let Some(ref lock_content) = lock {
+            let hash = calculate_hash(&format!("{requirements}{lock_content}"));
+            let vendor_cache_path = format!("{}/vendor/{hash}", *COMPOSER_CACHE_DIR);
+            let remote_path = format!("composer/vendor/{hash}");
 
-        let (hit, cache_logs) =
-            crate::global_cache::load_cache(&vendor_cache_path, &remote_path, true).await;
+            let (hit, cache_logs) =
+                crate::global_cache::load_cache(&vendor_cache_path, &remote_path, true).await;
 
-        if hit {
-            append_logs(
-                job_id,
-                w_id,
-                format!("vendor cache hit, skipping composer install\n{cache_logs}"),
-                conn,
-            )
-            .await;
+            if hit {
+                append_logs(
+                    job_id,
+                    w_id,
+                    format!("vendor cache hit, skipping composer install\n{cache_logs}"),
+                    conn,
+                )
+                .await;
 
-            #[cfg(unix)]
-            std::os::unix::fs::symlink(&vendor_cache_path, format!("{job_dir}/vendor")).map_err(
-                |e| error::Error::ExecutionErr(format!("could not symlink cached vendor dir: {e}")),
-            )?;
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(&vendor_cache_path, format!("{job_dir}/vendor"))
+                    .map_err(|e| {
+                        error::Error::ExecutionErr(format!(
+                            "could not symlink cached vendor dir: {e}"
+                        ))
+                    })?;
 
-            #[cfg(not(unix))]
-            windmill_common::worker::copy_dir_recursively(
-                &std::path::PathBuf::from(&vendor_cache_path),
-                &std::path::PathBuf::from(&format!("{job_dir}/vendor")),
-            )?;
+                #[cfg(not(unix))]
+                windmill_common::worker::copy_dir_recursively(
+                    &std::path::PathBuf::from(&vendor_cache_path),
+                    &std::path::PathBuf::from(&format!("{job_dir}/vendor")),
+                )?;
 
-            true
+                true
+            } else {
+                false
+            }
         } else {
             false
         }
@@ -169,17 +181,19 @@ pub async fn composer_install(
     };
 
     // Save the freshly installed vendor/ to the cache for future executions.
-    let hash = calculate_hash(&format!("{requirements}{resolved_lock}"));
-    let vendor_cache_path = format!("{}/vendor/{hash}", *COMPOSER_CACHE_DIR);
-    if let Err(e) = crate::global_cache::save_cache(
-        &vendor_cache_path,
-        &format!("composer/vendor/{hash}"),
-        &format!("{job_dir}/vendor"),
-        true,
-    )
-    .await
-    {
-        tracing::warn!("Could not save composer vendor dir to cache: {e:?}");
+    if !*COMPOSER_VENDOR_CACHE_DISABLED {
+        let hash = calculate_hash(&format!("{requirements}{resolved_lock}"));
+        let vendor_cache_path = format!("{}/vendor/{hash}", *COMPOSER_CACHE_DIR);
+        if let Err(e) = crate::global_cache::save_cache(
+            &vendor_cache_path,
+            &format!("composer/vendor/{hash}"),
+            &format!("{job_dir}/vendor"),
+            true,
+        )
+        .await
+        {
+            tracing::warn!("Could not save composer vendor dir to cache: {e:?}");
+        }
     }
 
     Ok(format!(
