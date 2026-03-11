@@ -19,6 +19,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
@@ -89,6 +90,7 @@
 	})
 	let deploymentLoading = $state(false)
 	let isValid = $state(false)
+	let advancedCollapsed = $state(true)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
@@ -451,8 +453,11 @@
 				showTestingBadge={isEditor}
 			/>
 
-			<Section label="Advanced" collapsable>
-				<div class="flex flex-col gap-4">
+			<Section label="Advanced" collapsable bind:collapsed={advancedCollapsed}>
+				{#snippet header()}
+					<TriggerAdvancedBadges {error_handler_path} {retry} />
+				{/snippet}
+				<div class="flex flex-col gap-6">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
 							<Tab value="error_handler" label="Error Handler" />
@@ -472,6 +477,7 @@
 					</div>
 				</div>
 			</Section>
+			<div class="pb-8" />
 		</div>
 	{/if}
 {/snippet}

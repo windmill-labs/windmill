@@ -25,10 +25,13 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import TriggerFilters from '../TriggerFilters.svelte'
+	import Select from '$lib/components/select/Select.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -90,6 +93,7 @@
 	let autoCommit = $state(true)
 	let deploymentLoading = $state(false)
 	let resetLoading = $state(false)
+	let advancedCollapsed = $state(true)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
@@ -485,37 +489,77 @@
 				bind:kafkaCfgValid
 				bind:kafkaResourcePath
 				bind:kafkaCfg
-				bind:autoOffsetReset
-				bind:autoCommit
 				{path}
 				{can_write}
 				showTestingBadge={isEditor}
 			/>
 
-			{#if edit && can_write}
-				<Label label="Consumer offset">
-					{#snippet header()}
-						<span class="text-2xs text-tertiary ml-2">
-							Force re-read all messages from the beginning
-						</span>
-					{/snippet}
-					<Button
-						variant="default"
-						size="xs"
-						startIcon={{ icon: RotateCcw }}
-						disabled={resetLoading}
-						loading={resetLoading}
-						onclick={() => (resetConfirmOpen = true)}
-					>
-						Reset offset to earliest
-					</Button>
-				</Label>
-			{/if}
+			<Section label="Advanced" collapsable bind:collapsed={advancedCollapsed}>
+				{#snippet header()}
+					<TriggerAdvancedBadges {error_handler_path} {retry} extraBadges={[
+						{ name: 'Earliest offset', active: autoOffsetReset !== 'latest' },
+						{ name: 'Manual commit', active: !autoCommit },
+						{ name: 'Filters', active: filters.length > 0 }
+					]} />
+				{/snippet}
+				<div class="flex flex-col gap-6">
+					<Label label="Initial offset">
+						{#snippet header()}
+							<span class="text-2xs text-tertiary ml-2">
+								Only applies when no committed offset exists
+							</span>
+						{/snippet}
+						<Select
+							items={[
+								{ label: 'Latest (new messages only)', value: 'latest' },
+								{ label: 'Earliest (from beginning)', value: 'earliest' }
+							]}
+							bind:value={autoOffsetReset}
+							disabled={!can_write}
+						/>
+					</Label>
 
-			<TriggerFilters bind:filters disabled={!can_write} />
+					<div class="flex flex-col gap-2">
+						<Label label="Auto-commit offsets">
+							{#snippet header()}
+								<span class="text-2xs text-tertiary ml-2">
+									Automatically commit offsets after receiving each message
+								</span>
+							{/snippet}
+							<Toggle
+								bind:checked={autoCommit}
+								disabled={!can_write}
+							/>
+						</Label>
+						{#if !autoCommit}
+							<Alert title="Manual commit mode" type="info" size="xs">
+								Offsets will not be committed automatically. Use <code>wmill.commit_kafka_offsets(topic, partition, offset)</code> in Python or <code>wmill.commitKafkaOffsets(topic, partition, offset)</code> in TypeScript with the values from the event payload. Messages will be re-delivered if offsets are not committed.
+							</Alert>
+						{/if}
+					</div>
 
-			<Section label="Advanced" collapsable>
-				<div class="flex flex-col gap-4">
+					{#if edit && can_write}
+						<Label label="Consumer offset">
+							{#snippet header()}
+								<span class="text-2xs text-tertiary ml-2">
+									Force re-read all messages from the beginning
+								</span>
+							{/snippet}
+							<Button
+								variant="default"
+								size="xs"
+								startIcon={{ icon: RotateCcw }}
+								disabled={resetLoading}
+								loading={resetLoading}
+								onclick={() => (resetConfirmOpen = true)}
+							>
+								Reset offset to earliest
+							</Button>
+						</Label>
+					{/if}
+
+					<TriggerFilters bind:filters disabled={!can_write} />
+
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
 							<Tab value="error_handler" label="Error Handler" />
@@ -535,6 +579,7 @@
 					</div>
 				</div>
 			</Section>
+			<div class="pb-8" />
 		</div>
 	{/if}
 {/snippet}
