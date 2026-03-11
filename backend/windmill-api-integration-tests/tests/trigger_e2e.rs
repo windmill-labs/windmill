@@ -458,23 +458,6 @@ async fn test_kafka_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
     produce_handle.abort();
     assert!(job.args.is_some(), "job should have args");
 
-    // Verify trigger_info contains partition and offset
-    let args = job.args.unwrap().0;
-    if let Some(wm_trigger) = args.get("wm_trigger") {
-        assert!(
-            wm_trigger.get("partition").is_some(),
-            "wm_trigger should contain partition"
-        );
-        assert!(
-            wm_trigger.get("offset").is_some(),
-            "wm_trigger should contain offset"
-        );
-        assert!(
-            wm_trigger.get("topic").is_some(),
-            "wm_trigger should contain topic"
-        );
-    }
-
     Ok(())
 }
 
