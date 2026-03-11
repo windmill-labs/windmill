@@ -43,15 +43,17 @@
 			suspendStatus?: Record<string, { job: Job; nb: number }>
 			shouldOffsetInsertBtnDueToAssetNode?: boolean
 			groupHeaderOffset?: number
+			groupBottomOffset?: number
 		}
 	} = $props()
 
+	let adjustedSourceY = $derived(sourceY + (data?.groupBottomOffset ?? 0))
 	let adjustedTargetY = $derived(targetY - (data?.groupHeaderOffset ?? 0))
 
 	let [edgePath] = $derived(
 		getBezierPath({
 			sourceX,
-			sourceY: adjustedTargetY - sourceY > 100 ? adjustedTargetY - 100 : sourceY,
+			sourceY: adjustedTargetY - adjustedSourceY > 100 ? adjustedTargetY - 100 : adjustedSourceY,
 			sourcePosition,
 			targetX,
 			targetY: adjustedTargetY,
@@ -61,8 +63,8 @@
 	)
 
 	let completeEdge = $derived(
-		adjustedTargetY - sourceY > 100
-			? `${edgePath} ${getStraightLinePath({ sourceX, sourceY, targetY: adjustedTargetY })}`
+		adjustedTargetY - adjustedSourceY > 100
+			? `${edgePath} ${getStraightLinePath({ sourceX, sourceY: adjustedSourceY, targetY: adjustedTargetY })}`
 			: edgePath
 	)
 
@@ -78,7 +80,7 @@
 	)
 
 	let centerY = $derived(
-		sourceY +
+		adjustedSourceY +
 			32 +
 			(data.shouldOffsetInsertBtnDueToAssetNode && $showAssets ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)
 	)

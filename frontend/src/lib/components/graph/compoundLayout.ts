@@ -238,15 +238,15 @@ function runSugiyama(
 function buildNodeSizes(
 	nodeIds: string[],
 	constants: LayoutConstants,
-	nodeExtraSpace?: Map<string, { top: number; bottom: number }>
+	nodeExtraSpace?: Map<string, { top: number; bottom: number; left: number; right: number }>
 ): Map<string, { width: number; height: number }> | undefined {
 	if (!nodeExtraSpace || nodeExtraSpace.size === 0) return undefined
 	const sizes = new Map<string, { width: number; height: number }>()
 	for (const id of nodeIds) {
 		const extra = nodeExtraSpace.get(id)
-		if (extra && (extra.top > 0 || extra.bottom > 0)) {
+		if (extra && (extra.top > 0 || extra.bottom > 0 || extra.left > 0 || extra.right > 0)) {
 			sizes.set(id, {
-				width: constants.nodeWidth,
+				width: constants.nodeWidth + extra.left + extra.right,
 				height: constants.nodeHeight + extra.top + extra.bottom
 			})
 		}
@@ -263,7 +263,7 @@ function layoutLevel(
 	childrenMap: Map<string, string[]>,
 	containerDescendants: Map<string, string[]>,
 	depth: number = 0,
-	nodeExtraSpace?: Map<string, { top: number; bottom: number }>
+	nodeExtraSpace?: Map<string, { top: number; bottom: number; left: number; right: number }>
 ): LayoutResult {
 	const positions = new Map<string, { x: number; y: number }>()
 	const nodeIdSet = new Set(nodeIds)
@@ -482,7 +482,10 @@ function layoutLevel(
 		// Position the head node at the top-center of the wrapper
 		// Apply extra top padding so decorations above the head node have room
 		const headExtra = nodeExtraSpace?.get(headId)
-		positions.set(headId, { x: wrapperPos.x, y: wrapperPos.y + (headExtra?.top ?? 0) })
+		positions.set(headId, {
+			x: wrapperPos.x,
+			y: wrapperPos.y + (headExtra?.top ?? 0)
+		})
 
 		if (isBranch) {
 			// Reuse cached branchWidths and totalWidth
@@ -539,8 +542,8 @@ function layoutLevel(
 	let maxY = -Infinity
 	for (const [nid, pos] of positions) {
 		const extra = nodeExtraSpace?.get(nid)
-		minX = Math.min(minX, pos.x - constants.nodeWidth / 2)
-		maxX = Math.max(maxX, pos.x + constants.nodeWidth / 2)
+		minX = Math.min(minX, pos.x - constants.nodeWidth / 2 - (extra?.left ?? 0))
+		maxX = Math.max(maxX, pos.x + constants.nodeWidth / 2 + (extra?.right ?? 0))
 		// Account for top decoration space above the node
 		minY = Math.min(minY, pos.y - (extra?.top ?? 0))
 		maxY = Math.max(maxY, pos.y + constants.nodeHeight + (extra?.bottom ?? 0))
@@ -572,14 +575,15 @@ function layoutLevel(
  * Takes the flat list of nodes and edges from graphBuilder and produces
  * absolute positions that account for compound structure (branches, loops).
  *
- * nodeExtraSpace: per-node top/bottom padding that should be allocated in layout.
+ * nodeExtraSpace: per-node top/bottom/left/right padding that should be allocated in layout.
  * After layout, each node's y is shifted down by its top padding so decorations
- * (assets, AI tools, group headers) have room above.
+ * (assets, AI tools, group headers) have room above. Left/right padding widens the
+ * column allocated to the node so neighbors are pushed further away.
  */
 export function compoundLayout(
 	nodes: { id: string; parentIds?: string[] }[],
 	constants?: Partial<LayoutConstants>,
-	nodeExtraSpace?: Map<string, { top: number; bottom: number }>
+	nodeExtraSpace?: Map<string, { top: number; bottom: number; left: number; right: number }>
 ): LayoutResult {
 	const c: LayoutConstants = {
 		nodeWidth: constants?.nodeWidth ?? NODE.width,

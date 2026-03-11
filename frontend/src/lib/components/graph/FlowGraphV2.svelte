@@ -362,8 +362,8 @@
 	 */
 	function computeNodeExtraSpace(
 		graphNodes: NodeDep[]
-	): Map<string, { top: number; bottom: number }> | undefined {
-		const extraSpace = new Map<string, { top: number; bottom: number }>()
+	): Map<string, { top: number; bottom: number; left: number; right: number }> | undefined {
+		const extraSpace = new Map<string, { top: number; bottom: number; left: number; right: number }>()
 
 		// 1. Assets
 		if ($showAssets) {
@@ -373,8 +373,9 @@
 				const hasRead = assets.some(assetDisplaysAsInputInFlowGraph)
 				const hasWrite = assets.some(assetDisplaysAsOutputInFlowGraph)
 				if (hasRead || hasWrite) {
-					const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0 }
+					const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }
 					extraSpace.set(node.id, {
+						...prev,
 						top: prev.top + (hasRead ? NODE_WITH_READ_ASSET_Y_OFFSET : 0),
 						bottom: prev.bottom + (hasWrite ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)
 					})
@@ -393,15 +394,15 @@
 				// Execution mode: tools below
 				const totalRows = Math.ceil(agentActions.length / MAX_TOOLS_PER_ROW)
 				const space = AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET * totalRows + BELOW_ADDITIONAL_OFFSET
-				const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0 }
-				extraSpace.set(node.id, { top: prev.top, bottom: prev.bottom + space })
+				const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }
+				extraSpace.set(node.id, { ...prev, bottom: prev.bottom + space })
 			} else {
 				// Edit mode: tools above
 				const tools = mod.value.tools ?? []
 				const totalRows = Math.ceil(tools.length / MAX_TOOLS_PER_ROW) + (insertable ? 1 : 0)
 				const space = AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET * totalRows
-				const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0 }
-				extraSpace.set(node.id, { top: prev.top + space, bottom: prev.bottom })
+				const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }
+				extraSpace.set(node.id, { ...prev, top: prev.top + space })
 			}
 		}
 
@@ -418,10 +419,10 @@
 					if (topmostNodeId) {
 						const textHeight = noteTextHeights[groupNote.id] || 60
 						const spacing = textHeight + 16 // padding
-						const prev = extraSpace.get(topmostNodeId) ?? { top: 0, bottom: 0 }
+						const prev = extraSpace.get(topmostNodeId) ?? { top: 0, bottom: 0, left: 0, right: 0 }
 						extraSpace.set(topmostNodeId, {
-							top: Math.max(prev.top, spacing + prev.top),
-							bottom: prev.bottom
+							...prev,
+							top: Math.max(prev.top, spacing + prev.top)
 						})
 					}
 				}
@@ -456,11 +457,28 @@
 					const spacing = isCollapsed
 						? GROUP_HEADER_HEIGHT + noteHeight
 						: GROUP_HEADER_HEIGHT + noteHeight + GROUP_TOP_MARGIN
-					const prev = extraSpace.get(topmostNodeId) ?? { top: 0, bottom: 0 }
+					const groupPadding = 16
+					const prev = extraSpace.get(topmostNodeId) ?? { top: 0, bottom: 0, left: 0, right: 0 }
 					extraSpace.set(topmostNodeId, {
 						top: prev.top + spacing,
-						bottom: prev.bottom
+						bottom: prev.bottom,
+						left: Math.max(prev.left, groupPadding),
+						right: Math.max(prev.right, groupPadding)
 					})
+
+					// Bottom padding for uncollapsed groups on the bottommost node
+					if (!isCollapsed) {
+						const bottommostNodeId = [...sortedNodes].reverse().find((node) =>
+							group.module_ids.includes(node.id)
+						)?.id
+						if (bottommostNodeId) {
+							const prevBottom = extraSpace.get(bottommostNodeId) ?? { top: 0, bottom: 0, left: 0, right: 0 }
+							extraSpace.set(bottommostNodeId, {
+								...prevBottom,
+								bottom: Math.max(prevBottom.bottom, groupPadding)
+							})
+						}
+					}
 				}
 			}
 		}
@@ -468,7 +486,7 @@
 		return extraSpace.size > 0 ? extraSpace : undefined
 	}
 
-	function layoutNodes(nodes: NodeDep[], nodeExtraSpace?: Map<string, { top: number; bottom: number }>): (NodeDep & NodePos)[] {
+	function layoutNodes(nodes: NodeDep[], nodeExtraSpace?: Map<string, { top: number; bottom: number; left: number; right: number }>): (NodeDep & NodePos)[] {
 		let lastResult = lastNodes?.[2]
 		if (lastResult && deepEqual(nodes, lastNodes?.[0]) && deepEqual(nodeExtraSpace, lastNodes?.[1])) {
 			console.debug('layoutNodes', 'same nodes')
@@ -780,9 +798,10 @@
 				)
 			: undefined
 
-		// Compute group header offsets for edges targeting topmost nodes in groups
+		// Compute group header/bottom offsets for edges targeting/sourcing group boundary nodes
 		const groups = groupEditorContext?.groupEditor.getGroups() ?? []
 		const groupHeaderOffsets: Record<string, number> = {}
+		const groupBottomOffsets: Record<string, number> = {}
 		if (groups.length > 0 && nodeExtraSpace) {
 			// Use nodeExtraSpace directly - nodes with group headers already have the space
 			// The offset for edges equals the group header + note portion of the topPadding
@@ -811,17 +830,33 @@
 						: GROUP_HEADER_HEIGHT + noteHeight + GROUP_TOP_MARGIN
 					groupHeaderOffsets[topNodeId] = Math.max(groupHeaderOffsets[topNodeId] ?? 0, offset)
 				}
+
+				// Bottom offset for uncollapsed groups
+				if (!isCollapsed) {
+					const bottomNodeId = [...sortedNodes].reverse().find((node) =>
+						group.module_ids.includes(node.id)
+					)?.id
+					if (bottomNodeId) {
+						const groupPadding = 16
+						groupBottomOffsets[bottomNodeId] = Math.max(groupBottomOffsets[bottomNodeId] ?? 0, groupPadding)
+					}
+				}
 			}
 		}
 
 		// update nodes
 		nodes = [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])]
 
-		// Patch edges with group header offsets
+		// Patch edges with group header/bottom offsets
 		const graphEdges = graph.edges.map((e) => {
-			const offset = groupHeaderOffsets[e.target]
-			if (offset) {
-				return { ...e, data: { ...e.data, groupHeaderOffset: offset } }
+			const headerOffset = groupHeaderOffsets[e.target]
+			const bottomOffset = groupBottomOffsets[e.source]
+			if (headerOffset || bottomOffset) {
+				return { ...e, data: {
+					...e.data,
+					...(headerOffset ? { groupHeaderOffset: headerOffset } : {}),
+					...(bottomOffset ? { groupBottomOffset: bottomOffset } : {})
+				} }
 			}
 			return e
 		})
