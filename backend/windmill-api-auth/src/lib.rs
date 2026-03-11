@@ -589,7 +589,12 @@ pub async fn register_token_expiry_notification(
 ) {
     let Some(expiration) = expiration else { return };
     if label == Some("session")
-        || label.is_some_and(|l| l.starts_with("ephemeral") || l.starts_with("Ephemeral"))
+        || label.is_some_and(|l| {
+            l.starts_with("ephemeral")
+                || l.starts_with("Ephemeral")
+                || l == "debugger-token"
+                || l.starts_with("mcp-oauth-")
+        })
     {
         return;
     }

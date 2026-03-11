@@ -876,7 +876,13 @@ struct TokenRow {
 fn is_user_token(label: Option<&str>) -> bool {
     match label {
         None => true,
-        Some(l) => l != "session" && !l.starts_with("ephemeral") && !l.starts_with("Ephemeral"),
+        Some(l) => {
+            l != "session"
+                && !l.starts_with("ephemeral")
+                && !l.starts_with("Ephemeral")
+                && l != "debugger-token"
+                && !l.starts_with("mcp-oauth-")
+        }
     }
 }
 
