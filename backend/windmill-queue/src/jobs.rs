@@ -5513,10 +5513,11 @@ async fn push_inner<'c, 'd>(
                 &mut *tx,
             )
             .await
-            .map_err(|e| {
-                Error::internal_err(format!(
+            .map_err(|e| match e {
+                Error::NotFound(_) => e,
+                _ => Error::internal_err(format!(
                     "Could not get permissions directly for job {job_id}: {e:#}"
-                ))
+                )),
             })?
         }
     };
