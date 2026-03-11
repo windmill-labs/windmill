@@ -581,6 +581,9 @@ pub async fn create_token_internal(
 }
 
 /// Insert a pending expiry notification row for user tokens that have an expiration.
+/// When updating this filter, also update:
+/// - `is_user_token` in src/monitor.rs
+/// - `isUserToken` in frontend/src/lib/components/settings/TokensTable.svelte
 pub async fn register_token_expiry_notification(
     tx: &mut sqlx::PgConnection,
     token: &str,
@@ -589,7 +592,12 @@ pub async fn register_token_expiry_notification(
 ) {
     let Some(expiration) = expiration else { return };
     if label == Some("session")
-        || label.is_some_and(|l| l.starts_with("ephemeral") || l.starts_with("Ephemeral"))
+        || label.is_some_and(|l| {
+            l.starts_with("ephemeral")
+                || l.starts_with("Ephemeral")
+                || l == "debugger-token"
+                || l.starts_with("mcp-oauth-")
+        })
     {
         return;
     }

@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.654.0](https://github.com/windmill-labs/windmill/compare/v1.653.0...v1.654.0) (2026-03-10)
+
+
+### Features
+
+* add git sync support for workspace dependencies ([#8144](https://github.com/windmill-labs/windmill/issues/8144)) ([4f29e05](https://github.com/windmill-labs/windmill/commit/4f29e05e3ae725e0be7ab797f8fa2186d8c5c0a5))
+* add kafka trigger offset reset and auto.offset.reset config ([#8283](https://github.com/windmill-labs/windmill/issues/8283)) ([b02f9e5](https://github.com/windmill-labs/windmill/commit/b02f9e5c2426bff2356e1aaaa18e05b18c5efc6b))
+* add preprocessor support for dedicated workers and bunnative scripts ([#8284](https://github.com/windmill-labs/windmill/issues/8284)) ([dc0e59f](https://github.com/windmill-labs/windmill/commit/dc0e59f432a0e3a53606adb8ac76d2dd2d365ace))
+* add Vertex AI support for Google Gemini models ([#8303](https://github.com/windmill-labs/windmill/issues/8303)) ([cb349cb](https://github.com/windmill-labs/windmill/commit/cb349cb3d1b7561fb70a8c23fa83dc1c9441821c))
+* **frontend:** replace flat sugiyama with recursive compound layout for flow graph ([#8204](https://github.com/windmill-labs/windmill/issues/8204)) ([cad4436](https://github.com/windmill-labs/windmill/commit/cad44365ac17029a2257f12cef061219b0265570))
+
+
+### Bug Fixes
+
+* **cli:** fail when passing an invalid --workspace arg ([#8294](https://github.com/windmill-labs/windmill/issues/8294)) ([f291b1c](https://github.com/windmill-labs/windmill/commit/f291b1cc19689e69e7aa008c19ce747e9c56240e))
+* debounce webhook arg accumulation with max_count/max_time limits ([#8307](https://github.com/windmill-labs/windmill/issues/8307)) ([83be59e](https://github.com/windmill-labs/windmill/commit/83be59e0e866ebd091f1e27c0571710a989fd2e4))
+* delete debounce_key on post-preprocessing limit exceeded ([#8299](https://github.com/windmill-labs/windmill/issues/8299)) ([438f609](https://github.com/windmill-labs/windmill/commit/438f609a78325ee5c2493079ca27bf587fa0d5ff))
+* explicilty fail when --base-url --token --workspace are invalid ([#8302](https://github.com/windmill-labs/windmill/issues/8302)) ([5baeb8c](https://github.com/windmill-labs/windmill/commit/5baeb8c842a392c21457b7561e30b385e02a6a48))
+* handle missing schema in RunnableByPath during wmill.d.ts generation ([#8300](https://github.com/windmill-labs/windmill/issues/8300)) ([b841e0a](https://github.com/windmill-labs/windmill/commit/b841e0a0384941079f37374f8fbbe2dd7fb51897))
+* optimize flow lock generation and add rt.d.ts guidance for TS resource types ([#8295](https://github.com/windmill-labs/windmill/issues/8295)) ([b40cf80](https://github.com/windmill-labs/windmill/commit/b40cf80fdd62cbc31db0872ada551ce213b9dac8))
+* preserve teams oauth tenant on settings page reload ([#8308](https://github.com/windmill-labs/windmill/issues/8308)) ([dbfa271](https://github.com/windmill-labs/windmill/commit/dbfa271b8962fe7b3d2aa8bf494e9557047fc8b3))
+* resync custom_instance_user password on startup ([#8297](https://github.com/windmill-labs/windmill/issues/8297)) ([53ac43f](https://github.com/windmill-labs/windmill/commit/53ac43f5ee34570a9bb7b3441c73095e23690300))
+* show meaningful error messages in database manager schema fetch ([#8296](https://github.com/windmill-labs/windmill/issues/8296)) ([cda8439](https://github.com/windmill-labs/windmill/commit/cda843922dcfd9a02ef9926751cbf8f544d2d4b6))
+* skip loading flow preview history for new flows ([#8293](https://github.com/windmill-labs/windmill/issues/8293)) ([ac8c668](https://github.com/windmill-labs/windmill/commit/ac8c668cb93e56bc2a247bbdbbec14e5608125d2))
+* teams selection not sticking in workspace settings ([#8309](https://github.com/windmill-labs/windmill/issues/8309)) ([fefc8c6](https://github.com/windmill-labs/windmill/commit/fefc8c62a00fe7a39f3104091e08087cd7c37afb))
+
 ## [1.653.0](https://github.com/windmill-labs/windmill/compare/v1.652.0...v1.653.0) (2026-03-10)
 
 

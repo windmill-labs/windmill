@@ -1,17 +1,16 @@
 [package]
-name = "windmill-parser-py"
+name = "windmill-parser-py-asset"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
 [lib]
-name = "windmill_parser_py"
+name = "windmill_parser_py_asset"
 path = "./src/lib.rs"
 
 [dependencies]
 windmill-parser.workspace = true
+windmill-parser-sql-asset.workspace = true
 rustpython-parser.workspace = true
-itertools.workspace = true
-serde_json.workspace = true
-anyhow.workspace = true
 rustpython-ast = { version = "0.4.0", features = ["visitor"] }
+anyhow.workspace = true

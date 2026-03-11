@@ -3,6 +3,9 @@
 //! Handles POST `chat/completions` requests using the native Gemini API,
 //! converting from/to OpenAI format so the existing frontend parsers continue to work.
 //!
+//! Supports both standard Google AI (generativelanguage.googleapis.com) and
+//! Google Vertex AI ({region}-aiplatform.googleapis.com) endpoints.
+//!
 //! Used by `windmill-api/src/ai.rs` when the provider is `GoogleAI`.
 //! Shared conversion logic lives in `windmill_common::ai_google`.
 
@@ -57,6 +60,38 @@ struct ChatRequestToolFunction {
 }
 
 // ============================================================================
+// Helpers for Vertex AI vs standard Google AI URL/auth
+// ============================================================================
+
+/// Build the endpoint URL for a model action (streamGenerateContent, generateContent, predict).
+///
+/// - Standard: `{base_url}/models/{model}:{action}`
+/// - Vertex AI: `{base_url}/{model}:{action}` (base_url already contains .../publishers/google/models)
+fn build_model_endpoint(base_url: &str, model: &str, action: &str, is_vertex: bool) -> String {
+    if is_vertex {
+        format!("{}/{}:{}", base_url, model, action)
+    } else {
+        format!("{}/models/{}:{}", base_url, model, action)
+    }
+}
+
+/// Set the appropriate auth header on a request builder.
+///
+/// - Standard: `x-goog-api-key` header
+/// - Vertex AI: `Authorization: Bearer` header
+fn set_auth(
+    request: reqwest::RequestBuilder,
+    api_key: &str,
+    is_vertex: bool,
+) -> reqwest::RequestBuilder {
+    if is_vertex {
+        request.header("Authorization", format!("Bearer {}", api_key))
+    } else {
+        request.header("x-goog-api-key", api_key)
+    }
+}
+
+// ============================================================================
 // Public handler
 // ============================================================================
 
@@ -69,6 +104,7 @@ pub async fn handle_google_ai_chat(
     body: &Bytes,
     api_key: &str,
     base_url: &str,
+    is_vertex: bool,
 ) -> Result<(http::StatusCode, http::HeaderMap, Body)> {
     let request: ChatRequest = serde_json::from_slice(body)
         .map_err(|e| Error::BadRequest(format!("Failed to parse request body: {}", e)))?;
@@ -120,9 +156,9 @@ pub async fn handle_google_ai_chat(
     let base_url = base_url.trim_end_matches('/');
 
     if request.stream {
-        handle_streaming(&request.model, request_body, api_key, base_url).await
+        handle_streaming(&request.model, request_body, api_key, base_url, is_vertex).await
     } else {
-        handle_non_streaming(&request.model, request_body, api_key, base_url).await
+        handle_non_streaming(&request.model, request_body, api_key, base_url, is_vertex).await
     }
 }
 
@@ -135,19 +171,22 @@ async fn handle_streaming(
     request_body: String,
     api_key: &str,
     base_url: &str,
+    is_vertex: bool,
 ) -> Result<(http::StatusCode, http::HeaderMap, Body)> {
-    let endpoint = format!("{}/models/{}:streamGenerateContent?alt=sse", base_url, model);
+    let endpoint = format!(
+        "{}?alt=sse",
+        build_model_endpoint(base_url, model, "streamGenerateContent", is_vertex)
+    );
 
-    let response = HTTP_CLIENT
+    let request = HTTP_CLIENT
         .post(&endpoint)
         .header("content-type", "application/json")
-        .header("x-goog-api-key", api_key)
-        .body(request_body)
-        .send()
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!("Failed to send request to Gemini API: {}", e))
-        })?;
+        .body(request_body);
+    let request = set_auth(request, api_key, is_vertex);
+
+    let response = request.send().await.map_err(|e| {
+        Error::internal_err(format!("Failed to send request to Gemini API: {}", e))
+    })?;
 
     if let Err(e) = response.error_for_status_ref() {
         let status = e.status().map(|s| s.to_string()).unwrap_or_default();
@@ -202,11 +241,12 @@ async fn handle_streaming(
 
 /// List available Gemini models and convert to OpenAI format.
 ///
-/// Gemini returns `{ models: [{ name: "models/gemini-2.5-flash", displayName, ... }] }`.
-/// The frontend expects OpenAI format `{ data: [{ id: "models/gemini-2.5-flash", ... }] }`.
+/// - Standard: `GET {base_url}/models` — returns `{ models: [...] }`
+/// - Vertex AI: `GET {base_url}` — returns `{ models: [...] }` (base_url already ends with .../models)
 pub async fn handle_google_ai_models(
     api_key: &str,
     base_url: &str,
+    is_vertex: bool,
 ) -> Result<(http::StatusCode, http::HeaderMap, Body)> {
     #[derive(Deserialize)]
     struct GeminiModel {
@@ -221,13 +261,21 @@ pub async fn handle_google_ai_models(
         models: Vec<GeminiModel>,
     }
 
-    let endpoint = format!("{}/models", base_url.trim_end_matches('/'));
-    let response = HTTP_CLIENT
-        .get(&endpoint)
-        .header("x-goog-api-key", api_key)
-        .send()
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to fetch Gemini models: {}", e)))?;
+    let base_url = base_url.trim_end_matches('/');
+    let endpoint = if is_vertex {
+        // Vertex AI: base_url is .../publishers/google/models
+        base_url.to_string()
+    } else {
+        // Standard: append /models
+        format!("{}/models", base_url)
+    };
+
+    let request = HTTP_CLIENT.get(&endpoint);
+    let request = set_auth(request, api_key, is_vertex);
+
+    let response = request.send().await.map_err(|e| {
+        Error::internal_err(format!("Failed to fetch Gemini models: {}", e))
+    })?;
 
     if let Err(e) = response.error_for_status_ref() {
         let status = e.status().map(|s| s.to_string()).unwrap_or_default();
@@ -269,19 +317,19 @@ async fn handle_non_streaming(
     request_body: String,
     api_key: &str,
     base_url: &str,
+    is_vertex: bool,
 ) -> Result<(http::StatusCode, http::HeaderMap, Body)> {
-    let endpoint = format!("{}/models/{}:generateContent", base_url, model);
+    let endpoint = build_model_endpoint(base_url, model, "generateContent", is_vertex);
 
-    let response = HTTP_CLIENT
+    let request = HTTP_CLIENT
         .post(&endpoint)
         .header("content-type", "application/json")
-        .header("x-goog-api-key", api_key)
-        .body(request_body)
-        .send()
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!("Failed to send request to Gemini API: {}", e))
-        })?;
+        .body(request_body);
+    let request = set_auth(request, api_key, is_vertex);
+
+    let response = request.send().await.map_err(|e| {
+        Error::internal_err(format!("Failed to send request to Gemini API: {}", e))
+    })?;
 
     if let Err(e) = response.error_for_status_ref() {
         let status = e.status().map(|s| s.to_string()).unwrap_or_default();

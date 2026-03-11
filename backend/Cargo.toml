@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.653.0"
+version = "1.654.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -59,6 +59,7 @@ members = [
     "./windmill-oauth",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
+    "./parsers/windmill-parser-ts-asset",
     "./parsers/windmill-parser-go",
     "./parsers/windmill-parser-rust",
     "./parsers/windmill-parser-csharp",
@@ -67,8 +68,11 @@ members = [
     "./parsers/windmill-parser-ruby",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
+    "./parsers/windmill-parser-py-asset",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-parser-wac",
+    "./parsers/windmill-parser-sql",
+    "./parsers/windmill-parser-sql-asset",
     "./parsers/windmill-sql-datatype-parser-wasm",
     "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
     "./windmill-worker-volumes",
@@ -78,7 +82,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.653.0"
+version = "1.654.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -320,7 +324,9 @@ windmill-api-workers = { path = "./windmill-api-workers" }
 windmill-store = { path = "./windmill-store" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
+windmill-parser-ts-asset = { path = "./parsers/windmill-parser-ts-asset" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
+windmill-parser-py-asset = { path = "./parsers/windmill-parser-py-asset" }
 windmill-parser-py-imports = { path = "./parsers/windmill-parser-py-imports" }
 windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
@@ -331,6 +337,7 @@ windmill-parser-ruby = { path = "./parsers/windmill-parser-ruby" }
 windmill-parser-nu = { path = "./parsers/windmill-parser-nu" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
+windmill-parser-sql-asset = { path = "./parsers/windmill-parser-sql-asset" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-parser-wac = { path = "./parsers/windmill-parser-wac" }
