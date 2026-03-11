@@ -42,24 +42,27 @@
 			flowJob: Job | undefined
 			suspendStatus?: Record<string, { job: Job; nb: number }>
 			shouldOffsetInsertBtnDueToAssetNode?: boolean
+			groupHeaderOffset?: number
 		}
 	} = $props()
+
+	let adjustedTargetY = $derived(targetY - (data?.groupHeaderOffset ?? 0))
 
 	let [edgePath] = $derived(
 		getBezierPath({
 			sourceX,
-			sourceY: targetY - sourceY > 100 ? targetY - 100 : sourceY,
+			sourceY: adjustedTargetY - sourceY > 100 ? adjustedTargetY - 100 : sourceY,
 			sourcePosition,
 			targetX,
-			targetY,
+			targetY: adjustedTargetY,
 			targetPosition,
 			curvature: 0.25
 		})
 	)
 
 	let completeEdge = $derived(
-		targetY - sourceY > 100
-			? `${edgePath} ${getStraightLinePath({ sourceX, sourceY, targetY })}`
+		adjustedTargetY - sourceY > 100
+			? `${edgePath} ${getStraightLinePath({ sourceX, sourceY, targetY: adjustedTargetY })}`
 			: edgePath
 	)
 

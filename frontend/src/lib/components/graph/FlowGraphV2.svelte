@@ -63,7 +63,7 @@
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import GroupOverlay from './GroupOverlay.svelte'
-	import { getGroupEditorContext, computeGroupSpacing, computeCollapsedGroupNoteSpacing } from './groupEditor.svelte'
+	import { getGroupEditorContext, computeGroupSpacing, GROUP_HEADER_HEIGHT, GROUP_TOP_MARGIN } from './groupEditor.svelte'
 	import SelectionTool from './SelectionTool.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
@@ -677,9 +677,11 @@
 		// Apply group label spacing (pushes nodes down like group notes do)
 		const groups = groupEditorContext?.groupEditor.getGroups() ?? []
 		if (groups.length > 0) {
+			const noteHeights = showNotes ? (groupEditorContext?.groupEditor.getNoteHeights() ?? {}) : {}
 			const groupPositions = computeGroupSpacing(
 				groups,
-				finalNodes.map((n) => ({ id: n.id, position: n.position }))
+				finalNodes.map((n) => ({ id: n.id, position: n.position })),
+				noteHeights
 			)
 			finalNodes = finalNodes.map((n) => ({
 				...n,
@@ -687,28 +689,54 @@
 			}))
 		}
 
-		// Apply collapsed group note spacing
-		const collapsedGroups = groupEditorContext?.groupEditor.getCollapsedGroups() ?? []
-		if (collapsedGroups.length > 0) {
-			const collapsedNoteHeights = showNotes ? (groupEditorContext?.groupEditor.getNoteHeights() ?? {}) : {}
-			const collapsedPositions = computeCollapsedGroupNoteSpacing(
-				collapsedGroups,
-				finalNodes.map((n) => ({ id: n.id, position: n.position })),
-				collapsedNoteHeights
-			)
-			finalNodes = finalNodes.map((n) => ({
-				...n,
-				position: collapsedPositions[n.id] || n.position
-			}))
+		// Compute group header offsets for edges targeting topmost nodes in groups
+		const groupHeaderOffsets: Record<string, number> = {}
+		if (groups.length > 0) {
+			const noteHeightsForEdges = showNotes ? (groupEditorContext?.groupEditor.getNoteHeights() ?? {}) : {}
+			for (const group of groups) {
+				if (group.module_ids.length === 0) continue
+				const collapsedNodeId = `collapsed-group:${group.id}`
+				let topY = Infinity
+				let topNodeId: string | undefined
+				let isCollapsed = false
+				for (const node of finalNodes) {
+					if (node.id === collapsedNodeId && node.position.y < topY) {
+						topY = node.position.y
+						topNodeId = node.id
+						isCollapsed = true
+					} else if (group.module_ids.includes(node.id) && node.position.y < topY) {
+						topY = node.position.y
+						topNodeId = node.id
+						isCollapsed = false
+					}
+				}
+				if (topNodeId) {
+					const noteHeight = noteHeightsForEdges[group.id] ?? 0
+					const offset = isCollapsed
+						? GROUP_HEADER_HEIGHT + noteHeight
+						: GROUP_HEADER_HEIGHT + noteHeight + GROUP_TOP_MARGIN
+					// Only set if larger (a node could be topmost in multiple groups theoretically)
+					groupHeaderOffsets[topNodeId] = Math.max(groupHeaderOffsets[topNodeId] ?? 0, offset)
+				}
+			}
 		}
 
 		// update nodes
 		nodes = [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])]
 
+		// Patch edges with group header offsets
+		const graphEdges = graph.edges.map((e) => {
+			const offset = groupHeaderOffsets[e.target]
+			if (offset) {
+				return { ...e, data: { ...e.data, groupHeaderOffset: offset } }
+			}
+			return e
+		})
+
 		edges = [
 			...(assetNodesResult?.newAssetEdges ?? []),
 			...aiToolNodesResult.toolEdges,
-			...graph.edges
+			...graphEdges
 		]
 
 		await tick()
@@ -1082,6 +1110,7 @@
 					{hoveredNodeId}
 					allNodes={nodesWithOffset as (Node & { type: string })[]}
 					{editMode}
+					{showNotes}
 				/>
 
 				<!-- SelectionTool for handling selection changes and filtering -->

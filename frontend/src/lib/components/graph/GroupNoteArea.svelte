@@ -6,12 +6,13 @@
 	interface Props {
 		note: string
 		color?: string
+		collapsed?: boolean
 		editMode: boolean
 		onHeightChange: (height: number) => void
 		onNoteUpdate: (text: string) => void
 	}
 
-	let { note, color, editMode, onHeightChange, onNoteUpdate }: Props =
+	let { note, color, collapsed = false, editMode, onHeightChange, onNoteUpdate }: Props =
 		$props()
 
 	let editing = $state(false)
@@ -23,8 +24,8 @@
 		color ? (NOTE_COLORS[color as NoteColor] ?? NOTE_COLORS[NoteColor.BLUE]) : NOTE_COLORS[NoteColor.BLUE]
 	)
 
-	// Derive border class from outline (e.g. "outline-yellow-300" → "border-yellow-300")
-	let borderColorClass = $derived(noteColorConfig.outline.replace(/outline-/g, 'border-'))
+	// Derive border class from header background (e.g. "bg-yellow-200" → "border-yellow-200")
+	let headerBorderClass = $derived(noteColorConfig.background.replace(/\bbg-/g, 'border-'))
 
 	// Measure height and report to parent (skip while editing to avoid full graph rebuilds)
 	$effect(() => {
@@ -75,8 +76,9 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	bind:this={containerElement}
-	class="w-full border-t nodrag nopan nowheel {borderColorClass} {noteColorConfig.background}"
+	class="nodrag nopan nowheel {collapsed ? 'mx-px' : 'w-full rounded-b-md'}"
 >
+	<div class="{collapsed ? '' : 'w-full rounded-b-md'}">
 	{#if editing}
 		<textarea
 			bind:this={textareaElement}
@@ -108,4 +110,5 @@
 			Double click to add a note
 		</div>
 	{/if}
+	</div>
 </div>

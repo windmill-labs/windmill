@@ -1,19 +1,21 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
 	import { calculateNodesBoundsWithOffset } from './util'
-	import { getGroupEditorContext, type FlowGroup } from './groupEditor.svelte'
+	import { getGroupEditorContext, GROUP_HEADER_HEIGHT, GROUP_TOP_MARGIN, type FlowGroup } from './groupEditor.svelte'
 	import { NoteColor, NOTE_COLORS } from './noteColors'
 	import GroupActionBar from './GroupActionBar.svelte'
 	import GroupHeader from './GroupHeader.svelte'
+	import GroupNoteArea from './GroupNoteArea.svelte'
 	import type { CollapsedSubflowN } from './graphBuilder.svelte'
 
 	interface Props {
 		hoveredNodeId: string | null
 		allNodes: (Node & { type: string })[]
 		editMode: boolean
+		showNotes: boolean
 	}
 
-	let { hoveredNodeId, allNodes, editMode }: Props = $props()
+	let { hoveredNodeId, allNodes, editMode, showNotes }: Props = $props()
 
 	const groupEditorContext = getGroupEditorContext()
 
@@ -57,14 +59,21 @@
 	// All groups for always-visible labels
 	let allGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
 
+	// Note heights tracked by the group editor
+	let noteHeights = $derived(groupEditorContext?.groupEditor.getNoteHeights() ?? {})
+
+	function getGroupNoteHeight(groupId: string): number {
+		return showNotes ? (noteHeights[groupId] ?? 0) : 0
+	}
+
 	// Compute bounds for each group (no header card when expanded)
 	function computeGroupBounds(group: FlowGroup) {
 		if (group.module_ids.length === 0) return null
 		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(group.module_ids, allNodes)
 		const padding = 16
-		const topPadding = 34
-		const headerHeight = 22
-		const halfHeader = headerHeight / 2
+		const noteHeight = getGroupNoteHeight(group.id)
+		const topPadding = GROUP_HEADER_HEIGHT + noteHeight + GROUP_TOP_MARGIN
+		const halfHeader = GROUP_HEADER_HEIGHT / 2
 		return {
 			x: minX - padding,
 			y: minY - topPadding + halfHeader,
@@ -80,13 +89,15 @@
 		const node = allNodes.find((n) => n.id === nodeId)
 		if (!node) return null
 		const width = node.measured?.width ?? 275
-		const height = node.measured?.height ?? 34
+		const nodeHeight = node.measured?.height ?? 34
+		const noteHeight = getGroupNoteHeight(group.id)
+		const headerTotal = GROUP_HEADER_HEIGHT + noteHeight
 		return {
 			x: node.position.x,
-			y: node.position.y,
+			y: node.position.y - noteHeight,
 			width,
-			height,
-			headerY: node.position.y - 22
+			height: nodeHeight + noteHeight,
+			headerY: node.position.y - headerTotal
 		}
 	}
 
@@ -175,6 +186,16 @@
 							onSummaryUpdate={(text) =>
 								groupEditorContext?.groupEditor.updateSummary(group.id, text)}
 						/>
+						{#if showNotes && group.note != null}
+							<GroupNoteArea
+								note={group.note ?? ''}
+								color={group.color}
+								collapsed={true}
+								{editMode}
+								onHeightChange={(h) => groupEditorContext?.groupEditor.setNoteHeight(group.id, h)}
+								onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(group.id, text)}
+							/>
+						{/if}
 						{#if editMode}
 							<GroupActionBar
 								note={group.note}
@@ -234,6 +255,15 @@
 							onSummaryUpdate={(text) =>
 								groupEditorContext?.groupEditor.updateSummary(group.id, text)}
 						/>
+						{#if showNotes && group.note != null}
+							<GroupNoteArea
+								note={group.note ?? ''}
+								color={group.color}
+								{editMode}
+								onHeightChange={(h) => groupEditorContext?.groupEditor.setNoteHeight(group.id, h)}
+								onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(group.id, text)}
+							/>
+						{/if}
 						{#if editMode}
 							<GroupActionBar
 								note={group.note}

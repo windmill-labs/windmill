@@ -270,7 +270,7 @@ export function getGroupEditorContext(): GroupEditorContext | undefined {
 export const GROUP_HEADER_HEIGHT = 22
 
 /** Extra margin between the header and the first node */
-const GROUP_TOP_MARGIN = 12
+export const GROUP_TOP_MARGIN = 20
 
 /**
  * Compute adjusted node positions for collapsed groups whose note is visible.
@@ -323,7 +323,8 @@ export function computeCollapsedGroupNoteSpacing(
  */
 export function computeGroupSpacing(
 	groups: FlowGroup[],
-	nodes: Array<{ id: string; position: { x: number; y: number } }>
+	nodes: Array<{ id: string; position: { x: number; y: number } }>,
+	noteHeights?: Record<string, number>
 ): Record<string, { x: number; y: number }> {
 	if (groups.length === 0) {
 		return Object.fromEntries(nodes.map((n) => [n.id, { ...n.position }]))
@@ -351,8 +352,11 @@ export function computeGroupSpacing(
 		}
 
 		if (topY < Infinity) {
+			const noteHeight = noteHeights?.[group.id] ?? 0
 			// Collapsed groups only need header height (no top padding gap)
-			const spacing = isCollapsed ? GROUP_HEADER_HEIGHT : GROUP_HEADER_HEIGHT + GROUP_TOP_MARGIN
+			const spacing = isCollapsed
+				? GROUP_HEADER_HEIGHT + noteHeight
+				: GROUP_HEADER_HEIGHT + noteHeight + GROUP_TOP_MARGIN
 			yPosMap[topY] = Math.max(yPosMap[topY] || 0, spacing)
 		}
 	}
