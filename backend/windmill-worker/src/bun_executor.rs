@@ -1866,6 +1866,48 @@ try {{
     Ok(result)
 }
 
+/// Resolve a module file from the parent script's modules map.
+/// For Script jobs, fetches from the `script` table by hash.
+/// For Preview jobs, fetches from `v2_job.raw_code` (modules stored inline).
+async fn resolve_parent_module(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    job: &MiniPulledJob,
+    module_key: &str,
+) -> error::Result<windmill_common::scripts::ScriptModule> {
+    use windmill_common::scripts::ScriptModule;
+
+    // For Script jobs: look up from the script table
+    if let Some(hash) = job.runnable_id {
+        let row: Option<Option<serde_json::Value>> =
+            sqlx::query_scalar("SELECT modules FROM script WHERE hash = $1")
+                .bind(hash.0)
+                .fetch_optional(db)
+                .await?;
+
+        if let Some(Some(modules_val)) = row {
+            let modules: std::collections::HashMap<String, ScriptModule> =
+                serde_json::from_value(modules_val).map_err(|e| {
+                    error::Error::internal_err(format!("Failed to parse script modules: {e}"))
+                })?;
+            if let Some(module) = modules.get(module_key) {
+                return Ok(module.clone());
+            }
+        }
+        return Err(error::Error::ExecutionErr(format!(
+            "Module '{}' not found in script modules",
+            module_key
+        )));
+    }
+
+    // For Preview jobs: modules are not yet stored in v2_job,
+    // so we look up from the parent job's raw_code modules if available
+    Err(error::Error::ExecutionErr(format!(
+        "Module-relative taskScript('./{}') is not yet supported in preview mode. \
+         Deploy the script first, or use a workspace script path instead.",
+        module_key
+    )))
+}
+
 /// Handle WAC v2 output after bun/python exits. Parse result as WacOutput,
 /// dispatch child jobs on suspend, or return the final result.
 pub async fn handle_wac_v2_output(
@@ -2148,6 +2190,33 @@ pub async fn handle_wac_v2_output(
                 for (step, (_, child_uuid)) in steps.iter().zip(job_ids.iter()) {
                     // Resolve job payload based on dispatch_type
                     let (job_payload, child_args, is_external) = match step.dispatch_type.as_str() {
+                        "script" if step.script.starts_with("./") => {
+                            // Module-relative path: resolve from parent script's modules
+                            let module_key = step.script.strip_prefix("./").unwrap();
+                            let module = resolve_parent_module(db, job, module_key).await?;
+                            let payload = JobPayload::Code(RawCode {
+                                content: module.content,
+                                path: job.runnable_path.clone(),
+                                hash: None,
+                                language: module.language,
+                                lock: module.lock,
+                                cache_ttl: job.cache_ttl,
+                                cache_ignore_s3_path: job.cache_ignore_s3_path,
+                                dedicated_worker: None,
+                                concurrency_settings: ConcurrencySettingsWithCustom::default(),
+                                debouncing_settings: DebouncingSettings::default(),
+                                modules: None,
+                            });
+                            let step_args: HashMap<String, Box<RawValue>> = step
+                                .args
+                                .iter()
+                                .map(|(k, v)| {
+                                    let raw = serde_json::value::to_raw_value(v).unwrap();
+                                    (k.clone(), raw)
+                                })
+                                .collect();
+                            (payload, step_args, true)
+                        }
                         "script" => {
                             // Resolve script path to job payload (handles hash, lang, etc.)
                             let (payload, _, _, _, _) = script_path_to_payload(

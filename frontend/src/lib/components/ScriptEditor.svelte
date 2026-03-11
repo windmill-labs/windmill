@@ -206,7 +206,15 @@
 			: lang
 	)
 
-	let supportsModules = $derived(lang === 'bun' || lang === 'python3')
+	let isWacV2 = $derived.by(() => {
+		const mainCode = activeModuleTab === null ? code : (mainCodeBackup ?? code)
+		return mainCode.includes('windmill-client')
+			&& mainCode.includes('workflow')
+			&& mainCode.includes('task')
+	})
+	let supportsModules = $derived(
+		(lang === 'bun' || lang === 'python3') && isWacV2
+	)
 	let mainFileName = $derived('main.' + langToExt(scriptLangToEditorLang(lang)))
 
 	let modulePathInput = $state('')
