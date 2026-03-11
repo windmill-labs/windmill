@@ -39,6 +39,7 @@ const TOP_HASH = "__flow_hash";
 async function generateFlowHash(
   rawWorkspaceDependencies: Record<string, string>,
   folder: string,
+  defaultTs: "bun" | "deno" | undefined
 ) {
   const elems = await FSFSElement(path.join(Deno.cwd(), folder), [], true);
   const hashes: Record<string, string> = {};
@@ -122,7 +123,8 @@ export async function generateFlowLockInternal(
 
   let hashes = await generateFlowHash(
     filteredDeps,
-    folder
+    folder,
+    opts.defaultTs
   );
 
   // Staleness check: use tree if provided, otherwise use existing logic
@@ -212,7 +214,8 @@ export async function generateFlowLockInternal(
 
   hashes = await generateFlowHash(
     filteredDeps,
-    folder
+    folder,
+    opts.defaultTs
   );
   await clearGlobalLock(folder);
   for (const [path, hash] of Object.entries(hashes)) {

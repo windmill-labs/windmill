@@ -59,6 +59,7 @@ async function generateAppHash(
   rawReqs: Record<string, string> | undefined,
   folder: string,
   rawApp: boolean,
+  defaultTs: "bun" | "deno" | undefined
 ): Promise<Record<string, string>> {
   const runnablesFolder = rawApp
     ? path.join(folder, APP_BACKEND_FOLDER)
@@ -79,8 +80,8 @@ async function generateAppHash(
       if (exts.some((e) => f.path.endsWith(e))) {
         // Embed lock into hash
         // Normalize path to ensure OS-independent hashing
-        const normalizedPath = normalizeLockPath(f.path.replace(runnablesFolder + SEP, ""));
-        hashes[normalizedPath] = await generateHash(
+        const relativePath = normalizeLockPath(f.path.replace(runnablesFolder + SEP, ""));
+        hashes[relativePath] = await generateHash(
           (await f.getContentText()) + JSON.stringify(rawReqs)
         );
       }
@@ -175,7 +176,8 @@ export async function generateAppLocksInternal(
   let hashes = await generateAppHash(
     filteredDeps,
     appFolder,
-    rawApp
+    rawApp,
+    opts.defaultTs
   );
 
   // Staleness check: use tree if provided, otherwise use existing logic
@@ -288,7 +290,8 @@ export async function generateAppLocksInternal(
   hashes = await generateAppHash(
     filteredDeps,
     appFolder,
-    rawApp
+    rawApp,
+    opts.defaultTs
   );
   await clearGlobalLock(appFolder);
   for (const [scriptPath, hash] of Object.entries(hashes)) {
@@ -667,10 +670,11 @@ async function generateInlineScriptLock(
           filteredDeps && Object.keys(filteredDeps).length > 0
             ? filteredDeps
             : null,
+        temp_script_refs:
+          tempScriptRefs && Object.keys(tempScriptRefs).length > 0
+            ? tempScriptRefs
+            : null,
         entrypoint: scriptPath,
-        temp_script_refs: tempScriptRefs && Object.keys(tempScriptRefs).length > 0
-          ? tempScriptRefs
-          : null,
       }),
     }
   );

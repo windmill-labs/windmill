@@ -373,3 +373,90 @@ def helper_func():
     });
   },
 });
+
+// =============================================================================
+// Test 6: Adding a new import to a script should mark importers as stale
+// =============================================================================
+
+Deno.test({
+  name: "Relative imports: adding new import marks importers as stale",
+  ignore: false,
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await addWorkspace({
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "new_import_ws",
+        token: backend.token ?? ""
+      }, { force: true, configDir: backend.testConfigDir });
+
+      await Deno.writeTextFile(`${tempDir}/wmill.yaml`, `includes: ["**"]
+excludes: []`);
+
+      await ensureDir(`${tempDir}/f/test`);
+
+      // Initial setup: main imports helper, helper has no imports
+      const mainPy = `from f.test.helper import helper_func
+
+def main():
+    return helper_func()
+`;
+      const helperPyInitial = `def helper_func():
+    return "no deps"
+`;
+
+      await Deno.writeTextFile(`${tempDir}/f/test/main.py`, mainPy);
+      await Deno.writeTextFile(`${tempDir}/f/test/main.script.yaml`, defaultMetadata);
+      await Deno.writeTextFile(`${tempDir}/f/test/helper.py`, helperPyInitial);
+      await Deno.writeTextFile(`${tempDir}/f/test/helper.script.yaml`, defaultMetadata);
+
+      // Run generate-metadata to generate initial locks
+      const initial = await backend.runCLICommand(
+        ["generate-metadata", "-i", "f/test/*", "--yes"],
+        tempDir, "new_import_ws"
+      );
+      assertEquals(initial.code, 0, `initial generate-metadata failed: ${initial.stderr}\n${initial.stdout}`);
+
+      // Read initial lock for main (should have no tiny)
+      const lockMainInitial = await Deno.readTextFile(`${tempDir}/f/test/main.script.lock`).catch(() => "");
+
+      // Now add a new script with a pip dependency
+      const utilsPy = `import tiny
+
+def get_version():
+    return tiny.__version__
+`;
+      await Deno.writeTextFile(`${tempDir}/f/test/utils.py`, utilsPy);
+      await Deno.writeTextFile(`${tempDir}/f/test/utils.script.yaml`, defaultMetadata);
+
+      // Modify helper to import the new utils script
+      const helperPyWithImport = `from f.test.utils import get_version
+
+def helper_func():
+    return get_version()
+`;
+      await Deno.writeTextFile(`${tempDir}/f/test/helper.py`, helperPyWithImport);
+
+      // Run generate-metadata again - main should be stale because helper added an import
+      const afterAddImport = await backend.runCLICommand(
+        ["generate-metadata", "-i", "f/test/*", "--yes"],
+        tempDir, "new_import_ws"
+      );
+      assertEquals(afterAddImport.code, 0, `after add import generate-metadata failed: ${afterAddImport.stderr}\n${afterAddImport.stdout}`);
+
+      // Read updated locks
+      const lockUtils = await Deno.readTextFile(`${tempDir}/f/test/utils.script.lock`).catch(() => "");
+      const lockHelper = await Deno.readTextFile(`${tempDir}/f/test/helper.script.lock`).catch(() => "");
+      const lockMain = await Deno.readTextFile(`${tempDir}/f/test/main.script.lock`).catch(() => "");
+
+      // utils should have tiny
+      assertStringIncludes(lockUtils, "tiny", `utils should have tiny in lock: ${lockUtils}`);
+      // helper should have tiny (from utils)
+      assertStringIncludes(lockHelper, "tiny", `helper should have tiny in lock (from utils): ${lockHelper}`);
+      // main should have tiny (from helper -> utils)
+      assertStringIncludes(lockMain, "tiny", `main should have tiny in lock (from helper -> utils): ${lockMain}`);
+    });
+  },
+});
