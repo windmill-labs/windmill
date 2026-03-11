@@ -105,6 +105,7 @@ pub async fn connect(
     let mut pool_options = sqlx::postgres::PgPoolOptions::new()
         .min_connections((max_connections / 5).clamp(1, max_connections))
         .max_connections(max_connections)
+        .acquire_timeout(Duration::from_secs(5))
         .max_lifetime(Duration::from_secs(30 * 60)); // 30 mins
     if worker_mode {
         pool_options = pool_options.idle_timeout(Duration::from_secs(60));
