@@ -14,7 +14,7 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Validation**: `docs/validation.md` — what checks to run based on what you changed
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
 - **Backend patterns**: use the `rust-backend` skill when writing Rust code
-- **Frontend patterns**: use the `svelte-frontend` skill when writing Svelte code
+- **Frontend patterns**: use the `svelte-frontend` skill when writing Svelte code. Do NOT edit svelte files unless you have read that skill.
 - **Domain guides**: `.claude/skills/native-trigger/` and `frontend/tutorial-system-guide.mdc`
 - **Brand/UI guidelines**: `frontend/brand-guidelines.md`
 
@@ -33,6 +33,7 @@ Open-source platform for internal tools, workflows, API integrations, background
 Using `$bindable(default_value)` on props that can be `undefined` is **banned**. This pattern causes subtle bugs because the default value masks the `undefined` state.
 
 **Bad:**
+
 ```svelte
 let { my_prop = $bindable(default_value) }: { my_prop?: string } = $props()
 ```
@@ -40,6 +41,7 @@ let { my_prop = $bindable(default_value) }: { my_prop?: string } = $props()
 **Correct alternatives:**
 
 1. **Use `$derived` with nullish coalescing** — handle the potential `undefined` at the usage site:
+
    ```svelte
    let { my_prop = $bindable() }: { my_prop?: string } = $props()
    let effective_value = $derived(my_prop ?? default_value)
