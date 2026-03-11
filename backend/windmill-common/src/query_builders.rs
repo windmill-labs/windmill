@@ -1534,7 +1534,9 @@ struct TableEditorColumn {
     nullable: Option<bool>,
     datatype_length: Option<i64>,
     #[serde(rename = "initialName")]
+    #[allow(dead_code)]
     initial_name: Option<String>,
+    #[allow(dead_code)]
     default_constraint_name: Option<String>,
 }
 
@@ -1555,6 +1557,7 @@ struct TableEditorForeignKey {
     on_delete: String,
     #[serde(rename = "onUpdate", default = "default_no_action")]
     on_update: String,
+    #[allow(dead_code)]
     fk_constraint_name: Option<String>,
 }
 
@@ -1663,6 +1666,7 @@ fn datatype_has_length(datatype: &str) -> bool {
     )
 }
 
+#[cfg(test)]
 fn table_ref(table: &str, schema: Option<&str>, db_type: DbType) -> String {
     if db_supports_schemas(db_type) {
         if let Some(s) = schema.filter(|s| !s.is_empty()) {
@@ -3564,27 +3568,33 @@ mod tests {
     fn test_table_ref_with_schema() {
         assert_eq!(
             table_ref("users", Some("myschema"), DbType::Postgresql),
-            "myschema.users"
+            r#""myschema"."users""#
         );
         assert_eq!(
             table_ref("users", Some("myschema"), DbType::Snowflake),
-            "myschema.users"
+            r#""myschema"."users""#
         );
         assert_eq!(
             table_ref("users", Some("dataset"), DbType::Bigquery),
-            "dataset.users"
+            "`dataset`.`users`"
         );
     }
 
     #[test]
     fn test_table_ref_without_schema() {
-        assert_eq!(table_ref("users", None, DbType::Postgresql), "users");
-        assert_eq!(table_ref("users", Some(""), DbType::Postgresql), "users");
+        assert_eq!(table_ref("users", None, DbType::Postgresql), r#""users""#);
+        assert_eq!(
+            table_ref("users", Some(""), DbType::Postgresql),
+            r#""users""#
+        );
         // Non-schema DBs ignore schema
-        assert_eq!(table_ref("users", Some("myschema"), DbType::Mysql), "users");
+        assert_eq!(
+            table_ref("users", Some("myschema"), DbType::Mysql),
+            "`users`"
+        );
         assert_eq!(
             table_ref("users", Some("myschema"), DbType::Duckdb),
-            "users"
+            r#""users""#
         );
     }
 
