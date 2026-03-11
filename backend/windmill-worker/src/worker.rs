@@ -1432,7 +1432,7 @@ pub async fn run_worker(
     tracing::debug!(worker = %worker_name, hostname = %hostname, worker_dir = %worker_dir, "Creating worker dir");
 
     #[cfg(feature = "python")]
-    {
+    if !NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed) {
         let (conn, worker_name, hostname, worker_dir) = (
             conn.clone(),
             worker_name.clone(),
