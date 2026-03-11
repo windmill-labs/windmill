@@ -19,6 +19,7 @@ import {
 } from "../../utils/metadata.ts";
 import { ScriptLanguage } from "../../utils/script_common.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { newPathAssigner } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
 import { exts } from "../script/script.ts";
@@ -145,17 +146,19 @@ export async function generateFlowLockInternal(
       filteredDeps
     );
 
+    const lockAssigner = newPathAssigner(opts.defaultTs ?? "bun");
     const inlineScripts = extractInlineScriptsForFlows(
       flowValue.value.modules,
       {},
       SEP,
-      opts.defaultTs
+      opts.defaultTs,
+      lockAssigner
     );
     if (flowValue.value.failure_module) {
-      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.failure_module], {}, SEP, opts.defaultTs));
+      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.failure_module], {}, SEP, opts.defaultTs, lockAssigner));
     }
     if (flowValue.value.preprocessor_module) {
-      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.preprocessor_module], {}, SEP, opts.defaultTs));
+      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.preprocessor_module], {}, SEP, opts.defaultTs, lockAssigner));
     }
     inlineScripts.forEach((s) => {
       writeIfChanged(process.cwd() + SEP + folder + SEP + s.path, s.content);
@@ -190,12 +193,13 @@ async function filterWorkspaceDependenciesForFlow(
   folder: string
 ): Promise<Record<string, string>> {
   const clonedValue = structuredClone(flowValue);
-  const inlineScripts = extractInlineScriptsForFlows(clonedValue.modules, {}, SEP, undefined);
+  const depAssigner = newPathAssigner("bun");
+  const inlineScripts = extractInlineScriptsForFlows(clonedValue.modules, {}, SEP, undefined, depAssigner);
   if (clonedValue.failure_module) {
-    inlineScripts.push(...extractInlineScriptsForFlows([clonedValue.failure_module], {}, SEP, undefined));
+    inlineScripts.push(...extractInlineScriptsForFlows([clonedValue.failure_module], {}, SEP, undefined, depAssigner));
   }
   if (clonedValue.preprocessor_module) {
-    inlineScripts.push(...extractInlineScriptsForFlows([clonedValue.preprocessor_module], {}, SEP, undefined));
+    inlineScripts.push(...extractInlineScriptsForFlows([clonedValue.preprocessor_module], {}, SEP, undefined, depAssigner));
   }
 
   // Filter out lock files and map to common interface
