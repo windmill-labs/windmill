@@ -80,10 +80,12 @@ pub const BUN_DEDICATED_WORKER_ARGS: &[&str] = &["run", "-i", "--prefer-offline"
 /// - `arg_names`: The argument names for the main function (e.g., ["x", "y"])
 /// - `main_import`: The import path for the main module (e.g., "./main.ts")
 /// - `date_conversions`: Optional date conversion statements for Datetime args
+/// - `preprocessor_spread`: If the script has a preprocessor function, the comma-separated arg names for it
 pub fn generate_dedicated_worker_wrapper(
     arg_names: &[&str],
     main_import: &str,
     date_conversions: Option<&str>,
+    preprocessor_spread: Option<&str>,
 ) -> String {
     let spread = arg_names.join(",");
     let dates = date_conversions.unwrap_or("");
@@ -92,6 +94,36 @@ pub fn generate_dedicated_worker_wrapper(
         r#"console.log(line);"#
     } else {
         ""
+    };
+
+    let preprocessor_logic = if let Some(pre_spread) = preprocessor_spread {
+        format!(
+            r#"
+    if (rawLine.startsWith("preprocess:")) {{
+        const preInput = rawLine.slice("preprocess:".length);
+        const parsedArgs = JSON.parse(preInput);
+        if (Main.preprocessor === undefined || typeof Main.preprocessor !== 'function') {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}));
+            continue;
+        }}
+        try {{
+            function preArgsObjToArr({{ {pre_spread} }}) {{
+                return [ {pre_spread} ];
+            }}
+            const preprocessedArgs = await Main.preprocessor(...preArgsObjToArr(parsedArgs));
+            console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value));
+            // Now call main with preprocessed args
+            const mainArgs = getArgs(JSON.stringify(preprocessedArgs ?? {{}}));
+            const res = await Main.main(...mainArgs);
+            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
+        }} catch (e) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: rawLine }}));
+        }}
+        continue;
+    }}"#
+        )
+    } else {
+        String::new()
     };
 
     format!(
@@ -114,15 +146,17 @@ function getArgs(line) {{
 for await (const line of Readline.createInterface({{ input: process.stdin }})) {{
     {print_lines}
 
-    if (line === "end") {{
+    const rawLine = line;
+    if (rawLine === "end") {{
         process.exit(0);
     }}
+    {preprocessor_logic}
     try {{
-        const args = getArgs(line);
+        const args = getArgs(rawLine);
         const res = await Main.main(...args);
         console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
     }} catch (e) {{
-        console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}));
+        console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: rawLine }}));
     }}
 }}
 "#
@@ -1648,6 +1682,66 @@ try {{
 
             append_logs(&job.id, &job.workspace_id, format!("{init_logs}\n"), conn).await;
 
+            if apply_preprocessor {
+                // First pass: run preprocessor function
+                let pre_result = crate::js_eval::eval_fetch_timeout(
+                    env_code.clone(),
+                    inner_content.to_string(),
+                    js_code.clone(),
+                    job_args,
+                    Some("preprocessor".to_string()),
+                    job.id,
+                    job.timeout,
+                    conn,
+                    mem_peak,
+                    canceled_by,
+                    worker_name,
+                    &job.workspace_id,
+                    false,
+                    occupancy_metrics,
+                    None,
+                    has_stream,
+                )
+                .await?;
+
+                let preprocessed: HashMap<String, Box<RawValue>> =
+                    serde_json::from_str(pre_result.get()).map_err(|e| {
+                        error::Error::internal_err(format!(
+                            "error deserializing preprocessed args: {e:#}"
+                        ))
+                    })?;
+                *new_args = Some(preprocessed.clone());
+
+                // Second pass: run main with preprocessed args
+                let preprocessed_json = sqlx::types::Json(preprocessed);
+                let stream_notifier = StreamNotifier::new(conn, job);
+
+                let result = crate::js_eval::eval_fetch_timeout(
+                    env_code,
+                    inner_content.to_string(),
+                    js_code,
+                    Some(&preprocessed_json),
+                    job.script_entrypoint_override.clone(),
+                    job.id,
+                    job.timeout,
+                    conn,
+                    mem_peak,
+                    canceled_by,
+                    worker_name,
+                    &job.workspace_id,
+                    false,
+                    occupancy_metrics,
+                    stream_notifier,
+                    has_stream,
+                )
+                .await?;
+                tracing::info!(
+                    "Executed native code (with preprocessor) in {}ms",
+                    started_at.elapsed().as_millis()
+                );
+                return Ok(result);
+            }
+
             let stream_notifier = StreamNotifier::new(conn, job);
 
             let result = crate::js_eval::eval_fetch_timeout(
@@ -2735,12 +2829,34 @@ async fn handle_dedicated_bunnative(
         let env_code = env_code.to_string();
         let js_code = js_code.to_string();
 
+        let pre_arg_names: Option<Vec<String>> = windmill_parser_ts::parse_deno_signature(
+            inner_content,
+            true,
+            false,
+            Some("preprocessor".to_string()),
+        )
+        .ok()
+        .filter(|sig| !sig.args.is_empty())
+        .map(|sig| sig.args.into_iter().map(|x| x.name).collect());
+
         let mut warm = PrewarmedIsolate::spawn(
             env_code.clone(),
             js_code.clone(),
             ann.clone(),
             arg_names.clone(),
+            None,
         );
+
+        // Pre-warm preprocessor isolate if the script has a preprocessor
+        let mut pre_warm = pre_arg_names.as_ref().map(|pre_names| {
+            PrewarmedIsolate::spawn(
+                env_code.clone(),
+                js_code.clone(),
+                ann.clone(),
+                pre_names.clone(),
+                Some("preprocessor".to_string()),
+            )
+        });
 
         let init_log = format!("dedicated worker nativets: {worker_name}\n\n");
         let alive = true;
@@ -2774,108 +2890,138 @@ async fn handle_dedicated_bunnative(
                             "{}".to_string()
                         };
 
-                        if let Err(e) = warm.wait_ready().await {
-                            tracing::error!("pre-warmed isolate failed during init: {e}");
-                            let result = Arc::new(to_raw_value(&serde_json::json!({
-                                "message": format!("isolate init failed: {e}"),
-                                "name": "Error",
-                            })));
-                            append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
-                            job_completed_tx.send_job(JobCompleted {
-                                job: MiniCompletedJob::from(job),
-                                result,
-                                result_columns: None,
-                                mem_peak: 0,
-                                canceled_by: None,
-                                success: false,
-                                cached_res_path: None,
-                                token: token.to_string(),
-                                duration: None,
-                                preprocessed_args: None,
-                                has_stream: Some(false),
-                                from_cache: None,
-                                flow_runners,
-                                done_tx,
-                            }, true).await?;
+                        // Run the job: preprocess if needed, then execute main.
+                        // Uses a labeled block to unify error handling with a single JobCompleted send.
+                        let (result, success, preprocessed_args, logs) = 'job: {
+                            if let Err(e) = warm.wait_ready().await {
+                                break 'job (
+                                    Arc::new(to_raw_value(&serde_json::json!({"message": format!("isolate init failed: {e}"), "name": "Error"}))),
+                                    false, None, init_log.clone(),
+                                );
+                            }
+
+                            let needs_preprocessing = job.preprocessed == Some(false);
+
+                            let (main_args, preprocessed) = if needs_preprocessing {
+                                let Some(ref pre_names) = pre_arg_names else {
+                                    break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": "preprocessor function is missing", "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    );
+                                };
+
+                                let mut pre_isolate = pre_warm.take().unwrap_or_else(|| {
+                                    PrewarmedIsolate::spawn(
+                                        env_code.clone(),
+                                        js_code.clone(),
+                                        ann.clone(),
+                                        pre_names.clone(),
+                                        Some("preprocessor".to_string()),
+                                    )
+                                });
+                                if let Err(e) = pre_isolate.wait_ready().await {
+                                    break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": format!("preprocessor isolate init failed: {e}"), "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    );
+                                }
+
+                                let pre_executing = pre_isolate.start_execution(args.clone());
+                                // Pipeline: start pre-warming the next preprocessor isolate
+                                pre_warm = Some(PrewarmedIsolate::spawn(
+                                    env_code.clone(),
+                                    js_code.clone(),
+                                    ann.clone(),
+                                    pre_names.clone(),
+                                    Some("preprocessor".to_string()),
+                                ));
+
+                                let pre_result = match pre_executing.wait().await {
+                                    Ok(r) => r,
+                                    Err(e) => break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": format!("preprocessor failed: {e}"), "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    ),
+                                };
+                                if !pre_result.logs.is_empty() {
+                                    append_logs(&id, &job.workspace_id, pre_result.logs, &db.into()).await;
+                                }
+                                let raw = match pre_result.result {
+                                    Ok(r) => r,
+                                    Err(e) => break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": format!("preprocessor failed: {e}"), "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    ),
+                                };
+
+                                let preprocessed: HashMap<String, Box<RawValue>> = match serde_json::from_str(raw.get()) {
+                                    Ok(v) => v,
+                                    Err(e) => break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": format!("error deserializing preprocessed args: {e:#}"), "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    ),
+                                };
+                                let main_args = serde_json::to_string(&preprocessed)
+                                    .unwrap_or_else(|_| "{}".to_string());
+                                (main_args, Some(preprocessed))
+                            } else {
+                                (args, None)
+                            };
+
+                            let executing = warm.start_execution(main_args);
+                            // Pipeline: start pre-warming the next main isolate
                             warm = PrewarmedIsolate::spawn(
                                 env_code.clone(),
                                 js_code.clone(),
                                 ann.clone(),
                                 arg_names.clone(),
+                                None,
                             );
-                            continue;
-                        }
 
-                        let executing = warm.start_execution(args);
+                            let main_result = match executing.wait().await {
+                                Ok(r) => r,
+                                Err(e) => break 'job (
+                                    Arc::new(to_raw_value(&serde_json::json!({"message": format!("{e}"), "name": "Error"}))),
+                                    false, preprocessed, init_log.clone(),
+                                ),
+                            };
 
-                        warm = PrewarmedIsolate::spawn(
-                            env_code.clone(),
-                            js_code.clone(),
-                            ann.clone(),
-                            arg_names.clone(),
-                        );
-
-                        match executing.wait().await {
-                            Ok(prewarmed_result) => {
-                                let mut logs = init_log.clone();
-                                if !prewarmed_result.logs.is_empty() {
-                                    logs.push_str(&prewarmed_result.logs);
-                                }
-                                append_logs(&id, &job.workspace_id, logs, &db.into()).await;
-
-                                let (result, success) = match prewarmed_result.result {
-                                    Ok(raw) => (Arc::new(raw), true),
-                                    Err(e) => (
-                                        Arc::new(to_raw_value(&serde_json::json!({
-                                            "message": e,
-                                            "name": "Error",
-                                        }))),
-                                        false,
-                                    ),
-                                };
-
-                                job_completed_tx.send_job(JobCompleted {
-                                    job: MiniCompletedJob::from(job),
-                                    result,
-                                    result_columns: None,
-                                    mem_peak: 0,
-                                    canceled_by: None,
-                                    success,
-                                    cached_res_path: None,
-                                    token: token.to_string(),
-                                    duration: None,
-                                    preprocessed_args: None,
-                                    has_stream: Some(false),
-                                    from_cache: None,
-                                    flow_runners,
-                                    done_tx,
-                                }, true).await?;
+                            let mut logs = init_log.clone();
+                            if !main_result.logs.is_empty() {
+                                logs.push_str(&main_result.logs);
                             }
-                            Err(e) => {
-                                tracing::error!("isolate execution failed: {e}");
-                                append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
-                                let result = Arc::new(to_raw_value(&serde_json::json!({
-                                    "message": format!("{e}"),
-                                    "name": "Error",
-                                })));
-                                job_completed_tx.send_job(JobCompleted {
-                                    job: MiniCompletedJob::from(job),
-                                    result,
-                                    result_columns: None,
-                                    mem_peak: 0,
-                                    canceled_by: None,
-                                    success: false,
-                                    cached_res_path: None,
-                                    token: token.to_string(),
-                                    duration: None,
-                                    preprocessed_args: None,
-                                    has_stream: Some(false),
-                                    from_cache: None,
-                                    flow_runners: None,
-                                    done_tx: None,
-                                }, true).await?;
-                            }
-                        }
+
+                            let (result, success) = match main_result.result {
+                                Ok(raw) => (Arc::new(raw), true),
+                                Err(e) => (
+                                    Arc::new(to_raw_value(&serde_json::json!({
+                                        "message": e,
+                                        "name": "Error",
+                                    }))),
+                                    false,
+                                ),
+                            };
+
+                            (result, success, preprocessed, logs)
+                        };
+
+                        append_logs(&id, &job.workspace_id, logs, &db.into()).await;
+                        job_completed_tx.send_job(JobCompleted {
+                            job: MiniCompletedJob::from(job),
+                            result,
+                            result_columns: None,
+                            mem_peak: 0,
+                            canceled_by: None,
+                            success,
+                            cached_res_path: None,
+                            token: token.to_string(),
+                            duration: None,
+                            preprocessed_args,
+                            has_stream: Some(false),
+                            from_cache: None,
+                            flow_runners,
+                            done_tx,
+                        }, true).await?;
                     } else {
                         tracing::debug!("job channel closed for nativets dedicated worker");
                         break;
@@ -3115,6 +3261,18 @@ pub async fn start_worker(
             .join("\n");
 
         let arg_names: Vec<&str> = args.iter().map(|x| x.name.as_str()).collect();
+
+        // Parse preprocessor signature if it exists
+        let pre_spread = windmill_parser_ts::parse_deno_signature(
+            inner_content,
+            true,
+            false,
+            Some("preprocessor".to_string()),
+        )
+        .ok()
+        .filter(|sig| !sig.args.is_empty())
+        .map(|sig| sig.args.into_iter().map(|x| x.name).join(","));
+
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
 
@@ -3128,7 +3286,12 @@ pub async fn start_worker(
         } else {
             Some(dates.as_str())
         };
-        let wrapper_content = generate_dedicated_worker_wrapper(&arg_names, main_import, dates_opt);
+        let wrapper_content = generate_dedicated_worker_wrapper(
+            &arg_names,
+            main_import,
+            dates_opt,
+            pre_spread.as_deref(),
+        );
         write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
     }
 
