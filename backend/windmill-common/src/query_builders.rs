@@ -386,6 +386,21 @@ fn escape_sql_literal(s: &str) -> String {
     s.replace('\'', "''")
 }
 
+/// Quote a potentially schema-qualified table name (e.g. "public.users" → "\"public\".\"users\"").
+/// Each dot-separated part is individually quoted using `render_db_quoted_identifier`.
+fn quote_table_name(table: &str, db_type: DbType) -> String {
+    table
+        .split('.')
+        .map(|part| render_db_quoted_identifier(part, db_type))
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+/// Shorthand alias for `render_db_quoted_identifier`.
+fn qi(identifier: &str, db_type: DbType) -> String {
+    render_db_quoted_identifier(identifier, db_type)
+}
+
 pub fn build_visible_field_list(column_defs: &[ColumnDef], db_type: DbType) -> Vec<String> {
     column_defs
         .iter()
@@ -417,7 +432,11 @@ fn make_snowflake_select_query(
     let select_clause = filtered_columns.join(", ");
 
     let mut query = String::from("\n");
-    query.push_str(&format!("SELECT {} FROM {}", select_clause, table));
+    query.push_str(&format!(
+        "SELECT {} FROM {}",
+        select_clause,
+        quote_table_name(table, DbType::Snowflake)
+    ));
 
     // quicksearch condition
     let mut qs_parts: Vec<String> = vec!["LENGTH(?) = 0".to_string()];
@@ -453,10 +472,14 @@ fn make_snowflake_select_query(
                 field: "is_desc".into(),
                 datatype: "boolean".into(),
             });
-            format!(
-                "CASE WHEN ? = '{}' AND ? = FALSE THEN \"{}\" END ASC,\n\t\tCASE WHEN ? = '{}' AND ? = TRUE THEN \"{}\" END DESC",
-                col.field, col.field, col.field, col.field
-            )
+            {
+                let escaped = escape_sql_literal(&col.field);
+                let quoted = qi(&col.field, DbType::Snowflake);
+                format!(
+                    "CASE WHEN ? = '{}' AND ? = FALSE THEN {} END ASC,\n\t\tCASE WHEN ? = '{}' AND ? = TRUE THEN {} END DESC",
+                    escaped, quoted, escaped, quoted
+                )
+            }
         })
         .collect();
 
@@ -474,22 +497,24 @@ fn pg_build_order_by(
     text_cast: bool,
     check_is_number: Option<bool>,
 ) -> String {
+    let quoted = qi(field, DbType::Postgresql);
+    let escaped = escape_sql_literal(field);
     let number_check_expr = match check_is_number {
         Some(true) => format!(
-            " pg_typeof(\"{}\")::text IN ('integer', 'bigint', 'smallint', 'numeric', 'real', 'double precision') AND",
-            field
+            " pg_typeof({})::text IN ('integer', 'bigint', 'smallint', 'numeric', 'real', 'double precision') AND",
+            quoted
         ),
         Some(false) => format!(
-            " pg_typeof(\"{}\")::text NOT IN ('integer', 'bigint', 'smallint', 'numeric', 'real', 'double precision') AND",
-            field
+            " pg_typeof({})::text NOT IN ('integer', 'bigint', 'smallint', 'numeric', 'real', 'double precision') AND",
+            quoted
         ),
         None => String::new(),
     };
     let cast = if text_cast { "::text" } else { "" };
     let desc_suffix = if is_desc { " DESC" } else { "" };
     format!(
-        "(CASE WHEN{} $4 = '{}' AND $5 IS {} THEN \"{}\"{} END){}",
-        number_check_expr, field, is_desc, field, cast, desc_suffix
+        "(CASE WHEN{} $4 = '{}' AND $5 IS {} THEN {}{} END){}",
+        number_check_expr, escaped, is_desc, quoted, cast, desc_suffix
     )
 }
 
@@ -572,9 +597,11 @@ pub fn make_select_query(
             let order_by: String = column_defs
                 .iter()
                 .map(|col| {
+                    let escaped = escape_sql_literal(&col.field);
+                    let quoted = qi(&col.field, db_type);
                     format!(
-                        "\nCASE WHEN :order_by = '{}' AND :is_desc IS false THEN `{}` END,\nCASE WHEN :order_by = '{}' AND :is_desc IS true THEN `{}` END DESC",
-                        col.field, col.field, col.field, col.field
+                        "\nCASE WHEN :order_by = '{}' AND :is_desc IS false THEN {} END,\nCASE WHEN :order_by = '{}' AND :is_desc IS true THEN {} END DESC",
+                        escaped, quoted, escaped, quoted
                     )
                 })
                 .collect::<Vec<_>>()
@@ -585,7 +612,11 @@ pub fn make_select_query(
                 filtered_columns.join(", ")
             );
 
-            query.push_str(&format!("SELECT {} FROM {}", select_clause, table));
+            query.push_str(&format!(
+                "SELECT {} FROM {}",
+                select_clause,
+                quote_table_name(table, db_type)
+            ));
             query.push_str(&format!(
                 " WHERE {} {}",
                 where_clause
@@ -650,7 +681,7 @@ pub fn make_select_query(
                     .map(|c| format!("{}::text", c))
                     .collect::<Vec<_>>()
                     .join(", "),
-                table
+                quote_table_name(table, db_type)
             ));
             query.push_str(&format!(
                 " WHERE {} {}\n",
@@ -673,9 +704,11 @@ pub fn make_select_query(
                 .iter()
                 .filter(|col| !unsortable_types.contains(&col.datatype.to_lowercase().as_str()))
                 .map(|col| {
+                    let escaped = escape_sql_literal(&col.field);
+                    let quoted = qi(&col.field, db_type);
                     format!(
                         "\n(CASE WHEN @p4 = '{}' AND @p5 = 0 THEN {} END) ASC,\n(CASE WHEN @p4 = '{}' AND @p5 = 1 THEN {} END) DESC",
-                        col.field, col.field, col.field, col.field
+                        escaped, quoted, escaped, quoted
                     )
                 })
                 .collect::<Vec<_>>()
@@ -704,7 +737,11 @@ pub fn make_select_query(
                 " (@p3 = '')".to_string()
             };
 
-            query.push_str(&format!("SELECT {} FROM {}", select_clause, table));
+            query.push_str(&format!(
+                "SELECT {} FROM {}",
+                select_clause,
+                quote_table_name(table, db_type)
+            ));
             query.push_str(&format!(
                 " WHERE {} {}",
                 where_clause
@@ -723,6 +760,8 @@ pub fn make_select_query(
             let order_by: String = column_defs
                 .iter()
                 .map(|col| {
+                    let escaped = escape_sql_literal(&col.field);
+                    let quoted = qi(&col.field, db_type);
                     let is_complex = col.datatype == "JSON"
                         || col.datatype.starts_with("STRUCT")
                         || col.datatype.starts_with("ARRAY")
@@ -730,12 +769,12 @@ pub fn make_select_query(
                     if is_complex {
                         format!(
                             "\n(CASE WHEN @order_by = '{}' AND @is_desc = false THEN TO_JSON_STRING({}) END) ASC,\n(CASE WHEN @order_by = '{}' AND @is_desc = true THEN TO_JSON_STRING({}) END) DESC",
-                            col.field, col.field, col.field, col.field
+                            escaped, quoted, escaped, quoted
                         )
                     } else {
                         format!(
                             "\n(CASE WHEN @order_by = '{}' AND @is_desc = false THEN {} END) ASC,\n(CASE WHEN @order_by = '{}' AND @is_desc = true THEN {} END) DESC",
-                            col.field, col.field, col.field, col.field
+                            escaped, quoted, escaped, quoted
                         )
                     }
                 })
@@ -767,7 +806,11 @@ pub fn make_select_query(
                 search_parts.join(",")
             );
 
-            query.push_str(&format!("SELECT {} FROM {}", select_clause, table));
+            query.push_str(&format!(
+                "SELECT {} FROM {}",
+                select_clause,
+                quote_table_name(table, db_type)
+            ));
             query.push_str(&format!(
                 " WHERE {} {}",
                 where_clause
@@ -786,9 +829,11 @@ pub fn make_select_query(
             let order_by_parts: Vec<String> = column_defs
                 .iter()
                 .map(|col| {
+                    let escaped = escape_sql_literal(&col.field);
+                    let quoted = qi(&col.field, db_type);
                     format!(
-                        "\n      (CASE WHEN $order_by = '{}' AND $is_desc IS false THEN \"{}\"::text END),\n      (CASE WHEN $order_by = '{}' AND $is_desc IS true THEN \"{}\"::text END) DESC",
-                        col.field, col.field, col.field, col.field
+                        "\n      (CASE WHEN $order_by = '{}' AND $is_desc IS false THEN {}::text END),\n      (CASE WHEN $order_by = '{}' AND $is_desc IS true THEN {}::text END) DESC",
+                        escaped, quoted, escaped, quoted
                     )
                 })
                 .collect();
@@ -803,7 +848,7 @@ pub fn make_select_query(
             query.push_str(&format!(
                 "SELECT {} FROM {}\n",
                 filtered_columns.join(", "),
-                table
+                quote_table_name(table, db_type)
             ));
             query.push_str(&format!(
                 " WHERE {} {}\n",
@@ -867,7 +912,10 @@ pub fn make_count_query(
             } else {
                 quicksearch_condition.push_str(" (:quicksearch = '' OR 1 = 1)");
             }
-            query.push_str(&format!("SELECT COUNT(*) as count FROM {}", table));
+            query.push_str(&format!(
+                "SELECT COUNT(*) as count FROM {}",
+                quote_table_name(table, db_type)
+            ));
         }
         DbType::Postgresql => {
             if !filtered_columns.is_empty() {
@@ -878,7 +926,10 @@ pub fn make_count_query(
             } else {
                 quicksearch_condition.push_str("($1 = '' OR 1 = 1)");
             }
-            query.push_str(&format!("SELECT COUNT(*) as count FROM {}", table));
+            query.push_str(&format!(
+                "SELECT COUNT(*) as count FROM {}",
+                quote_table_name(table, db_type)
+            ));
         }
         DbType::MsSqlServer => {
             if !filtered_columns.is_empty() {
@@ -889,7 +940,10 @@ pub fn make_count_query(
             } else {
                 quicksearch_condition.push_str("(@p1 = '' OR 1 = 1)");
             }
-            query.push_str(&format!("SELECT COUNT(*) as count FROM [{}]", table));
+            query.push_str(&format!(
+                "SELECT COUNT(*) as count FROM {}",
+                quote_table_name(table, db_type)
+            ));
         }
         DbType::Snowflake => {
             if !filtered_columns.is_empty() {
@@ -913,7 +967,10 @@ pub fn make_count_query(
                 query.push('\n');
                 quicksearch_condition.push_str("(? = '' OR 1 = 1)");
             }
-            query.push_str(&format!("SELECT COUNT(*) as count FROM {}", table));
+            query.push_str(&format!(
+                "SELECT COUNT(*) as count FROM {}",
+                quote_table_name(table, db_type)
+            ));
         }
         DbType::Bigquery => {
             if !filtered_columns.is_empty() {
@@ -942,7 +999,10 @@ pub fn make_count_query(
             } else {
                 quicksearch_condition.push_str("(@quicksearch = '' OR 1 = 1)");
             }
-            query.push_str(&format!("SELECT COUNT(*) as count FROM `{}`", table));
+            query.push_str(&format!(
+                "SELECT COUNT(*) as count FROM {}",
+                quote_table_name(table, db_type)
+            ));
         }
         DbType::Duckdb => {
             if !filtered_columns.is_empty() {
@@ -953,7 +1013,10 @@ pub fn make_count_query(
             } else {
                 quicksearch_condition.push_str(" ($quicksearch = '' OR 1 = 1)");
             }
-            query.push_str(&format!("SELECT COUNT(*) as count FROM {}", table));
+            query.push_str(&format!(
+                "SELECT COUNT(*) as count FROM {}",
+                quote_table_name(table, db_type)
+            ));
         }
     }
 
@@ -1011,18 +1074,21 @@ pub fn make_delete_query(table: &str, columns: &[ColumnDef], db_type: DbType) ->
 
     let mut query = params;
 
+    let qt = quote_table_name(table, db_type);
+
     match db_type {
         DbType::Postgresql => {
             let conditions: String = columns
                 .iter()
                 .enumerate()
                 .map(|(i, c)| {
+                    let qf = qi(&c.field, db_type);
                     format!(
                         "(${}::text::{} IS NULL AND {} IS NULL OR {} = ${}::text::{})",
                         i + 1,
                         c.datatype,
-                        c.field,
-                        c.field,
+                        qf,
+                        qf,
                         i + 1,
                         c.datatype
                     )
@@ -1031,72 +1097,79 @@ pub fn make_delete_query(table: &str, columns: &[ColumnDef], db_type: DbType) ->
                 .join("\n    AND ");
             query.push_str(&format!(
                 "\nDELETE FROM {} \nWHERE {} RETURNING 1;",
-                table, conditions
+                qt, conditions
             ));
         }
         DbType::Mysql => {
             let conditions: String = columns
                 .iter()
                 .map(|c| {
+                    let qf = qi(&c.field, db_type);
                     format!(
                         "(:{} IS NULL AND {} IS NULL OR {} = :{})",
-                        c.field, c.field, c.field, c.field
+                        c.field, qf, qf, c.field
                     )
                 })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
-            query.push_str(&format!("\nDELETE FROM {} \nWHERE {}", table, conditions));
+            query.push_str(&format!("\nDELETE FROM {} \nWHERE {}", qt, conditions));
         }
         DbType::MsSqlServer => {
             let conditions: String = columns
                 .iter()
                 .enumerate()
                 .map(|(i, c)| {
+                    let qf = qi(&c.field, db_type);
                     format!(
                         "(@p{} IS NULL AND {} IS NULL OR {} = @p{})",
                         i + 1,
-                        c.field,
-                        c.field,
+                        qf,
+                        qf,
                         i + 1
                     )
                 })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
-            query.push_str(&format!("\nDELETE FROM {} \nWHERE {}", table, conditions));
+            query.push_str(&format!("\nDELETE FROM {} \nWHERE {}", qt, conditions));
         }
         DbType::Snowflake => {
             let conditions: String = columns
                 .iter()
-                .map(|_c| format!("(? = 'null' AND {} IS NULL OR {} = ?)", _c.field, _c.field))
+                .map(|c| {
+                    let qf = qi(&c.field, db_type);
+                    format!("(? = 'null' AND {} IS NULL OR {} = ?)", qf, qf)
+                })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
-            query.push_str(&format!("\nDELETE FROM {} \nWHERE {}", table, conditions));
+            query.push_str(&format!("\nDELETE FROM {} \nWHERE {}", qt, conditions));
         }
         DbType::Bigquery => {
             let conditions: String = columns
                 .iter()
                 .map(|c| {
+                    let qf = qi(&c.field, db_type);
                     format!(
                         "(CAST(@{} AS STRING) = 'null' AND {} IS NULL OR {} = @{})",
-                        c.field, c.field, c.field, c.field
+                        c.field, qf, qf, c.field
                     )
                 })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
-            query.push_str(&format!("\nDELETE FROM {} \nWHERE {}", table, conditions));
+            query.push_str(&format!("\nDELETE FROM {} \nWHERE {}", qt, conditions));
         }
         DbType::Duckdb => {
             let conditions: String = columns
                 .iter()
                 .map(|c| {
+                    let qf = qi(&c.field, db_type);
                     format!(
                         "(${} IS NULL AND {} IS NULL OR {} = ${})",
-                        c.field, c.field, c.field, c.field
+                        c.field, qf, qf, c.field
                     )
                 })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
-            query.push_str(&format!("\nDELETE FROM {} \nWHERE {}", table, conditions));
+            query.push_str(&format!("\nDELETE FROM {} \nWHERE {}", qt, conditions));
         }
     }
 
@@ -1148,10 +1221,10 @@ fn format_insert_values(columns: &[ColumnDef], db_type: DbType, start_index: usi
         .join(", ")
 }
 
-fn format_column_names(columns: &[ColumnDef]) -> String {
+fn format_column_names(columns: &[ColumnDef], db_type: DbType) -> String {
     columns
         .iter()
-        .map(|c| c.field.as_str())
+        .map(|c| qi(&c.field, db_type))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -1252,6 +1325,7 @@ pub fn make_insert_query(
             .iter()
             .map(|c| (*c).clone())
             .collect::<Vec<_>>(),
+        db_type,
     );
     let insert_values = format_insert_values(&insert_cols_owned, db_type, 1);
     let default_cols_owned: Vec<ColumnDef> = columns_default.iter().map(|c| (*c).clone()).collect();
@@ -1259,13 +1333,14 @@ pub fn make_insert_query(
     let comma_or_empty = if should_insert_comma { ", " } else { "" };
     let values_str = format!("{}{}{}", insert_values, comma_or_empty, default_values);
 
+    let qt = quote_table_name(table, db_type);
     if values_str.trim().is_empty() {
-        return Ok(format!("INSERT INTO {} DEFAULT VALUES", table));
+        return Ok(format!("INSERT INTO {} DEFAULT VALUES", qt));
     }
 
     query.push_str(&format!(
         "INSERT INTO {} ({}) VALUES ({})",
-        table, column_names, values_str
+        qt, column_names, values_str
     ));
     Ok(query)
 }
@@ -1303,18 +1378,22 @@ pub fn make_update_query(
     let mut query = build_parameters(&param_list, db_type);
     query.push('\n');
 
+    let qt = quote_table_name(table, db_type);
+    let qcol = qi(&column.field, db_type);
+
     match db_type {
         DbType::Postgresql => {
             let conditions: String = columns
                 .iter()
                 .enumerate()
                 .map(|(i, c)| {
+                    let qf = qi(&c.field, db_type);
                     format!(
                         "(${}::text::{} IS NULL AND {} IS NULL OR {} = ${}::text::{})",
                         i + 2,
                         c.datatype,
-                        c.field,
-                        c.field,
+                        qf,
+                        qf,
                         i + 2,
                         c.datatype
                     )
@@ -1324,23 +1403,24 @@ pub fn make_update_query(
 
             query.push_str(&format!(
                 "\nUPDATE {} SET {} = $1::text::{} \nWHERE {}\tRETURNING 1",
-                table, column.field, column.datatype, conditions
+                qt, qcol, column.datatype, conditions
             ));
         }
         DbType::Mysql => {
             let conditions: String = columns
                 .iter()
                 .map(|c| {
+                    let qf = qi(&c.field, db_type);
                     format!(
                         "(:{} IS NULL AND {} IS NULL OR {} = :{})",
-                        c.field, c.field, c.field, c.field
+                        c.field, qf, qf, c.field
                     )
                 })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
             query.push_str(&format!(
                 "\nUPDATE {} SET {} = :value_to_update \nWHERE {}",
-                table, column.field, conditions
+                qt, qcol, conditions
             ));
         }
         DbType::MsSqlServer => {
@@ -1348,11 +1428,12 @@ pub fn make_update_query(
                 .iter()
                 .enumerate()
                 .map(|(i, c)| {
+                    let qf = qi(&c.field, db_type);
                     format!(
                         "(@p{} IS NULL AND {} IS NULL OR {} = @p{})",
                         i + 2,
-                        c.field,
-                        c.field,
+                        qf,
+                        qf,
                         i + 2
                     )
                 })
@@ -1360,50 +1441,55 @@ pub fn make_update_query(
                 .join("\n    AND ");
             query.push_str(&format!(
                 "\nUPDATE {} SET {} = @p1 \nWHERE {}",
-                table, column.field, conditions
+                qt, qcol, conditions
             ));
         }
         DbType::Snowflake => {
             let conditions: String = columns
                 .iter()
-                .map(|c| format!("(? = 'null' AND {} IS NULL OR {} = ?)", c.field, c.field))
+                .map(|c| {
+                    let qf = qi(&c.field, db_type);
+                    format!("(? = 'null' AND {} IS NULL OR {} = ?)", qf, qf)
+                })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
             query.push_str(&format!(
                 "\nUPDATE {} SET {} = ? \nWHERE {}",
-                table, column.field, conditions
+                qt, qcol, conditions
             ));
         }
         DbType::Bigquery => {
             let conditions: String = columns
                 .iter()
                 .map(|c| {
+                    let qf = qi(&c.field, db_type);
                     format!(
                         "(CAST(@{} AS STRING) = 'null' AND {} IS NULL OR {} = @{})",
-                        c.field, c.field, c.field, c.field
+                        c.field, qf, qf, c.field
                     )
                 })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
             query.push_str(&format!(
                 "\nUPDATE {} SET {} = @value_to_update \nWHERE {}",
-                table, column.field, conditions
+                qt, qcol, conditions
             ));
         }
         DbType::Duckdb => {
             let conditions: String = columns
                 .iter()
                 .map(|c| {
+                    let qf = qi(&c.field, db_type);
                     format!(
                         "(${} IS NULL AND {} IS NULL OR {} = ${})",
-                        c.field, c.field, c.field, c.field
+                        c.field, qf, qf, c.field
                     )
                 })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
             query.push_str(&format!(
                 "\nUPDATE {} SET {} = $value_to_update \nWHERE {}",
-                table, column.field, conditions
+                qt, qcol, conditions
             ));
         }
     }
@@ -1580,10 +1666,10 @@ fn datatype_has_length(datatype: &str) -> bool {
 fn table_ref(table: &str, schema: Option<&str>, db_type: DbType) -> String {
     if db_supports_schemas(db_type) {
         if let Some(s) = schema.filter(|s| !s.is_empty()) {
-            return format!("{}.{}", s.trim(), table);
+            return format!("{}.{}", qi(s.trim(), db_type), qi(table, db_type));
         }
     }
-    table.to_string()
+    qi(table, db_type)
 }
 
 fn format_default_value(s: &str, datatype: &str, db_type: DbType) -> String {
@@ -1611,7 +1697,7 @@ fn render_column_ddl(c: &TableEditorColumn, db_type: DbType, pk_modifier: bool) 
         .filter(|s| !s.is_empty())
         .map(|s| format_default_value(s, &datatype, db_type));
 
-    let mut s = format!("{} {}", c.name, datatype);
+    let mut s = format!("{} {}", qi(&c.name, db_type), datatype);
     if c.nullable != Some(true) {
         s.push_str(" NOT NULL");
     }
@@ -1629,20 +1715,20 @@ fn render_column_ddl(c: &TableEditorColumn, db_type: DbType, pk_modifier: bool) 
 fn render_fk_ddl(
     fk: &TableEditorForeignKey,
     use_schema: bool,
-    _db_type: DbType,
+    db_type: DbType,
     table_name: &str,
 ) -> String {
-    let source_cols: Vec<&str> = fk
+    let source_cols_raw: Vec<&str> = fk
         .columns
         .iter()
         .filter_map(|c| c.source_column.as_deref())
         .collect();
-    let target_cols: Vec<&str> = fk
+    let target_cols_raw: Vec<&str> = fk
         .columns
         .iter()
         .filter_map(|c| c.target_column.as_deref())
         .collect();
-    let target_table = match &fk.target_table {
+    let target_table_raw = match &fk.target_table {
         Some(t) => {
             if use_schema || !t.contains('.') {
                 t.clone()
@@ -1655,19 +1741,22 @@ fn render_fk_ddl(
 
     let mut sql = String::from("CONSTRAINT ");
     let name_parts: Vec<&str> = std::iter::once(table_name)
-        .chain(source_cols.iter().map(|c| &c[..c.len().min(10)]))
-        .chain(std::iter::once(target_table.as_str()))
-        .chain(target_cols.iter().map(|c| &c[..c.len().min(10)]))
+        .chain(source_cols_raw.iter().map(|c| &c[..c.len().min(10)]))
+        .chain(std::iter::once(target_table_raw.as_str()))
+        .chain(target_cols_raw.iter().map(|c| &c[..c.len().min(10)]))
         .collect();
     let full_name = format!("fk_{} ", name_parts.join("_").replace('.', "_"));
     let truncated = &full_name[..full_name.len().min(60)];
     sql.push_str(truncated);
 
+    let source_quoted: Vec<String> = source_cols_raw.iter().map(|c| qi(c, db_type)).collect();
+    let target_quoted: Vec<String> = target_cols_raw.iter().map(|c| qi(c, db_type)).collect();
+
     sql.push_str(&format!(
         " FOREIGN KEY ({}) REFERENCES {} ({})",
-        source_cols.join(", "),
-        target_table,
-        target_cols.join(", ")
+        source_quoted.join(", "),
+        quote_table_name(&target_table_raw, db_type),
+        target_quoted.join(", ")
     ));
     if fk.on_delete != "NO ACTION" {
         sql.push_str(&format!(" ON DELETE {}", fk.on_delete));
@@ -1680,12 +1769,12 @@ fn render_fk_ddl(
 
 // --- Schema DDL expand functions ---
 
-fn expand_drop_table(json_str: &str, _db_type: DbType) -> Result<String, String> {
+fn expand_drop_table(json_str: &str, db_type: DbType) -> Result<String, String> {
     let p: DropTablePayload =
         serde_json::from_str(json_str).map_err(|e| format!("Invalid DROP_TABLE payload: {}", e))?;
     let tref = match p.schema.as_deref().filter(|s| !s.is_empty()) {
-        Some(s) => format!("{}.{}", s, p.table),
-        None => p.table.clone(),
+        Some(s) => format!("{}.{}", qi(s, db_type), qi(&p.table, db_type)),
+        None => qi(&p.table, db_type),
     };
     let query = format!("DROP TABLE {};", tref);
     Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
@@ -1694,16 +1783,14 @@ fn expand_drop_table(json_str: &str, _db_type: DbType) -> Result<String, String>
 fn expand_create_schema(json_str: &str, db_type: DbType) -> Result<String, String> {
     let p: CreateSchemaPayload = serde_json::from_str(json_str)
         .map_err(|e| format!("Invalid CREATE_SCHEMA payload: {}", e))?;
-    let _ = db_type;
-    let query = format!("CREATE SCHEMA {};", p.schema);
+    let query = format!("CREATE SCHEMA {};", qi(&p.schema, db_type));
     Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
 }
 
 fn expand_drop_schema(json_str: &str, db_type: DbType) -> Result<String, String> {
     let p: DropSchemaPayload = serde_json::from_str(json_str)
         .map_err(|e| format!("Invalid DROP_SCHEMA payload: {}", e))?;
-    let _ = db_type;
-    let query = format!("DROP SCHEMA {} CASCADE;", p.schema);
+    let query = format!("DROP SCHEMA {} CASCADE;", qi(&p.schema, db_type));
     Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
 }
 
@@ -1745,15 +1832,15 @@ fn make_create_table_query(p: &CreateTablePayload, db_type: DbType) -> String {
         .collect();
 
     for fk in &p.foreign_keys {
-        lines.push(format!("  {}", render_fk_inline(fk, use_schema)));
+        lines.push(format!("  {}", render_fk_inline(fk, use_schema, db_type)));
     }
 
     if pk_count > 1 {
-        let pk_cols: Vec<&str> = p
+        let pk_cols: Vec<String> = p
             .columns
             .iter()
             .filter(|c| c.primary_key == Some(true))
-            .map(|c| c.name.as_str())
+            .map(|c| qi(&c.name, db_type))
             .collect();
         let mut pk = format!("  PRIMARY KEY ({})", pk_cols.join(", "));
         if db_type == DbType::Bigquery {
@@ -1764,35 +1851,36 @@ fn make_create_table_query(p: &CreateTablePayload, db_type: DbType) -> String {
 
     let tref = if use_schema {
         match schema.filter(|s| !s.is_empty()) {
-            Some(s) => format!("{}.{}", s.trim(), p.name.trim()),
-            None => p.name.trim().to_string(),
+            Some(s) => format!("{}.{}", qi(s.trim(), db_type), qi(p.name.trim(), db_type)),
+            None => qi(p.name.trim(), db_type),
         }
     } else {
-        p.name.trim().to_string()
+        qi(p.name.trim(), db_type)
     };
 
     format!("CREATE TABLE {} (\n{}\n);", tref, lines.join(",\n"))
 }
 
 /// Render FK for CREATE TABLE (inline, no CONSTRAINT name prefix).
-fn render_fk_inline(fk: &TableEditorForeignKey, use_schema: bool) -> String {
-    let source_cols: Vec<&str> = fk
+fn render_fk_inline(fk: &TableEditorForeignKey, use_schema: bool, db_type: DbType) -> String {
+    let source_cols: Vec<String> = fk
         .columns
         .iter()
-        .filter_map(|c| c.source_column.as_deref())
+        .filter_map(|c| c.source_column.as_deref().map(|s| qi(s, db_type)))
         .collect();
-    let target_cols: Vec<&str> = fk
+    let target_cols: Vec<String> = fk
         .columns
         .iter()
-        .filter_map(|c| c.target_column.as_deref())
+        .filter_map(|c| c.target_column.as_deref().map(|s| qi(s, db_type)))
         .collect();
     let target_table = match &fk.target_table {
         Some(t) => {
-            if use_schema || !t.contains('.') {
+            let raw = if use_schema || !t.contains('.') {
                 t.clone()
             } else {
                 t.split('.').last().unwrap_or(t).to_string()
-            }
+            };
+            quote_table_name(&raw, db_type)
         }
         None => String::new(),
     };
@@ -1837,11 +1925,11 @@ fn make_alter_table_queries(p: &AlterTablePayload, db_type: DbType) -> Result<Ve
     let use_schema = db_supports_schemas(db_type);
     let tref = if use_schema {
         match p.schema.as_deref().filter(|s| !s.is_empty()) {
-            Some(s) => format!("{}.{}", s.trim(), p.name),
-            None => p.name.clone(),
+            Some(s) => format!("{}.{}", qi(s.trim(), db_type), qi(&p.name, db_type)),
+            None => qi(&p.name, db_type),
         }
     } else {
-        p.name.clone()
+        qi(&p.name, db_type)
     };
 
     let mut queries = Vec::new();
@@ -1896,22 +1984,23 @@ fn make_alter_table_queries(p: &AlterTablePayload, db_type: DbType) -> Result<Ve
             AlterTableOperation::RenameTable { to } => {
                 let new_ref = if db_type == DbType::Snowflake {
                     match p.schema.as_deref().filter(|s| !s.is_empty()) {
-                        Some(s) => format!("{}.{}", s.trim(), to),
-                        None => to.clone(),
+                        Some(s) => format!("{}.{}", qi(s.trim(), db_type), qi(to, db_type)),
+                        None => qi(to, db_type),
                     }
                 } else {
-                    to.clone()
+                    qi(to, db_type)
                 };
                 queries.push(format!("ALTER TABLE {} RENAME TO {};", tref, new_ref));
             }
             AlterTableOperation::AddPrimaryKey { columns } => {
+                let quoted_cols: Vec<String> = columns.iter().map(|c| qi(c, db_type)).collect();
                 if db_type == DbType::Snowflake {
                     let cname = format!("{}_pk", p.name);
                     queries.push(format!(
                         "ALTER TABLE {} ADD CONSTRAINT {} PRIMARY KEY ({});",
                         tref,
-                        cname,
-                        columns.join(", ")
+                        qi(&cname, db_type),
+                        quoted_cols.join(", ")
                     ));
                 } else {
                     let not_enforced = if db_type == DbType::Bigquery {
@@ -1922,7 +2011,7 @@ fn make_alter_table_queries(p: &AlterTablePayload, db_type: DbType) -> Result<Ve
                     queries.push(format!(
                         "ALTER TABLE {} ADD PRIMARY KEY ({}){};",
                         tref,
-                        columns.join(", "),
+                        quoted_cols.join(", "),
                         not_enforced
                     ));
                 }
@@ -2029,29 +2118,30 @@ fn render_alter_column(
 }
 
 fn render_alter_datatype(table_ref: &str, col: &str, datatype: &str, db_type: DbType) -> String {
+    let qc = qi(col, db_type);
     match db_type {
         DbType::Postgresql | DbType::Duckdb => {
             format!(
                 "ALTER TABLE {} ALTER COLUMN {} TYPE {};",
-                table_ref, col, datatype
+                table_ref, qc, datatype
             )
         }
         DbType::MsSqlServer => {
             format!(
                 "ALTER TABLE {} ALTER COLUMN {} {};",
-                table_ref, col, datatype
+                table_ref, qc, datatype
             )
         }
         DbType::Mysql => {
             format!(
                 "ALTER TABLE {} MODIFY COLUMN {} {};",
-                table_ref, col, datatype
+                table_ref, qc, datatype
             )
         }
         DbType::Snowflake | DbType::Bigquery => {
             format!(
                 "ALTER TABLE {} ALTER COLUMN {} SET DATA TYPE {};",
-                table_ref, col, datatype
+                table_ref, qc, datatype
             )
         }
     }
@@ -2064,6 +2154,7 @@ fn render_drop_default_value(
     db_type: DbType,
     constraint_name: Option<&str>,
 ) -> String {
+    let qc = qi(col, db_type);
     match db_type {
         DbType::MsSqlServer => format!(
             "ALTER TABLE {} DROP CONSTRAINT {};",
@@ -2072,7 +2163,7 @@ fn render_drop_default_value(
         ),
         _ => format!(
             "ALTER TABLE {} ALTER COLUMN {} DROP DEFAULT;",
-            table_ref, col
+            table_ref, qc
         ),
     }
 }
@@ -2083,18 +2174,23 @@ fn render_add_default_value(
     default_value: &str,
     db_type: DbType,
 ) -> String {
+    let qc = qi(col, db_type);
     match db_type {
         DbType::MsSqlServer => format!(
             "ALTER TABLE {} ADD CONSTRAINT DF_{}_{} DEFAULT {} FOR {};",
             table_ref,
-            table_ref.replace('.', "_"),
+            table_ref
+                .replace('.', "_")
+                .replace('"', "")
+                .replace('[', "")
+                .replace(']', ""),
             col,
             default_value,
-            col
+            qc
         ),
         _ => format!(
             "ALTER TABLE {} ALTER COLUMN {} SET DEFAULT {};",
-            table_ref, col, default_value
+            table_ref, qc, default_value
         ),
     }
 }
@@ -2106,26 +2202,27 @@ fn render_alter_nullable(
     datatype: &str,
     db_type: DbType,
 ) -> String {
+    let qc = qi(col, db_type);
     match db_type {
         DbType::Postgresql | DbType::Duckdb | DbType::Snowflake | DbType::Bigquery => {
             let action = if nullable { "DROP" } else { "SET" };
             format!(
                 "ALTER TABLE {} ALTER COLUMN {} {} NOT NULL;",
-                table_ref, col, action
+                table_ref, qc, action
             )
         }
         DbType::MsSqlServer => {
             let null_str = if nullable { "NULL" } else { "NOT NULL" };
             format!(
                 "ALTER TABLE {} ALTER COLUMN {} {} {};",
-                table_ref, col, datatype, null_str
+                table_ref, qc, datatype, null_str
             )
         }
         DbType::Mysql => {
             let null_str = if nullable { "NULL" } else { "NOT NULL" };
             format!(
                 "ALTER TABLE {} MODIFY COLUMN {} {} {};",
-                table_ref, col, datatype, null_str
+                table_ref, qc, datatype, null_str
             )
         }
     }
@@ -2141,12 +2238,16 @@ fn render_rename_column(
         DbType::MsSqlServer => {
             format!(
                 "EXEC sp_rename '{}.{}', '{}', 'COLUMN';",
-                table_ref, old_name, new_name
+                escape_sql_literal(table_ref),
+                escape_sql_literal(old_name),
+                escape_sql_literal(new_name)
             )
         }
         _ => format!(
             "ALTER TABLE {} RENAME COLUMN {} TO {};",
-            table_ref, old_name, new_name
+            table_ref,
+            qi(old_name, db_type),
+            qi(new_name, db_type)
         ),
     }
 }
@@ -2618,7 +2719,7 @@ mod tests {
         assert!(result.starts_with(
             "-- $1 limit\n-- $2 offset\n-- $3 quicksearch\n-- $4 order_by\n-- $5 is_desc\n"
         ));
-        assert!(result.contains("SELECT \"id\"::text, \"name\"::text FROM my_table\n"));
+        assert!(result.contains("SELECT \"id\"::text, \"name\"::text FROM \"my_table\"\n"));
         assert!(result.contains("($3 = '' OR CONCAT(\"id\", \"name\") ILIKE '%' || $3 || '%')"));
         assert!(result.contains("LIMIT $1::INT OFFSET $2::INT"));
         assert!(result.contains("$4 = 'id' AND $5 IS false THEN \"id\"::text"));
@@ -2681,7 +2782,7 @@ mod tests {
         let result = make_select_query("my_table", &cols, None, DbType::Mysql, None, None).unwrap();
 
         assert!(result.starts_with("-- :limit (int)\n-- :offset (int)\n-- :quicksearch (text)\n-- :order_by (text)\n-- :is_desc (boolean)\n"));
-        assert!(result.contains("SELECT `id`, `name` FROM my_table"));
+        assert!(result.contains("SELECT `id`, `name` FROM `my_table`"));
         assert!(result.contains("CONCAT_WS(' ', `id`, `name`) LIKE CONCAT('%', :quicksearch, '%')"));
         assert!(result.contains("LIMIT :limit OFFSET :offset"));
         assert!(result.contains(":order_by = 'id' AND :is_desc IS false THEN `id` END"));
@@ -2697,7 +2798,7 @@ mod tests {
         let result =
             make_select_query("my_table", &cols, None, DbType::MsSqlServer, None, None).unwrap();
 
-        assert!(result.contains("SELECT [id], [name] FROM my_table"));
+        assert!(result.contains("SELECT [id], [name] FROM [my_table]"));
         assert!(result.contains("@p3 = '' OR CONCAT([id], [name]) LIKE '%' + @p3 + '%'"));
         assert!(result.contains("OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY"));
     }
@@ -2727,7 +2828,7 @@ mod tests {
 
         // Parameters: quicksearch (1 + N filtered columns), then 4 per column for order_by
         assert!(result.contains("-- ? quicksearch (text)"));
-        assert!(result.contains("SELECT \"id\", \"name\" FROM my_table"));
+        assert!(result.contains("SELECT \"id\", \"name\" FROM \"my_table\""));
         assert!(result.contains("LENGTH(?) = 0"));
         assert!(result.contains("CONCAT(\"id\") ILIKE CONCAT('%', ?, '%')"));
         assert!(result.contains("LIMIT 100 OFFSET 0"));
@@ -2760,7 +2861,7 @@ mod tests {
             make_select_query("my_table", &cols, None, DbType::Bigquery, None, None).unwrap();
 
         assert!(result.starts_with("-- @limit (integer)\n-- @offset (integer)\n-- @quicksearch (string)\n-- @order_by (string)\n-- @is_desc (bool)\n"));
-        assert!(result.contains("SELECT `id`, `name` FROM my_table"));
+        assert!(result.contains("SELECT `id`, `name` FROM `my_table`"));
         assert!(result.contains("CAST(`id` AS STRING)"));
         assert!(result.contains("LIMIT @limit OFFSET @offset"));
     }
@@ -2787,7 +2888,7 @@ mod tests {
             make_select_query("my_table", &cols, None, DbType::Duckdb, None, None).unwrap();
 
         assert!(result.starts_with("-- $limit (int)\n-- $offset (int)\n-- $quicksearch (text)\n-- $order_by (text)\n-- $is_desc (boolean)\n"));
-        assert!(result.contains("SELECT \"id\", \"name\" FROM my_table\n"));
+        assert!(result.contains("SELECT \"id\", \"name\" FROM \"my_table\"\n"));
         assert!(result.contains("CONCAT(\"id\", \"name\") ILIKE '%' || $quicksearch || '%'"));
         assert!(result.contains("LIMIT $limit::INT OFFSET $offset::INT"));
     }
@@ -2814,11 +2915,11 @@ mod tests {
         let result = make_count_query(DbType::Postgresql, "my_table", None, &cols).unwrap();
 
         assert!(result.contains("-- $1 quicksearch"));
-        assert!(result.contains("SELECT COUNT(*) as count FROM my_table"));
+        assert!(result.contains("SELECT COUNT(*) as count FROM \"my_table\""));
         assert!(result.contains("($1 = '' OR CONCAT(\"id\", \"name\") ILIKE '%' || $1 || '%')"));
         // Should use WHERE not AND
         assert!(result.contains(" WHERE "));
-        assert!(!result.contains("my_table AND "));
+        assert!(!result.contains("\"my_table\" AND "));
     }
 
     #[test]
@@ -2858,7 +2959,7 @@ mod tests {
         let result = make_count_query(DbType::Mysql, "my_table", None, &cols).unwrap();
 
         assert!(result.contains("-- :quicksearch (text)"));
-        assert!(result.contains("SELECT COUNT(*) as count FROM my_table"));
+        assert!(result.contains("SELECT COUNT(*) as count FROM `my_table`"));
         assert!(result.contains("CONCAT_WS(' ', `id`, `name`) LIKE CONCAT('%', :quicksearch, '%')"));
     }
 
@@ -2886,7 +2987,7 @@ mod tests {
 
         // Two quicksearch params for snowflake with visible columns
         assert!(result.contains("-- ? quicksearch (text)\n-- ? quicksearch (text)"));
-        assert!(result.contains("SELECT COUNT(*) as count FROM my_table"));
+        assert!(result.contains("SELECT COUNT(*) as count FROM \"my_table\""));
         assert!(result.contains("(? = '' OR CONCAT(\"id\", \"name\") ILIKE '%' || ? || '%')"));
     }
 
@@ -2935,7 +3036,7 @@ mod tests {
         let result = make_count_query(DbType::Duckdb, "my_table", None, &cols).unwrap();
 
         assert!(result.contains("-- $quicksearch (text)"));
-        assert!(result.contains("SELECT COUNT(*) as count FROM my_table"));
+        assert!(result.contains("SELECT COUNT(*) as count FROM \"my_table\""));
         assert!(
             result.contains("CONCAT(' ', \"id\", \"name\") LIKE CONCAT('%', $quicksearch, '%')")
         );
@@ -2951,11 +3052,12 @@ mod tests {
         let result = make_delete_query("my_table", &cols, DbType::Postgresql);
 
         assert!(result.contains("-- $1 id\n-- $2 name"));
-        assert!(result.contains("DELETE FROM my_table"));
-        assert!(result.contains("($1::text::int4 IS NULL AND id IS NULL OR id = $1::text::int4)"));
-        assert!(
-            result.contains("($2::text::text IS NULL AND name IS NULL OR name = $2::text::text)")
-        );
+        assert!(result.contains("DELETE FROM \"my_table\""));
+        assert!(result
+            .contains("($1::text::int4 IS NULL AND \"id\" IS NULL OR \"id\" = $1::text::int4)"));
+        assert!(result.contains(
+            "($2::text::text IS NULL AND \"name\" IS NULL OR \"name\" = $2::text::text)"
+        ));
         assert!(result.contains("RETURNING 1;"));
     }
 
@@ -2965,9 +3067,9 @@ mod tests {
         let result = make_delete_query("my_table", &cols, DbType::Mysql);
 
         assert!(result.contains("-- :id (int)\n-- :name (varchar)"));
-        assert!(result.contains("DELETE FROM my_table"));
-        assert!(result.contains("(:id IS NULL AND id IS NULL OR id = :id)"));
-        assert!(result.contains("(:name IS NULL AND name IS NULL OR name = :name)"));
+        assert!(result.contains("DELETE FROM `my_table`"));
+        assert!(result.contains("(:id IS NULL AND `id` IS NULL OR `id` = :id)"));
+        assert!(result.contains("(:name IS NULL AND `name` IS NULL OR `name` = :name)"));
     }
 
     #[test]
@@ -2976,8 +3078,9 @@ mod tests {
         let result = make_delete_query("my_table", &cols, DbType::MsSqlServer);
 
         assert!(result.contains("-- @p1 id (int)\n-- @p2 name (nvarchar)"));
-        assert!(result.contains("(@p1 IS NULL AND id IS NULL OR id = @p1)"));
-        assert!(result.contains("(@p2 IS NULL AND name IS NULL OR name = @p2)"));
+        assert!(result.contains("DELETE FROM [my_table]"));
+        assert!(result.contains("(@p1 IS NULL AND [id] IS NULL OR [id] = @p1)"));
+        assert!(result.contains("(@p2 IS NULL AND [name] IS NULL OR [name] = @p2)"));
     }
 
     #[test]
@@ -2987,8 +3090,9 @@ mod tests {
 
         // Snowflake doubles columns
         assert!(result.contains("-- ? id (int)\n-- ? id (int)\n-- ? name (text)\n-- ? name (text)"));
-        assert!(result.contains("(? = 'null' AND id IS NULL OR id = ?)"));
-        assert!(result.contains("(? = 'null' AND name IS NULL OR name = ?)"));
+        assert!(result.contains("DELETE FROM \"my_table\""));
+        assert!(result.contains("(? = 'null' AND \"id\" IS NULL OR \"id\" = ?)"));
+        assert!(result.contains("(? = 'null' AND \"name\" IS NULL OR \"name\" = ?)"));
     }
 
     #[test]
@@ -2997,7 +3101,8 @@ mod tests {
         let result = make_delete_query("my_table", &cols, DbType::Bigquery);
 
         assert!(result.contains("-- @id (INTEGER)\n-- @name (STRING)"));
-        assert!(result.contains("(CAST(@id AS STRING) = 'null' AND id IS NULL OR id = @id)"));
+        assert!(result.contains("DELETE FROM `my_table`"));
+        assert!(result.contains("(CAST(@id AS STRING) = 'null' AND `id` IS NULL OR `id` = @id)"));
     }
 
     #[test]
@@ -3006,7 +3111,8 @@ mod tests {
         let result = make_delete_query("my_table", &cols, DbType::Duckdb);
 
         assert!(result.contains("-- $id (int)\n-- $name (text)"));
-        assert!(result.contains("($id IS NULL AND id IS NULL OR id = $id)"));
+        assert!(result.contains("DELETE FROM \"my_table\""));
+        assert!(result.contains("($id IS NULL AND \"id\" IS NULL OR \"id\" = $id)"));
     }
 
     // -----------------------------------------------------------------------
@@ -3019,7 +3125,8 @@ mod tests {
         let result = make_insert_query("my_table", &cols, DbType::Postgresql).unwrap();
 
         assert!(result.contains("-- $1 id\n-- $2 name"));
-        assert!(result.contains("INSERT INTO my_table (id, name) VALUES ($1::int4, $2::text)"));
+        assert!(result
+            .contains("INSERT INTO \"my_table\" (\"id\", \"name\") VALUES ($1::int4, $2::text)"));
     }
 
     #[test]
@@ -3027,7 +3134,7 @@ mod tests {
         let cols = vec![col("id", "int"), col("name", "varchar")];
         let result = make_insert_query("my_table", &cols, DbType::Mysql).unwrap();
 
-        assert!(result.contains("INSERT INTO my_table (id, name) VALUES (:id, :name)"));
+        assert!(result.contains("INSERT INTO `my_table` (`id`, `name`) VALUES (:id, :name)"));
     }
 
     #[test]
@@ -3035,7 +3142,7 @@ mod tests {
         let cols = vec![col("id", "int"), col("name", "nvarchar")];
         let result = make_insert_query("my_table", &cols, DbType::MsSqlServer).unwrap();
 
-        assert!(result.contains("INSERT INTO my_table (id, name) VALUES (@p1, @p2)"));
+        assert!(result.contains("INSERT INTO [my_table] ([id], [name]) VALUES (@p1, @p2)"));
     }
 
     #[test]
@@ -3043,7 +3150,7 @@ mod tests {
         let cols = vec![col("id", "int"), col("name", "text")];
         let result = make_insert_query("my_table", &cols, DbType::Snowflake).unwrap();
 
-        assert!(result.contains("INSERT INTO my_table (id, name) VALUES (?, ?)"));
+        assert!(result.contains("INSERT INTO \"my_table\" (\"id\", \"name\") VALUES (?, ?)"));
     }
 
     #[test]
@@ -3051,7 +3158,7 @@ mod tests {
         let cols = vec![col("id", "INTEGER"), col("name", "STRING")];
         let result = make_insert_query("my_table", &cols, DbType::Bigquery).unwrap();
 
-        assert!(result.contains("INSERT INTO my_table (id, name) VALUES (@id, @name)"));
+        assert!(result.contains("INSERT INTO `my_table` (`id`, `name`) VALUES (@id, @name)"));
     }
 
     #[test]
@@ -3059,7 +3166,7 @@ mod tests {
         let cols = vec![col("id", "int"), col("name", "text")];
         let result = make_insert_query("my_table", &cols, DbType::Duckdb).unwrap();
 
-        assert!(result.contains("INSERT INTO my_table (id, name) VALUES ($id, $name)"));
+        assert!(result.contains("INSERT INTO \"my_table\" (\"id\", \"name\") VALUES ($id, $name)"));
     }
 
     // -----------------------------------------------------------------------
@@ -3075,7 +3182,7 @@ mod tests {
             make_insert_query("my_table", &[id_col, name_col], DbType::Postgresql).unwrap();
 
         // id should be skipped from insert columns (has nextval default in pg)
-        assert!(result.contains("INSERT INTO my_table (name) VALUES ($1::text)"));
+        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1::text)"));
     }
 
     #[test]
@@ -3089,7 +3196,9 @@ mod tests {
             make_insert_query("my_table", &[id_col, name_col], DbType::Postgresql).unwrap();
 
         // name should be in insert params, id should be in defaults
-        assert!(result.contains("INSERT INTO my_table (name, id) VALUES ($1::text, '42')"));
+        assert!(
+            result.contains("INSERT INTO \"my_table\" (\"name\", \"id\") VALUES ($1::text, '42')")
+        );
     }
 
     #[test]
@@ -3117,7 +3226,7 @@ mod tests {
             make_insert_query("my_table", &[id_col, name_col], DbType::Postgresql).unwrap();
 
         // Column is hidden, not nullable, has db default, no user default -> omit (use db default)
-        assert!(result.contains("INSERT INTO my_table (name) VALUES ($1::text)"));
+        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1::text)"));
     }
 
     #[test]
@@ -3131,7 +3240,7 @@ mod tests {
             make_insert_query("my_table", &[id_col, name_col], DbType::Postgresql).unwrap();
 
         // Always identity should be omitted
-        assert!(result.contains("INSERT INTO my_table (name) VALUES ($1::text)"));
+        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1::text)"));
     }
 
     #[test]
@@ -3156,7 +3265,7 @@ mod tests {
     fn test_insert_default_values_only() {
         // All columns hidden, none needs defaults -> DEFAULT VALUES
         let result = make_insert_query("my_table", &[], DbType::Postgresql).unwrap();
-        assert_eq!(result, "INSERT INTO my_table DEFAULT VALUES");
+        assert_eq!(result, "INSERT INTO \"my_table\" DEFAULT VALUES");
     }
 
     // -----------------------------------------------------------------------
@@ -3170,11 +3279,12 @@ mod tests {
         let result = make_update_query("my_table", &update_col, &where_cols, DbType::Postgresql);
 
         assert!(result.contains("-- $1 value_to_update\n-- $2 id\n-- $3 email"));
-        assert!(result.contains("UPDATE my_table SET name = $1::text::text"));
-        assert!(result.contains("($2::text::int4 IS NULL AND id IS NULL OR id = $2::text::int4)"));
-        assert!(
-            result.contains("($3::text::text IS NULL AND email IS NULL OR email = $3::text::text)")
-        );
+        assert!(result.contains("UPDATE \"my_table\" SET \"name\" = $1::text::text"));
+        assert!(result
+            .contains("($2::text::int4 IS NULL AND \"id\" IS NULL OR \"id\" = $2::text::int4)"));
+        assert!(result.contains(
+            "($3::text::text IS NULL AND \"email\" IS NULL OR \"email\" = $3::text::text)"
+        ));
         assert!(result.contains("RETURNING 1"));
     }
 
@@ -3184,8 +3294,8 @@ mod tests {
         let where_cols = vec![simple_col("id", "int")];
         let result = make_update_query("my_table", &update_col, &where_cols, DbType::Mysql);
 
-        assert!(result.contains("UPDATE my_table SET name = :value_to_update"));
-        assert!(result.contains("(:id IS NULL AND id IS NULL OR id = :id)"));
+        assert!(result.contains("UPDATE `my_table` SET `name` = :value_to_update"));
+        assert!(result.contains("(:id IS NULL AND `id` IS NULL OR `id` = :id)"));
     }
 
     #[test]
@@ -3194,8 +3304,8 @@ mod tests {
         let where_cols = vec![simple_col("id", "int")];
         let result = make_update_query("my_table", &update_col, &where_cols, DbType::MsSqlServer);
 
-        assert!(result.contains("UPDATE my_table SET name = @p1"));
-        assert!(result.contains("(@p2 IS NULL AND id IS NULL OR id = @p2)"));
+        assert!(result.contains("UPDATE [my_table] SET [name] = @p1"));
+        assert!(result.contains("(@p2 IS NULL AND [id] IS NULL OR [id] = @p2)"));
     }
 
     #[test]
@@ -3206,8 +3316,8 @@ mod tests {
 
         // Snowflake doubles where columns
         assert!(result.contains("-- ? value_to_update (text)\n-- ? id (int)\n-- ? id (int)"));
-        assert!(result.contains("UPDATE my_table SET name = ?"));
-        assert!(result.contains("(? = 'null' AND id IS NULL OR id = ?)"));
+        assert!(result.contains("UPDATE \"my_table\" SET \"name\" = ?"));
+        assert!(result.contains("(? = 'null' AND \"id\" IS NULL OR \"id\" = ?)"));
     }
 
     #[test]
@@ -3216,8 +3326,8 @@ mod tests {
         let where_cols = vec![simple_col("id", "INTEGER")];
         let result = make_update_query("my_table", &update_col, &where_cols, DbType::Bigquery);
 
-        assert!(result.contains("UPDATE my_table SET name = @value_to_update"));
-        assert!(result.contains("(CAST(@id AS STRING) = 'null' AND id IS NULL OR id = @id)"));
+        assert!(result.contains("UPDATE `my_table` SET `name` = @value_to_update"));
+        assert!(result.contains("(CAST(@id AS STRING) = 'null' AND `id` IS NULL OR `id` = @id)"));
     }
 
     #[test]
@@ -3226,8 +3336,8 @@ mod tests {
         let where_cols = vec![simple_col("id", "int")];
         let result = make_update_query("my_table", &update_col, &where_cols, DbType::Duckdb);
 
-        assert!(result.contains("UPDATE my_table SET name = $value_to_update"));
-        assert!(result.contains("($id IS NULL AND id IS NULL OR id = $id)"));
+        assert!(result.contains("UPDATE \"my_table\" SET \"name\" = $value_to_update"));
+        assert!(result.contains("($id IS NULL AND \"id\" IS NULL OR \"id\" = $id)"));
     }
 
     // -----------------------------------------------------------------------
@@ -3247,8 +3357,8 @@ mod tests {
         let cols = vec![col("id", "int")];
         let result = make_count_query(DbType::Mysql, "my_table", None, &cols).unwrap();
         // The AND should be replaced with WHERE
-        assert!(result.contains("FROM my_table WHERE "));
-        assert!(!result.contains("FROM my_table AND "));
+        assert!(result.contains("FROM `my_table` WHERE "));
+        assert!(!result.contains("FROM `my_table` AND "));
     }
 
     #[test]
@@ -3256,8 +3366,10 @@ mod tests {
         let cols = vec![col("a", "int4"), col("b", "text"), col("c", "bool")];
         let result = make_delete_query("t", &cols, DbType::Postgresql);
         // Check all three conditions are present and joined
-        assert!(result.contains("AND ($2::text::text IS NULL AND b IS NULL OR b = $2::text::text)"));
-        assert!(result.contains("AND ($3::text::bool IS NULL AND c IS NULL OR c = $3::text::bool)"));
+        assert!(result
+            .contains("AND ($2::text::text IS NULL AND \"b\" IS NULL OR \"b\" = $2::text::text)"));
+        assert!(result
+            .contains("AND ($3::text::bool IS NULL AND \"c\" IS NULL OR \"c\" = $3::text::bool)"));
     }
 
     #[test]
@@ -3330,7 +3442,7 @@ mod tests {
         let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql);
         assert!(result.is_some());
         let sql = result.unwrap().unwrap().code;
-        assert!(sql.contains("SELECT \"id\"::text, \"name\"::text FROM my_table"));
+        assert!(sql.contains("SELECT \"id\"::text, \"name\"::text FROM \"my_table\""));
         assert!(sql.contains("LIMIT $1::INT OFFSET $2::INT"));
     }
 
@@ -3346,7 +3458,7 @@ mod tests {
     fn test_expand_count_marker() {
         let marker = r#"-- WM_INTERNAL_DB_COUNT {"table":"my_table","columnDefs":[{"field":"id","datatype":"int4"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Mysql);
-        assert!(sql.contains("SELECT COUNT(*) as count FROM my_table"));
+        assert!(sql.contains("SELECT COUNT(*) as count FROM `my_table`"));
         assert!(sql.contains(":quicksearch"));
     }
 
@@ -3354,7 +3466,7 @@ mod tests {
     fn test_expand_delete_marker() {
         let marker = r#"-- WM_INTERNAL_DB_DELETE {"table":"my_table","columns":[{"field":"id","datatype":"int4"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("DELETE FROM my_table"));
+        assert!(sql.contains("DELETE FROM \"my_table\""));
         assert!(sql.contains("RETURNING 1;"));
     }
 
@@ -3362,14 +3474,16 @@ mod tests {
     fn test_expand_insert_marker() {
         let marker = r#"-- WM_INTERNAL_DB_INSERT {"table":"my_table","columns":[{"field":"id","datatype":"int4"},{"field":"name","datatype":"text"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("INSERT INTO my_table (id, name) VALUES ($1::int4, $2::text)"));
+        assert!(
+            sql.contains("INSERT INTO \"my_table\" (\"id\", \"name\") VALUES ($1::int4, $2::text)")
+        );
     }
 
     #[test]
     fn test_expand_update_marker() {
         let marker = r#"-- WM_INTERNAL_DB_UPDATE {"table":"my_table","column":{"field":"name","datatype":"text"},"columns":[{"field":"id","datatype":"int4"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("UPDATE my_table SET name = $1::text::text"));
+        assert!(sql.contains("UPDATE \"my_table\" SET \"name\" = $1::text::text"));
         assert!(sql.contains("RETURNING 1"));
     }
 
@@ -3378,7 +3492,7 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_SELECT {"table":"my_table","columnDefs":[{"field":"id","datatype":"int4"}],"ducklake":"my_lake"}"#;
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.contains("ATTACH 'ducklake://my_lake' AS dl;USE dl;"));
-        assert!(sql.contains("SELECT \"id\" FROM my_table"));
+        assert!(sql.contains("SELECT \"id\" FROM \"my_table\""));
     }
 
     #[test]
@@ -3406,7 +3520,7 @@ mod tests {
     fn test_expand_mysql_select() {
         let marker = r#"-- WM_INTERNAL_DB_SELECT {"table":"users","columnDefs":[{"field":"id","datatype":"int"},{"field":"name","datatype":"varchar"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Mysql);
-        assert!(sql.contains("SELECT `id`, `name` FROM users"));
+        assert!(sql.contains("SELECT `id`, `name` FROM `users`"));
         assert!(sql.contains("LIMIT :limit OFFSET :offset"));
     }
 
@@ -3530,7 +3644,7 @@ mod tests {
             default_constraint_name: None,
         };
         let result = render_column_ddl(&c, DbType::Postgresql, false);
-        assert_eq!(result, "email VARCHAR(255) NOT NULL");
+        assert_eq!(result, "\"email\" VARCHAR(255) NOT NULL");
     }
 
     #[test]
@@ -3548,7 +3662,7 @@ mod tests {
         let result = render_column_ddl(&c, DbType::Postgresql, true);
         assert_eq!(
             result,
-            "id INT NOT NULL DEFAULT nextval('id_seq') PRIMARY KEY"
+            "\"id\" INT NOT NULL DEFAULT nextval('id_seq') PRIMARY KEY"
         );
     }
 
@@ -3566,7 +3680,7 @@ mod tests {
         };
         // nullable=true means no NOT NULL appended
         let result = render_column_ddl(&c, DbType::Postgresql, false);
-        assert_eq!(result, "notes TEXT");
+        assert_eq!(result, "\"notes\" TEXT");
     }
 
     // -----------------------------------------------------------------------
@@ -3577,21 +3691,21 @@ mod tests {
     fn test_expand_drop_table_simple() {
         let marker = r#"-- WM_INTERNAL_DB_DROP_TABLE {"table":"users"}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert_eq!(sql, "DROP TABLE users;");
+        assert_eq!(sql, "DROP TABLE \"users\";");
     }
 
     #[test]
     fn test_expand_drop_table_with_schema() {
         let marker = r#"-- WM_INTERNAL_DB_DROP_TABLE {"table":"users","schema":"myschema"}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert_eq!(sql, "DROP TABLE myschema.users;");
+        assert_eq!(sql, "DROP TABLE \"myschema\".\"users\";");
     }
 
     #[test]
     fn test_expand_drop_table_mysql_ignores_schema() {
         let marker = r#"-- WM_INTERNAL_DB_DROP_TABLE {"table":"users","schema":"myschema"}"#;
         let sql = expand_code(marker, &ScriptLang::Mysql);
-        assert_eq!(sql, "DROP TABLE users;");
+        assert_eq!(sql, "DROP TABLE `users`;");
     }
 
     #[test]
@@ -3599,7 +3713,7 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_DROP_TABLE {"table":"users","ducklake":"my_lake"}"#;
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.contains("ATTACH 'ducklake://my_lake' AS dl;USE dl;"));
-        assert!(sql.contains("DROP TABLE users;"));
+        assert!(sql.contains("DROP TABLE \"users\";"));
     }
 
     // -----------------------------------------------------------------------
@@ -3610,14 +3724,14 @@ mod tests {
     fn test_expand_create_schema() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_SCHEMA {"schema":"new_schema"}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert_eq!(sql, "CREATE SCHEMA new_schema;");
+        assert_eq!(sql, "CREATE SCHEMA \"new_schema\";");
     }
 
     #[test]
     fn test_expand_drop_schema() {
         let marker = r#"-- WM_INTERNAL_DB_DROP_SCHEMA {"schema":"old_schema"}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert_eq!(sql, "DROP SCHEMA old_schema CASCADE;");
+        assert_eq!(sql, "DROP SCHEMA \"old_schema\" CASCADE;");
     }
 
     #[test]
@@ -3625,7 +3739,7 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_SCHEMA {"schema":"s","ducklake":"lake"}"#;
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
-        assert!(sql.contains("CREATE SCHEMA s;"));
+        assert!(sql.contains("CREATE SCHEMA \"s\";"));
     }
 
     // -----------------------------------------------------------------------
@@ -3636,9 +3750,9 @@ mod tests {
     fn test_expand_create_table_basic() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"users","columns":[{"name":"id","datatype":"INT","primaryKey":true,"nullable":false},{"name":"name","datatype":"TEXT","nullable":true}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("CREATE TABLE users ("));
-        assert!(sql.contains("id INT NOT NULL PRIMARY KEY"));
-        assert!(sql.contains("name TEXT"));
+        assert!(sql.contains("CREATE TABLE \"users\" ("));
+        assert!(sql.contains("\"id\" INT NOT NULL PRIMARY KEY"));
+        assert!(sql.contains("\"name\" TEXT"));
         assert!(sql.ends_with(");"));
     }
 
@@ -3646,7 +3760,7 @@ mod tests {
     fn test_expand_create_table_with_schema() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"users","columns":[{"name":"id","datatype":"INT","primaryKey":true}],"schema":"myschema"}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("CREATE TABLE myschema.users ("));
+        assert!(sql.contains("CREATE TABLE \"myschema\".\"users\" ("));
     }
 
     #[test]
@@ -3654,22 +3768,22 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"t","columns":[{"name":"a","datatype":"INT","primaryKey":true},{"name":"b","datatype":"INT","primaryKey":true}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
         // Composite PK should be separate constraint, not inline
-        assert!(!sql.contains("a INT PRIMARY KEY"));
-        assert!(sql.contains("PRIMARY KEY (a, b)"));
+        assert!(!sql.contains("\"a\" INT PRIMARY KEY"));
+        assert!(sql.contains("PRIMARY KEY (\"a\", \"b\")"));
     }
 
     #[test]
     fn test_expand_create_table_bigquery_pk_not_enforced() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"t","columns":[{"name":"id","datatype":"INT64","primaryKey":true}]}"#;
         let sql = expand_code(marker, &ScriptLang::Bigquery);
-        assert!(sql.contains("PRIMARY KEY NOT ENFORCED"));
+        assert!(sql.contains("`id` INT64 NOT NULL PRIMARY KEY NOT ENFORCED"));
     }
 
     #[test]
     fn test_expand_create_table_with_foreign_key() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"orders","columns":[{"name":"id","datatype":"INT","primaryKey":true},{"name":"user_id","datatype":"INT"}],"foreignKeys":[{"targetTable":"users","columns":[{"sourceColumn":"user_id","targetColumn":"id"}],"onDelete":"CASCADE","onUpdate":"NO ACTION"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("FOREIGN KEY (user_id) REFERENCES users (id)"));
+        assert!(sql.contains("FOREIGN KEY (\"user_id\") REFERENCES \"users\" (\"id\")"));
         assert!(sql.contains("ON DELETE CASCADE"));
         assert!(!sql.contains("ON UPDATE NO ACTION")); // NO ACTION is omitted
     }
@@ -3678,14 +3792,14 @@ mod tests {
     fn test_expand_create_table_with_default_value() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"t","columns":[{"name":"status","datatype":"TEXT","defaultValue":"active","nullable":false}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("status TEXT NOT NULL DEFAULT CAST('active' AS TEXT)"));
+        assert!(sql.contains("\"status\" TEXT NOT NULL DEFAULT CAST('active' AS TEXT)"));
     }
 
     #[test]
     fn test_expand_create_table_varchar_with_length() {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"t","columns":[{"name":"email","datatype":"VARCHAR","datatype_length":100}]}"#;
         let sql = expand_code(marker, &ScriptLang::Mysql);
-        assert!(sql.contains("email VARCHAR(100)"));
+        assert!(sql.contains("`email` VARCHAR(100)"));
     }
 
     #[test]
@@ -3693,7 +3807,7 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"t","columns":[{"name":"id","datatype":"INT"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Snowflake);
         // Snowflake defaults to PUBLIC schema
-        assert!(sql.contains("CREATE TABLE PUBLIC.t ("));
+        assert!(sql.contains("CREATE TABLE \"PUBLIC\".\"t\" ("));
     }
 
     #[test]
@@ -3701,7 +3815,7 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_CREATE_TABLE {"name":"t","columns":[{"name":"id","datatype":"INT"}],"ducklake":"lake"}"#;
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
-        assert!(sql.contains("CREATE TABLE t ("));
+        assert!(sql.contains("CREATE TABLE \"t\" ("));
     }
 
     // -----------------------------------------------------------------------
@@ -3713,7 +3827,7 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"users","operations":[{"kind":"addColumn","column":{"name":"age","datatype":"INT","nullable":true}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
         assert!(sql.contains("BEGIN;"));
-        assert!(sql.contains("ALTER TABLE users ADD COLUMN age INT;"));
+        assert!(sql.contains("ALTER TABLE \"users\" ADD COLUMN \"age\" INT;"));
         assert!(sql.contains("COMMIT;"));
     }
 
@@ -3721,29 +3835,29 @@ mod tests {
     fn test_expand_alter_table_drop_column() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"users","operations":[{"kind":"dropColumn","name":"old_col"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ALTER TABLE users DROP COLUMN \"old_col\";"));
+        assert!(sql.contains("ALTER TABLE \"users\" DROP COLUMN \"old_col\";"));
     }
 
     #[test]
     fn test_expand_alter_table_rename_table() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"old_name","operations":[{"kind":"renameTable","to":"new_name"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ALTER TABLE old_name RENAME TO new_name;"));
+        assert!(sql.contains("ALTER TABLE \"old_name\" RENAME TO \"new_name\";"));
     }
 
     #[test]
     fn test_expand_alter_table_rename_table_snowflake_with_schema() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"old","operations":[{"kind":"renameTable","to":"new"}],"schema":"MY_SCHEMA"}"#;
         let sql = expand_code(marker, &ScriptLang::Snowflake);
-        assert!(sql.contains("ALTER TABLE MY_SCHEMA.old RENAME TO MY_SCHEMA.new;"));
+        assert!(sql.contains("ALTER TABLE \"MY_SCHEMA\".\"old\" RENAME TO \"MY_SCHEMA\".\"new\";"));
     }
 
     #[test]
     fn test_expand_alter_table_add_foreign_key() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"orders","operations":[{"kind":"addForeignKey","foreignKey":{"targetTable":"users","columns":[{"sourceColumn":"user_id","targetColumn":"id"}],"onDelete":"CASCADE","onUpdate":"NO ACTION"}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ALTER TABLE orders ADD CONSTRAINT fk_"));
-        assert!(sql.contains("FOREIGN KEY (user_id) REFERENCES users (id)"));
+        assert!(sql.contains("ALTER TABLE \"orders\" ADD CONSTRAINT fk_"));
+        assert!(sql.contains("FOREIGN KEY (\"user_id\") REFERENCES \"users\" (\"id\")"));
         assert!(sql.contains("ON DELETE CASCADE"));
     }
 
@@ -3752,7 +3866,7 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"orders","operations":[{"kind":"dropForeignKey","fk_constraint_name":"fk_orders_user"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Mysql);
         // MySQL uses DROP FOREIGN KEY
-        assert!(sql.contains("DROP FOREIGN KEY `fk_orders_user`"));
+        assert!(sql.contains("ALTER TABLE `orders` DROP FOREIGN KEY `fk_orders_user`"));
     }
 
     #[test]
@@ -3760,14 +3874,14 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"orders","operations":[{"kind":"dropForeignKey","fk_constraint_name":"fk_orders_user"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
         // PostgreSQL uses DROP CONSTRAINT
-        assert!(sql.contains("DROP CONSTRAINT \"fk_orders_user\""));
+        assert!(sql.contains("ALTER TABLE \"orders\" DROP CONSTRAINT \"fk_orders_user\""));
     }
 
     #[test]
     fn test_expand_alter_table_add_primary_key() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addPrimaryKey","columns":["a","b"]}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ALTER TABLE t ADD PRIMARY KEY (a, b);"));
+        assert!(sql.contains("ALTER TABLE \"t\" ADD PRIMARY KEY (\"a\", \"b\");"));
     }
 
     #[test]
@@ -3775,119 +3889,120 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addPrimaryKey","columns":["id"]}]}"#;
         let sql = expand_code(marker, &ScriptLang::Snowflake);
         // Snowflake uses named constraint
-        assert!(sql.contains("ADD CONSTRAINT t_pk PRIMARY KEY (id)"));
+        assert!(sql.contains("ADD CONSTRAINT \"t_pk\" PRIMARY KEY (\"id\")"));
     }
 
     #[test]
     fn test_expand_alter_table_add_primary_key_bigquery() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addPrimaryKey","columns":["id"]}]}"#;
         let sql = expand_code(marker, &ScriptLang::Bigquery);
-        assert!(sql.contains("ADD PRIMARY KEY (id) NOT ENFORCED;"));
+        assert!(sql.contains("ADD PRIMARY KEY (`id`) NOT ENFORCED;"));
     }
 
     #[test]
     fn test_expand_alter_table_drop_primary_key_mysql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"dropPrimaryKey"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Mysql);
-        assert!(sql.contains("ALTER TABLE t DROP PRIMARY KEY;"));
+        assert!(sql.contains("ALTER TABLE `t` DROP PRIMARY KEY;"));
     }
 
     #[test]
     fn test_expand_alter_table_drop_primary_key_with_constraint() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"dropPrimaryKey","pk_constraint_name":"pk_t"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("DROP CONSTRAINT \"pk_t\""));
+        assert!(sql.contains("ALTER TABLE \"t\" DROP CONSTRAINT \"pk_t\""));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_datatype() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT"},"changes":{"datatype":"BIGINT"}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ALTER TABLE t ALTER COLUMN col TYPE BIGINT;"));
+        assert!(sql.contains("ALTER TABLE \"t\" ALTER COLUMN \"col\" TYPE BIGINT;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_datatype_mysql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT"},"changes":{"datatype":"BIGINT"}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Mysql);
-        assert!(sql.contains("ALTER TABLE t MODIFY COLUMN col BIGINT;"));
+        assert!(sql.contains("ALTER TABLE `t` MODIFY COLUMN `col` BIGINT;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_datatype_mssql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT"},"changes":{"datatype":"BIGINT"}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Mssql);
-        assert!(sql.contains("ALTER TABLE t ALTER COLUMN col BIGINT;"));
+        assert!(sql.contains("ALTER TABLE [t] ALTER COLUMN [col] BIGINT;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_nullable() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT"},"changes":{"nullable":false}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ALTER TABLE t ALTER COLUMN col SET NOT NULL;"));
+        assert!(sql.contains("ALTER TABLE \"t\" ALTER COLUMN \"col\" SET NOT NULL;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_drop_not_null() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT"},"changes":{"nullable":true}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ALTER TABLE t ALTER COLUMN col DROP NOT NULL;"));
+        assert!(sql.contains("ALTER TABLE \"t\" ALTER COLUMN \"col\" DROP NOT NULL;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_nullable_mssql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT"},"changes":{"nullable":false}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Mssql);
-        assert!(sql.contains("ALTER TABLE t ALTER COLUMN col INT NOT NULL;"));
+        assert!(sql.contains("ALTER TABLE [t] ALTER COLUMN [col] INT NOT NULL;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_nullable_mysql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT"},"changes":{"nullable":true}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Mysql);
-        assert!(sql.contains("ALTER TABLE t MODIFY COLUMN col INT NULL;"));
+        assert!(sql.contains("ALTER TABLE `t` MODIFY COLUMN `col` INT NULL;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_rename() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"old_col","datatype":"INT"},"changes":{"name":"new_col"}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ALTER TABLE t RENAME COLUMN old_col TO new_col;"));
+        assert!(sql.contains("ALTER TABLE \"t\" RENAME COLUMN \"old_col\" TO \"new_col\";"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_rename_mssql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"old_col","datatype":"INT"},"changes":{"name":"new_col"}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Mssql);
-        assert!(sql.contains("EXEC sp_rename 't.old_col', 'new_col', 'COLUMN';"));
+        assert!(sql.contains("EXEC sp_rename '[t].old_col', 'new_col', 'COLUMN';"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_set_default() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"TEXT"},"changes":{"defaultValue":"hello"}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ALTER TABLE t ALTER COLUMN col SET DEFAULT CAST('hello' AS TEXT);"));
+        assert!(sql
+            .contains("ALTER TABLE \"t\" ALTER COLUMN \"col\" SET DEFAULT CAST('hello' AS TEXT);"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_drop_default() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"TEXT","defaultValue":"old"},"changes":{"defaultValue":null}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ALTER TABLE t ALTER COLUMN col DROP DEFAULT;"));
+        assert!(sql.contains("ALTER TABLE \"t\" ALTER COLUMN \"col\" DROP DEFAULT;"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_drop_default_mssql() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"INT","defaultValue":"0"},"defaultConstraintName":"DF_t_col","changes":{"defaultValue":null}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Mssql);
-        assert!(sql.contains("DROP CONSTRAINT [DF_t_col]"));
+        assert!(sql.contains("ALTER TABLE [t] DROP CONSTRAINT [DF_t_col]"));
     }
 
     #[test]
     fn test_expand_alter_table_alter_column_varchar_with_length() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"alterColumn","original":{"name":"col","datatype":"VARCHAR","datatype_length":50},"changes":{"datatype":"VARCHAR","datatype_length":100}}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ALTER TABLE t ALTER COLUMN col TYPE VARCHAR(100);"));
+        assert!(sql.contains("ALTER TABLE \"t\" ALTER COLUMN \"col\" TYPE VARCHAR(100);"));
     }
 
     #[test]
@@ -3912,21 +4027,21 @@ mod tests {
         let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(!sql.contains("BEGIN"));
         assert!(!sql.contains("COMMIT"));
-        assert!(sql.contains("ALTER TABLE t ADD COLUMN a INT;"));
+        assert!(sql.contains("ALTER TABLE `t` ADD COLUMN `a` INT;"));
     }
 
     #[test]
     fn test_expand_alter_table_with_schema() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addColumn","column":{"name":"a","datatype":"INT"}}],"schema":"myschema"}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ALTER TABLE myschema.t ADD COLUMN a INT;"));
+        assert!(sql.contains("ALTER TABLE \"myschema\".\"t\" ADD COLUMN \"a\" INT;"));
     }
 
     #[test]
     fn test_expand_alter_table_multiple_operations() {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addColumn","column":{"name":"a","datatype":"INT"}},{"kind":"dropColumn","name":"b"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("ADD COLUMN a INT;"));
+        assert!(sql.contains("ADD COLUMN \"a\" INT;"));
         assert!(sql.contains("DROP COLUMN \"b\";"));
     }
 
@@ -3942,7 +4057,7 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"t","operations":[{"kind":"addColumn","column":{"name":"a","datatype":"INT"}}],"ducklake":"lake"}"#;
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
-        assert!(sql.contains("ALTER TABLE t ADD COLUMN a INT;"));
+        assert!(sql.contains("ALTER TABLE \"t\" ADD COLUMN \"a\" INT;"));
     }
 
     // -----------------------------------------------------------------------
