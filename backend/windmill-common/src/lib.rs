@@ -206,6 +206,7 @@ lazy_static::lazy_static! {
     pub static ref CRITICAL_ALERTS_ON_DB_OVERSIZE: Arc<RwLock<Option<f32>>> = Arc::new(RwLock::new(None));
 
     pub static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
+    pub static ref AUDIT_LOG_RETENTION_DAYS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
