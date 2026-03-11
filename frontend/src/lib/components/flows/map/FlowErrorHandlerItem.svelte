@@ -15,11 +15,13 @@
 	let {
 		disableAi,
 		small,
-		diffManager
+		diffManager,
+		compact = false
 	}: {
 		small: boolean
 		disableAi?: boolean
 		diffManager?: FlowDiffManager
+		compact?: boolean
 	} = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -67,9 +69,10 @@
 		<Button
 			variant="default"
 			unifiedSize="sm"
-			wrapperClasses={twMerge('min-w-36', small ? 'max-w-52' : 'max-w-64')}
+			wrapperClasses={compact ? '' : twMerge('min-w-36', small ? 'max-w-52' : 'max-w-64')}
 			id="flow-editor-error-handler"
 			selected={selectionManager.getSelectedId()?.includes('failure')}
+			iconOnly={compact}
 			onClick={() => {
 				if (flowStore.val?.value?.failure_module) {
 					selectionManager.selectId('failure')
@@ -88,24 +91,26 @@
 			{/if}
 			<Bug size={14} class="shrink-0" />
 
-			<div class="truncate grow min-w-0 text-center text-xs">
-				{flowStore.val.value.failure_module?.summary ||
-					(flowStore.val.value.failure_module?.value.type === 'rawscript'
-						? `${flowStore.val.value.failure_module?.value.language}`
-						: 'TBD')}
-			</div>
+			{#if !compact}
+				<div class="truncate grow min-w-0 text-center text-xs">
+					{flowStore.val.value.failure_module?.summary ||
+						(flowStore.val.value.failure_module?.value.type === 'rawscript'
+							? `${flowStore.val.value.failure_module?.value.language}`
+							: 'TBD')}
+				</div>
 
-			<button
-				title="Delete failure script"
-				type="button"
-				class="ml-1"
-				onclick={() => {
-					flowStore.val.value.failure_module = undefined
-					selectionManager.selectId('settings-metadata')
-				}}
-			>
-				<X size={12} />
-			</button>
+				<button
+					title="Delete failure script"
+					type="button"
+					class="ml-1"
+					onclick={() => {
+						flowStore.val.value.failure_module = undefined
+						selectionManager.selectId('settings-metadata')
+					}}
+				>
+					<X size={12} />
+				</button>
+			{/if}
 		</Button>
 	</div>
 {:else}
@@ -124,14 +129,17 @@
 		{#snippet trigger()}
 			<Button
 				unifiedSize="sm"
-				wrapperClasses="min-w-36"
+				wrapperClasses={compact ? '' : 'min-w-36'}
 				title={`Add failure module`}
 				variant="default"
 				id={`flow-editor-add-step-error-handler-button`}
 				nonCaptureEvent
 				startIcon={{ icon: Bug }}
+				iconOnly={compact}
 			>
-				Error Handler
+				{#if !compact}
+					Error Handler
+				{/if}
 			</Button>
 		{/snippet}
 	</InsertModulePopover>
