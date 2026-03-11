@@ -244,7 +244,11 @@
 					<div class="text-sm">There were no completed runs that match your query</div>
 				{/if}
 				<div class="text-sm">
-					Note that new runs might take a while to become searchable (by default ~5min)
+					Note that new runs might take a while to become searchable (by default ~5min).
+					{#if indexMetadata?.max_index_time_window_secs}
+						Search only covers the last {Math.round(indexMetadata.max_index_time_window_secs / 86400)} day(s),
+						configurable in instance settings under Indexer.
+					{/if}
 				</div>
 				{#if !$enterpriseLicense}
 					<div class="py-6"></div>

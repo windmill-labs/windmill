@@ -20,10 +20,11 @@ use windmill_common::{
     flow_status::AgentAction,
     flows::FlowModule,
 };
-use windmill_types::s3::S3Object;
 use windmill_parser::Typ;
+use windmill_types::s3::S3Object;
 
-// Re-export shared types from windmill_common::ai_types
+// Re-export shared types from windmill_common
+pub use windmill_common::ai_providers::AIPlatform;
 pub use windmill_common::ai_types::{
     ContentPart, ImageUrlData, OpenAIContent, OpenAIMessage, ToolDef, ToolDefFunction, UrlCitation,
 };
@@ -156,14 +157,6 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
     }
 }
 
-#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum AnthropicPlatform {
-    #[default]
-    Standard,
-    GoogleVertexAi,
-}
-
 #[derive(Deserialize, Debug)]
 pub struct ProviderResource {
     #[serde(alias = "apiKey", default, deserialize_with = "empty_string_as_none")]
@@ -194,9 +187,9 @@ pub struct ProviderResource {
         deserialize_with = "empty_string_as_none"
     )]
     pub aws_session_token: Option<String>,
-    /// Platform for Anthropic API (standard or google_vertex_ai)
+    /// Platform (standard or google_vertex_ai)
     #[serde(default)]
-    pub platform: AnthropicPlatform,
+    pub platform: AIPlatform,
     /// Enable 1M context window for Anthropic
     #[serde(alias = "enable_1M_context", default)]
     pub enable_1m_context: bool,
@@ -244,7 +237,7 @@ impl ProviderWithResource {
         self.resource.aws_session_token.as_deref()
     }
 
-    pub fn get_platform(&self) -> &AnthropicPlatform {
+    pub fn get_platform(&self) -> &AIPlatform {
         &self.resource.platform
     }
 
@@ -1603,10 +1596,7 @@ mod tests {
 
         schema.sanitize_for_google();
 
-        assert!(
-            schema.multiple_of.is_none(),
-            "multipleOf should be removed"
-        );
+        assert!(schema.multiple_of.is_none(), "multipleOf should be removed");
     }
 
     #[test]
@@ -1639,7 +1629,10 @@ mod tests {
         assert!(schema.default.is_none());
 
         let value_prop = schema.properties.as_ref().unwrap().get("value").unwrap();
-        assert!(value_prop.default.is_none(), "nested default should be removed");
+        assert!(
+            value_prop.default.is_none(),
+            "nested default should be removed"
+        );
         assert!(
             value_prop.exclusive_minimum.is_none(),
             "nested exclusiveMinimum should be removed"
@@ -1652,7 +1645,10 @@ mod tests {
             value_prop.multiple_of.is_none(),
             "nested multipleOf should be removed"
         );
-        assert!(value_prop.r#const.is_none(), "nested const should be removed");
+        assert!(
+            value_prop.r#const.is_none(),
+            "nested const should be removed"
+        );
 
         assert!(schema.properties.is_some());
         assert!(matches!(&schema.r#type, Some(SchemaType::Single(t)) if t == "object"));

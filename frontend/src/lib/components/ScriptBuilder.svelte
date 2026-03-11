@@ -21,6 +21,7 @@
 		getPreprocessorFullCode,
 		getMainFunctionPattern
 	} from '$lib/script_helpers'
+	import { isWorkflowAsCode } from './graph/wacToFlow'
 	import AIFormSettings from './copilot/AIFormSettings.svelte'
 	import {
 		defaultScripts,
@@ -591,7 +592,7 @@
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
-			if (stay || (script.no_main_func && script.kind !== 'preprocessor')) {
+			if (stay || (script.no_main_func && script.kind !== 'preprocessor' && !isWorkflowAsCode(script.content, script.language))) {
 				script.parent_hash = newHash
 				sendUserToast('Deployed')
 			} else {

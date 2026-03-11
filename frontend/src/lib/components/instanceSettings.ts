@@ -85,7 +85,8 @@ const indexerSettingsSchema = z
 		refresh_index_period: positiveNumber.optional(),
 		max_indexed_job_log_size: positiveNumber.optional(),
 		commit_log_max_batch_size: positiveNumber.optional(),
-		refresh_log_index_period: positiveNumber.optional()
+		refresh_log_index_period: positiveNumber.optional(),
+		max_index_time_window_secs: positiveNumber.optional()
 	})
 	.passthrough()
 
@@ -189,6 +190,16 @@ export const settings: Record<string, Setting[]> = {
 				'When enabled apps will be accessible at /a/{workspace_id}/{custom_path} instead of /a/{custom_path} allowing you to define same custom path for apps in different workspace without conflict',
 			key: 'app_workspaced_route',
 			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Audit log retention (days)',
+			key: 'audit_log_retention_days',
+			description: 'How long to keep audit log entries in the database. Default: 365 days.',
+			fieldType: 'number',
+			placeholder: '365',
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
@@ -464,7 +475,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Nuget Config',
-			description: 'Write a nuget.config file to set custom package sources and credentials',
+			description:
+				'Write a nuget.config file to set custom package sources and credentials. Use <clear /> inside <packageSources> to remove default sources and only use your custom ones',
 			key: 'nuget_config',
 			fieldType: 'codearea',
 			codeAreaLang: 'xml',

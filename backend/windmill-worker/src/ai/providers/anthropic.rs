@@ -1,14 +1,16 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
+use windmill_common::{
+    ai_google::parse_data_url, ai_providers::AIProvider, client::AuthedClient, error::Error,
+};
 
 use crate::ai::{
     image_handler::prepare_messages_for_api,
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     sse::{AnthropicSSEParser, SSEParser},
     types::*,
-    utils::{extract_text_content, parse_data_url, should_use_structured_output_tool},
+    utils::{extract_text_content, should_use_structured_output_tool},
 };
 
 /// Anthropic API version for standard API
@@ -353,21 +355,21 @@ pub struct AnthropicResponse {
 pub struct AnthropicQueryBuilder {
     #[allow(dead_code)]
     provider_kind: AIProvider,
-    platform: AnthropicPlatform,
+    platform: AIPlatform,
     enable_1m_context: bool,
 }
 
 impl AnthropicQueryBuilder {
     pub fn new(
         provider_kind: AIProvider,
-        platform: AnthropicPlatform,
+        platform: AIPlatform,
         enable_1m_context: bool,
     ) -> Self {
         Self { provider_kind, platform, enable_1m_context }
     }
 
     fn is_vertex(&self) -> bool {
-        self.platform == AnthropicPlatform::GoogleVertexAi
+        self.platform == AIPlatform::GoogleVertexAi
     }
 
     async fn build_text_request(
