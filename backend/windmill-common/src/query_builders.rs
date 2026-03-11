@@ -175,7 +175,10 @@ struct UpdatePayload {
 }
 
 fn wrap_ducklake_query(query: &str, ducklake: &str) -> String {
-    let attach = format!("ATTACH 'ducklake://{}' AS dl;USE dl;\n", ducklake);
+    let attach = format!(
+        "ATTACH 'ducklake://{}' AS dl;USE dl;\n",
+        escape_sql_literal(ducklake)
+    );
     // Insert after all leading comment lines (matching JS: /^(--.*\n)*/)
     let mut insert_pos = 0;
     for line in query.lines() {
@@ -371,11 +374,16 @@ fn cols_to_simple(cols: &[ColumnDef]) -> Vec<SimpleColumn> {
 pub fn render_db_quoted_identifier(identifier: &str, db_type: DbType) -> String {
     match db_type {
         DbType::Postgresql | DbType::Snowflake | DbType::Duckdb => {
-            format!("\"{}\"", identifier)
+            format!("\"{}\"", identifier.replace('"', "\"\""))
         }
-        DbType::MsSqlServer => format!("[{}]", identifier),
-        DbType::Mysql | DbType::Bigquery => format!("`{}`", identifier),
+        DbType::MsSqlServer => format!("[{}]", identifier.replace(']', "]]")),
+        DbType::Mysql | DbType::Bigquery => format!("`{}`", identifier.replace('`', "``")),
     }
+}
+
+/// Escape a value for safe interpolation inside a SQL single-quoted string literal.
+fn escape_sql_literal(s: &str) -> String {
+    s.replace('\'', "''")
 }
 
 pub fn build_visible_field_list(column_defs: &[ColumnDef], db_type: DbType) -> Vec<String> {
@@ -1585,10 +1593,11 @@ fn format_default_value(s: &str, datatype: &str, db_type: DbType) -> String {
     if s.starts_with('{') && s.ends_with('}') {
         return s[1..s.len() - 1].to_string();
     }
+    let escaped = escape_sql_literal(s);
     if db_type == DbType::Postgresql {
-        return format!("CAST('{}' AS {})", s, datatype);
+        return format!("CAST('{}' AS {})", escaped, datatype);
     }
-    format!("'{}'", s)
+    format!("'{}'", escaped)
 }
 
 fn render_column_ddl(c: &TableEditorColumn, db_type: DbType, pk_modifier: bool) -> String {
@@ -2186,7 +2195,7 @@ FROM information_schema.columns c
 WHERE table_schema = current_schema()",
             );
             if let Some(t) = table {
-                q.push_str(&format!(" AND TABLE_NAME = '{}'", t));
+                q.push_str(&format!(" AND TABLE_NAME = '{}'", escape_sql_literal(t)));
             }
             Ok(q)
         }
@@ -2198,7 +2207,8 @@ WHERE table_schema = current_schema()",
                 let schema = if parts.len() > 1 { parts[0] } else { db_name };
                 format!(
                     "\nWHERE\n    TABLE_NAME = '{}' AND TABLE_SCHEMA = '{}'",
-                    tname, schema
+                    escape_sql_literal(tname),
+                    escape_sql_literal(schema)
                 )
             } else {
                 "\nWHERE\n    TABLE_SCHEMA NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')".to_string()
@@ -2221,7 +2231,8 @@ WHERE table_schema = current_schema()",
                 (
                     format!(
                         "\nWHERE a.attrelid = (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid WHERE relname = '{}' AND ns.nspname = '{}')\n    AND a.attnum > 0 AND NOT a.attisdropped",
-                        tname, schema
+                        escape_sql_literal(tname),
+                        escape_sql_literal(schema)
                     ),
                     String::new(),
                     String::new(),
@@ -2242,7 +2253,7 @@ WHERE table_schema = current_schema()",
         }
         DbType::MsSqlServer => {
             let table_filter = if let Some(t) = table {
-                format!("\nWHERE\n    c.TABLE_NAME = '{}'", t)
+                format!("\nWHERE\n    c.TABLE_NAME = '{}'", escape_sql_literal(t))
             } else {
                 "\nWHERE\n    c.TABLE_SCHEMA != 'sys'".to_string()
             };
@@ -2263,7 +2274,8 @@ WHERE table_schema = current_schema()",
                 let schema = if parts.len() > 1 { parts[0] } else { "PUBLIC" };
                 format!(
                     "\nwhere table_name = '{}' and table_schema = '{}'",
-                    tname, schema
+                    escape_sql_literal(tname),
+                    escape_sql_literal(schema)
                 )
             } else {
                 "\nwhere table_schema <> 'INFORMATION_SCHEMA'\n".to_string()
@@ -2288,7 +2300,7 @@ WHERE table_schema = current_schema()",
             let tname = parts[1];
             Ok(format!(
                 "SELECT \n    c.COLUMN_NAME as field,\n    DATA_TYPE as DataType,\n    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,\n    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,\n    'No' as IsIdentity,\n    IS_NULLABLE as IsNullable,\n    false as IsEnum\nFROM\n    {}.INFORMATION_SCHEMA.COLUMNS c\n    LEFT JOIN\n    {}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p\n    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME\nWHERE   \n    c.TABLE_NAME = '{}'\norder by c.ORDINAL_POSITION;",
-                dataset, dataset, tname
+                dataset, dataset, escape_sql_literal(tname)
             ))
         }
     }
@@ -2380,25 +2392,28 @@ fn make_foreign_keys_query(
         })
     };
 
+    let tn = escape_sql_literal(table_name);
+    let sn = escape_sql_literal(schema_name);
+
     match db_type {
         DbType::Postgresql => Ok(format!(
             "SELECT\n    tc.constraint_name as fk_constraint_name,\n    kcu.column_name as source_column,\n    ccu.table_schema || '.' || ccu.table_name as target_table,\n    ccu.column_name as target_column,\n    COALESCE(rc.delete_rule, 'NO ACTION') as on_delete,\n    COALESCE(rc.update_rule, 'NO ACTION') as on_update\nFROM\n    information_schema.table_constraints AS tc\n    JOIN information_schema.key_column_usage AS kcu\n        ON tc.constraint_name = kcu.constraint_name\n        AND tc.table_schema = kcu.table_schema\n    JOIN information_schema.constraint_column_usage AS ccu\n        ON ccu.constraint_name = tc.constraint_name\n        AND ccu.table_schema = tc.table_schema\n    LEFT JOIN information_schema.referential_constraints AS rc\n        ON rc.constraint_name = tc.constraint_name\n        AND rc.constraint_schema = tc.table_schema\nWHERE\n    tc.constraint_type = 'FOREIGN KEY'\n    AND tc.table_name = '{}'\n    AND tc.table_schema = '{}'\nORDER BY\n    tc.constraint_name, kcu.ordinal_position;",
-            table_name, schema_name
+            tn, sn
         )),
         DbType::Mysql => {
             let where_schema = if schema_name.is_empty() {
                 "AND kcu.TABLE_SCHEMA = DATABASE()".to_string()
             } else {
-                format!("AND kcu.TABLE_SCHEMA = '{}'", schema_name)
+                format!("AND kcu.TABLE_SCHEMA = '{}'", sn)
             };
             Ok(format!(
                 "SELECT\n    kcu.CONSTRAINT_NAME as fk_constraint_name,\n    kcu.COLUMN_NAME as source_column,\n    CONCAT(kcu.REFERENCED_TABLE_SCHEMA, '.', kcu.REFERENCED_TABLE_NAME) as target_table,\n    kcu.REFERENCED_COLUMN_NAME as target_column,\n    COALESCE(rc.DELETE_RULE, 'NO ACTION') as on_delete,\n    COALESCE(rc.UPDATE_RULE, 'NO ACTION') as on_update\nFROM\n    INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu\n    JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc\n        ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME\n        AND kcu.TABLE_SCHEMA = rc.CONSTRAINT_SCHEMA\nWHERE\n    kcu.TABLE_NAME = '{}'\n    {}\n    AND kcu.REFERENCED_TABLE_NAME IS NOT NULL\nORDER BY\n    kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION;",
-                table_name, where_schema
+                tn, where_schema
             ))
         }
         DbType::MsSqlServer => Ok(format!(
             "SELECT\n    fk.name as fk_constraint_name,\n    COL_NAME(fkc.parent_object_id, fkc.parent_column_id) as source_column,\n    OBJECT_SCHEMA_NAME(fkc.referenced_object_id) + '.' + OBJECT_NAME(fkc.referenced_object_id) as target_table,\n    COL_NAME(fkc.referenced_object_id, fkc.referenced_column_id) as target_column,\n    CASE fk.delete_referential_action\n        WHEN 0 THEN 'NO ACTION'\n        WHEN 1 THEN 'CASCADE'\n        WHEN 2 THEN 'SET NULL'\n        WHEN 3 THEN 'SET DEFAULT'\n    END as on_delete,\n    CASE fk.update_referential_action\n        WHEN 0 THEN 'NO ACTION'\n        WHEN 1 THEN 'CASCADE'\n        WHEN 2 THEN 'SET NULL'\n        WHEN 3 THEN 'SET DEFAULT'\n    END as on_update\nFROM\n    sys.foreign_keys fk\n    INNER JOIN sys.foreign_key_columns fkc\n        ON fk.object_id = fkc.constraint_object_id\n    INNER JOIN sys.tables t\n        ON fk.parent_object_id = t.object_id\n    INNER JOIN sys.schemas s\n        ON t.schema_id = s.schema_id\nWHERE\n    t.name = '{}'\n    AND s.name = '{}'\nORDER BY\n    fk.name, fkc.constraint_column_id;",
-            table_name, schema_name
+            tn, sn
         )),
         DbType::Snowflake => Ok(format!(
             "SHOW IMPORTED KEYS IN TABLE {}.{}",
@@ -2406,11 +2421,11 @@ fn make_foreign_keys_query(
         )),
         DbType::Bigquery => Ok(format!(
             "SELECT\n    tc.constraint_name as fk_constraint_name,\n    kcu.column_name as source_column,\n    ccu.table_name as target_table,\n    ccu.column_name as target_column,\n    'NO ACTION' as on_delete,\n    'NO ACTION' as on_update\nFROM\n    `{}.INFORMATION_SCHEMA.TABLE_CONSTRAINTS` tc\n    JOIN `{}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` kcu\n        ON tc.constraint_name = kcu.constraint_name\n    JOIN `{}.INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE` ccu\n        ON tc.constraint_name = ccu.constraint_name\nWHERE\n    tc.constraint_type = 'FOREIGN KEY'\n    AND tc.table_name = '{}'\nORDER BY\n    tc.constraint_name, kcu.ordinal_position;",
-            schema_name, schema_name, schema_name, table_name
+            schema_name, schema_name, schema_name, tn
         )),
         DbType::Duckdb => Ok(format!(
             "SELECT\n    fk_constraint.constraint_name as fk_constraint_name,\n    kcu.column_name as source_column,\n    ccu.table_schema || '.' || ccu.table_name as target_table,\n    ccu.column_name as target_column,\n    'NO ACTION' as on_delete,\n    'NO ACTION' as on_update\nFROM\n    information_schema.table_constraints fk_constraint\n    JOIN information_schema.key_column_usage kcu\n        ON fk_constraint.constraint_name = kcu.constraint_name\n        AND fk_constraint.constraint_schema = kcu.constraint_schema\n    JOIN information_schema.constraint_column_usage ccu\n        ON fk_constraint.constraint_name = ccu.constraint_name\n        AND fk_constraint.constraint_schema = ccu.constraint_schema\nWHERE\n    fk_constraint.constraint_type = 'FOREIGN KEY'\n    AND fk_constraint.table_name = '{}'\n    AND fk_constraint.table_schema = '{}'\nORDER BY\n    fk_constraint.constraint_name, kcu.ordinal_position;",
-            table_name, schema_name
+            tn, sn
         )),
     }
 }
@@ -2435,33 +2450,36 @@ fn make_primary_key_constraint_query(
         })
     };
 
+    let tn = escape_sql_literal(table_name);
+    let sn = escape_sql_literal(schema_name);
+
     match db_type {
         DbType::Postgresql | DbType::Duckdb => Ok(format!(
             "SELECT\n    tc.constraint_name\nFROM\n    information_schema.table_constraints AS tc\nWHERE\n    tc.constraint_type = 'PRIMARY KEY'\n    AND tc.table_name = '{}'\n    AND tc.table_schema = '{}'\nLIMIT 1;",
-            table_name, schema_name
+            tn, sn
         )),
         DbType::Mysql => {
             let where_schema = if schema_name.is_empty() {
                 "AND tc.TABLE_SCHEMA = DATABASE()".to_string()
             } else {
-                format!("AND tc.TABLE_SCHEMA = '{}'", schema_name)
+                format!("AND tc.TABLE_SCHEMA = '{}'", sn)
             };
             Ok(format!(
                 "SELECT\n    tc.CONSTRAINT_NAME as constraint_name\nFROM\n    INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc\nWHERE\n    tc.CONSTRAINT_TYPE = 'PRIMARY KEY'\n    AND tc.TABLE_NAME = '{}'\n    {}\nLIMIT 1;",
-                table_name, where_schema
+                tn, where_schema
             ))
         }
         DbType::MsSqlServer => Ok(format!(
             "SELECT\n    kc.name as constraint_name\nFROM\n    sys.key_constraints kc\n    INNER JOIN sys.tables t\n        ON kc.parent_object_id = t.object_id\n    INNER JOIN sys.schemas s\n        ON t.schema_id = s.schema_id\nWHERE\n    kc.type = 'PK'\n    AND t.name = '{}'\n    AND s.name = '{}';",
-            table_name, schema_name
+            tn, sn
         )),
         DbType::Snowflake => Ok(format!(
             "SELECT\n    constraint_name\nFROM\n    information_schema.table_constraints\nWHERE\n    constraint_type = 'PRIMARY KEY'\n    AND table_name = '{}'\n    AND table_schema = '{}'\nLIMIT 1;",
-            table_name, schema_name
+            tn, sn
         )),
         DbType::Bigquery => Ok(format!(
             "SELECT\n    constraint_name\nFROM\n    `{}.INFORMATION_SCHEMA.TABLE_CONSTRAINTS`\nWHERE\n    constraint_type = 'PRIMARY KEY'\n    AND table_name = '{}'\nLIMIT 1;",
-            schema_name, table_name
+            schema_name, tn
         )),
     }
 }
@@ -4120,7 +4138,7 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_FOREIGN_KEYS {"table":"orders"}"#;
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.contains("fk_constraint.table_name = 'orders'"));
-        assert!(sql.contains("fk_constraint.table_schema = 'public'"));
+        assert!(sql.contains("fk_constraint.table_schema = 'main'"));
     }
 
     #[test]
@@ -4193,7 +4211,7 @@ mod tests {
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.contains("constraint_type = 'PRIMARY KEY'"));
         assert!(sql.contains("tc.table_name = 'users'"));
-        assert!(sql.contains("tc.table_schema = 'public'"));
+        assert!(sql.contains("tc.table_schema = 'main'"));
     }
 
     #[test]

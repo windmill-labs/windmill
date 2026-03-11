@@ -12,11 +12,7 @@ import {
 	buildTableEditorValues,
 	type TableEditorValues
 } from './apps/components/display/dbtable/tableEditor'
-import {
-	makeAlterTableQueries,
-	type AlterTableValues
-} from './apps/components/display/dbtable/queries/alterTable'
-import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
+import { type AlterTableValues } from './apps/components/display/dbtable/queries/alterTable'
 import {
 	transformForeignKeys,
 	transformSnowflakeForeignKeys,
@@ -129,9 +125,9 @@ export function dbTableOpsWithPreviewScripts({
 export type IDbSchemaOps = {
 	onDelete: (params: { tableKey: string; schema?: string }) => Promise<void>
 	onCreate: (params: { values: TableEditorValues; schema?: string }) => Promise<void>
-	previewCreateSql: (params: { values: TableEditorValues; schema?: string }) => string
+	previewCreateSql: (params: { values: TableEditorValues; schema?: string }) => Promise<string>
 	onAlter: (params: { values: AlterTableValues; schema?: string }) => Promise<void>
-	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => string[]
+	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => Promise<string>
 	onCreateSchema: (params: { schema: string }) => Promise<void>
 	onDeleteSchema: (params: { schema: string }) => Promise<void>
 	onFetchTableEditorDefinition: (params: {
@@ -178,7 +174,15 @@ export function dbSchemaOpsWithPreviewScripts({
 				requestBody: { args: dbArg, content, language }
 			})
 		},
-		previewCreateSql: ({ values, schema }) => makeCreateTableQuery(values, dbType, schema),
+		previewCreateSql: async ({ values, schema }) => {
+			const content = makeMarker('CREATE_TABLE', {
+				name: values.name,
+				columns: values.columns,
+				foreignKeys: values.foreignKeys,
+				schema
+			})
+			return expandMarker(workspace, language, content)
+		},
 		onAlter: async ({ values, schema }) => {
 			const content = makeMarker('ALTER_TABLE', {
 				name: values.name,
@@ -190,7 +194,14 @@ export function dbSchemaOpsWithPreviewScripts({
 				requestBody: { args: dbArg, content, language }
 			})
 		},
-		previewAlterSql: ({ values, schema }) => makeAlterTableQueries(values, dbType, schema),
+		previewAlterSql: async ({ values, schema }) => {
+			const content = makeMarker('ALTER_TABLE', {
+				name: values.name,
+				operations: values.operations,
+				schema
+			})
+			return expandMarker(workspace, language, content)
+		},
 		onCreateSchema: async ({ schema }) => {
 			const content = makeMarker('CREATE_SCHEMA', { schema })
 			await runScriptAndPollResult({
@@ -335,4 +346,17 @@ export function getDatabaseArg(input: DbInput | undefined) {
 		}
 	}
 	return {}
+}
+
+async function expandMarker(workspace: string, language: string, content: string): Promise<string> {
+	const response = await fetch(`/api/w/${workspace}/internal_db/expand_marker`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ language, content })
+	})
+	if (!response.ok) {
+		throw new Error(await response.text())
+	}
+	const result = (await response.json()) as { code: string }
+	return result.code
 }
