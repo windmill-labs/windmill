@@ -82,12 +82,13 @@
 				bind:this={textInputComponent}
 				bind:value={summaryInput}
 				size="xs"
-				class="!bg-transparent !border-transparent !shadow-none !text-2xs !font-medium !p-0 !m-0 !min-w-0 w-full text-center !min-h-0 !h-auto nodrag nowheel pointer-events-auto"
+				class="!bg-transparent !border-transparent !shadow-none !text-2xs !font-medium !p-0 !m-0 !min-w-0 !w-fit text-center !min-h-0 !h-auto nodrag nowheel pointer-events-auto"
 				inputProps={{
 					placeholder: 'Group',
 					onblur: saveSummary,
 					onkeydown: handleSummaryKeydown,
-					spellcheck: false
+					spellcheck: false,
+					style: 'padding: 2px !important; field-sizing: content; min-width: 5ch !important'
 				}}
 			/>
 		{:else}
