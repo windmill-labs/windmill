@@ -146,6 +146,7 @@ jobs:
         env:
           SQLX_OFFLINE: true
           CARGO_BUILD_JOBS: 12
+          RUSTFLAGS: ""
         run: |
           cargo build --features enterprise,private,license,zip
 
