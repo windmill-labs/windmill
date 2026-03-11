@@ -3,6 +3,7 @@ import * as log from "./log.ts";
 import { Select } from "@cliffy/prompt/select";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { Input } from "@cliffy/prompt/input";
+import { Table } from "@cliffy/table";
 
 import { loginInteractive } from "./login.ts";
 import { GlobalOptions } from "../types.ts";
@@ -24,6 +25,7 @@ import {
   isGitRepository,
 } from "../utils/git.ts";
 import { WM_FORK_PREFIX } from "./constants.ts";
+import { levenshteinDistance } from "@jsr/std__text/levenshtein-distance";
 
 // Helper function to select from multiple matching profiles
 async function selectFromMultipleProfiles(
@@ -467,6 +469,30 @@ export async function resolveWorkspace(
         `Found an active workspace \`${workspace.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\``
       );
     }
+  } else if (opts.workspace) {
+    // --workspace was explicitly provided but not found — fail immediately
+    const workspaces = await allWorkspaces(opts.configDir);
+    const names = workspaces.map((w) => w.name);
+    let msg = `Workspace "${opts.workspace}" not found.`;
+    const suggestions = names
+      .map((n) => ({ name: n, dist: levenshteinDistance(opts.workspace!, n) }))
+      .filter((s) => s.dist <= 3)
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, 3);
+    if (suggestions.length > 0) {
+      msg += ` Did you mean: ${suggestions.map((s) => `"${s.name}"`).join(", ")}?`;
+    }
+    log.info(colors.red.bold(msg));
+    if (workspaces.length > 0) {
+      log.info("\nAvailable workspaces:");
+      new Table()
+        .header(["name", "remote", "workspace id"])
+        .padding(2)
+        .border(true)
+        .body(workspaces.map((w) => [w.name, w.remote, w.workspaceId]))
+        .render();
+    }
+    return process.exit(-1);
   }
 
   // Try branch-based resolution (medium priority)

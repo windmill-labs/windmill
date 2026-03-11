@@ -2953,7 +2953,13 @@ impl PulledJobResult {
                 .and_then(|x| x.get("triggered_by_relative_import"))
                 .is_some();
 
-        if (is_djob_to_debounce || debounce_delay_s.filter(|x| *x > 0).is_some())
+        let has_debounce_args = debounce_args_to_accumulate
+            .as_ref()
+            .map_or(false, |v| !v.is_empty());
+
+        if (is_djob_to_debounce
+            || debounce_delay_s.filter(|x| *x > 0).is_some()
+            || has_debounce_args)
             && MIN_VERSION_SUPPORTS_DEBOUNCING.met().await
             && !*WMDEBUG_NO_DEBOUNCING
         {
@@ -3042,11 +3048,18 @@ impl PulledJobResult {
 
                 let new_value = to_raw_value(&accumulated_arg);
 
+                let original_value = j
+                    .args
+                    .as_ref()
+                    .and_then(|a| a.get(arg_name_to_accumulate))
+                    .map(|v| v.get().to_string())
+                    .unwrap_or_else(|| "null".to_string());
+
                 append_logs(
                     &j_id,
                     &j.workspace_id,
                     format!(
-                        "Substituting `{arg_name_to_accumulate}` with: {}\n\n",
+                        "Accumulating debounced argument `{arg_name_to_accumulate}`:\n  original: {original_value}\n  accumulated: {}\n\n",
                         &new_value
                     ),
                     &(db.into()),
@@ -3057,6 +3070,18 @@ impl PulledJobResult {
                     .get_or_insert(Json(Default::default()))
                     .as_mut()
                     .insert(arg_name_to_accumulate.to_owned(), new_value);
+
+                // Persist accumulated args to v2_job so that flow steps
+                // re-reading from the DB (via get_mini_pulled_job) see them
+                if let Some(ref args) = j.args {
+                    sqlx::query!(
+                        "UPDATE v2_job SET args = $2 WHERE id = $1",
+                        j_id,
+                        args as &Json<HashMap<String, Box<RawValue>>>,
+                    )
+                    .execute(db)
+                    .await?;
+                }
             }
 
             // Handle dependency job debouncing cleanup when a job is pulled for execution
@@ -3605,7 +3630,8 @@ pub async fn check_debouncing_within_limits(
     );
 
     if allowed_amount
-        .map(|allowed_amount| current_amount > allowed_amount)
+        .filter(|&a| a > 0)
+        .map(|allowed_amount| current_amount + 1 >= allowed_amount)
         .unwrap_or_default()
         && no_legacy_compat
     {
@@ -5490,10 +5516,11 @@ async fn push_inner<'c, 'd>(
                 &mut *tx,
             )
             .await
-            .map_err(|e| {
-                Error::internal_err(format!(
+            .map_err(|e| match e {
+                Error::NotFound(_) => e,
+                _ => Error::internal_err(format!(
                     "Could not get permissions directly for job {job_id}: {e:#}"
-                ))
+                )),
             })?
         }
     };

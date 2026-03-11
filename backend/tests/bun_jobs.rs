@@ -908,7 +908,7 @@ mod dedicated_worker_protocol {
 
         if bundle_for_node {
             // For Node.js: bundle to JavaScript first (like production's build_loader with LoaderMode::Node)
-            let wrapper = generate_dedicated_worker_wrapper(arg_names, "./main.js", None);
+            let wrapper = generate_dedicated_worker_wrapper(arg_names, "./main.js", None, None);
             std::fs::write(dir.join("wrapper.mjs"), wrapper).unwrap();
 
             // Use the exact same build_loader function as production
@@ -945,7 +945,7 @@ mod dedicated_worker_protocol {
             output_path
         } else {
             // For Bun: use TypeScript directly (like production)
-            let wrapper = generate_dedicated_worker_wrapper(arg_names, "./main.ts", None);
+            let wrapper = generate_dedicated_worker_wrapper(arg_names, "./main.ts", None, None);
             let wrapper_path = dir.join("wrapper.mjs");
             std::fs::write(&wrapper_path, wrapper).unwrap();
             wrapper_path

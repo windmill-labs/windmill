@@ -284,6 +284,12 @@ struct SimplifiedSettings {
     color: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_settings: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slack_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slack_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slack_command_script: Option<String>,
 }
 
 // V1 format: Legacy flat format for backward compatibility (matches main branch exactly)
@@ -318,6 +324,12 @@ struct SimplifiedSettingsLegacy {
     color: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_settings: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slack_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slack_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slack_command_script: Option<String>,
 }
 
 // Internal struct for querying database
@@ -337,6 +349,9 @@ struct SettingsRow {
     mute_critical_alerts: Option<bool>,
     color: Option<String>,
     operator_settings: Option<serde_json::Value>,
+    slack_team_id: Option<String>,
+    slack_name: Option<String>,
+    slack_command_script: Option<String>,
 }
 
 pub(crate) async fn tarball_workspace(
@@ -942,7 +957,10 @@ pub(crate) async fn tarball_workspace(
                  workspace.name as name,
                  mute_critical_alerts,
                  color,
-                 operator_settings
+                 operator_settings,
+                 slack_team_id,
+                 slack_name,
+                 slack_command_script
              FROM workspace_settings
              LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
              WHERE workspace_id = $1"#,
@@ -968,6 +986,9 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color.clone(),
                 operator_settings: row.operator_settings.clone(),
+                slack_team_id: row.slack_team_id.clone(),
+                slack_name: row.slack_name.clone(),
+                slack_command_script: row.slack_command_script.clone(),
             };
             serde_json::to_value(settings)
                 .map(|v| serde_json::to_string_pretty(&v).ok())
@@ -1027,6 +1048,9 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color,
                 operator_settings: row.operator_settings,
+                slack_team_id: row.slack_team_id,
+                slack_name: row.slack_name,
+                slack_command_script: row.slack_command_script,
             };
             serde_json::to_value(settings)
                 .map(|v| serde_json::to_string_pretty(&v).ok())
