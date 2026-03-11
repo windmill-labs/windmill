@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),\n            authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)\n            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username, first_time_user\n            FROM password\n            WHERE email IN (SELECT email FROM active_users)\n            ORDER BY super_admin DESC, devops DESC\n            LIMIT $1 OFFSET $2",
+  "query": "WITH active_users AS (SELECT distinct username as email FROM (SELECT username, timestamp, operation FROM audit_partitioned UNION ALL SELECT username, timestamp, operation FROM audit) AS a WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),\n            authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)\n            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username, first_time_user\n            FROM password\n            WHERE email IN (SELECT email FROM active_users)\n            ORDER BY super_admin DESC, devops DESC\n            LIMIT $1 OFFSET $2",
   "describe": {
     "columns": [
       {
@@ -73,5 +73,5 @@
       false
     ]
   },
-  "hash": "72d3ebb05ac1ffeb0e8d0a3146d95bb5b90e7c4d1dc2c8a6ef06eddf6678f230"
+  "hash": "9229d9a9ff389cf26e480b604b83900e2d362ee934ef27284ef39f4eed440e59"
 }

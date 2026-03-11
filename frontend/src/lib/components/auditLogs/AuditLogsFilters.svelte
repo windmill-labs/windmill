@@ -465,12 +465,9 @@
 			on:click={downloadAuditLogsAsJson}
 			unifiedSize="md"
 			title="Downloads currently displayed logs only (up to {perPage} entries)"
-		>
-			<div class="flex flex-row gap-1 items-center">
-				<Download size={14} />
-				Download JSON
-			</div>
-		</Button>
+			startIcon={{ icon: Download }}
+			iconOnly
+		/>
 		<Button
 			variant="accent"
 			on:click={() => {
