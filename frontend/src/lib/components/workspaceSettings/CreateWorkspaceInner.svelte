@@ -27,12 +27,15 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { AI_PROVIDERS } from '$lib/components/copilot/lib'
-	import { GitFork, LoaderCircle } from 'lucide-svelte'
+	import { LoaderCircle } from 'lucide-svelte'
 	import PrefixedInput from '../PrefixedInput.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import { jobManager } from '$lib/services/JobManager'
 	import Alert from '../common/alert/Alert.svelte'
 	import { base } from '$lib/base'
+	import { resource } from 'runed'
+	import Label from '../Label.svelte'
+	import Select from '../select/Select.svelte'
 
 	interface Props {
 		isFork?: boolean
@@ -51,6 +54,15 @@
 	let aiKey = $state('')
 	let codeCompletionEnabled = $state(true)
 	let checking = $state(false)
+
+	let allDatatables = resource([], async () =>
+		$workspaceStore
+			? WorkspaceService.listDataTables({
+					workspace: $workspaceStore ?? ''
+				})
+			: undefined
+	)
+	let datatableBehaviors: Record<string, string> = $state({})
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
@@ -343,16 +355,7 @@
 	let domain = $derived($usersWorkspaceStore?.email.split('@')[1])
 </script>
 
-<div class="flex flex-col gap-8">
-	{#if isFork}
-		<div class="flex flex-block gap-2">
-			<GitFork size={16} />
-			<span class="text-xs text-normal">Forking </span>
-			<span class="text-xs text-emphasis font-semibold">
-				{$workspaceStore}
-			</span>
-		</div>
-	{/if}
+<div class="flex flex-col gap-8 flex-1">
 	{#if errorMsgs.length != 0}
 		<Alert class="p-2" title={forkCreationError} type="error">
 			<ul class="pl-2 pr-4 break-words pb-5">
@@ -381,15 +384,15 @@
 							{#if isPathVersionLessThan(job.script_path, 28073)}
 								<div class="font-bold">
 									This job was not running the latest version of the git sync script available on
-									the hub. You might be able to solve this issue by going to `Workspace Settings`
-									-> `Git Sync` and updating the script.
+									the hub. You might be able to solve this issue by going to `Workspace Settings` ->
+									`Git Sync` and updating the script.
 								</div>
 							{/if}
 						{/each}
 					</ul>
 				{:catch error}
-					Tried to fetch jobs to get more information, but failed: {error}. Here are the failed
-					job ids:
+					Tried to fetch jobs to get more information, but failed: {error}. Here are the failed job
+					ids:
 					<ul class="pl-2 pr-4 break-words">
 						{#each failedSyncJobs as jobId}
 							<li>
@@ -444,11 +447,10 @@
 			<span class="text-red-500 text-2xs font-normal">{errorId}</span>
 		{/if}
 	</label>
-	<label class="flex flex-col gap-1">
-		<span class="text-xs font-semibold text-emphasis">Workspace color</span>
-		<span class="text-xs text-secondary"
-			>Color to identify the current workspace in the list of workspaces</span
-		>
+	<Label label="Workspace color">
+		<span class="text-xs text-secondary">
+			Color to identify the current workspace in the list of workspaces
+		</span>
 		<div class="flex items-center gap-4">
 			<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
 			{#if colorEnabled}
@@ -474,15 +476,51 @@
 				</div>
 			{/if}
 		</div>
-	</label>
+	</Label>
+	<Label label="Data table behavior">
+		<span class="text-xs text-secondary">
+			Fork datatables to avoid changing production data while working
+		</span>
+		<div class="border rounded-md divide-y">
+			{#each allDatatables.current ?? [] as dt}
+				<div class="flex items-center gap-2 justify-between px-4 py-1.5">
+					<span class="text-xs">{dt}</span>
+					<Select
+						dropdownClass="max-w-96"
+						bind:value={
+							() => datatableBehaviors[dt] ?? 'schema_only', (v) => (datatableBehaviors[dt] = v)
+						}
+						items={[
+							{
+								value: 'schema_only',
+								label: 'Clone schema only',
+								subtitle: 'Create a fork of the datatable with the same schema but no data'
+							},
+							{
+								value: 'schema_and_data',
+								label: 'Clone schema and data',
+								subtitle:
+									'Copy the database and all rows from every table. This may take a long time and use significant storage depending on the size of the source.'
+							},
+							{
+								value: 'keep_original',
+								label: 'Keep original',
+								subtitle:
+									'Share the same datatable. Edits to this datatable will also happen on the original workspace.'
+							}
+						]}
+					/>
+				</div>
+			{/each}
+		</div>
+	</Label>
 	{#if !automateUsernameCreation}
-		<label class="flex flex-col gap-1">
-			<span class="text-xs font-semibold text-emphasis">Your username in that workspace</span>
+		<Label label="Your username in that workspace">
 			<TextInput bind:value={username} inputProps={{ onkeyup: handleKeyUp }} error={errorUser} />
 			{#if errorUser}
 				<span class="text-red-500 text-2xs">{errorUser}</span>
 			{/if}
-		</label>
+		</Label>
 	{/if}
 	{#if !isFork}
 		<div class="block">
@@ -593,12 +631,9 @@
 			{/if}
 		</div>
 	{/if}
-	<div class="flex flex-wrap flex-row justify-between gap-4 pt-4">
-		<Button
-			disabled={forkCreationLoading}
-			variant="default"
-			size="sm"
-			href="{base}/user/workspaces">&leftarrow; Back to workspaces</Button
+	<div class="flex flex-wrap flex-row justify-between gap-4 pt-4 mt-auto">
+		<Button disabled={forkCreationLoading} variant="default" size="sm" href="{base}/user/workspaces"
+			>&leftarrow; Back to workspaces</Button
 		>
 		{#if !forkCreationLoading}
 			<Button

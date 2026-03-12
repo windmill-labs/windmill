@@ -785,10 +785,11 @@
 {/if}
 
 <Modal2
-	title="Fork workspace"
+	title="Forking {$workspaceStore}"
 	target="#content"
-	fixedHeight="md"
+	fixedHeight="lg"
 	fixedWidth="sm"
+	contentClasses="flex-col"
 	bind:isOpen={() => !!globalForkModal.val?.opened, (v) => !v && (globalForkModal.val = undefined)}
 >
 	{#if globalForkModal.val}
