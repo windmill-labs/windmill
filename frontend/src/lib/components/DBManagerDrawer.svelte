@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
@@ -195,8 +195,9 @@
 			{/key}
 		{/if}
 		{#snippet actions()}
-			{#if isPostgresqlInput}
+			{#if isPostgresqlInput && ($userStore?.is_admin || $superadmin)}
 				<DropdownV2
+					enableFlyTransition
 					items={[
 						{
 							displayName: 'Export schemas',
