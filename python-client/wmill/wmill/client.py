@@ -2846,22 +2846,21 @@ def _run_workflow(func, checkpoint: dict, input_args: dict):
 
 @init_global_client
 def commit_kafka_offsets(
+    trigger_path: str,
     topic: str,
     partition: int,
     offset: int,
 ) -> None:
     """Commit Kafka offsets for a trigger with auto_commit disabled.
 
-    Must be called from within a job triggered by a Kafka trigger.
-    The trigger is automatically inferred from the job token.
-
     Args:
+        trigger_path: Path to the Kafka trigger (from event['wm_trigger']['trigger_path'])
         topic: Kafka topic name (from event['topic'])
         partition: Partition number (from event['partition'])
         offset: Message offset to commit (from event['offset'])
     """
     _client.post(
-        f"/w/{_client.workspace}/kafka_triggers/commit_offsets",
+        f"/w/{_client.workspace}/kafka_triggers/commit_offsets/{trigger_path}",
         json={
             "topic": topic,
             "partition": partition,

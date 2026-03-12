@@ -1869,13 +1869,13 @@ export async function parallel<T, R>(
 
 /**
  * Commit Kafka offsets for a trigger with auto_commit disabled.
- * Must be called from within a job triggered by a Kafka trigger.
- * The trigger is automatically inferred from the job token.
+ * @param triggerPath - Path to the Kafka trigger (from event.wm_trigger.trigger_path)
  * @param topic - Kafka topic name (from event.topic)
  * @param partition - Partition number (from event.partition)
  * @param offset - Message offset to commit (from event.offset)
  */
 export async function commitKafkaOffsets(
+  triggerPath: string,
   topic: string,
   partition: number,
   offset: number,
@@ -1883,6 +1883,7 @@ export async function commitKafkaOffsets(
   const workspace = getWorkspace();
   await KafkaTriggerService.commitKafkaOffsets({
     workspace,
+    path: triggerPath,
     requestBody: { topic, partition, offset },
   });
 }

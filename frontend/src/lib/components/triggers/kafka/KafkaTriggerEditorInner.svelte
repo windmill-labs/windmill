@@ -6,12 +6,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import {
-		KafkaTriggerService,
-		type ErrorHandler,
-		type Retry,
-		type TriggerMode
-	} from '$lib/gen'
+	import { KafkaTriggerService, type ErrorHandler, type Retry, type TriggerMode } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
@@ -495,11 +490,15 @@
 
 			<Section label="Advanced" collapsable>
 				{#snippet header()}
-					<TriggerAdvancedBadges {error_handler_path} {retry} extraBadges={[
-						{ name: 'Earliest offset', active: autoOffsetReset !== 'latest' },
-						{ name: 'Manual commit', active: !autoCommit },
-						{ name: 'Filters', active: filters.length > 0 }
-					]} />
+					<TriggerAdvancedBadges
+						{error_handler_path}
+						{retry}
+						extraBadges={[
+							{ name: 'Earliest offset', active: autoOffsetReset !== 'latest' },
+							{ name: 'Manual commit', active: !autoCommit },
+							{ name: 'Filters', active: filters.length > 0 }
+						]}
+					/>
 				{/snippet}
 				<div class="flex flex-col gap-6">
 					<Label label="Initial offset">
@@ -525,14 +524,18 @@
 									Automatically commit offsets after receiving each message
 								</span>
 							{/snippet}
-							<Toggle
-								bind:checked={autoCommit}
-								disabled={!can_write}
-							/>
+							<Toggle bind:checked={autoCommit} disabled={!can_write} />
 						</Label>
 						{#if !autoCommit}
 							<Alert title="Manual commit mode" type="info" size="xs">
-								Offsets will not be committed automatically. Use <code>wmill.commit_kafka_offsets(topic, partition, offset)</code> in Python or <code>wmill.commitKafkaOffsets(topic, partition, offset)</code> in TypeScript with the values from the event payload. Messages will be re-delivered if offsets are not committed.
+								Offsets will not be committed automatically. Use <code
+									>wmill.commit_kafka_offsets(trigger_path, topic, partition, offset)</code
+								>
+								in Python or <code
+									>wmill.commitKafkaOffsets(triggerPath, topic, partition, offset)</code
+								> in TypeScript with the values from the event payload. The consumer collects
+								all pending commits and commits the highest offset for each topic/partition
+								pair.
 							</Alert>
 						{/if}
 					</div>
