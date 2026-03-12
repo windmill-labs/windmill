@@ -63,7 +63,11 @@
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import GroupOverlay from './GroupOverlay.svelte'
-	import { getGroupEditorContext, GROUP_HEADER_HEIGHT, GROUP_TOP_MARGIN } from './groupEditor.svelte'
+	import {
+		getGroupEditorContext,
+		GROUP_HEADER_HEIGHT,
+		GROUP_TOP_MARGIN
+	} from './groupEditor.svelte'
 	import SelectionTool from './SelectionTool.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
@@ -75,8 +79,17 @@
 	import { compoundLayout } from './compoundLayout'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
-	import { assetDisplaysAsInputInFlowGraph, assetDisplaysAsOutputInFlowGraph, NODE_WITH_READ_ASSET_Y_OFFSET, NODE_WITH_WRITE_ASSET_Y_OFFSET } from './renderers/nodes/AssetNode.svelte'
-	import { AI_TOOL_BASE_OFFSET, AI_TOOL_ROW_OFFSET, BELOW_ADDITIONAL_OFFSET } from './renderers/nodes/AIToolNode.svelte'
+	import {
+		assetDisplaysAsInputInFlowGraph,
+		assetDisplaysAsOutputInFlowGraph,
+		NODE_WITH_READ_ASSET_Y_OFFSET,
+		NODE_WITH_WRITE_ASSET_Y_OFFSET
+	} from './renderers/nodes/AssetNode.svelte'
+	import {
+		AI_TOOL_BASE_OFFSET,
+		AI_TOOL_ROW_OFFSET,
+		BELOW_ADDITIONAL_OFFSET
+	} from './renderers/nodes/AIToolNode.svelte'
 	import { topologicalSort } from './graphBuilder.svelte'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { setGraphContext } from './graphContext'
@@ -284,7 +297,9 @@
 	const groupEditorContext = getGroupEditorContext()
 
 	// Deep-read group note heights from GroupEditor for reactive layout
-	let groupNoteHeightsKey = $derived(JSON.stringify(groupEditorContext?.groupEditor.getNoteHeights() ?? {}))
+	let groupNoteHeightsKey = $derived(
+		JSON.stringify(groupEditorContext?.groupEditor.getNoteHeights() ?? {})
+	)
 
 	// Function to calculate extra gap needed for notes below the lowest flow nodes
 	function calculateNoteGap(notes: FlowNote[] | undefined): number {
@@ -351,7 +366,9 @@
 		data?: { assets?: AssetWithAltAccessType[]; module?: any }
 	}
 	type NodePos = { position: { x: number; y: number } }
-	let lastNodes: [NodeDep[], Map<string, { top: number; bottom: number }> | undefined, (NodeDep & NodePos)[]] | undefined = undefined
+	let lastNodes:
+		| [NodeDep[], Map<string, { top: number; bottom: number }> | undefined, (NodeDep & NodePos)[]]
+		| undefined = undefined
 	let currentContainerDescendants: Map<string, string[]> = $state(new Map())
 
 	const MAX_TOOLS_PER_ROW = 2
@@ -363,7 +380,10 @@
 	function computeNodeExtraSpace(
 		graphNodes: NodeDep[]
 	): Map<string, { top: number; bottom: number; left: number; right: number }> | undefined {
-		const extraSpace = new Map<string, { top: number; bottom: number; left: number; right: number }>()
+		const extraSpace = new Map<
+			string,
+			{ top: number; bottom: number; left: number; right: number }
+		>()
 
 		// 1. Assets
 		if ($showAssets) {
@@ -432,7 +452,9 @@
 		// 4. Group headers (header + note + margin above topmost node in each group)
 		const groups = groupEditorContext?.groupEditor.getGroups() ?? []
 		if (groups.length > 0) {
-			const groupNoteHeights = showNotes ? (groupEditorContext?.groupEditor.getNoteHeights() ?? {}) : {}
+			const groupNoteHeights = showNotes
+				? (groupEditorContext?.groupEditor.getNoteHeights() ?? {})
+				: {}
 			// Need to find topmost node per group - use topological sort
 			const sortedNodes = topologicalSort(graphNodes).reverse()
 			for (const group of groups) {
@@ -447,9 +469,7 @@
 					topmostNodeId = collapsedNodeId
 					isCollapsed = true
 				} else {
-					topmostNodeId = sortedNodes.find((node) =>
-						group.module_ids.includes(node.id)
-					)?.id
+					topmostNodeId = sortedNodes.find((node) => group.module_ids.includes(node.id))?.id
 				}
 
 				if (topmostNodeId) {
@@ -468,11 +488,16 @@
 
 					// Bottom padding for uncollapsed groups on the bottommost node
 					if (!isCollapsed) {
-						const bottommostNodeId = [...sortedNodes].reverse().find((node) =>
-							group.module_ids.includes(node.id)
-						)?.id
+						const bottommostNodeId = [...sortedNodes]
+							.reverse()
+							.find((node) => group.module_ids.includes(node.id))?.id
 						if (bottommostNodeId) {
-							const prevBottom = extraSpace.get(bottommostNodeId) ?? { top: 0, bottom: 0, left: 0, right: 0 }
+							const prevBottom = extraSpace.get(bottommostNodeId) ?? {
+								top: 0,
+								bottom: 0,
+								left: 0,
+								right: 0
+							}
 							extraSpace.set(bottommostNodeId, {
 								...prevBottom,
 								bottom: Math.max(prevBottom.bottom, groupPadding)
@@ -486,9 +511,16 @@
 		return extraSpace.size > 0 ? extraSpace : undefined
 	}
 
-	function layoutNodes(nodes: NodeDep[], nodeExtraSpace?: Map<string, { top: number; bottom: number; left: number; right: number }>): (NodeDep & NodePos)[] {
+	function layoutNodes(
+		nodes: NodeDep[],
+		nodeExtraSpace?: Map<string, { top: number; bottom: number; left: number; right: number }>
+	): (NodeDep & NodePos)[] {
 		let lastResult = lastNodes?.[2]
-		if (lastResult && deepEqual(nodes, lastNodes?.[0]) && deepEqual(nodeExtraSpace, lastNodes?.[1])) {
+		if (
+			lastResult &&
+			deepEqual(nodes, lastNodes?.[0]) &&
+			deepEqual(nodeExtraSpace, lastNodes?.[1])
+		) {
 			console.debug('layoutNodes', 'same nodes')
 			return lastResult
 		}
@@ -502,12 +534,20 @@
 		}
 
 		// Run recursive compound layout with pre-computed extra space
-		const { positions, bbox, containerDescendants: layoutContainerDescendants } = compoundLayout(nodes, {
-			nodeWidth: NODE.width,
-			nodeHeight: NODE.height,
-			gapH: NODE.gap.horizontal,
-			gapV: NODE.gap.vertical
-		}, nodeExtraSpace)
+		const {
+			positions,
+			bbox,
+			containerDescendants: layoutContainerDescendants
+		} = compoundLayout(
+			nodes,
+			{
+				nodeWidth: NODE.width,
+				nodeHeight: NODE.height,
+				gapH: NODE.gap.horizontal,
+				gapV: NODE.gap.vertical
+			},
+			nodeExtraSpace
+		)
 
 		// Center horizontally
 		const xCenter = (fullSize ? fullWidth : width) / 2 - bbox.width / 2 - (width - fullWidth) / 2
@@ -810,7 +850,9 @@
 		if (groups.length > 0 && nodeExtraSpace) {
 			// Use nodeExtraSpace directly - nodes with group headers already have the space
 			// The offset for edges equals the group header + note portion of the topPadding
-			const groupNoteHeights = showNotes ? (groupEditorContext?.groupEditor.getNoteHeights() ?? {}) : {}
+			const groupNoteHeights = showNotes
+				? (groupEditorContext?.groupEditor.getNoteHeights() ?? {})
+				: {}
 			const sortedNodes = topologicalSort(graphNodeDeps).reverse()
 			for (const group of groups) {
 				if (group.module_ids.length === 0) continue
@@ -823,9 +865,7 @@
 					topNodeId = collapsedNodeId
 					isCollapsed = true
 				} else {
-					topNodeId = sortedNodes.find((node) =>
-						group.module_ids.includes(node.id)
-					)?.id
+					topNodeId = sortedNodes.find((node) => group.module_ids.includes(node.id))?.id
 				}
 
 				if (topNodeId) {
@@ -838,12 +878,15 @@
 
 				// Bottom offset for uncollapsed groups
 				if (!isCollapsed) {
-					const bottomNodeId = [...sortedNodes].reverse().find((node) =>
-						group.module_ids.includes(node.id)
-					)?.id
+					const bottomNodeId = [...sortedNodes]
+						.reverse()
+						.find((node) => group.module_ids.includes(node.id))?.id
 					if (bottomNodeId) {
 						const groupPadding = 16
-						groupBottomOffsets[bottomNodeId] = Math.max(groupBottomOffsets[bottomNodeId] ?? 0, groupPadding)
+						groupBottomOffsets[bottomNodeId] = Math.max(
+							groupBottomOffsets[bottomNodeId] ?? 0,
+							groupPadding
+						)
 					}
 				}
 			}
@@ -857,11 +900,14 @@
 			const headerOffset = groupHeaderOffsets[e.target]
 			const bottomOffset = groupBottomOffsets[e.source]
 			if (headerOffset || bottomOffset) {
-				return { ...e, data: {
-					...e.data,
-					...(headerOffset ? { groupHeaderOffset: headerOffset } : {}),
-					...(bottomOffset ? { groupBottomOffset: bottomOffset } : {})
-				} }
+				return {
+					...e,
+					data: {
+						...e.data,
+						...(headerOffset ? { groupHeaderOffset: headerOffset } : {}),
+						...(bottomOffset ? { groupBottomOffset: bottomOffset } : {})
+					}
+				}
 			}
 			return e
 		})
@@ -994,14 +1040,22 @@
 	)
 	let hideNotesToggle = $derived(
 		(!notes || notes.length === 0) &&
-		!(groupEditorContext?.groupEditor.getGroups().some((g) => g.note != null) ?? false)
+			!(groupEditorContext?.groupEditor.getGroups().some((g) => g.note != null) ?? false)
 	)
 
 	// Track groups for re-layout when groups change
 	let currentGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
 
 	$effect(() => {
-		;[graph, allowSimplifiedPoll, $showAssets, showNotes, noteManager.renderCount, currentGroups, groupNoteHeightsKey]
+		;[
+			graph,
+			allowSimplifiedPoll,
+			$showAssets,
+			showNotes,
+			noteManager.renderCount,
+			currentGroups,
+			groupNoteHeightsKey
+		]
 		untrack(async () => {
 			await updateStores()
 		})
@@ -1134,7 +1188,7 @@
 	bind:this={flowContainer}
 >
 	{#if graph?.error}
-		<div class="center-center p-2">
+		<div class="center-center p-2 mt-20">
 			<Alert title="Error parsing the flow" type="error" class="max-w-1/2">
 				{graph.error}
 
