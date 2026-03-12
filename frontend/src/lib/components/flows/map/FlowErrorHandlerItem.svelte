@@ -112,6 +112,19 @@
 				</button>
 			{/if}
 		</Button>
+		{#if compact}
+			<button
+				title="Delete failure script"
+				type="button"
+				class="absolute -top-1.5 -right-1.5 rounded-full bg-surface border border-border p-0.5 hover:bg-surface-hover"
+				onclick={() => {
+					flowStore.val.value.failure_module = undefined
+					selectionManager.selectId('settings-metadata')
+				}}
+			>
+				<X size={10} />
+			</button>
+		{/if}
 	</div>
 {:else}
 	<!-- Index 0 is used by the tutorial to identify the first "Add step" -->
