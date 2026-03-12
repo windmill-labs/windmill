@@ -2,7 +2,7 @@
 	import { createBubbler, stopPropagation } from 'svelte/legacy'
 
 	const bubble = createBubbler()
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
@@ -43,7 +43,7 @@
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let everRender = $state(render)
+	let everRender = $state(untrack(() => render))
 
 	$effect.pre(() => {
 		render && !everRender && (everRender = true)
@@ -51,7 +51,7 @@
 
 	let activeIndex: number = $state(0)
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		activeIndex: 0,
 		loading: false,
@@ -65,7 +65,7 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.accordionlistcomponent, customCss))
+	let css = $state(initCss($app.css?.accordionlistcomponent, untrack(() => customCss)))
 	let result: any[] | undefined = $state(undefined)
 
 	let inputs = $state({})

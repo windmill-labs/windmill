@@ -1,15 +1,21 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { KafkaTriggerService, type ErrorHandler, type Retry, type TriggerMode } from '$lib/gen'
+	import {
+		KafkaTriggerService,
+		type ErrorHandler,
+		type Retry,
+		type TriggerMode
+	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2 } from 'lucide-svelte'
+	import { Loader2, RotateCcw } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
 	import { untrack, type Snippet } from 'svelte'
@@ -80,7 +86,9 @@
 	let kafkaCfgValid = $state(false)
 	let kafkaResourcePath = $state('')
 	let kafkaCfg: Record<string, any> = $state({})
+	let autoOffsetReset = $state('latest')
 	let deploymentLoading = $state(false)
+	let resetLoading = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
@@ -90,6 +98,7 @@
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
+	let resetConfirmOpen = $state(false)
 
 	const isValid = $derived(
 		!!kafkaResourcePath &&
@@ -112,7 +121,7 @@
 			!hasChanged
 	)
 	const kafkaConfig = $derived.by(getSaveCfg)
-	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
+	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 
 	$effect(() => {
 		is_flow = itemKind === 'flow'
@@ -166,6 +175,7 @@
 				group_id: nDefaultValues?.group_id ?? '',
 				topics: nDefaultValues?.topics ?? ['']
 			}
+			autoOffsetReset = nDefaultValues?.auto_offset_reset ?? 'latest'
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
@@ -196,6 +206,7 @@
 			group_id: cfg?.group_id,
 			topics: cfg?.topics
 		}
+		autoOffsetReset = cfg?.auto_offset_reset ?? 'latest'
 		mode = cfg?.mode ?? 'enabled'
 		extra_perms = cfg?.extra_perms
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
@@ -228,6 +239,7 @@
 			group_id: kafkaCfg.group_id,
 			topics: kafkaCfg.topics,
 			filters,
+			auto_offset_reset: autoOffsetReset,
 			mode,
 			extra_perms: extra_perms,
 			error_handler_path,
@@ -267,6 +279,24 @@
 		}
 	}
 
+	async function resetOffsets() {
+		resetLoading = true
+		try {
+			await KafkaTriggerService.resetKafkaOffsets({
+				workspace: $workspaceStore!,
+				path: initialPath
+			})
+			sendUserToast(
+				'Offset reset triggered. The consumer will restart and re-read from the beginning.'
+			)
+		} catch (error) {
+			sendUserToast(error.body || error.message, true)
+		} finally {
+			resetLoading = false
+			resetConfirmOpen = false
+		}
+	}
+
 	async function handleToggleMode(newMode: TriggerMode) {
 		mode = newMode
 		if (!trigger?.draftConfig) {
@@ -295,6 +325,18 @@
 		}
 	})
 </script>
+
+<ConfirmationModal
+	title="Reset consumer offset"
+	confirmationText="Reset"
+	open={resetConfirmOpen}
+	loading={resetLoading}
+	onConfirmed={resetOffsets}
+	onCanceled={() => (resetConfirmOpen = false)}
+>
+	This will re-process all messages from the beginning of the topic. The consumer will restart
+	automatically.
+</ConfirmationModal>
 
 {#if mode === 'suspended'}
 	<TriggerSuspendedJobsModal
@@ -439,10 +481,31 @@
 				bind:kafkaCfgValid
 				bind:kafkaResourcePath
 				bind:kafkaCfg
+				bind:autoOffsetReset
 				{path}
 				{can_write}
 				showTestingBadge={isEditor}
 			/>
+
+			{#if edit && can_write}
+				<Label label="Consumer offset">
+					{#snippet header()}
+						<span class="text-2xs text-tertiary ml-2">
+							Force re-read all messages from the beginning
+						</span>
+					{/snippet}
+					<Button
+						variant="default"
+						size="xs"
+						startIcon={{ icon: RotateCcw }}
+						disabled={resetLoading}
+						loading={resetLoading}
+						onclick={() => (resetConfirmOpen = true)}
+					>
+						Reset offset to earliest
+					</Button>
+				</Label>
+			{/if}
 
 			<TriggerFilters bind:filters disabled={!can_write} />
 

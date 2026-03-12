@@ -36,16 +36,16 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['recomputeallcomponent'].initialData.configuration, configuration)
+		initConfig(components['recomputeallcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	initOutput($worldStore, id, {
+	initOutput($worldStore, untrack(() => id), {
 		loading: undefined
 	})
 
 	initializing = false
 
-	let css = $state(initCss($app.css?.recomputeallcomponent, customCss))
+	let css = $state(initCss($app.css?.recomputeallcomponent, untrack(() => customCss)))
 
 	function handleRefreshInterval() {
 		if (resolvedConfig.defaultRefreshInterval !== undefined) {

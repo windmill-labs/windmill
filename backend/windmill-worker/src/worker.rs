@@ -37,7 +37,7 @@ use windmill_common::{
     utils::{create_directory_async, WarnAfterExt},
     worker::{
         make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT,
-        MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, TMP_DIR,
+        MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, WINDMILL_DIR,
     },
     worker_group_job_stats::JobStatsMap,
     KillpillSender,
@@ -47,7 +47,6 @@ use windmill_common::{
 use windmill_common::ee_oss::LICENSE_KEY_VALID;
 
 use anyhow::Result;
-use const_format::concatcp;
 #[cfg(feature = "prometheus")]
 use prometheus::IntCounter;
 
@@ -196,45 +195,47 @@ use windmill_common::bench::{benchmark_init, benchmark_verify, BenchmarkInfo, Be
 
 use windmill_common::add_time;
 
-pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_3_10");
-pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_3_11");
-pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_3_12");
-pub const PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_3_13");
+lazy_static::lazy_static! {
+    pub static ref PY310_CACHE_DIR: String = format!("{}python_3_10", *ROOT_CACHE_DIR);
+    pub static ref PY311_CACHE_DIR: String = format!("{}python_3_11", *ROOT_CACHE_DIR);
+    pub static ref PY312_CACHE_DIR: String = format!("{}python_3_12", *ROOT_CACHE_DIR);
+    pub static ref PY313_CACHE_DIR: String = format!("{}python_3_13", *ROOT_CACHE_DIR);
 
-pub const TAR_JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/java");
+    pub static ref TAR_JAVA_CACHE_DIR: String = format!("{}tar/java", *ROOT_CACHE_DIR);
 
-pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
-pub const PY_INSTALL_DIR: &str = concatcp!(ROOT_CACHE_DIR, "py_runtime");
-pub const TAR_PYBASE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar");
-pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
-pub const DENO_CACHE_DIR_DEPS: &str = concatcp!(ROOT_CACHE_DIR, "deno/deps");
-pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
+    pub static ref UV_CACHE_DIR: String = format!("{}uv", *ROOT_CACHE_DIR);
+    pub static ref PY_INSTALL_DIR: String = format!("{}py_runtime", *ROOT_CACHE_DIR);
+    pub static ref TAR_PYBASE_CACHE_DIR: String = format!("{}tar", *ROOT_CACHE_DIR);
+    pub static ref DENO_CACHE_DIR: String = format!("{}deno", *ROOT_CACHE_DIR);
+    pub static ref DENO_CACHE_DIR_DEPS: String = format!("{}deno/deps", *ROOT_CACHE_DIR);
+    pub static ref DENO_CACHE_DIR_NPM: String = format!("{}deno/npm", *ROOT_CACHE_DIR);
 
-pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
-pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
-pub const NU_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "nu");
-pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
+    pub static ref GO_CACHE_DIR: String = format!("{}go", *ROOT_CACHE_DIR);
+    pub static ref RUST_CACHE_DIR: String = format!("{}rust", *ROOT_CACHE_DIR);
+    pub static ref NU_CACHE_DIR: String = format!("{}nu", *ROOT_CACHE_DIR);
+    pub static ref CSHARP_CACHE_DIR: String = format!("{}csharp", *ROOT_CACHE_DIR);
 
-// Java
-pub const JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "java");
-pub const COURSIER_CACHE_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/coursier-cache");
-pub const JAVA_REPOSITORY_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/repository");
-pub const JAVA_HOME_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/home");
+    // Java
+    pub static ref JAVA_CACHE_DIR: String = format!("{}java", *ROOT_CACHE_DIR);
+    pub static ref COURSIER_CACHE_DIR: String = format!("{}/coursier-cache", *JAVA_CACHE_DIR);
+    pub static ref JAVA_REPOSITORY_DIR: String = format!("{}/repository", *JAVA_CACHE_DIR);
+    pub static ref JAVA_HOME_DIR: String = format!("{}/home", *JAVA_CACHE_DIR);
 
-// Ruby
-pub const RUBY_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "ruby");
+    // Ruby
+    pub static ref RUBY_CACHE_DIR: String = format!("{}ruby", *ROOT_CACHE_DIR);
 
-// for related places search: ADD_NEW_LANG
-pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
-pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
-pub const BUN_CODEBASE_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "script_bundle");
+    // for related places search: ADD_NEW_LANG
+    pub static ref BUN_CACHE_DIR: String = format!("{}bun", *ROOT_CACHE_NOMOUNT_DIR);
+    pub static ref BUN_BUNDLE_CACHE_DIR: String = format!("{}bun", *ROOT_CACHE_DIR);
+    pub static ref BUN_CODEBASE_BUNDLE_CACHE_DIR: String = format!("{}script_bundle", *ROOT_CACHE_NOMOUNT_DIR);
 
-pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
-pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
-pub const COMPOSER_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "composer");
+    pub static ref GO_BIN_CACHE_DIR: String = format!("{}gobin", *ROOT_CACHE_DIR);
+    pub static ref POWERSHELL_CACHE_DIR: String = format!("{}powershell", *ROOT_CACHE_DIR);
+    pub static ref COMPOSER_CACHE_DIR: String = format!("{}composer", *ROOT_CACHE_DIR);
 
-pub const TRACING_PROXY_CA_CERT_PATH: &str =
-    concatcp!(ROOT_CACHE_NOMOUNT_DIR, "tracing_proxy_ca.pem");
+    pub static ref TRACING_PROXY_CA_CERT_PATH: String =
+        format!("{}tracing_proxy_ca.pem", *ROOT_CACHE_NOMOUNT_DIR);
+}
 
 const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_READINGS: u64 = 60;
@@ -302,7 +303,7 @@ pub struct PowershellRepo {
 
 lazy_static::lazy_static! {
 
-    pub static ref SLEEP_QUEUE: u64 = std::env::var("SLEEP_QUEUE")
+    static ref SLEEP_QUEUE_BASE: u64 = std::env::var("SLEEP_QUEUE")
     .ok()
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or_else(|| {
@@ -562,7 +563,16 @@ lazy_static::lazy_static! {
     pub static ref DOTNET_PATH: String = std::env::var("DOTNET_PATH").unwrap_or_else(|_| DOTNET_DEFAULT_PATH.to_string());
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
-    pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    pub static ref HOME_ENV: String = {
+        #[cfg(not(windows))]
+        { std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()) }
+        #[cfg(windows)]
+        {
+            std::env::var("HOME")
+                .or_else(|_| std::env::var("USERPROFILE"))
+                .unwrap_or_else(|_| std::env::temp_dir().to_string_lossy().to_string())
+        }
+    };
     pub static ref GIT_PATH: String = std::env::var("GIT_PATH").unwrap_or_else(|_| "/usr/bin/git".to_string());
 
     pub static ref NODE_PATH: Option<String> = std::env::var("NODE_PATH").ok();
@@ -635,6 +645,14 @@ lazy_static::lazy_static! {
         .unwrap_or(1000);
 
     pub static ref FLOW_RUNNER_RUNNING: Mutex<bool> = Mutex::new(false);
+}
+
+pub fn sleep_queue() -> u64 {
+    if NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed) {
+        300
+    } else {
+        *SLEEP_QUEUE_BASE
+    }
 }
 
 type Envs = Vec<(String, String)>;
@@ -730,26 +748,69 @@ pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
     }
 }
 
+/// Get OTEL trace context environment variables for a job (TRACEPARENT, OTEL_TRACE_ID, OTEL_SPAN_ID).
+/// Returns an empty vec when OTEL tracing is not enabled or on non-enterprise builds.
+pub fn get_otel_context_envs(job_id: &uuid::Uuid) -> Vec<(&'static str, String)> {
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    if windmill_common::OTEL_TRACING_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+        let trace_id = format!("{:032x}", job_id.as_u128());
+        let span_id = format!("{:016x}", job_id.as_u64_pair().1);
+        let traceparent = format!("00-{}-{}-01", trace_id, span_id);
+        return vec![
+            ("TRACEPARENT", traceparent),
+            ("OTEL_TRACE_ID", trace_id),
+            ("OTEL_SPAN_ID", span_id),
+        ];
+    }
+    let _ = job_id;
+    vec![]
+}
+
 /// Get proxy environment variables for job execution for a specific language.
 /// When OTEL tracing proxy is enabled for this language, routes all traffic through the proxy.
 /// Otherwise, uses the standard HTTP_PROXY/HTTPS_PROXY from environment.
 pub async fn get_proxy_envs_for_lang(
     lang: &ScriptLang,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
 ) -> anyhow::Result<Vec<(&'static str, String)>> {
+    #[allow(unused_mut)]
+    let mut envs;
     #[cfg(all(feature = "private", feature = "enterprise"))]
     if is_otel_tracing_proxy_enabled_for_lang(lang).await {
-        return get_otel_tracing_proxy_envs().await;
+        envs = get_otel_tracing_proxy_envs(job_id, w_id, conn).await?;
+    } else {
+        envs = PROXY_ENVS.clone();
     }
-    let _ = lang;
-    Ok(PROXY_ENVS.clone())
+    #[cfg(not(all(feature = "private", feature = "enterprise")))]
+    {
+        let _ = (lang, w_id, conn);
+        envs = PROXY_ENVS.clone();
+    }
+    envs.extend(get_otel_context_envs(job_id));
+    Ok(envs)
 }
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
-async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, String)>> {
-    let port = crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
+async fn get_otel_tracing_proxy_envs(
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> anyhow::Result<Vec<(&'static str, String)>> {
+    let port = match *crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
         .read()
         .await
-        .ok_or_else(|| anyhow::anyhow!("OTEL tracing proxy port not initialized"))?;
+    {
+        Some(p) => p,
+        None => {
+            let reason = "OTEL tracing proxy is enabled but not available (not initialized yet, or NUM_WORKERS > 1). \
+                This job's HTTP requests will not be traced.";
+            tracing::warn!("{}", reason);
+            append_logs(job_id, w_id, format!("\n[warning] {reason}\n"), conn).await;
+            return Ok(PROXY_ENVS.clone());
+        }
+    };
     let proxy_url = format!("http://127.0.0.1:{}", port);
     Ok(vec![
         ("HTTP_PROXY", proxy_url.clone()),
@@ -1320,7 +1381,7 @@ fn start_interactive_worker_shell(
                         {
                             Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION)
                         }
-                        _ => Duration::from_millis(*SLEEP_QUEUE * 10),
+                        _ => Duration::from_millis(sleep_queue() * 10),
                     };
                     tokio::select! {
                         _ = tokio::time::sleep(nap_time) => {
@@ -1333,7 +1394,7 @@ fn start_interactive_worker_shell(
 
                 Err(err) => {
                     tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
-                    tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 20)).await;
+                    tokio::time::sleep(Duration::from_millis(sleep_queue() * 20)).await;
                 }
             };
         }
@@ -1375,11 +1436,11 @@ pub async fn run_worker(
 
     let start_time = Instant::now();
 
-    let worker_dir = format!("{TMP_DIR}/{worker_name}");
+    let worker_dir = format!("{}/{worker_name}", *WINDMILL_DIR);
     tracing::debug!(worker = %worker_name, hostname = %hostname, worker_dir = %worker_dir, "Creating worker dir");
 
     #[cfg(feature = "python")]
-    {
+    if !NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed) {
         let (conn, worker_name, hostname, worker_dir) = (
             conn.clone(),
             worker_name.clone(),
@@ -2646,7 +2707,7 @@ pub async fn run_worker(
                     None
                 };
 
-                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
+                tokio::time::sleep(Duration::from_millis(sleep_queue())).await;
 
                 #[cfg(feature = "benchmark")]
                 {
@@ -2667,7 +2728,7 @@ pub async fn run_worker(
             }
             Err(err) => {
                 tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
-                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 5)).await;
+                tokio::time::sleep(Duration::from_millis(sleep_queue() * 5)).await;
             }
         };
     }
@@ -3475,6 +3536,13 @@ pub async fn handle_queued_job(
         {
             return Ok(false);
         }
+        if result
+            .as_ref()
+            .is_err_and(|err| matches!(err, &Error::WacSuspended(_)))
+        {
+            // WAC v2 job suspended while waiting for child jobs — don't complete it
+            return Ok(true);
+        }
         process_result(
             cjob,
             result.map(|x| Arc::new(x)),
@@ -3873,7 +3941,7 @@ pub async fn run_language_executor(
     run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
     if language == Some(ScriptLang::Postgresql) {
-        return do_postgresql(
+        return Box::pin(do_postgresql(
             job,
             &client,
             &code,
@@ -3885,7 +3953,7 @@ pub async fn run_language_executor(
             occupancy_metrics,
             parent_runnable_path,
             run_inline,
-        )
+        ))
         .await;
     } else if language == Some(ScriptLang::Mysql) {
         #[cfg(not(feature = "mysql"))]
@@ -3900,7 +3968,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_mysql(
+            return Box::pin(do_mysql(
                 job,
                 &client,
                 &code,
@@ -3911,7 +3979,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Bigquery) {
@@ -3937,7 +4005,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_bigquery(
+            return Box::pin(do_bigquery(
                 job,
                 &client,
                 &code,
@@ -3948,7 +4016,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Snowflake) {
@@ -3966,7 +4034,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_snowflake(
+            return Box::pin(do_snowflake(
                 job,
                 &client,
                 &code,
@@ -3977,7 +4045,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Mssql) {
@@ -4003,7 +4071,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_mssql(
+            return Box::pin(do_mssql(
                 job,
                 &client,
                 &code,
@@ -4014,7 +4082,7 @@ pub async fn run_language_executor(
                 occupancy_metrics,
                 job_dir,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::OracleDB) {
@@ -4040,7 +4108,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_oracledb(
+            return Box::pin(do_oracledb(
                 job,
                 &client,
                 &code,
@@ -4051,7 +4119,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::DuckDb) {
@@ -4065,7 +4133,7 @@ pub async fn run_language_executor(
 
         #[cfg(feature = "duckdb")]
         {
-            return do_duckdb(
+            return Box::pin(do_duckdb(
                 job,
                 &client,
                 &code,
@@ -4077,7 +4145,7 @@ pub async fn run_language_executor(
                 occupancy_metrics,
                 parent_runnable_path,
                 run_inline,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Graphql) {
@@ -4086,7 +4154,7 @@ pub async fn run_language_executor(
                 "Inline execution is not yet supported for this language".to_string(),
             ));
         }
-        return do_graphql(
+        return Box::pin(do_graphql(
             job,
             &client,
             &code,
@@ -4095,7 +4163,7 @@ pub async fn run_language_executor(
             canceled_by,
             worker_name,
             occupancy_metrics,
-        )
+        ))
         .await;
     } else if language == Some(ScriptLang::Nativets) {
         if run_inline {
@@ -4122,7 +4190,7 @@ pub async fn run_language_executor(
                 .collect::<Vec<String>>()
                 .join("\n"));
 
-        let result = do_nativets(
+        let result = Box::pin(do_nativets(
             job,
             &client,
             env_code,
@@ -4133,7 +4201,7 @@ pub async fn run_language_executor(
             worker_name,
             occupancy_metrics,
             has_stream,
-        )
+        ))
         .await?;
         return Ok(result);
     }
@@ -4151,7 +4219,8 @@ pub async fn run_language_executor(
         job.id
     );
 
-    let shared_mount = if job.same_worker && job.script_lang != Some(ScriptLang::Deno) {
+    #[allow(unused_mut)]
+    let mut shared_mount = if job.same_worker && job.script_lang != Some(ScriptLang::Deno) {
         let folder = if job.script_lang == Some(ScriptLang::Go) {
             "/go"
         } else {
@@ -4173,7 +4242,8 @@ mount {{
 
     // println!("handle lang job {:?}",  SystemTime::now());
 
-    let envs = build_envs(envs.as_ref())?;
+    #[allow(unused_mut)]
+    let mut envs = build_envs(envs.as_ref())?;
 
     let Some(language) = language else {
         return Err(Error::ExecutionErr(
@@ -4206,6 +4276,106 @@ mount {{
                 )
                 .await?,
             })
+        }
+    }
+
+    // Volume mount setup (requires workspace S3 storage; CE has file count/size limits)
+    #[cfg(feature = "parquet")]
+    let volume_mounts = {
+        let comment_prefix = match language {
+            ScriptLang::Python3
+            | ScriptLang::Bash
+            | ScriptLang::Powershell
+            | ScriptLang::Ansible
+            | ScriptLang::Ruby => "#",
+            ScriptLang::Deno
+            | ScriptLang::Bun
+            | ScriptLang::Bunnative
+            | ScriptLang::Nativets
+            | ScriptLang::Go => "//",
+            _ => "",
+        };
+        let raw_mounts = windmill_worker_volumes::parse_volume_annotations(&code, comment_prefix);
+        let args_ref = job.args.as_ref().map(|a| &**a);
+        let mut interpolated = Vec::new();
+        for mut v in raw_mounts {
+            v.name = windmill_worker_volumes::interpolate_volume_name(
+                &v.name,
+                args_ref,
+                &job.workspace_id,
+            );
+            if let Err(e) = windmill_worker_volumes::validate_volume_name(&v.name) {
+                return Err(Error::ExecutionErr(e));
+            }
+            if let Err(e) = windmill_worker_volumes::validate_volume_target(&v.target) {
+                return Err(Error::ExecutionErr(e));
+            }
+            interpolated.push(v);
+        }
+        if let Err(e) = windmill_worker_volumes::validate_volume_mounts(&interpolated) {
+            return Err(Error::ExecutionErr(e));
+        }
+        interpolated
+    };
+
+    #[cfg(feature = "parquet")]
+    let mut volume_setup = crate::volume_oss::VolumeSetupResult {
+        states: Vec::new(),
+        writable: Vec::new(),
+        client: None,
+        lease_renewal: crate::volume_oss::LeaseRenewalGuard(None),
+    };
+
+    #[cfg(feature = "parquet")]
+    if !volume_mounts.is_empty() {
+        let vol_summary: Vec<String> = volume_mounts
+            .iter()
+            .map(|v| format!("'{}' -> {}", v.name, v.target))
+            .collect();
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "\n--- VOLUME MOUNTS ---\nPulling {} volume(s): {}\n",
+                volume_mounts.len(),
+                vol_summary.join(", "),
+            ),
+            conn,
+        )
+        .await;
+
+        if let Connection::Sql(db) = conn {
+            volume_setup = crate::volume_oss::setup_volumes_sql_worker(
+                &volume_mounts,
+                db,
+                &job.workspace_id,
+                job.id,
+                &job.permissioned_as,
+                worker_name,
+                job_dir,
+                client,
+                conn,
+                language,
+                &mut envs,
+                &mut shared_mount,
+            )
+            .await?;
+        } else if let Connection::Http(http) = conn {
+            volume_setup = crate::volume_oss::setup_volumes_http_worker(
+                &volume_mounts,
+                http,
+                &job.workspace_id,
+                job.id,
+                &job.permissioned_as,
+                &job.canceled_by,
+                worker_name,
+                job_dir,
+                conn,
+                language,
+                &mut envs,
+                &mut shared_mount,
+            )
+            .await?;
         }
     }
 
@@ -4620,6 +4790,62 @@ mount {{
         // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
+    // Volume sync-back and lease release
+    #[cfg(feature = "parquet")]
+    if !volume_setup.states.is_empty() {
+        // Stop lease renewal before sync-back
+        volume_setup.lease_renewal.0.take().map(|h| h.abort());
+
+        if let Some(ref vol_client) = volume_setup.client {
+            if let Connection::Sql(db) = conn {
+                crate::volume_oss::sync_volumes_sql_worker(
+                    &volume_setup.states,
+                    &volume_setup.writable,
+                    vol_client,
+                    db,
+                    &job.workspace_id,
+                    job.id,
+                    worker_name,
+                    conn,
+                    result.is_ok(),
+                )
+                .await;
+            }
+        }
+
+        if let Connection::Http(http) = conn {
+            crate::volume_oss::sync_volumes_http_worker(
+                &volume_setup.states,
+                &volume_setup.writable,
+                http,
+                &job.workspace_id,
+                job.id,
+                worker_name,
+                conn,
+                result.is_ok(),
+            )
+            .await;
+        }
+
+        // Clean up absolute-path symlinks created by setup_volume_mount_paths
+        if !is_sandboxing_enabled() {
+            #[allow(unused_variables)] // state is only used on unix
+            for state in &volume_setup.states {
+                #[cfg(unix)]
+                if state.mount.target.starts_with('/') {
+                    let target_path = std::path::Path::new(&state.mount.target);
+                    if target_path
+                        .symlink_metadata()
+                        .map(|m| m.file_type().is_symlink())
+                        .unwrap_or(false)
+                    {
+                        std::fs::remove_file(target_path).ok();
+                    }
+                }
+            }
+        }
+    }
+
     tracing::info!(
         workspace_id = %job.workspace_id,
         is_ok = result.is_ok(),

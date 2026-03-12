@@ -45,8 +45,6 @@
 	let preSearchNextLink = $state<string | null>(null)
 	let preSearchTotalCount = $state(0)
 
-	let selectedTeamId = $state<string | undefined>(selectedTeam?.team_id)
-
 	const searchMode = $derived(!teams)
 
 	// Check if there are more teams to load (based on next_link presence)
@@ -62,21 +60,18 @@
 		return baseTeams
 	})
 
-	$effect(() => {
-		const newTeam = selectedTeamId
-			? displayTeams.find((t) => t.team_id === selectedTeamId)
-			: undefined
-
-		if (newTeam?.team_id !== selectedTeam?.team_id) {
-			selectedTeam = newTeam
+	// Single getter/setter to bridge Select's string value ↔ selectedTeam object.
+	// This replaces the previous two bidirectional $effect sync blocks.
+	function setSelectedTeamById(newId: string | undefined) {
+		if (newId) {
+			const team = displayTeams.find((t) => t.team_id === newId)
+			if (team && team.team_id !== selectedTeam?.team_id) {
+				selectedTeam = team
+			}
+		} else if (selectedTeam !== undefined) {
+			selectedTeam = undefined
 		}
-	})
-
-	$effect(() => {
-		if (selectedTeam?.team_id !== selectedTeamId) {
-			selectedTeamId = selectedTeam?.team_id
-		}
-	})
+	}
 
 	let previousTeamId = $state<string | undefined>(undefined)
 
@@ -120,6 +115,7 @@
 	})
 
 	function restorePreSearchState() {
+		debouncedSearch.clearDebounce()
 		searchRequestId++ // Invalidate any in-flight search
 		if (preSearchTeams !== null) {
 			// Restore the accumulated teams from before the search
@@ -262,7 +258,10 @@
 						disabled={disabled || isFetching}
 						loading={isFetching}
 						bind:filterText={searchFilterText}
-						bind:value={selectedTeamId}
+						bind:value={
+							() => selectedTeam?.team_id,
+							(newId) => setSelectedTeamById(newId)
+						}
 					/>
 				{:else}
 					<Select
@@ -274,7 +273,10 @@
 						placeholder="Select a team"
 						clearable
 						disabled={disabled || isFetching}
-						bind:value={selectedTeamId}
+						bind:value={
+							() => selectedTeam?.team_id,
+							(newId) => setSelectedTeamById(newId)
+						}
 					/>
 				{/if}
 			</div>

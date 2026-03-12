@@ -11,7 +11,7 @@
 	let computeAssetNodesCache: [NodeDep[], ReturnType<typeof computeAssetNodes>] | undefined
 
 	type NodeDep = {
-		data: object & { assets?: AssetWithAltAccessType[] | undefined; offset?: number }
+		data: object & { assets?: AssetWithAltAccessType[] | undefined }
 		id: string
 		position: { x: number; y: number }
 	}
@@ -78,14 +78,13 @@
 					width: inputAssetWidth,
 					position: {
 						x:
-							(node.data.offset ?? 0) +
-							(displayedInputAssets.length === 1
+							displayedInputAssets.length === 1
 								? (NODE.width - inputAssetWidth) / 2 - 10 // Ensure we see the edge
 								: (inputAssetWidth + inputAssetXGap) * (i - displayedInputAssets.length / 2) +
 									(NODE.width + inputAssetXGap) / 2 +
 									(overflowedInputAssets.length
 										? (-ASSETS_OVERFLOWED_NODE_WIDTH - inputAssetXGap) / 2
-										: 0)),
+										: 0),
 						y: READ_ASSET_Y_OFFSET
 					},
 					selectable: false
@@ -116,14 +115,13 @@
 					width: outputAssetWidth,
 					position: {
 						x:
-							(node.data.offset ?? 0) +
-							(displayedOutputAssets.length === 1
+							displayedOutputAssets.length === 1
 								? (NODE.width - outputAssetWidth) / 2 - 10 // Ensure we see the edge
 								: (outputAssetWidth + outputAssetXGap) * (i - displayedOutputAssets.length / 2) +
 									(NODE.width + outputAssetXGap) / 2 +
 									(overflowedOutputAssets.length
 										? (-ASSETS_OVERFLOWED_NODE_WIDTH - outputAssetXGap) / 2
-										: 0)),
+										: 0),
 						y: WRITE_ASSET_Y_OFFSET
 					},
 					selectable: false
@@ -157,7 +155,7 @@
 					parentId: node.id,
 					width: ASSETS_OVERFLOWED_NODE_WIDTH,
 					position: {
-						x: (node.data.offset ?? 0) + MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
+						x: MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
 						y: READ_ASSET_Y_OFFSET
 					}
 				} satisfies Node & AssetsOverflowedN)
@@ -176,7 +174,7 @@
 					parentId: node.id,
 					width: ASSETS_OVERFLOWED_NODE_WIDTH,
 					position: {
-						x: (node.data.offset ?? 0) + MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
+						x: MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
 						y: WRITE_ASSET_Y_OFFSET
 					}
 				} satisfies Node & AssetsOverflowedN)
@@ -235,7 +233,7 @@
 	import type { Edge, Node } from '@xyflow/svelte'
 
 	import { getNodeColorClasses, NODE } from '../../util'
-	import { globalDbManagerDrawer, userStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import { deepEqual } from 'fast-equals'
 	import { slide } from 'svelte/transition'
 	import AssetColumnBadges from '$lib/components/assets/AssetColumnBadges.svelte'
@@ -303,7 +301,9 @@
 				{#if data.asset.kind === 'resource' && cachedResourceMetadata === undefined}
 					<Tooltip class={'pr-1 flex items-center justify-center'}>
 						<AlertTriangle size={16} class="text-orange-500" />
-						<svelte:fragment slot="text">Could not find resource</svelte:fragment>
+						{#snippet text()}
+												Could not find resource
+											{/snippet}
 					</Tooltip>
 				{:else if isSelected && assetCanBeExplored(data.asset, cachedResourceMetadata) && !$userStore?.operator}
 					<div transition:slide={{ axis: 'x', duration: 100 }}>
@@ -313,34 +313,35 @@
 							noText
 							buttonVariant="accent"
 							s3FilePicker={flowGraphAssetsCtx?.val.s3FilePicker}
-							dbManagerDrawer={globalDbManagerDrawer.val}
 							_resourceMetadata={cachedResourceMetadata}
 						/>
 					</div>
 				{/if}
 			</div>
-			<svelte:fragment slot="text">
-				{#if usageCount !== undefined}
-					Used in {pluralize(usageCount, 'step')}<br />
-				{/if}
-				<a
-					href={undefined}
-					class={twMerge(
-						'text-xs',
-						data.asset.kind === 'resource' ? 'text-accent cursor-pointer' : 'text-hint'
-					)}
-					onclick={() => {
-						if (data.asset.kind === 'resource')
-							flowGraphAssetsCtx?.val.resourceEditorDrawer?.initEdit(data.asset.path)
-					}}
-				>
-					{data.asset.path}
-				</a><br />
-				<span class="text-hint text-xs">
-					{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
-				>
-				<AssetColumnBadges columns={assetColumns} disableTooltip />
-			</svelte:fragment>
+			{#snippet text()}
+					
+					{#if usageCount !== undefined}
+						Used in {pluralize(usageCount, 'step')}<br />
+					{/if}
+					<a
+						href={undefined}
+						class={twMerge(
+							'text-xs',
+							data.asset.kind === 'resource' ? 'text-accent cursor-pointer' : 'text-hint'
+						)}
+						onclick={() => {
+							if (data.asset.kind === 'resource')
+								flowGraphAssetsCtx?.val.resourceEditorDrawer?.initEdit(data.asset.path)
+						}}
+					>
+						{data.asset.path}
+					</a><br />
+					<span class="text-hint text-xs">
+						{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
+					>
+					<AssetColumnBadges columns={assetColumns} disableTooltip />
+				
+					{/snippet}
 		</Tooltip>
 	{/snippet}
 </NodeWrapper>

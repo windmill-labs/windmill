@@ -47,7 +47,7 @@ use windmill_common::runtime_assets::{register_runtime_asset, InsertRuntimeAsset
 use windmill_common::scripts::ScriptRunnableSettingsInline;
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
-use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
+use windmill_common::worker::{Connection, CLOUD_HOSTED, WINDMILL_DIR};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
 };
@@ -448,14 +448,15 @@ async fn get_flow_env_by_flow_job_id(
     Path((w_id, flow_job_id, var_name)): Path<(String, Uuid, String)>,
     Query(JsonPath { json_path, .. }): Query<JsonPath>,
 ) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
-    let flow_env = sqlx::query_scalar!(
+    // Fetch raw value (without json_path) to check for $var:/$res: references
+    let raw_value = sqlx::query_scalar!(
             r#"
                 SELECT
                     CASE
                         WHEN flow_version.id IS NOT NULL THEN
-                            (flow_version.value -> 'flow_env' -> $3) #> $4
+                            flow_version.value -> 'flow_env' -> $3
                         ELSE
-                            (root_job.raw_flow -> 'flow_env' -> $3) #> $4
+                            root_job.raw_flow -> 'flow_env' -> $3
                     END AS "flow_env: sqlx::types::Json<Box<RawValue>>"
                 FROM
                     v2_job current_job
@@ -472,16 +473,86 @@ async fn get_flow_env_by_flow_job_id(
             flow_job_id,
             w_id,
             var_name,
-            json_path
-                .as_ref()
-                .map(|x| x.split(".").collect::<Vec<_>>())
-                .unwrap_or_default() as Vec<&str>,
         )
         .fetch_optional(&db)
         .await?
-        .map(|r| r.map(|x| x.0))
-        .flatten()
-        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+        .and_then(|r| r.map(|x| x.0));
+
+    // Resolve $var:/$res: references if present
+    let resolved = if let Some(raw) = raw_value {
+        let raw_str = raw.get();
+        let db_authed = windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(
+            &authed,
+            db.clone(),
+            None,
+        );
+        if let Some(path) = raw_str
+            .strip_prefix("\"$var:")
+            .and_then(|s| s.strip_suffix("\""))
+        {
+            match windmill_store::variables::get_value_internal(&db_authed, &w_id, path, false)
+                .await
+            {
+                Ok(val) => to_raw_value(&serde_json::Value::String(val)),
+                Err(e) => {
+                    tracing::warn!("Failed to resolve flow_env variable $var:{path}: {e}");
+                    raw
+                }
+            }
+        } else if let Some(path) = raw_str
+            .strip_prefix("\"$res:")
+            .and_then(|s| s.strip_suffix("\""))
+        {
+            match windmill_store::resources::get_resource_value_interpolated_internal(
+                &db_authed,
+                &w_id,
+                path,
+                Some(flow_job_id),
+                Some(&tokened.token),
+                false,
+            )
+            .await
+            {
+                Ok(Some(val)) => to_raw_value(&val),
+                Ok(None) => {
+                    tracing::warn!(
+                        "Failed to resolve flow_env resource $res:{path}: resource not found"
+                    );
+                    raw
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to resolve flow_env resource $res:{path}: {e}");
+                    raw
+                }
+            }
+        } else {
+            raw
+        }
+    } else {
+        to_raw_value(&serde_json::Value::Null)
+    };
+
+    // Apply json_path navigation on the (possibly resolved) value
+    let flow_env = if let Some(ref jp) = json_path {
+        let mut value: serde_json::Value =
+            serde_json::from_str(resolved.get()).unwrap_or(serde_json::Value::Null);
+        for part in jp.split('.') {
+            value = match value {
+                serde_json::Value::Object(ref mut map) => {
+                    map.remove(part).unwrap_or(serde_json::Value::Null)
+                }
+                serde_json::Value::Array(ref arr) => part
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|i| arr.get(i).cloned())
+                    .unwrap_or(serde_json::Value::Null),
+                _ => serde_json::Value::Null,
+            };
+        }
+        to_raw_value(&value)
+    } else {
+        resolved
+    };
 
     log_job_view(
         &db,
@@ -1412,7 +1483,7 @@ async fn get_logs_from_disk(
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
             for file_p in &file_index {
-                if !tokio::fs::metadata(format!("{TMP_DIR}/{file_p}"))
+                if !tokio::fs::metadata(format!("{}/{file_p}", *WINDMILL_DIR))
                     .await
                     .is_ok()
                 {
@@ -1427,7 +1498,7 @@ async fn get_logs_from_disk(
             "#.to_string(),
                 ));
                 for file_p in file_index.clone() {
-                    let mut file = tokio::fs::File::open(format!("{TMP_DIR}/{file_p}")).await.map_err(to_anyhow)?;
+                    let mut file = tokio::fs::File::open(format!("{}/{file_p}", *WINDMILL_DIR)).await.map_err(to_anyhow)?;
                     let mut buffer = Vec::new();
                     file.read_to_end(&mut buffer).await.map_err(to_anyhow)?;
                     yield Ok(bytes::Bytes::from(buffer)) as anyhow::Result<bytes::Bytes>;
@@ -2184,12 +2255,13 @@ async fn resume_suspended_job_internal(
     let value = value.unwrap_or(serde_json::Value::Null);
     verify_suspended_secret(&w_id, &db, job_id, resume_id, &approver, secret).await?;
 
-    // Get flow info - works for both step-level (job_id is a step) and flow-level (job_id is the flow)
-    let (flow_info, is_flow_level) = get_flow_info_for_resume(job_id, &db).await?;
+    // Get flow info - works for step-level, flow-level, and WAC approval
+    let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &db).await?;
 
     // For step-level resumes, verify user auth and flow status
     // For flow-level resumes (pre-approvals), the flow might not be at a suspended step yet
-    if !is_flow_level {
+    // For WAC approvals, skip flow status checks (there is no flow)
+    if !is_flow_level && !is_wac {
         let parent_flow = GetQuery::new()
             .without_logs()
             .without_code()
@@ -2251,6 +2323,16 @@ async fn resume_suspended_job_internal(
         )
         .execute(&mut *tx)
         .await?;
+    } else if is_wac {
+        // WAC approval: decrement suspend counter directly on the WAC parent job
+        if flow_info.suspend > 0 {
+            sqlx::query!(
+                "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1",
+                flow_info.id,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
     } else if is_flow_level {
         // For flow-level resumes, decrement the suspend counter if the flow is currently suspended
         // The approval will be matched when the worker checks for resumes (both step-level and flow-level)
@@ -2408,10 +2490,15 @@ struct FlowInfo {
     email: Option<String>,
 }
 
-/// Get flow info from either a step job (by looking up its parent) or a flow job directly.
-/// Returns (FlowInfo, is_flow_level) where is_flow_level indicates if job_id was a flow job.
-async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowInfo, bool)> {
-    // Single query that determines if job_id is a flow or step, and fetches the appropriate flow info
+/// Get flow info from either a step job (by looking up its parent), a flow job directly,
+/// or a WAC workflow job (self-suspended for approval).
+/// Returns (FlowInfo, is_flow_level, is_wac) where:
+/// - is_flow_level: job_id was a flow job (pre-approval)
+/// - is_wac: job_id is a WAC workflow suspended for approval (target is itself)
+async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowInfo, bool, bool)> {
+    // Single query that determines if job_id is a flow, step, or WAC job,
+    // and fetches the appropriate suspended job info.
+    // For WAC jobs (no parent, not a flow), the job itself is the suspended target.
     let result = sqlx::query!(
         r#"
         WITH job_info AS (
@@ -2425,14 +2512,15 @@ async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowI
             q.suspend AS "suspend!",
             j.runnable_path AS script_path,
             j.permissioned_as_email AS email,
-            (ji.kind IN ('flow', 'flowpreview')) AS "is_flow_level!"
+            (ji.kind IN ('flow', 'flowpreview')) AS "is_flow_level!",
+            (ji.kind NOT IN ('flow', 'flowpreview') AND q.id = ji.id) AS "is_wac!"
         FROM job_info ji
         JOIN v2_job_queue q ON q.id = CASE
             WHEN ji.kind IN ('flow', 'flowpreview') THEN ji.id
-            ELSE ji.parent_job
+            ELSE COALESCE(ji.parent_job, ji.id)
         END
         JOIN v2_job j ON j.id = q.id
-        JOIN v2_job_status s ON s.id = q.id
+        LEFT JOIN v2_job_status s ON s.id = q.id
         FOR UPDATE OF q
         "#,
         job_id,
@@ -2449,7 +2537,7 @@ async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowI
         email: Some(result.email),
     };
 
-    Ok((flow_info, result.is_flow_level))
+    Ok((flow_info, result.is_flow_level, result.is_wac))
 }
 
 async fn get_suspended_flow_info<'c>(
@@ -4745,7 +4833,7 @@ fn register_potential_assets_on_inline_execution(
     preview: &PreviewInline,
 ) {
     let assets = if preview.language == ScriptLang::DuckDb {
-        Some(windmill_parser_sql::parse_assets(&preview.content).map(|a| a.assets))
+        Some(windmill_parser_sql_asset::parse_assets(&preview.content).map(|a| a.assets))
     } else if preview.language == ScriptLang::Postgresql {
         let datatable = preview
             .args
@@ -4763,7 +4851,7 @@ fn register_potential_assets_on_inline_execution(
                 (None, None)
             };
             let content = content.as_deref().unwrap_or(&preview.content);
-            windmill_parser_sql::parse_wmill_sdk_sql_assets(
+            windmill_parser_sql_asset::parse_wmill_sdk_sql_assets(
                 AssetKind::DataTable,
                 datatable,
                 schema.as_deref(),
@@ -5888,7 +5976,7 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
         ));
     }
 
-    let local_file = format!("{TMP_DIR}/logs/{file_p}");
+    let local_file = format!("{}/logs/{file_p}", *WINDMILL_DIR);
     if tokio::fs::metadata(&local_file).await.is_ok() {
         let mut file = tokio::fs::File::open(local_file).await.map_err(to_anyhow)?;
         let mut buffer = Vec::new();
@@ -5934,10 +6022,10 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
     }
 
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-        return Err(error::Error::NotFound(format!(
-            "File not found on server logs volume /tmp/windmill/logs and no distributed logs s3 storage for {}",
-            file_p
-        )));
+    return Err(error::Error::NotFound(format!(
+        "File not found on server logs volume {}/logs and no distributed logs s3 storage for {}",
+        *WINDMILL_DIR, file_p
+    )));
 }
 
 async fn get_job_update(

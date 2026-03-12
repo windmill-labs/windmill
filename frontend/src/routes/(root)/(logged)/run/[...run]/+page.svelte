@@ -88,6 +88,7 @@
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
@@ -280,7 +281,12 @@
 	let redactSensitive = $state(false)
 
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
-		return x as Record<string, WorkflowStatus>
+		if (!x || typeof x !== 'object') return {}
+		const result: Record<string, WorkflowStatus> = {}
+		for (const [k, v] of Object.entries(x)) {
+			if (!k.startsWith('_')) result[k] = v as WorkflowStatus
+		}
+		return result
 	}
 
 	function forkPreview() {
@@ -608,7 +614,7 @@
 				>
 			{/if}
 			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && selectedJobStepIsTopLevel && job.id}
-					<FlowRestartButton
+				<FlowRestartButton
 					jobId={job.id}
 					{selectedJobStep}
 					{selectedJobStepType}
@@ -656,7 +662,7 @@
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
 					{/if}
-					{#if !showEditButton && !isRuleActive('DisableWorkspaceForking')}
+					{#if !showEditButton && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')}
 						<Button
 							href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '')}
 							unifiedSize="md"
@@ -774,15 +780,19 @@
 
 		{#if isNotFlow(job?.job_kind)}
 			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && (job?.job_kind == 'script' || isScriptPreview(job?.job_kind))}
-				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
+				<ExecutionDuration {job} bind:longRunning={currentJobIsLongRunning} />
 			{/if}
 			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
 				{#if job?.workflow_as_code_status && job.job_kind !== 'aiagent'}
-					<div class="mt-10"></div>
-					<WorkflowTimeline
-						flow_status={asWorkflowStatus(job.workflow_as_code_status)}
-						flowDone={job.type == 'CompletedJob'}
-					/>
+					<div class="mr-2 sm:mr-0 mt-12 mb-6">
+						<h3 class="text-xs font-semibold text-emphasis mb-1">Workflow Timeline</h3>
+						<div class="border rounded-md overflow-hidden">
+							<WorkflowTimeline
+								flow_status={asWorkflowStatus(job.workflow_as_code_status)}
+								flowDone={job.type == 'CompletedJob'}
+							/>
+						</div>
+					</div>
 				{/if}
 				{#if scriptProgress}
 					<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true} />
@@ -860,7 +870,7 @@
 								{/if}
 							{:else if viewTab == 'stats'}
 								<div class="w-full">
-									<MemoryFootprintViewer jobId={job.id} bind:jobUpdateLastFetch />
+									<MemoryFootprintViewer jobId={job.id} {jobUpdateLastFetch} />
 								</div>
 							{:else}
 								<div class="w-full p-4 text-secondary">Select a tab to view content</div>

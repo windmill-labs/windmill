@@ -12,7 +12,7 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '../Popover.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import SideBarNotification from './SideBarNotification.svelte'
 	import { conditionalMelt } from '$lib/utils'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
@@ -63,7 +63,7 @@
 	let dispatch = createEventDispatcher()
 
 	// Dynamic component based on whether href is provided
-	const Element = href ? 'a' : 'button'
+	const Element = untrack(() => href) ? 'a' : 'button'
 </script>
 
 {#if !disabled}

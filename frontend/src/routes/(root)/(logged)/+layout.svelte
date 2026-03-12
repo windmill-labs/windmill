@@ -11,13 +11,7 @@
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
-	import {
-		capitalize,
-		classNames,
-		getModifierKey,
-		parseDbInputFromAssetSyntax,
-		sendUserToast
-	} from '$lib/utils'
+	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
@@ -32,6 +26,7 @@
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
+		disableHubStore,
 		usedTriggerKinds,
 		devopsRole,
 		whitelabelNameStore,
@@ -43,7 +38,7 @@
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import FavoriteMenu, {
 		favoriteManager,
 		getFavoriteHref,
@@ -66,16 +61,16 @@
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
-	import { watchOnce } from 'runed'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
+	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
 
-	const remoteUrlParam = $page.url.searchParams.get('remote_url')
+	const remoteUrlParam = page.url.searchParams.get('remote_url')
 	if (remoteUrlParam) {
 		document.cookie = `remote_url=${remoteUrlParam}; path=/; secure; samesite=strict`
-		$page.url.searchParams.delete('remote_url')
+		page.url.searchParams.delete('remote_url')
 	}
 
 	let { children }: Props = $props()
@@ -92,32 +87,32 @@
 	const SIDEBAR_BG = '#F3F3F7'
 	const SIDEBAR_BG_DARK = '#1e232e'
 
-	if ($page.status == 404) {
+	if (page.status == 404) {
 		goto('/user/login')
 	}
 
 	function onQueryChangeUserSettings() {
-		if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
-			const mcpMode = $page.url.hash.includes('-mcp')
+		if (userSettings && page.url.hash.startsWith(USER_SETTINGS_HASH)) {
+			const mcpMode = page.url.hash.includes('-mcp')
 			userSettings.openDrawer(mcpMode)
 		}
 	}
 
 	function onQueryChangeAdminSettings() {
-		if (superadminSettings && $page.url.hash === SUPERADMIN_SETTINGS_HASH) {
+		if (superadminSettings && page.url.hash === SUPERADMIN_SETTINGS_HASH) {
 			superadminSettings.openDrawer()
 		}
 	}
 
 	function onQueryChange() {
-		let queryWorkspace = $page.url.searchParams.get('workspace')
+		let queryWorkspace = page.url.searchParams.get('workspace')
 		if (queryWorkspace) {
 			$workspaceStore = queryWorkspace
 		}
 
 		menuHidden =
-			$page.url.searchParams.get('nomenubar') === 'true' ||
-			$page.url.pathname.startsWith('/oauth/callback/')
+			page.url.searchParams.get('nomenubar') === 'true' ||
+			page.url.pathname.startsWith('/oauth/callback/')
 	}
 
 	async function updateUserStore(workspace: string | undefined) {
@@ -163,6 +158,7 @@
 		loadUsage()
 		syncTutorialsTodos()
 		loadHubBaseUrl()
+		loadDisableHub()
 		loadUsedTriggerKinds()
 	}
 
@@ -180,6 +176,11 @@
 			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
 			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
 			DEFAULT_HUB_BASE_URL
+	}
+
+	async function loadDisableHub() {
+		$disableHubStore =
+			((await SettingService.getGlobal({ key: 'disable_hub' })) as boolean) ?? false
 	}
 
 	async function loadFavorites() {
@@ -302,7 +303,7 @@
 		}
 	}
 
-	let devOnly = $derived($page.url.pathname.startsWith(base + '/scripts/dev'))
+	let devOnly = $derived(page.url.pathname.startsWith(base + '/scripts/dev'))
 
 	async function loadDefaultScripts(workspace: string, user: UserExt | undefined) {
 		if (!user?.operator) {
@@ -378,13 +379,13 @@
 	}
 
 	$effect(() => {
-		$page.url && userSettings != undefined && untrack(() => onQueryChangeUserSettings())
+		page.url && userSettings != undefined && untrack(() => onQueryChangeUserSettings())
 	})
 	$effect(() => {
-		$page.url && superadminSettings != undefined && untrack(() => onQueryChangeAdminSettings())
+		page.url && superadminSettings != undefined && untrack(() => onQueryChangeAdminSettings())
 	})
 	$effect(() => {
-		$page.url && untrack(() => onQueryChange())
+		page.url && untrack(() => onQueryChange())
 	})
 	$effect(() => {
 		$workspaceStore
@@ -439,24 +440,14 @@
 			untrack(() => loadProtectionRules(workspace))
 		}
 	})
-	watchOnce(
-		() => globalDbManagerDrawer.val,
-		() => {
-			if (!globalDbManagerDrawer.val) return
-			const hash = window.location.hash
-			if (hash.startsWith('#dbmanager:')) {
-				const [_, path] = hash.split('#dbmanager:')
-				const dbInput = parseDbInputFromAssetSyntax(path)
-				if (dbInput) globalDbManagerDrawer.val?.openDrawer(dbInput)
-			}
-		}
-	)
+
+	globalDbManagerDrawer.val = useDbManagerUriState()
 </script>
 
 <svelte:window bind:innerWidth />
 
 <UserSettings bind:this={userSettings} showMcpMode={true} />
-{#if $page.status == 404}
+{#if page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}
 	<GlobalSearchModal bind:this={globalSearchModal} />
@@ -786,6 +777,6 @@
 	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
 {/if}
 
-{#if $workspaceStore}
-	<DBManagerDrawer bind:this={globalDbManagerDrawer.val} />
+{#if $workspaceStore && globalDbManagerDrawer.val}
+	<DBManagerDrawer uriState={globalDbManagerDrawer.val} />
 {/if}

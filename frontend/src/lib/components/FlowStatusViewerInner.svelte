@@ -181,7 +181,7 @@
 
 	let resultStreams: Record<string, string | undefined> = $state({})
 
-	if (onResultStreamUpdate == undefined) {
+	if (untrack(() => onResultStreamUpdate) == undefined) {
 		onResultStreamUpdate = ({
 			jobId,
 			result_stream
@@ -234,7 +234,7 @@
 	})
 
 	let jobResults: any[] = $state(
-		flowJobIds?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
+		untrack(() => flowJobIds)?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
 	)
 
 	let retry_selected = $state('')
@@ -805,7 +805,7 @@
 
 	let destroyed = false
 
-	updateRecursiveRefresh(jobId)
+	updateRecursiveRefresh(untrack(() => jobId))
 
 	async function updateJobId() {
 		if (jobId !== job?.id || innerModules == undefined) {

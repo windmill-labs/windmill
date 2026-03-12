@@ -3,7 +3,7 @@
 	import ToggleHubWorkspace from '$lib/components/ToggleHubWorkspace.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
 	import PickHubScript from '../pickers/PickHubScript.svelte'
 	import WorkspaceScriptPicker from '../pickers/WorkspaceScriptPicker.svelte'
@@ -38,7 +38,7 @@
 
 	const dispatch = createEventDispatcher()
 	let kind: 'script' | 'failure' | 'approval' | 'trigger' = $state(
-		failureModule
+		untrack(() => failureModule)
 			? 'failure'
 			: summary == 'Trigger'
 				? 'trigger'
@@ -287,6 +287,24 @@
 				{/if}
 			{/each}
 		</div>
+
+		{#if !failureModule && !preprocessorModule}
+			<h3 class="pb-2 pt-4">AI Sandbox</h3>
+			<div class="flex flex-row flex-wrap gap-2">
+				<FlowScriptPicker
+					label="Claude Code"
+					lang="claudesandbox"
+					on:click={() => {
+						dispatch('new', {
+							language: 'bun',
+							kind,
+							subkind: 'claudesandbox',
+							summary
+						})
+					}}
+				/>
+			</div>
+		{/if}
 
 		<h3 class="mb-2 mt-6"
 			>Use pre-made <span class="text-blue-500 dark:text-blue-400"

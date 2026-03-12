@@ -5,11 +5,21 @@
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher } from 'svelte'
 
-	export let label: string
-	export let lang: SupportedLanguage | 'docker' | 'javascript' | undefined = undefined
-	export let selected = false
-	export let eeRestricted: boolean
-	export let enterpriseLangs: string[] = []
+	interface Props {
+		label: string
+		lang?: SupportedLanguage | 'docker' | 'javascript' | 'claudesandbox' | undefined
+		selected?: boolean
+		eeRestricted: boolean
+		enterpriseLangs?: string[]
+	}
+
+	let {
+		label,
+		lang = undefined,
+		selected = false,
+		eeRestricted,
+		enterpriseLangs = []
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 	function handleKeydown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
@@ -30,7 +40,7 @@
 	}
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
 <Button
 	id={`flow-editor-new-${lang}`}
@@ -46,6 +56,9 @@
 	{/if}
 	<span class="grow truncate text-left {eeRestricted ? 'text-disabled' : ''}">
 		{label}{#if eeRestricted}&nbsp;(EE){/if}
+		{#if lang === 'claudesandbox'}
+			<span class="text-primary !text-xs">(new)</span>
+		{/if}
 	</span>
 	{#if selected}
 		<kbd class="!text-xs">&crarr;</kbd>

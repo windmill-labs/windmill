@@ -41,7 +41,7 @@
 			selected = value
 			onTabClick?.(value)
 		},
-		hashNavigation
+		hashNavigation: untrack(() => hashNavigation)
 	})
 
 	function updateSelected() {

@@ -393,7 +393,7 @@ async fn list_users_as_super_admin(
     let rows = if active_only.is_some_and(|x| x) {
         sqlx::query_as!(
             GlobalUserInfo,
-            "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
+            "WITH active_users AS (SELECT distinct username as email FROM (SELECT username, timestamp, operation FROM audit_partitioned UNION ALL SELECT username, timestamp, operation FROM audit) AS a WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
             SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username, first_time_user
             FROM password
@@ -1877,6 +1877,14 @@ async fn impersonate(
     )
     .execute(&mut *tx)
     .await?;
+
+    windmill_api_auth::register_token_expiry_notification(
+        &mut *tx,
+        &token,
+        new_token.label.as_deref(),
+        new_token.expiration,
+    )
+    .await;
 
     audit_log(
         &mut *tx,

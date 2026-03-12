@@ -5,7 +5,7 @@
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
@@ -32,7 +32,7 @@
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
@@ -42,7 +42,7 @@
 	let result: undefined = $state(undefined)
 
 	const resolvedConfig = $state(
-		initConfig(components['chartjscomponent'].initialData.configuration, configuration)
+		initConfig(components['chartjscomponent'].initialData.configuration, untrack(() => configuration))
 	)
 	let options = $derived({
 		responsive: true,
@@ -51,7 +51,7 @@
 		...(resolvedConfig.options ?? {})
 	} as ChartOptions)
 
-	let css = $state(initCss($app.css?.chartjscomponent, customCss))
+	let css = $state(initCss($app.css?.chartjscomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(components['chartjscomponent'].initialData.configuration) as key (key)}

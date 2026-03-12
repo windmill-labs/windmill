@@ -78,6 +78,8 @@ pub enum Error {
     AIError(String),
     #[error("{0}")]
     AlreadyCompleted(String),
+    #[error("WAC job suspended: {0}")]
+    WacSuspended(String),
     #[error("Find python error: {0}")]
     FindPythonError(String),
     #[error("Problem with arguments: {0}")]
@@ -108,6 +110,7 @@ impl Error {
             Self::JsonErr(_) => "JsonErr",
             Self::AIError(_) => "AIError",
             Self::AlreadyCompleted(_) => "AlreadyCompleted",
+            Self::WacSuspended(_) => "WacSuspended",
             Self::FindPythonError(_) => "FindPythonError",
             Self::ArgumentErr(_) => "ArgumentErr",
             Self::Generic(_, _) => "Generic",

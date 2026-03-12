@@ -10,8 +10,8 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = []
-enterprise = []
+private = ["windmill-api/private"]
+enterprise = ["windmill-api/enterprise"]
 python = ["windmill-common/python"]
 deno_core = ["dep:windmill-runtime-nativets"]
 agent_worker_server = ["dep:windmill-api-agent-workers"]

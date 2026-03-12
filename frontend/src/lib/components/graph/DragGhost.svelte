@@ -18,10 +18,6 @@
 	/** Offset so the cursor indicator icon doesn't overlap the cursor tip */
 	const CURSOR_INDICATOR_OFFSET = 8
 
-	function nodeOffset(n: Node): number {
-		return ((n.data as Record<string, unknown>)?.offset as number) ?? 0
-	}
-
 	function getSubflowNodesAndEdges(
 		moduleId: string,
 		allNodes: Node[],
@@ -46,8 +42,19 @@
 		return { x: n.position.x, y: n.position.y }
 	}
 
-	function computeGhost(moduleId: string, allNodes: Node[], allEdges: Edge[]) {
-		const { sfNodes, sfEdges } = getSubflowNodesAndEdges(moduleId, allNodes, allEdges)
+	function computeGhost(moduleId: string, draggedNodeIds: Set<string>, allNodes: Node[], allEdges: Edge[]) {
+		// Use pre-computed draggedNodeIds when available (covers multi-select),
+		// otherwise fall back to single-module subflow computation.
+		let sfNodes: Node[]
+		let sfEdges: Edge[]
+		if (draggedNodeIds.size > 0) {
+			sfNodes = allNodes.filter((n) => draggedNodeIds.has(n.id))
+			sfEdges = allEdges.filter((e) => draggedNodeIds.has(e.source) && draggedNodeIds.has(e.target))
+		} else {
+			const result = getSubflowNodesAndEdges(moduleId, allNodes, allEdges)
+			sfNodes = result.sfNodes
+			sfEdges = result.sfEdges
+		}
 		if (sfNodes.length === 0) return undefined
 
 		// Compute bounding box using absolute positions
@@ -57,7 +64,7 @@
 			maxY = -Infinity
 		for (const n of sfNodes) {
 			const abs = absolutePosition(n, allNodes)
-			const x = abs.x + nodeOffset(n)
+			const x = abs.x
 			const y = abs.y
 			const w = n.measured?.width ?? NODE.width
 			const h = n.measured?.height ?? NODE.height
@@ -79,7 +86,7 @@
 		let offsetY = containerHeight / 2
 		if (mainNode) {
 			const mainAbs = absolutePosition(mainNode, allNodes)
-			const mx = mainAbs.x + nodeOffset(mainNode) - minX + PADDING
+			const mx = mainAbs.x - minX + PADDING
 			const my = mainAbs.y - minY + PADDING
 			const mw = mainNode.measured?.width ?? NODE.width
 			const mh = mainNode.measured?.height ?? NODE.height
@@ -112,8 +119,7 @@
 	let ghost = $derived.by(() => {
 		const moduleId = moveManager.dragging?.moduleId
 		if (!moduleId) return undefined
-		// Compute ghost once at drag start — don't react to node/edge changes during drag
-		return untrack(() => computeGhost(moduleId, nodes, edges))
+		return untrack(() => computeGhost(moduleId, moveManager.draggedNodeIds, nodes, edges))
 	})
 </script>
 

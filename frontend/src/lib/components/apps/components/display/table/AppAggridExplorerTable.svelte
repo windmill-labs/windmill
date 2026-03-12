@@ -4,7 +4,12 @@
 	import { type GridApi, createGrid, type IDatasource } from 'ag-grid-community'
 	import { sendUserToast } from '$lib/utils'
 	import { createEventDispatcher, getContext, mount, unmount, untrack } from 'svelte'
-	import type { AppViewerContext, ComponentCustomCSS, ContextPanelContext } from '../../../types'
+	import {
+		type AppEditorContext,
+		type AppViewerContext,
+		type ComponentCustomCSS,
+		type ContextPanelContext
+	} from '../../../types'
 
 	import type { TableAction, components } from '$lib/components/apps/editor/component'
 	import { deepEqual } from 'fast-equals'
@@ -62,9 +67,15 @@
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const contextPanel = getContext<ContextPanelContext>('ContextPanel')
+	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 	const { app, selectedComponent, componentControl, darkMode, mode } = context
 
-	let css = $state(initCss($app.css?.aggridcomponent, customCss))
+	let css = $state(
+		initCss(
+			$app.css?.aggridcomponent,
+			untrack(() => customCss)
+		)
+	)
 
 	let selectedRowIndex = -1
 
@@ -151,7 +162,8 @@
 
 		const componentContext = new Map<string, any>([
 			['AppViewerContext', context],
-			['ContextPanel', contextPanel]
+			['ContextPanel', contextPanel],
+			['AppEditorContext', editorContext]
 		])
 
 		const taComponent = withProps(AppAggridTableActions, {
@@ -402,9 +414,9 @@
 		}
 	}
 
-	let oldDatasource = $state(datasource)
+	let oldDatasource = $state(untrack(() => datasource))
 
-	let extraConfig = $state(resolvedConfig.extraConfig)
+	let extraConfig = $state(untrack(() => resolvedConfig).extraConfig)
 
 	export function clearRows() {
 		api?.purgeInfiniteCache()
@@ -503,6 +515,7 @@
 		bind:clientHeight
 		bind:clientWidth
 	>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			onpointerdown={stopPropagation(() => {
 				$selectedComponent = [id]

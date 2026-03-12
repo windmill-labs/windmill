@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.648.0
+  version: 1.654.0
   title: Windmill API
 
   contact:
@@ -12004,6 +12004,19 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/kafka_triggers/reset_offsets/{path}:
+    post:
+      summary: reset kafka trigger offsets to earliest
+      operationId: resetKafkaOffsets
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: kafka trigger offsets reset successfully
+
   /w/{workspace}/nats_triggers/create:
     post:
       summary: create nats trigger
@@ -15198,6 +15211,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       responses:
         "200":
@@ -15243,6 +15257,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       requestBody:
         description: acl to add
@@ -15299,6 +15314,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       requestBody:
         description: acl to add
@@ -16873,6 +16889,9 @@ paths:
                       lost_lock_ownership:
                         description: Is the current indexer service being replaced
                         type: boolean
+                      max_index_time_window_secs:
+                        description: Maximum time window in seconds for indexing
+                        type: number
 
   /srch/index/search/service_logs:
     get:
@@ -17282,7 +17301,90 @@ paths:
                     path:
                       type: string
                       description: The asset path
-                    
+
+
+  /w/{workspace}/volumes/list:
+    get:
+      summary: List all volumes in the workspace
+      operationId: listVolumes
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of volumes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Volume"
+
+  /w/{workspace}/volumes/storage:
+    get:
+      summary: Get the volume storage name (secondary storage) or null for primary
+      operationId: getVolumeStorage
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: volume storage name or null
+          content:
+            application/json:
+              schema:
+                type: string
+                nullable: true
+
+  /w/{workspace}/volumes/create:
+    post:
+      summary: Create a new volume
+      operationId: createVolume
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+      responses:
+        "200":
+          description: volume created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/volumes/delete/{name}:
+    delete:
+      summary: Delete a volume (admin only)
+      operationId: deleteVolume
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: volume deleted
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /mcp/w/{workspace}/list_tools:
     get:
@@ -18370,6 +18472,7 @@ components:
         - trigger
         - settings
         - key
+        - workspacedependencies
 
     AIProviderModel:
       type: object
@@ -18717,7 +18820,6 @@ components:
       required:
         - path
         - summary
-        - description
         - content
         - language
 
@@ -21972,7 +22074,7 @@ components:
           description: Path to the Kafka resource containing connection configuration
         group_id:
           type: string
-          description: Kafka consumer group ID for this trigger 
+          description: Kafka consumer group ID for this trigger
         topics:
           type: array
           items:
@@ -21989,6 +22091,13 @@ components:
             required:
               - key
               - value
+        auto_offset_reset:
+          type: string
+          enum:
+            - latest
+            - earliest
+          default: latest
+          description: "Initial offset behavior when consumer group has no committed offset. 'latest' starts from new messages only, 'earliest' starts from the beginning."
         server_id:
           type: string
           description: ID of the server currently handling this trigger (internal)
@@ -22049,6 +22158,13 @@ components:
             required:
               - key
               - value
+        auto_offset_reset:
+          type: string
+          enum:
+            - latest
+            - earliest
+          default: latest
+          description: "Initial offset behavior when consumer group has no committed offset."
         mode:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
@@ -22101,6 +22217,13 @@ components:
             required:
               - key
               - value
+        auto_offset_reset:
+          type: string
+          enum:
+            - latest
+            - earliest
+          default: latest
+          description: "Initial offset behavior when consumer group has no committed offset."
         path:
           type: string
           description: The unique path identifier for this trigger
@@ -23997,6 +24120,7 @@ components:
         - resource
         - ducklake
         - datatable
+        - volume
     Asset:
       type: object
       properties:
@@ -24005,6 +24129,38 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
+    Volume:
+      type: object
+      required:
+        - name
+        - size_bytes
+        - file_count
+        - created_at
+        - created_by
+      properties:
+        name:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        file_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        extra_perms:
+          type: object
+          additionalProperties: true
     ProtectionRuleset:
       type: object
       description: A workspace protection rule defining restrictions and bypass permissions

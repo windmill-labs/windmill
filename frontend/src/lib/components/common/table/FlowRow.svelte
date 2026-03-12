@@ -36,6 +36,7 @@
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
 		flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
@@ -138,7 +139,7 @@
 						</Button>
 					</div>
 				{/if}
-				{#if !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !flow.canWrite)}
+				{#if !isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !flow.canWrite)}
 					<div>
 						<Button
 							variant={!showEditButton ? 'default' : 'subtle'}
@@ -199,7 +200,7 @@
 						displayName: 'Edit in workspace fork',
 						icon: GitFork,
 						href: buildForkEditUrl('flow', path),
-						hide: $userStore?.operator || isRuleActive('DisableWorkspaceForking')
+						hide: $userStore?.operator || isCloudHosted() || isRuleActive('DisableWorkspaceForking')
 					},
 					{
 						displayName: 'Audit logs',

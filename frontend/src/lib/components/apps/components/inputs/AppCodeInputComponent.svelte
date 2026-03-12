@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { type AppViewerContext, type RichConfigurations } from '../../types'
 	import { components } from '../../editor/component'
@@ -21,7 +21,7 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = $state(
-		initConfig(components['codeinputcomponent'].initialData.configuration, configuration)
+		initConfig(components['codeinputcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	let code = $state<string | undefined>(undefined)
@@ -32,7 +32,7 @@
 
 	let lang = $derived(resolvedConfig?.lang ?? 'javascript')
 	let outputs = $state(
-		initOutput($worldStore, id, {
+		initOutput($worldStore, untrack(() => id), {
 			result: ''
 		})
 	)
@@ -48,8 +48,8 @@
 		}
 	})
 
-	$componentControl[id] = {
-		...$componentControl[id],
+	$componentControl[untrack(() => id)] = {
+		...$componentControl[untrack(() => id)],
 		setValue(value: string) {
 			code = value
 			editorInstance?.setCode(value)
@@ -71,6 +71,7 @@
 {/each}
 
 {#if render}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="h-full flex-col flex max-h-full overflow-scroll editor-wrapper rounded-md border border-gray-300 dark:border-gray-500 wm-code-editor"
 		onpointerdown={(e) => {

@@ -3,7 +3,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
 	import { bash } from 'svelte-highlight/languages'
-	// import { page } from '$app/stores'
+	// import { page } from '$app/state'
 	import { base } from '$lib/base'
 	import type { CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureSection from '../CaptureSection.svelte'

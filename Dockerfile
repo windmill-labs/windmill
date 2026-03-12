@@ -262,11 +262,17 @@ COPY --from=oven/bun:1.3.10 /usr/local/bin/bun /usr/bin/bun
 RUN bun install -g windmill-cli \
     && ln -s $(bun pm bin -g)/wmill /usr/bin/wmill
 
-COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
-COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
+# Install Claude Code CLI (used by claude sandbox scripts)
+# The installer puts the binary in ~/.local/bin/claude (symlink to ~/.local/share/claude/versions/*)
+# Copy it to /usr/bin/claude so it's accessible inside nsjail sandbox (which mounts /usr but not /root)
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+    && cp /root/.local/share/claude/versions/* /usr/bin/claude
+
+COPY --from=php:8.3.30-cli /usr/local/bin/php /usr/bin/php
+COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
 
 # add the docker client to call docker from a worker if enabled
-COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
+COPY --from=docker:29-dind /usr/local/bin/docker /usr/local/bin/
 
 ENV RUSTUP_HOME="/tmp/windmill/cache/rustup"
 ENV CARGO_HOME="/tmp/windmill/cache/cargo"
