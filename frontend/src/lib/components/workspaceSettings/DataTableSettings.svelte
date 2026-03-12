@@ -261,67 +261,68 @@
 						</div>
 					</div>
 				</Cell>
+
 				<Cell class="w-12">
-					<Popover contentClasses="p-4 w-64" enableFlyTransition disableFocusTrap>
-						{#snippet trigger()}
-							<Button variant="default" iconOnly size="sm" startIcon={{ icon: Settings }} />
-						{/snippet}
-						{#snippet content()}
-							<Label
-								label="Fork behavior"
-								tooltip="Determines what happens to this datatable when the workspace is forked."
-							>
-								<Select
-									items={[
-										{ value: 'schema_only', label: 'Fork schema only' },
-										{ value: 'schema_and_data', label: 'Fork schema and data' },
-										{ value: 'keep_original', label: 'Keep original datatable' }
-									]}
-									bind:value={
-										() => dataTable.fork_behavior ?? 'schema_only',
-										(v) => {
-											if (v === 'schema_and_data') {
-												confirmationModal
-													.ask({
-														title: 'Fork schema and data',
-														children:
-															'This will copy ALL data when the workspace is forked, which may take a long time and use significant storage space. Are you sure?',
-														confirmationText: 'Confirm'
-													})
-													.then((confirmed) => {
-														if (confirmed) dataTable.fork_behavior = v
-													})
-											} else {
-												dataTable.fork_behavior = v
-											}
-										}
-									}
-								/>
-							</Label>
-						{/snippet}
-					</Popover>
-				</Cell>
-				<Cell class="w-12">
-					{#if dirtyMap[dataTable.name]}
-						<Popover
-							openOnHover
-							contentClasses="p-2 text-sm text-secondary italic"
-							class="cursor-not-allowed"
-						>
+					<div class="flex gap-2">
+						<Popover contentClasses="p-4 w-64" enableFlyTransition disableFocusTrap>
 							{#snippet trigger()}
-								<ExploreAssetButton
-									class="h-9"
-									asset={{ kind: 'datatable', path: dataTable.name }}
-									disabled
-								/>
+								<Button variant="default" iconOnly size="sm" startIcon={{ icon: Settings }} />
 							{/snippet}
 							{#snippet content()}
-								Please save settings first
+								<Label
+									label="Fork behavior"
+									tooltip="Determines what happens to this datatable when the workspace is forked."
+								>
+									<Select
+										items={[
+											{ value: 'schema_only', label: 'Fork schema only' },
+											{ value: 'schema_and_data', label: 'Fork schema and data' },
+											{ value: 'keep_original', label: 'Keep original datatable' }
+										]}
+										bind:value={
+											() => dataTable.fork_behavior ?? 'schema_only',
+											(v) => {
+												if (v === 'schema_and_data') {
+													confirmationModal
+														.ask({
+															title: 'Fork schema and data',
+															children:
+																'This will copy ALL data when the workspace is forked, which may take a long time and use significant storage space. Are you sure?',
+															confirmationText: 'Confirm'
+														})
+														.then((confirmed) => {
+															if (confirmed) dataTable.fork_behavior = v
+														})
+												} else {
+													dataTable.fork_behavior = v
+												}
+											}
+										}
+									/>
+								</Label>
 							{/snippet}
 						</Popover>
-					{:else}
-						<ExploreAssetButton class="h-9" asset={{ kind: 'datatable', path: dataTable.name }} />
-					{/if}
+
+						{#if dirtyMap[dataTable.name]}
+							<Popover
+								openOnHover
+								contentClasses="p-2 text-sm text-secondary italic"
+								class="cursor-not-allowed"
+							>
+								{#snippet trigger()}
+									<ExploreAssetButton
+										asset={{ kind: 'datatable', path: dataTable.name }}
+										disabled
+									/>
+								{/snippet}
+								{#snippet content()}
+									Please save settings first
+								{/snippet}
+							</Popover>
+						{:else}
+							<ExploreAssetButton asset={{ kind: 'datatable', path: dataTable.name }} />
+						{/if}
+					</div>
 				</Cell>
 				<Cell class="w-12">
 					<CloseButton small on:close={() => removeDataTable(dataTableIndex)} />
