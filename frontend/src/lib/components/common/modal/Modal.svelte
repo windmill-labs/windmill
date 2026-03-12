@@ -9,6 +9,7 @@
 	import CloseButton from '../CloseButton.svelte'
 	import Disposable from '../drawer/Disposable.svelte'
 	import { zIndexes } from '$lib/zIndexes'
+	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 
 	interface Props {
 		title: string
@@ -38,6 +39,13 @@
 
 	let disposable: Disposable | undefined = $state(undefined)
 
+	// Only elevate above the AI chat panel when it's actually open —
+	// when chat is closed there's nothing at z-index 1200 to stack above.
+	const minZIndex = $derived(chatState.size > 0 ? zIndexes.aiChat + 1 : 0)
+
+	// Both `bind:open` and this $effect are needed: bind:open syncs the
+	// boolean, while the effect calls openDrawer/closeDrawer to register
+	// the disposable in the stacking system (same pattern as Drawer.svelte).
 	$effect(() => {
 		open
 		untrack(() => {
@@ -69,7 +77,7 @@
 
 <svelte:window onkeydowncapture={onKeyDown} />
 
-<Disposable bind:open bind:this={disposable} preventEscape minZIndex={zIndexes.aiChat + 1}>
+<Disposable bind:open bind:this={disposable} preventEscape {minZIndex}>
 	{#snippet children({ zIndex })}
 		{#if open}
 			<!-- svelte-ignore a11y_click_events_have_key_events -->

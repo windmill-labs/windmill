@@ -4,7 +4,12 @@
 	// When a disposable with minZIndex is open, all disposables use that as
 	// their z-index base so that overlays opened on top (e.g. a Drawer from
 	// inside a Modal) stack correctly above it.
-	let activeMinZIndex = $state(0)
+	// We track per-id entries so concurrent modals don't clobber each other
+	// (closing one must not reset the base while another is still open).
+	let minZIndexEntries: Map<string, number> = $state(new Map())
+	let activeMinZIndex = $derived(
+		minZIndexEntries.size > 0 ? Math.max(...minZIndexEntries.values()) : 0
+	)
 </script>
 
 <script lang="ts">
@@ -38,6 +43,9 @@
 	}: Props = $props()
 
 	let offset = $state(untrack(() => initialOffset))
+	// Note: when a Modal with minZIndex is open, all disposables (including
+	// already-open Drawers) are elevated. This is acceptable — relative
+	// stacking order is preserved by the per-instance offset.
 	let zIndex = $derived(Math.max(zIndexes.disposables, activeMinZIndex) + offset)
 
 	export function toggleDrawer() {
@@ -56,7 +64,7 @@
 		openedDrawers.val.push(id)
 		offset = initialOffset + openedDrawers.val.length
 		if (minZIndex > 0) {
-			activeMinZIndex = minZIndex
+			minZIndexEntries.set(id, minZIndex)
 		}
 	}
 
@@ -66,7 +74,7 @@
 		if (openedDrawers.val.includes(id)) {
 			openedDrawers.val = openedDrawers.val.filter((drawer) => drawer !== id)
 			if (minZIndex > 0) {
-				activeMinZIndex = 0
+				minZIndexEntries.delete(id)
 			}
 		}
 	}
@@ -107,7 +115,7 @@
 		openedDrawers.val.push(untrack(() => id))
 		offset = untrack(() => initialOffset) + openedDrawers.val.length
 		if (minZIndex > 0) {
-			activeMinZIndex = minZIndex
+			minZIndexEntries.set(untrack(() => id), minZIndex)
 		}
 	}
 
