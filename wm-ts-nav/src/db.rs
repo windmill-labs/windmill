@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use crate::parser::Symbol;
+use crate::parser::{IdentRef, Symbol};
 
 pub struct Db {
     conn: Connection,
@@ -35,17 +35,45 @@ impl Db {
                  signature TEXT,
                  parent TEXT
              );
+             CREATE TABLE IF NOT EXISTS refs (
+                 file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                 name TEXT NOT NULL,
+                 line INTEGER NOT NULL,
+                 import_path TEXT
+             );
              CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
              CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_id);
              CREATE INDEX IF NOT EXISTS idx_symbols_kind ON symbols(kind);
-             CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);",
+             CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);
+             CREATE INDEX IF NOT EXISTS idx_refs_name ON refs(name);
+             CREATE INDEX IF NOT EXISTS idx_refs_file ON refs(file_id);",
         )?;
 
         Ok(Self { conn })
     }
 
-    pub fn upsert_file(&self, path: &str, mtime_secs: i64, symbols: &[Symbol]) -> Result<()> {
+    pub fn begin(&self) -> Result<()> {
+        self.conn.execute_batch("BEGIN")?;
+        Ok(())
+    }
+
+    pub fn commit(&self) -> Result<()> {
+        self.conn.execute_batch("COMMIT")?;
+        Ok(())
+    }
+
+    pub fn upsert_file(
+        &self,
+        path: &str,
+        mtime_secs: i64,
+        symbols: &[Symbol],
+        refs: &[IdentRef],
+    ) -> Result<()> {
         // Delete old entry if exists
+        self.conn.execute(
+            "DELETE FROM refs WHERE file_id IN (SELECT id FROM files WHERE path = ?1)",
+            params![path],
+        )?;
         self.conn.execute(
             "DELETE FROM symbols WHERE file_id IN (SELECT id FROM files WHERE path = ?1)",
             params![path],
@@ -75,10 +103,23 @@ impl Db {
                 sym.parent,
             ])?;
         }
+
+        // Insert refs
+        let mut ref_stmt = self.conn.prepare_cached(
+            "INSERT INTO refs (file_id, name, line, import_path) VALUES (?1, ?2, ?3, ?4)",
+        )?;
+        for r in refs {
+            ref_stmt.execute(params![file_id, r.name, r.line, r.import_path])?;
+        }
+
         Ok(())
     }
 
     pub fn remove_file(&self, path: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM refs WHERE file_id IN (SELECT id FROM files WHERE path = ?1)",
+            params![path],
+        )?;
         self.conn.execute(
             "DELETE FROM symbols WHERE file_id IN (SELECT id FROM files WHERE path = ?1)",
             params![path],
@@ -165,6 +206,33 @@ impl Db {
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
     }
+
+    pub fn find_refs(&self, name: &str, limit: usize) -> Result<Vec<RefResult>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path, r.line, r.import_path
+             FROM refs r JOIN files f ON r.file_id = f.id
+             WHERE r.name = ?1
+             ORDER BY f.path, r.line
+             LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![name, limit as i64], |row| {
+                Ok(RefResult {
+                    path: row.get(0)?,
+                    line: row.get(1)?,
+                    import_path: row.get(2)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct RefResult {
+    pub path: String,
+    pub line: i64,
+    pub import_path: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize)]

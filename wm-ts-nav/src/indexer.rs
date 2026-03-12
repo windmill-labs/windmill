@@ -38,12 +38,14 @@ pub fn update_index(db: &Db, root: &Path) -> Result<IndexStats> {
     let existing = db.all_indexed_paths()?;
     // Remove files no longer on disk
     let mut files_removed = 0;
+    db.begin()?;
     for (path, _) in &existing {
         if !disk_paths.contains(path) {
             db.remove_file(path)?;
             files_removed += 1;
         }
     }
+    db.commit()?;
 
     // Figure out which files need re-parsing
     let existing_map: std::collections::HashMap<&str, i64> = existing
@@ -73,7 +75,7 @@ pub fn update_index(db: &Db, root: &Path) -> Result<IndexStats> {
         .filter_map(|path| {
             let mtime = db::mtime_secs(path).ok()?;
             match parser::parse_file(path) {
-                Ok(symbols) => Some((path.to_string_lossy().to_string(), mtime, symbols)),
+                Ok(result) => Some((path.to_string_lossy().to_string(), mtime, result)),
                 Err(e) => {
                     eprintln!("warning: failed to parse {}: {e}", path.display());
                     None
@@ -84,10 +86,12 @@ pub fn update_index(db: &Db, root: &Path) -> Result<IndexStats> {
 
     let files_updated = results.len();
 
-    // Write to db (single-threaded, SQLite doesn't like concurrent writes)
-    for (path, mtime, symbols) in &results {
-        db.upsert_file(path, *mtime, symbols)?;
+    // Write to db in a single transaction
+    db.begin()?;
+    for (path, mtime, result) in &results {
+        db.upsert_file(path, *mtime, &result.symbols, &result.refs)?;
     }
+    db.commit()?;
 
     Ok(IndexStats {
         files_scanned: files.len(),

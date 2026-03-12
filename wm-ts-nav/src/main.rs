@@ -1,7 +1,6 @@
 mod db;
 mod indexer;
 mod parser;
-mod refs;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -150,13 +149,18 @@ fn main() -> Result<()> {
             }
         }
         Command::Refs { name, limit } => {
-            let results = refs::find_refs(&root, &name, limit)?;
+            let results = db.find_refs(&name, limit)?;
             if results.is_empty() {
                 println!("No references found for '{name}'");
                 return Ok(());
             }
             for r in &results {
-                println!("{}:{}  {}", r.path, r.line, r.context);
+                let origin = r
+                    .import_path
+                    .as_deref()
+                    .map(|p| format!("  ({p})"))
+                    .unwrap_or_default();
+                println!("{}:{}{}", r.path, r.line, origin);
             }
         }
     }
