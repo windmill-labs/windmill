@@ -8,7 +8,6 @@
 	import {
 		ArrowLeft,
 		Copy,
-		Database,
 		Download,
 		Expand,
 		LoaderCircle,
@@ -198,7 +197,7 @@
 				<DropdownV2
 					items={[
 						{
-							displayName: 'Export schema',
+							displayName: 'Export schemas',
 							icon: Download,
 							action: () => handleExportSchema()
 						},
@@ -210,18 +209,7 @@
 							}
 						}
 					]}
-				>
-					{#snippet buttonReplacement()}
-						<Button
-							loading={exportLoading}
-							startIcon={{ icon: Database }}
-							size="xs"
-							color="light"
-						>
-							Actions
-						</Button>
-					{/snippet}
-				</DropdownV2>
+				/>
 			{/if}
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
@@ -247,23 +235,25 @@
 </Drawer>
 
 <Drawer bind:open={exportDrawerOpen} size="800px" offset={offset + 1}>
-	<DrawerContent title="Export Schema" on:close={() => (exportDrawerOpen = false)}>
+	<DrawerContent title="Export Schemas" on:close={() => (exportDrawerOpen = false)}>
 		{#if exportResult}
-			<div class="flex flex-col gap-2 h-full">
-				<div class="flex justify-end">
-					<Button
-						size="xs"
-						color="light"
-						startIcon={{ icon: Copy }}
-						on:click={() => {
-							navigator.clipboard.writeText(exportResult)
-							sendUserToast('Copied to clipboard')
-						}}
-					>
-						Copy
-					</Button>
-				</div>
-				<pre class="overflow-auto text-xs bg-surface-secondary p-4 rounded flex-1">{exportResult}</pre>
+			<div class="flex flex-col gap-2 h-full relative">
+				<pre class="overflow-auto text-xs bg-surface-secondary p-4 rounded flex-1">
+					{exportResult}
+				</pre>
+				<Button
+					size="xs"
+					color="light"
+					startIcon={{ icon: Copy }}
+					wrapperClasses="absolute top-2 right-2"
+					btnClasses="bg-surface-tertiary"
+					on:click={() => {
+						navigator.clipboard.writeText(exportResult)
+						sendUserToast('Copied to clipboard')
+					}}
+				>
+					Copy
+				</Button>
 			</div>
 		{/if}
 	</DrawerContent>
@@ -273,16 +263,12 @@
 	<DrawerContent title="Import Database" on:close={() => (importDrawerOpen = false)}>
 		<div class="flex flex-col gap-4">
 			<Alert type="warning" title="Warning">
-				This will import the schema from the selected source into the current database. Existing
+				This will import the schemas from the selected source into the current database. Existing
 				tables with the same names may be affected.
 			</Alert>
 			<div class="flex flex-col gap-2">
 				<span class="text-sm font-medium">Source database</span>
-				<ResourcePicker
-					datatableAsPgResource
-					bind:value={importSource}
-					resourceType="postgresql"
-				/>
+				<ResourcePicker datatableAsPgResource bind:value={importSource} resourceType="postgresql" />
 			</div>
 			<Button
 				disabled={!importSource}
@@ -290,7 +276,7 @@
 				color="red"
 				on:click={handleImportDatabase}
 			>
-				Import schema into current database
+				Import schemas into current database
 			</Button>
 		</div>
 	</DrawerContent>
