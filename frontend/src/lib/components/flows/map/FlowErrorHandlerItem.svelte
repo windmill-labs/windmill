@@ -112,7 +112,7 @@
 				</button>
 			{/if}
 		</Button>
-		{#if compact}
+		{#if smallFailureModule}
 			<button
 				title="Delete failure script"
 				type="button"
