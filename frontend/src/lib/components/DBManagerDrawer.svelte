@@ -5,11 +5,25 @@
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Select from './select/Select.svelte'
-	import { ArrowLeft, Expand, LoaderCircle, Minimize, RefreshCcw } from 'lucide-svelte'
+	import {
+		ArrowLeft,
+		Copy,
+		Database,
+		Download,
+		Expand,
+		LoaderCircle,
+		Minimize,
+		RefreshCcw,
+		Upload
+	} from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
 	import { resource } from 'runed'
 	import { untrack } from 'svelte'
 	import type { DbManagerUriState } from './dbManagerDrawerModel.svelte'
+	import DropdownV2 from './DropdownV2.svelte'
+	import ResourcePicker from './ResourcePicker.svelte'
+	import Alert from './common/alert/Alert.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		uriState: DbManagerUriState
@@ -64,6 +78,67 @@
 	let dbManagerContent: DBManagerContent | undefined = $state()
 
 	let hasReplResult = $state(false)
+
+	// Export/Import state
+	let exportDrawerOpen = $state(false)
+	let exportLoading = $state(false)
+	let exportResult = $state('')
+	let importDrawerOpen = $state(false)
+	let importLoading = $state(false)
+	let importSource = $state<string | undefined>(undefined)
+
+	const isPostgresqlInput = $derived(
+		uriState.isDatatableInput ||
+			(uriState.input?.type === 'database' && uriState.input.resourceType === 'postgresql')
+	)
+
+	function currentSourceIdentifier(): string | undefined {
+		const input = uriState.effectiveInput
+		if (!input || input.type !== 'database') return undefined
+		return input.resourcePath
+	}
+
+	async function handleExportSchema() {
+		const source = currentSourceIdentifier()
+		if (!source || !$workspaceStore) return
+		exportLoading = true
+		try {
+			exportResult = await WorkspaceService.exportPgSchema({
+				workspace: $workspaceStore,
+				requestBody: { source }
+			})
+			exportDrawerOpen = true
+		} catch (e) {
+			sendUserToast(`Failed to export schema: ${e}`, true)
+		} finally {
+			exportLoading = false
+		}
+	}
+
+	async function handleImportDatabase() {
+		if (!importSource || !$workspaceStore) return
+		const target = currentSourceIdentifier()
+		if (!target) return
+		importLoading = true
+		try {
+			await WorkspaceService.forkPgDatabase({
+				workspace: $workspaceStore,
+				requestBody: {
+					source: importSource,
+					target,
+					fork_behavior: 'schema_only'
+				}
+			})
+			sendUserToast('Database import completed successfully')
+			importDrawerOpen = false
+			importSource = undefined
+			dbManagerContent?.refresh()
+		} catch (e) {
+			sendUserToast(`Failed to import database: ${e}`, true)
+		} finally {
+			importLoading = false
+		}
+	}
 </script>
 
 <svelte:window bind:innerWidth={windowWidth} />
@@ -119,6 +194,35 @@
 			{/key}
 		{/if}
 		{#snippet actions()}
+			{#if isPostgresqlInput}
+				<DropdownV2
+					items={[
+						{
+							displayName: 'Export schema',
+							icon: Download,
+							action: () => handleExportSchema()
+						},
+						{
+							displayName: 'Import database',
+							icon: Upload,
+							action: () => {
+								importDrawerOpen = true
+							}
+						}
+					]}
+				>
+					{#snippet buttonReplacement()}
+						<Button
+							loading={exportLoading}
+							startIcon={{ icon: Database }}
+							size="xs"
+							color="light"
+						>
+							Actions
+						</Button>
+					{/snippet}
+				</DropdownV2>
+			{/if}
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
 				on:click={() => {
@@ -139,5 +243,55 @@
 				color="light"
 			/>
 		{/snippet}
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:open={exportDrawerOpen} size="800px" offset={offset + 1}>
+	<DrawerContent title="Export Schema" on:close={() => (exportDrawerOpen = false)}>
+		{#if exportResult}
+			<div class="flex flex-col gap-2 h-full">
+				<div class="flex justify-end">
+					<Button
+						size="xs"
+						color="light"
+						startIcon={{ icon: Copy }}
+						on:click={() => {
+							navigator.clipboard.writeText(exportResult)
+							sendUserToast('Copied to clipboard')
+						}}
+					>
+						Copy
+					</Button>
+				</div>
+				<pre class="overflow-auto text-xs bg-surface-secondary p-4 rounded flex-1">{exportResult}</pre>
+			</div>
+		{/if}
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:open={importDrawerOpen} size="600px" offset={offset + 1}>
+	<DrawerContent title="Import Database" on:close={() => (importDrawerOpen = false)}>
+		<div class="flex flex-col gap-4">
+			<Alert type="warning" title="Warning">
+				This will import the schema from the selected source into the current database. Existing
+				tables with the same names may be affected.
+			</Alert>
+			<div class="flex flex-col gap-2">
+				<span class="text-sm font-medium">Source database</span>
+				<ResourcePicker
+					datatableAsPgResource
+					bind:value={importSource}
+					resourceType="postgresql"
+				/>
+			</div>
+			<Button
+				disabled={!importSource}
+				loading={importLoading}
+				color="red"
+				on:click={handleImportDatabase}
+			>
+				Import schema into current database
+			</Button>
+		</div>
 	</DrawerContent>
 </Drawer>

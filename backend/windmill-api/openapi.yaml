@@ -3333,6 +3333,71 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/workspaces/fork_pg_database:
+    post:
+      summary: fork a PostgreSQL database from source to target
+      operationId: forkPgDatabase
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Fork pg database request
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, target, fork_behavior]
+              properties:
+                source:
+                  type: string
+                  description: "Source database: 'datatable://name' or '$res:path'"
+                target:
+                  type: string
+                  description: "Target database: 'datatable://name' or '$res:path'"
+                fork_behavior:
+                  type: string
+                  enum:
+                    - schema_only
+                    - schema_and_data
+                    - keep_original
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/export_pg_schema:
+    post:
+      summary: export the schema of a PostgreSQL database
+      operationId: exportPgSchema
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Export pg schema request
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source]
+              properties:
+                source:
+                  type: string
+                  description: "Source database: 'datatable://name' or '$res:path'"
+      responses:
+        "200":
+          description: schema dump
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
       summary: edit workspace git sync settings

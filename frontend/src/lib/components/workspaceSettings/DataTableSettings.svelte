@@ -81,6 +81,7 @@
 	import { clone } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import Label from '../Label.svelte'
+	import { isCloudHosted } from '$lib/cloud'
 
 	type Props = {
 		dataTableSettings: DataTableSettingsType
@@ -276,7 +277,9 @@
 									<Select
 										items={[
 											{ value: 'schema_only', label: 'Fork schema only' },
-											{ value: 'schema_and_data', label: 'Fork schema and data' },
+											...(!isCloudHosted()
+												? [{ value: 'schema_and_data', label: 'Fork schema and data' }]
+												: []),
 											{ value: 'keep_original', label: 'Keep original datatable' }
 										]}
 										bind:value={

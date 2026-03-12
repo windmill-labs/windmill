@@ -40,9 +40,10 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_user_against_rule, get_datatable_resource_from_db_unchecked, DataTable,
-    DataTableCatalogResourceType, DataTableDatabase, DataTableForkBehavior, ProtectionRuleKind,
-    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
+    check_user_against_rule, get_datatable_resource_from_db_unchecked, transform_json_unchecked,
+    DataTable, DataTableCatalogResourceType, DataTableDatabase, DataTableForkBehavior,
+    ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult,
+    WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::{
@@ -151,6 +152,8 @@ pub fn workspaced_service() -> Router {
             post(reset_workspace_diffs),
         )
         .route("/compare/:target_workspace_id", get(compare_workspaces))
+        .route("/fork_pg_database", post(fork_pg_database))
+        .route("/export_pg_schema", post(export_pg_schema))
         .route("/protection_rules", get(list_protection_rules))
         .route("/protection_rules", post(create_protection_rule))
         .route(
@@ -1322,19 +1325,28 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
     Ok(schema_map)
 }
 
-/// Export a datatable using pg_dump.
+/// Resolve a source string to PgDatabase credentials.
+/// Supports `datatable://name` (resolves via workspace datatable config)
+/// and `$res:path` (resolves via resource table).
+async fn resolve_pg_source(db: &DB, w_id: &str, source: &str) -> Result<PgDatabase> {
+    let db_resource = if let Some(name) = source.strip_prefix("datatable://") {
+        get_datatable_resource_from_db_unchecked(db, w_id, name).await?
+    } else if source.starts_with("$res:") {
+        transform_json_unchecked(&serde_json::Value::String(source.to_string()), w_id, db).await?
+    } else {
+        return Err(Error::BadRequest(format!(
+            "Invalid source format: '{}'. Expected 'datatable://name' or '$res:path'",
+            source
+        )));
+    };
+
+    serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
+}
+
+/// Run pg_dump against a PgDatabase.
 /// If `schema_only` is true, only the schema is exported. Otherwise, schema and data are exported.
-pub async fn dump_datatable(
-    db: &DB,
-    w_id: &str,
-    datatable_name: &str,
-    schema_only: bool,
-) -> Result<String> {
-    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
-
-    let pg_db: PgDatabase = serde_json::from_value(db_resource)
-        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
-
+async fn pg_dump_database(pg_db: &PgDatabase, schema_only: bool) -> Result<String> {
     let host = &pg_db.host;
     let port = pg_db.port.unwrap_or(5432).to_string();
     let user = pg_db.user.as_deref().unwrap_or("postgres");
@@ -1377,6 +1389,126 @@ pub async fn dump_datatable(
     Ok(dump)
 }
 
+/// Import a pg_dump output into a target database using psql.
+/// psql natively handles COPY FROM stdin statements that pg_dump produces for data.
+async fn pg_import_dump(target_db: &PgDatabase, dump: &str) -> Result<()> {
+    let host = &target_db.host;
+    let port = target_db.port.unwrap_or(5432).to_string();
+    let user = target_db.user.as_deref().unwrap_or("postgres");
+    let dbname = &target_db.dbname;
+
+    let mut cmd = tokio::process::Command::new("psql");
+    cmd.arg("--host")
+        .arg(host)
+        .arg("--port")
+        .arg(&port)
+        .arg("--username")
+        .arg(user)
+        .arg("--dbname")
+        .arg(dbname)
+        .arg("--no-psqlrc")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    if let Some(ref password) = target_db.password {
+        cmd.env("PGPASSWORD", password);
+    }
+
+    if let Some(ref sslmode) = target_db.sslmode {
+        cmd.env("PGSSLMODE", sslmode);
+    }
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| Error::internal_err(format!("Failed to spawn psql: {}", e)))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        use tokio::io::AsyncWriteExt;
+        stdin
+            .write_all(dump.as_bytes())
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to write to psql stdin: {}", e)))?;
+        drop(stdin);
+    }
+
+    let output = child
+        .wait_with_output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to wait for psql: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::internal_err(format!(
+            "psql import failed: {}",
+            stderr
+        )));
+    }
+
+    Ok(())
+}
+
+/// Export a datatable using pg_dump.
+/// If `schema_only` is true, only the schema is exported. Otherwise, schema and data are exported.
+pub async fn dump_datatable(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    schema_only: bool,
+) -> Result<String> {
+    let pg_db = resolve_pg_source(db, w_id, &format!("datatable://{}", datatable_name)).await?;
+    pg_dump_database(&pg_db, schema_only).await
+}
+
+#[derive(Deserialize)]
+struct ForkPgDatabaseRequest {
+    source: String,
+    target: String,
+    fork_behavior: DataTableForkBehavior,
+}
+
+async fn fork_pg_database(
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<ForkPgDatabaseRequest>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    if req.fork_behavior == DataTableForkBehavior::KeepOriginal {
+        return Ok("No action needed for KeepOriginal behavior".to_string());
+    }
+
+    let schema_only = req.fork_behavior != DataTableForkBehavior::SchemaAndData || *CLOUD_HOSTED;
+
+    let source_pg = resolve_pg_source(&db, &w_id, &req.source).await?;
+    let target_pg = resolve_pg_source(&db, &w_id, &req.target).await?;
+
+    let dump = pg_dump_database(&source_pg, schema_only).await?;
+    pg_import_dump(&target_pg, &dump).await?;
+
+    Ok(format!(
+        "Successfully forked database from '{}' to '{}'",
+        req.source, req.target
+    ))
+}
+
+#[derive(Deserialize)]
+struct ExportPgSchemaRequest {
+    source: String,
+}
+
+async fn export_pg_schema(
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<ExportPgSchemaRequest>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let pg = resolve_pg_source(&db, &w_id, &req.source).await?;
+    pg_dump_database(&pg, true).await
+}
 
 /// Core logic for forking a single datatable: creates a new instance DB,
 /// dumps the source schema (and optionally data), imports into the new DB,
@@ -1390,10 +1522,8 @@ async fn fork_datatable(
     include_data: bool,
 ) -> Result<String> {
     // Resolve the source datatable to get the original instance DB name
-    let db_resource =
-        get_datatable_resource_from_db_unchecked(db, w_id, source_datatable_name).await?;
-    let pg_db: PgDatabase = serde_json::from_value(db_resource)
-        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    let pg_db =
+        resolve_pg_source(db, w_id, &format!("datatable://{}", source_datatable_name)).await?;
 
     // Interpolate $current_name with the original database name
     let original_dbname = &pg_db.dbname;
@@ -1468,7 +1598,7 @@ async fn fork_datatable(
     .await?;
 
     // Export the schema (and optionally data) from the source BEFORE updating the config
-    let dump = dump_datatable(db, w_id, source_datatable_name, !include_data).await?;
+    let dump = pg_dump_database(&pg_db, !include_data).await?;
 
     // Update the forked workspace's datatable config to point to the new database
     let new_datatable = DataTable {
@@ -1493,7 +1623,7 @@ async fn fork_datatable(
     .await?;
 
     // Import the dumped schema into the new database
-    import_datatable_dump(&new_pg_creds, &dump).await?;
+    pg_import_dump(&new_pg_creds, &dump).await?;
 
     Ok(format!(
         "Forked datatable '{}' as '{}' with new database '{}'",
@@ -1528,7 +1658,8 @@ async fn fork_all_datatables(
         match dt.fork_behavior {
             DataTableForkBehavior::KeepOriginal => continue,
             behavior => {
-                let include_data = behavior == DataTableForkBehavior::SchemaAndData;
+                let include_data =
+                    behavior == DataTableForkBehavior::SchemaAndData && !*CLOUD_HOSTED;
                 let new_db_name = format!(
                     "__wmfork__{}__$current_name",
                     target_workspace_id.replace('-', "_")
@@ -1553,65 +1684,6 @@ async fn fork_all_datatables(
                 }
             }
         }
-    }
-
-    Ok(())
-}
-
-/// Import a pg_dump output into a target database using psql.
-/// psql natively handles COPY FROM stdin statements that pg_dump produces for data.
-async fn import_datatable_dump(target_db: &PgDatabase, dump: &str) -> Result<()> {
-    let host = &target_db.host;
-    let port = target_db.port.unwrap_or(5432).to_string();
-    let user = target_db.user.as_deref().unwrap_or("postgres");
-    let dbname = &target_db.dbname;
-
-    let mut cmd = tokio::process::Command::new("psql");
-    cmd.arg("--host")
-        .arg(host)
-        .arg("--port")
-        .arg(&port)
-        .arg("--username")
-        .arg(user)
-        .arg("--dbname")
-        .arg(dbname)
-        .arg("--no-psqlrc")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-
-    if let Some(ref password) = target_db.password {
-        cmd.env("PGPASSWORD", password);
-    }
-
-    if let Some(ref sslmode) = target_db.sslmode {
-        cmd.env("PGSSLMODE", sslmode);
-    }
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| Error::internal_err(format!("Failed to spawn psql: {}", e)))?;
-
-    if let Some(mut stdin) = child.stdin.take() {
-        use tokio::io::AsyncWriteExt;
-        stdin
-            .write_all(dump.as_bytes())
-            .await
-            .map_err(|e| Error::internal_err(format!("Failed to write to psql stdin: {}", e)))?;
-        drop(stdin);
-    }
-
-    let output = child
-        .wait_with_output()
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to wait for psql: {}", e)))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(Error::internal_err(format!(
-            "psql import failed: {}",
-            stderr
-        )));
     }
 
     Ok(())
