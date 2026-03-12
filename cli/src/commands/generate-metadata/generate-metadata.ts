@@ -35,6 +35,9 @@ async function generateMetadata(
     lockOnly?: boolean;
     schemaOnly?: boolean;
     dryRun?: boolean;
+    skipScripts?: boolean;
+    skipFlows?: boolean;
+    skipApps?: boolean;
   } & SyncOptions
 ) {
   const workspace = await resolveWorkspace(opts);
@@ -47,120 +50,141 @@ async function generateMetadata(
 
   const staleItems: StaleItem[] = [];
 
-  log.info(colors.gray("Checking scripts, flows, apps..."));
+  // --schema-only implies skipping flows and apps (they only have locks, no schemas)
+  const skipScripts = opts.skipScripts ?? false;
+  const skipFlows = opts.skipFlows ?? opts.schemaOnly ?? false;
+  const skipApps = opts.skipApps ?? opts.schemaOnly ?? false;
+
+  const checking: string[] = [];
+  if (!skipScripts) checking.push("scripts");
+  if (!skipFlows) checking.push("flows");
+  if (!skipApps) checking.push("apps");
+
+  if (checking.length === 0) {
+    log.info(colors.yellow("Nothing to check (all types skipped)"));
+    return;
+  }
+
+  log.info(colors.gray(`Checking ${checking.join(", ")}...`));
 
   // === Collect stale scripts ===
-  const scriptElems = await elementsToMap(
-    await FSFSElement(process.cwd(), codebases, false),
-    (p, isD) => {
-      return (
-        (!isD && !exts.some((ext) => p.endsWith(ext))) ||
-        ignore(p, isD) ||
-        isFlowPath(p) ||
-        isAppPath(p)
-      );
-    },
-    false,
-    {}
-  );
-
-  for (const e of Object.keys(scriptElems)) {
-    const candidate = await generateScriptMetadataInternal(
-      e,
-      workspace,
-      opts,
-      true, // dryRun
-      true, // noStaleMessage
-      rawWorkspaceDependencies,
-      codebases,
-      false
+  if (!skipScripts) {
+    const scriptElems = await elementsToMap(
+      await FSFSElement(process.cwd(), codebases, false),
+      (p, isD) => {
+        return (
+          (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+          ignore(p, isD) ||
+          isFlowPath(p) ||
+          isAppPath(p)
+        );
+      },
+      false,
+      {}
     );
-    if (candidate) {
-      staleItems.push({ type: "script", path: candidate, folder: e });
+
+    for (const e of Object.keys(scriptElems)) {
+      const candidate = await generateScriptMetadataInternal(
+        e,
+        workspace,
+        opts,
+        true, // dryRun
+        true, // noStaleMessage
+        rawWorkspaceDependencies,
+        codebases,
+        false
+      );
+      if (candidate) {
+        staleItems.push({ type: "script", path: candidate, folder: e });
+      }
     }
   }
 
   // === Collect stale flows ===
-  const flowElems = Object.keys(
-    await elementsToMap(
+  if (!skipFlows) {
+    const flowElems = Object.keys(
+      await elementsToMap(
+        await FSFSElement(process.cwd(), [], true),
+        (p, isD) => {
+          return (
+            ignore(p, isD) ||
+            (!isD &&
+              !p.endsWith(SEP + "flow.yaml") &&
+              !p.endsWith(SEP + "flow.json"))
+          );
+        },
+        false,
+        {}
+      )
+    ).map((x) => x.substring(0, x.lastIndexOf(SEP)));
+
+    for (const folder of flowElems) {
+      const candidate = await generateFlowLockInternal(
+        folder,
+        true, // dryRun
+        workspace,
+        opts,
+        false,
+        true // noStaleMessage
+      );
+      if (candidate) {
+        staleItems.push({ type: "flow", path: candidate, folder });
+      }
+    }
+  }
+
+  // === Collect stale apps ===
+  if (!skipApps) {
+    const appElems = await elementsToMap(
       await FSFSElement(process.cwd(), [], true),
       (p, isD) => {
         return (
           ignore(p, isD) ||
           (!isD &&
-            !p.endsWith(SEP + "flow.yaml") &&
-            !p.endsWith(SEP + "flow.json"))
+            !p.endsWith(SEP + "raw_app.yaml") &&
+            !p.endsWith(SEP + "app.yaml"))
         );
       },
       false,
       {}
-    )
-  ).map((x) => x.substring(0, x.lastIndexOf(SEP)));
-
-  for (const folder of flowElems) {
-    const candidate = await generateFlowLockInternal(
-      folder,
-      true, // dryRun
-      workspace,
-      opts,
-      false,
-      true // noStaleMessage
     );
-    if (candidate) {
-      staleItems.push({ type: "flow", path: candidate, folder });
-    }
-  }
 
-  // === Collect stale apps ===
-  const appElems = await elementsToMap(
-    await FSFSElement(process.cwd(), [], true),
-    (p, isD) => {
-      return (
-        ignore(p, isD) ||
-        (!isD &&
-          !p.endsWith(SEP + "raw_app.yaml") &&
-          !p.endsWith(SEP + "app.yaml"))
+    const rawAppFolders = Object.keys(appElems)
+      .filter((p) => p.endsWith(SEP + "raw_app.yaml"))
+      .map((p) => p.substring(0, p.length - (SEP + "raw_app.yaml").length));
+
+    const normalAppFolders = Object.keys(appElems)
+      .filter((p) => p.endsWith(SEP + "app.yaml"))
+      .map((p) => p.substring(0, p.length - (SEP + "app.yaml").length));
+
+    for (const appFolder of rawAppFolders) {
+      const candidate = await generateAppLocksInternal(
+        appFolder,
+        true, // rawApp
+        true, // dryRun
+        workspace,
+        opts,
+        false,
+        true // noStaleMessage
       );
-    },
-    false,
-    {}
-  );
-
-  const rawAppFolders = Object.keys(appElems)
-    .filter((p) => p.endsWith(SEP + "raw_app.yaml"))
-    .map((p) => p.substring(0, p.length - (SEP + "raw_app.yaml").length));
-
-  const normalAppFolders = Object.keys(appElems)
-    .filter((p) => p.endsWith(SEP + "app.yaml"))
-    .map((p) => p.substring(0, p.length - (SEP + "app.yaml").length));
-
-  for (const appFolder of rawAppFolders) {
-    const candidate = await generateAppLocksInternal(
-      appFolder,
-      true, // rawApp
-      true, // dryRun
-      workspace,
-      opts,
-      false,
-      true // noStaleMessage
-    );
-    if (candidate) {
-      staleItems.push({ type: "app", path: candidate, folder: appFolder, isRawApp: true });
+      if (candidate) {
+        staleItems.push({ type: "app", path: candidate, folder: appFolder, isRawApp: true });
+      }
     }
-  }
 
-  for (const appFolder of normalAppFolders) {
-    const candidate = await generateAppLocksInternal(
-      appFolder,
-      false, // rawApp
-      true, // dryRun
-      workspace,
-      opts,
-      false,
-      true // noStaleMessage
-    );
-    if (candidate) {
-      staleItems.push({ type: "app", path: candidate, folder: appFolder, isRawApp: false });
+    for (const appFolder of normalAppFolders) {
+      const candidate = await generateAppLocksInternal(
+        appFolder,
+        false, // rawApp
+        true, // dryRun
+        workspace,
+        opts,
+        false,
+        true // noStaleMessage
+      );
+      if (candidate) {
+        staleItems.push({ type: "app", path: candidate, folder: appFolder, isRawApp: false });
+      }
     }
   }
 
@@ -237,7 +261,10 @@ const command = new Command()
   .option("--yes", "Skip confirmation prompt")
   .option("--dry-run", "Show what would be updated without making changes")
   .option("--lock-only", "Re-generate only the lock files")
-  .option("--schema-only", "Re-generate only script schemas")
+  .option("--schema-only", "Re-generate only script schemas (skips flows and apps)")
+  .option("--skip-scripts", "Skip processing scripts")
+  .option("--skip-flows", "Skip processing flows")
+  .option("--skip-apps", "Skip processing apps")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which files to include"

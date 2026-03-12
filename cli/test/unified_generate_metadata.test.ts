@@ -174,6 +174,36 @@ describe("generate-metadata flags", () => {
     });
   });
 
+  test("--dry-run shows stale items without updating", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "dry_run_test");
+
+      await createScript(tempDir, "f/test", "my_script");
+
+      // Run with --dry-run
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "dry_run_test"
+      );
+
+      expect(result.code).toEqual(0);
+      // Should show stale items
+      expect(result.stdout).toContain("[S]");
+      expect(result.stdout).toContain("my_script");
+      // Should NOT show "Done" (didn't actually update)
+      expect(result.stdout).not.toContain("Done");
+
+      // Run again without --dry-run to verify it would still be stale
+      const result2 = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "dry_run_test"
+      );
+      expect(result2.stdout).toContain("[S]");
+    });
+  });
+
   test("--lock-only only regenerates locks", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspace(backend, tempDir, "lock_only_test");
@@ -190,11 +220,14 @@ describe("generate-metadata flags", () => {
     });
   });
 
-  test("--schema-only only regenerates schemas", async () => {
+  test("--schema-only only processes scripts (skips flows and apps)", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspace(backend, tempDir, "schema_only_test");
 
+      // Create one of each type
       await createScript(tempDir, "f/test", "my_script");
+      await createFlow(tempDir, "f/test", "my_flow");
+      await createApp(tempDir, "f/test", "my_app");
 
       const result = await backend.runCLICommand(
         ["generate-metadata", "--yes", "--schema-only"],
@@ -203,6 +236,80 @@ describe("generate-metadata flags", () => {
       );
 
       expect(result.code).toEqual(0);
+      const output = result.stdout + result.stderr;
+      // Should show "Checking scripts..." only
+      expect(output).toContain("Checking scripts...");
+      // Should find the script
+      expect(output).toContain("[S]");
+      // Should NOT find flows or apps
+      expect(output).not.toContain("[F]");
+      expect(output).not.toContain("[A]");
+    });
+  });
+
+  test("--skip-scripts skips scripts", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "skip_scripts_test");
+
+      await createScript(tempDir, "f/test", "my_script");
+      await createFlow(tempDir, "f/test", "my_flow");
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "--skip-scripts"],
+        tempDir,
+        "skip_scripts_test"
+      );
+
+      expect(result.code).toEqual(0);
+      const output = result.stdout + result.stderr;
+      // Should NOT contain script
+      expect(output).not.toContain("[S]");
+      // Should contain flow
+      expect(output).toContain("[F]");
+    });
+  });
+
+  test("--skip-flows skips flows", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "skip_flows_test");
+
+      await createScript(tempDir, "f/test", "my_script");
+      await createFlow(tempDir, "f/test", "my_flow");
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "--skip-flows"],
+        tempDir,
+        "skip_flows_test"
+      );
+
+      expect(result.code).toEqual(0);
+      const output = result.stdout + result.stderr;
+      // Should contain script
+      expect(output).toContain("[S]");
+      // Should NOT contain flow
+      expect(output).not.toContain("[F]");
+    });
+  });
+
+  test("--skip-apps skips apps", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "skip_apps_test");
+
+      await createScript(tempDir, "f/test", "my_script");
+      await createApp(tempDir, "f/test", "my_app");
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "--skip-apps"],
+        tempDir,
+        "skip_apps_test"
+      );
+
+      expect(result.code).toEqual(0);
+      const output = result.stdout + result.stderr;
+      // Should contain script
+      expect(output).toContain("[S]");
+      // Should NOT contain app
+      expect(output).not.toContain("[A]");
     });
   });
 
@@ -229,6 +336,23 @@ describe("generate-metadata flags", () => {
 
       expect(result.code).toEqual(0);
       expect(result.stdout).toContain("up-to-date");
+    });
+  });
+
+  test("skipping all types shows warning", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "skip_all_test");
+
+      await createScript(tempDir, "f/test", "my_script");
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--skip-scripts", "--skip-flows", "--skip-apps"],
+        tempDir,
+        "skip_all_test"
+      );
+
+      expect(result.code).toEqual(0);
+      expect(result.stdout).toContain("Nothing to check");
     });
   });
 });
