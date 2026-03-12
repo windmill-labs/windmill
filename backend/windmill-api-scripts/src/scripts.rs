@@ -1604,6 +1604,9 @@ struct RawScriptByPathQuery {
     cache_key: Option<String>,
     // used specifically for python to cache folders on import success to avoid extra db calls on package fetch
     cache_folders: Option<bool>,
+    // If provided, load content from raw_script_temp table using this hash instead of deployed script.
+    // Used by CLI lock generation to resolve imports from not-yet-deployed scripts.
+    temp_script_hash: Option<String>,
 }
 
 struct StringWithLength(String);
@@ -1662,6 +1665,13 @@ async fn raw_script_by_path_internal(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
+
+    // If temp_script_hash is provided, load from temp storage instead of deployed script.
+    // This is used by CLI lock generation to resolve imports from not-yet-deployed scripts.
+    if let Some(hash) = query.temp_script_hash {
+        return windmill_common::cache::raw_script_temp::load(hash, &db).await;
+    }
+
     let cache_path = query
         .cache_key
         .map(|x| format!("{w_id}:{path}:{x}{}", if unpin { ":unpinned" } else { "" }));

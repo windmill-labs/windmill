@@ -63,11 +63,11 @@ export class CargoBackend {
 
     // Determine default features based on environment
     // CI mode: minimal features (zip only)
-    // Local mode with license key: full features (zip, private, enterprise, license)
+    // Local mode with license key: full features (zip, private, enterprise, license, python)
     // Local mode without license key: zip only (EE features reject API calls without valid license)
     const isCI = process.env["CI_MINIMAL_FEATURES"] === "true";
     const hasLicenseKey = !!process.env["EE_LICENSE_KEY"];
-    const defaultFeatures = isCI ? ["zip"] : (hasLicenseKey ? ["zip", "private", "enterprise", "license"] : ["zip"]);
+    const defaultFeatures = isCI ? ["zip"] : (hasLicenseKey ? ["zip", "private", "enterprise", "license", "python"] : ["zip"]);
 
     // Parse additional features from environment variable
     const envFeatures = process.env["TEST_FEATURES"]?.split(",").filter(f => f.trim()) || [];

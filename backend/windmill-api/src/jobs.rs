@@ -5131,7 +5131,7 @@ async fn run_dependencies_job(
     req.raw_workspace_dependencies
         .map(|v| hm.insert("raw_workspace_dependencies".to_owned(), to_raw_value(&v)));
     req.temp_script_refs
-        .map(|v| hm.insert("dependency_tree".to_owned(), to_raw_value(&v)));
+        .map(|v| hm.insert("temp_script_refs".to_owned(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
         &db,
@@ -5229,7 +5229,7 @@ async fn run_flow_dependencies_job(
 
     // Add temp_script_refs to args if present (for CLI local import resolution)
     req.temp_script_refs
-        .map(|v| args_map.insert("dependency_tree".to_string(), to_raw_value(&v)));
+        .map(|v| args_map.insert("temp_script_refs".to_string(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
         &db,

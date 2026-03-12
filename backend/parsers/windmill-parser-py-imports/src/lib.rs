@@ -256,7 +256,7 @@ pub async fn parse_python_imports(
     version_specifiers: &mut Vec<pep440_rs::VersionSpecifier>,
     locked_v: &mut Option<pep440_rs::Version>,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
-    dependency_tree: &Option<HashMap<String, String>>,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<(Vec<String>, Option<String>)> {
     let mut compile_error_hint: Option<String> = None;
     let mut imports = parse_python_imports_inner(
@@ -269,7 +269,7 @@ pub async fn parse_python_imports(
         &mut None,
         locked_v,
         raw_workspace_dependencies_o,
-        dependency_tree,
+        temp_script_refs,
     )
     .await?
     .into_values()
@@ -325,7 +325,7 @@ async fn parse_python_imports_inner(
     path_where_annotated_pyv: &mut Option<String>,
     locked_v: &mut Option<pep440_rs::Version>,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
-    dependency_tree: &Option<HashMap<String, String>>,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<HashMap<String, NImportResolved>> {
     tracing::debug!("Parsing python imports for path: {}", path);
     let PythonAnnotations { py310, py311, py312, py313, .. } = PythonAnnotations::parse(&code);
@@ -489,13 +489,13 @@ async fn parse_python_imports_inner(
     for n in nimports.into_iter() {
         let mut nested = match n {
             NImport::Relative(rpath) => {
-                // First try to get content from dependency_tree cache if available
-                let code_from_cache = if let Some(hash) = dependency_tree.as_ref().and_then(|dt| dt.get(&rpath)) {
-                    tracing::debug!("Found relative import '{}' in dependency_tree with hash '{}'", rpath, hash);
+                // First try to get content from temp_script_refs cache if available
+                let code_from_cache = if let Some(hash) = temp_script_refs.as_ref().and_then(|dt| dt.get(&rpath)) {
+                    tracing::debug!("Found relative import '{}' in temp_script_refs with hash '{}'", rpath, hash);
                     match windmill_common::cache::raw_script_temp::load(hash.clone(), db).await {
                         Ok(content) => Some(content),
                         Err(e) => {
-                            tracing::warn!("dependency_tree hash '{}' not found in cache: {}, falling back to deployed script", hash, e);
+                            tracing::warn!("temp_script_refs hash '{}' not found in cache: {}, falling back to deployed script", hash, e);
                             None
                         }
                     }
@@ -537,7 +537,7 @@ async fn parse_python_imports_inner(
                         path_where_annotated_pyv,
                         locked_v,
                         raw_workspace_dependencies_o,
-                        dependency_tree,
+                        temp_script_refs,
                     )
                     .await?
                     .into_values()

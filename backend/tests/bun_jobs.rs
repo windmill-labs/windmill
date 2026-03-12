@@ -901,6 +901,7 @@ mod dedicated_worker_protocol {
                     "test-workspace",
                     "f/test/script",
                     LoaderMode::Node,
+                    &None,
                 ))
                 .expect("build_loader failed");
 
