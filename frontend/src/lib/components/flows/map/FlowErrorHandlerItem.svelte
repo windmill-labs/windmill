@@ -71,7 +71,7 @@
 		<Button
 			variant="default"
 			unifiedSize="sm"
-			wrapperClasses={compact ? '' : twMerge('min-w-36', small ? 'max-w-52' : 'max-w-64')}
+			wrapperClasses={compact ? undefined : twMerge('min-w-36', small ? 'max-w-52' : 'max-w-64')}
 			id="flow-editor-error-handler"
 			selected={selectionManager.getSelectedId()?.includes('failure')}
 			onClick={() => {
@@ -142,7 +142,7 @@
 		{#snippet trigger()}
 			<Button
 				unifiedSize="sm"
-				wrapperClasses={compact ? '' : 'min-w-36'}
+				wrapperClasses={compact ? undefined : 'min-w-36'}
 				title={`Add failure module`}
 				variant="default"
 				id={`flow-editor-add-step-error-handler-button`}

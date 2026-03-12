@@ -47,7 +47,7 @@
 		<Popover>
 			<Button
 				unifiedSize="sm"
-				wrapperClasses={compact ? '' : 'min-w-36'}
+				wrapperClasses={compact ? undefined : 'min-w-36'}
 				startIcon={{ icon: Settings }}
 				selected={selectedId?.startsWith('settings')}
 				variant="default"
