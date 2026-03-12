@@ -1325,11 +1325,7 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
 
 /// Export the schema of a datatable using pg_dump.
 /// Returns a list of SQL statements that recreate the entire schema (no data).
-pub async fn dump_datatable(
-    db: &DB,
-    w_id: &str,
-    datatable_name: &str,
-) -> Result<String> {
+pub async fn dump_datatable(db: &DB, w_id: &str, datatable_name: &str) -> Result<String> {
     let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
 
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
@@ -1501,13 +1497,26 @@ async fn fork_datatable(
     ))
 }
 
-/// Import schema statements into a target database using tokio_postgres.
+/// Import a pg_dump output into a target database using tokio_postgres.
+/// Filters out psql meta-commands (lines starting with `\`) and comment-only lines
+/// that are not valid SQL but are included in pg_dump's plain-text output.
 async fn import_datatable_dump(target_db: &PgDatabase, dump: &str) -> Result<()> {
+    let filtered: String = dump
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            !trimmed.starts_with('\\')
+                && !trimmed.starts_with("--")
+                && !trimmed.starts_with("SELECT pg_catalog.set_config")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
     let (client, connection) = target_db.connect().await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
     client
-        .batch_execute(dump)
+        .batch_execute(&filtered)
         .await
         .map_err(|e| Error::internal_err(format!("Failed to import schema: {}", e)))?;
 
