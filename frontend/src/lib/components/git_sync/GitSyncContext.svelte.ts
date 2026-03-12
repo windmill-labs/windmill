@@ -564,8 +564,8 @@ export function createGitSyncContext(workspace: string) {
 			// Use JobManager for polling
 			await jobManager.runWithProgress(() => Promise.resolve(jobId), {
 				workspace,
-				timeout: 5000,
-				timeoutMessage: 'Git sync test job timed out after 5s',
+				timeout: 10000,
+				timeoutMessage: 'Git sync test job timed out after 10s',
 				onProgress: (status) => {
 					gitSyncTestJobs[idx].status =
 						status.status === 'success'
