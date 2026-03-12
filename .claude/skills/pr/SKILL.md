@@ -85,3 +85,36 @@ Generated with [Claude Code](https://claude.com/claude-code)
    )"
    ```
 7. Return the PR URL to the user
+
+## EE Companion PR (when `*_ee.rs` files were modified)
+
+If any `*_ee.rs` files were changed (check `git diff main...HEAD --name-only | grep '_ee\.rs$'`):
+
+1. Find the EE worktree (same branch name as the current windmill branch):
+   - `~/windmill-ee-private__worktrees/<branch>/` (workmux worktrees)
+   - or `~/windmill-ee-private/` (main repo checkout)
+2. In the EE repo: commit and push the changes on the same branch name
+3. Create a companion PR:
+   ```bash
+   gh pr create --draft --repo windmill-labs/windmill-ee-private --title "<same title>" --body "$(cat <<'EOF'
+   Companion PR for windmill-labs/windmill#<PR_NUMBER>
+
+   ---
+   Generated with [Claude Code](https://claude.com/claude-code)
+   EOF
+   )"
+   ```
+   Link to the windmill PR in the body.
+4. Back in the windmill repo, update the EE ref:
+   ```bash
+   cd backend && bash write_latest_ee_ref.sh
+   ```
+5. Verify `ee-repo-ref.txt` contains the correct hash (from the feature branch, not main):
+   ```bash
+   cat backend/ee-repo-ref.txt
+   ```
+6. Commit `ee-repo-ref.txt`:
+   ```bash
+   git add backend/ee-repo-ref.txt && git commit -m "chore: update ee-repo-ref"
+   ```
+7. Push the updated windmill branch: `git push`

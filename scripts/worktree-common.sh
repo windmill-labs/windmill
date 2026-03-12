@@ -261,5 +261,4 @@ wm_shared_pre_remove() {
     fi
   fi
 
-  tmux kill-session -t "cursor-${wt_basename}" 2>/dev/null || true
 }
