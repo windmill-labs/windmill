@@ -81,6 +81,8 @@ export type EditorBarUi = {
 	ducklake?: boolean
 	dataTable?: boolean
 	debug?: boolean
+	history?: boolean
+	saveToWorkspace?: boolean
 }
 
 export type EditableSchemaFormUi = {
