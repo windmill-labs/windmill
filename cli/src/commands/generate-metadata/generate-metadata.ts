@@ -194,11 +194,31 @@ async function generateMetadata(
     return;
   }
 
+  // Group items by type for display
+  const scripts = staleItems.filter((i) => i.type === "script");
+  const flows = staleItems.filter((i) => i.type === "flow");
+  const apps = staleItems.filter((i) => i.type === "app");
+
   log.info("");
   log.info(`Found ${staleItems.length} item(s) with stale metadata:`);
-  for (const item of staleItems) {
-    const prefix = item.type === "script" ? "S" : item.type === "flow" ? "F" : "A";
-    log.info(colors.yellow(`  [${prefix}] ${item.path}`));
+
+  if (scripts.length > 0) {
+    log.info(colors.gray(`  Scripts (${scripts.length}):`));
+    for (const item of scripts) {
+      log.info(colors.yellow(`    ${item.path}`));
+    }
+  }
+  if (flows.length > 0) {
+    log.info(colors.gray(`  Flows (${flows.length}):`));
+    for (const item of flows) {
+      log.info(colors.yellow(`    ${item.path}`));
+    }
+  }
+  if (apps.length > 0) {
+    log.info(colors.gray(`  Apps (${apps.length}):`));
+    for (const item of apps) {
+      log.info(colors.yellow(`    ${item.path}`));
+    }
   }
 
   if (opts.dryRun) {
@@ -219,41 +239,63 @@ async function generateMetadata(
 
   log.info("");
 
-  // === Process all stale items ===
-  for (const item of staleItems) {
-    if (item.type === "script") {
-      await generateScriptMetadataInternal(
-        item.folder,
-        workspace,
-        opts,
-        false, // dryRun
-        false, // noStaleMessage - show per-item messages
-        rawWorkspaceDependencies,
-        codebases,
-        false
-      );
-    } else if (item.type === "flow") {
-      await generateFlowLockInternal(
-        item.folder,
-        false, // dryRun
-        workspace,
-        opts
-        // no extra params - let it print messages
-      );
-    } else if (item.type === "app") {
-      await generateAppLocksInternal(
-        item.folder,
-        item.isRawApp!, // rawApp
-        false, // dryRun
-        workspace,
-        opts,
-        false,
-        true // noStaleMessage - apps suppress messages (matches original)
-      );
-    }
+  // === Process all stale items with progress counter ===
+  const total = staleItems.length;
+  const maxWidth = `[${total}/${total}]`.length;
+  let current = 0;
+
+  const formatProgress = (n: number) => {
+    const bracket = `[${n}/${total}]`;
+    return colors.gray(bracket.padEnd(maxWidth, " "));
+  };
+
+  // Process scripts
+  for (const item of scripts) {
+    current++;
+    log.info(`${formatProgress(current)} script ${colors.cyan(item.path)}`);
+    await generateScriptMetadataInternal(
+      item.folder,
+      workspace,
+      opts,
+      false, // dryRun
+      true, // noStaleMessage - we handle output
+      rawWorkspaceDependencies,
+      codebases,
+      false
+    );
   }
 
-  log.info(colors.green("Done"));
+  // Process flows
+  for (const item of flows) {
+    current++;
+    log.info(`${formatProgress(current)} flow   ${colors.cyan(item.path)}`);
+    await generateFlowLockInternal(
+      item.folder,
+      false, // dryRun
+      workspace,
+      opts,
+      false,
+      true // noStaleMessage - we handle output
+    );
+  }
+
+  // Process apps
+  for (const item of apps) {
+    current++;
+    log.info(`${formatProgress(current)} app    ${colors.cyan(item.path)}`);
+    await generateAppLocksInternal(
+      item.folder,
+      item.isRawApp!, // rawApp
+      false, // dryRun
+      workspace,
+      opts,
+      false,
+      true // noStaleMessage - we handle output
+    );
+  }
+
+  log.info("");
+  log.info(colors.green(`Done. Updated ${total} item(s).`));
 }
 
 const command = new Command()

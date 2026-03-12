@@ -223,7 +223,7 @@ export async function generateScriptMetadataInternal(
     return `${remotePath} (${language})`;
   }
 
-  if (!justUpdateMetadataLock) {
+  if (!justUpdateMetadataLock && !noStaleMessage) {
     log.info(colors.gray(`Generating metadata for ${scriptPath}`));
   }
 
