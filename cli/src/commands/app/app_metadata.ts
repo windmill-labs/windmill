@@ -771,7 +771,7 @@ export async function inferRunnableSchemaFromFile(
   }
 }
 
-function getAppFolders(elems: Record<string, any>, extension: string) {
+export function getAppFolders(elems: Record<string, any>, extension: string) {
   return Object.keys(elems)
     .filter((p) => p.endsWith(SEP + extension))
     .map((p) => p.substring(0, p.length - (SEP + extension).length));

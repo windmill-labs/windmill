@@ -12,7 +12,7 @@ import {
   getRawWorkspaceDependencies,
 } from "../../utils/metadata.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
-import { generateAppLocksInternal } from "../app/app_metadata.ts";
+import { generateAppLocksInternal, getAppFolders } from "../app/app_metadata.ts";
 import {
   elementsToMap,
   FSFSElement,
@@ -38,8 +38,13 @@ async function generateMetadata(
     skipScripts?: boolean;
     skipFlows?: boolean;
     skipApps?: boolean;
-  } & SyncOptions
+  } & SyncOptions,
+  folder?: string
 ) {
+  if (folder === "") {
+    folder = undefined;
+  }
+
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
@@ -69,6 +74,7 @@ async function generateMetadata(
 
   // === Collect stale scripts ===
   if (!skipScripts) {
+    // TODO: run elementsToMap only once but for all runnable types.
     const scriptElems = await elementsToMap(
       await FSFSElement(process.cwd(), codebases, false),
       (p, isD) => {
@@ -135,7 +141,7 @@ async function generateMetadata(
 
   // === Collect stale apps ===
   if (!skipApps) {
-    const appElems = await elementsToMap(
+    const elems = await elementsToMap(
       await FSFSElement(process.cwd(), [], true),
       (p, isD) => {
         return (
@@ -149,13 +155,8 @@ async function generateMetadata(
       {}
     );
 
-    const rawAppFolders = Object.keys(appElems)
-      .filter((p) => p.endsWith(SEP + "raw_app.yaml"))
-      .map((p) => p.substring(0, p.length - (SEP + "raw_app.yaml").length));
-
-    const normalAppFolders = Object.keys(appElems)
-      .filter((p) => p.endsWith(SEP + "app.yaml"))
-      .map((p) => p.substring(0, p.length - (SEP + "app.yaml").length));
+    const rawAppFolders = getAppFolders(elems, "raw_app.yaml");
+    const appFolders = getAppFolders(elems, "app.yaml");
 
     for (const appFolder of rawAppFolders) {
       const candidate = await generateAppLocksInternal(
@@ -172,7 +173,7 @@ async function generateMetadata(
       }
     }
 
-    for (const appFolder of normalAppFolders) {
+    for (const appFolder of appFolders) {
       const candidate = await generateAppLocksInternal(
         appFolder,
         false, // rawApp
@@ -188,19 +189,30 @@ async function generateMetadata(
     }
   }
 
+  // === Filter by folder if specified ===
+  let filteredItems = staleItems;
+  if (folder) {
+    // Strip trailing separator to match deprecated flow/app handler behavior
+    // (see generateFlowLockInternal line 64-66, generateAppLocksInternal line 109-110)
+    if (folder.endsWith(SEP)) {
+      folder = folder.substring(0, folder.length - 1);
+    }
+    filteredItems = staleItems.filter((item) => item.folder === folder || item.folder.startsWith(folder + SEP));
+  }
+
   // === Show stale items and confirm ===
-  if (staleItems.length === 0) {
+  if (filteredItems.length === 0) {
     log.info(colors.green("All metadata up-to-date"));
     return;
   }
 
   // Group items by type for display
-  const scripts = staleItems.filter((i) => i.type === "script");
-  const flows = staleItems.filter((i) => i.type === "flow");
-  const apps = staleItems.filter((i) => i.type === "app");
+  const scripts = filteredItems.filter((i) => i.type === "script");
+  const flows = filteredItems.filter((i) => i.type === "flow");
+  const apps = filteredItems.filter((i) => i.type === "app");
 
   log.info("");
-  log.info(`Found ${staleItems.length} item(s) with stale metadata:`);
+  log.info(`Found ${filteredItems.length} item(s) with stale metadata:`);
 
   if (scripts.length > 0) {
     log.info(colors.gray(`  Scripts (${scripts.length}):`));
@@ -240,7 +252,7 @@ async function generateMetadata(
   log.info("");
 
   // === Process all stale items with progress counter ===
-  const total = staleItems.length;
+  const total = filteredItems.length;
   const maxWidth = `[${total}/${total}]`.length;
   let current = 0;
 
@@ -278,7 +290,6 @@ async function generateMetadata(
       true // noStaleMessage - we handle output
     );
   }
-
   // Process apps
   for (const item of apps) {
     current++;
@@ -300,6 +311,7 @@ async function generateMetadata(
 
 const command = new Command()
   .description("Generate metadata (locks, schemas) for all scripts, flows, and apps")
+  .arguments("[folder:string]")
   .option("--yes", "Skip confirmation prompt")
   .option("--dry-run", "Show what would be updated without making changes")
   .option("--lock-only", "Re-generate only the lock files")

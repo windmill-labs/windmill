@@ -292,3 +292,160 @@ describe("generate-metadata flags", () => {
     });
   });
 });
+
+// =============================================================================
+// Folder argument tests
+// =============================================================================
+
+describe("generate-metadata folder argument", () => {
+  test("filters to specific script folder", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "folder_script_test");
+
+      // Create scripts in different folders
+      await createLocalScript(tempDir, "f/included", "script_a");
+      await createLocalScript(tempDir, "f/excluded", "script_b");
+
+      // Run with folder argument
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "f/included/script_a.ts"],
+        tempDir,
+        "folder_script_test"
+      );
+
+      expect(result.code).toEqual(0);
+      const output = result.stdout + result.stderr;
+      expect(output).toContain("script_a");
+      expect(output).not.toContain("script_b");
+    });
+  });
+
+  test("filters to specific flow folder", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "folder_flow_test");
+
+      // Create flows in different folders
+      await createLocalFlow(tempDir, "f/included", "flow_a");
+      await createLocalFlow(tempDir, "f/excluded", "flow_b");
+
+      // Run with folder argument (flow folder path - uses .flow suffix by default)
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "f/included/flow_a.flow"],
+        tempDir,
+        "folder_flow_test"
+      );
+
+      expect(result.code).toEqual(0);
+      const output = result.stdout + result.stderr;
+      expect(output).toContain("flow_a");
+      expect(output).not.toContain("flow_b");
+    });
+  });
+
+  test("filters to specific app folder", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "folder_app_test");
+
+      // Create apps in different folders
+      await createLocalApp(tempDir, "f/included", "app_a");
+      await createLocalApp(tempDir, "f/excluded", "app_b");
+
+      // Run with folder argument (app folder path - uses .app suffix by default)
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "f/included/app_a.app"],
+        tempDir,
+        "folder_app_test"
+      );
+
+      expect(result.code).toEqual(0);
+      const output = result.stdout + result.stderr;
+      expect(output).toContain("app_a");
+      expect(output).not.toContain("app_b");
+    });
+  });
+
+  test("shows up-to-date when folder has no stale items", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "folder_uptodate_test");
+
+      await createLocalScript(tempDir, "f/test", "my_script");
+
+      // First run to generate metadata
+      await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "folder_uptodate_test"
+      );
+
+      // Second run with folder - should be up-to-date
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "f/test/my_script.ts"],
+        tempDir,
+        "folder_uptodate_test"
+      );
+
+      expect(result.code).toEqual(0);
+      expect(result.stdout).toContain("up-to-date");
+    });
+  });
+
+  test("trailing slash is stripped (matches deprecated behavior)", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "trailing_slash_test");
+
+      await createLocalScript(tempDir, "f/test", "my_script");
+
+      // Run with trailing slash
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "f/test/my_script.ts/"],
+        tempDir,
+        "trailing_slash_test"
+      );
+
+      expect(result.code).toEqual(0);
+      expect(result.stdout).toContain("my_script");
+    });
+  });
+
+  test("parent folder matches all children", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "parent_folder_test");
+
+      // Create scripts in nested folders
+      await createLocalScript(tempDir, "f/parent", "script_a");
+      await createLocalScript(tempDir, "f/parent/child", "script_b");
+      await createLocalScript(tempDir, "f/other", "script_c");
+
+      // Run with parent folder - should match both scripts in f/parent tree
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "f/parent"],
+        tempDir,
+        "parent_folder_test"
+      );
+
+      expect(result.code).toEqual(0);
+      const output = result.stdout + result.stderr;
+      expect(output).toContain("script_a");
+      expect(output).toContain("script_b");
+      expect(output).not.toContain("script_c");
+    });
+  });
+
+  test("non-existent folder shows up-to-date", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "nonexistent_folder_test");
+
+      await createLocalScript(tempDir, "f/exists", "my_script");
+
+      // Run with non-existent folder
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "f/does_not_exist"],
+        tempDir,
+        "nonexistent_folder_test"
+      );
+
+      expect(result.code).toEqual(0);
+      expect(result.stdout).toContain("up-to-date");
+    });
+  });
+});
