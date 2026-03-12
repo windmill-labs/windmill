@@ -1322,6 +1322,65 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
     Ok(schema_map)
 }
 
+/// Export the schema of a datatable using pg_dump.
+/// Returns a list of SQL statements that recreate the entire schema (no data).
+pub async fn export_datatable_schema(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<Vec<String>> {
+    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+
+    let host = &pg_db.host;
+    let port = pg_db.port.unwrap_or(5432).to_string();
+    let user = pg_db.user.as_deref().unwrap_or("postgres");
+    let dbname = &pg_db.dbname;
+
+    let mut cmd = tokio::process::Command::new("pg_dump");
+    cmd.arg("--format=plain")
+        .arg("--schema-only")
+        .arg("--host")
+        .arg(host)
+        .arg("--port")
+        .arg(&port)
+        .arg("--username")
+        .arg(user)
+        .arg(dbname);
+
+    if let Some(ref password) = pg_db.password {
+        cmd.env("PGPASSWORD", password);
+    }
+
+    if let Some(ref sslmode) = pg_db.sslmode {
+        cmd.env("PGSSLMODE", sslmode);
+    }
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute pg_dump: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::internal_err(format!("pg_dump failed: {}", stderr)));
+    }
+
+    let dump = String::from_utf8(output.stdout)
+        .map_err(|e| Error::internal_err(format!("pg_dump output is not valid UTF-8: {}", e)))?;
+
+    let statements: Vec<String> = dump
+        .split(";\n")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty() && !s.starts_with("--") && !s.starts_with("SET ") && *s != "")
+        .map(|s| format!("{};", s))
+        .collect();
+
+    Ok(statements)
+}
+
 async fn edit_ducklake_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
