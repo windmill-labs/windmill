@@ -4833,7 +4833,7 @@ fn register_potential_assets_on_inline_execution(
     preview: &PreviewInline,
 ) {
     let assets = if preview.language == ScriptLang::DuckDb {
-        Some(windmill_parser_sql::parse_assets(&preview.content).map(|a| a.assets))
+        Some(windmill_parser_sql_asset::parse_assets(&preview.content).map(|a| a.assets))
     } else if preview.language == ScriptLang::Postgresql {
         let datatable = preview
             .args
@@ -4851,7 +4851,7 @@ fn register_potential_assets_on_inline_execution(
                 (None, None)
             };
             let content = content.as_deref().unwrap_or(&preview.content);
-            windmill_parser_sql::parse_wmill_sdk_sql_assets(
+            windmill_parser_sql_asset::parse_wmill_sdk_sql_assets(
                 AssetKind::DataTable,
                 datatable,
                 schema.as_deref(),
