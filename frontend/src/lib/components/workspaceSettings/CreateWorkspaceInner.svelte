@@ -62,7 +62,8 @@
 				})
 			: undefined
 	)
-	let datatableBehaviors: Record<string, string> = $state({})
+	let datatableBehaviors: Record<string, 'schema_only' | 'schema_and_data' | 'keep_original'> =
+		$state({})
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
@@ -180,13 +181,20 @@
 					return
 				}
 
+				// Build datatable behaviors map, defaulting to schema_only
+				const behaviors: Record<string, 'schema_only' | 'schema_and_data' | 'keep_original'> = {}
+				for (const dt of allDatatables.current ?? []) {
+					behaviors[dt] = datatableBehaviors[dt] ?? 'schema_only'
+				}
+
 				try {
 					await WorkspaceService.createWorkspaceFork({
 						workspace: $workspaceStore!,
 						requestBody: {
 							id: prefixed_id,
 							name,
-							color: colorEnabled && workspaceColor ? workspaceColor : undefined
+							color: colorEnabled && workspaceColor ? workspaceColor : undefined,
+							datatable_behaviors: behaviors
 						}
 					})
 				} catch (e) {

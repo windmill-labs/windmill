@@ -346,6 +346,8 @@ struct CreateWorkspaceFork {
     id: String,
     name: String,
     color: Option<String>,
+    #[serde(default)]
+    datatable_behaviors: Option<HashMap<String, DataTableForkBehavior>>,
 }
 
 #[derive(Deserialize)]
@@ -1630,12 +1632,13 @@ async fn fork_datatable(
     ))
 }
 
-/// Fork all datatables from a source workspace into a target workspace,
-/// respecting each datatable's configured `fork_behavior`.
+/// Fork all datatables from a source workspace into a target workspace.
+/// Uses per-datatable behaviors from the provided map, defaulting to SchemaOnly.
 async fn fork_all_datatables(
     db: &DB,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    datatable_behaviors: &Option<HashMap<String, DataTableForkBehavior>>,
 ) -> Result<()> {
     let datatable_config = sqlx::query_scalar!(
         "SELECT datatable FROM workspace_settings WHERE workspace_id = $1",
@@ -1654,6 +1657,17 @@ async fn fork_all_datatables(
     };
 
     for (name, _dt) in &datatables {
+        let behavior = datatable_behaviors
+            .as_ref()
+            .and_then(|m| m.get(name).copied())
+            .unwrap_or(DataTableForkBehavior::SchemaOnly);
+
+        if behavior == DataTableForkBehavior::KeepOriginal {
+            continue;
+        }
+
+        let include_data = behavior == DataTableForkBehavior::SchemaAndData && !*CLOUD_HOSTED;
+
         let new_db_name = format!(
             "__wmfork__{}__$current_name",
             target_workspace_id.replace('-', "_")
@@ -1664,7 +1678,7 @@ async fn fork_all_datatables(
             name,
             name,
             &new_db_name,
-            false, // schema only
+            include_data,
         )
         .await
         {
@@ -3889,7 +3903,14 @@ async fn create_workspace_fork(
     tx.commit().await?;
 
     // Fork datatables after the transaction commits (creates external databases)
-    if let Err(e) = fork_all_datatables(&db, &parent_workspace_id, &forked_id).await {
+    if let Err(e) = fork_all_datatables(
+        &db,
+        &parent_workspace_id,
+        &forked_id,
+        &nw.datatable_behaviors,
+    )
+    .await
+    {
         tracing::error!(
             "Failed to fork datatables for workspace '{}': {}",
             &forked_id,
