@@ -1620,6 +1620,15 @@ waitForApproval(options?: { timeout?: number; form?: object; }): PromiseLike<{ v
 async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: { concurrency?: number },): Promise<R[]>
 
 /**
+ * Commit Kafka offsets for a trigger with auto_commit disabled.
+ * @param triggerPath - Path to the Kafka trigger (from event.wm_trigger.trigger_path)
+ * @param topic - Kafka topic name (from event.topic)
+ * @param partition - Partition number (from event.partition)
+ * @param offset - Message offset to commit (from event.offset)
+ */
+async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, offset: number,): Promise<void>
+
+/**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
  * @returns SQL template function for building parameterized queries
@@ -2320,4 +2329,13 @@ async def wait_for_approval(timeout: int = 1800, form: dict | None = None) -> di
 # 
 #     results = await parallel(items, process, concurrency=5)
 async def parallel(items, fn, concurrency: Optional[int] = None)
+
+# Commit Kafka offsets for a trigger with auto_commit disabled.
+# 
+# Args:
+#     trigger_path: Path to the Kafka trigger (from event['wm_trigger']['trigger_path'])
+#     topic: Kafka topic name (from event['topic'])
+#     partition: Partition number (from event['partition'])
+#     offset: Message offset to commit (from event['offset'])
+def commit_kafka_offsets(trigger_path: str, topic: str, partition: int, offset: int) -> None
 
