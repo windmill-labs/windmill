@@ -109,20 +109,24 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
 }
 
 fn extract_svelte_script(source: &str) -> String {
-    // Find <script ...> ... </script> blocks and extract content
+    // Preserve original line positions: script lines stay at their original line numbers,
+    // non-script lines become empty. Tree-sitter then reports correct line numbers.
     let mut result = String::new();
-    let mut remaining = source;
-    while let Some(start) = remaining.find("<script") {
-        if let Some(tag_end) = remaining[start..].find('>') {
-            let content_start = start + tag_end + 1;
-            if let Some(end) = remaining[content_start..].find("</script>") {
-                result.push_str(&remaining[content_start..content_start + end]);
-                result.push('\n');
-                remaining = &remaining[content_start + end + 9..];
-                continue;
-            }
+    let mut in_script = false;
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if !in_script && trimmed.starts_with("<script") {
+            result.push('\n');
+            in_script = true;
+        } else if in_script && trimmed.starts_with("</script") {
+            result.push('\n');
+            in_script = false;
+        } else if in_script {
+            result.push_str(line);
+            result.push('\n');
+        } else {
+            result.push('\n');
         }
-        break;
     }
     result
 }
@@ -370,11 +374,44 @@ fn extract_ts_symbols(node: Node, source: &str, symbols: &mut Vec<Symbol>, paren
                     }
                 }
             }
+            "method_definition" | "abstract_method_definition"
+            | "abstract_method_signature" | "method_signature" => {
+                if let Some(name) = child_by_field(child, "name", source) {
+                    symbols.push(Symbol {
+                        name,
+                        kind: "method".into(),
+                        line: child.start_position().row + 1,
+                        end_line: child.end_position().row + 1,
+                        signature: Some(signature_up_to_body(child, source)),
+                        parent: parent.map(String::from),
+                    });
+                }
+            }
+            "public_field_definition" => {
+                if let Some(name) = child_by_field(child, "name", source) {
+                    let kind = if let Some(value) = child.child_by_field_name("value") {
+                        match value.kind() {
+                            "arrow_function" | "function_expression" | "function" => "method",
+                            _ => "property",
+                        }
+                    } else {
+                        "property"
+                    };
+                    symbols.push(Symbol {
+                        name,
+                        kind: kind.into(),
+                        line: child.start_position().row + 1,
+                        end_line: child.end_position().row + 1,
+                        signature: Some(signature_up_to_body(child, source)),
+                        parent: parent.map(String::from),
+                    });
+                }
+            }
             "export_statement" | "program" => {
                 extract_ts_symbols(child, source, symbols, parent);
             }
-            "lexical_declaration" => {
-                // const foo = ... or let foo = ...
+            "lexical_declaration" | "variable_declaration" => {
+                // const/let/var foo = ...
                 ts_variable_decl(child, source, symbols, parent);
             }
             _ => {}

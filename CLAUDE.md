@@ -73,6 +73,17 @@ $NAV --root backend callers "X"                           # who calls X?
 $NAV --root backend callees "X"                           # what does X call?
 ```
 
+**Limitations** — syntax-level analysis, no type inference:
+- Import paths are stored literally — `crate::X` and `super::X` pointing to the same type won't be linked
+- Re-export chains (`pub use`) aren't followed — refs through different re-export paths won't connect
+- Trait methods can't be resolved to their trait definition
+- Nested `use` trees (`use foo::{bar::{A, B}, baz::C}`) aren't parsed correctly
+- Glob imports (`use foo::*`) — refs won't show import origin
+- Macro-generated symbols (e.g. `sqlx::FromRow`) — invisible to tree-sitter
+- Single-char identifiers — intentionally filtered out of refs
+- `callees` shows all identifiers in a function body, not just actual calls
+- `import * as ns` namespace imports — member accesses through `ns.X` aren't resolved
+
 ## Core Principles
 
 - **Use `outline`/`body` to explore, then `Read` with offset/limit from the results before editing** — avoid reading full files

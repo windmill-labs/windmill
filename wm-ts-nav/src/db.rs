@@ -222,14 +222,20 @@ impl Db {
 
         if with_caller {
             let query = format!(
-                "SELECT f.path, r.line, r.import_path, s.name, s.kind
-                 FROM refs r
-                 JOIN files f ON r.file_id = f.id
-                 LEFT JOIN symbols s ON s.file_id = r.file_id
-                     AND s.line <= r.line AND r.line <= s.end_line
-                     AND s.kind IN ('function', 'impl', 'class', 'interface', 'method')
-                 WHERE {where_clause}
-                 ORDER BY f.path, r.line
+                "SELECT path, line, import_path, caller_name, caller_kind FROM (
+                     SELECT f.path, r.line, r.import_path, s.name AS caller_name, s.kind AS caller_kind,
+                         ROW_NUMBER() OVER (
+                             PARTITION BY r.file_id, r.line
+                             ORDER BY (s.end_line - s.line) ASC
+                         ) AS rn
+                     FROM refs r
+                     JOIN files f ON r.file_id = f.id
+                     LEFT JOIN symbols s ON s.file_id = r.file_id
+                         AND s.line <= r.line AND r.line <= s.end_line
+                         AND s.kind IN ('function', 'impl', 'class', 'interface', 'method')
+                     WHERE {where_clause}
+                 ) WHERE rn = 1
+                 ORDER BY path, line
                  LIMIT ?2"
             );
             let mut stmt = self.conn.prepare(&query)?;
@@ -271,14 +277,22 @@ impl Db {
 
     pub fn find_callers(&self, name: &str, limit: usize) -> Result<Vec<CallerResult>> {
         let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT s.name, s.kind, s.line, s.end_line, f.path, r.line as ref_line
-             FROM refs r
-             JOIN symbols s ON s.file_id = r.file_id
-                 AND s.line <= r.line AND r.line <= s.end_line
-                 AND s.kind IN ('function', 'impl', 'class', 'interface', 'method')
-             JOIN files f ON r.file_id = f.id
-             WHERE r.name = ?1
-             ORDER BY f.path, s.line
+            "SELECT caller_name, caller_kind, caller_line, caller_end_line, path, ref_line FROM (
+                 SELECT s.name AS caller_name, s.kind AS caller_kind,
+                     s.line AS caller_line, s.end_line AS caller_end_line,
+                     f.path, r.line AS ref_line,
+                     ROW_NUMBER() OVER (
+                         PARTITION BY r.file_id, r.line
+                         ORDER BY (s.end_line - s.line) ASC
+                     ) AS rn
+                 FROM refs r
+                 JOIN symbols s ON s.file_id = r.file_id
+                     AND s.line <= r.line AND r.line <= s.end_line
+                     AND s.kind IN ('function', 'impl', 'class', 'interface', 'method')
+                 JOIN files f ON r.file_id = f.id
+                 WHERE r.name = ?1
+             ) WHERE rn = 1
+             ORDER BY path, caller_line
              LIMIT ?2",
         )?;
         let rows = stmt
