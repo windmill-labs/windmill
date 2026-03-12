@@ -1,11 +1,9 @@
 <script lang="ts" module>
 	export let openedDrawers: { val: string[] } = $state({ val: [] })
 
-	// Tracks the number of open disposables that requested a raised z-index
-	// base via minZIndex. While refcount > 0, all disposables use the raised
-	// base so that overlays opened on top (e.g. a Drawer from inside a Modal)
-	// stack correctly above it.
-	let minZIndexRefCount = 0
+	// When a disposable with minZIndex is open, all disposables use that as
+	// their z-index base so that overlays opened on top (e.g. a Drawer from
+	// inside a Modal) stack correctly above it.
 	let activeMinZIndex = $state(0)
 </script>
 
@@ -58,8 +56,7 @@
 		openedDrawers.val.push(id)
 		offset = initialOffset + openedDrawers.val.length
 		if (minZIndex > 0) {
-			minZIndexRefCount++
-			activeMinZIndex = Math.max(activeMinZIndex, minZIndex)
+			activeMinZIndex = minZIndex
 		}
 	}
 
@@ -69,10 +66,7 @@
 		if (openedDrawers.val.includes(id)) {
 			openedDrawers.val = openedDrawers.val.filter((drawer) => drawer !== id)
 			if (minZIndex > 0) {
-				minZIndexRefCount = Math.max(0, minZIndexRefCount - 1)
-				if (minZIndexRefCount === 0) {
-					activeMinZIndex = 0
-				}
+				activeMinZIndex = 0
 			}
 		}
 	}
@@ -113,8 +107,7 @@
 		openedDrawers.val.push(untrack(() => id))
 		offset = untrack(() => initialOffset) + openedDrawers.val.length
 		if (minZIndex > 0) {
-			minZIndexRefCount++
-			activeMinZIndex = Math.max(activeMinZIndex, minZIndex)
+			activeMinZIndex = minZIndex
 		}
 	}
 
