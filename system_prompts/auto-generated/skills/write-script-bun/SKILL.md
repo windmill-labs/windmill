@@ -5,9 +5,11 @@ description: MUST use when writing Bun/TypeScript scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - `wmill script generate-metadata` - Generate .script.yaml and .lock files
 - `wmill sync push` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use `wmill resource-type list --schema` to discover available resource types.
 

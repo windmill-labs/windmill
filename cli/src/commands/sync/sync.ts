@@ -592,14 +592,35 @@ function ZipFSElement(
             }
             let inlineScripts;
             try {
+              const assigner = newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() });
               inlineScripts = extractInlineScriptsForFlows(
                 flow.value.modules as any,
                 {},
                 SEP,
                 defaultTs,
-                undefined, // pathAssigner - let it create one
+                assigner,
                 { skipInlineScriptSuffix: getNonDottedPaths() },
               );
+              if (flow.value.failure_module) {
+                inlineScripts.push(...extractInlineScriptsForFlows(
+                  [flow.value.failure_module],
+                  {},
+                  SEP,
+                  defaultTs,
+                  assigner,
+                  { skipInlineScriptSuffix: getNonDottedPaths() },
+                ));
+              }
+              if (flow.value.preprocessor_module) {
+                inlineScripts.push(...extractInlineScriptsForFlows(
+                  [flow.value.preprocessor_module],
+                  {},
+                  SEP,
+                  defaultTs,
+                  assigner,
+                  { skipInlineScriptSuffix: getNonDottedPaths() },
+                ));
+              }
             } catch (error) {
               log.error(
                 `Failed to extract inline scripts for flow at path: ${p}`,
