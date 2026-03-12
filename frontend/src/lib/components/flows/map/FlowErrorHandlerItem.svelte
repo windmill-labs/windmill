@@ -60,6 +60,8 @@
 		selectionManager.selectId('failure')
 		refreshStateStore(flowStore)
 	}
+
+	const smallFailureModule = $derived(!(failureModuleId && diffManager && moduleAction) && compact)
 </script>
 
 {#if flowStore.val?.value?.failure_module}
@@ -72,7 +74,6 @@
 			wrapperClasses={compact ? '' : twMerge('min-w-36', small ? 'max-w-52' : 'max-w-64')}
 			id="flow-editor-error-handler"
 			selected={selectionManager.getSelectedId()?.includes('failure')}
-			iconOnly={compact}
 			onClick={() => {
 				if (flowStore.val?.value?.failure_module) {
 					selectionManager.selectId('failure')
@@ -90,8 +91,7 @@
 				/>
 			{/if}
 			<Bug size={14} class="shrink-0" />
-
-			{#if !compact}
+			{#if !smallFailureModule}
 				<div class="truncate grow min-w-0 text-center text-xs">
 					{flowStore.val.value.failure_module?.summary ||
 						(flowStore.val.value.failure_module?.value.type === 'rawscript'
