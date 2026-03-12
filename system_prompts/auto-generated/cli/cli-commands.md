@@ -2,8 +2,6 @@
 
 The Windmill CLI (`wmill`) provides commands for managing scripts, flows, apps, and other resources.
 
-Current version: 1.651.1
-
 ## Global Options
 
 - `--workspace <workspace:string>` - Specify the target workspace. This overrides the default workspace.

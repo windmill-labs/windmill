@@ -9,6 +9,7 @@ import {
   MetricsService,
   OidcService,
   UserService,
+  KafkaTriggerService,
 } from "./services.gen";
 import { OpenAPI } from "./core/OpenAPI";
 // import type { DenoS3LightClientSettings } from "./index";
@@ -1864,5 +1865,26 @@ export async function parallel<T, R>(
     results.push(...batchResults);
   }
   return results;
+}
+
+/**
+ * Commit Kafka offsets for a trigger with auto_commit disabled.
+ * @param triggerPath - Path to the Kafka trigger (from event.wm_trigger.trigger_path)
+ * @param topic - Kafka topic name (from event.topic)
+ * @param partition - Partition number (from event.partition)
+ * @param offset - Message offset to commit (from event.offset)
+ */
+export async function commitKafkaOffsets(
+  triggerPath: string,
+  topic: string,
+  partition: number,
+  offset: number,
+): Promise<void> {
+  const workspace = getWorkspace();
+  await KafkaTriggerService.commitKafkaOffsets({
+    workspace,
+    path: triggerPath,
+    requestBody: { topic, partition, offset },
+  });
 }
 

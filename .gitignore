@@ -27,3 +27,4 @@ typescript-client/node_modules
 frontend/.svelte-kit
 backend/chrome_profiler.json
 .fast-check/
+__pycache__/

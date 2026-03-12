@@ -5,9 +5,11 @@ description: MUST use when writing Python scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - `wmill script generate-metadata` - Generate .script.yaml and .lock files
 - `wmill sync push` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use `wmill resource-type list --schema` to discover available resource types.
 
@@ -801,4 +803,13 @@ async def wait_for_approval(timeout: int = 1800, form: dict | None = None) -> di
 # 
 #     results = await parallel(items, process, concurrency=5)
 async def parallel(items, fn, concurrency: Optional[int] = None)
+
+# Commit Kafka offsets for a trigger with auto_commit disabled.
+# 
+# Args:
+#     trigger_path: Path to the Kafka trigger (from event['wm_trigger']['trigger_path'])
+#     topic: Kafka topic name (from event['topic'])
+#     partition: Partition number (from event['partition'])
+#     offset: Message offset to commit (from event['offset'])
+def commit_kafka_offsets(trigger_path: str, topic: str, partition: int, offset: int) -> None
 
