@@ -110,8 +110,7 @@ export class GroupEditor {
 	 */
 	createGroup(
 		moduleIds: string[],
-		flowNodes: { id: string; parentIds?: string[] }[],
-		containerDescendants: Map<string, string[]>
+		flowNodes: { id: string; parentIds?: string[] }[]
 	): string | undefined {
 		// Filter subflow node IDs (same logic as NoteEditor.createGroupNote)
 		let filteredIds = [...moduleIds]
@@ -129,7 +128,7 @@ export class GroupEditor {
 			filteredIds = [...filteredIds, ...subflowIds]
 		}
 
-		const result = canFormValidGroup(filteredIds, flowNodes, containerDescendants)
+		const result = canFormValidGroup(filteredIds, flowNodes)
 		if (!result.valid) return undefined
 
 		const groups = this.getGroups()

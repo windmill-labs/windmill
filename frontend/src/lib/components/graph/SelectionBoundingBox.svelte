@@ -60,15 +60,13 @@
 	let canCreateGroup = $derived.by(() => {
 		if (selectedNodes.length < 1 || !groupEditorContext?.groupEditor || !graphContext) return false
 		const flowNodes = graphContext.getFlowNodes?.() ?? []
-		const contDesc = graphContext.getContainerDescendants?.() ?? new Map()
-		return canFormValidGroup(selectedNodes, flowNodes, contDesc).valid
+		return canFormValidGroup(selectedNodes, flowNodes).valid
 	})
 
 	function handleAddGroup() {
 		if (selectedNodes.length > 0 && groupEditorContext?.groupEditor && graphContext) {
 			const flowNodes = graphContext.getFlowNodes?.() ?? []
-			const contDesc = graphContext.getContainerDescendants?.() ?? new Map()
-			groupEditorContext.groupEditor.createGroup(selectedNodes, flowNodes, contDesc)
+			groupEditorContext.groupEditor.createGroup(selectedNodes, flowNodes)
 
 			tick().then(() => {
 				graphContext?.clearFlowSelection?.()

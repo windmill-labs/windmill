@@ -25,8 +25,7 @@
 	let canCreateGroup = $derived.by(() => {
 		if (selectedNodeIds.length < 1 || !groupEditorContext?.groupEditor || !graphContext) return false
 		const flowNodes = graphContext.getFlowNodes?.() ?? []
-		const contDesc = graphContext.getContainerDescendants?.() ?? new Map()
-		return canFormValidGroup(selectedNodeIds, flowNodes, contDesc).valid
+		return canFormValidGroup(selectedNodeIds, flowNodes).valid
 	})
 
 	const menuItems: ContextMenuItem[] = $derived([
@@ -38,8 +37,7 @@
 			onClick: () => {
 				if (selectedNodeIds.length > 0 && groupEditorContext?.groupEditor && graphContext) {
 					const flowNodes = graphContext.getFlowNodes?.() ?? []
-					const contDesc = graphContext.getContainerDescendants?.() ?? new Map()
-					groupEditorContext.groupEditor.createGroup(selectedNodeIds, flowNodes, contDesc)
+					groupEditorContext.groupEditor.createGroup(selectedNodeIds, flowNodes)
 
 					tick().then(() => {
 						graphContext?.clearFlowSelection?.()

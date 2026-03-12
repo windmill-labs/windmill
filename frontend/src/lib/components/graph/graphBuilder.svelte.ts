@@ -414,6 +414,7 @@ export function graphBuilder(
 		start_id: string
 		end_id: string
 		memberIds: string[]
+		moduleIds: string[]
 	}>,
 	collapsedContainers: Set<string>,
 	showNotes: boolean
@@ -436,7 +437,7 @@ export function graphBuilder(
 		// Build a map: module_id -> collapsed group (only for collapsed groups)
 		const moduleToCollapsedGroup = new Map<string, (typeof collapsedGroups)[number]>()
 		for (const group of collapsedGroups) {
-			for (const moduleId of group.memberIds) {
+			for (const moduleId of group.moduleIds) {
 				moduleToCollapsedGroup.set(moduleId, group)
 			}
 		}
@@ -699,8 +700,8 @@ export function graphBuilder(
 								summary: collapsedGroup.summary,
 								note: collapsedGroup.note,
 								color: collapsedGroup.color,
-								stepCount: collapsedGroup.memberIds.length,
-								modules: collapsedGroup.memberIds
+								stepCount: collapsedGroup.moduleIds.length,
+								modules: collapsedGroup.moduleIds
 									.map((id) => getAllModules(modules).find((m) => m.id === id))
 									.filter((m): m is FlowModule => m != null),
 								showNotes,

@@ -17,8 +17,6 @@ export type GraphContext = {
 	diffManager: FlowDiffManager
 	/** Current flow nodes for group validation (set by FlowGraphV2) */
 	getFlowNodes?: () => { id: string; parentIds?: string[] }[]
-	/** Current container descendants map (set by FlowGraphV2) */
-	getContainerDescendants?: () => Map<string, string[]>
 	/** Current group memberships (set by FlowGraphV2) */
 	getGroupMemberships?: () => Map<string, GroupMembership>
 }

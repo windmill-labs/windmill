@@ -69,7 +69,12 @@
 		GROUP_TOP_MARGIN,
 		type FlowGroup
 	} from './groupEditor.svelte'
-	import { computeGroupMembers, type GroupMembership } from './groupDetectionUtils'
+	import {
+		computeGroupNodeIds,
+		computeGroupModuleIds,
+		type GroupMembership
+	} from './groupDetectionUtils'
+	import { getAllModules } from '../flows/flowExplorer'
 	import SelectionTool from './SelectionTool.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
@@ -333,7 +338,6 @@
 		yOffset,
 		diffManager,
 		getFlowNodes: () => currentGraphNodeDeps,
-		getContainerDescendants: () => currentContainerDescendants,
 		getGroupMemberships: () => currentGroupMemberships
 	} as any)
 
@@ -374,7 +378,6 @@
 	let lastNodes:
 		| [NodeDep[], Map<string, { top: number; bottom: number }> | undefined, (NodeDep & NodePos)[]]
 		| undefined = undefined
-	let currentContainerDescendants: Map<string, string[]> = $state(new Map())
 	let currentGraphNodeDeps: { id: string; parentIds?: string[] }[] = $state([])
 
 	/** Compute group memberships from start_id/end_id for a given set of flow nodes.
@@ -382,8 +385,7 @@
 	 *  aren't in the graph — they've been replaced by a placeholder). */
 	function computeAllGroupMemberships(
 		groups: FlowGroup[],
-		flowNodes: { id: string; parentIds?: string[] }[],
-		contDescendants: Map<string, string[]>
+		flowNodes: { id: string; parentIds?: string[] }[]
 	): Map<string, GroupMembership> {
 		const map = new Map<string, GroupMembership>()
 		for (const group of groups) {
@@ -394,13 +396,13 @@
 			}
 			map.set(
 				group.id,
-				computeGroupMembers(group.start_id, group.end_id, flowNodes, contDescendants)
+				computeGroupNodeIds(group.start_id, group.end_id, flowNodes)
 			)
 		}
 		return map
 	}
 
-	// Current group memberships — recomputed when groups, nodes, or containerDescendants change
+	// Current group memberships — recomputed when groups or nodes change
 	let currentGroupMemberships: Map<string, GroupMembership> = $state(new Map())
 
 	const MAX_TOOLS_PER_ROW = 2
@@ -566,11 +568,7 @@
 		}
 
 		// Run recursive compound layout with pre-computed extra space
-		const {
-			positions,
-			bbox,
-			containerDescendants: layoutContainerDescendants
-		} = compoundLayout(
+		const { positions, bbox } = compoundLayout(
 			nodes,
 			{
 				nodeWidth: NODE.width,
@@ -591,7 +589,6 @@
 			}
 		}))
 
-		currentContainerDescendants = layoutContainerDescendants ?? new Map()
 		lastNodes = [nodes, nodeExtraSpace, newNodes]
 		return newNodes
 	}
@@ -831,8 +828,7 @@
 		// Compute group memberships from start_id/end_id
 		currentGroupMemberships = computeAllGroupMemberships(
 			groupEditorContext?.groupEditor.getGroups() ?? [],
-			graphNodeDeps,
-			currentContainerDescendants
+			graphNodeDeps
 		)
 
 		// Pre-compute extra space per node for assets, AI tools, group notes, group headers
@@ -1038,7 +1034,14 @@
 		const collapsedGroups = (groupEditorContext?.groupEditor.getCollapsedGroups() ?? []).map(
 			(g) => ({
 				...g,
-				memberIds: untrack(() => currentGroupMemberships.get(g.id)?.memberIds ?? [])
+				memberIds: untrack(() => currentGroupMemberships.get(g.id)?.memberIds ?? []),
+				moduleIds: untrack(() =>
+					computeGroupModuleIds(
+						g.start_id,
+						g.end_id,
+						getAllModules(effectiveModules ?? [])
+					)
+				)
 			})
 		)
 

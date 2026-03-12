@@ -1,5 +1,4 @@
 import { topologicalSort } from './graphBuilder.svelte'
-import { expandWithContainerDescendants } from './util'
 
 type FlowNode = { id: string; parentIds?: string[] }
 
@@ -10,79 +9,79 @@ export type GroupMembership = {
 }
 
 /**
- * Compute the set of nodes that belong to a group defined by start_id and end_id.
- *
- * Algorithm:
- * 1. Build a childrenMap from parentIds
- * 2. Walk forward from start_id collecting all reachable nodes (stop at end_id, don't go past)
- * 3. Expand with containerDescendants
+ * Compute the set of graph nodes that belong to a group defined by start_id and end_id.
+ * Uses topological sort and slices between start and end — valid because windmill flows
+ * are series-parallel (branches always converge at explicit end nodes).
  */
-export function computeGroupMembers(
+export function computeGroupNodeIds(
 	startId: string,
 	endId: string,
-	flowNodes: FlowNode[],
-	containerDescendants: Map<string, string[]>
+	flowNodes: FlowNode[]
 ): GroupMembership {
-	const nodeMap = new Map<string, FlowNode>()
-	for (const n of flowNodes) nodeMap.set(n.id, n)
+	if (startId === endId) {
+		const exists = flowNodes.some((n) => n.id === startId)
+		return exists
+			? { memberIds: [startId], valid: true }
+			: { memberIds: [], valid: false, error: 'Start node not found' }
+	}
 
-	if (!nodeMap.has(startId) || !nodeMap.has(endId)) {
+	const sorted = topologicalSort(flowNodes)
+	// Topo sort puts bottom-of-graph nodes first, top-of-graph nodes last.
+	// start_id = top of group (visually) = topo-last, end_id = bottom (visually) = topo-first.
+	const endIdx = sorted.findIndex((n) => n.id === endId)
+
+	// If end_id is a container (branchall, forloop, etc.), its last graph node
+	// is `${endId}-end`. Use that as the actual start of the slice.
+	const endNodeId = sorted.some((n) => n.id === `${endId}-end`) ? `${endId}-end` : endId
+	const firstIdx = endNodeId === endId ? endIdx : sorted.findIndex((n) => n.id === endNodeId)
+
+	const lastIdx = sorted.findIndex((n) => n.id === startId)
+
+	if (firstIdx === -1 || lastIdx === -1) {
 		return { memberIds: [], valid: false, error: 'Start or end node not found' }
 	}
+	if (firstIdx > lastIdx) {
+		return { memberIds: [], valid: false, error: 'end_id must be topologically before start_id' }
+	}
 
-	// Single node group
+	return {
+		memberIds: sorted.slice(firstIdx, lastIdx + 1).map((n) => n.id),
+		valid: true
+	}
+}
+
+/**
+ * Compute the set of module IDs that belong to a group defined by start_id and end_id.
+ * Uses the flattened module list (from getAllModules) and slices between start and end.
+ * Used for collapsed group icons, step count, and moduleToCollapsedGroup mapping.
+ */
+export function computeGroupModuleIds(
+	startId: string,
+	endId: string,
+	allModules: { id: string }[]
+): string[] {
 	if (startId === endId) {
-		const members = expandWithContainerDescendants([startId], containerDescendants)
-		return { memberIds: members, valid: true }
+		return allModules.some((m) => m.id === startId) ? [startId] : []
 	}
 
-	// Build children map (node → children that list it as parent)
-	const childrenMap = new Map<string, string[]>()
-	for (const node of flowNodes) {
-		for (const pid of node.parentIds ?? []) {
-			const children = childrenMap.get(pid)
-			if (children) {
-				children.push(node.id)
-			} else {
-				childrenMap.set(pid, [node.id])
-			}
-		}
+	const startIdx = allModules.findIndex((m) => m.id === startId)
+	const endIdx = allModules.findIndex((m) => m.id === endId)
+
+	if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) {
+		return []
 	}
 
-	// Forward walk from start_id: collect all nodes reachable without going past end_id
-	const reachable = new Set<string>()
-	const queue = [startId]
-	reachable.add(startId)
-	let qi = 0
-	while (qi < queue.length) {
-		const current = queue[qi++]
-		if (current === endId) continue // don't go past end
-		for (const child of childrenMap.get(current) ?? []) {
-			if (!reachable.has(child)) {
-				reachable.add(child)
-				queue.push(child)
-			}
-		}
-	}
-
-	if (!reachable.has(endId)) {
-		return { memberIds: [], valid: false, error: 'End node is not reachable from start node' }
-	}
-
-	// Expand with container descendants
-	const members = expandWithContainerDescendants(Array.from(reachable), containerDescendants)
-	return { memberIds: members, valid: true }
+	return allModules.slice(startIdx, endIdx + 1).map((m) => m.id)
 }
 
 /**
  * Check whether a set of selected node IDs can form a valid group.
  * Uses topologicalSort to find start (first) and end (last) of selection,
- * then validates with computeGroupMembers.
+ * then validates with computeGroupNodeIds.
  */
 export function canFormValidGroup(
 	selectedIds: string[],
-	flowNodes: FlowNode[],
-	containerDescendants: Map<string, string[]>
+	flowNodes: FlowNode[]
 ): { valid: true; startId: string; endId: string } | { valid: false } {
 	if (selectedIds.length === 0) return { valid: false }
 
@@ -94,11 +93,13 @@ export function canFormValidGroup(
 
 	if (selectedSorted.length === 0) return { valid: false }
 
-	const startId = selectedSorted[0].id
-	const endId = selectedSorted[selectedSorted.length - 1].id
+	// Topo sort: index 0 = bottom of flow, last index = top of flow
+	// start_id = top (visually), end_id = bottom (visually)
+	const startId = selectedSorted[selectedSorted.length - 1].id
+	const endId = selectedSorted[0].id
 
 	// Validate that the computed members match the selection
-	const membership = computeGroupMembers(startId, endId, flowNodes, containerDescendants)
+	const membership = computeGroupNodeIds(startId, endId, flowNodes)
 	if (!membership.valid) return { valid: false }
 
 	// Check that all selected ids are in the computed members
