@@ -47,7 +47,6 @@ use crate::{
     },
     common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
     handle_child::run_future_with_polling_update_job_poller,
-    JobCompletedSender,
 };
 
 lazy_static::lazy_static! {
@@ -79,10 +78,56 @@ lazy_static::lazy_static! {
             })
             .unwrap_or_default()
     };
+
+    static ref AI_AGENT_TOOL_SCHEMA: Box<RawValue> = to_raw_value(&serde_json::json!({
+        "type": "object",
+        "properties": {
+            "user_message": { "type": "string" },
+        },
+        "required": ["user_message"],
+        "additionalProperties": false,
+    }));
 }
 
 const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
 const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
+
+fn find_module_by_id(
+    modules: &Vec<FlowModule>,
+    target_id: &str,
+) -> Result<Option<FlowModule>, Error> {
+    let mut found: Option<FlowModule> = None;
+    FlowModule::traverse_modules(modules, &mut |module| {
+        if found.is_none() && module.id == target_id {
+            found = Some(module.clone());
+        }
+        Ok(())
+    })
+    .map_err(|e| Error::internal_err(format!("Failed to traverse flow modules: {e}")))?;
+    Ok(found)
+}
+
+fn find_ai_agent_tool_module_in_parent_agent(
+    modules: &Vec<FlowModule>,
+    parent_agent_step_id: &str,
+    tool_module_id: &str,
+) -> Result<Option<FlowModule>, Error> {
+    let Some(parent_agent_module) = find_module_by_id(modules, parent_agent_step_id)? else {
+        return Ok(None);
+    };
+
+    let FlowModuleValue::AIAgent { tools, .. } = parent_agent_module.get_value()? else {
+        return Ok(None);
+    };
+
+    for tool in tools {
+        if tool.id == tool_module_id {
+            return Ok(Option::<FlowModule>::from(&tool));
+        }
+    }
+
+    Ok(None)
+}
 
 pub async fn handle_ai_agent_job(
     // connection
@@ -97,7 +142,6 @@ pub async fn handle_ai_agent_job(
     canceled_by: &mut Option<CanceledBy>,
     mem_peak: &mut i32,
     occupancy_metrics: &mut OccupancyMetrics,
-    job_completed_tx: &JobCompletedSender,
     worker_dir: &str,
     base_internal_url: &str,
     worker_name: &str,
@@ -117,26 +161,57 @@ pub async fn handle_ai_agent_job(
         return handle_credentials_check(&args.provider).await;
     }
 
-    let Some(flow_step_id) = &job.flow_step_id else {
-        return Err(Error::internal_err(
-            "AI agent job has no flow step id".to_string(),
-        ));
-    };
+    // flow_step_id is set by the flow executor for top-level AI agents.
+    // For nested AI agent tools, it's not set (to avoid triggering flow step
+    // machinery on a parent that has no v2_job_status row), so we extract the
+    // tool module ID from the runnable_path which has the form ".../tools/{id}".
+    let flow_step_id = job
+        .flow_step_id
+        .as_deref()
+        .or_else(|| job.runnable_path().rsplit_once("/tools/").map(|(_, id)| id))
+        .ok_or_else(|| Error::internal_err("AI agent job has no flow step id".to_string()))?
+        .to_string();
+    let flow_step_id = &flow_step_id;
 
-    let Some(parent_job) = &job.parent_job else {
+    let Some(immediate_parent_job) = &job.parent_job else {
         return Err(Error::internal_err(
             "AI agent job has no parent job".to_string(),
         ));
     };
 
-    let flow_job = get_flow_job_runnable_and_raw_flow(db, &parent_job).await?;
+    let mut flow_job_id = *immediate_parent_job;
+    let mut flow_job = get_flow_job_runnable_and_raw_flow(db, &flow_job_id).await?;
+    let direct_parent_job_kind = flow_job.kind;
+    let direct_parent_job_flow_step_id = flow_job.flow_step_id.clone();
+
+    // If the direct parent is an AI agent (nested tool case), go one level up to the flow.
+    if flow_job.kind == JobKind::AIAgent {
+        let Some(parent_job_id) = flow_job.parent_job else {
+            return Err(Error::internal_err(
+                "AI agent parent has no parent job".to_string(),
+            ));
+        };
+        flow_job_id = parent_job_id;
+        flow_job = get_flow_job_runnable_and_raw_flow(db, &flow_job_id).await?;
+
+        if !matches!(
+            flow_job.kind,
+            JobKind::Flow | JobKind::FlowNode | JobKind::FlowPreview
+        ) {
+            return Err(Error::internal_err(
+                "AI agent nesting beyond 2 levels is not supported. \
+                 Only flow → agent → nested agent tool is allowed."
+                    .to_string(),
+            ));
+        }
+    }
 
     let flow_data = match flow_job.kind {
         JobKind::Flow | JobKind::FlowNode => {
             cache::job::fetch_flow(db, &flow_job.kind, flow_job.runnable_id).await?
         }
         JobKind::FlowPreview => {
-            cache::job::fetch_preview_flow(db, &parent_job, flow_job.raw_flow).await?
+            cache::job::fetch_preview_flow(db, &flow_job_id, flow_job.raw_flow).await?
         }
         _ => {
             return Err(Error::internal_err(
@@ -147,14 +222,26 @@ pub async fn handle_ai_agent_job(
 
     let value = flow_data.value();
 
-    let module = value.modules.iter().find(|m| m.id == *flow_step_id);
-    let summary = module.as_ref().and_then(|m| m.summary.clone());
+    let module = if direct_parent_job_kind == JobKind::AIAgent {
+        let parent_agent_step_id = direct_parent_job_flow_step_id.as_deref().ok_or_else(|| {
+            Error::internal_err("Parent AI agent job has no flow_step_id".to_string())
+        })?;
+        find_ai_agent_tool_module_in_parent_agent(
+            &value.modules,
+            parent_agent_step_id,
+            flow_step_id,
+        )?
+    } else {
+        find_module_by_id(&value.modules, flow_step_id)?
+    };
 
     let Some(module) = module else {
         return Err(Error::internal_err(
             "AI agent module not found in flow".to_string(),
         ));
     };
+
+    let summary = module.summary.clone();
 
     let FlowModuleValue::AIAgent { tools, .. } = module.get_value()? else {
         return Err(Error::internal_err(
@@ -285,6 +372,16 @@ pub async fn handle_ai_agent_job(
                     let schema = Some(parse_raw_script_schema(&content, &language)?);
                     (schema, input_transforms)
                 }
+                FlowModuleValue::AIAgent { input_transforms, .. } => {
+                    // By convention for AIAgent tools, only user_message is expected to be AI-filled.
+                    (
+                        Some(
+                            RawValue::from_string(AI_AGENT_TOOL_SCHEMA.get().to_string())
+                                .expect("AI_AGENT_TOOL_SCHEMA should always be valid JSON"),
+                        ),
+                        input_transforms,
+                    )
+                }
                 _ => {
                     return Err(Error::internal_err(format!(
                         "Unsupported tool: {}",
@@ -342,18 +439,24 @@ pub async fn handle_ai_agent_job(
         stream_notifier.update_flow_status_with_stream_job();
     }
 
+    let flow_status_job = if direct_parent_job_kind == JobKind::AIAgent {
+        None
+    } else {
+        Some(flow_job_id)
+    };
+
     let agent_fut = run_agent(
         db,
         conn,
         job,
-        parent_job,
+        flow_status_job.as_ref(),
+        Some(flow_step_id.as_str()),
         &args,
         &tools,
         &mcp_clients,
         summary.as_deref(),
         client,
         &mut inner_occupancy_metrics,
-        job_completed_tx,
         worker_dir,
         base_internal_url,
         worker_name,
@@ -391,7 +494,8 @@ pub async fn run_agent(
 
     // agent job and flow data
     job: &MiniPulledJob,
-    parent_job: &Uuid,
+    parent_job: Option<&Uuid>,
+    flow_step_id_override: Option<&str>,
     args: &AIAgentArgs,
     tools: &[Tool],
     mcp_clients: &HashMap<String, Arc<McpClient>>,
@@ -400,7 +504,6 @@ pub async fn run_agent(
     // job execution context
     client: &AuthedClient,
     occupancy_metrics: &mut OccupancyMetrics,
-    job_completed_tx: &JobCompletedSender,
     worker_dir: &str,
     base_internal_url: &str,
     worker_name: &str,
@@ -432,6 +535,10 @@ pub async fn run_agent(
         } else {
             vec![]
         };
+
+    // Effective flow_step_id: override for nested agents, otherwise from job
+    let effective_flow_step_id: Option<&str> =
+        flow_step_id_override.or(job.flow_step_id.as_deref());
 
     // Fetch flow context for input transforms context, chat and memory
     let mut flow_context = get_flow_context(db, job).await;
@@ -479,7 +586,7 @@ pub async fn run_agent(
             }
             Some(Memory::Auto { context_length, .. }) => {
                 // Auto mode: load from memory
-                if let Some(step_id) = job.flow_step_id.as_deref() {
+                if let Some(step_id) = effective_flow_step_id {
                     if let Some(memory_id) = memory_id {
                         // Read messages from memory
                         match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
@@ -534,9 +641,8 @@ pub async fn run_agent(
     let id_context = {
         if let Some(ref flow_status) = flow_context.flow_status {
             // Get the step ID from the AI agent's flow step
-            let previous_id = job
-                .flow_step_id
-                .clone()
+            let previous_id = effective_flow_step_id
+                .map(str::to_string)
                 .unwrap_or_else(|| "unknown".to_string());
 
             Some(get_transform_context(job, &previous_id, flow_status))
@@ -649,7 +755,7 @@ pub async fn run_agent(
         .and_then(|fs| fs.chat_input_enabled)
         .unwrap_or(false);
 
-    let step_name = get_step_name_from_flow(summary.as_deref(), job.flow_step_id.as_deref());
+    let step_name = get_step_name_from_flow(summary.as_deref(), effective_flow_step_id);
 
     let max_iterations = args
         .max_iterations
@@ -881,8 +987,11 @@ pub async fn run_agent(
                         ..Default::default()
                     });
 
-                    update_flow_status_module_with_actions(db, parent_job, &actions).await?;
-                    update_flow_status_module_with_actions_success(db, parent_job, true).await?;
+                    if let Some(parent_job) = parent_job {
+                        update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+                        update_flow_status_module_with_actions_success(db, parent_job, true)
+                            .await?;
+                    }
 
                     content = Some(OpenAIContent::Text(response_content.clone()));
 
@@ -940,13 +1049,13 @@ pub async fn run_agent(
                     job,
                     parent_job,
                     summary: &summary,
+                    flow_step_id_override,
                     client,
                     worker_dir,
                     base_internal_url,
                     worker_name,
                     hostname,
                     occupancy_metrics,
-                    job_completed_tx,
                     killpill_rx,
                     stream_event_processor: stream_event_processor.as_ref(),
                     flow_context: &mut flow_context,
@@ -1071,7 +1180,7 @@ pub async fn run_agent(
     // final_messages contains the complete history (old messages + new ones)
     if matches!(output_type, OutputType::Text) && !use_manual_messages {
         if let Some(Memory::Auto { context_length, .. }) = &args.memory {
-            if let Some(step_id) = job.flow_step_id.as_deref() {
+            if let Some(step_id) = effective_flow_step_id {
                 // Extract OpenAIMessages from final_messages
                 let all_messages: Vec<OpenAIMessage> =
                     final_messages.iter().map(|m| m.message.clone()).collect();

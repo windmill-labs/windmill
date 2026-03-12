@@ -44,24 +44,33 @@ csharp-parser = [ "dep:windmill-parser-csharp"]
 nu-parser = [ "dep:windmill-parser-nu"]
 java-parser = [ "dep:windmill-parser-java"]
 ruby-parser = [ "dep:windmill-parser-ruby"]
+wac-parser = [ "dep:windmill-parser-wac"]
+asset-parser = [ "dep:windmill-parser-ts-asset", "dep:windmill-parser-py-asset", "dep:windmill-parser-sql-asset"]
 
 [dependencies]
-anyhow = "1"
-windmill-parser = { path = "../windmill-parser" }
-windmill-parser-go = { path = "../windmill-parser-go", optional = true }
-windmill-parser-bash = { path = "../windmill-parser-bash", optional = true }
-windmill-parser-sql = { path = "../windmill-parser-sql", optional = true }
-windmill-parser-py = { path = "../windmill-parser-py", optional = true }
-windmill-parser-ts = { path = "../windmill-parser-ts", optional = true }
-windmill-parser-php = { path = "../windmill-parser-php", optional = true }
-windmill-parser-graphql = { path = "../windmill-parser-graphql", optional = true }
-windmill-parser-rust = { path = "../windmill-parser-rust", optional = true }
-windmill-parser-yaml = { path = "../windmill-parser-yaml", optional = true }
-windmill-parser-csharp = { path = "../windmill-parser-csharp", optional = true }
-windmill-parser-nu = { path = "../windmill-parser-nu", optional = true }
-windmill-parser-java = { path = "../windmill-parser-java", optional = true }
-windmill-parser-ruby = { path = "../windmill-parser-ruby", optional = true }
-wasm-bindgen = "0.2"
+anyhow.workspace = true
+windmill-parser.workspace = true
+windmill-parser-go = { workspace = true, optional = true }
+windmill-parser-bash = { workspace = true, optional = true }
+windmill-parser-sql = { workspace = true, optional = true }
+windmill-parser-py = { workspace = true, optional = true }
+windmill-parser-ts = { workspace = true, optional = true }
+windmill-parser-php = { workspace = true, optional = true }
+windmill-parser-graphql = { workspace = true, optional = true }
+windmill-parser-rust = { workspace = true, optional = true }
+windmill-parser-yaml = { workspace = true, optional = true }
+windmill-parser-csharp = { workspace = true, optional = true }
+windmill-parser-nu = { workspace = true, optional = true }
+windmill-parser-java = { workspace = true, optional = true }
+windmill-parser-ruby = { workspace = true, optional = true }
+windmill-parser-wac = { workspace = true, optional = true }
+windmill-parser-ts-asset = { workspace = true, optional = true }
+windmill-parser-py-asset = { workspace = true, optional = true }
+windmill-parser-sql-asset = { workspace = true, optional = true }
+wasm-bindgen.workspace = true
 
-serde_json = "1"
-getrandom = { version = "0.2", features = ["js"] }
+serde_json.workspace = true
+getrandom = { workspace = true, features = ["js"] }
+# getrandom 0.3 is pulled in transitively by rand 0.9 (via windmill-types).
+# It requires the "wasm_js" feature to work on wasm32-unknown-unknown.
+getrandom3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }

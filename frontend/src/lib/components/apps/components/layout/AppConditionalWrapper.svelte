@@ -37,12 +37,12 @@
 		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		conditions: [] as boolean[],
 		selectedTabIndex: 0
 	})
 
-	let everRender = $state(render)
+	let everRender = $state(untrack(() => render))
 	$effect.pre(() => {
 		render && !everRender && (everRender = true)
 	})
@@ -54,9 +54,9 @@
 		}
 	}
 
-	let css = $state(initCss($app.css?.conditionalwrapper, customCss))
+	let css = $state(initCss($app.css?.conditionalwrapper, untrack(() => customCss)))
 
-	let resolvedConditions: boolean[] = $state(conditions.map((_x) => false))
+	let resolvedConditions: boolean[] = $state(untrack(() => conditions).map((_x) => false))
 	let selectedConditionIndex = $state(0)
 
 	function handleResolvedConditions() {
@@ -83,7 +83,7 @@
 		resolvedConditions && untrack(() => handleResolvedConditions())
 	})
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setTab: (conditionIndex: number) => {
 			if (conditionIndex === -1) {
 				handleResolvedConditions()

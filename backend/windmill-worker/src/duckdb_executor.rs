@@ -10,8 +10,6 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
-use windmill_types::s3::S3Object;
-use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
@@ -19,8 +17,10 @@ use windmill_common::workspaces::{
     DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
+use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
+use windmill_types::s3::S3Object;
 
 use crate::agent_workers::{get_datatable_resource_from_agent_http, get_ducklake_from_agent_http};
 use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics};
@@ -161,6 +161,22 @@ pub async fn do_duckdb(
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
 
+        if annotations.prepare {
+            let result = tokio::task::spawn_blocking(move || {
+                prepare_duckdb_ffi_safe(
+                    query_block_list.iter().map(String::as_str),
+                    &token,
+                    &base_internal_url,
+                    &w_id,
+                )
+            })
+            .await
+            .map_err(|e| Error::from(to_anyhow(e)))
+            .and_then(|r| r)?;
+
+            return Ok(result);
+        }
+
         let result = tokio::task::spawn_blocking(move || {
             run_duckdb_ffi_safe(
                 query_block_list.iter().map(String::as_str),
@@ -248,6 +264,18 @@ struct DuckDbFfiLib {
             collect_first_row_only: bool,
         ) -> *mut c_char,
     >,
+    prepare_duckdb_ffi: Option<
+        Symbol<
+            'static,
+            unsafe extern "C" fn(
+                query_block_list: *const *const c_char,
+                query_block_list_count: usize,
+                token: *const c_char,
+                base_internal_url: *const c_char,
+                w_id: *const c_char,
+            ) -> *mut c_char,
+        >,
+    >,
     free_cstr: Symbol<'static, unsafe extern "C" fn(string: *mut c_char) -> ()>,
 }
 
@@ -307,8 +335,11 @@ impl DuckDbFfiLib {
             }
         }
 
+        let prepare_duckdb_ffi = unsafe { lib.get(b"prepare_duckdb_ffi").ok() };
+
         Ok(DuckDbFfiLib {
             run_duckdb_ffi: unsafe { lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? },
+            prepare_duckdb_ffi,
             free_cstr: unsafe { lib.get(b"free_cstr").map_err(to_anyhow)? },
         })
     }
@@ -388,6 +419,56 @@ fn run_duckdb_ffi_safe<'a>(
     }
 }
 
+fn prepare_duckdb_ffi_safe<'a>(
+    query_block_list: impl Iterator<Item = &'a str>,
+    token: &str,
+    base_internal_url: &str,
+    w_id: &str,
+) -> Result<Box<RawValue>> {
+    let query_block_list = query_block_list
+        .map(|s| {
+            CString::new(s).map_err(|e| {
+                Error::ExecutionErr(format!("Failed CString conversion: {}", e.to_string()))
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let query_block_list = query_block_list
+        .iter()
+        .map(|s| s.as_ptr())
+        .collect::<Vec<_>>();
+
+    let token = CString::new(token).map_err(to_anyhow)?;
+    let base_internal_url = CString::new(base_internal_url).map_err(to_anyhow)?;
+    let w_id = CString::new(w_id).map_err(to_anyhow)?;
+
+    let lib = DuckDbFfiLib::get_singleton()?;
+    let prepare_fn = lib.prepare_duckdb_ffi.as_ref().ok_or_else(|| {
+        Error::InternalErr(
+            "prepare_duckdb_ffi not available in duckdb ffi library. Please update to the latest windmill_duckdb_ffi_lib.".to_string(),
+        )
+    })?;
+    let free_cstr = &lib.free_cstr;
+
+    let result_str = unsafe {
+        let ptr = prepare_fn(
+            query_block_list.as_ptr(),
+            query_block_list.len(),
+            token.as_ptr(),
+            base_internal_url.as_ptr(),
+            w_id.as_ptr(),
+        );
+        let str = CStr::from_ptr(ptr).to_string_lossy().to_string();
+        free_cstr(ptr);
+        str
+    };
+
+    if result_str.starts_with("ERROR") {
+        Err(Error::ExecutionErr(result_str[6..].to_string()))
+    } else {
+        Ok(serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?)
+    }
+}
+
 struct ParsedAttachDbResource<'a> {
     resource_path: &'a str,
     name: &'a str,
@@ -419,7 +500,7 @@ fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String
     let s = match db_type.to_lowercase().as_str() {
         "postgres" | "postgresql" => {
             let res: PgDatabase = serde_json::from_value(db_resource)?;
-            res.to_conn_str()
+            res.to_uri()
         }
         #[cfg(feature = "mysql")]
         "mysql" => {
@@ -793,11 +874,9 @@ mod tests {
             "sslmode": "require"
         });
         let result = format_attach_db_conn_str(db_resource, "postgres").unwrap();
-        assert!(result.contains("dbname=mydb"));
-        assert!(result.contains("user=admin"));
-        assert!(result.contains("host=localhost"));
-        assert!(result.contains("password=secret123"));
-        assert!(result.contains("port=5432"));
+        // Should be in URI format: postgres://user:password@host:port/dbname?sslmode=require
+        assert!(result.starts_with("postgres://"));
+        assert!(result.contains("admin:secret123@localhost:5432/mydb"));
         assert!(result.contains("sslmode=require"));
     }
 
@@ -808,11 +887,10 @@ mod tests {
             "dbname": "production"
         });
         let result = format_attach_db_conn_str(db_resource, "postgres").unwrap();
-        assert!(result.contains("dbname=production"));
-        assert!(result.contains("host=db.example.com"));
-        // Optional fields should result in empty strings
-        assert!(!result.contains("user="));
-        assert!(!result.contains("password="));
+        // Should be in URI format with defaults: postgres://postgres:@host:5432/dbname?sslmode=prefer
+        assert!(result.starts_with("postgres://"));
+        assert!(result.contains("@db.example.com:5432/production"));
+        assert!(result.contains("sslmode=prefer"));
     }
 
     #[test]
@@ -822,8 +900,10 @@ mod tests {
             "dbname": "test"
         });
         let result = format_attach_db_conn_str(db_resource, "postgresql").unwrap();
-        assert!(result.contains("dbname=test"));
-        assert!(result.contains("host=localhost"));
+        // Should be in URI format (postgresql is treated the same as postgres)
+        assert!(result.starts_with("postgres://"));
+        assert!(result.contains("@localhost:5432/test"));
+        assert!(result.contains("sslmode=prefer"));
     }
 
     #[test]
@@ -863,7 +943,9 @@ mod tests {
             "dbname": "test"
         });
         let result = format_attach_db_conn_str(db_resource, "POSTGRES").unwrap();
-        assert!(result.contains("dbname=test"));
+        // Should be in URI format
+        assert!(result.starts_with("postgres://"));
+        assert!(result.contains("@localhost:5432/test"));
     }
 
     #[cfg(feature = "mysql")]

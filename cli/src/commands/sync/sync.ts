@@ -1,18 +1,16 @@
 import { requireLogin } from "../../core/auth.ts";
 import { fetchVersion, resolveWorkspace } from "../../core/context.ts";
-import {
-  colors,
-  Command,
-  Confirm,
-  ensureDir,
-  JSZip,
-  log,
-  minimatch,
-  path,
-  SEP,
-  yamlParseContent,
-  yamlStringify,
-} from "../../../deps.ts";
+import { readFile, writeFile, readdir, stat, rm, copyFile, mkdir } from "node:fs/promises";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import * as log from "../../core/log.ts";
+import * as path from "node:path";
+import { sep as SEP } from "node:path";
+import { stringify as yamlStringify, type DocumentOptions, type SchemaOptions, type CreateNodeOptions, type ToStringOptions } from "yaml";
+import JSZip from "jszip";
+import { minimatch } from "minimatch";
+import { yamlParseContent } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
 import {
@@ -25,7 +23,7 @@ import {
   extractNativeTriggerInfo,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
-import { runLint, printReport } from "../lint/lint.ts";
+import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
 
 import {
   exts,
@@ -40,6 +38,7 @@ import {
   deepEqual,
   fetchRemoteVersion,
   isFileResource,
+  isFilesetResource,
   isRawAppFile,
   isWorkspaceDependencies,
 } from "../../utils/utils.ts";
@@ -178,7 +177,7 @@ async function addCodebaseDigestIfRelevant(
   let isTs = true;
   const replacedPath = path.replace(".script.yaml", ".ts");
   try {
-    await Deno.stat(replacedPath);
+    await stat(replacedPath);
   } catch {
     isTs = false;
   }
@@ -231,10 +230,11 @@ export async function FSFSElement(
       async *getChildren(): AsyncIterable<DynFSElement> {
         if (!isDir) return [];
         try {
-          for await (const e of Deno.readDir(localP)) {
+          const entries = await readdir(localP, { withFileTypes: true });
+          for (const e of entries) {
             yield _internal_element(
               path.join(localP, e.name),
-              e.isDirectory,
+              e.isDirectory(),
               codebases,
             );
           }
@@ -242,11 +242,8 @@ export async function FSFSElement(
           log.warn(`Error reading dir: ${localP}, ${e}`);
         }
       },
-      // async getContentBytes(): Promise<Uint8Array> {
-      //   return await Deno.readFile(localP);
-      // },
       async getContentText(): Promise<string> {
-        const content = await Deno.readTextFile(localP);
+        const content = await readFile(localP, "utf-8");
         const itemPath = localP.substring(p.length + 1);
         const r = await addCodebaseDigestIfRelevant(
           itemPath,
@@ -258,7 +255,7 @@ export async function FSFSElement(
       },
     };
   }
-  return _internal_element(p, (await Deno.stat(p)).isDirectory, codebases);
+  return _internal_element(p, (await stat(p)).isDirectory(), codebases);
 }
 
 function prioritizeName(name: string): string {
@@ -280,13 +277,12 @@ function prioritizeName(name: string): string {
   return name;
 }
 
-export const yamlOptions = {
-  sortKeys: (a: any, b: any) => {
-    return prioritizeName(a).localeCompare(prioritizeName(b));
+export const yamlOptions: DocumentOptions & SchemaOptions & CreateNodeOptions & ToStringOptions = {
+  sortMapEntries: (a, b) => {
+    return prioritizeName(String(a.key)).localeCompare(prioritizeName(String(b.key)));
   },
-  noCompatMode: true,
-  noRefs: true,
-  skipInvalid: true,
+  aliasDuplicateObjects: false,
+  singleQuote: true,
 };
 
 export interface InlineScript {
@@ -489,11 +485,53 @@ export function extractInlineScriptsForApps(
   return [];
 }
 
+type FileResourceTypeInfo = { format_extension: string | null; is_fileset: boolean };
+
+function parseFileResourceTypeMap(
+  raw: Record<string, string | FileResourceTypeInfo>,
+): { formatExtMap: Record<string, string>; filesetMap: Record<string, boolean> } {
+  const formatExtMap: Record<string, string> = {};
+  const filesetMap: Record<string, boolean> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v === "string") {
+      formatExtMap[k] = v;
+      filesetMap[k] = false;
+    } else {
+      if (v.format_extension) {
+        formatExtMap[k] = v.format_extension;
+      }
+      filesetMap[k] = v.is_fileset ?? false;
+    }
+  }
+  return { formatExtMap, filesetMap };
+}
+
+async function findFilesetResourceFile(changePath: string): Promise<string> {
+  // Extract the base path before .fileset/
+  const filesetIdx = changePath.indexOf(".fileset" + SEP);
+  if (filesetIdx === -1) {
+    throw new Error(`Not a fileset resource path: ${changePath}`);
+  }
+  const basePath = changePath.substring(0, filesetIdx);
+  const candidates = [basePath + ".resource.json", basePath + ".resource.yaml"];
+
+  for (const candidate of candidates) {
+    try {
+      const s = await stat(candidate);
+      if (s.isFile()) return candidate;
+    } catch {
+      // not found, try next
+    }
+  }
+  throw new Error(`No resource metadata file found for fileset resource: ${changePath}`);
+}
+
 function ZipFSElement(
   zip: JSZip,
   useYaml: boolean,
   defaultTs: "bun" | "deno",
   resourceTypeToFormatExtension: Record<string, string>,
+  resourceTypeToIsFileset: Record<string, boolean>,
   ignoreCodebaseChanges: boolean,
 ): DynFSElement {
   async function _internal_file(
@@ -554,14 +592,35 @@ function ZipFSElement(
             }
             let inlineScripts;
             try {
+              const assigner = newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() });
               inlineScripts = extractInlineScriptsForFlows(
                 flow.value.modules as any,
                 {},
                 SEP,
                 defaultTs,
-                undefined, // pathAssigner - let it create one
+                assigner,
                 { skipInlineScriptSuffix: getNonDottedPaths() },
               );
+              if (flow.value.failure_module) {
+                inlineScripts.push(...extractInlineScriptsForFlows(
+                  [flow.value.failure_module],
+                  {},
+                  SEP,
+                  defaultTs,
+                  assigner,
+                  { skipInlineScriptSuffix: getNonDottedPaths() },
+                ));
+              }
+              if (flow.value.preprocessor_module) {
+                inlineScripts.push(...extractInlineScriptsForFlows(
+                  [flow.value.preprocessor_module],
+                  {},
+                  SEP,
+                  defaultTs,
+                  assigner,
+                  { skipInlineScriptSuffix: getNonDottedPaths() },
+                ));
+              }
             } catch (error) {
               log.error(
                 `Failed to extract inline scripts for flow at path: ${p}`,
@@ -573,7 +632,6 @@ function ZipFSElement(
                 isDirectory: false,
                 path: path.join(finalPath, s.path),
                 async *getChildren() {},
-                // deno-lint-ignore require-await
                 async getContentText() {
                   return s.content;
                 },
@@ -584,7 +642,6 @@ function ZipFSElement(
               isDirectory: false,
               path: path.join(finalPath, "flow.yaml"),
               async *getChildren() {},
-              // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(flow, yamlOptions);
               },
@@ -618,7 +675,6 @@ function ZipFSElement(
                 isDirectory: false,
                 path: path.join(finalPath, s.path),
                 async *getChildren() {},
-                // deno-lint-ignore require-await
                 async getContentText() {
                   return s.content;
                 },
@@ -633,7 +689,6 @@ function ZipFSElement(
               isDirectory: false,
               path: path.join(finalPath, "app.yaml"),
               async *getChildren() {},
-              // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(app, yamlOptions);
               },
@@ -690,8 +745,7 @@ function ZipFSElement(
                   isDirectory: false,
                   path: path.join(finalPath, filePath.substring(1)),
                   async *getChildren() {},
-                  // deno-lint-ignore require-await
-                  async getContentText() {
+                    async getContentText() {
                     if (typeof content !== "string") {
                       throw new Error(
                         `Content of raw app file ${filePath} is not a string`,
@@ -712,7 +766,6 @@ function ZipFSElement(
                 isDirectory: false,
                 path: path.join(finalPath, APP_BACKEND_FOLDER, s.path),
                 async *getChildren() {},
-                // deno-lint-ignore require-await
                 async getContentText() {
                   return s.content;
                 },
@@ -792,7 +845,6 @@ function ZipFSElement(
                   `${runnableId}.yaml`,
                 ),
                 async *getChildren() {},
-                // deno-lint-ignore require-await
                 async getContentText() {
                   return yamlStringify(simplifiedRunnable, yamlOptions);
                 },
@@ -813,7 +865,6 @@ function ZipFSElement(
               isDirectory: false,
               path: path.join(finalPath, "raw_app.yaml"),
               async *getChildren() {},
-              // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(rawApp, yamlOptions);
               },
@@ -824,7 +875,6 @@ function ZipFSElement(
               isDirectory: false,
               path: path.join(finalPath, "DATATABLES.md"),
               async *getChildren() {},
-              // deno-lint-ignore require-await
               async getContentText() {
                 return generateDatatablesDocumentation(data);
               },
@@ -874,10 +924,17 @@ function ZipFSElement(
               log.error(`Failed to parse resource.yaml at path: ${p}`);
               throw error;
             }
+            const resourceType = parsed["resource_type"];
             const formatExtension =
-              resourceTypeToFormatExtension[parsed["resource_type"]];
+              resourceTypeToFormatExtension[resourceType];
+            const isFileset = resourceTypeToIsFileset[resourceType] ?? false;
 
-            if (formatExtension) {
+            if (isFileset) {
+              parsed["value"] =
+                "!inline_fileset " +
+                removeSuffix(p.replaceAll(SEP, "/"), ".resource.json") +
+                ".fileset";
+            } else if (formatExtension) {
               parsed["value"]["content"] =
                 "!inline " +
                 removeSuffix(p.replaceAll(SEP, "/"), ".resource.json") +
@@ -917,7 +974,6 @@ function ZipFSElement(
           isDirectory: false,
           path: removeSuffix(finalPath, ".json") + ".lock",
           async *getChildren() {},
-          // deno-lint-ignore require-await
           async getContentText() {
             return lock;
           },
@@ -933,10 +989,37 @@ function ZipFSElement(
         log.error(`Failed to parse resource file content at path: ${p}`);
         throw error;
       }
+      const resourceType = parsed["resource_type"];
       const formatExtension =
-        resourceTypeToFormatExtension[parsed["resource_type"]];
+        resourceTypeToFormatExtension[resourceType];
+      const isFileset = resourceTypeToIsFileset[resourceType] ?? false;
 
-      if (formatExtension) {
+      if (isFileset && typeof parsed["value"] === "object" && parsed["value"] !== null) {
+        const filesetBasePath =
+          removeSuffix(finalPath, ".resource.json") + ".fileset";
+        // Push directory entry for the fileset
+        r.push({
+          isDirectory: true,
+          path: filesetBasePath,
+          async *getChildren() {
+            for (const [relPath, fileContent] of Object.entries(parsed["value"])) {
+              if (typeof fileContent === "string") {
+                yield {
+                  isDirectory: false,
+                  path: path.join(filesetBasePath, relPath),
+                  async *getChildren() {},
+                  async getContentText() {
+                    return fileContent;
+                  },
+                };
+              }
+            }
+          },
+          async getContentText() {
+            throw new Error("Cannot get content of directory");
+          },
+        });
+      } else if (formatExtension) {
         const fileContent: string = parsed["value"]["content"];
         if (typeof fileContent === "string") {
           r.push({
@@ -946,7 +1029,6 @@ function ZipFSElement(
               ".resource.file." +
               formatExtension,
             async *getChildren() {},
-            // deno-lint-ignore require-await
             async getContentText() {
               return fileContent;
             },
@@ -975,11 +1057,6 @@ function ZipFSElement(
           }
         }
       },
-      // // deno-lint-ignore require-await
-      // async getContentBytes(): Promise<Uint8Array> {
-      //   throw new Error("Cannot get content of folder");
-      // },
-      // deno-lint-ignore require-await
       async getContentText(): Promise<string> {
         throw new Error("Cannot get content of folder");
       },
@@ -1079,6 +1156,7 @@ export async function elementsToMap(
     const path = entry.path;
     if (
       !isFileResource(path) &&
+      !isFilesetResource(path) &&
       !isRawAppFile(path) &&
       !isWorkspaceDependencies(path)
     ) {
@@ -1124,7 +1202,7 @@ export async function elementsToMap(
       }
     }
 
-    if (skips.skipResources && isFileResource(path)) continue;
+    if (skips.skipResources && (isFileResource(path) || isFilesetResource(path))) continue;
 
     const ext = json ? ".json" : ".yaml";
     if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
@@ -1358,16 +1436,18 @@ async function compareDynFSElement(
           continue;
         }
         if (!ignoreCodebaseChanges) {
+          const beforeCodebase = before?.codebase;
+          const afterCodebase = after?.codebase;
           if (before?.codebase != undefined) {
             delete before.codebase;
             m2[k] = yamlStringify(before, yamlOptions);
           }
           if (after?.codebase != undefined) {
-            if (before.codebase != after.codebase) {
-              codebaseChanges[k] = after.codebase;
-            }
             delete after.codebase;
             v = yamlStringify(after, yamlOptions);
+          }
+          if (beforeCodebase != afterCodebase) {
+            codebaseChanges[k] = afterCodebase ?? beforeCodebase ?? "";
           }
         }
         if (skipMetadata) {
@@ -1437,11 +1517,21 @@ async function compareDynFSElement(
     }
   }
 
-  changes.sort((a, b) =>
-    getOrderFromPath(a.path) == getOrderFromPath(b.path)
-      ? a.path.localeCompare(b.path)
-      : getOrderFromPath(a.path) - getOrderFromPath(b.path),
-  );
+  changes.sort((a, b) => {
+    const orderA = getOrderFromPath(a.path);
+    const orderB = getOrderFromPath(b.path);
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+    // Within the same entity type, process deletes before adds/edits
+    // to avoid conflicts (e.g. unique path constraints on triggers)
+    const deletePriority = (name: string) => (name === "deleted" ? 0 : 1);
+    const dp = deletePriority(a.name) - deletePriority(b.name);
+    if (dp !== 0) {
+      return dp;
+    }
+    return a.path.localeCompare(b.path);
+  });
 
   return changes;
 }
@@ -1580,7 +1670,7 @@ export async function ignoreF(wmillconf: {
   }
 
   try {
-    await Deno.stat(".wmillignore");
+    await stat(".wmillignore");
     throw Error(".wmillignore is not supported anymore, switch to wmill.yaml");
   } catch {
     //expected
@@ -1636,7 +1726,6 @@ interface ChangeTracker {
   rawApps: string[];
 }
 
-// deno-lint-ignore no-inner-declarations
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
   const isScript = exts.some((e) => p.endsWith(e));
   if (isScript) {
@@ -1700,13 +1789,13 @@ export async function pull(
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
-      Deno.exit(1);
+      process.exit(1);
     }
     throw error;
   }
 
   if (opts.stateful) {
-    await ensureDir(path.join(Deno.cwd(), ".wmill"));
+    await mkdir(path.join(process.cwd(), ".wmill"), { recursive: true });
   }
 
   const workspace = await resolveWorkspace(opts, opts.branch);
@@ -1735,10 +1824,14 @@ export async function pull(
   );
 
   let resourceTypeToFormatExtension: Record<string, string> = {};
+  let resourceTypeToIsFileset: Record<string, boolean> = {};
   try {
-    resourceTypeToFormatExtension = (await wmill.fileResourceTypeToFileExtMap({
+    const raw = (await wmill.fileResourceTypeToFileExtMap({
       workspace: workspace.workspaceId,
-    })) as Record<string, string>;
+    })) as Record<string, string | FileResourceTypeInfo>;
+    const parsed = parseFileResourceTypeMap(raw);
+    resourceTypeToFormatExtension = parsed.formatExtMap;
+    resourceTypeToIsFileset = parsed.filesetMap;
   } catch {
     // ignore
   }
@@ -1765,12 +1858,13 @@ export async function pull(
     !opts.json,
     opts.defaultTs ?? "bun",
     resourceTypeToFormatExtension,
+    resourceTypeToIsFileset,
     true,
   );
 
   const local = !opts.stateful
-    ? await FSFSElement(Deno.cwd(), codebases, true)
-    : await FSFSElement(path.join(Deno.cwd(), ".wmill"), [], true);
+    ? await FSFSElement(process.cwd(), codebases, true)
+    : await FSFSElement(path.join(process.cwd(), ".wmill"), [], true);
 
   const changes = await compareDynFSElement(
     remote,
@@ -1852,12 +1946,12 @@ export async function pull(
         }
       }
 
-      const target = path.join(Deno.cwd(), targetPath);
-      const stateTarget = path.join(Deno.cwd(), ".wmill", targetPath);
+      const target = path.join(process.cwd(), targetPath);
+      const stateTarget = path.join(process.cwd(), ".wmill", targetPath);
       if (change.name === "edited") {
         if (opts.stateful) {
           try {
-            const currentLocal = await Deno.readTextFile(target);
+            const currentLocal = await readFile(target, "utf-8");
             if (
               currentLocal !== change.before &&
               currentLocal !== change.after
@@ -1915,16 +2009,16 @@ export async function pull(
             }`,
           );
         }
-        await Deno.writeTextFile(target, change.after);
+        await writeFile(target, change.after, "utf-8");
 
         if (opts.stateful) {
-          await ensureDir(path.dirname(stateTarget));
-          await Deno.copyFile(target, stateTarget);
+          await mkdir(path.dirname(stateTarget), { recursive: true });
+          await copyFile(target, stateTarget);
         }
       } else if (change.name === "added") {
-        await ensureDir(path.dirname(target));
+        await mkdir(path.dirname(target), { recursive: true });
         if (opts.stateful) {
-          await ensureDir(path.dirname(stateTarget));
+          await mkdir(path.dirname(stateTarget), { recursive: true });
           log.info(
             `Adding ${getTypeStrFromPath(change.path)} ${targetPath}${
               targetPath !== change.path
@@ -1933,7 +2027,7 @@ export async function pull(
             }`,
           );
         }
-        await Deno.writeTextFile(target, change.content);
+        await writeFile(target, change.content, "utf-8");
         log.info(
           `Writing ${getTypeStrFromPath(change.path)} ${targetPath}${
             targetPath !== change.path
@@ -1942,20 +2036,20 @@ export async function pull(
           }`,
         );
         if (opts.stateful) {
-          await Deno.copyFile(target, stateTarget);
+          await copyFile(target, stateTarget);
         }
       } else if (change.name === "deleted") {
         try {
           log.info(
             `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`,
           );
-          await Deno.remove(target);
+          await rm(target);
           if (opts.stateful) {
-            await Deno.remove(stateTarget);
+            await rm(stateTarget);
           }
         } catch {
           if (opts.stateful) {
-            await Deno.remove(stateTarget);
+            await rm(stateTarget);
           }
         }
       }
@@ -1973,7 +2067,7 @@ export async function pull(
   - pushing the changes with \`wmill push --skip-pull\` to override wmill with all your local changes
 `),
         );
-        Deno.exit(1);
+        process.exit(1);
       }
     }
     log.info("All local changes pulled, now updating wmill-lock.yaml");
@@ -2189,7 +2283,7 @@ export async function push(
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
-      Deno.exit(1);
+      process.exit(1);
     }
     throw error;
   }
@@ -2217,8 +2311,27 @@ export async function push(
     printReport(lintReport, !!opts.jsonOutput);
     if (!lintReport.success) {
       log.error(colors.red("Push aborted due to lint failures."));
-      Deno.exit(1);
+      process.exit(1);
     }
+  }
+
+  if (opts.locksRequired) {
+    log.info("Checking for missing locks...");
+    const lockIssues = await checkMissingLocks(opts);
+    if (lockIssues.length > 0) {
+      for (const issue of lockIssues) {
+        for (const error of issue.errors) {
+          log.error(colors.red(`  ${issue.path}: ${error}`));
+        }
+      }
+      log.error(
+        colors.red(
+          `\nPush aborted: ${lockIssues.length} script(s) missing locks.`,
+        ),
+      );
+      process.exit(1);
+    }
+    log.info(colors.green("All scripts have valid locks."));
   }
 
   const codebases = await listSyncCodebases(opts);
@@ -2242,10 +2355,14 @@ export async function push(
     ),
   );
   let resourceTypeToFormatExtension: Record<string, string> = {};
+  let resourceTypeToIsFileset: Record<string, boolean> = {};
   try {
-    resourceTypeToFormatExtension = (await wmill.fileResourceTypeToFileExtMap({
+    const raw = (await wmill.fileResourceTypeToFileExtMap({
       workspace: workspace.workspaceId,
-    })) as Record<string, string>;
+    })) as Record<string, string | FileResourceTypeInfo>;
+    const parsed = parseFileResourceTypeMap(raw);
+    resourceTypeToFormatExtension = parsed.formatExtMap;
+    resourceTypeToIsFileset = parsed.filesetMap;
   } catch {
     // ignore
   }
@@ -2270,10 +2387,11 @@ export async function push(
     !opts.json,
     opts.defaultTs ?? "bun",
     resourceTypeToFormatExtension,
+    resourceTypeToIsFileset,
     false,
   );
 
-  const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases, false);
+  const local = await FSFSElement(path.join(process.cwd(), ""), codebases, false);
   const changes = await compareDynFSElement(
     local,
     remote,
@@ -2393,6 +2511,45 @@ export async function push(
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`,
   );
+  // Check that every folder referenced in the changeset has a local folder.meta.yaml
+  const missingFolders: string[] = [];
+  if (changes.length > 0) {
+    const folderNames = new Set<string>();
+    for (const change of changes) {
+      const parts = change.path.split(SEP);
+      if (parts.length >= 3 && parts[0] === "f" && change.name !== "deleted") {
+        folderNames.add(parts[1]);
+      }
+    }
+    for (const folderName of folderNames) {
+      try {
+        await stat(path.join("f", folderName, "folder.meta.yaml"));
+      } catch {
+        missingFolders.push(folderName);
+      }
+    }
+  }
+
+  if (missingFolders.length > 0) {
+    const folderList = missingFolders.map((f) => `  - ${f}`).join("\n");
+    const user = await wmill.whoami({ workspace: workspace.workspaceId });
+    const userIsAdmin = user.is_admin;
+    const msg =
+      `${userIsAdmin ? "Warning: " : ""}Missing folder.meta.yaml for:\n${folderList}\n` +
+      `Run 'wmill folder add-missing' to create them locally, then push again.`;
+    if (!userIsAdmin) {
+      if (opts.jsonOutput) {
+        console.log(JSON.stringify({ success: false, error: "missing_folders", missing_folders: missingFolders, message: msg }, null, 2));
+      } else {
+        log.error(msg);
+      }
+      process.exit(1);
+    }
+    if (!opts.jsonOutput) {
+      log.warn(msg);
+    }
+  }
+
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
     const result = {
@@ -2424,6 +2581,7 @@ export async function push(
     if (!opts.jsonOutput) {
       prettyChanges(changes, specificItems, opts.branch);
     }
+
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
       return;
@@ -2444,7 +2602,7 @@ export async function push(
     let stateful = opts.stateful;
     if (stateful) {
       try {
-        await Deno.stat(path.join(Deno.cwd(), ".wmill"));
+        await stat(path.join(process.cwd(), ".wmill"));
       } catch {
         stateful = false;
       }
@@ -2489,6 +2647,7 @@ export async function push(
         let [_basePath, changes] = queue.shift()!;
         const promise = (async () => {
           const alreadySynced: string[] = [];
+          const deletedVarsResPaths: string[] = [];
           const isRawApp = isRawAppFile(changes[0].path);
           if (isRawApp) {
             const deleteRawApp = changes.find(
@@ -2507,8 +2666,8 @@ export async function push(
             let stateTarget = undefined;
             if (stateful) {
               try {
-                stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
-                await Deno.stat(stateTarget);
+                stateTarget = path.join(process.cwd(), ".wmill", change.path);
+                await stat(stateTarget);
               } catch {
                 stateTarget = undefined;
               }
@@ -2527,7 +2686,7 @@ export async function push(
                 )
               ) {
                 if (stateTarget) {
-                  await Deno.writeTextFile(stateTarget, change.after);
+                  await writeFile(stateTarget, change.after, "utf-8");
                 }
                 continue;
               } else if (
@@ -2542,12 +2701,12 @@ export async function push(
                 )
               ) {
                 if (stateTarget) {
-                  await Deno.writeTextFile(stateTarget, change.after);
+                  await writeFile(stateTarget, change.after, "utf-8");
                 }
                 continue;
               }
               if (stateTarget) {
-                await ensureDir(path.dirname(stateTarget));
+                await mkdir(path.dirname(stateTarget), { recursive: true });
                 log.info(
                   `Editing ${getTypeStrFromPath(change.path)} ${change.path}`,
                 );
@@ -2560,7 +2719,7 @@ export async function push(
 
                   const newObj = parseFromPath(
                     resourceFilePath,
-                    await Deno.readTextFile(resourceFilePath),
+                    await readFile(resourceFilePath, "utf-8"),
                   );
 
                   // For branch-specific resources, push to the base path on the workspace server
@@ -2583,7 +2742,40 @@ export async function push(
                     resourceFilePath,
                   );
                   if (stateTarget) {
-                    await Deno.writeTextFile(stateTarget, change.after);
+                    await writeFile(stateTarget, change.after, "utf-8");
+                  }
+                  continue;
+                }
+              }
+              if (isFilesetResource(change.path)) {
+                const resourceFilePath = await findFilesetResourceFile(change.path);
+                if (!alreadySynced.includes(resourceFilePath)) {
+                  alreadySynced.push(resourceFilePath);
+
+                  const newObj = parseFromPath(
+                    resourceFilePath,
+                    await readFile(resourceFilePath, "utf-8"),
+                  );
+
+                  let serverPath = resourceFilePath;
+                  const currentBranch = cachedBranchForPush;
+
+                  if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
+                    serverPath = fromBranchSpecificPath(
+                      resourceFilePath,
+                      currentBranch,
+                    );
+                  }
+
+                  await pushResource(
+                    workspace.workspaceId,
+                    serverPath,
+                    undefined,
+                    newObj,
+                    resourceFilePath,
+                  );
+                  if (stateTarget) {
+                    await writeFile(stateTarget, change.after, "utf-8");
                   }
                   continue;
                 }
@@ -2613,14 +2805,15 @@ export async function push(
               );
 
               if (stateTarget) {
-                await Deno.writeTextFile(stateTarget, change.after);
+                await writeFile(stateTarget, change.after, "utf-8");
               }
             } else if (change.name === "added") {
               if (
                 change.path.endsWith(".script.json") ||
                 change.path.endsWith(".script.yaml") ||
                 change.path.endsWith(".lock") ||
-                isFileResource(change.path)
+                isFileResource(change.path) ||
+                isFilesetResource(change.path)
               ) {
                 continue;
               } else if (
@@ -2637,7 +2830,7 @@ export async function push(
                 continue;
               }
               if (stateTarget) {
-                await ensureDir(path.dirname(stateTarget));
+                await mkdir(path.dirname(stateTarget), { recursive: true });
                 log.info(
                   `Adding ${getTypeStrFromPath(change.path)} ${change.path}`,
                 );
@@ -2670,7 +2863,7 @@ export async function push(
               );
 
               if (stateTarget) {
-                await Deno.writeTextFile(stateTarget, change.content);
+                await writeFile(stateTarget, change.content, "utf-8");
               }
             } else if (change.name === "deleted") {
               if (change.path.endsWith(".lock")) {
@@ -2699,12 +2892,23 @@ export async function push(
                     name: change.path.split(SEP)[1],
                   });
                   break;
-                case "resource":
-                  await wmill.deleteResource({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".resource.json"),
-                  });
+                case "resource": {
+                  const resourcePath = removeSuffix(target, ".resource.json");
+                  try {
+                    await wmill.deleteResource({
+                      workspace: workspaceId,
+                      path: resourcePath,
+                    });
+                  } catch (e: any) {
+                    if (e?.status === 404 && deletedVarsResPaths.includes(resourcePath)) {
+                      log.debug(`Resource ${resourcePath} already deleted by linked variable`);
+                    } else {
+                      throw e;
+                    }
+                  }
+                  deletedVarsResPaths.push(resourcePath);
                   break;
+                }
                 case "resource-type":
                   await wmill.deleteResourceType({
                     workspace: workspaceId,
@@ -2735,7 +2939,7 @@ export async function push(
                     let folderExists = false;
                     if (rawAppFolder) {
                       try {
-                        await Deno.stat(rawAppFolder);
+                        await stat(rawAppFolder);
                         folderExists = true;
                       } catch {
                         // folder doesn't exist
@@ -2841,12 +3045,23 @@ export async function push(
                   });
                   break;
                 }
-                case "variable":
-                  await wmill.deleteVariable({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, ".variable.json"),
-                  });
+                case "variable": {
+                  const variablePath = removeSuffix(target, ".variable.json");
+                  try {
+                    await wmill.deleteVariable({
+                      workspace: workspaceId,
+                      path: variablePath,
+                    });
+                  } catch (e: any) {
+                    if (e?.status === 404 && deletedVarsResPaths.includes(variablePath)) {
+                      log.debug(`Variable ${variablePath} already deleted by linked resource`);
+                    } else {
+                      throw e;
+                    }
+                  }
+                  deletedVarsResPaths.push(variablePath);
                   break;
+                }
                 case "user": {
                   const users = await wmill.listUsers({
                     workspace: workspaceId,
@@ -2903,7 +3118,7 @@ export async function push(
               }
               if (stateTarget) {
                 try {
-                  await Deno.remove(stateTarget);
+                  await rm(stateTarget);
                 } catch {
                   // state target may not exist already
                 }
@@ -3032,7 +3247,6 @@ const command = new Command()
     "--branch <branch:string>",
     "Override the current git branch (works even outside a git repository)",
   )
-  // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
   .description("Push any local changes and apply them remotely.")
@@ -3090,7 +3304,10 @@ const command = new Command()
     "Override the current git branch (works even outside a git repository)",
   )
   .option("--lint", "Run lint validation before pushing")
-  // deno-lint-ignore no-explicit-any
+  .option(
+    "--locks-required",
+    "Fail if scripts or flow inline scripts that need locks have no locks",
+  )
   .action(push as any);
 
 export default command;

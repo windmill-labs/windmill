@@ -78,11 +78,22 @@ export class SelectionManager {
 		}
 
 		// If the new selection is the same as the current selection, do nothing
-		if (JSON.stringify(nodes) === JSON.stringify($state.snapshot(this.#selectedNodes))) {
+		const newIds = nodes.map((n) => n.id).join(',')
+		const currentIds = this.#selectedNodes.map((n) => n.id).join(',')
+		if (newIds === currentIds) {
 			return
 		}
 
 		this.#selectedNodes = nodes
+	}
+
+	// Select multiple nodes by their IDs
+	selectByIds(ids: string[]) {
+		if (!ids || ids.length === 0) {
+			this.clearSelection()
+			return
+		}
+		this.#selectedNodes = ids.map((id) => ({ id }))
 	}
 
 	// Clear all selections

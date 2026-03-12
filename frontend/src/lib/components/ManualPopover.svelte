@@ -5,6 +5,7 @@
 
 	import { fade } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
+	import { untrack } from 'svelte'
 
 	export async function refresh() {
 		await getInstance()?.update()
@@ -26,7 +27,9 @@
 		content
 	}: Props = $props()
 
-	const [popperRef, popperContent, getInstance] = createPopperActions({ placement })
+	const [popperRef, popperContent, getInstance] = createPopperActions({
+		placement: untrack(() => placement)
+	})
 
 	export function open() {
 		showTooltip = true

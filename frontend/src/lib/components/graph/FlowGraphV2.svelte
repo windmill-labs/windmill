@@ -20,11 +20,10 @@
 	import {
 		graphBuilder,
 		isTriggerStep,
-		topologicalSort,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
-		type onSelectedIteration,
+		type OnSelectedIteration,
 		type SimplifiableFlow
 	} from './graphBuilder.svelte'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
@@ -36,7 +35,6 @@
 	import ResultNode from './renderers/nodes/ResultNode.svelte'
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
-	import { sugiyama, dagStratify, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
 	import { Expand, MousePointer, Hand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
@@ -68,7 +66,10 @@
 	import { SelectionManager } from './selectionUtils.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import { NoteManager } from './noteManager.svelte'
+	import type { MoveManager } from './moveManager.svelte'
+	import DragCoordinator from './DragCoordinator.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
+	import { compoundLayout } from './compoundLayout'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
@@ -76,6 +77,11 @@
 	import { computeNoteNodes } from './noteUtils.svelte'
 	import { Tooltip } from '../meltComponents'
 	import { getNoteEditorContext } from './noteEditor.svelte'
+	import {
+		resolveSelectedModuleIds,
+		locateModules,
+		areContiguousSiblings
+	} from '../flows/multiSelectUtils'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
@@ -109,7 +115,7 @@
 		earlyStop?: boolean
 		cache?: boolean
 		scroll?: boolean
-		moving?: string | undefined
+		moveManager?: MoveManager
 		// Download: display a top level button to open the graph in a new tab
 		download?: boolean
 		fullSize?: boolean
@@ -129,6 +135,10 @@
 		notes?: FlowNote[]
 		chatInputEnabled?: boolean
 		multiSelectEnabled?: boolean
+		onDeleteMultiple?: (ids: string[]) => void
+		onDuplicateMultiple?: (ids: string[]) => void
+		onMoveMultiple?: (ids: string[]) => void
+		movingIds?: string[]
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -148,9 +158,10 @@
 		onDeleteBranch?: (detail: { id: string; index: number }) => Promise<void>
 		onChangeId?: (detail: { id: string; newId: string; deps: Record<string, string[]> }) => void
 		onMove?: (id: string) => void
+		onDuplicate?: (id: string) => void
 		onUpdateMock?: (detail: { mock: FlowModule['mock']; id: string }) => void
 		onTestUpTo?: ((id: string) => void) | undefined
-		onSelectedIteration?: onSelectedIteration
+		onSelectedIteration?: OnSelectedIteration
 		onEditInput?: (moduleId: string, key: string) => void
 		onTestFlow?: () => void
 		onCancelTestFlow?: () => void
@@ -173,6 +184,7 @@
 		onInsert = undefined,
 		onDelete = undefined,
 		onMove = undefined,
+		onDuplicate = undefined,
 		onDeleteBranch = undefined,
 		onNewBranch = undefined,
 		onSelect = undefined,
@@ -196,7 +208,7 @@
 		earlyStop = false,
 		cache = false,
 		scroll = false,
-		moving = undefined,
+		moveManager = undefined,
 		download = false,
 		fullSize = false,
 		disableAi = false,
@@ -229,7 +241,11 @@
 		diffBeforeFlow = undefined,
 		currentInputSchema = undefined,
 		markRemovedAsShadowed = false,
-		multiSelectEnabled = false
+		multiSelectEnabled = false,
+		onDeleteMultiple = undefined,
+		onDuplicateMultiple = undefined,
+		onMoveMultiple = undefined,
+		movingIds = undefined
 	}: Props = $props()
 
 	// Initialize note manager with fine-grained reactivity
@@ -249,7 +265,7 @@
 	let flowContainer: HTMLDivElement | undefined = $state(undefined)
 
 	// Selection manager - create one if not provided
-	let selectionManager = selectionManagerProp || new SelectionManager()
+	let selectionManager = untrack(() => selectionManagerProp) || new SelectionManager()
 	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const noteEditorContext = getNoteEditorContext()
@@ -271,21 +287,22 @@
 	}
 
 	// Calculate note gap based on current nodes and notes
-	const topPadding = editMode ? 100 : 24
-	const yOffset = calculateNoteGap(notes) + topPadding
+	const topPadding = untrack(() => editMode) ? 100 : 24
+	const yOffset = calculateNoteGap(untrack(() => notes)) + topPadding
 
 	setGraphContext({
 		selectionManager: selectionManager,
 		useDataflow,
 		showAssets,
 		noteManager,
+		moveManager: untrack(() => moveManager),
 		clearFlowSelection,
 		yOffset,
 		diffManager
 	} as any)
 
-	if (triggerContext && allowSimplifiedPoll) {
-		if (isSimplifiable(modules)) {
+	if (triggerContext && untrack(() => allowSimplifiedPoll)) {
+		if (isSimplifiable(untrack(() => modules))) {
 			triggerContext?.simplifiedPoll?.set(true)
 		}
 		triggerContext?.simplifiedPoll.subscribe((value) => {
@@ -315,7 +332,6 @@
 	type NodeDep = {
 		id: string
 		parentIds?: string[]
-		offset?: number
 		data?: { assets?: AssetWithAltAccessType[] }
 	}
 	type NodePos = { position: { x: number; y: number } }
@@ -336,59 +352,21 @@
 			seenId.push(n.id)
 		}
 
-		let nodeWidths: Record<string, number> = {}
-		const nodes2: (NodeDep & NodePos)[] = nodes.map((n) => {
-			return { ...n, position: { x: 0, y: 0 } }
+		// Run recursive compound layout
+		const { positions, bbox } = compoundLayout(nodes, {
+			nodeWidth: NODE.width,
+			nodeHeight: NODE.height,
+			gapH: NODE.gap.horizontal,
+			gapV: NODE.gap.vertical
 		})
-		for (const n of topologicalSort(nodes)) {
-			const endId = n.id + '-end'
 
-			if (nodeWidths[endId] != undefined) {
-				nodeWidths[n.id] = Math.max(nodeWidths[n.id] ?? 0, nodeWidths[endId])
-			}
-			if (n.parentIds && n.parentIds?.length == 1) {
-				const parent = n.parentIds[0]
-				const nodeWidth = nodeWidths[n.id] ?? 1
-				nodeWidths[parent] = (nodeWidths[parent] ?? 0) + nodeWidth
-			}
-		}
-
-		const dag = dagStratify().id(({ id }: NodeDep & NodePos) => id)(nodes2)
-
-		let boxSize: any
-		try {
-			const layout = sugiyama()
-				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
-				.coord(coordCenter())
-				.nodeSize((d) => {
-					return [
-						(nodeWidths[d?.data?.['id'] ?? ''] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
-						NODE.height + NODE.gap.vertical
-					] as readonly [number, number]
-				})
-			boxSize = layout(dag as any)
-		} catch {
-			const layout = sugiyama()
-				.decross(decrossTwoLayer())
-				.coord(coordCenter())
-				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
-			boxSize = layout(dag as any)
-		}
-
-		const newNodes = dag.descendants().map((des) => ({
-			id: des.data.id,
+		// Center horizontally
+		const xCenter = (fullSize ? fullWidth : width) / 2 - bbox.width / 2 - (width - fullWidth) / 2
+		const newNodes = nodes.map((n) => ({
+			id: n.id,
 			position: {
-				x: des.x
-					? // @ts-ignore
-						(des.data.offset ?? 0) +
-						// @ts-ignore
-						des.x +
-						(fullSize ? fullWidth : width) / 2 -
-						boxSize.width / 2 -
-						NODE.width / 2 -
-						(width - fullWidth) / 2
-					: 0,
-				y: des.y || 0
+				x: (positions.get(n.id)?.x ?? 0) + xCenter - NODE.width / 2,
+				y: positions.get(n.id)?.y ?? 0
 			}
 		}))
 
@@ -424,6 +402,9 @@
 		},
 		move: (detail) => {
 			onMove?.(detail.id)
+		},
+		duplicate: (detail) => {
+			onDuplicate?.(detail.id)
 		},
 		selectedIteration: (detail) => {
 			onSelectedIteration?.(detail)
@@ -505,6 +486,15 @@
 
 	let canUseDiffDrawer = $derived(diffBeforeFlow || moduleActions || editMode)
 
+	// Derived state for multi-select operations
+	let resolvedModuleIds = $derived(
+		resolveSelectedModuleIds(selectionManager.selectedIds, effectiveModules ?? [])
+	)
+	let canMoveSelected = $derived(
+		resolvedModuleIds.length > 0 &&
+			areContiguousSiblings(locateModules(resolvedModuleIds, effectiveModules ?? []))
+	)
+
 	// Initialize moduleTracker with effectiveModules
 	let moduleTracker = $state(new ChangeTracker<FlowModule[]>([]))
 
@@ -563,6 +553,31 @@
 				exitNoteMode?.()
 			}
 		}
+		if ((event.key === 'Backspace' || event.key === 'Delete') && editMode) {
+			const active = document.activeElement
+			if (active && active !== document.body && !flowContainer?.contains(active)) {
+				return
+			}
+			if (
+				active instanceof HTMLInputElement ||
+				active instanceof HTMLTextAreaElement ||
+				active?.getAttribute('contenteditable') === 'true'
+			) {
+				return
+			}
+			if (noteManager.selectedNoteId && noteEditorContext) {
+				noteEditorContext.noteEditor.deleteNote(noteManager.selectedNoteId)
+				noteManager.clearNoteSelection()
+				return
+			}
+			if (resolvedModuleIds.length > 1) {
+				onDeleteMultiple?.(resolvedModuleIds)
+			} else if (resolvedModuleIds.length === 1) {
+				onDelete?.(resolvedModuleIds[0])
+			} else if (selectedId) {
+				onDelete?.(selectedId)
+			}
+		}
 	}
 
 	async function updateStores() {
@@ -576,7 +591,6 @@
 			Object.values(graph.nodes).map((n) => ({
 				id: n.id,
 				parentIds: n.parentIds,
-				offset: n.data.offset ?? 0,
 				data: { assets: (n.data as any).assets }
 			}))
 		)
@@ -616,7 +630,6 @@
 						id: n.id,
 						position: n.position,
 						parentIds: n.parentIds,
-						offset: n.data?.offset ?? 0,
 						data: { assets: (n.data as any)?.assets },
 						type: n.type
 					})),
@@ -752,7 +765,6 @@
 			success,
 			$useDataflow,
 			untrack(() => selectedId),
-			moving,
 			simplifiableFlow,
 			triggerNode ? path : undefined,
 			expandedSubflows
@@ -912,6 +924,14 @@
 	{:else}
 		<SvelteFlowProvider>
 			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
+			{#if moveManager}
+				<DragCoordinator
+					{moveManager}
+					eventHandlers={eventHandler}
+					{edges}
+					nodes={nodesWithOffset}
+				/>
+			{/if}
 			{#if sharedViewport && onViewportChange}
 				<ViewportSynchronizer
 					{sharedViewport}
@@ -962,6 +982,7 @@
 				elevateNodesOnSelect={false}
 				{proOptions}
 				multiSelectionKey={'Shift'}
+				deleteKey={null}
 				nodesDraggable={false}
 				--background-color={false}
 			>
@@ -973,8 +994,17 @@
 
 				{#if multiSelectEnabled}
 					<SelectionBoundingBox
-						selectedNodes={selectionManager.selectedIds}
+						selectedNodes={selectionManager.selectedIds.filter((id) =>
+							nodesWithOffset.some((n) => n.id === id)
+						)}
 						allNodes={nodesWithOffset as (Node & { type: string })[]}
+						onDeleteSelected={() => onDeleteMultiple?.(resolvedModuleIds)}
+						onDuplicateSelected={() => onDuplicateMultiple?.(resolvedModuleIds)}
+						onMoveSelected={() => onMoveMultiple?.(resolvedModuleIds)}
+						onCancelMove={() => onMoveMultiple?.(movingIds ?? [])}
+						{canMoveSelected}
+						isMoving={movingIds != null && movingIds.length > 0}
+						{resolvedModuleIds}
 					/>
 				{/if}
 
@@ -986,7 +1016,12 @@
 						{@render leftHeader()}
 					</div>
 				{:else}
-					<Controls position="top-right" orientation="horizontal" showLock={false}>
+					<Controls
+						position="top-right"
+						orientation="horizontal"
+						showLock={false}
+						fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'note') }}
+					>
 						{#if multiSelectEnabled}
 							<div class="flex items-center gap-2">
 								<Tooltip>
@@ -1088,5 +1123,9 @@
 	:global(.svelte-flow__selection) {
 		display: none;
 		pointer-events: none;
+	}
+
+	:global(.svelte-flow__selection-wrapper) {
+		pointer-events: none !important;
 	}
 </style>

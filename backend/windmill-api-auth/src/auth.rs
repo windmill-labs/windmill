@@ -35,7 +35,45 @@ use windmill_common::{
 lazy_static::lazy_static! {
     // Global auth cache accessible from main.rs for direct invalidation
     pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
+    // Cache for token -> email lookups (for non-workspace-member authenticated users)
+    static ref TOKEN_EMAIL_CACHE: Cache<String, Option<String>> = Cache::new(500);
+}
 
+/// Get email from a valid token, with caching.
+/// Used for WM_END_USER_EMAIL when user is authenticated but not a workspace member.
+async fn get_email_from_token(db: &DB, token: &str) -> Option<String> {
+    if let Some(cached) = TOKEN_EMAIL_CACHE.get(token) {
+        return cached;
+    }
+
+    let email = sqlx::query_scalar!(
+        "SELECT email FROM token WHERE token = $1 AND (expiration > NOW() OR expiration IS NULL)",
+        token
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .flatten(); // email column is nullable, so we get Option<Option<String>>
+
+    TOKEN_EMAIL_CACHE.insert(token.to_string(), email.clone());
+    email
+}
+
+/// Get end user email from authenticated user or token.
+/// Returns email if user is authenticated (workspace member) or has valid instance token.
+pub async fn get_end_user_email(
+    db: &DB,
+    opt_authed: Option<&ApiAuthed>,
+    token: Option<&str>,
+) -> Option<String> {
+    if let Some(authed) = opt_authed {
+        return Some(authed.email.clone());
+    }
+    if let Some(token) = token {
+        return get_email_from_token(db, token).await;
+    }
+    None
 }
 // Global function to invalidate a specific token from cache
 pub fn invalidate_token_from_cache(token: &str) {

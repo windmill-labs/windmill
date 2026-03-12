@@ -13,7 +13,7 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { goto } from '$app/navigation'
 
 	interface WorkspaceIntegration {
@@ -57,6 +57,7 @@
 			displayName: 'Google',
 			description: 'Connect to Google for Drive and Calendar triggers',
 			icon: GoogleIcon,
+			docsUrl: 'https://www.windmill.dev/docs/core_concepts/native_triggers#google-triggers',
 			requiresBaseUrl: false,
 			clientIdPlaceholder: 'xxxx.apps.googleusercontent.com',
 			clientSecretPlaceholder: 'Google Cloud Console client secret',
@@ -250,7 +251,7 @@
 		const integration = getIntegrationByService(serviceName)
 		resourcePath = integration?.resource_path ?? undefined
 
-		const url = new URL($page.url)
+		const url = new URL(page.url)
 		url.searchParams.delete('code')
 		url.searchParams.delete('state')
 		url.searchParams.delete('service')
@@ -286,14 +287,14 @@
 
 	$effect(() => {
 		if (
-			$page.url.searchParams.has('code') &&
-			$page.url.searchParams.has('state') &&
-			$page.url.searchParams.has('service') &&
+			page.url.searchParams.has('code') &&
+			page.url.searchParams.has('state') &&
+			page.url.searchParams.has('service') &&
 			$workspaceStore
 		) {
-			const service = $page.url.searchParams.get('service')! as NativeServiceName
-			const code = $page.url.searchParams.get('code')!
-			const state = $page.url.searchParams.get('state')!
+			const service = page.url.searchParams.get('service')! as NativeServiceName
+			const code = page.url.searchParams.get('code')!
+			const state = page.url.searchParams.get('state')!
 			handleOAuthCallback($workspaceStore, service, code, state)
 		}
 	})
@@ -314,7 +315,7 @@
 	<SettingsPageHeader
 		title="Native Triggers"
 		description="Connect your workspace to external services for native triggers and enhanced functionality. These connections are shared across all workspace members and are required for native triggers to work."
-		link="https://www.windmill.dev/docs/integrations/native-triggers"
+		link="https://www.windmill.dev/docs/core_concepts/native_triggers"
 	/>
 
 	{#if pendingCallback}

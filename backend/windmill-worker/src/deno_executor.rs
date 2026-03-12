@@ -13,10 +13,11 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, DENO_CACHE_DIR, DENO_PATH, HOME_ENV,
+    is_sandboxing_enabled, read_ee_registry, DENO_CACHE_DIR, DENO_PATH, HOME_ENV, NPMRC,
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
+use windmill_common::worker::TypeScriptAnnotations;
 
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use windmill_common::{error::Result, scripts::ScriptLang, worker::write_file, BASE_URL};
@@ -79,21 +80,29 @@ async fn get_common_deno_proc_envs(
         ),
     ]);
 
-    let registry = if let Some(conn) = conn {
-        read_ee_registry(
-            NPM_CONFIG_REGISTRY.read().await.clone(),
-            "npm registry",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
+    let npmrc = if let Some(conn) = conn {
+        read_ee_registry(NPMRC.read().await.clone(), "npmrc", job_id, w_id, conn).await
     } else {
-        NPM_CONFIG_REGISTRY.read().await.clone()
+        NPMRC.read().await.clone()
     };
-    if let Some(ref s) = registry {
-        let (url, _token_opt) = parse_npm_config(s);
-        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), url);
+
+    if npmrc.as_ref().map_or(true, |s| s.trim().is_empty()) {
+        let registry = if let Some(conn) = conn {
+            read_ee_registry(
+                NPM_CONFIG_REGISTRY.read().await.clone(),
+                "npm registry",
+                job_id,
+                w_id,
+                conn,
+            )
+            .await
+        } else {
+            NPM_CONFIG_REGISTRY.read().await.clone()
+        };
+        if let Some(ref s) = registry {
+            let (url, _token_opt) = parse_npm_config(s);
+            deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), url);
+        }
     }
     if DENO_CERT.len() > 0 {
         deno_envs.insert(String::from("DENO_CERT"), DENO_CERT.clone());
@@ -112,11 +121,13 @@ async fn get_common_deno_proc_envs(
     }
 
     // Add proxy envs (including OTEL tracing proxy if enabled for deno)
-    for (k, v) in get_proxy_envs_for_lang(&ScriptLang::Deno)
-        .await
-        .unwrap_or_default()
-    {
-        deno_envs.insert(k.to_string(), v);
+    if let Some(conn) = conn {
+        for (k, v) in get_proxy_envs_for_lang(&ScriptLang::Deno, job_id, w_id, conn)
+            .await
+            .unwrap_or_default()
+        {
+            deno_envs.insert(k.to_string(), v);
+        }
     }
 
     return deno_envs;
@@ -223,8 +234,13 @@ pub async fn handle_deno_job(
     occupancy_metrics: &mut OccupancyMetrics,
     has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
+    let annotations = TypeScriptAnnotations::parse(inner_content);
+
     // let mut start = Instant::now();
-    let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
+    let mut logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
+    if annotations.sandbox {
+        logs1.push_str("sandbox mode (nsjail)\n");
+    }
     append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
     let main_override = job.script_entrypoint_override.as_deref();
@@ -390,6 +406,21 @@ try {{
         common_deno_proc_envs.insert("HOME".to_string(), job_dir.to_string());
     }
 
+    let npmrc = read_ee_registry(
+        NPMRC.read().await.clone(),
+        "npmrc",
+        &job.id,
+        &job.workspace_id,
+        conn,
+    )
+    .await;
+    if let Some(ref npmrc_content) = npmrc {
+        if !npmrc_content.trim().is_empty() {
+            write_file(job_dir, ".npmrc", npmrc_content)?;
+            write_file(job_dir, "deno.json", "{}")?;
+        }
+    }
+
     //do not cache local dependencies
     let child = {
         let reload = format!("--reload={base_internal_url}");
@@ -420,14 +451,15 @@ try {{
         }
 
         let allow_read = format!(
-            "--allow-read=./,/tmp/windmill/cache/deno/,{}",
+            "--allow-read=./,{}/,{}",
+            *DENO_CACHE_DIR,
             DENO_PATH.as_str()
         );
         if let Some(deno_flags) = DENO_FLAGS.as_ref() {
             for flag in deno_flags {
                 args.push(flag);
             }
-        } else if is_sandboxing_enabled() {
+        } else if is_sandboxing_enabled() || annotations.sandbox {
             args.push("--allow-net");
             args.push("--allow-sys");
             args.push(allow_read.as_str());
@@ -481,7 +513,8 @@ try {{
     *has_stream = handle_result.result_stream.is_some();
 
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
-    if let Err(e) = tokio::fs::remove_dir_all(format!("{DENO_CACHE_DIR}/gen/file/{job_dir}")).await
+    if let Err(e) =
+        tokio::fs::remove_dir_all(format!("{}/gen/file/{job_dir}", *DENO_CACHE_DIR)).await
     {
         tracing::error!("failed to remove deno gen tmp cache dir: {}", e);
     }
@@ -622,11 +655,61 @@ pub async fn start_worker(
             .join("\n");
 
         let spread = args.into_iter().map(|x| x.name).join(",");
+
+        // Parse preprocessor signature if it exists
+        let pre_spread = windmill_parser_ts::parse_deno_signature(
+            inner_content,
+            true,
+            false,
+            Some("preprocessor".to_string()),
+        )
+        .ok()
+        .filter(|sig| !sig.args.is_empty())
+        .map(|sig| sig.args.into_iter().map(|x| x.name).join(","));
+
+        let preprocessor_import = if pre_spread.is_some() {
+            r#"import { preprocessor } from "./main.ts";"#
+        } else {
+            ""
+        };
+
+        let preprocessor_logic = if let Some(ref pre_spread) = pre_spread {
+            format!(
+                r#"
+        if (line.startsWith("preprocess:")) {{
+            const preInput = line.slice("preprocess:".length);
+            const parsedArgs = JSON.parse(preInput);
+            if (typeof preprocessor !== 'function') {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}) + '\n');
+                continue;
+            }}
+            try {{
+                function preArgsObjToArr({{ {pre_spread} }}: any) {{
+                    return [ {pre_spread} ];
+                }}
+                const preprocessedArgs: any = await preprocessor(...preArgsObjToArr(parsedArgs));
+                console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+                // Now call main with preprocessed args
+                let {{ {spread} }} = preprocessedArgs ?? {{}};
+                {dates}
+                let res: any = await main(...[ {spread} ]);
+                console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+            }} catch (e) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}) + '\n');
+            }}
+            continue;
+        }}"#
+            )
+        } else {
+            String::new()
+        };
+
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
         let wrapper_content: String = format!(
             r#"
 import {{ main }} from "./main.ts";
+{preprocessor_import}
 
 BigInt.prototype.toJSON = function () {{
     return this.toString();
@@ -645,6 +728,7 @@ for await (const chunk of Deno.stdin.readable) {{
             exit = true;
             break;
         }}
+        {preprocessor_logic}
         try {{
             let {{ {spread} }} = JSON.parse(line)
             {dates}

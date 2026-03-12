@@ -24,7 +24,8 @@ done
 if [[ "$RESTORE_MODE" == true ]]; then
     echo "Adding .ts extensions to imports..."
     # Only add .ts if the path doesn't already end with .ts or /
-    REGEX='/\.ts["'\'']/! s/(from|import)[[:space:]]+["'\'']([^"'\'']*[^/])(["'\''])/\1 "\2.ts\3/g'
+    # Also skip node: built-in module imports
+    REGEX='/\.ts["'\'']/! { /["'\''"]node:/! s/(from|import)[[:space:]]+["'\'']([^"'\'']*[^/])(["'\''])/\1 "\2.ts\3/g; }'
     SUCCESS_MSG="✓ All .ts extensions added to import/export statements"
 else
     echo "Removing .ts extensions from imports..."

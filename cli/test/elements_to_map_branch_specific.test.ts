@@ -1,4 +1,4 @@
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { expect, test } from "bun:test";
 
 // Import the function we need to test
 import { elementsToMap } from "../src/commands/sync/sync.ts";
@@ -63,7 +63,7 @@ const defaultSkips = {};
 // REGRESSION TEST: Remote base files should NOT be skipped
 // =============================================================================
 
-Deno.test("elementsToMap: remote base file is NOT skipped when configured as branch-specific (isRemote=true)", async () => {
+test("elementsToMap: remote base file is NOT skipped when configured as branch-specific (isRemote=true)", async () => {
   // This is the key regression test.
   // When pulling from remote, the workspace only has base paths (e.g., TestVar.variable.yaml)
   // These should NOT be skipped even if configured as branch-specific, because the remote
@@ -94,14 +94,10 @@ Deno.test("elementsToMap: remote base file is NOT skipped when configured as bra
   );
 
   // The base file should be in the map
-  assertEquals(
-    Object.keys(result).includes("f/Shared/Variable/TestVar.variable.yaml"),
-    true,
-    "Remote base file should NOT be skipped when isRemote=true"
-  );
+  expect(Object.keys(result).includes("f/Shared/Variable/TestVar.variable.yaml")).toEqual(true);
 });
 
-Deno.test("elementsToMap: local base file IS skipped when configured as branch-specific (isRemote=false)", async () => {
+test("elementsToMap: local base file IS skipped when configured as branch-specific (isRemote=false)", async () => {
   // When processing local files, if a base file is configured as branch-specific,
   // it should be skipped because we expect the branch-specific version to be used instead.
 
@@ -130,14 +126,10 @@ Deno.test("elementsToMap: local base file IS skipped when configured as branch-s
   );
 
   // The base file should NOT be in the map (skipped because branch-specific expected)
-  assertEquals(
-    Object.keys(result).includes("f/Shared/Variable/TestVar.variable.yaml"),
-    false,
-    "Local base file SHOULD be skipped when isRemote=false and configured as branch-specific"
-  );
+  expect(Object.keys(result).includes("f/Shared/Variable/TestVar.variable.yaml")).toEqual(false);
 });
 
-Deno.test("elementsToMap: local branch-specific file is mapped to base path (isRemote=false)", async () => {
+test("elementsToMap: local branch-specific file is mapped to base path (isRemote=false)", async () => {
   // When processing local files with branch-specific naming, they should be mapped to base paths
 
   const config: SpecificItemsConfig = {
@@ -164,15 +156,8 @@ Deno.test("elementsToMap: local branch-specific file is mapped to base path (isR
   );
 
   // The branch-specific file should be mapped to the base path
-  assertEquals(
-    Object.keys(result).includes("f/Shared/Variable/TestVar.variable.yaml"),
-    true,
-    "Branch-specific file should be mapped to base path"
-  );
-  assertEquals(
-    result["f/Shared/Variable/TestVar.variable.yaml"],
-    "value: staging-test\nis_secret: false",
-  );
+  expect(Object.keys(result).includes("f/Shared/Variable/TestVar.variable.yaml")).toEqual(true);
+  expect(result["f/Shared/Variable/TestVar.variable.yaml"]).toEqual("value: staging-test\nis_secret: false");
 });
 
 // =============================================================================
@@ -183,7 +168,7 @@ Deno.test("elementsToMap: local branch-specific file is mapped to base path (isR
 // - Expected: No deletion, the files should match
 // =============================================================================
 
-Deno.test("elementsToMap: pull scenario - remote and local maps should align correctly", async () => {
+test("elementsToMap: pull scenario - remote and local maps should align correctly", async () => {
   const config: SpecificItemsConfig = {
     variables: ["f/Shared/Variable/**"],
   };
@@ -233,23 +218,15 @@ Deno.test("elementsToMap: pull scenario - remote and local maps should align cor
   const remoteKeys = Object.keys(remoteMap);
   const localKeys = Object.keys(localMap);
 
-  assertEquals(
-    remoteKeys.includes("f/Shared/Variable/TestVar.variable.yaml"),
-    true,
-    "Remote map should include base path"
-  );
-  assertEquals(
-    localKeys.includes("f/Shared/Variable/TestVar.variable.yaml"),
-    true,
-    "Local map should include base path (mapped from branch-specific)"
-  );
+  expect(remoteKeys.includes("f/Shared/Variable/TestVar.variable.yaml")).toEqual(true);
+  expect(localKeys.includes("f/Shared/Variable/TestVar.variable.yaml")).toEqual(true);
 });
 
 // =============================================================================
 // NON-CONFIGURED ITEMS: Should work the same regardless of isRemote
 // =============================================================================
 
-Deno.test("elementsToMap: non-configured items included regardless of isRemote", async () => {
+test("elementsToMap: non-configured items included regardless of isRemote", async () => {
   const config: SpecificItemsConfig = {
     variables: ["f/Other/**"], // Only "Other" folder is branch-specific
   };
@@ -286,23 +263,15 @@ Deno.test("elementsToMap: non-configured items included regardless of isRemote",
   );
 
   // Both should include the file since it's not in the branch-specific config
-  assertEquals(
-    Object.keys(remoteResult).includes("f/Shared/Variable/TestVar.variable.yaml"),
-    true,
-    "Non-configured item should be included when isRemote=true"
-  );
-  assertEquals(
-    Object.keys(localResult).includes("f/Shared/Variable/TestVar.variable.yaml"),
-    true,
-    "Non-configured item should be included when isRemote=false"
-  );
+  expect(Object.keys(remoteResult).includes("f/Shared/Variable/TestVar.variable.yaml")).toEqual(true);
+  expect(Object.keys(localResult).includes("f/Shared/Variable/TestVar.variable.yaml")).toEqual(true);
 });
 
 // =============================================================================
 // RESOURCE TYPE TESTS
 // =============================================================================
 
-Deno.test("elementsToMap: remote resource base file not skipped when configured", async () => {
+test("elementsToMap: remote resource base file not skipped when configured", async () => {
   const config: SpecificItemsConfig = {
     resources: ["f/db/**"],
   };
@@ -326,18 +295,14 @@ Deno.test("elementsToMap: remote resource base file not skipped when configured"
     true, // isRemote
   );
 
-  assertEquals(
-    Object.keys(result).includes("f/db/connection.resource.yaml"),
-    true,
-    "Remote resource base file should NOT be skipped"
-  );
+  expect(Object.keys(result).includes("f/db/connection.resource.yaml")).toEqual(true);
 });
 
 // =============================================================================
 // TRIGGER TYPE TESTS
 // =============================================================================
 
-Deno.test("elementsToMap: remote trigger base file not skipped when configured", async () => {
+test("elementsToMap: remote trigger base file not skipped when configured", async () => {
   const config: SpecificItemsConfig = {
     triggers: ["f/webhooks/**"],
   };
@@ -361,18 +326,14 @@ Deno.test("elementsToMap: remote trigger base file not skipped when configured",
     true, // isRemote
   );
 
-  assertEquals(
-    Object.keys(result).includes("f/webhooks/handler.http_trigger.yaml"),
-    true,
-    "Remote trigger base file should NOT be skipped"
-  );
+  expect(Object.keys(result).includes("f/webhooks/handler.http_trigger.yaml")).toEqual(true);
 });
 
 // =============================================================================
 // SETTINGS TYPE TESTS
 // =============================================================================
 
-Deno.test("elementsToMap: remote settings.yaml not skipped when configured", async () => {
+test("elementsToMap: remote settings.yaml not skipped when configured", async () => {
   const config: SpecificItemsConfig = {
     settings: true,
   };
@@ -396,18 +357,14 @@ Deno.test("elementsToMap: remote settings.yaml not skipped when configured", asy
     true, // isRemote
   );
 
-  assertEquals(
-    Object.keys(result).includes("settings.yaml"),
-    true,
-    "Remote settings.yaml should NOT be skipped"
-  );
+  expect(Object.keys(result).includes("settings.yaml")).toEqual(true);
 });
 
 // =============================================================================
 // FOLDER TYPE TESTS
 // =============================================================================
 
-Deno.test("elementsToMap: remote folder meta not skipped when configured", async () => {
+test("elementsToMap: remote folder meta not skipped when configured", async () => {
   const config: SpecificItemsConfig = {
     folders: ["f/env_*"],
   };
@@ -431,18 +388,14 @@ Deno.test("elementsToMap: remote folder meta not skipped when configured", async
     true, // isRemote
   );
 
-  assertEquals(
-    Object.keys(result).includes("f/env_staging/folder.meta.yaml"),
-    true,
-    "Remote folder meta should NOT be skipped"
-  );
+  expect(Object.keys(result).includes("f/env_staging/folder.meta.yaml")).toEqual(true);
 });
 
 // =============================================================================
 // BACKWARD COMPATIBILITY: isRemote undefined behaves like local (false)
 // =============================================================================
 
-Deno.test("elementsToMap: isRemote undefined behaves like local (backward compatible)", async () => {
+test("elementsToMap: isRemote undefined behaves like local (backward compatible)", async () => {
   const config: SpecificItemsConfig = {
     variables: ["f/**"],
   };
@@ -468,9 +421,5 @@ Deno.test("elementsToMap: isRemote undefined behaves like local (backward compat
   );
 
   // Base file should be skipped (same behavior as isRemote=false)
-  assertEquals(
-    Object.keys(result).includes("f/test.variable.yaml"),
-    false,
-    "isRemote undefined should behave like isRemote=false (skip base file)"
-  );
+  expect(Object.keys(result).includes("f/test.variable.yaml")).toEqual(false);
 });

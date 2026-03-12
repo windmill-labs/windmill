@@ -52,7 +52,7 @@
 	import { onMount } from 'svelte'
 	import { base } from '$lib/base'
 	import { type Changelog, changelogs } from './changelogs'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import SideBarNotification from './SideBarNotification.svelte'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
@@ -369,12 +369,12 @@
 			aiDescription: 'Button to navigate to schedules'
 		},
 		...allTriggerLinks.filter(
-			(link) => $usedTriggerKinds.includes(link.kind) || $page.url.pathname.includes(link.href)
+			(link) => $usedTriggerKinds.includes(link.kind) || page.url.pathname.includes(link.href)
 		)
 	])
 	let extraTriggerLinks = $derived(
 		allTriggerLinks.filter((link) => {
-			return !$page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
+			return !page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
 		})
 	)
 	let secondaryMenuLinks = $derived([
@@ -551,7 +551,7 @@
 		</div>
 		<div class="pt-4">
 			<div
-				class="text-gray-400 text-[0.5rem] uppercase transition-opacity"
+				class="text-secondary text-[0.5rem] uppercase transition-opacity"
 				class:opacity-0={isCollapsed}>Triggers</div
 			>
 			<Menubar class="flex flex-col gap-1">
@@ -566,8 +566,8 @@
 									aiId="sidebar-menu-link-add-trigger"
 									aiDescription="Button to add a new trigger. Can be HTTP, WebSocket, Postgres, Kafka, NATS, SQS, GCP Pub/Sub, or MQTT"
 									class={twMerge(
-										'w-full text-gray-400 text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-[#2A3648] dark:hover:bg-[#30404e] rounded',
-										'data-[highlighted]:bg-[#2A3648] dark:data-[highlighted]:bg-[#30404e]'
+										'w-full text-secondary text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-surface-hover rounded',
+										'data-[highlighted]:bg-surface-hover'
 									)}
 									meltElement={trigger}
 								>

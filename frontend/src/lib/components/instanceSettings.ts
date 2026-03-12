@@ -85,7 +85,8 @@ const indexerSettingsSchema = z
 		refresh_index_period: positiveNumber.optional(),
 		max_indexed_job_log_size: positiveNumber.optional(),
 		commit_log_max_batch_size: positiveNumber.optional(),
-		refresh_log_index_period: positiveNumber.optional()
+		refresh_log_index_period: positiveNumber.optional(),
+		max_index_time_window_secs: positiveNumber.optional()
 	})
 	.passthrough()
 
@@ -141,6 +142,21 @@ export const settings: Record<string, Setting[]> = {
 					!value?.endsWith(' '))
 		},
 		{
+			label: 'Email domain',
+			description: 'Domain to display in webhooks for email triggers (should match the MX record)',
+			key: 'email_domain',
+			fieldType: 'text',
+			placeholder: 'mail.windmill.com',
+			storage: 'setting',
+			error: 'Must be a valid domain',
+			isValid: (value: string | undefined) =>
+				value == undefined ||
+				value === '' ||
+				/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/.test(
+					value
+				)
+		},
+		{
 			label: 'Request size limit in MB',
 			description: 'Maximum size of HTTP requests in MB.',
 			cloudonly: true,
@@ -174,6 +190,16 @@ export const settings: Record<string, Setting[]> = {
 				'When enabled apps will be accessible at /a/{workspace_id}/{custom_path} instead of /a/{custom_path} allowing you to define same custom path for apps in different workspace without conflict',
 			key: 'app_workspaced_route',
 			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Audit log retention (days)',
+			key: 'audit_log_retention_days',
+			description: 'How long to keep audit log entries in the database. Default: 365 days.',
+			fieldType: 'number',
+			placeholder: '365',
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
@@ -216,7 +242,6 @@ export const settings: Record<string, Setting[]> = {
 			description:
 				'Maximum amount of time (measured in seconds) that a <a href="https://www.windmill.dev/docs/core_concepts/webhooks">sync endpoint</a> is allowed to run before it is forcibly stopped or timed out.',
 			key: 'timeout_wait_result',
-			cloudonly: true,
 			fieldType: 'seconds',
 			placeholder: '60',
 			storage: 'setting'
@@ -317,6 +342,16 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hiddenIfEmpty: true
+		},
+		{
+			label: 'Disable Hub',
+			description:
+				'Disable the Windmill Hub integration entirely. Enable this if your instance runs in a closed environment without internet access and you do not have a private hub setup.',
+			key: 'disable_hub',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			requiresReloadOnChange: true
 		}
 	],
 	SMTP: [
@@ -406,27 +441,42 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Npm config registry',
-			description: 'Add private npm registry',
+			label: 'NPM Registry Configuration (.npmrc)',
+			description:
+				'Full .npmrc file content for private npm registries. Used by Bun, Deno, and the npm proxy. Takes precedence over the legacy fields below.',
+			key: 'npmrc',
+			fieldType: 'codearea',
+			codeAreaLang: 'ini',
+			placeholder:
+				'registry=https://registry.mycompany.com/\n//registry.mycompany.com/:_authToken=YOUR_TOKEN\n\n@myorg:registry=https://registry.myorg.com/\n//registry.myorg.com/:_authToken=SCOPED_TOKEN',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Npm config registry (legacy)',
+			description: 'Add private npm registry. Prefer using the .npmrc field above.',
 			key: 'npm_config_registry',
 			fieldType: 'password',
 			placeholder: 'https://registry.npmjs.org/:_authToken=npm_FOOBAR',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			hiddenIfEmpty: true
 		},
 		{
-			label: 'Bunfig install scopes',
+			label: 'Bunfig install scopes (legacy)',
 			description:
-				'Add private scoped registries for Bun, See: https://bun.sh/docs/install/registries',
+				'Add private scoped registries for Bun. Prefer using the .npmrc field above. See: https://bun.sh/docs/install/registries',
 			key: 'bunfig_install_scopes',
 			fieldType: 'password',
 			placeholder: '"@myorg3" = { token = "mytoken", url = "https://registry.myorg.com/" }',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			hiddenIfEmpty: true
 		},
 		{
 			label: 'Nuget Config',
-			description: 'Write a nuget.config file to set custom package sources and credentials',
+			description:
+				'Write a nuget.config file to set custom package sources and credentials. Use <clear /> inside <packageSources> to remove default sources and only use your custom ones',
 			key: 'nuget_config',
 			fieldType: 'codearea',
 			codeAreaLang: 'xml',
@@ -534,6 +584,15 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: 'Critical alerts in UI are only available in the EE version'
 		},
 		{
+			label: 'Alert on token expiry',
+			description:
+				'Send critical alerts when API tokens are about to expire (within 7 days) or have expired',
+			key: 'critical_alerts_on_token_expiry',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'Slack',
 			key: 'slack',
 			fieldType: 'slack_connect',
@@ -590,11 +649,10 @@ export const settings: Record<string, Setting[]> = {
 
 	Telemetry: [
 		{
-			label: 'Disable telemetry',
+			label: 'Minimal telemetry',
 			key: 'disable_stats',
 			fieldType: 'boolean',
-			storage: 'setting',
-			hiddenInEe: true
+			storage: 'setting'
 		}
 	],
 	'Secret Storage': [

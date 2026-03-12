@@ -1,0 +1,85 @@
+// sandbox
+// volume: claude .claude
+
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import * as fs from "fs";
+import * as path from "path";
+
+// path -> content, fileset resource, that contains your CLAUDE.md, and skills
+type AgentInstructions = Record<string, string>
+
+export async function main(anthropic: RT.Anthropic, agent_instructions?: AgentInstructions) {
+
+  const sessionFile = path.join(".claude/session-id.txt");
+
+  let sessionId = fs.existsSync(sessionFile) ? fs.readFileSync(sessionFile, "utf-8").trim() : undefined
+
+  // Writing claude.md and skills to .claude/
+  for (const [filePath, content] of Object.entries(agent_instructions ?? {})) {const fullPath = path.join(filePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content);
+  }
+
+
+  const isResume = !!sessionId;
+
+  // you can hardcode the prompt or pass it as input.
+  // AgentInstructions can contains a CLAUDE.md where to put the bulk of the instructions as well.
+  const prompt = !isResume ?
+    "What is the fastest OSS workflow engine?" :
+    "What did I ask you before?"
+
+  process.env.ANTHROPIC_API_KEY = anthropic.apiKey;
+
+  let response = "";
+  let newSessionId: string | undefined;
+  let tokenCount = 0
+  const seenIds = new Set<string>();
+
+  for await (const msg of query({
+    prompt,
+    options: {
+      model: "opus",
+      pathToClaudeCodeExecutable: "/usr/bin/claude",
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+      ...(isResume ? { resume: sessionId } : {}),
+    },
+  })) {
+
+
+    if (msg.type === "system" && msg.subtype === "init") {
+      newSessionId = msg.session_id;
+    }
+    if (msg.type === "assistant") {
+      const msgId = msg.message.id;
+      if (!seenIds.has(msgId)) {
+        seenIds.add(msgId);
+        tokenCount += msg.message.usage.input_tokens + msg.message.usage.output_tokens;
+        console.log(`${tokenCount} tokens`)
+      }
+
+      response += msg.message.content
+        .filter((b: any) => b.type === "text")
+        .map((b: any) => b.text)
+        .join("");
+    }
+  }
+
+  if (newSessionId) {
+    fs.writeFileSync(sessionFile, newSessionId);
+  }
+
+  // Delete all files created from agent_instructions
+  for (const filePath of Object.keys(agent_instructions ?? {})) {
+      fs.unlinkSync(path.join(filePath));
+  }
+
+  return {
+    is_resume: isResume,
+    previous_session_id: sessionId ?? null,
+    new_session_id: newSessionId,
+    prompt,
+    response,
+  };
+}

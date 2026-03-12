@@ -15,7 +15,8 @@ import { sendUserToast } from '$lib/toast'
 import { tweened, type Tweened } from 'svelte/motion'
 import { subtractDaysFromDateString } from '$lib/utils'
 import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
-import type { RunsFilters } from './RunsFilter.svelte'
+import type { Timeframe } from './TimeframeSelect.svelte'
+import { allowWildcards as _allowWildcards, type RunsFilterInstance } from './runsFilter'
 
 export function computeJobKinds(jobKindsCat: string | null): string {
 	if (jobKindsCat == 'all') {
@@ -46,7 +47,8 @@ export function computeJobKinds(jobKindsCat: string | null): string {
 
 export interface UseJobLoaderArgs {
 	currentWorkspace: string
-	filters?: Partial<RunsFilters>
+	filters?: Partial<RunsFilterInstance>
+	timeframe?: Timeframe
 	jobKinds?: string
 	autoRefresh?: boolean
 	argError?: string
@@ -54,10 +56,8 @@ export interface UseJobLoaderArgs {
 	refreshRate?: number
 	syncQueuedRunsCount?: boolean
 	skip?: boolean
-	computeMinAndMax?: (() => { minTs: string; maxTs: string | null } | undefined) | undefined
 	lookback?: number
-	onSetMinMaxTs?: (minTs: string | null, maxTs: string | null) => void
-	onSetPerPage?: (perPage: number) => void
+	perPage?: number
 }
 
 export function useJobsLoader(args: () => UseJobLoaderArgs) {
@@ -71,37 +71,36 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let resultError = $derived(_args.resultError ?? '')
 	let refreshRate = $derived(_args.refreshRate ?? 5000)
 	let syncQueuedRunsCount = $derived(_args.syncQueuedRunsCount ?? true)
-	let computeMinAndMax = $derived(_args.computeMinAndMax)
 	let lookback = $derived(_args.lookback ?? 0)
-	let onSetMinMaxTs = $derived(_args.onSetMinMaxTs)
-	let onSetPerPage = $derived(_args.onSetPerPage)
+	let timeframe = $derived(_args?.timeframe)
+	let perPage = $derived(_args?.perPage ?? 1000)
 
 	let label = $derived(filters?.label ?? null)
 	let worker = $derived(filters?.worker ?? null)
-	let success = $derived(filters?.success ?? null)
+	let success = $derived(filters?.status ?? null)
 	let showSkipped = $derived(filters?.show_skipped ?? false)
-	let showSchedules = $derived(filters?.show_schedules ?? true)
+	let showSchedules = $derived(!filters?.job_trigger_kind?.includes('!schedule'))
 	let showFutureJobs = $derived(filters?.show_future_jobs ?? true)
 	let resultFilter = $derived(filters?.result)
 	let jobTriggerKind = $derived(filters?.job_trigger_kind ?? null)
 	let schedulePath = $derived(filters?.schedule_path ?? null)
 	let jobKindsCat = $derived(filters?.job_kinds ?? null)
 	let allWorkspaces = $derived(filters?.all_workspaces ?? false)
-	let allowWildcards = $derived(filters?.allow_wildcards ?? false)
+	let allowWildcards = $derived(_allowWildcards(filters))
 	let concurrencyKey = $derived(filters?.concurrency_key)
 	let tag = $derived(filters?.tag)
 	let user = $derived(filters?.user)
 	let folder = $derived(filters?.folder)
 	let path = $derived(filters?.path)
 	let argFilter = $derived(filters?.arg)
-	let minTs = $derived(filters?.min_ts ?? null)
-	let maxTs = $derived(filters?.max_ts ?? null)
-	let perPage = $derived(filters?.per_page ?? 100)
+	let broadFilter = $derived(filters?._default_ || undefined)
 
 	let queue_count: Tweened<number> | undefined = $state()
 	let suspended_count: Tweened<number> | undefined = $state()
 	let loading = $state(false)
-	let lastFetchWentToEnd = $state(false)
+	let loadingExtra = $state(false)
+	let lastFetchWentToEnd = $state(true)
+	let batchProgress = $state<{ loaded: number; total: number } | null>(null)
 
 	let completedJobs: CompletedJob[] | undefined = $state()
 	let externalJobs: Job[] | undefined = $state()
@@ -110,18 +109,35 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	let intervalId: ReturnType<typeof setInterval> | undefined = $state()
 	let sync = true
+	let paramChangeTimeout: ReturnType<typeof setTimeout> | undefined
+	let paramChangePromise: CancelablePromise<void> | undefined
+	let slowStreamIntervalId: ReturnType<typeof setInterval> | undefined
+	let currentBatchSize = $state<number | null>(null)
 
 	function onParamChanges() {
 		resetJobs()
-		let promise = loadJobsIntern(true)
-		promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
+		slowStreamIntervalId = setInterval(() => {
 			sendUserToast(
-				'Loading jobs is taking longer than expected...',
-				true,
-				perPage > 25 && onSetPerPage
-					? [{ label: 'Reduce to 25 items per page', callback: () => onSetPerPage(25) }]
-					: []
+				'Loading is taking a long time...',
+				'warning',
+				[{ label: 'Stop loading', callback: () => stopBatchLoading() }],
+				undefined,
+				8000
 			)
+		}, 15000)
+		let promise = loadJobsIntern(true)
+		if (perPage > 25) {
+			promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
+				sendUserToast('Loading jobs is taking longer than expected...', 'warning', [
+					{ label: 'Stream by batches of 25', callback: () => restreamWithSmallBatches() }
+				])
+			})
+		}
+		promise = CancelablePromiseUtils.finallyDo(promise, () => {
+			if (slowStreamIntervalId) {
+				clearInterval(slowStreamIntervalId)
+				slowStreamIntervalId = undefined
+			}
 		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) {
@@ -132,62 +148,106 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		return promise
 	}
 
+	function restreamWithBatchSize(size: number) {
+		paramChangePromise?.cancel()
+		resetJobs()
+		slowStreamIntervalId = setInterval(() => {
+			sendUserToast(
+				'Loading is taking a long time...',
+				'warning',
+				[{ label: 'Stop loading', callback: () => stopBatchLoading() }],
+				undefined,
+				8000
+			)
+		}, 15000)
+		paramChangePromise = loadJobsIntern(false, size)
+		paramChangePromise = CancelablePromiseUtils.finallyDo(paramChangePromise, () => {
+			if (slowStreamIntervalId) {
+				clearInterval(slowStreamIntervalId)
+				slowStreamIntervalId = undefined
+			}
+		})
+		paramChangePromise = CancelablePromiseUtils.catchErr(paramChangePromise, (e) => {
+			if (e instanceof CancelError) {
+				return CancelablePromiseUtils.pure<void>(undefined)
+			}
+			return CancelablePromiseUtils.err(e)
+		})
+	}
+
+	function restreamWithSmallBatches() {
+		restreamWithBatchSize(25)
+	}
+
+	function restreamWithSingleItems() {
+		restreamWithBatchSize(1)
+	}
+
 	let loadingFetch = false
 
 	async function loadExtraJobs(): Promise<void> {
-		if (jobs && jobs.length > 0) {
-			let minQueueTs: string | undefined = undefined
-			let minCompletedTs: string | undefined = undefined
+		loading = true
+		loadingExtra = true
+		const batchSize = Math.min(perPage, 1000)
+		await loadExtraJobsBatch(batchSize)
+		loadingExtra = false
+	}
 
-			let cursor = 0
-
-			while (jobs && cursor < jobs?.length) {
-				cursor++
-				const job = jobs[jobs.length - 1 - cursor]
-				if (job.type == 'CompletedJob') {
-					minCompletedTs = job.completed_at
-					break
-				} else if (job.type == 'QueuedJob' && minQueueTs == undefined) {
-					minQueueTs = job.created_at
-				}
-			}
-
-			const ts = minCompletedTs ?? minQueueTs
-
-			if (!ts) {
-				sendUserToast('No jobs to load from')
-				lastFetchWentToEnd = false
-				return
-			}
-			// const minCreated = lastJob?.created_at
-			const minCreated = new Date(new Date(ts).getTime() - 1).toISOString()
-
-			let olderJobs = await fetchJobs(minCreated, minTs, undefined)
-			jobs = updateWithNewJobs(olderJobs ?? [], jobs ?? [])
-			computeCompletedJobs()
-			lastFetchWentToEnd = olderJobs?.length < perPage
-		} else {
-			lastFetchWentToEnd = false
+	function loadExtraJobsBatch(batchSize: number): CancelablePromise<void> {
+		if (!jobs || jobs.length === 0) {
+			lastFetchWentToEnd = true
+			return CancelablePromiseUtils.pure<void>(undefined as void)
 		}
+		const lastJob = jobs[jobs.length - 1]
+		const ts = lastJob.created_at
+		if (!ts) {
+			lastFetchWentToEnd = true
+			return CancelablePromiseUtils.pure<void>(undefined as void)
+		}
+		const cursorTs = new Date(new Date(ts).getTime() - 1).toISOString()
+		const minTs = timeframe?.computeMinMax().minTs ?? null
+		return CancelablePromiseUtils.map(
+			fetchJobs(null, minTs, undefined, cursorTs, batchSize),
+			(olderJobs) => {
+				jobs = updateWithNewJobs(olderJobs ?? [], jobs ?? [])
+				if (extendedJobs) {
+					extendedJobs.jobs = jobs ?? []
+					extendedJobs = extendedJobs
+				}
+				computeCompletedJobs()
+				lastFetchWentToEnd = (olderJobs?.length ?? 0) < batchSize
+				loading = false
+			}
+		)
 	}
 
 	function fetchJobs(
 		completedBefore: string | null,
 		completedAfter: string | null,
-		createdAfterQueue: string | undefined
+		createdAfterQueue: string | undefined,
+		createdBefore?: string,
+		perPageOverride?: number
 	): CancelablePromise<Job[]> {
 		if (_args.skip) return CancelablePromiseUtils.pure<Job[]>([])
 		loadingFetch = true
-		let scriptPathStart = folder === null || folder === '' ? undefined : `f/${folder}/`
-		let scriptPathExact = path === null || path === '' ? undefined : path
+		let scriptPathStart = folder == null || folder === '' ? undefined : `f/${folder}/`
+		let scriptPathExact = path == null || path === '' ? undefined : path
+		let isQueueOnly = success == 'running' || success == 'suspended' || success == 'waiting'
+		let isCompletedOnly = success == 'success' || success == 'failure'
 		let promise = JobService.listJobs({
 			workspace: currentWorkspace,
-			completedBefore: completedBefore ?? undefined,
-			completedAfter: completedAfter ?? undefined,
-			createdAfterQueue,
+			createdBefore: createdBefore ?? undefined,
+			completedBefore: isQueueOnly ? undefined : (completedBefore ?? undefined),
+			completedAfter: isQueueOnly ? undefined : (completedAfter ?? undefined),
+			createdBeforeQueue: isQueueOnly ? (completedBefore ?? undefined) : undefined,
+			createdAfterQueue: isCompletedOnly
+				? undefined
+				: isQueueOnly
+					? (completedAfter ?? createdAfterQueue)
+					: createdAfterQueue,
 			schedulePath: schedulePath ?? undefined,
 			scriptPathExact,
-			createdBy: user === null || user === '' ? undefined : user,
+			createdBy: user == null || user === '' ? undefined : user,
 			scriptPathStart: scriptPathStart,
 			jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
 			success: success == 'success' ? true : success == 'failure' ? false : undefined,
@@ -200,9 +260,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			isSkipped: showSkipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent: jobKindsCat != 'all' ? true : undefined,
-			label: label === null || label === '' ? undefined : label,
-			tag: tag === null || tag === '' ? undefined : tag,
-			worker: worker === null || worker === '' ? undefined : worker,
+			label: label == null || label === '' ? undefined : label,
+			tag: tag == null || tag === '' ? undefined : tag,
+			worker: worker == null || worker === '' ? undefined : worker,
 			isNotSchedule: showSchedules == false ? true : undefined,
 			suspended: success == 'waiting' ? false : success == 'suspended' ? true : undefined,
 			scheduledForBeforeNow:
@@ -217,8 +277,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					: undefined,
 			triggerKind: jobTriggerKind ?? undefined,
 			allWorkspaces: allWorkspaces ? true : undefined,
-			perPage,
-			allowWildcards: allowWildcards ? true : undefined
+			perPage: perPageOverride ?? perPage,
+			allowWildcards: allowWildcards ? true : undefined,
+			broadFilter
 		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)
@@ -250,16 +311,16 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			// createdOrStartedAfter: startedAfter,
 			// createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
 			schedulePath: schedulePath ?? undefined,
-			scriptPathExact: path === null || path === '' ? undefined : path,
-			createdBy: user === null || user === '' ? undefined : user,
-			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
+			scriptPathExact: path == null || path === '' ? undefined : path,
+			createdBy: user == null || user === '' ? undefined : user,
+			scriptPathStart: folder == null || folder === '' ? undefined : `f/${folder}/`,
 			jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
 			success: success == 'success' ? true : success == 'failure' ? false : undefined,
 			running: success == 'running' ? true : undefined,
 			isSkipped: showSkipped ? undefined : false,
 			isFlowStep: jobKindsCat != 'all' ? false : undefined,
-			label: label === null || label === '' ? undefined : label,
-			tag: tag === null || tag === '' ? undefined : tag,
+			label: label == null || label === '' ? undefined : label,
+			tag: tag == null || tag === '' ? undefined : tag,
 			isNotSchedule: showSchedules == false ? true : undefined,
 			scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
 			args:
@@ -289,16 +350,37 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		await loadJobsIntern(shouldGetCount)
 	}
 
+	function stopBatchLoading(): void {
+		paramChangePromise?.cancel()
+		if (slowStreamIntervalId) {
+			clearInterval(slowStreamIntervalId)
+			slowStreamIntervalId = undefined
+		}
+		batchProgress = null
+		currentBatchSize = null
+		loading = false
+	}
+
 	function resetJobs() {
 		jobs = undefined
 		completedJobs = undefined
 		externalJobs = undefined
 		extendedJobs = undefined
 		lastFetchWentToEnd = false
+		batchProgress = null
+		currentBatchSize = null
+		if (slowStreamIntervalId) {
+			clearInterval(slowStreamIntervalId)
+			slowStreamIntervalId = undefined
+		}
 		intervalId && clearInterval(intervalId)
 		intervalId = setInterval(syncer, refreshRate)
 	}
-	function loadJobsIntern(shouldGetCount?: boolean): CancelablePromise<void> {
+	function loadJobsIntern(
+		shouldGetCount?: boolean,
+		overrideBatchSize?: number
+	): CancelablePromise<void> {
+		const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
 		if (shouldGetCount) {
 			getCount()
 		}
@@ -309,7 +391,33 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
 
 		if (concurrencyKey == null || concurrencyKey === '') {
-			return CancelablePromiseUtils.map(fetchJobs(maxTs, null, extendedMinTs), (newJobs) => {
+			const batchSize = overrideBatchSize ?? Math.min(perPage, 1000)
+			const isBatched = perPage > batchSize
+			if (isBatched) {
+				batchProgress = { loaded: 0, total: perPage }
+			}
+			currentBatchSize = batchSize
+			let slowBatchToastShown = false
+			let firstFetchPromise = fetchJobs(
+				maxTs,
+				extendedMinTs ?? null,
+				extendedMinTs,
+				undefined,
+				batchSize
+			)
+			if (isBatched && batchSize > 1) {
+				firstFetchPromise = CancelablePromiseUtils.onTimeout(firstFetchPromise, 4000, () => {
+					if (!slowBatchToastShown) {
+						slowBatchToastShown = true
+						sendUserToast(
+							`Streaming by batches of ${batchSize} is slow, try loading one at a time`,
+							'warning',
+							[{ label: 'Stream 1 by 1', callback: () => restreamWithSingleItems() }]
+						)
+					}
+				})
+			}
+			let p = CancelablePromiseUtils.map(firstFetchPromise, (newJobs) => {
 				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
 
 				// Filter on minTs here and not in the backend
@@ -317,8 +425,43 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 				jobs = sortMinDate(minTs, newJobs)
 				externalJobs = []
 				computeCompletedJobs()
+				lastFetchWentToEnd = newJobs.length < batchSize
 				loading = false
+				if (isBatched) {
+					batchProgress = { loaded: jobs?.length ?? 0, total: perPage }
+				}
 			})
+			if (isBatched) {
+				const numExtraBatches = Math.ceil(perPage / batchSize) - 1
+				for (let i = 0; i < numExtraBatches; i++) {
+					p = CancelablePromiseUtils.then(p, (): CancelablePromise<void> => {
+						if (lastFetchWentToEnd || !jobs)
+							return CancelablePromiseUtils.pure<void>(undefined as void)
+						loading = true
+						let batchPromise = CancelablePromiseUtils.pipe(loadExtraJobsBatch(batchSize), () => {
+							batchProgress = { loaded: jobs?.length ?? 0, total: perPage }
+						})
+						if (batchSize > 1 && !slowBatchToastShown) {
+							batchPromise = CancelablePromiseUtils.onTimeout(batchPromise, 4000, () => {
+								if (!slowBatchToastShown) {
+									slowBatchToastShown = true
+									sendUserToast(
+										`Streaming by batches of ${batchSize} is slow, try loading one at a time`,
+										'warning',
+										[{ label: 'Stream 1 by 1', callback: () => restreamWithSingleItems() }]
+									)
+								}
+							})
+						}
+						return batchPromise
+					})
+				}
+			}
+			p = CancelablePromiseUtils.pipe(p, () => {
+				batchProgress = null
+				currentBatchSize = null
+			})
+			return p
 		} else {
 			return CancelablePromiseUtils.map(
 				fetchExtendedJobs(concurrencyKey, maxTs, extendedMinTs ?? null),
@@ -346,6 +489,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						externalJobs = computeExternalJobs(newExternalJobs)
 					}
 					computeCompletedJobs()
+					lastFetchWentToEnd = newJobs.length < perPage
 					loading = false
 				}
 			)
@@ -374,10 +518,10 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let lastQueueTs: string | undefined = undefined
 
 	async function syncer() {
-		if (success == 'waiting') {
-			onSetMinMaxTs?.(null, null)
-		}
 		if (loadingFetch) {
+			return
+		}
+		if (timeframe?.type === 'manual') {
 			return
 		}
 		if (sync) {
@@ -385,15 +529,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 				getCount()
 			}
 
-			const ts = computeMinAndMax?.()
-			if (ts) {
-				onSetMinMaxTs?.(ts.minTs, ts.maxTs)
-				if (maxTs != undefined) {
-					loadJobsIntern(false)
-				}
-			}
-
-			if (jobs && maxTs == undefined) {
+			const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
+			if (jobs) {
 				if (success == 'running') {
 					loadJobsIntern(false)
 				} else {
@@ -529,13 +666,32 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		if (intervalId) {
 			clearInterval(intervalId)
 		}
+		if (slowStreamIntervalId) {
+			clearInterval(slowStreamIntervalId)
+			slowStreamIntervalId = undefined
+		}
+		paramChangePromise?.cancel()
 	})
 	$effect(() => {
-		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilters])
+		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilterInstance])
 		currentWorkspace
 		lookback
-		let p = untrack(() => onParamChanges())
-		return () => p.cancel()
+		perPage
+		showSchedules
+		showFutureJobs
+		clearTimeout(paramChangeTimeout)
+		paramChangePromise?.cancel()
+		paramChangeTimeout = setTimeout(() => {
+			paramChangePromise = untrack(() => onParamChanges())
+		}, 0)
+		return () => {
+			clearTimeout(paramChangeTimeout)
+			paramChangePromise?.cancel()
+			if (slowStreamIntervalId) {
+				clearInterval(slowStreamIntervalId)
+				slowStreamIntervalId = undefined
+			}
+		}
 	})
 	$effect(() => {
 		;[autoRefresh, refreshRate]
@@ -558,6 +714,14 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	return {
 		loadExtraJobs,
 		loadJobs,
+		stopBatchLoading,
+		restreamWithBatchSize,
+		get batchProgress() {
+			return batchProgress
+		},
+		get currentBatchSize() {
+			return currentBatchSize
+		},
 		get queue_count() {
 			return queue_count
 		},
@@ -566,6 +730,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		},
 		get loading() {
 			return loading
+		},
+		get loadingExtra() {
+			return loadingExtra
 		},
 		get completedJobs() {
 			return completedJobs

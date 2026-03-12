@@ -6,8 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_api_auth::{check_scopes, maybe_refresh_folders, require_super_admin, ApiAuthed};
-use windmill_common::DB;
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
@@ -18,17 +16,61 @@ use serde::{Deserialize, Serialize};
 use sql_builder::{prelude::Bind, SqlBuilder};
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
+use windmill_api_auth::{check_scopes, maybe_refresh_folders, require_super_admin, ApiAuthed};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::DB;
 use windmill_common::{
+    can_preserve_on_behalf_of,
     db::UserDB,
     error::{Error, JsonResult, Result},
     schedule::Schedule,
-    utils::{not_found_if_none, paginate, Pagination, ScheduleType, StripPath},
+    utils::{
+        escape_ilike_pattern, not_found_if_none, paginate, Pagination, ScheduleType, StripPath,
+    },
     worker::to_raw_value,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::schedule::push_scheduled_job;
+
+/// Resolves the email to use for a schedule based on preservation settings.
+/// When preserving, looks up the email from the provided username.
+async fn resolve_email(
+    username: Option<&String>,
+    preserve_email: Option<bool>,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+) -> Result<String> {
+    if let Some(username) = username {
+        if preserve_email.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
+            let email = sqlx::query_scalar!(
+                "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+                username,
+                w_id
+            )
+            .fetch_optional(db)
+            .await?;
+            if let Some(email) = email {
+                return Ok(email);
+            }
+        }
+    }
+    Ok(authed.email.clone())
+}
+
+fn resolve_edited_by(
+    username: Option<&String>,
+    preserve_edited_by: Option<bool>,
+    authed: &ApiAuthed,
+) -> String {
+    if let Some(username) = username {
+        if preserve_edited_by.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
+            return username.clone();
+        }
+    }
+    authed.username.clone()
+}
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -75,6 +117,8 @@ pub struct NewSchedule {
     pub paused_until: Option<DateTime<Utc>>,
     pub cron_version: Option<String>,
     pub dynamic_skip: Option<String>,
+    pub email: Option<String>,
+    pub preserve_email: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -200,6 +244,8 @@ async fn create_schedule(
         validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
     }
 
+    let resolved_edited_by = resolve_edited_by(ns.email.as_ref(), ns.preserve_email, &authed);
+
     let schedule = sqlx::query_as!(
         Schedule,
         r#"
@@ -257,13 +303,13 @@ async fn create_schedule(
         ns.path,
         ns.schedule,
         ns.timezone,
-        authed.username,
+        resolved_edited_by,
         ns.script_path,
         ns.is_flow,
         to_json_raw_opt(ns.args.as_ref())
             as Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
         ns.enabled.unwrap_or(false),
-        authed.email,
+        resolve_email(ns.email.as_ref(), ns.preserve_email, &authed, &db, &w_id).await?,
         ns.on_failure,
         ns.on_failure_times,
         ns.on_failure_exact,
@@ -308,6 +354,29 @@ async fn create_schedule(
         ),
     )
     .await?;
+    if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
+        ns.email.as_deref(),
+        ns.preserve_email.unwrap_or(false),
+        &authed,
+        &authed.username,
+    ) {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "schedule.on_behalf_of",
+            ActionKind::Create,
+            &w_id,
+            Some(&ns.path),
+            Some(
+                [
+                    ("on_behalf_of", on_behalf_of.as_str()),
+                    ("action", "create"),
+                ]
+                .into(),
+            ),
+        )
+        .await?;
+    }
 
     if ns.enabled.unwrap_or(true) {
         tx = push_scheduled_job(&db, tx, &schedule, Some(&authed.clone().into()), None).await?
@@ -351,6 +420,9 @@ async fn edit_schedule(
     }
 
     clear_schedule(&mut tx, path, &w_id).await?;
+
+    let resolved_edited_by = resolve_edited_by(es.email.as_ref(), es.preserve_email, &authed);
+
     let schedule = sqlx::query_as!(
         Schedule,
         r#"
@@ -377,7 +449,9 @@ async fn edit_schedule(
             workspace_id            = $20,
             cron_version            = COALESCE($21, cron_version),
             description             = $22,
-            dynamic_skip        = $23
+            dynamic_skip            = $23,
+            email                   = COALESCE($24, email),
+            edited_by               = $25
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -438,7 +512,9 @@ async fn edit_schedule(
         w_id,
         es.cron_version,
         es.description,
-        es.dynamic_skip
+        es.dynamic_skip,
+        Some(resolve_email(es.email.as_ref(), es.preserve_email, &authed, &db, &w_id).await?),
+        resolved_edited_by
     )
     .fetch_one(&mut *tx)
     .await
@@ -459,6 +535,29 @@ async fn edit_schedule(
         ),
     )
     .await?;
+    if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
+        es.email.as_deref(),
+        es.preserve_email.unwrap_or(false),
+        &authed,
+        &authed.username,
+    ) {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "schedule.on_behalf_of",
+            ActionKind::Update,
+            &w_id,
+            Some(path),
+            Some(
+                [
+                    ("on_behalf_of", on_behalf_of.as_str()),
+                    ("action", "update"),
+                ]
+                .into(),
+            ),
+        )
+        .await?;
+    }
 
     if schedule.enabled {
         tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
@@ -486,8 +585,16 @@ pub struct ListScheduleQuery {
     pub per_page: Option<usize>,
     pub path: Option<String>,
     pub is_flow: Option<bool>,
+    // filter by matching a subset of the args using base64 encoded json subset
     pub args: Option<String>,
     pub path_start: Option<String>,
+    // exact match on schedule path
+    pub schedule_path: Option<String>,
+    // filter on description (pattern match)
+    pub description: Option<String>,
+    // filter on summary (pattern match)
+    pub summary: Option<String>,
+    pub broad_filter: Option<String>,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Debug, Clone)]
@@ -542,6 +649,24 @@ async fn list_schedule(
     }
     if let Some(path_start) = &lsq.path_start {
         sqlb.and_where_like_left("path", path_start);
+    }
+    if let Some(schedule_path) = &lsq.schedule_path {
+        sqlb.and_where_eq("path", "?".bind(schedule_path));
+    }
+    if let Some(description) = &lsq.description {
+        let pat = format!("%{}%", escape_ilike_pattern(description));
+        sqlb.and_where("description ILIKE ?".bind(&pat));
+    }
+    if let Some(summary) = &lsq.summary {
+        let pat = format!("%{}%", escape_ilike_pattern(summary));
+        sqlb.and_where("summary ILIKE ?".bind(&pat));
+    }
+    if let Some(broad_filter) = &lsq.broad_filter {
+        let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        sqlb.and_where(
+            "(path ILIKE ? OR script_path ILIKE ? OR description ILIKE ? OR summary ILIKE ? OR schedule ILIKE ?)"
+                .bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+        );
     }
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let rows = sqlx::query_as::<_, ScheduleLight>(&sql)
@@ -1054,6 +1179,8 @@ pub struct EditSchedule {
     pub paused_until: Option<DateTime<Utc>>,
     pub cron_version: Option<String>,
     pub dynamic_skip: Option<String>,
+    pub email: Option<String>,
+    pub preserve_email: Option<bool>,
 }
 
 pub use windmill_queue::schedule::clear_schedule;

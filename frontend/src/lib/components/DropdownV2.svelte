@@ -76,7 +76,7 @@
 		ids: { menu: dropdownId }
 	} = createDropdownMenu({
 		positioning: {
-			placement
+			placement: untrack(() => placement)
 		},
 		loop: true,
 		onOpenChange: ({ next }) => {
@@ -157,7 +157,7 @@
 			variant="subtle"
 			startIcon={{ icon: EllipsisVertical }}
 			btnClasses="bg-transparent"
-			iconOnly
+			iconOnly={!btnText}
 		>
 			{btnText}
 		</Button>

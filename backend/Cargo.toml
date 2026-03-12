@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.639.0"
+version = "1.654.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -59,6 +59,7 @@ members = [
     "./windmill-oauth",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
+    "./parsers/windmill-parser-ts-asset",
     "./parsers/windmill-parser-go",
     "./parsers/windmill-parser-rust",
     "./parsers/windmill-parser-csharp",
@@ -67,16 +68,21 @@ members = [
     "./parsers/windmill-parser-ruby",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
+    "./parsers/windmill-parser-py-asset",
     "./parsers/windmill-parser-py-imports",
+    "./parsers/windmill-parser-wac",
+    "./parsers/windmill-parser-sql",
+    "./parsers/windmill-parser-sql-asset",
     "./parsers/windmill-sql-datatype-parser-wasm",
     "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
+    "./windmill-worker-volumes",
     "./windmill-test-utils",
     "./windmill-api-integration-tests",
 ]
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.639.0"
+version = "1.654.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -159,12 +165,12 @@ all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "
 # For windows we have another set of languages enabled
 all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-winauth", "bigquery", "csharp", "nu", "php", "java"]
 # Edition meta-features: shared groups
-inline_preview = ["windmill-api/inline_preview"]
+run_inline = ["windmill-api/run_inline"]
 oss_core = [
     "embedding", "parquet", "openidconnect", "license",
     "http_trigger", "zip", "oauth2", "postgres_trigger",
     "mqtt_trigger", "websocket", "smtp", "native_trigger",
-    "static_frontend", "mcp", "bedrock", "inline_preview",
+    "static_frontend", "mcp", "bedrock", "run_inline",
     "quickjs"
 ]
 ce_core = ["oss_core", "private", "operator"]
@@ -250,10 +256,14 @@ reqwest.workspace = true
 windmill-queue = { workspace = true, features = ["failpoints"] }
 windmill-dep-map.workspace = true
 windmill-test-utils.workspace = true
+windmill-worker-volumes.workspace = true
+windmill-types.workspace = true
 axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
 tempfile.workspace = true
+tar.workspace = true
+windmill-parser-ts.workspace = true
 rumqttc.workspace = true
 rdkafka.workspace = true
 async-nats.workspace = true
@@ -266,6 +276,7 @@ aws-credential-types.workspace = true
 windmill-api = { path = "./windmill-api", default-features = false  }
 windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }
+windmill-worker-volumes = { path = "./windmill-worker-volumes" }
 windmill-dep-map = { path = "./windmill-dep-map" }
 windmill-types = { path = "./windmill-types" }
 windmill-common = { path = "./windmill-common", default-features = false }
@@ -313,7 +324,9 @@ windmill-api-workers = { path = "./windmill-api-workers" }
 windmill-store = { path = "./windmill-store" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
+windmill-parser-ts-asset = { path = "./parsers/windmill-parser-ts-asset" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
+windmill-parser-py-asset = { path = "./parsers/windmill-parser-py-asset" }
 windmill-parser-py-imports = { path = "./parsers/windmill-parser-py-imports" }
 windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
@@ -324,8 +337,10 @@ windmill-parser-ruby = { path = "./parsers/windmill-parser-ruby" }
 windmill-parser-nu = { path = "./parsers/windmill-parser-nu" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
+windmill-parser-sql-asset = { path = "./parsers/windmill-parser-sql-asset" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
+windmill-parser-wac = { path = "./parsers/windmill-parser-wac" }
 windmill-jseval = { path = "./windmill-jseval" }
 windmill-runtime-nativets = { path = "./windmill-runtime-nativets" }
 windmill-api-client = { path = "./windmill-api-client" }
@@ -350,7 +365,7 @@ tower-cookies = "^0.10"
 serde = "=1.0.219"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 serde_yml = "0.0.12"
-uuid = { version = "^1", features = ["serde", "v4"] }
+uuid = { version = "^1", features = ["serde", "v4", "js"] }
 thiserror = "^2"
 anyhow = "^1"
 chrono = { version = "^0.4", features = ["serde"] }
@@ -438,6 +453,7 @@ base64 = "^0.22.1"
 base32 = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
+md-5 = "0.10.6"
 sha1 = "0.10.6"
 sqlx = { version = "0.8.0", features = [
     "macros",
@@ -511,7 +527,7 @@ nu-parser = { version = "0.101.0", default-features = false }
 globset = "0.4.16"
 croner = "2.2.0"
 rmcp = { version = "=0.15.0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
-rquickjs = { version = "0.8", features = ["futures", "parallel", "macro"] }
+rquickjs = { version = "0.11", features = ["futures", "parallel", "macro"] }
 process-wrap = { version = "8.2.1", features = ["tokio1"] }
 
 systemstat = "0.2.4"

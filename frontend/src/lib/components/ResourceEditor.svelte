@@ -12,6 +12,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import FilesetEditor from './FilesetEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import TestConnection from './TestConnection.svelte'
@@ -23,12 +24,12 @@
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 	import Button from './common/button/Button.svelte'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
+	import ResourceGen from './copilot/ResourceGen.svelte'
 
 	interface Props {
 		canSave?: boolean
 		resource_type?: string | undefined
 		path?: string
-		newResource?: boolean
 		hidePath?: boolean
 		onChange?: (args: { path: string; args: Record<string, any>; description: string }) => void
 		defaultValues?: Record<string, any> | undefined
@@ -38,7 +39,6 @@
 		canSave = $bindable(true),
 		resource_type = $bindable(undefined),
 		path = $bindable(''),
-		newResource = false,
 		hidePath = false,
 		onChange,
 		defaultValues = undefined
@@ -61,6 +61,7 @@
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 	let editDescription = $state(false)
 	let viewJsonSchema = $state(false)
+	let newResource = $derived(!path)
 
 	const dispatch = createEventDispatcher()
 
@@ -80,7 +81,7 @@
 			.map(([k, _]) => k)
 	}
 
-	if (!newResource) {
+	if (!untrack(() => newResource)) {
 		initEdit()
 	} else if (resource_type) {
 		loadResourceType()
@@ -128,7 +129,7 @@
 					resourceSchema.order =
 						resourceSchema.order ?? Object.keys(resourceSchema.properties).sort()
 				}
-				if (resourceTypeInfo?.format_extension) {
+				if (resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset) {
 					textFileContent = args.content
 				}
 			} catch (err) {
@@ -165,7 +166,7 @@
 			rawCode = JSON.stringify(args, null, 2)
 		} else {
 			parseJson()
-			if (resourceTypeInfo?.format_extension) {
+			if (resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset) {
 				textFileContent = args.content
 			}
 		}
@@ -269,6 +270,13 @@
 						right: 'As JSON'
 					}}
 				/>
+				<ResourceGen
+					bind:args
+					resourceType={resource_type}
+					resourceName={path}
+					resourceDescription={description}
+					{resourceSchema}
+				/>
 				{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
 					<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
 				{:else}
@@ -294,9 +302,22 @@
 			<div>
 				{#if loadingSchema}
 					<Skeleton layout={[[4]]} />
+				{:else if !viewJsonSchema && resourceTypeInfo?.is_fileset}
+					<div class="mt-1 flex items-center gap-2">
+						<h5 class="inline-flex items-center gap-4">Fileset</h5>
+						<ResourceGen
+							bind:args
+							resourceType={resource_type}
+							resourceName={path}
+							resourceDescription={description}
+							{resourceSchema}
+							isFileset
+						/>
+					</div>
+					<FilesetEditor bind:args />
 				{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
 					{#if resourceTypeInfo?.format_extension}
-						<h5 class="mt-4 inline-flex items-center gap-4 pb-2">
+						<h5 class="mt-1 inline-flex items-center gap-4">
 							File content ({resourceTypeInfo.format_extension})
 						</h5>
 						<div class="">

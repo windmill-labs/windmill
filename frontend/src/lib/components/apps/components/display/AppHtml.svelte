@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
@@ -25,14 +25,14 @@
 
 	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
 
 	let result: string | undefined = $state(undefined)
 
-	let css = $state(initCss($app.css?.htmlcomponent, customCss))
+	let css = $state(initCss($app.css?.htmlcomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -46,6 +46,7 @@
 {/each}
 
 {#if render}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		onpointerdown={(e) => {
 			if ($mode !== 'preview') {

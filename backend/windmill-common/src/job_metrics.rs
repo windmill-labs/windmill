@@ -15,9 +15,11 @@ pub struct JobStatsRecord {
     pub timestamps: Option<Vec<chrono::DateTime<chrono::Utc>>>,
     pub timeseries_int: Option<Vec<i32>>,
     pub timeseries_float: Option<Vec<f32>>,
+    pub timeseries_start: Option<chrono::DateTime<chrono::Utc>>,
+    pub offsets_cs: Option<Vec<i32>>,
 }
 
-#[derive(sqlx::Type, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(sqlx::Type, Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[sqlx(type_name = "METRIC_KIND", rename_all = "snake_case")]
 pub enum MetricKind {
     ScalarInt,
@@ -52,29 +54,21 @@ pub async fn register_metric_for_job(
         return Ok(metric_id);
     }
 
-    let (scalar_int, scalar_float, timestamps, timeseries_int, timeseries_float) = match metric_kind
-    {
+    let is_timeseries = matches!(
+        metric_kind,
+        MetricKind::TimeseriesInt | MetricKind::TimeseriesFloat
+    );
+
+    let (scalar_int, scalar_float, timeseries_int, timeseries_float) = match metric_kind {
         MetricKind::ScalarInt | MetricKind::ScalarFloat => {
-            (None as Option<i32>, None as Option<f32>, None, None, None)
+            (None as Option<i32>, None as Option<f32>, None, None)
         }
-        MetricKind::TimeseriesInt => (
-            None,
-            None,
-            Some(&[] as &[chrono::DateTime<chrono::Utc>]),
-            Some(&[] as &[i32]),
-            None,
-        ),
-        MetricKind::TimeseriesFloat => (
-            None,
-            None,
-            Some(&[] as &[chrono::DateTime<chrono::Utc>]),
-            None,
-            Some(&[] as &[f32]),
-        ),
+        MetricKind::TimeseriesInt => (None, None, Some(&[] as &[i32]), None),
+        MetricKind::TimeseriesFloat => (None, None, None, Some(&[] as &[f32])),
     };
 
     sqlx::query(
-        "INSERT INTO job_stats (workspace_id, job_id, metric_id, metric_name, metric_kind, scalar_int, scalar_float, timestamps, timeseries_int, timeseries_float) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        "INSERT INTO job_stats (workspace_id, job_id, metric_id, metric_name, metric_kind, scalar_int, scalar_float, timeseries_int, timeseries_float, timeseries_start, offsets_cs) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $10 THEN now() ELSE NULL END, CASE WHEN $10 THEN ARRAY[]::int[] ELSE NULL END)",
     )
     .bind(workspace_id)
     .bind(job_id)
@@ -83,9 +77,9 @@ pub async fn register_metric_for_job(
     .bind(metric_kind)
     .bind(scalar_int)
     .bind(scalar_float)
-    .bind(timestamps)
     .bind(timeseries_int)
     .bind(timeseries_float)
+    .bind(is_timeseries)
     .execute(db)
     .warn_after_seconds(1)
     .await?;
@@ -117,6 +111,30 @@ pub async fn record_metric(
     }
     let metric_kind = metric_kind_opt.unwrap();
 
+    record_metric_impl(db, workspace_id, job_id, metric_id, value, metric_kind).await
+}
+
+/// Record a timeseries metric value without the extra SELECT to look up metric_kind.
+/// Use this when the caller already knows the metric kind (e.g. the worker that registered it).
+pub async fn record_timeseries_value(
+    db: &DB,
+    workspace_id: String,
+    job_id: Uuid,
+    metric_id: String,
+    value: MetricNumericValue,
+    metric_kind: MetricKind,
+) -> error::Result<()> {
+    record_metric_impl(db, workspace_id, job_id, metric_id, value, metric_kind).await
+}
+
+async fn record_metric_impl(
+    db: &DB,
+    workspace_id: String,
+    job_id: Uuid,
+    metric_id: String,
+    value: MetricNumericValue,
+    metric_kind: MetricKind,
+) -> error::Result<()> {
     let (value_int, value_float) = match value {
         MetricNumericValue::Integer(val) => {
             if metric_kind != MetricKind::TimeseriesInt && metric_kind != MetricKind::ScalarInt {
@@ -160,7 +178,7 @@ pub async fn record_metric(
         }
         MetricKind::TimeseriesInt => {
             sqlx::query!(
-                "UPDATE job_stats SET timestamps = array_append(timestamps, now()), timeseries_int = array_append(timeseries_int, $4) WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
+                "UPDATE job_stats SET offsets_cs = array_append(offsets_cs, (EXTRACT(EPOCH FROM (now() - timeseries_start)) * 100)::int), timeseries_int = array_append(timeseries_int, $4) WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
                 &workspace_id,
                 &job_id,
                 &metric_id,
@@ -169,7 +187,7 @@ pub async fn record_metric(
         }
         MetricKind::TimeseriesFloat => {
             sqlx::query!(
-                "UPDATE job_stats SET timestamps = array_append(timestamps, now()), timeseries_float = array_append(timeseries_float, $4) WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
+                "UPDATE job_stats SET offsets_cs = array_append(offsets_cs, (EXTRACT(EPOCH FROM (now() - timeseries_start)) * 100)::int), timeseries_float = array_append(timeseries_float, $4) WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
                 &workspace_id,
                 &job_id,
                 &metric_id,

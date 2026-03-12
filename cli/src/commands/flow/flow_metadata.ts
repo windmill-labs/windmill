@@ -1,11 +1,10 @@
-import {
-  SEP,
-  colors,
-  log,
-  path,
-  yamlParseFile,
-  yamlStringify,
-} from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "../../core/log.ts";
+import * as path from "node:path";
+import { sep as SEP } from "node:path";
+import { stringify as yamlStringify } from "yaml";
+import { yamlParseFile } from "../../utils/yaml.ts";
+import { readFile } from "node:fs/promises";
 import { GlobalOptions } from "../../types.ts";
 import {
   readLockfile,
@@ -23,6 +22,7 @@ import { extractRelativeImports } from "../../utils/relative_imports.ts";
 import { DoubleLinkedDependencyTree } from "../../utils/dependency_tree.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import * as wmill from "../../../gen/services.gen.ts";
+import { newPathAssigner } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
 import { exts } from "../script/script.ts";
@@ -41,7 +41,7 @@ async function generateFlowHash(
   folder: string,
   defaultTs: "bun" | "deno" | undefined
 ) {
-  const elems = await FSFSElement(path.join(Deno.cwd(), folder), [], true);
+  const elems = await FSFSElement(path.join(process.cwd(), folder), [], true);
   const hashes: Record<string, string> = {};
   for await (const f of elems.getChildren()) {
     if (exts.some((e) => f.path.endsWith(e))) {
@@ -172,16 +172,21 @@ export async function generateFlowLockInternal(
     }
 
     log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
+    const fileReader = async (path: string) => await readFile(folder + SEP + path, "utf-8");
     await replaceInlineScripts(
       flowValue.value.modules,
-      async (path: string) => await Deno.readTextFile(folder + SEP + path),
+      fileReader,
       log,
       folder + SEP!,
       SEP,
       changedScripts
-      // (path: string, newPath: string) => Deno.renameSync(path, newPath),
-      // (path: string) => Deno.removeSync(path)
     );
+    if (flowValue.value.failure_module) {
+      await replaceInlineScripts([flowValue.value.failure_module], fileReader, log, folder + SEP!, SEP, changedScripts);
+    }
+    if (flowValue.value.preprocessor_module) {
+      await replaceInlineScripts([flowValue.value.preprocessor_module], fileReader, log, folder + SEP!, SEP, changedScripts);
+    }
 
     // Build tempScriptRefs from tree if provided
     const tempScriptRefs = tree?.flattenAll(inlineScriptTreePaths);
@@ -195,19 +200,27 @@ export async function generateFlowLockInternal(
       tempScriptRefs
     );
 
+    const lockAssigner = newPathAssigner(opts.defaultTs ?? "bun");
     const inlineScripts = extractInlineScriptsForFlows(
       flowValue.value.modules,
       {},
       SEP,
-      opts.defaultTs
+      opts.defaultTs,
+      lockAssigner
     );
+    if (flowValue.value.failure_module) {
+      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.failure_module], {}, SEP, opts.defaultTs, lockAssigner));
+    }
+    if (flowValue.value.preprocessor_module) {
+      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.preprocessor_module], {}, SEP, opts.defaultTs, lockAssigner));
+    }
     inlineScripts.forEach((s) => {
-      writeIfChanged(Deno.cwd() + SEP + folder + SEP + s.path, s.content);
+      writeIfChanged(process.cwd() + SEP + folder + SEP + s.path, s.content);
     });
 
     // Overwrite `flow.yaml` with the new lockfile references
     writeIfChanged(
-      Deno.cwd() + SEP + folder + SEP + "flow.yaml",
+      process.cwd() + SEP + folder + SEP + "flow.yaml",
       yamlStringify(flowValue as Record<string, any>)
     );
   }
@@ -233,7 +246,15 @@ async function filterWorkspaceDependenciesForFlow(
   rawWorkspaceDependencies: Record<string, string>,
   folder: string
 ): Promise<Record<string, string>> {
-  const inlineScripts = extractInlineScriptsForFlows(structuredClone(flowValue.modules), {}, SEP, undefined);
+  const clonedValue = structuredClone(flowValue);
+  const depAssigner = newPathAssigner("bun");
+  const inlineScripts = extractInlineScriptsForFlows(clonedValue.modules, {}, SEP, undefined, depAssigner);
+  if (clonedValue.failure_module) {
+    inlineScripts.push(...extractInlineScriptsForFlows([clonedValue.failure_module], {}, SEP, undefined, depAssigner));
+  }
+  if (clonedValue.preprocessor_module) {
+    inlineScripts.push(...extractInlineScriptsForFlows([clonedValue.preprocessor_module], {}, SEP, undefined, depAssigner));
+  }
 
   // Filter out lock files and map to common interface
   const scripts = inlineScripts

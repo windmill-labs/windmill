@@ -311,45 +311,45 @@ export async function getResultMaybe(jobId: string): Promise<any> {
 }
 const STRIP_COMMENTS =
   /(\/\/.*$)|(\/\*[\s\S]*?\*\/)|(\s*=[^,\)]*(('(?:\\'|[^'\r\n])*')|("(?:\\"|[^"\r\n])*"))|(\s*=[^,\)]*))/gm;
-const ARGUMENT_NAMES = /([^\s,]+)/g;
 function getParamNames(func: Function): string[] {
   const fnStr = func.toString().replace(STRIP_COMMENTS, "");
-  let result: string[] | null = fnStr
-    .slice(fnStr.indexOf("(") + 1, fnStr.indexOf(")"))
-    .match(ARGUMENT_NAMES);
-  if (result === null) result = [];
-  return result;
-}
-
-/**
- * Wrap a function to execute as a Windmill task within a flow context
- * @param f - Function to wrap as a task
- * @returns Async wrapper function that executes as a Windmill job
- */
-export function task<P, T>(f: (_: P) => T): (_: P) => Promise<T> {
-  return async (...y) => {
-    const args: Record<string, any> = {};
-    const paramNames = getParamNames(f);
-    y.forEach((x, i) => (args[paramNames[i]] = x));
-    let req = await fetch(
-      `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
-        "WM_JOB_ID"
-      )}/${f.name}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getEnv("WM_TOKEN")}`,
-        },
-        body: JSON.stringify({ args }),
-      }
-    );
-    let jobId = await req.text();
-    console.log(`Started task ${f.name} as job ${jobId}`);
-    let r = await waitJob(jobId);
-    console.log(`Task ${f.name} (${jobId}) completed`);
-    return r;
-  };
+  // Find the matching closing paren for the parameter list, handling nesting
+  const openIdx = fnStr.indexOf("(");
+  if (openIdx === -1) return [];
+  let depth = 1;
+  let closeIdx = openIdx + 1;
+  for (; closeIdx < fnStr.length && depth > 0; closeIdx++) {
+    if (fnStr[closeIdx] === "(") depth++;
+    else if (fnStr[closeIdx] === ")") depth--;
+  }
+  const paramStr = fnStr.slice(openIdx + 1, closeIdx - 1).trim();
+  if (!paramStr) return [];
+  // Split on commas at depth 0 (skip nested parens, angle brackets, braces)
+  const params: string[] = [];
+  let current = "";
+  let d = 0;
+  for (const ch of paramStr) {
+    if ("(<{".includes(ch)) d++;
+    else if (")>}".includes(ch)) d--;
+    if (ch === "," && d === 0) {
+      params.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) params.push(current.trim());
+  // Extract the parameter name from each param (strip type annotations, destructuring, rest)
+  return params.map((p) => {
+    // Remove rest operator
+    p = p.replace(/^\.\.\./, "");
+    // For destructured params like { url, depth }: Config, use a positional fallback
+    if (p.startsWith("{") || p.startsWith("[")) return "";
+    // Strip type annotation (e.g. "x: number" -> "x", "x?: string" -> "x")
+    const colonIdx = p.indexOf(":");
+    if (colonIdx !== -1) p = p.slice(0, colonIdx);
+    return p.replace(/\?$/, "").trim();
+  }).filter(Boolean);
 }
 
 /**
@@ -1169,6 +1169,8 @@ interface SlackApprovalOptions {
   approver?: string;
   defaultArgsJson?: Record<string, any>;
   dynamicEnumsJson?: Record<string, any>;
+  resumeButtonText?: string;
+  cancelButtonText?: string;
 }
 
 interface TeamsApprovalOptions {
@@ -1193,6 +1195,8 @@ interface TeamsApprovalOptions {
  * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
  * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
  * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
+ * @param {string} [options.resumeButtonText] - Optional text for the resume button.
+ * @param {string} [options.cancelButtonText] - Optional text for the cancel button.
  *
  * @returns {Promise<void>} Resolves when the Slack approval request is successfully sent.
  *
@@ -1208,6 +1212,8 @@ interface TeamsApprovalOptions {
  *   approver: "approver123",
  *   defaultArgsJson: { key1: "value1", key2: 42 },
  *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
+ *   resumeButtonText: "Resume",
+ *   cancelButtonText: "Cancel",
  * });
  * ```
  *
@@ -1220,6 +1226,8 @@ export async function requestInteractiveSlackApproval({
   approver,
   defaultArgsJson,
   dynamicEnumsJson,
+  resumeButtonText,
+  cancelButtonText,
 }: SlackApprovalOptions): Promise<void> {
   const workspace = getWorkspace();
   const flowJobId = getEnv("WM_FLOW_JOB_ID");
@@ -1244,6 +1252,8 @@ export async function requestInteractiveSlackApproval({
     flowStepId: string;
     defaultArgsJson?: string;
     dynamicEnumsJson?: string;
+    resumeButtonText?: string;
+    cancelButtonText?: string;
   } = {
     slackResourcePath,
     channelId,
@@ -1263,6 +1273,13 @@ export async function requestInteractiveSlackApproval({
 
   if (dynamicEnumsJson) {
     params.dynamicEnumsJson = JSON.stringify(dynamicEnumsJson);
+  }
+
+  if (resumeButtonText) {
+    params.resumeButtonText = resumeButtonText;
+  }
+  if (cancelButtonText) {
+    params.cancelButtonText = cancelButtonText;
   }
 
   await JobService.getSlackApprovalPayload({
@@ -1431,3 +1448,421 @@ export function parseS3Object(s3Object: S3Object): S3ObjectRecord {
 function parseVariableSyntax(s: string) {
   if (s.startsWith("var://")) return s.substring(6);
 }
+
+// ── Workflow-as-Code SDK ──────────────────────────────────────────────
+
+export class StepSuspend extends Error {
+  constructor(public dispatchInfo: Record<string, any>) {
+    super("__step_suspend__");
+    this.name = "StepSuspend";
+  }
+}
+
+export interface TaskOptions {
+  timeout?: number;
+  tag?: string;
+  cache_ttl?: number;
+  priority?: number;
+  concurrency_limit?: number;
+  concurrency_key?: string;
+  concurrency_time_window_s?: number;
+}
+
+export let _workflowCtx: WorkflowCtx | null = null;
+export function setWorkflowCtx(ctx: WorkflowCtx | null) {
+  _workflowCtx = ctx;
+  Reflect.set(globalThis, "__wmill_wf_ctx", ctx);
+}
+
+
+export class WorkflowCtx {
+  private completed: Record<string, any>;
+  private counters: Record<string, number> = {};
+  private pending: Array<{
+    name: string;
+    script: string;
+    args: Record<string, any>;
+    key: string;
+    dispatch_type: string;
+    [k: string]: any;
+  }> = [];
+  private _suspended = false;
+  /** When set, the task matching this key executes its inner function directly */
+  _executingKey: string | null;
+
+  constructor(checkpoint: Record<string, any> = {}) {
+    this.completed = checkpoint?.completed_steps ?? {};
+    this._executingKey = checkpoint?._executing_key ?? null;
+  }
+
+  /** Name-based key: `double` for first call, `double_2`, `double_3` for subsequent. */
+  _allocKey(name: string): string {
+    const n = (this.counters[name] ?? 0) + 1;
+    this.counters[name] = n;
+    return n === 1 ? name : `${name}_${n}`;
+  }
+
+  _nextStep(
+    name: string,
+    script: string,
+    args: Record<string, any> = {},
+    dispatch_type: string = "inline",
+    options?: TaskOptions,
+  ): PromiseLike<any> {
+    const key = this._allocKey(name || script || "step");
+
+    if (key in this.completed) {
+      const value = this.completed[key];
+      if (value && typeof value === "object" && (value as any).__wmill_error) {
+        const err = new Error((value as any).message || `Task '${name}' failed`);
+        (err as any).result = (value as any).result;
+        (err as any).step_key = (value as any).step_key;
+        (err as any).child_job_id = (value as any).child_job_id;
+        return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } } as PromiseLike<any>;
+      }
+      return { then: (resolve: any) => resolve(value) };
+    }
+
+    // If this is a child job executing a specific step, return null to signal
+    // that the task wrapper should run the inner function directly
+    if (this._executingKey === key) {
+      return { then: (resolve: any) => resolve(null), _execute_directly: true } as any;
+    }
+
+    // In child job mode (_executingKey is set), non-matching uncompleted steps
+    // should never resolve or throw — the matching step will throw step_complete
+    // which terminates the workflow. Returning a never-resolving thenable prevents
+    // race conditions where a non-matching step's StepSuspend fires before step_complete.
+    if (this._executingKey !== null) {
+      return { then: () => new Promise(() => {}) };
+    }
+
+    const stepInfo: any = { name: name || key, script: script || key, args, key, dispatch_type };
+    if (options) {
+      if (options.timeout !== undefined) stepInfo.timeout = options.timeout;
+      if (options.tag !== undefined) stepInfo.tag = options.tag;
+      if (options.cache_ttl !== undefined) stepInfo.cache_ttl = options.cache_ttl;
+      if (options.priority !== undefined) stepInfo.priority = options.priority;
+      if (options.concurrency_limit !== undefined) stepInfo.concurrent_limit = options.concurrency_limit;
+      if (options.concurrency_key !== undefined) stepInfo.concurrency_key = options.concurrency_key;
+      if (options.concurrency_time_window_s !== undefined) stepInfo.concurrency_time_window_s = options.concurrency_time_window_s;
+    }
+    this.pending.push(stepInfo);
+    return {
+      then: (): never => {
+        // Only the first .then() call throws with all accumulated steps.
+        // Subsequent calls (e.g. from Promise.all resolving other thenables)
+        // also throw (they'll be caught by the same handler).
+        if (this._suspended) return new Promise(() => {}) as never;
+        this._suspended = true;
+        const steps = [...this.pending];
+        this.pending = [];
+        throw new StepSuspend({
+          mode: steps.length > 1 ? "parallel" : "sequential",
+          steps,
+        });
+      },
+    };
+  }
+  /** Return and clear any pending (unawaited) steps. */
+  _flushPending(): Array<{ name: string; script: string; args: Record<string, any>; key: string; dispatch_type: string }> {
+    const steps = [...this.pending];
+    this.pending = [];
+    return steps;
+  }
+
+  _waitForApproval(options?: {
+    timeout?: number;
+    form?: object;
+  }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
+    const key = this._allocKey("approval");
+
+    if (key in this.completed) {
+      const value = this.completed[key];
+      return { then: (resolve: any) => resolve(value) };
+    }
+
+    // In child job mode, return never-resolving thenable (same as _nextStep)
+    if (this._executingKey !== null) {
+      return { then: () => new Promise(() => {}) };
+    }
+
+    // Throw immediately — approval is always a blocking step
+    throw new StepSuspend({
+      mode: "approval",
+      key,
+      timeout: options?.timeout ?? 1800,
+      form: options?.form,
+      steps: [],
+    });
+  }
+
+  _sleep(seconds: number): PromiseLike<void> {
+    const key = this._allocKey("sleep");
+
+    if (key in this.completed) {
+      return { then: (resolve: any) => resolve(undefined) };
+    }
+
+    if (this._executingKey !== null) {
+      return { then: () => new Promise(() => {}) };
+    }
+
+    throw new StepSuspend({
+      mode: "sleep",
+      key,
+      seconds: Math.max(1, Math.round(seconds)),
+      steps: [],
+    });
+  }
+
+  async _runInlineStep<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+    const key = this._allocKey(name || "step");
+
+    if (key in this.completed) {
+      const value = this.completed[key];
+      if (value && typeof value === "object" && (value as any).__wmill_error) {
+        const err = new Error((value as any).message || `Step '${name}' failed`);
+        (err as any).result = (value as any).result;
+        (err as any).step_key = (value as any).step_key;
+        (err as any).child_job_id = (value as any).child_job_id;
+        throw err;
+      }
+      return value as T;
+    }
+
+    if (this._executingKey !== null) {
+      return new Promise(() => {});
+    }
+
+    const result = await fn();
+    throw new StepSuspend({ mode: "inline_checkpoint", steps: [], key, result });
+  }
+}
+
+export async function sleep(seconds: number): Promise<void> {
+  const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+  if (ctx) {
+    return ctx._sleep(seconds) as Promise<void>;
+  }
+  // Outside workflow context, just wait locally
+  await new Promise((r) => setTimeout(r, seconds * 1000));
+}
+
+export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+  const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+  if (ctx) {
+    return ctx._runInlineStep(name, fn);
+  }
+  return fn();
+}
+
+/**
+ * Wrap an async function as a workflow task.
+ *
+ * @example
+ * const extract_data = task(async (url: string) => { ... });
+ * const run_external = task("f/external_script", async (x: number) => { ... });
+ *
+ * Inside a `workflow()`, calling a task dispatches it as a step.
+ * Outside a workflow, the function body executes directly.
+ */
+export function task<T extends (...args: any[]) => Promise<any>>(
+  fnOrPath: T | string,
+  maybeFnOrOptions?: T | TaskOptions,
+  maybeOptions?: TaskOptions,
+): T {
+  let fn: T;
+  let taskPath: string | undefined;
+  let taskOptions: TaskOptions | undefined;
+
+  if (typeof fnOrPath === "string") {
+    taskPath = fnOrPath;
+    fn = maybeFnOrOptions as T;
+    taskOptions = maybeOptions;
+  } else {
+    fn = fnOrPath;
+    taskOptions = maybeFnOrOptions as TaskOptions | undefined;
+  }
+
+  const taskName = fn.name || taskPath || "";
+
+  // NOT async — in workflow context we return the thenable directly so that
+  // unawaited task calls leave the step in ctx.pending (for _flushPending).
+  // An async wrapper would auto-resolve the thenable in a microtask, calling
+  // .then() which throws StepSuspend and empties pending before the caller
+  // can flush.
+  const wrapper = function (...args: any[]) {
+    const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+    if (ctx) {
+      // Inside a workflow with checkpoint/replay context — dispatch as step
+      const script = taskPath ?? taskName;
+      const paramNames = getParamNames(fn);
+      const kwargs: Record<string, any> = {};
+      for (let i = 0; i < args.length; i++) {
+        if (paramNames[i]) {
+          kwargs[paramNames[i]] = args[i];
+        } else {
+          kwargs[`arg${i}`] = args[i];
+        }
+      }
+      const stepResult = ctx._nextStep(taskName, script, kwargs, "inline", taskOptions);
+      // If this step should execute directly (child job mode), run the inner function
+      // and throw StepSuspend with mode "step_complete" to signal that we're done
+      if ((stepResult as any)?._execute_directly) {
+        return (async () => {
+          const result = await fn(...args);
+          throw new StepSuspend({ mode: "step_complete", steps: [], result });
+        })();
+      }
+      return stepResult;
+    } else if (getEnv("WM_JOB_ID") && !getEnv("WM_FLOW_JOB_ID")) {
+      // Inside a Windmill root job without checkpoint context — v1 HTTP dispatch
+      // WM_FLOW_JOB_ID is set on child jobs, so we skip dispatch for those
+      return (async () => {
+        const paramNames = getParamNames(fn);
+        const kwargs: Record<string, any> = {};
+        args.forEach((x, i) => (kwargs[paramNames[i]] = x));
+        let req = await fetch(
+          `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
+            "WM_JOB_ID"
+          )}/${taskName}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${getEnv("WM_TOKEN")}`,
+            },
+            body: JSON.stringify({ args: kwargs }),
+          }
+        );
+        let jobId = await req.text();
+        console.log(`Started task ${taskName} as job ${jobId}`);
+        let r = await waitJob(jobId);
+        console.log(`Task ${taskName} (${jobId}) completed`);
+        return r;
+      })();
+    } else {
+      // Standalone — execute directly
+      return fn(...args);
+    }
+  } as unknown as T;
+
+  Object.defineProperty(wrapper, "name", { value: taskName });
+  (wrapper as any)._is_task = true;
+  (wrapper as any)._task_path = taskPath;
+  return wrapper;
+}
+
+/**
+ * Create a task that dispatches to a separate Windmill script.
+ *
+ * @example
+ * const extract = taskScript("f/data/extract");
+ * // inside workflow: await extract({ url: "https://..." })
+ */
+export function taskScript(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any> {
+  const name = path.split("/").pop() || path;
+  const wrapper = function (...args: any[]) {
+    const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+    if (ctx) {
+      const kwargs = args.length === 1 && typeof args[0] === "object" && args[0] !== null
+        ? args[0]
+        : args.reduce((acc, v, i) => { acc[`arg${i}`] = v; return acc; }, {} as Record<string, any>);
+      return ctx._nextStep(name, path, kwargs, "script", options);
+    }
+    throw new Error(`taskScript("${path}") can only be called inside a workflow()`);
+  };
+  Object.defineProperty(wrapper, "name", { value: name });
+  (wrapper as any)._is_task = true;
+  (wrapper as any)._task_path = path;
+  return wrapper;
+}
+
+/**
+ * Create a task that dispatches to a separate Windmill flow.
+ *
+ * @example
+ * const pipeline = taskFlow("f/etl/pipeline");
+ * // inside workflow: await pipeline({ input: data })
+ */
+export function taskFlow(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any> {
+  const name = path.split("/").pop() || path;
+  const wrapper = function (...args: any[]) {
+    const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+    if (ctx) {
+      const kwargs = args.length === 1 && typeof args[0] === "object" && args[0] !== null
+        ? args[0]
+        : args.reduce((acc, v, i) => { acc[`arg${i}`] = v; return acc; }, {} as Record<string, any>);
+      return ctx._nextStep(name, path, kwargs, "flow", options);
+    }
+    throw new Error(`taskFlow("${path}") can only be called inside a workflow()`);
+  };
+  Object.defineProperty(wrapper, "name", { value: name });
+  (wrapper as any)._is_task = true;
+  (wrapper as any)._task_path = path;
+  return wrapper;
+}
+
+/**
+ * Mark an async function as a workflow-as-code entry point.
+ *
+ * The function must be **deterministic**: given the same inputs it must call
+ * tasks in the same order on every replay. Branching on task results is fine
+ * (results are replayed from checkpoint), but branching on external state
+ * (current time, random values, external API calls) must use `step()` to
+ * checkpoint the value so replays see the same result.
+ */
+export function workflow<T>(fn: (...args: any[]) => Promise<T>) {
+  (fn as any)._is_workflow = true;
+  return fn;
+}
+
+/**
+ * Suspend the workflow and wait for an external approval.
+ *
+ * Use `getResumeUrls()` (wrapped in `step()`) to obtain resume/cancel/approvalPage
+ * URLs before calling this function.
+ *
+ * @example
+ * const urls = await step("urls", () => getResumeUrls());
+ * await step("notify", () => sendEmail(urls.approvalPage));
+ * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ */
+export function waitForApproval(options?: {
+  timeout?: number;
+  form?: object;
+}): PromiseLike<{ value: any; approver: string; approved: boolean }> {
+  const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+  if (!ctx) {
+    throw new Error("waitForApproval can only be called inside a workflow()");
+  }
+  return ctx._waitForApproval(options);
+}
+
+/**
+ * Process items in parallel with optional concurrency control.
+ *
+ * Each item is processed by calling `fn(item)`, which should be a task().
+ * Items are dispatched in batches of `concurrency` (default: all at once).
+ *
+ * @example
+ * const process = task(async (item: string) => { ... });
+ * const results = await parallel(items, process, { concurrency: 5 });
+ */
+export async function parallel<T, R>(
+  items: T[],
+  fn: (item: T) => PromiseLike<R> | R,
+  options?: { concurrency?: number },
+): Promise<R[]> {
+  const concurrency = options?.concurrency ?? items.length;
+  if (concurrency <= 0 || items.length === 0) return [];
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const batchResults = await Promise.all(batch.map((item) => fn(item)));
+    results.push(...batchResults);
+  }
+  return results;
+}
+

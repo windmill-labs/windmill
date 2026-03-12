@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { OauthService, type ResourceType } from '$lib/gen'
+	import FilesetEditor from './FilesetEditor.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
@@ -14,6 +15,7 @@
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 	import BedrockCredentialsCheck from './BedrockCredentialsCheck.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import ResourceGen from './copilot/ResourceGen.svelte'
 
 	interface Props {
 		resourceType: string
@@ -79,7 +81,7 @@
 			rawCode = JSON.stringify(args, null, 2)
 		} else {
 			parseJson()
-			if (resourceTypeInfo?.format_extension) {
+			if (resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset) {
 				textFileContent = args.content
 			}
 		}
@@ -147,6 +149,12 @@
 				right: 'As JSON'
 			}}
 			class="as-json-toggle"
+		/>
+		<ResourceGen
+			bind:args
+			resourceType={resourceType}
+			resourceSchema={notFound ? undefined : schema}
+			isFileset={resourceTypeInfo?.is_fileset ?? false}
 		/>
 		<TestConnection {resourceType} {args} />
 		{#if resourceType == 'postgresql'}
@@ -237,6 +245,11 @@
 			/>
 		{/await}
 	</div>
+{:else if resourceTypeInfo?.is_fileset}
+	<h5 class="mt-1 inline-flex items-center gap-4">
+		Fileset
+	</h5>
+	<FilesetEditor bind:args />
 {:else if resourceTypeInfo?.format_extension}
 	<h5 class="mt-4 inline-flex items-center gap-4">
 		File content ({resourceTypeInfo.format_extension})

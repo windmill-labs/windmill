@@ -175,7 +175,7 @@
 									? inputToolWidth + inputToolXGap
 									: isLastRow && tools.length % 2 === 1
 										? (ROW_WIDTH - inputToolWidth) / 2
-										: 0) + node.data.offset,
+										: 0),
 						y:
 							baseOffset +
 							rowOffset *
@@ -207,7 +207,7 @@
 					parentId: node.id,
 					width: NEW_TOOL_NODE_WIDTH,
 					position: {
-						x: (ROW_WIDTH - NEW_TOOL_NODE_WIDTH) / 2 + node.data.offset,
+						x: (ROW_WIDTH - NEW_TOOL_NODE_WIDTH) / 2,
 						y: baseOffset + rowOffset
 					},
 					selectable: false
@@ -264,7 +264,7 @@
 		NewAiToolN,
 		NodeLayout
 	} from '../../graphBuilder.svelte'
-	import { Globe, MessageCircle, Play, Plug, Wrench, X } from 'lucide-svelte'
+	import { Bot, Globe, MessageCircle, Play, Plug, Wrench, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Edge, Node } from '@xyflow/svelte'
 
@@ -277,9 +277,10 @@
 
 	interface Props {
 		data: AiToolN['data']
+		id?: string
 	}
 
-	let { data }: Props = $props()
+	let { data, id }: Props = $props()
 
 	const { selectionManager } = getGraphContext()
 
@@ -292,7 +293,7 @@
 	)
 </script>
 
-<NodeWrapper>
+<NodeWrapper nodeId={id}>
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
@@ -317,6 +318,8 @@
 					<Globe size={16} class="ml-1 shrink-0" />
 				{:else if data.type === 'mcp'}
 					<Plug size={16} class="ml-1 shrink-0" />
+				{:else if data.type === 'aiagent'}
+					<Bot size={16} class="ml-1 shrink-0" />
 				{:else}
 					<Wrench size={16} class="ml-1 shrink-0" />
 				{/if}

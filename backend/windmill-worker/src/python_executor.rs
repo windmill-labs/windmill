@@ -134,8 +134,8 @@ use crate::{
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry,
     worker_utils::ping_job_status,
-    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
-    PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
+    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
+    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
     UV_INDEX_STRATEGY,
 };
 use windmill_common::client::AuthedClient;
@@ -278,7 +278,7 @@ pub async fn uv_pip_compile(
             "requirements.txt",
             // Target to /tmp/windmill/cache/uv
             "--cache-dir",
-            UV_CACHE_DIR,
+            &*UV_CACHE_DIR,
         ];
 
         args.extend(["-p", &py_version_str, "--python-preference", "only-managed"]);
@@ -567,6 +567,17 @@ pub async fn handle_python_job(
 
     let annotations = PythonAnnotations::parse(inner_content);
 
+    let is_wac_v2 = job.script_entrypoint_override.is_none()
+        && crate::wac_executor::is_wac_v2_py(inner_content);
+
+    if annotations.sandbox && NSJAIL_AVAILABLE.is_none() {
+        return Err(Error::ExecutionErr(
+            "Script has #sandbox annotation but nsjail is not available on this worker. \
+            Please ensure nsjail is installed or remove the #sandbox annotation."
+                .to_string(),
+        ));
+    }
+
     let (py_version, mut additional_python_paths) = handle_python_deps(
         job_dir,
         requirements_o,
@@ -605,16 +616,14 @@ pub async fn handle_python_job(
     }
 
     {
-        append_logs(
-            &job.id,
-            &job.workspace_id,
-            format!(
-                "\n\n--- PYTHON ({}) CODE EXECUTION ---\n",
-                py_version.clone().to_string()
-            ),
-            conn,
-        )
-        .await;
+        let mut logs = format!(
+            "\n\n--- PYTHON ({}) CODE EXECUTION ---\n",
+            py_version.clone().to_string()
+        );
+        if annotations.sandbox {
+            logs.push_str("sandbox mode (nsjail)\n");
+        }
+        append_logs(&job.id, &job.workspace_id, logs, conn).await;
     }
     let (
         import_loader,
@@ -671,8 +680,69 @@ pub async fn handle_python_job(
         String::new()
     };
     let main_override = main_name.unwrap_or_else(|| "main".to_string());
-    let wrapper_content: String = format!(
-        r#"
+    let res_to_json_body = python_res_to_json_body(postprocessor);
+    let wrapper_content: String = if is_wac_v2 {
+        format!(
+            r#"
+import os
+import json
+{import_loader}
+{import_base64}
+{import_datetime}
+import traceback
+import sys
+from {module_dir_dot} import {last} as inner_script
+from wmill.client import _run_workflow
+
+with open("args.json") as f:
+    kwargs = json.load(f, strict=False)
+args = {{}}
+{transforms}
+
+with open("checkpoint.json") as f:
+    checkpoint = json.load(f, strict=False)
+
+result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
+
+# Find the @workflow-decorated function
+workflow_fn = None
+for name in dir(inner_script):
+    obj = getattr(inner_script, name)
+    if callable(obj) and getattr(obj, '_is_workflow', False):
+        workflow_fn = obj
+        break
+
+if workflow_fn is None:
+    raise ValueError("No @workflow function found in script")
+
+for k, v in list(args.items()):
+    if v == '<function call>':
+        del args[k]
+
+try:
+    output = _run_workflow(workflow_fn, checkpoint, args)
+    output_json = json.dumps(output, separators=(',', ':'), default=str)
+    with open(result_json, 'w') as f:
+        f.write(output_json)
+except BaseException as e:
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+    tb = traceback.format_tb(exc_traceback)
+    with open(result_json, 'w') as f:
+        err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
+        extra = e.__dict__
+        if extra and len(extra) > 0:
+            err['extra'] = extra
+        flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
+        if flow_node_id:
+            err['step_id'] = flow_node_id
+        err_json = json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
+        f.write(err_json)
+        sys.exit(1)
+"#,
+        )
+    } else {
+        format!(
+            r#"
 import os
 import json
 {import_loader}
@@ -699,19 +769,7 @@ replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\*\\u0000|Infinity|\-Infinity)
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
 def res_to_json(res, typ):
-    if typ.__name__ == 'DataFrame':
-        if typ.__module__ == 'pandas.core.frame':
-            res = res.values.tolist()
-        elif typ.__module__ == 'polars.dataframe.frame':
-            res = res.rows()
-    elif typ.__name__ == 'bytes':
-        res = to_b_64(res)
-    elif typ.__name__ == 'dict':
-        for k, v in res.items():
-            if type(v).__name__ == 'bytes':
-                res[k] = to_b_64(v)
-    unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
-    return {postprocessor}
+{res_to_json_body}
 
 try:
     {preprocessor}
@@ -745,8 +803,25 @@ except BaseException as e:
         f.write(err_json)
         sys.exit(1)
 "#,
-    );
+        )
+    };
     write_file(job_dir, "wrapper.py", &wrapper_content)?;
+
+    // For WAC v2, write checkpoint.json before python runs.
+    if is_wac_v2 {
+        if let Connection::Sql(db) = conn {
+            let checkpoint = crate::wac_executor::load_checkpoint(db, &job.id).await?;
+            let checkpoint =
+                crate::wac_executor::prepare_checkpoint_for_resume(db, &job.id, checkpoint).await?;
+
+            let checkpoint_json = serde_json::to_string(&checkpoint).map_err(|e| {
+                error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
+            })?;
+            write_file(job_dir, "checkpoint.json", &checkpoint_json)?;
+        } else {
+            write_file(job_dir, "checkpoint.json", r#"{"completed_steps":{}}"#)?;
+        }
+    }
 
     tracing::debug!("Finished writing wrapper");
 
@@ -784,7 +859,7 @@ except BaseException as e:
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
 
-    if is_sandboxing_enabled() {
+    if is_sandboxing_enabled() || annotations.sandbox {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -805,7 +880,7 @@ mount {{
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{PY_INSTALL_DIR}", PY_INSTALL_DIR)
+                .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
@@ -815,7 +890,7 @@ mount {{
                     "{ADDITIONAL_PYTHON_PATHS}",
                     additional_python_paths_folders.as_str(),
                 )
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
     } else {
@@ -828,14 +903,17 @@ mount {{
         job.id
     );
 
-    let child = if is_sandboxing_enabled() {
+    let child = if is_sandboxing_enabled() || annotations.sandbox {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Python3).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Python3, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -861,7 +939,10 @@ mount {{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Python3).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Python3, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -924,7 +1005,39 @@ mount {{
         *new_args = Some(args.clone());
     }
 
-    read_result(job_dir, handle_result.result_stream).await
+    let result = read_result(job_dir, handle_result.result_stream).await?;
+
+    // WAC v2 post-execution: parse output and handle dispatch/suspend.
+    // Box::pin to avoid bloating handle_python_job's async state machine (stack overflow).
+    if is_wac_v2 {
+        return Box::pin(crate::bun_executor::handle_wac_v2_output(result, job, conn)).await;
+    }
+
+    Ok(result)
+}
+
+/// Generate Python code to spread preprocessor args from `kwargs` into `pre_args`.
+/// The `indent` parameter controls the join separator for multi-arg spreads.
+fn python_preprocessor_spread(sig: windmill_parser::MainArgSignature, indent: &str) -> String {
+    if sig.star_kwargs {
+        "pre_args = kwargs".to_string()
+    } else {
+        sig.args
+            .into_iter()
+            .map(|x| {
+                let name = &x.name;
+                if x.default.is_none() {
+                    format!("pre_args[\"{name}\"] = kwargs.get(\"{name}\")")
+                } else {
+                    format!(
+                        r#"pre_args["{name}"] = kwargs.get("{name}")
+{indent}if pre_args["{name}"] is None:
+{indent}    del pre_args["{name}"]"#
+                    )
+                }
+            })
+            .join(&format!("\n{indent}"))
+    }
 }
 
 async fn prepare_wrapper(
@@ -1093,31 +1206,7 @@ async fn prepare_wrapper(
             .join("\n    ")
     };
 
-    let pre_spread = if let Some(pre_sig) = pre_sig {
-        let spread = if pre_sig.star_kwargs {
-            "pre_args = kwargs".to_string()
-        } else {
-            pre_sig
-                .args
-                .into_iter()
-                .map(|x| {
-                    let name = &x.name;
-                    if x.default.is_none() {
-                        format!("pre_args[\"{name}\"] = kwargs.get(\"{name}\")")
-                    } else {
-                        format!(
-                            r#"pre_args["{name}"] = kwargs.get("{name}")
-        if pre_args["{name}"] is None:
-            del pre_args["{name}"]"#
-                        )
-                    }
-                })
-                .join("\n        ")
-        };
-        Some(spread)
-    } else {
-        None
-    };
+    let pre_spread = pre_sig.map(|sig| python_preprocessor_spread(sig, "        "));
 
     let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
 
@@ -1411,10 +1500,10 @@ async fn spawn_uv_install(
             &nsjail_proto,
             NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
                 .replace("{WORKER_DIR}", worker_dir)
-                .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
+                .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{TARGET_DIR}", &venv_p)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .as_str(),
         )?;
@@ -2239,6 +2328,26 @@ This is not normal behavior, please make sure all workers have enough memory.\n
     };
 }
 
+/// Python function body for `res_to_json(res, typ)`.
+/// Handles DataFrame, bytes, dict coercion + JSON serialization.
+fn python_res_to_json_body(postprocessor: &str) -> String {
+    format!(
+        r#"    if typ.__name__ == 'DataFrame':
+        if typ.__module__ == 'pandas.core.frame':
+            res = res.values.tolist()
+        elif typ.__module__ == 'polars.dataframe.frame':
+            res = res.rows()
+    elif typ.__name__ == 'bytes':
+        res = to_b_64(res)
+    elif typ.__name__ == 'dict':
+        for k, v in res.items():
+            if type(v).__name__ == 'bytes':
+                res[k] = to_b_64(v)
+    unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
+    return {postprocessor}"#
+    )
+}
+
 // Returns code snippet that needs to be injected into wrapper to post-process results or leave unprocessed
 fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
     if skip {
@@ -2334,6 +2443,16 @@ pub async fn start_worker(
         _,
     ) = prepare_wrapper(job_dir, None, None, None, inner_content, script_path).await?;
 
+    // Parse preprocessor signature if the script has one
+    let pre_spread = windmill_parser_py::parse_python_signature(
+        inner_content,
+        Some("preprocessor".to_string()),
+        false,
+    )
+    .ok()
+    .filter(|sig| !sig.args.is_empty())
+    .map(|sig| python_preprocessor_spread(sig, "            "));
+
     {
         let postprocessor = get_result_postprocessor(annotations.skip_result_postprocessing);
         let indented_transforms = transforms
@@ -2342,6 +2461,41 @@ pub async fn start_worker(
             .collect::<Vec<String>>()
             .join("\n");
 
+        let preprocessor_logic = if let Some(ref pre_spread) = pre_spread {
+            format!(
+                r#"
+    if line.startswith('preprocess:'):
+        pre_input = line[len('preprocess:'):]
+        kwargs = json.loads(pre_input, strict=False)
+        if not hasattr(inner_script, 'preprocessor') or not callable(inner_script.preprocessor):
+            err_json = json.dumps({{"message": "preprocessor function is missing", "name": "Error"}}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+            sys.stdout.flush()
+            continue
+        try:
+            pre_args = {{}}
+            {pre_spread}
+            for k, v in list(pre_args.items()):
+                if v == '<function call>':
+                    del pre_args[k]
+            preprocessed_kwargs = inner_script.preprocessor(**pre_args)
+            preprocessed_json = json.dumps(preprocessed_kwargs, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
+            transform_and_run(preprocessed_kwargs)
+        except BaseException as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            tb = traceback.format_tb(exc_traceback)
+            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+        sys.stdout.flush()
+        continue
+"#
+            )
+        } else {
+            String::new()
+        };
+
+        let res_to_json_body = python_res_to_json_body(postprocessor);
         let wrapper_content: String = format!(
             r#"
 import json
@@ -2359,37 +2513,32 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\u0000|Infinity|\-Infinity)')
-sys.stdout.write('start\n')
+def res_to_json(res, typ):
+{res_to_json_body}
 
-for line in sys.stdin:
-    if line == 'end\n':
-        break
-    kwargs = json.loads(line, strict=False)
+def transform_and_run(kwargs):
     args = {{}}
 {indented_transforms}
     {spread}
     for k, v in list(args.items()):
         if v == '<function call>':
             del args[k]
+    res = inner_script.main(**args)
+    typ = type(res)
+    res_json = res_to_json(res, typ)
+    sys.stdout.write("wm_res[success]:" + res_json + "\n")
 
+replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\u0000|Infinity|\-Infinity)')
+sys.stdout.write('start\n')
+
+for line in sys.stdin:
+    if line == 'end\n':
+        break
+    line = line.strip()
+    {preprocessor_logic}
+    kwargs = json.loads(line, strict=False)
     try:
-        res = inner_script.main(**args)
-        typ = type(res)
-        if typ.__name__ == 'DataFrame':
-            if typ.__module__ == 'pandas.core.frame':
-                res = res.values.tolist()
-            elif typ.__module__ == 'polars.dataframe.frame':
-                res = res.rows()
-        elif typ.__name__ == 'bytes':
-            res = to_b_64(res)
-        elif typ.__name__ == 'dict':
-            for k, v in res.items():
-                if type(v).__name__ == 'bytes':
-                    res[k] = to_b_64(v)
-        unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
-        res_json = {postprocessor}
-        sys.stdout.write("wm_res[success]:" + res_json + "\n")
+        transform_and_run(kwargs)
     except BaseException as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         tb = traceback.format_tb(exc_traceback)

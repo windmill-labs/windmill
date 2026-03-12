@@ -29,6 +29,7 @@ use sqlx::{Acquire, Postgres};
 pub mod agent_workers;
 #[cfg(feature = "bedrock")]
 pub mod ai_bedrock;
+pub mod ai_google;
 pub mod ai_providers;
 pub mod ai_types;
 pub mod apps;
@@ -109,6 +110,50 @@ pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
 pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
 pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
+pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
+
+/// Checks if the user is allowed to preserve on_behalf_of values (admin or deployer).
+pub fn can_preserve_on_behalf_of(authed: &impl db::Authable) -> bool {
+    authed.is_admin() || authed.groups().iter().any(|g| g == &WM_DEPLOYERS_GROUP)
+}
+
+/// Checks if on-behalf-of preservation actually happened (the target user differs from the acting user).
+/// Returns Some(target_identifier) if preservation occurred, None otherwise.
+pub fn check_on_behalf_of_preservation(
+    on_behalf_of_identifier: Option<&str>,
+    preserve: bool,
+    authed: &impl db::Authable,
+    authed_identifier: &str,
+) -> Option<String> {
+    if preserve && can_preserve_on_behalf_of(authed) {
+        if let Some(id) = on_behalf_of_identifier {
+            if id != authed_identifier {
+                return Some(id.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Determines the on_behalf_of_email value to use when creating/updating a flow or script.
+/// - If `on_behalf_of_email` is None, returns None
+/// - If `preserve` is true and the user is admin or in the deployers group, returns the original value
+/// - Otherwise, returns the authenticated user's email
+pub fn resolve_on_behalf_of_email<'a>(
+    on_behalf_of_email: Option<&'a str>,
+    preserve: bool,
+    authed: &'a impl db::Authable,
+) -> Option<&'a str> {
+    if on_behalf_of_email.is_some() {
+        if preserve && can_preserve_on_behalf_of(authed) {
+            on_behalf_of_email
+        } else {
+            Some(authed.email())
+        }
+    } else {
+        None
+    }
+}
 
 #[macro_export]
 macro_rules! add_time {
@@ -149,6 +194,7 @@ lazy_static::lazy_static! {
     pub static ref METRICS_DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
     pub static ref CRITICAL_ALERT_MUTE_UI_ENABLED: AtomicBool = AtomicBool::new(false);
+    pub static ref CRITICAL_ALERTS_ON_TOKEN_EXPIRY: AtomicBool = AtomicBool::new(false);
 
     pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -159,6 +205,7 @@ lazy_static::lazy_static! {
     pub static ref CRITICAL_ALERTS_ON_DB_OVERSIZE: Arc<RwLock<Option<f32>>> = Arc::new(RwLock::new(None));
 
     pub static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
+    pub static ref AUDIT_LOG_RETENTION_DAYS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
@@ -401,30 +448,6 @@ impl PgDatabase {
             port = self.port.unwrap_or(5432),
             dbname = self.dbname,
             sslmode = sslmode
-        )
-    }
-
-    pub fn to_conn_str(&self) -> String {
-        format!(
-            "dbname={dbname} {user} host={host} {password} {port} {sslmode}",
-            dbname = self.dbname,
-            user = self
-                .user
-                .as_ref()
-                .map(|u| format!("user={}", urlencoding::encode(u)))
-                .unwrap_or_default(),
-            host = self.host,
-            password = self
-                .password
-                .as_ref()
-                .map(|p| format!("password={}", urlencoding::encode(p)))
-                .unwrap_or_default(),
-            port = self.port.map(|p| format!("port={}", p)).unwrap_or_default(),
-            sslmode = self
-                .sslmode
-                .as_ref()
-                .map(|s| format!("sslmode={}", s.clone()))
-                .unwrap_or_default(),
         )
     }
 

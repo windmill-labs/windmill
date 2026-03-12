@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/worktree-common.sh"
+
+wt_dir="${WM_WORKTREE_PATH:-.}"
+wm_kill_processes_from_env_file "${wt_dir}/.env.local"
+wm_shared_pre_remove "$wt_dir"

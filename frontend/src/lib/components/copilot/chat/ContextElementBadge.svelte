@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { Popover } from '$lib/components/meltComponents'
 	import { Loader2, X } from 'lucide-svelte'
 	import { ContextIconMap, type ContextElement } from './context'
@@ -21,7 +22,7 @@
 	}
 
 	let { contextElement, deletable = false, onDelete }: Props = $props()
-	const icon = ContextIconMap[contextElement.type]
+	const icon = ContextIconMap[untrack(() => contextElement).type]
 	let showDelete = $state(false)
 
 	const isDeletable = $derived(deletable && contextElement.deletable !== false)
@@ -64,13 +65,10 @@
 		{:else if contextElement.type === 'db'}
 			<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
 				{#if contextElement.schema && contextElement.schema.lang === 'graphql'}
-					{#await import('$lib/components/GraphqlSchemaViewer.svelte')}
+					{#await Promise.all([import('$lib/components/GraphqlSchemaViewer.svelte'), formatGraphqlSchema(contextElement.schema.schema)])}
 						<Loader2 class="animate-spin" />
-					{:then Module}
-						<Module.default
-							code={formatGraphqlSchema(contextElement.schema.schema)}
-							class="h-full"
-						/>
+					{:then [Module, code]}
+						<Module.default {code} class="h-full" />
 					{/await}
 				{:else if contextElement.schema}
 					<ObjectViewer json={formatSchema(contextElement.schema)} pureViewer collapseLevel={1} />

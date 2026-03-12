@@ -15,6 +15,11 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import OnBehalfOfSelector, {
+		type OnBehalfOfChoice
+	} from '$lib/components/OnBehalfOfSelector.svelte'
+
+	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
 	let {
 		policy,
@@ -29,7 +34,8 @@
 		pathError = $bindable(),
 		newEditedPath = $bindable(),
 		newPath,
-		hideSecretUrl = false
+		hideSecretUrl = false,
+		preserveOnBehalfOf = $bindable(false)
 	}: {
 		policy: any
 		setPublishState: () => void
@@ -44,7 +50,16 @@
 		newEditedPath: string
 		newPath: string
 		hideSecretUrl?: boolean
+		preserveOnBehalfOf?: boolean
 	} = $props()
+
+	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	let canPreserve = $derived(
+		!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer
+	)
+	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
+	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
+	let customOnBehalfOfEmail: string = $state('')
 	let dirtyCustomPath = $state(false)
 	let path: Path | undefined = $state(undefined)
 
@@ -180,7 +195,40 @@
 		Hence, users will only be able to use the app as intended by the publisher without risk for
 		leaking resources not used in the app.
 	</Tooltip>
+	{#if canPreserve}
+		<div class="mt-4">
+			Because you are either an admin or part of the {WM_DEPLOYERS_GROUP} group, you can select another user to run this app on behalf of. Once deployed the app will be run on behalf of
+			<OnBehalfOfSelector
+				targetWorkspace={$workspaceStore ?? ''}
+				targetEmail={savedOnBehalfOfEmail}
+				selected={onBehalfOfChoice}
+				onSelect={(choice, email, username) => {
+					onBehalfOfChoice = choice
+					if (choice === 'me') {
+						policy.on_behalf_of_email = $userStore?.email
+						policy.on_behalf_of = `u/${$userStore?.username}`
+						customOnBehalfOfEmail = ''
+						preserveOnBehalfOf = false
+					} else if (choice === 'target') {
+						policy.on_behalf_of_email = savedOnBehalfOfEmail
+						customOnBehalfOfEmail = ''
+						preserveOnBehalfOf = true
+					} else if (choice === 'custom' && email) {
+						policy.on_behalf_of_email = email
+						policy.on_behalf_of = username ? `u/${username}` : undefined
+						customOnBehalfOfEmail = email
+						preserveOnBehalfOf = true
+					}
+				}}
+				kind="app"
+				{canPreserve}
+				customEmail={customOnBehalfOfEmail}
+				isDeployment={false}
+			/>
+		</div>
+	{/if}
 </Alert>
+
 
 <div class="mt-10"></div>
 

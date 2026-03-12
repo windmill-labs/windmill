@@ -14,7 +14,7 @@ use crate::secret_backend_ext::{
     delete_secret_from_backend, get_secret_value, is_vault_stored_value, rename_vault_secret,
     store_secret_value,
 };
-use windmill_common::utils::BulkDeleteRequest;
+use windmill_common::utils::{escape_ilike_pattern, BulkDeleteRequest};
 use windmill_common::webhook::{WebhookMessage, WebhookShared};
 
 use axum::{
@@ -96,7 +96,12 @@ async fn list_contextual_variables(
 
 #[derive(Deserialize)]
 struct ListVariableQuery {
-    path_start: Option<String>,
+    pub path_start: Option<String>,
+    pub path: Option<String>,
+    pub description: Option<String>,
+    // filter by matching the non-encrypted value (for non-secrets only)
+    pub value: Option<String>,
+    pub broad_filter: Option<String>,
 }
 
 async fn list_variables(
@@ -106,33 +111,80 @@ async fn list_variables(
     Query(lq): Query<ListVariableQuery>,
     Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<ListableVariable>> {
+    use sql_builder::{bind::Bind, SqlBuilder};
+
     let (per_page, offset) = paginate(pagination);
 
-    let mut tx = user_db.begin(&authed).await?;
+    let mut sqlb = SqlBuilder::select_from("variable")
+        .fields(&[
+            "variable.workspace_id",
+            "variable.path",
+            "CASE WHEN is_secret IS TRUE THEN null ELSE variable.value::text END as value",
+            "is_secret",
+            "variable.description",
+            "variable.extra_perms",
+            "account",
+            "is_oauth",
+            "(now() > account.expires_at) as is_expired",
+            "account.refresh_error",
+            "resource.path IS NOT NULL as is_linked",
+            "account.refresh_token != '' as is_refreshed",
+            "variable.expires_at",
+        ])
+        .left()
+        .join("account")
+        .on(&format!(
+            "variable.account = account.id AND account.workspace_id = '{}'",
+            w_id
+        ))
+        .left()
+        .join("resource")
+        .on(&format!(
+            "resource.path = variable.path AND resource.workspace_id = '{}'",
+            w_id
+        ))
+        .and_where("variable.workspace_id = ?".bind(&w_id))
+        .and_where(&format!(
+            "variable.path NOT LIKE 'u/' || '{}' || '/secret_arg/%'",
+            authed.username
+        ))
+        .order_by("path", false)
+        .limit(per_page)
+        .offset(offset)
+        .clone();
 
-    let rows = sqlx::query_as::<_, ListableVariable>(
-        "SELECT variable.workspace_id, variable.path, CASE WHEN is_secret IS TRUE THEN null ELSE variable.value::text END as value,
-         is_secret, variable.description, variable.extra_perms, account, is_oauth, (now() > account.expires_at) as is_expired,
-         account.refresh_error,
-         resource.path IS NOT NULL as is_linked,
-         account.refresh_token != '' as is_refreshed,
-         variable.expires_at
-         from variable
-         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $1
-         LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = $1
-         WHERE variable.workspace_id = $1 AND variable.path NOT LIKE 'u/' || $2 || '/secret_arg/%'
-            AND variable.path LIKE $3 || '%'
-         ORDER BY path
-         LIMIT $4 OFFSET $5
-",
-    )
-    .bind(&w_id)
-    .bind(&authed.username)
-    .bind(&lq.path_start.unwrap_or_default())
-    .bind(per_page as i32)
-    .bind(offset as i32)
-    .fetch_all(&mut *tx)
-    .await?;
+    if let Some(path_start) = &lq.path_start {
+        sqlb.and_where_like_left("variable.path", path_start);
+    }
+
+    if let Some(path) = &lq.path {
+        sqlb.and_where_eq("variable.path", "?".bind(path));
+    }
+
+    if let Some(description) = &lq.description {
+        let pat = format!("%{}%", escape_ilike_pattern(description));
+        sqlb.and_where("variable.description ILIKE ?".bind(&pat));
+    }
+
+    if let Some(value) = &lq.value {
+        // Only filter on non-secret variables' value
+        let pat = format!("%{}%", escape_ilike_pattern(value));
+        sqlb.and_where("(is_secret = FALSE AND variable.value ILIKE ?)".bind(&pat));
+    }
+
+    if let Some(broad_filter) = &lq.broad_filter {
+        let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        sqlb.and_where(
+            "(variable.path ILIKE ? OR variable.description ILIKE ? OR (is_secret = FALSE AND variable.value ILIKE ?))"
+                .bind(&pat).bind(&pat).bind(&pat)
+        );
+    }
+
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query_as::<_, ListableVariable>(&sql)
+        .fetch_all(&mut *tx)
+        .await?;
 
     tx.commit().await?;
     Ok(Json(rows))

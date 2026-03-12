@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM _sqlx_migrations WHERE\n        version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR\n        version=20250201145631 OR version=20250201145632 OR version=20251006143821",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "8d4ad4ee75fb149c36a9f6a0c4cf5fd981473f45d1b71b4b8236e021f7c8682d"
+}

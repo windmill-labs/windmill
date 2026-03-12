@@ -44,13 +44,23 @@ pub struct EnvRefWrapper {
 ///
 /// `Literal` serializes back to a plain JSON string, preserving backwards
 /// compatibility with existing consumers.
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone)]
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum StringOrSecretRef {
     Literal(String),
     SecretRef(SecretKeyRefWrapper),
     EnvRef(EnvRefWrapper),
+}
+
+impl fmt::Debug for StringOrSecretRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Literal(_) => f.write_str("Literal(****)"),
+            Self::SecretRef(w) => f.debug_tuple("SecretRef").field(w).finish(),
+            Self::EnvRef(w) => f.debug_tuple("EnvRef").field(w).finish(),
+        }
+    }
 }
 
 impl StringOrSecretRef {
@@ -230,6 +240,8 @@ pub struct GlobalSettings {
     pub no_default_maven: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_tags_per_workspace: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_hub: Option<bool>,
 
     // String settings
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -253,23 +265,25 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance_python_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pip_index_url: Option<String>,
+    pub pip_index_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pip_extra_index_url: Option<String>,
+    pub pip_extra_index_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub npm_config_registry: Option<String>,
+    pub npm_config_registry: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub bunfig_install_scopes: Option<String>,
+    pub bunfig_install_scopes: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub nuget_config: Option<String>,
+    pub npmrc: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub maven_repos: Option<String>,
+    pub nuget_config: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ruby_repos: Option<String>,
+    pub maven_repos: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub powershell_repo_url: Option<String>,
+    pub ruby_repos: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub powershell_repo_pat: Option<String>,
+    pub powershell_repo_url: Option<StringOrSecretRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub powershell_repo_pat: Option<StringOrSecretRef>,
 
     // Array settings
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -283,7 +297,7 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub indexer_settings: Option<IndexerSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub oauths: Option<BTreeMap<String, OAuthClient>>,
+    pub oauths: Option<BTreeMap<String, OAuthClientEntry>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub otel: Option<OtelSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -404,6 +418,49 @@ pub struct IndexerSettings {
 // OAuth
 // ---------------------------------------------------------------------------
 
+/// Wrapper that tries to deserialize as a typed [`OAuthClient`] and falls
+/// back to a raw JSON value when the stored config contains unexpected types
+/// (e.g. `"true"` instead of `true` for a boolean field).  This prevents the
+/// entire `/api/settings/instance_config` endpoint from failing because of
+/// one malformed provider entry.
+#[derive(Serialize, Clone, Debug)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+pub enum OAuthClientEntry {
+    Typed(OAuthClient),
+    /// Fallback: the raw JSON value plus the error that prevented typed parsing.
+    Raw {
+        value: serde_json::Value,
+        /// Human-readable deserialization error (not serialized).
+        #[serde(skip)]
+        error: String,
+    },
+}
+
+impl<'de> serde::Deserialize<'de> for OAuthClientEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        match serde_json::from_value::<OAuthClient>(raw.clone()) {
+            Ok(client) => Ok(OAuthClientEntry::Typed(client)),
+            Err(e) => Ok(OAuthClientEntry::Raw { value: raw, error: e.to_string() }),
+        }
+    }
+}
+
+impl OAuthClientEntry {
+    /// Returns a mutable reference to the inner [`OAuthClient`] if this entry
+    /// was successfully parsed, or `None` for raw/fallback entries.
+    pub fn as_typed_mut(&mut self) -> Option<&mut OAuthClient> {
+        match self {
+            OAuthClientEntry::Typed(c) => Some(c),
+            OAuthClientEntry::Raw { .. } => None,
+        }
+    }
+}
+
 /// OAuth client configuration for a single provider.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
@@ -411,13 +468,23 @@ pub struct OAuthClient {
     pub id: String,
     pub secret: StringOrSecretRef,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_domains: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connect_config: Option<OAuthConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub login_config: Option<OAuthConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub share_with_workspaces: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grant_types: Vec<String>,
+
+    /// Catch-all for provider-specific fields (e.g. Keycloak `org`, Okta `domain`/`custom`).
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 /// OAuth provider endpoint configuration.
@@ -436,6 +503,8 @@ pub struct OAuthConfig {
     pub extra_params_callback: Option<BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub req_body_auth: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grant_types: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -774,7 +843,11 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
 /// Note: jwt_secret is intentionally NOT hidden — it is included in YAML exports so that
 /// operators can set it via ConfigMap. It is protected from deletion (PROTECTED_SETTINGS)
 /// and from being set to empty/null, and its value is partially redacted in log output.
-pub const HIDDEN_SETTINGS: &[&str] = &["uid", "min_keep_alive_version", "automate_username_creation"];
+pub const HIDDEN_SETTINGS: &[&str] = &[
+    "uid",
+    "min_keep_alive_version",
+    "automate_username_creation",
+];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.
 const SENSITIVE_SETTINGS: &[&str] = &[
@@ -788,6 +861,7 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "pip_extra_index_url",
     "npm_config_registry",
     "bunfig_install_scopes",
+    "npmrc",
     "maven_repos",
     "ruby_repos",
     "powershell_repo_pat",
@@ -798,7 +872,10 @@ const SENSITIVE_SETTINGS: &[&str] = &[
 const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("smtp_settings", &["smtp_password"]),
     ("secret_backend", &["token"]),
-    ("object_store_cache_config", &["secret_key", "serviceAccountKey"]),
+    (
+        "object_store_cache_config",
+        &["secret_key", "serviceAccountKey"],
+    ),
 ];
 
 fn redact_json_value(value: &serde_json::Value) -> serde_json::Value {
@@ -857,7 +934,7 @@ fn redact_string(s: &str) -> String {
     }
 }
 
-fn format_setting_value(key: &str, value: &serde_json::Value) -> String {
+pub fn format_setting_value(key: &str, value: &serde_json::Value) -> String {
     if SENSITIVE_SETTINGS.contains(&key) {
         return match value {
             serde_json::Value::String(s) => format!("\"{}\"", redact_string(s)),
@@ -1148,8 +1225,18 @@ pub fn resolve_env_refs(settings: &mut GlobalSettings) -> Result<(), String> {
     }
 
     if let Some(oauths) = &mut settings.oauths {
-        for oauth in oauths.values_mut() {
-            resolve_env_field(&mut oauth.secret)?;
+        for (name, entry) in oauths.iter_mut() {
+            match entry {
+                OAuthClientEntry::Typed(oauth) => {
+                    resolve_env_field(&mut oauth.secret)?;
+                }
+                OAuthClientEntry::Raw { error, .. } => {
+                    tracing::error!(
+                        "OAuth entry '{name}' could not be deserialized as OAuthClient \
+                         and was kept as raw JSON — it likely has an unexpected shape: {error}"
+                    );
+                }
+            }
         }
     }
 
@@ -1917,6 +2004,88 @@ mod tests {
     }
 
     #[test]
+    fn oauth_entry_valid_config_deserializes_as_typed() {
+        let json = r#"{
+            "id": "slack_id",
+            "secret": "slack_secret",
+            "connect_config": {
+                "auth_url": "https://slack.com/oauth/v2/authorize",
+                "token_url": "https://slack.com/api/oauth.v2.access",
+                "scopes": ["channels:read", "chat:write"],
+                "req_body_auth": true
+            }
+        }"#;
+        let entry: OAuthClientEntry = serde_json::from_str(json).unwrap();
+        match &entry {
+            OAuthClientEntry::Typed(c) => {
+                assert_eq!(c.id, "slack_id");
+                let cc = c.connect_config.as_ref().unwrap();
+                assert_eq!(cc.req_body_auth, Some(true));
+            }
+            OAuthClientEntry::Raw { .. } => panic!("expected Typed variant"),
+        }
+        // round-trip preserves the value
+        let serialized = serde_json::to_string(&entry).unwrap();
+        assert!(serialized.contains("slack_id"));
+    }
+
+    #[test]
+    fn oauth_entry_string_bool_falls_back_to_raw_with_error() {
+        // This is the real-world scenario: req_body_auth stored as "true" (string)
+        let json = r#"{
+            "id": "custom_provider",
+            "secret": "secret",
+            "connect_config": {
+                "auth_url": "https://example.com/auth",
+                "token_url": "https://example.com/token",
+                "req_body_auth": "true"
+            }
+        }"#;
+        let entry: OAuthClientEntry = serde_json::from_str(json).unwrap();
+        match &entry {
+            OAuthClientEntry::Raw { error, .. } => {
+                assert!(
+                    error.contains("invalid type"),
+                    "error should mention type mismatch, got: {error}"
+                );
+            }
+            OAuthClientEntry::Typed(_) => panic!("expected Raw fallback for string bool"),
+        }
+        // Serialization still round-trips the raw JSON faithfully
+        let serialized = serde_json::to_string(&entry).unwrap();
+        assert!(serialized.contains("custom_provider"));
+        assert!(serialized.contains(r#""req_body_auth":"true""#));
+    }
+
+    #[test]
+    fn oauth_entry_map_with_mixed_valid_and_invalid() {
+        // Simulates what InstanceConfig.oauths looks like when one provider is
+        // well-formed and another has a string-typed boolean.
+        let json = r#"{
+            "google": {
+                "id": "google_id",
+                "secret": "google_secret",
+                "connect_config": {
+                    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+                    "token_url": "https://oauth2.googleapis.com/token"
+                }
+            },
+            "broken": {
+                "id": "broken_id",
+                "secret": "broken_secret",
+                "connect_config": {
+                    "auth_url": "https://example.com/auth",
+                    "token_url": "https://example.com/token",
+                    "req_body_auth": "false"
+                }
+            }
+        }"#;
+        let map: BTreeMap<String, OAuthClientEntry> = serde_json::from_str(json).unwrap();
+        assert!(matches!(map["google"], OAuthClientEntry::Typed(_)));
+        assert!(matches!(map["broken"], OAuthClientEntry::Raw { .. }));
+    }
+
+    #[test]
     fn custom_instance_pg_databases_roundtrips() {
         let json = r#"{
             "user_pwd": "secret123",
@@ -2048,6 +2217,25 @@ mod tests {
 
         let v: StringOrSecretRef = String::from("world").into();
         assert_eq!(v, *"world");
+    }
+
+    #[test]
+    fn string_or_secret_ref_debug_masks_literal() {
+        let v = StringOrSecretRef::Literal("super-secret-value".to_string());
+        let debug = format!("{v:?}");
+        assert_eq!(debug, "Literal(****)");
+        assert!(!debug.contains("super-secret-value"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_oauth_secrets() {
+        let val = serde_json::json!({
+            "google": {"id": "client-id", "secret": "my-super-secret-12345"}
+        });
+        let formatted = format_setting_value("oauths", &val);
+        assert!(!formatted.contains("my-super-secret-12345"));
+        assert!(formatted.contains("client-id"));
+        assert!(formatted.contains("****"));
     }
 
     #[test]
@@ -2216,16 +2404,20 @@ mod tests {
                 let mut m = BTreeMap::new();
                 m.insert(
                     "google".to_string(),
-                    OAuthClient {
+                    OAuthClientEntry::Typed(OAuthClient {
                         id: "id".to_string(),
                         secret: StringOrSecretRef::EnvRef(EnvRefWrapper {
                             env_ref: "__WM_TEST_OAUTH_SECRET".to_string(),
                         }),
+                        display_name: None,
                         allowed_domains: None,
                         connect_config: None,
                         login_config: None,
+                        tenant: None,
                         share_with_workspaces: None,
-                    },
+                        grant_types: vec![],
+                        extra: BTreeMap::new(),
+                    }),
                 );
                 m
             }),
@@ -2243,10 +2435,12 @@ mod tests {
                 .and_then(|v| v.as_literal()),
             Some("smtp-secret")
         );
-        assert_eq!(
-            gs.oauths.as_ref().unwrap()["google"].secret.as_literal(),
-            Some("oauth-secret")
-        );
+        match &gs.oauths.as_ref().unwrap()["google"] {
+            OAuthClientEntry::Typed(c) => {
+                assert_eq!(c.secret.as_literal(), Some("oauth-secret"));
+            }
+            OAuthClientEntry::Raw { .. } => panic!("expected Typed variant"),
+        }
 
         unsafe {
             std::env::remove_var("__WM_TEST_SMTP_PWD");
@@ -2353,7 +2547,11 @@ mod tests {
         );
 
         let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
-        assert_eq!(diff.upserts.len(), 1, "Same client with newer expiry should update even with different signature");
+        assert_eq!(
+            diff.upserts.len(),
+            1,
+            "Same client with newer expiry should update even with different signature"
+        );
     }
 
     #[test]

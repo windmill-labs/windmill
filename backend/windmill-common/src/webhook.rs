@@ -39,29 +39,115 @@ pub enum WebhookPayload {
 #[serde(tag = "type")]
 pub enum WebhookMessage {
     // See https://serde.rs/enum-representations.html#internally-tagged for how this looks in JSON
-    CreateApp { workspace: String, path: String },
-    DeleteApp { workspace: String, path: String },
-    UpdateApp { workspace: String, old_path: String, new_path: String },
-    CreateFlow { workspace: String, path: String },
-    UpdateFlow { workspace: String, old_path: String, new_path: String },
-    ArchiveFlow { workspace: String, path: String },
-    DeleteFlow { workspace: String, path: String },
-    CreateFolder { workspace: String, name: String },
-    UpdateFolder { workspace: String, name: String },
-    DeleteFolder { workspace: String, name: String },
-    DeleteResource { workspace: String, path: String },
-    CreateResource { workspace: String, path: String },
-    UpdateResource { workspace: String, old_path: String, new_path: String },
-    CreateResourceType { name: String },
-    DeleteResourceType { name: String },
-    UpdateResourceType { name: String },
-    CreateScript { workspace: String, path: String, hash: String },
-    UpdateScript { workspace: String, path: String, hash: String },
-    DeleteScript { workspace: String, hash: String },
-    DeleteScriptPath { workspace: String, path: String },
-    CreateVariable { workspace: String, path: String },
-    UpdateVariable { workspace: String, old_path: String, new_path: String },
-    DeleteVariable { workspace: String, path: String },
+    CreateApp {
+        workspace: String,
+        path: String,
+    },
+    DeleteApp {
+        workspace: String,
+        path: String,
+    },
+    UpdateApp {
+        workspace: String,
+        old_path: String,
+        new_path: String,
+    },
+    CreateFlow {
+        workspace: String,
+        path: String,
+    },
+    UpdateFlow {
+        workspace: String,
+        old_path: String,
+        new_path: String,
+    },
+    ArchiveFlow {
+        workspace: String,
+        path: String,
+    },
+    DeleteFlow {
+        workspace: String,
+        path: String,
+    },
+    CreateFolder {
+        workspace: String,
+        name: String,
+    },
+    UpdateFolder {
+        workspace: String,
+        name: String,
+    },
+    DeleteFolder {
+        workspace: String,
+        name: String,
+    },
+    DeleteResource {
+        workspace: String,
+        path: String,
+    },
+    CreateResource {
+        workspace: String,
+        path: String,
+    },
+    UpdateResource {
+        workspace: String,
+        old_path: String,
+        new_path: String,
+    },
+    CreateResourceType {
+        name: String,
+    },
+    DeleteResourceType {
+        name: String,
+    },
+    UpdateResourceType {
+        name: String,
+    },
+    CreateScript {
+        workspace: String,
+        path: String,
+        hash: String,
+    },
+    UpdateScript {
+        workspace: String,
+        path: String,
+        hash: String,
+    },
+    DeleteScript {
+        workspace: String,
+        hash: String,
+    },
+    DeleteScriptPath {
+        workspace: String,
+        path: String,
+    },
+    CreateVariable {
+        workspace: String,
+        path: String,
+    },
+    UpdateVariable {
+        workspace: String,
+        old_path: String,
+        new_path: String,
+    },
+    DeleteVariable {
+        workspace: String,
+        path: String,
+    },
+    TokenExpiringSoon {
+        workspace: String,
+        token_prefix: String,
+        label: String,
+        owner: String,
+        expires_at: String,
+        days_remaining: i64,
+    },
+    TokenExpired {
+        workspace: String,
+        token_prefix: String,
+        label: String,
+        owner: String,
+    },
 }
 
 #[derive(Clone)]
@@ -267,6 +353,20 @@ mod tests {
                 new_path: "n".into(),
             },
             WebhookMessage::DeleteVariable { workspace: "w".into(), path: "p".into() },
+            WebhookMessage::TokenExpiringSoon {
+                workspace: "w".into(),
+                token_prefix: "abc1234567".into(),
+                label: "my-token".into(),
+                owner: "user@example.com".into(),
+                expires_at: "2026-03-10T00:00:00Z".into(),
+                days_remaining: 7,
+            },
+            WebhookMessage::TokenExpired {
+                workspace: "w".into(),
+                token_prefix: "abc1234567".into(),
+                label: "my-token".into(),
+                owner: "user@example.com".into(),
+            },
         ];
 
         for msg in &messages {

@@ -34,9 +34,11 @@
 			{:else}
 				<Tooltip>
 					{@render badge()}
-					<svelte:fragment slot="text">
-						{accessType2} access to column "{columnName}"
-					</svelte:fragment>
+					{#snippet text()}
+									
+							{accessType2} access to column "{columnName}"
+						
+									{/snippet}
 				</Tooltip>
 			{/if}
 		{/each}

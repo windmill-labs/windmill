@@ -15,7 +15,7 @@
 	let { data, id }: Props = $props()
 </script>
 
-<NodeWrapper offset={data.offset}>
+<NodeWrapper nodeId={id}>
 	{#snippet children({ darkMode })}
 		<VirtualItem
 			label={data.label}

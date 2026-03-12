@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{cached_result_path, get_root_job_id, save_in_cache};
+use crate::common::{cached_result_path, get_root_job_id, save_in_cache, transform_json};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
@@ -47,11 +47,13 @@ use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, script_path_to_payload, JobKind, JobPayload,
     OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
+use windmill_common::runnable_settings::{
+    ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettingsTrait,
+};
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
-use windmill_common::worker::to_raw_value;
+use windmill_common::worker::{to_raw_value, Connection};
 use windmill_common::{
     add_time, get_latest_flow_version_info_for_path, get_script_info_for_hash, FlowVersionInfo,
     ScriptHashInfo, DB,
@@ -547,6 +549,25 @@ pub async fn update_flow_status_after_job_completion_internal(
             Ok::<_, Error>(args.clone())
         };
 
+        // Pre-compute whether the completed job was an identity (skipped) job.
+        // When a step has skip_if set and the condition was true, the step runs
+        // as an identity job.  We must skip the stop_after_if evaluation in that
+        // case because the result is just a pass-through of the previous step's
+        // result, not the output of the actual step logic.
+        let is_identity_job = if current_module.is_some_and(|m| m.skip_if.is_some()) {
+            sqlx::query_scalar!(
+                "SELECT kind = 'identity' FROM v2_job WHERE id = $1",
+                job_id_for_status
+            )
+            .fetch_optional(db)
+            .await
+            .map_err(|e| Error::internal_err(format!("error during identity job check: {e:#}")))?
+            .flatten()
+            .unwrap_or(false)
+        } else {
+            false
+        };
+
         let (mut stop_early, mut stop_early_err_msg, mut skip_if_stop_early, continue_on_error) =
             if stop_early_override.is_some()
                 && !is_flow_stop_early_override
@@ -562,6 +583,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 let stop_early = success
                     && !is_branch_all // we don't support stop_early per branch
                     && !parallel_loop // we don't support anymore stop_early per iteration when parallel for loop (removed from frontend)
+                    && !is_identity_job // don't evaluate stop_after_if for skipped (identity) steps
                     && if let Some(expr) = current_module
                         .stop_after_if
                         .as_ref()
@@ -843,7 +865,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .and_then(|x| x.stop_after_all_iters_if.as_ref())
                     {
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
-                        evaluate_stop_after_all_iters_if(
+                        if let Err(e) = evaluate_stop_after_all_iters_if(
                             db,
                             stop_after_all_iters_if,
                             module_status,
@@ -857,7 +879,16 @@ pub async fn update_flow_status_after_job_completion_internal(
                             flow,
                             &old_status,
                         )
-                        .await?;
+                        .await
+                        {
+                            tracing::error!("error evaluating stop_after_all_iters_if: {e:#}");
+                            stop_early = true;
+                            skip_if_stop_early = false;
+                            stop_early_err_msg = Some(format!(
+                                "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
+                                stop_after_all_iters_if.expr
+                            ));
+                        }
                     }
 
                     let new_status = if
@@ -1052,7 +1083,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     {
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
 
-                        evaluate_stop_after_all_iters_if(
+                        if let Err(e) = evaluate_stop_after_all_iters_if(
                             db,
                             stop_after_all_iters_if,
                             module_status,
@@ -1066,7 +1097,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                             flow,
                             &old_status,
                         )
-                        .await?;
+                        .await
+                        {
+                            stop_early = true;
+                            skip_if_stop_early = false;
+                            stop_early_err_msg = Some(format!(
+                                "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
+                                stop_after_all_iters_if.expr
+                            ));
+                        }
                     }
                 }
 
@@ -1099,21 +1138,12 @@ pub async fn update_flow_status_after_job_completion_internal(
                     || (flow_jobs.is_some() && (skip_loop_failures || skip_seq_branch_failure)))
                     && !(stop_early && stop_early_err_msg.is_some() && !skip_if_stop_early)
                 {
-                    let is_skipped = if current_module.as_ref().is_some_and(|m| m.skip_if.is_some())
-                    {
-                        sqlx::query_scalar!(
-                            "SELECT kind = 'identity' FROM v2_job WHERE id = $1",
-                            job_id_for_status
-                        )
-                        .fetch_one(db)
-                        .await
-                        .map_err(|e| {
-                            Error::internal_err(format!("error during skip check: {e:#}"))
-                        })?
-                        .unwrap_or(false)
-                    } else {
-                        stop_early && skip_if_stop_early // Mark as skipped when stop_after_if with skip_if_stopped=true
-                    };
+                    let is_skipped = (stop_early && skip_if_stop_early)
+                        || if current_module.as_ref().is_some_and(|m| m.skip_if.is_some()) {
+                            is_identity_job
+                        } else {
+                            false
+                        };
                     success = true;
                     (
                         true,
@@ -1328,29 +1358,30 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         if module_step.is_preprocessor_step() && success {
             let tag_and_concurrency_key = get_tag_and_concurrency(&flow, db).await;
-            let require_args = tag_and_concurrency_key.as_ref().is_some_and(|x| {
+            let has_debouncing = flow_value
+                .debouncing_settings
+                .debounce_delay_s
+                .filter(|x| *x > 0)
+                .is_some();
+            let concurrency_requires_args = tag_and_concurrency_key.as_ref().is_some_and(|x| {
                 x.tag.as_ref().is_some_and(|t| t.contains("$args"))
                     || x.concurrency_key
                         .as_ref()
                         .is_some_and(|ck| ck.contains("$args"))
             });
-            let mut tag = tag_and_concurrency_key
-                .as_ref()
-                .map(|x| x.tag.clone())
-                .flatten();
+            let require_args = concurrency_requires_args || has_debouncing;
+            let mut tag = tag_and_concurrency_key.as_ref().and_then(|x| x.tag.clone());
             let concurrency_key = tag_and_concurrency_key
                 .as_ref()
-                .map(|x| x.concurrency_key.clone())
-                .flatten();
+                .and_then(|x| x.concurrency_key.clone());
             let concurrent_limit = tag_and_concurrency_key
                 .as_ref()
-                .map(|x| x.concurrent_limit)
-                .flatten();
+                .and_then(|x| x.concurrent_limit);
             let concurrency_time_window_s = tag_and_concurrency_key
                 .as_ref()
-                .map(|x| x.concurrency_time_window_s)
-                .flatten();
-            if require_args {
+                .and_then(|x| x.concurrency_time_window_s);
+
+            let fetched_args = if require_args {
                 let args = sqlx::query_scalar!(
                     "SELECT result  as \"result: Json<HashMap<String, Box<RawValue>>>\"
                  FROM v2_job_completed
@@ -1362,8 +1393,13 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .map_err(|e| {
                     Error::internal_err(format!("error while fetching preprocessing args: {e:#}"))
                 })?;
-                let args_hm = args.unwrap_or_default().0;
-                let args = PushArgs::from(&args_hm);
+                Some(args.unwrap_or_default().0)
+            } else {
+                None
+            };
+
+            if concurrency_requires_args {
+                let args = PushArgs::from(fetched_args.as_ref().unwrap());
                 if let Some(ck) = concurrency_key {
                     insert_concurrency_key(
                         &flow_job.workspace_id,
@@ -1392,8 +1428,65 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .await?;
             }
 
-            // let tag = tag_and_concurrency_key.and_then(|tc| tc.tag.map(|t| interpolate_args(t.clone(), &args, &workspace_id)));
-            // let concurrency_key = tag_and_concurrency_key.and_then(|tc| tc.concurrency_key.map(|ck| interpolate_args(&ck, &args, &workspace_id)));
+            let scheduled_for: Option<chrono::DateTime<chrono::Utc>> = {
+                #[cfg(feature = "private")]
+                {
+                    if has_debouncing {
+                        let empty_hm = HashMap::new();
+                        let args = PushArgs::from(fetched_args.as_ref().unwrap_or(&empty_hm));
+                        windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+                            &flow_value.debouncing_settings,
+                            &flow_job.runnable_path,
+                            &flow_job.workspace_id,
+                            flow,
+                            &args,
+                            db,
+                        )
+                        .await?
+                    } else {
+                        None
+                    }
+                }
+                #[cfg(not(feature = "private"))]
+                {
+                    None
+                }
+            };
+
+            // Store the flow's debouncing settings in the runnable_settings_handle
+            // so that maybe_apply_debouncing can find them after pull and perform
+            // argument accumulation. This is needed both when debounced (CanDebounce)
+            // and when firing immediately (MaxCountExceeded), since accumulation
+            // happens at pull time in both cases.
+            let new_runnable_settings_handle: Option<i64> = if has_debouncing {
+                let debouncing_hash = flow_value
+                    .debouncing_settings
+                    .insert_cached(db)
+                    .await
+                    .unwrap_or_else(|e| {
+                        tracing::error!(
+                            "Failed to insert debouncing settings for post-preprocessing: {e:#}"
+                        );
+                        None
+                    });
+                windmill_common::runnable_settings::insert_rs(
+                    windmill_common::runnable_settings::RunnableSettings {
+                        debouncing_settings: debouncing_hash,
+                        concurrency_settings: None,
+                    },
+                    db,
+                )
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!(
+                        "Failed to insert runnable settings for post-preprocessing: {e:#}"
+                    );
+                    None
+                })
+            } else {
+                None
+            };
+
             sqlx::query!(
                 "WITH job_result AS (
                  SELECT result
@@ -1403,7 +1496,9 @@ pub async fn update_flow_status_after_job_completion_internal(
              updated_queue AS (
                 UPDATE v2_job_queue
                 SET running = false,
-                tag = COALESCE($3, tag)
+                tag = COALESCE($3, tag),
+                scheduled_for = COALESCE($6, scheduled_for),
+                runnable_settings_handle = COALESCE($7, runnable_settings_handle)
                 WHERE id = $2
              )
              UPDATE v2_job
@@ -1431,6 +1526,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 tag,
                 concurrent_limit,
                 concurrency_time_window_s,
+                scheduled_for,
+                new_runnable_settings_handle,
             )
             .execute(db)
             .await
@@ -1627,8 +1724,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 chat_ai_info.conversation_id,
             )
             .await?;
-            let duration = if success {
-                let (_, duration) = add_completed_job(
+            let (duration, wac_job_ids) = if success {
+                let (_, duration, wac_job_ids) = add_completed_job(
                     db,
                     &cflow_job,
                     true,
@@ -1642,9 +1739,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                duration
+                (duration, wac_job_ids)
             } else {
-                let (_, duration) = add_completed_job(
+                let (_, duration, wac_job_ids) = add_completed_job(
                     db,
                     &cflow_job,
                     false,
@@ -1662,11 +1759,30 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                duration
+                (duration, wac_job_ids)
             };
             flow_job_duration = flow_job
                 .started_at
                 .map(|x| FlowJobDuration { started_at: x, duration_ms: duration });
+
+            // If this flow is a WAC child (not a flow step, has parent),
+            // notify the WAC parent of completion.
+            if !flow_job.is_flow_step() {
+                if let Some(parent_job) = flow_job.parent_job {
+                    if let Some(job_ids) = wac_job_ids {
+                        let _ = crate::result_processor::handle_wac_child_completion(
+                            db,
+                            &flow_job.id,
+                            parent_job,
+                            &flow_job.workspace_id,
+                            nresult.clone(),
+                            success,
+                            job_ids,
+                        )
+                        .await;
+                    }
+                }
+            }
         }
         true
     } else {
@@ -2167,6 +2283,35 @@ pub async fn handle_flow(
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
     let flow = flow_data.value();
+
+    // Resolve $var: and $res: references in flow_env.
+    // We resolve into a separate variable to avoid cloning the entire FlowValue
+    // (which includes modules, failure_module, etc.) just to replace flow_env.
+    let resolved_env;
+    let flow_env = if let Some(ref env) = flow.flow_env {
+        match transform_json(
+            client,
+            &flow_job.workspace_id,
+            env,
+            &flow_job,
+            &Connection::Sql(db.clone()),
+        )
+        .await
+        {
+            Ok(Some(resolved)) => {
+                resolved_env = resolved;
+                Some(&resolved_env)
+            }
+            Ok(None) => flow.flow_env.as_ref(),
+            Err(e) => {
+                tracing::warn!("Failed to resolve flow_env references: {e}");
+                flow.flow_env.as_ref()
+            }
+        }
+    } else {
+        None
+    };
+
     let status = flow_job
         .parse_flow_status()
         .with_context(|| "Unable to parse flow status")?;
@@ -2270,6 +2415,7 @@ pub async fn handle_flow(
             flow_job,
             status,
             flow,
+            flow_env,
             db,
             client,
             last_result.clone(),
@@ -2370,6 +2516,7 @@ async fn push_next_flow_job(
     flow_job: Arc<MiniPulledJob>,
     mut status: FlowStatus,
     flow: &FlowValue,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_job_result: Option<Arc<Box<RawValue>>>,
@@ -2502,7 +2649,7 @@ async fn push_next_flow_job(
             let skip = compute_bool_from_expr(
                 &skip_expr,
                 arc_flow_job_args.clone(),
-                flow.flow_env.as_ref(),
+                flow_env,
                 Arc::new(to_raw_value(&json!("{}"))),
                 None,
                 None,
@@ -2627,7 +2774,7 @@ async fn push_next_flow_job(
                                      expr.to_string(),
                                      context,
                                      Some(arc_flow_job_args.clone()),
-                                     flow.flow_env.as_ref(),
+                                     flow_env,
                                      None,
                                      None,
                                      None
@@ -2888,7 +3035,7 @@ async fn push_next_flow_job(
                     &input_transform,
                     arc_last_job_result.clone(),
                     Some(arc_flow_job_args.clone()),
-                    flow.flow_env.as_ref(),
+                    flow_env,
                     Some(client),
                     None,
                 )
@@ -2926,7 +3073,7 @@ async fn push_next_flow_job(
             &status.retry,
             arc_last_job_result.clone(),
             arc_flow_job_args.clone(),
-            flow.flow_env.as_ref(),
+            flow_env,
             Some(client),
         )
         .await?
@@ -3014,7 +3161,7 @@ async fn push_next_flow_job(
         compute_bool_from_expr(
             &skip_if.expr,
             arc_flow_job_args.clone(),
-            flow.flow_env.as_ref(),
+            flow_env,
             arc_last_job_result.clone(),
             None,
             Some(&idcontext),
@@ -3104,7 +3251,7 @@ async fn push_next_flow_job(
                 };
                 transform_input(
                     arc_flow_job_args.clone(),
-                    flow.flow_env.as_ref(),
+                    flow_env,
                     arc_last_job_result.clone(),
                     input_transforms,
                     resumes.clone(),
@@ -3131,7 +3278,7 @@ async fn push_next_flow_job(
     let next_flow_transform = compute_next_flow_transform(
         arc_flow_job_args.clone(),
         arc_last_job_result.clone(),
-        flow.flow_env.as_ref(),
+        flow_env,
         &flow_job,
         &flow,
         transform_context,
@@ -3295,7 +3442,7 @@ async fn push_next_flow_job(
                     let ctx = get_transform_context(&flow_job, "", &status);
                     let ti = transform_input(
                         Marc::new(args),
-                        flow.flow_env.as_ref(),
+                        flow_env,
                         arc_last_job_result.clone(),
                         input_transforms,
                         resumes.clone(),
@@ -3350,7 +3497,7 @@ async fn push_next_flow_job(
                         let ctx = get_transform_context(&flow_job, &previous_id, &status);
                         let ti = transform_input(
                             Marc::new(hm),
-                            flow.flow_env.as_ref(),
+                            flow_env,
                             arc_last_job_result.clone(),
                             input_transforms,
                             resumes.clone(),
@@ -3468,7 +3615,7 @@ async fn push_next_flow_job(
                 timeout_transform,
                 arc_last_job_result.clone(),
                 Some(arc_flow_job_args.clone()),
-                flow.flow_env.as_ref(),
+                flow_env,
                 Some(client),
                 Some(&ctx),
             )
@@ -3547,7 +3694,7 @@ async fn push_next_flow_job(
                     parallelism_transform,
                     arc_last_job_result.clone(),
                     Some(arc_flow_job_args.clone()),
-                    flow.flow_env.as_ref(),
+                    flow_env,
                     Some(client),
                     Some(&ctx),
                 )
@@ -4383,7 +4530,7 @@ async fn compute_next_flow_transform(
                         let pred = compute_bool_from_expr(
                             &b.expr,
                             arc_flow_job_args.clone(),
-                            flow.flow_env.as_ref(),
+                            flow_env,
                             arc_last_job_result.clone(),
                             None,
                             Some(&idcontext),

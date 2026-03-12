@@ -24,7 +24,6 @@
 	type Props = {
 		customInstanceDbs: ResourceReturn<ListCustomInstanceDbsResponse>
 		confirmationModal: ConfirmationModalHandle
-		dbManagerDrawer: any | undefined
 		bottomHint?: Snippet | undefined
 		opened: { status: CustomInstanceDb | undefined; dbname: string } | undefined
 		tag?: CustomInstanceDbTag
@@ -33,7 +32,6 @@
 	let {
 		customInstanceDbs,
 		confirmationModal,
-		dbManagerDrawer,
 		bottomHint,
 		opened = $bindable(),
 		tag
@@ -76,7 +74,6 @@
 						class="flex-1"
 						asset={{ kind: 'resource', path: 'CUSTOM_INSTANCE_DB/' + dbname }}
 						_resourceMetadata={{ resource_type: 'postgresql' }}
-						{dbManagerDrawer}
 						disabled={!$isCustomInstanceDbEnabled || !enableManageButton}
 						onClick={() => (opened = undefined)}
 					/>
@@ -137,7 +134,8 @@
 										`GRANT CREATE ON DATABASE "${dbname}" TO custom_instance_user;\n` +
 										'ALTER DEFAULT PRIVILEGES IN SCHEMA public \n' +
 										'  	GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES\n    TO custom_instance_user;\n' +
-										'ALTER ROLE custom_instance_user CREATEROLE;'
+										'ALTER ROLE custom_instance_user CREATEROLE;\n' +
+										'ALTER ROLE custom_instance_user REPLICATION;'
 								}
 							],
 							status?.error ?? undefined

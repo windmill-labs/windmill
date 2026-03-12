@@ -993,6 +993,80 @@ echo "hello $msg"
     Ok(())
 }
 
+#[sqlx::test(fixtures("base", "wmill_cli_test"))]
+async fn test_bash_wmill_variable_get(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // The bash script uses wmill CLI to get the variable value.
+    // The worker sets WM_TOKEN, WM_WORKSPACE, and BASE_INTERNAL_URL as env vars,
+    // and the CLI auto-configures from them when no workspace is explicitly set.
+    // We point WMILL_CONFIG_DIR to a clean temp dir so no local active workspace interferes.
+    let content = r#"
+export WMILL_CONFIG_DIR=$(mktemp -d)
+result=$(wmill variable get "u/test-user/test_var" --json | jq -r .value)
+echo "$result"
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Bash,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .run_until_complete(&db, false, port)
+    .await;
+    assert_eq!(job.json_result(), Some(json!("hello from variable")));
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base", "wmill_cli_test"))]
+async fn test_bash_wmill_resource_get(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // The bash script uses wmill CLI to get the resource value.
+    // We point WMILL_CONFIG_DIR to a clean temp dir so no local active workspace interferes.
+    let content = r#"
+export WMILL_CONFIG_DIR=$(mktemp -d)
+result=$(wmill resource get "u/test-user/test_res" --json | jq -c .value)
+echo "$result"
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Bash,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .run_until_complete(&db, false, port)
+    .await;
+    // Bash echo outputs are returned as strings, so the JSON is a string value
+    assert_eq!(
+        job.json_result(),
+        Some(json!("{\"host\":\"localhost\",\"port\":5432}"))
+    );
+    Ok(())
+}
+
 #[cfg(feature = "nu")]
 #[sqlx::test(fixtures("base"))]
 async fn test_nu_job(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -1589,6 +1663,66 @@ export async function main(a: Date) {
     .unwrap();
 
     assert_eq!(result, serde_json::json!("object"));
+    Ok(())
+}
+
+/// Test that full .npmrc content works for deno jobs with private registries.
+/// Requires:
+/// - `TEST_NPMRC` environment variable set to the full .npmrc content
+#[cfg(feature = "private_registry_test")]
+#[sqlx::test(fixtures("base"))]
+async fn test_deno_job_private_npmrc(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_worker::NPMRC;
+
+    let npmrc_content = std::env::var("TEST_NPMRC")
+        .expect("TEST_NPMRC must be set when running private_registry_test");
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    {
+        let mut npmrc = NPMRC.write().await;
+        *npmrc = Some(npmrc_content.clone());
+    }
+
+    let content = r#"
+import { greet } from "npm:@windmill-test/private-pkg";
+
+export function main(name: string) {
+    return greet(name);
+}
+"#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Deno,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+    }))
+    .arg("name", json!("World"))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    {
+        let mut npmrc = NPMRC.write().await;
+        *npmrc = None;
+    }
+
+    assert_eq!(
+        result,
+        serde_json::json!("Hello from private package, World!")
+    );
     Ok(())
 }
 
@@ -3411,6 +3545,173 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
         let mut custom_tags = CUSTOM_TAGS_PER_WORKSPACE.write().await;
         *custom_tags = CustomTags::default();
     }
+
+    Ok(())
+}
+
+#[cfg(all(feature = "quickjs", feature = "python"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_stop_after_all_iters_if_bad_expr_parallel_branchall(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let port = 123;
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "branches": [
+                        {"modules": [{
+                            "id": "b",
+                            "value": {
+                                "input_transforms": { "n": { "type": "javascript", "expr": "flow_input.n" } },
+                                "type": "rawscript",
+                                "language": "python3",
+                                "content": "def main(n): return n",
+                            },
+                        }]}
+                    ],
+                    "type": "branchall",
+                    "parallel": true,
+                },
+                "stop_after_all_iters_if": {
+                    "expr": "invalid!!!syntax",
+                    "skip_if_stopped": false,
+                },
+            },
+        ],
+    }))
+    .unwrap();
+    let job = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
+
+    let cjob = RunJob::from(job)
+        .arg("n", json!(42))
+        .run_until_complete(&db, false, port)
+        .await;
+
+    assert!(
+        !cjob.success,
+        "flow should fail when stop_after_all_iters_if has bad expression"
+    );
+
+    let result = cjob.json_result().unwrap();
+    let error_msg = result["error"]["message"].as_str().unwrap_or("");
+    assert!(
+        error_msg.contains("stop_after_all_iters_if"),
+        "error should mention stop_after_all_iters_if, got: {error_msg}"
+    );
+
+    Ok(())
+}
+
+#[cfg(all(feature = "quickjs", feature = "python"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_stop_after_all_iters_if_bad_expr_parallel_forloop(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let port = 123;
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": { "type": "javascript", "expr": "result.items" },
+                    "skip_failures": false,
+                    "parallel": true,
+                    "modules": [{
+                        "value": {
+                            "input_transforms": {
+                                "n": { "type": "javascript", "expr": "flow_input.iter.value" },
+                            },
+                            "type": "rawscript",
+                            "language": "python3",
+                            "content": "def main(n): return n",
+                        },
+                    }],
+                },
+                "stop_after_all_iters_if": {
+                    "expr": "invalid!!!syntax",
+                    "skip_if_stopped": false,
+                },
+            },
+        ],
+    }))
+    .unwrap();
+    let job = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
+
+    let cjob = RunJob::from(job)
+        .arg("items", json!([1, 2, 3]))
+        .run_until_complete(&db, false, port)
+        .await;
+
+    assert!(
+        !cjob.success,
+        "flow should fail when stop_after_all_iters_if has bad expression"
+    );
+
+    let result = cjob.json_result().unwrap();
+    let error_msg = result["error"]["message"].as_str().unwrap_or("");
+    assert!(
+        error_msg.contains("stop_after_all_iters_if"),
+        "error should mention stop_after_all_iters_if, got: {error_msg}"
+    );
+
+    Ok(())
+}
+
+#[cfg(all(feature = "quickjs", feature = "python"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_results_length_in_input_transform(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Step a returns a list, step b accesses results.a.length via input transform.
+    // This tests that the handle_full_regex fast path falls through to QuickJS
+    // when the SQL JSON path operator can't resolve JS properties like .length.
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "type": "rawscript",
+                    "language": "python3",
+                    "content": "def main(): return [10, 20, 30]",
+                },
+            },
+            {
+                "id": "b",
+                "value": {
+                    "input_transforms": {
+                        "v": { "type": "javascript", "expr": "results.a.length" },
+                    },
+                    "type": "rawscript",
+                    "language": "python3",
+                    "content": "def main(v): return v",
+                },
+            },
+        ],
+    }))
+    .unwrap();
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, port)
+            .await
+            .json_result()
+            .unwrap();
+
+    assert_eq!(
+        result,
+        json!(3),
+        "results.a.length should resolve to 3, not null"
+    );
 
     Ok(())
 }

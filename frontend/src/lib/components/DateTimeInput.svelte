@@ -119,6 +119,7 @@
 	let randomId = 'datetarget-' + Math.random().toString(36).substring(7)
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="flex flex-row gap-1 items-center w-full relative"
 	id={randomId}
@@ -184,13 +185,13 @@
 			unifiedSize="md"
 			wrapperClasses="h-full"
 			{disabled}
+			iconOnly
+			endIcon={{ icon: X }}
 			on:click={() => {
 				value = null
 				dispatch('clear')
 			}}
-		>
-			<X size={14} />
-		</Button>
+		></Button>
 	{/if}
 	<!-- <div>
 		<ToggleButtonGroup bind:selected={format} let:item>

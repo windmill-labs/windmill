@@ -21,10 +21,13 @@
 	let { drawer = $bindable() }: Props = $props()
 
 	let code = $state('')
+	let initialCode = $state('')
 	let editor = $state(undefined) as SimpleEditor | undefined
+	let hasChanges = $derived(code !== initialCode)
 
 	function reload() {
 		code = YAML.stringify(filteredContentForExport(flowStore.val))
+		initialCode = code
 		editor?.setCode(code)
 	}
 
@@ -53,6 +56,7 @@
 			flowStore.val.schema = parsed.schema
 			flowStore.val.tag = parsed.tag
 			refreshStateStore(flowStore)
+			initialCode = code
 			sendUserToast('Changes applied')
 		} catch (e) {
 			;(sendUserToast('Error parsing yaml: ' + e), true)
@@ -65,8 +69,8 @@
 <Drawer on:open={reload} bind:this={drawer} size="800px">
 	<DrawerContent title="OpenFlow" on:close={() => drawer?.toggleDrawer()}>
 		{#snippet actions()}
-			<Button variant="default" unifiedSize="md" on:click={reload}>Reset code</Button>
-			<Button variant="accent" unifiedSize="md" on:click={apply}>Apply changes</Button>
+			<Button variant="default" unifiedSize="md" disabled={!hasChanges} on:click={reload}>Reset code</Button>
+			<Button variant="accent" unifiedSize="md" disabled={!hasChanges} on:click={apply}>Apply changes</Button>
 		{/snippet}
 
 		{#if flowStore.val}

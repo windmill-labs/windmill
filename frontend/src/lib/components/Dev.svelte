@@ -22,7 +22,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { getUserExt } from '$lib/user'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import FlowModuleSchemaMap from './flows/map/FlowModuleSchemaMap.svelte'
@@ -109,7 +109,7 @@
 	}
 
 	let darkModeToggle: DarkModeToggle | undefined = $state()
-	let darkMode: boolean | undefined = $state(undefined)
+	let darkMode: boolean = $state(document.documentElement.classList.contains('dark'))
 	let modeInitialized = $state(false)
 	function initializeMode() {
 		modeInitialized = true
@@ -169,11 +169,12 @@
 	let loadingCodebaseButton = $state(false)
 	let lastCommandId = ''
 
-	if (initial) {
-		if (initial.type == 'script') {
-			replaceScript(initial.script)
-		} else if (initial.type == 'flow') {
-			replaceFlow(initial.flow)
+	const untrackedInitial = untrack(() => initial)
+	if (untrackedInitial) {
+		if (untrackedInitial.type == 'script') {
+			replaceScript(untrackedInitial.script)
+		} else if (untrackedInitial.type == 'flow') {
+			replaceFlow(untrackedInitial.flow)
 		}
 		modeInitialized = true
 	}
@@ -225,7 +226,7 @@
 			lockChanges = true
 			replaceFlow(event.data)
 			timeout && clearTimeout(timeout)
-			timeout = setTimeout(() => {
+			timeout = window.setTimeout(() => {
 				lockChanges = false
 			}, 500)
 		} else if (event.data.type == 'error') {
@@ -492,7 +493,6 @@
 
 	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
-	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
 	const stepsInputArgs = new StepsInputArgs()
 	const selectionManager = new SelectionManager()
@@ -519,7 +519,6 @@
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		flowEditorDrawer: writable(undefined),
-		moving,
 		history,
 		pathStore: pathStore,
 		flowStateStore,
@@ -539,7 +538,9 @@
 		}),
 		currentEditor: writable(undefined),
 		modulesTestStates,
-		outputPickerOpenFns
+		outputPickerOpenFns,
+		preserveOnBehalfOf: writable(false),
+		savedOnBehalfOfEmail: writable<string | undefined>(undefined)
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
@@ -596,9 +597,9 @@
 			}
 		})
 	}
-	let token = $derived($page.url.searchParams.get('wm_token') ?? undefined)
-	let workspace = $derived($page.url.searchParams.get('workspace') ?? undefined)
-	let themeDarkRaw = $derived($page.url.searchParams.get('activeColorTheme'))
+	let token = $derived(page.url.searchParams.get('wm_token') ?? undefined)
+	let workspace = $derived(page.url.searchParams.get('workspace') ?? undefined)
+	let themeDarkRaw = $derived(page.url.searchParams.get('activeColorTheme'))
 	let themeDark = $derived(themeDarkRaw == '2' || themeDarkRaw == '4')
 
 	$effect.pre(() => {

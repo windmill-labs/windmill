@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.639.0
+  version: 1.654.0
   title: Windmill API
 
   contact:
@@ -4091,6 +4091,26 @@ paths:
           in: query
           schema:
             type: string
+        - name: path
+          description: exact path match filter
+          in: query
+          schema:
+            type: string
+        - name: description
+          description: pattern match filter for description field (case-insensitive)
+          in: query
+          schema:
+            type: string
+        - name: value
+          description: pattern match filter for non-secret variable values (case-insensitive)
+          in: query
+          schema:
+            type: string
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match)
+          in: query
+          schema:
+            type: string
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
       responses:
@@ -5090,6 +5110,26 @@ paths:
           in: query
           schema:
             type: string
+        - name: path
+          description: exact path match filter
+          in: query
+          schema:
+            type: string
+        - name: description
+          description: pattern match filter for description field (case-insensitive)
+          in: query
+          schema:
+            type: string
+        - name: value
+          description: JSONB subset match filter using base64 encoded JSON
+          in: query
+          schema:
+            type: string
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match)
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: resource list
@@ -5214,10 +5254,19 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
-          description: map from resource type to file ext
+          description: map from resource type to file resource info
           content:
             application/json:
-              schema: {}
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    format_extension:
+                      type: string
+                      nullable: true
+                    is_fileset:
+                      type: boolean
 
   /w/{workspace}/resources/type/delete/{path}:
     delete:
@@ -8199,6 +8248,9 @@ paths:
                   type: string
                 custom_path:
                   type: string
+                preserve_on_behalf_of:
+                  type: boolean
+                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
               required:
                 - path
                 - value
@@ -8244,6 +8296,9 @@ paths:
                       type: string
                     custom_path:
                       type: string
+                    preserve_on_behalf_of:
+                      type: boolean
+                      description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
                   required:
                     - path
                     - value
@@ -8555,6 +8610,9 @@ paths:
                   type: string
                 custom_path:
                   type: string
+                preserve_on_behalf_of:
+                  type: boolean
+                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
       responses:
         "200":
           description: app updated
@@ -8594,6 +8652,9 @@ paths:
                       type: string
                     custom_path:
                       type: string
+                    preserve_on_behalf_of:
+                      type: boolean
+                      description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
                 js:
                   type: string
                 css:
@@ -9127,6 +9188,54 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/PreviewInline"
+
+      responses:
+        "200":
+          description: script result
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/jobs/run_inline/p/{path}:
+    post:
+      summary: run script by path without starting a new job
+      operationId: runScriptByPathInline
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InlineScriptArgs"
+
+      responses:
+        "200":
+          description: script result
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/jobs/run_inline/h/{hash}:
+    post:
+      summary: run script by hash without starting a new job
+      operationId: runScriptByHashInline
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptHash"
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InlineScriptArgs"
 
       responses:
         "200":
@@ -9968,6 +10077,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match on path, tag, schedule path, trigger kind, label)
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: All jobs
@@ -10652,6 +10766,16 @@ paths:
           required: false
           schema:
             type: string
+        - name: resume_button_text
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: cancel_button_text
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: Interactive slack approval message sent successfully
@@ -10694,6 +10818,16 @@ paths:
           schema:
             type: string
         - name: dynamic_enums_json
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resume_button_text
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: cancel_button_text
           in: query
           required: false
           schema:
@@ -11143,7 +11277,7 @@ paths:
         - $ref: "#/components/parameters/PerPage"
         - $ref: "#/components/parameters/ArgsFilter"
         - name: path
-          description: filter by path
+          description: filter by path (script path)
           in: query
           schema:
             type: string
@@ -11154,6 +11288,26 @@ paths:
             type: boolean
         - name: path_start
           description: filter schedules by path prefix
+          in: query
+          schema:
+            type: string
+        - name: schedule_path
+          description: exact match on the schedule's path
+          in: query
+          schema:
+            type: string
+        - name: description
+          description: pattern match filter for description field (case-insensitive)
+          in: query
+          schema:
+            type: string
+        - name: summary
+          description: pattern match filter for summary field (case-insensitive)
+          in: query
+          schema:
+            type: string
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match)
           in: query
           schema:
             type: string
@@ -11872,6 +12026,19 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/kafka_triggers/reset_offsets/{path}:
+    post:
+      summary: reset kafka trigger offsets to earliest
+      operationId: resetKafkaOffsets
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: kafka trigger offsets reset successfully
 
   /w/{workspace}/nats_triggers/create:
     post:
@@ -15067,6 +15234,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       responses:
         "200":
@@ -15112,6 +15280,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       requestBody:
         description: acl to add
@@ -15168,6 +15337,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       requestBody:
         description: acl to add
@@ -16742,6 +16912,9 @@ paths:
                       lost_lock_ownership:
                         description: Is the current indexer service being replaced
                         type: boolean
+                      max_index_time_window_secs:
+                        description: Maximum time window in seconds for indexing
+                        type: number
 
   /srch/index/search/service_logs:
     get:
@@ -16842,9 +17015,9 @@ paths:
                     description: count of log lines that matched the query per hostname
                     type: object
 
-  /srch/index/delete/{idx_name}:
+  /indexer/delete/{idx_name}:
     delete:
-      summary: Restart container and delete the index to recreate it.
+      summary: Clear an index and restart the indexer.
       operationId: clearIndex
       tags:
         - indexSearch
@@ -16859,11 +17032,101 @@ paths:
               - ServiceLogIndex
       responses:
         "200":
-          description: idx to be deleted and container restarting
+          description: idx to be deleted and indexer restarting
           content:
             text/plain:
               schema:
                 type: string
+
+  /indexer/storage:
+    get:
+      summary: Get index storage sizes (disk and S3).
+      operationId: getIndexStorageSizes
+      tags:
+        - indexSearch
+      responses:
+        "200":
+          description: storage sizes for each index
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_index:
+                    type: object
+                    properties:
+                      disk_size_bytes:
+                        type: integer
+                        nullable: true
+                      s3_size_bytes:
+                        type: integer
+                        nullable: true
+                  service_log_index:
+                    type: object
+                    properties:
+                      disk_size_bytes:
+                        type: integer
+                        nullable: true
+                      s3_size_bytes:
+                        type: integer
+                        nullable: true
+
+  /indexer/status:
+    get:
+      summary: Get indexer status including liveness and storage sizes.
+      operationId: getIndexerStatus
+      tags:
+        - indexSearch
+      responses:
+        "200":
+          description: indexer status for each index
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_indexer:
+                    type: object
+                    properties:
+                      is_alive:
+                        type: boolean
+                      last_locked_at:
+                        type: string
+                        format: date-time
+                        nullable: true
+                      owner:
+                        type: string
+                        nullable: true
+                      storage:
+                        type: object
+                        properties:
+                          disk_size_bytes:
+                            type: integer
+                            nullable: true
+                          s3_size_bytes:
+                            type: integer
+                            nullable: true
+                  log_indexer:
+                    type: object
+                    properties:
+                      is_alive:
+                        type: boolean
+                      last_locked_at:
+                        type: string
+                        format: date-time
+                        nullable: true
+                      owner:
+                        type: string
+                        nullable: true
+                      storage:
+                        type: object
+                        properties:
+                          disk_size_bytes:
+                            type: integer
+                            nullable: true
+                          s3_size_bytes:
+                            type: integer
+                            nullable: true
 
   /w/{workspace}/assets/list:
     get:
@@ -16906,6 +17169,21 @@ paths:
         - name: asset_kinds
           in: query
           description: Filter by asset kinds (multiple values allowed)
+          schema:
+            type: string
+        - name: path
+          in: query
+          description: exact path match filter
+          schema:
+            type: string
+        - name: columns
+          in: query
+          description: JSONB subset match filter for columns using base64 encoded JSON
+          schema:
+            type: string
+        - name: broad_filter
+          description: broad search across multiple fields (case-insensitive substring match)
+          in: query
           schema:
             type: string
       responses:
@@ -17046,7 +17324,90 @@ paths:
                     path:
                       type: string
                       description: The asset path
-                    
+
+
+  /w/{workspace}/volumes/list:
+    get:
+      summary: List all volumes in the workspace
+      operationId: listVolumes
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of volumes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Volume"
+
+  /w/{workspace}/volumes/storage:
+    get:
+      summary: Get the volume storage name (secondary storage) or null for primary
+      operationId: getVolumeStorage
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: volume storage name or null
+          content:
+            application/json:
+              schema:
+                type: string
+                nullable: true
+
+  /w/{workspace}/volumes/create:
+    post:
+      summary: Create a new volume
+      operationId: createVolume
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+      responses:
+        "200":
+          description: volume created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/volumes/delete/{name}:
+    delete:
+      summary: Delete a volume (admin only)
+      operationId: deleteVolume
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: volume deleted
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /mcp/w/{workspace}/list_tools:
     get:
@@ -17281,10 +17642,11 @@ components:
         type: integer
     JobTriggerKind:
       name: trigger_kind
-      description: trigger kind (schedule, http, websocket...)
+      description: "filter by trigger kind. Supports comma-separated list (e.g. 'schedule,webhook') and negation by prefixing all values with '!' (e.g. '!schedule,!webhook')"
       in: query
+      x-go-name: JobTriggerKindParam
       schema:
-        $ref: "#/components/schemas/JobTriggerKind"
+        type: string
     OrderDesc:
       name: order_desc
       description: order by desc order (default true)
@@ -17293,19 +17655,19 @@ components:
         type: boolean
     CreatedBy:
       name: created_by
-      description: mask to filter exact matching user creator
+      description: "filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')"
       in: query
       schema:
         type: string
     Label:
       name: label
-      description: mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
+      description: "filter by exact matching job label. Supports comma-separated list (e.g. 'deploy,release') and negation by prefixing all values with '!' (e.g. '!deploy,!release')"
       in: query
       schema:
         type: string
     Worker:
       name: worker
-      description: worker this job was ran on
+      description: "filter by worker this job ran on. Supports comma-separated list (e.g. 'worker-1,worker-2') and negation by prefixing all values with '!' (e.g. '!worker-1,!worker-2')"
       in: query
       schema:
         type: string
@@ -17371,7 +17733,7 @@ components:
         type: string
     ScriptStartPath:
       name: script_path_start
-      description: mask to filter matching starting path
+      description: "filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')"
       in: query
       schema:
         type: string
@@ -17383,13 +17745,13 @@ components:
         type: string
     TriggerPath:
       name: trigger_path
-      description: mask to filter by trigger path
+      description: "filter by trigger path. Supports comma-separated list (e.g. 'f/trigger1,f/trigger2') and negation by prefixing all values with '!' (e.g. '!f/trigger1,!f/trigger2')"
       in: query
       schema:
         type: string
     ScriptExactPath:
       name: script_path_exact
-      description: mask to filter exact matching path
+      description: "filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')"
       in: query
       schema:
         type: string
@@ -17504,7 +17866,7 @@ components:
         type: string
     Tag:
       name: tag
-      description: filter on jobs with a given tag/worker group
+      description: "filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')"
       in: query
       schema:
         type: string
@@ -17548,9 +17910,7 @@ components:
         enum: [Create, Update, Delete, Execute]
     JobKinds:
       name: job_kinds
-      description:
-        filter on job kind (values 'preview', 'script', 'dependencies', 'flow')
-        separated by,
+      description: "filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')"
       in: query
       schema:
         type: string
@@ -18135,6 +18495,7 @@ components:
         - trigger
         - settings
         - key
+        - workspacedependencies
 
     AIProviderModel:
       type: object
@@ -18457,6 +18818,9 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        preserve_on_behalf_of:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
         assets:
           type: array
           items:
@@ -18479,7 +18843,6 @@ components:
       required:
         - path
         - summary
-        - description
         - content
         - language
 
@@ -19694,6 +20057,8 @@ components:
           type: boolean
         lock:
           type: string
+        flow_path:
+          type: string
       required:
         - args
 
@@ -19708,6 +20073,12 @@ components:
         language:
           $ref: "#/components/schemas/ScriptLang"
       required: [content, args, language]
+
+    InlineScriptArgs:
+      type: object
+      properties:
+        args:
+          $ref: "#/components/schemas/ScriptArgs"
 
     WorkflowTask:
       type: object
@@ -19853,6 +20224,8 @@ components:
           format: date-time
         format_extension:
           type: string
+        is_fileset:
+          type: boolean
       required:
         - name
 
@@ -19862,6 +20235,8 @@ components:
         schema: {}
         description:
           type: string
+        is_fileset:
+          type: boolean
 
     Schedule:
       type: object
@@ -20105,6 +20480,12 @@ components:
           type: string
           nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
+        email:
+          type: string
+          description: Email of the user who the scheduled jobs run as. Used during deployment to preserve the original schedule owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
       required:
         - path
         - schedule
@@ -20192,6 +20573,12 @@ components:
           type: string
           nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
+        email:
+          type: string
+          description: Email of the user who the scheduled jobs run as. Used during deployment to preserve the original schedule owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
       required:
         - schedule
         - timezone
@@ -20548,6 +20935,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
 
       required:
         - path
@@ -20634,6 +21027,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
       required:
         - path
         - script_path
@@ -20796,6 +21195,12 @@ components:
         retry:
           description: Retry configuration for failed executions
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
 
       required:
         - path
@@ -20858,6 +21263,12 @@ components:
         retry:
           description: Retry configuration for failed executions
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
 
       required:
         - path
@@ -21027,6 +21438,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
       required:
         - path
         - script_path
@@ -21081,6 +21498,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
       required:
         - path
         - script_path
@@ -21217,6 +21640,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: "Retry configuration for failed executions."
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
       required:
         - path
         - script_path
@@ -21379,6 +21808,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
       required:
         - queue_url
         - aws_resource_path
@@ -21425,6 +21860,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
       required:
         - queue_url
         - aws_resource_path
@@ -21583,6 +22024,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
       required:
         - path
         - script_path
@@ -21625,6 +22072,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
       required:
         - path
         - script_path
@@ -21644,7 +22097,7 @@ components:
           description: Path to the Kafka resource containing connection configuration
         group_id:
           type: string
-          description: Kafka consumer group ID for this trigger 
+          description: Kafka consumer group ID for this trigger
         topics:
           type: array
           items:
@@ -21661,6 +22114,13 @@ components:
             required:
               - key
               - value
+        auto_offset_reset:
+          type: string
+          enum:
+            - latest
+            - earliest
+          default: latest
+          description: "Initial offset behavior when consumer group has no committed offset. 'latest' starts from new messages only, 'earliest' starts from the beginning."
         server_id:
           type: string
           description: ID of the server currently handling this trigger (internal)
@@ -21721,6 +22181,13 @@ components:
             required:
               - key
               - value
+        auto_offset_reset:
+          type: string
+          enum:
+            - latest
+            - earliest
+          default: latest
+          description: "Initial offset behavior when consumer group has no committed offset."
         mode:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
@@ -21732,6 +22199,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
 
       required:
         - path
@@ -21767,6 +22240,13 @@ components:
             required:
               - key
               - value
+        auto_offset_reset:
+          type: string
+          enum:
+            - latest
+            - earliest
+          default: latest
+          description: "Initial offset behavior when consumer group has no committed offset."
         path:
           type: string
           description: The unique path identifier for this trigger
@@ -21785,6 +22265,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
 
       required:
         - path
@@ -21886,6 +22372,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
 
       required:
         - path
@@ -21935,6 +22427,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
       required:
         - path
         - script_path
@@ -21983,6 +22481,12 @@ components:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         mode:
           $ref: "#/components/schemas/TriggerMode"
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
 
       required:
         - path
@@ -22009,6 +22513,12 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        email:
+          type: string
+          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
+        preserve_email:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
       required:
         - path
         - script_path
@@ -22428,6 +22938,9 @@ components:
               type: boolean
             on_behalf_of_email:
               type: string
+            preserve_on_behalf_of:
+              type: boolean
+              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
           required:
             - path
 
@@ -23014,6 +23527,8 @@ components:
           type: boolean
         group_by_folder:
           type: boolean
+        force_branch:
+          type: string
         collapsed:
           type: boolean
         settings:
@@ -23628,6 +24143,7 @@ components:
         - resource
         - ducklake
         - datatable
+        - volume
     Asset:
       type: object
       properties:
@@ -23636,6 +24152,38 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
+    Volume:
+      type: object
+      required:
+        - name
+        - size_bytes
+        - file_count
+        - created_at
+        - created_by
+      properties:
+        name:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        file_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        extra_perms:
+          type: object
+          additionalProperties: true
     ProtectionRuleset:
       type: object
       description: A workspace protection rule defining restrictions and bypass permissions

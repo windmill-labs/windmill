@@ -10,10 +10,10 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private", "windmill-api-users/private", "windmill-api-workspaces/private", "windmill-api-groups/private", "windmill-api-configs/private", "windmill-api-settings/private", "windmill-api-agent-workers?/private", "windmill-trigger-kafka?/private", "windmill-trigger-postgres?/private", "windmill-trigger-mqtt?/private", "windmill-trigger-websocket?/private", "windmill-trigger-nats?/private", "windmill-trigger-sqs?/private", "windmill-trigger-gcp?/private", "windmill-trigger-email?/private"]
+private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private", "windmill-api-users/private", "windmill-api-workspaces/private", "windmill-api-groups/private", "windmill-api-configs/private", "windmill-api-settings/private", "windmill-api-agent-workers?/private", "windmill-trigger-kafka?/private", "windmill-trigger-postgres?/private", "windmill-trigger-mqtt?/private", "windmill-trigger-websocket?/private", "windmill-trigger-nats?/private", "windmill-trigger-sqs?/private", "windmill-trigger-gcp?/private", "windmill-trigger-email?/private", "windmill-git-sync/private", "windmill-autoscaling?/private"]
 enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker?/enterprise", "windmill-api-auth/enterprise", "windmill-store/enterprise", "windmill-api-jobs/enterprise", "windmill-api-scripts/enterprise", "windmill-api-flows/enterprise", "windmill-api-users/enterprise", "windmill-api-workspaces/enterprise", "windmill-api-groups/enterprise", "windmill-api-configs/enterprise", "windmill-api-settings/enterprise", "windmill-api-agent-workers?/enterprise", "windmill-trigger/enterprise", "windmill-trigger-kafka?/enterprise", "windmill-trigger-postgres?/enterprise", "windmill-trigger-mqtt?/enterprise", "windmill-trigger-websocket?/enterprise", "windmill-trigger-email?/enterprise", "windmill-trigger-nats?/enterprise", "windmill-trigger-sqs?/enterprise", "windmill-trigger-gcp?/enterprise", "windmill-trigger-http?/enterprise", "windmill-native-triggers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise"]
 stripe = []
-inline_preview = ["dep:windmill-worker", "windmill-api-configs/inline_preview"]
+run_inline = ["dep:windmill-worker", "windmill-api-configs/run_inline"]
 agent_worker_server = ["dep:windmill-worker", "dep:windmill-api-agent-workers"]
 enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
@@ -63,6 +63,7 @@ windmill-object-store.workspace = true
 windmill-audit.workspace = true
 windmill-parser.workspace = true
 windmill-parser-sql.workspace = true
+windmill-parser-sql-asset.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-py = { workspace = true, optional = true }
 windmill-parser-py-imports = { workspace = true, optional = true }
@@ -70,6 +71,7 @@ windmill-git-sync.workspace = true
 windmill-indexer = { workspace = true, optional = true }
 windmill-autoscaling = { workspace = true, optional = true }
 windmill-worker = { workspace = true, optional = true }
+windmill-worker-volumes.workspace = true
 windmill-dep-map.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
@@ -173,6 +175,7 @@ aws-sdk-bedrock = { workspace = true, optional = true }
 aws-sdk-bedrockruntime = { workspace = true, optional = true }
 aws-smithy-types = { workspace = true, optional = true }
 async-trait.workspace = true
+eventsource-stream.workspace = true
 windmill-jseval.workspace = true
 tar.workspace = true
 flate2.workspace = true

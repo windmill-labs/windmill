@@ -8,7 +8,7 @@
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import JobLoader, { type Callbacks } from './JobLoader.svelte'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
@@ -76,7 +76,8 @@
 				flowStore?.val?.tag ?? val.tag,
 				undefined,
 				undefined,
-				callbacks
+				callbacks,
+				$pathStore
 			)
 		} else if (val.type == 'script') {
 			const script = val.hash
@@ -90,7 +91,8 @@
 				flowStore?.val?.tag ?? (val.tag_override ? val.tag_override : script.tag),
 				script.lock,
 				val.hash ?? script.hash,
-				callbacks
+				callbacks,
+				$pathStore
 			)
 		} else if (val.type == 'flow') {
 			await jobLoader?.runFlowByPath(val.path, args, callbacks)
@@ -125,7 +127,8 @@
 					summary: '',
 					schema
 				},
-				callbacks
+				callbacks,
+				$pathStore
 			)
 		} else {
 			throw Error('Not supported module type')
@@ -164,8 +167,8 @@
 		testJob = modulesTestStates.states?.[mod.id]?.testJob
 	})
 
-	modulesTestStates.states[mod.id] = {
-		...(modulesTestStates.states?.[mod.id] ?? { loading: false }),
+	modulesTestStates.states[untrack(() => mod).id] = {
+		...(modulesTestStates.states?.[untrack(() => mod).id] ?? { loading: false }),
 		loading: testIsLoading,
 		testJob: testJob
 	}

@@ -117,7 +117,7 @@
 		promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
 			sendUserToast(
 				'Loading audit logs is taking longer than expected...',
-				true,
+				'warning',
 				perPage > 25
 					? [{ label: 'Reduce to 25 items per page', callback: () => (perPage = 25) }]
 					: []
@@ -465,12 +465,9 @@
 			on:click={downloadAuditLogsAsJson}
 			unifiedSize="md"
 			title="Downloads currently displayed logs only (up to {perPage} entries)"
-		>
-			<div class="flex flex-row gap-1 items-center">
-				<Download size={14} />
-				Download JSON
-			</div>
-		</Button>
+			startIcon={{ icon: Download }}
+			iconOnly
+		/>
 		<Button
 			variant="accent"
 			on:click={() => {

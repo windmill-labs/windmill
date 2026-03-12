@@ -47,7 +47,12 @@
 	)
 
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
-		return x as Record<string, WorkflowStatus>
+		if (!x || typeof x !== 'object') return {}
+		const result: Record<string, WorkflowStatus> = {}
+		for (const [k, v] of Object.entries(x)) {
+			if (!k.startsWith('_')) result[k] = v as WorkflowStatus
+		}
+		return result
 	}
 
 	function handleFilterByConcurrencyKey(key: string) {
@@ -119,8 +124,8 @@
 	bind:this={jobLoader}
 />
 
-<div class="h-full overflow-y-auto">
-	<div class="flex flex-col items-start p-4 pb-8 min-h-full">
+<div class="h-full">
+	<div class="flex flex-col items-start pb-4 min-h-full">
 		{#if isLoadingJobDetails}
 			<div class="w-full flex-1 flex items-center justify-center">
 				<div class="text-center">

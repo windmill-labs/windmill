@@ -6,27 +6,20 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Select from './select/Select.svelte'
 	import { ArrowLeft, Expand, LoaderCircle, Minimize, RefreshCcw } from 'lucide-svelte'
-	import type { DbInput } from './dbTypes'
 	import DBManagerContent from './DBManagerContent.svelte'
 	import { resource } from 'runed'
+	import { untrack } from 'svelte'
+	import type { DbManagerUriState } from './dbManagerDrawerModel.svelte'
 
 	interface Props {
+		uriState: DbManagerUriState
 		/** Z-index offset for the drawer, useful when opening from within modals */
 		offset?: number
 	}
 
-	let { offset = 0 }: Props = $props()
+	let { uriState, offset = 0 }: Props = $props()
 
-	let input: DbInput | undefined = $state()
-	let open = $derived(!!input)
-
-	// For datatable inputs, track the selected datatable separately
-	let selectedDatatable = $state<string | undefined>(undefined)
-
-	// Check if input is a datatable type
-	const isDatatableInput = $derived(
-		input?.type === 'database' && input.resourcePath.startsWith('datatable://')
-	)
+	let open = $derived(uriState.open)
 
 	// Load available datatables when drawer opens with datatable input
 	const datatables = resource<string[]>([], async () => {
@@ -39,16 +32,6 @@
 		}
 	})
 
-	// Computed input that updates when selectedDatatable changes
-	const effectiveInput: DbInput | undefined = $derived.by(() => {
-		if (!input) return undefined
-		if (!isDatatableInput || !selectedDatatable) return input
-		return {
-			...input,
-			resourcePath: `datatable://${selectedDatatable}`
-		}
-	})
-
 	const datatableItems = $derived(
 		datatables.current.map((dt) => ({
 			value: dt,
@@ -56,32 +39,26 @@
 		}))
 	)
 
-	export function openDrawer(nInput: DbInput) {
-		input = nInput
-		if (isDatatableInput) {
-			datatables.refetch()
+	// Refetch datatables when switching to a datatable input
+	$effect(() => {
+		if (uriState.isDatatableInput) {
+			untrack(() => datatables.refetch())
 		}
-		// If it's a datatable input, extract the datatable name for the selector
-		if (nInput.type === 'database' && nInput.resourcePath.startsWith('datatable://')) {
-			selectedDatatable = nInput.resourcePath.replace('datatable://', '')
-			datatables.refetch()
-		} else {
-			selectedDatatable = undefined
-		}
-	}
-	export function closeDrawer() {
-		input = undefined
-		selectedDatatable = undefined
+	})
+
+	function handleClose() {
+		uriState.closeDrawer()
 		dbManagerContent?.clearReplResult()
-		if (window.location.hash.startsWith('#dbmanager:'))
-			history.replaceState('', document.title, window.location.href.replace(/#dbmanager:.*$/, ''))
 	}
 
 	let windowWidth = $state(window.innerWidth)
 	let expand = $state(false)
 
 	$effect(() => {
-		if (!open) expand = false
+		if (!open) {
+			expand = false
+			uriState.closeDrawer()
+		}
 	})
 
 	let dbManagerContent: DBManagerContent | undefined = $state()
@@ -96,7 +73,7 @@
 	size={expand ? `${windowWidth}px` : '1200px'}
 	preventEscape
 	{offset}
-	on:close={closeDrawer}
+	on:close={handleClose}
 >
 	<DrawerContent
 		title={hasReplResult ? 'Query Result' : 'Database Manager'}
@@ -104,18 +81,24 @@
 			if (hasReplResult) {
 				dbManagerContent?.clearReplResult()
 			} else {
-				closeDrawer()
+				handleClose()
 			}
 		}}
 		CloseIcon={hasReplResult ? ArrowLeft : undefined}
 		noPadding
 		id="db-manager-drawer"
 	>
-		{#if effectiveInput && $workspaceStore}
-			{#key selectedDatatable}
-				<DBManagerContent bind:this={dbManagerContent} input={effectiveInput} bind:hasReplResult>
+		{#if uriState.effectiveInput && $workspaceStore}
+			{#key uriState.selectedDatatable}
+				<DBManagerContent
+					bind:this={dbManagerContent}
+					input={uriState.effectiveInput}
+					bind:hasReplResult
+					bind:selectedSchemaKey={uriState.selectedSchema}
+					bind:selectedTableKey={uriState.selectedTable}
+				>
 					{#snippet dbSelector()}
-						{#if isDatatableInput}
+						{#if uriState.isDatatableInput}
 							{#if datatables.loading}
 								<div class="flex items-center gap-2 text-tertiary ml-2">
 									<LoaderCircle size={14} class="animate-spin" />
@@ -125,7 +108,7 @@
 								<Select
 									transformInputSelectedText={(s) => `Datatable: ${s}`}
 									items={datatableItems}
-									bind:value={selectedDatatable}
+									bind:value={uriState.selectedDatatable}
 									placeholder="Select data table"
 									size="md"
 								/>

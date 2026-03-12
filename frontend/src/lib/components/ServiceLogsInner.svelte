@@ -4,12 +4,15 @@
 	const bubble = createBubbler()
 	import { IndexSearchService, ServiceLogsService } from '$lib/gen'
 
-	import ManuelDatePicker from './runs/ManuelDatePicker.svelte'
+	import TimeframeSelect, {
+		serviceLogsTimeframes,
+		useUrlSyncedTimeframe
+	} from './runs/TimeframeSelect.svelte'
 	import CalendarPicker from './common/calendarPicker/CalendarPicker.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import Toggle from './Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { onDestroy, tick, untrack } from 'svelte'
+	import { onDestroy, tick } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { copyToClipboard, scroll_into_view_if_needed_polyfill, truncateRev } from '$lib/utils'
 	import LogSnippetViewer from './LogSnippetViewer.svelte'
@@ -19,7 +22,8 @@
 	import SplitPanesOrColumnOnMobile from './splitPanes/SplitPanesOrColumnOnMobile.svelte'
 	import Select from './select/Select.svelte'
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
+	import { watch } from 'runed'
 
 	interface Props {
 		searchTerm: string
@@ -31,9 +35,6 @@
 
 	let minTs: undefined | string = $state(undefined)
 	let maxTs: undefined | string = $state(undefined)
-
-	let minTsManual: undefined | string = $state($page.url.searchParams.get('minTs') ?? undefined)
-	let maxTsManual: undefined | string = $state($page.url.searchParams.get('maxTs') ?? undefined)
 
 	let max_lines: undefined | number = $state(undefined)
 
@@ -58,14 +59,16 @@
 	let timeout: number | undefined = $state(undefined)
 
 	let allLogs: ByMode | undefined = $state(undefined)
-	let manualPicker: ManuelDatePicker | undefined = $state(undefined)
+
+	let _timeframe = useUrlSyncedTimeframe(serviceLogsTimeframes)
+	let timeframe = $derived(_timeframe.timeframe)
+
+	let [minTsManual, maxTsManual] = $derived(
+		timeframe.type === 'manual' ? [timeframe.minTs ?? undefined, timeframe.maxTs ?? undefined] : []
+	)
 
 	let upTo: undefined | string = $state(undefined)
 	let upToIsLatest = $state(true)
-
-	function onManualChanges() {
-		getAllLogs(minTsManual ?? maxTs, maxTsManual)
-	}
 
 	function getAllLogs(queryMinTs: string | undefined, queryMaxTs: string | undefined) {
 		timeout && clearTimeout(timeout)
@@ -151,11 +154,6 @@
 				if (autoRefresh && searchTerm === '' && !maxTsManual) {
 					timeout = setTimeout(() => {
 						if (searchTerm !== '') return
-						let minMax = manualPicker?.computeMinMax()
-						if (minMax) {
-							maxTsManual = minMax?.maxTs ?? undefined
-							minTsManual = minMax?.minTs ?? undefined
-						}
 						let maxTsPlus1 = maxTs ? new Date(new Date(maxTs).getTime() + 1000) : undefined
 						getAllLogs(maxTsPlus1?.toISOString(), undefined)
 					}, 5000)
@@ -171,13 +169,13 @@
 
 	type Selected = { mode: string; workerGroup: string; hostname: string }
 	let initialSelected =
-		$page.url.searchParams.get('mode') &&
-		$page.url.searchParams.get('workerGroup') &&
-		$page.url.searchParams.get('hostname')
+		page.url.searchParams.get('mode') &&
+		page.url.searchParams.get('workerGroup') &&
+		page.url.searchParams.get('hostname')
 			? {
-					mode: $page.url.searchParams.get('mode')!,
-					workerGroup: $page.url.searchParams.get('workerGroup')!,
-					hostname: $page.url.searchParams.get('hostname')!
+					mode: page.url.searchParams.get('mode')!,
+					workerGroup: page.url.searchParams.get('workerGroup')!,
+					hostname: page.url.searchParams.get('hostname')!
 				}
 			: undefined
 	let selected: Selected | undefined = $state(initialSelected)
@@ -315,8 +313,6 @@
 	) {
 		const params = new URLSearchParams()
 		if (searchTerm) params.set('searchTerm', searchTerm)
-		if (minTs) params.set('minTs', minTs)
-		if (maxTs) params.set('maxTs', maxTs)
 		if (selected?.mode) params.set('mode', selected.mode)
 		if (selected?.workerGroup) params.set('workerGroup', selected.workerGroup)
 		if (selected?.hostname) params.set('hostname', selected.hostname)
@@ -435,13 +431,22 @@
 		)
 	}
 
-	$effect(() => {
-		minTsManual || maxTsManual || untrack(() => onManualChanges())
-	})
-	$effect(() => {
-		;[searchTerm, selected, minTsManual, maxTsManual, allLogs]
-		untrack(() => searchLogs(searchTerm, selected, minTsManual, maxTsManual, allLogs))
-	})
+	watch(
+		() => timeframe,
+		() => {
+			const ts = timeframe.computeMinMax()
+			minTs = undefined
+			maxTs = undefined
+			allLogs = undefined
+			getAllLogs(ts.minTs ?? undefined, ts.maxTs ?? undefined)
+		}
+	)
+	watch(
+		() => [searchTerm, selected, timeframe, allLogs],
+		() => {
+			searchLogs(searchTerm, selected, minTsManual, maxTsManual, allLogs)
+		}
+	)
 </script>
 
 <Drawer bind:this={logDrawer} bind:open={logDrawerOpen} size="1400px">
@@ -477,71 +482,19 @@
 				class="flex flex-col lg:flex-row gap-y-1 justify-between w-full relative pb-4 gap-x-0.5"
 				id="service-logs-date-pickers"
 			>
-				<div class="flex relative">
-					<input
-						type="text"
-						value={minTsManual
-							? new Date(minTsManual).toLocaleTimeString([], {
-									day: '2-digit',
-									month: '2-digit',
-									hour: '2-digit',
-									minute: '2-digit'
-								})
-							: 'min datetime'}
-						disabled
-					/>
-					<CalendarPicker
-						label="min datetime"
-						date={minTsManual}
-						on:change={({ detail }) => {
-							minTs = undefined
-							maxTs = undefined
-							allLogs = undefined
-							minTsManual = detail
-							getAllLogs(minTsManual, maxTsManual)
-						}}
-						placement="top-start"
-					/>
-				</div>
-				<ManuelDatePicker
-					bind:minTs={() => minTsManual ?? null, (v) => (minTsManual = v ?? undefined)}
-					bind:maxTs={() => maxTsManual ?? null, (v) => (maxTsManual = v ?? undefined)}
-					bind:this={manualPicker}
+				<TimeframeSelect
+					items={serviceLogsTimeframes}
+					bind:value={timeframe}
 					{loading}
-					on:loadJobs={() => {
+					wrapperClasses="w-full"
+					onClick={() => {
 						minTs = undefined
 						maxTs = undefined
 						allLogs = undefined
-						getAllLogs(minTsManual, maxTsManual)
+						const ts = timeframe.computeMinMax()
+						getAllLogs(ts.minTs ?? undefined, ts.maxTs ?? undefined)
 					}}
-					serviceLogsChoices
-					loadText={searchTerm === '' ? 'Last 1000 logfiles' : 'All time'}
 				/>
-				<div class="flex relative">
-					<input
-						type="text"
-						value={maxTsManual
-							? new Date(maxTsManual).toLocaleTimeString([], {
-									day: '2-digit',
-									month: '2-digit',
-									hour: '2-digit',
-									minute: '2-digit'
-								})
-							: 'max datetime'}
-						disabled
-					/>
-					<CalendarPicker
-						label="max datetime"
-						date={maxTsManual}
-						on:change={({ detail }) => {
-							minTs = undefined
-							maxTs = undefined
-							allLogs = undefined
-							maxTsManual = detail
-							getAllLogs(minTsManual, maxTsManual)
-						}}
-					/>
-				</div>
 			</div>
 			<div class="flex w-full flex-row-reverse pb-4 -mt-2 gap-2"
 				><Toggle
@@ -570,7 +523,13 @@
 			{#if allLogs == undefined}
 				<div class="text-center pb-2"><Loader2 class="animate-spin" /></div>
 			{:else if Object.keys(allLogs).length == 0}
-				<div class="flex justify-center items-center h-full">No logs</div>
+				<div class="flex flex-col justify-center items-center h-full gap-2">
+					<span>No logs</span>
+					<span class="text-2xs text-tertiary"
+						>Search only covers a recent time window, configurable in instance settings
+						under Indexer.</span
+					>
+				</div>
 			{:else if minTs && maxTs}
 				{@const minTsN = new Date(minTs).getTime()}
 				{@const maxTsN = new Date(maxTs).getTime()}
@@ -710,7 +669,7 @@
 								<LogSnippetViewer
 									content={snippet_fragment || document.logs[0]}
 									highlighted={snippet_highlighted}
-									on:click={() => {
+									onClick={() => {
 										let logLineNumber = document.line_number[0]
 										let logFile = document.file_name[0]
 										let host = document.host[0]

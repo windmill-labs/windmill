@@ -2,7 +2,6 @@
 use anyhow::anyhow;
 use axum::http::HeaderMap;
 use bytes::Bytes;
-use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
@@ -274,7 +273,9 @@ lazy_static::lazy_static! {
     pub static ref ROOT_STANDALONE_BUNDLE_DIR: String = format!("{}/.windmill/standalone_bundle", std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
 }
 
-pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
+lazy_static::lazy_static! {
+    pub static ref ROOT_CACHE_NOMOUNT_DIR: String = format!("{}/cache_nomount/", *WINDMILL_DIR);
+}
 
 /// Whether native mode is forced by the environment (NATIVE_MODE=true env var or WORKER_GROUP=native).
 /// This does NOT account for native_mode set in the DB worker group config — for that, read
@@ -353,6 +354,45 @@ impl HttpClient {
             )))
         }
     }
+
+    pub async fn get_bytes(&self, url: &str) -> anyhow::Result<Bytes> {
+        let base_url = self.base_internal_url.clone();
+        let response = self
+            .client
+            .get(format!("{}{}", base_url, url))
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        if response.status().is_success() {
+            Ok(response.bytes().await?)
+        } else {
+            Err(anyhow::anyhow!(
+                "HTTP agent request GET {} failed {}",
+                url,
+                response.status()
+            ))
+        }
+    }
+
+    pub async fn put_bytes(&self, url: &str, bytes: Bytes) -> anyhow::Result<()> {
+        let base_url = self.base_internal_url.clone();
+        let response = self
+            .client
+            .put(format!("{}{}", base_url, url))
+            .body(bytes)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "HTTP agent request PUT {} failed {}",
+                url,
+                response.status()
+            ))
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -427,7 +467,7 @@ fn format_pull_query(peek: String) -> String {
             j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
             j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
-            j.script_entrypoint_override, j.preprocessed, pj.runnable_path as parent_runnable_path,
+            j.script_entrypoint_override, j.preprocessed, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
         FROM q, j
@@ -490,13 +530,33 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
     *l = queries;
 }
 
-pub const TMP_DIR: &str = "/tmp/windmill";
-pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
-
-pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
-pub const HUB_RT_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub_rt");
-
-pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
+lazy_static::lazy_static! {
+    pub static ref WINDMILL_DIR: String = {
+        let dir = std::env::var("WINDMILL_DIR")
+            .unwrap_or_else(|_| {
+                #[cfg(not(windows))]
+                { "/tmp/windmill".to_string() }
+                #[cfg(windows)]
+                {
+                    let temp = std::env::temp_dir();
+                    let temp_str = temp.to_string_lossy();
+                    let normalized = temp_str.trim_end_matches(&['/', '\\'][..]).replace('\\', "/");
+                    format!("{}/windmill", normalized)
+                }
+            });
+        if dir.is_empty() {
+            panic!("WINDMILL_DIR must not be empty");
+        }
+        if dir.ends_with('/') || dir.ends_with('\\') {
+            panic!("WINDMILL_DIR must not end with a trailing slash, got: {dir}");
+        }
+        dir
+    };
+    pub static ref TMP_LOGS_DIR: String = format!("{}/logs", *WINDMILL_DIR);
+    pub static ref ROOT_CACHE_DIR: String = format!("{}/cache/", *WINDMILL_DIR);
+    pub static ref HUB_CACHE_DIR: String = format!("{}hub", *ROOT_CACHE_DIR);
+    pub static ref HUB_RT_CACHE_DIR: String = format!("{}hub_rt", *ROOT_CACHE_DIR);
+}
 
 pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     let path = format!("{}/{}", dir, path);
@@ -677,6 +737,7 @@ pub struct PythonAnnotations {
     pub py311: bool,
     pub py312: bool,
     pub py313: bool,
+    pub sandbox: bool,
 }
 
 #[annotations("//")]
@@ -690,6 +751,7 @@ pub struct TypeScriptAnnotations {
     pub nodejs: bool,
     pub native: bool,
     pub nobundling: bool,
+    pub sandbox: bool,
 }
 
 #[annotations("--")]
@@ -2147,5 +2209,63 @@ mod tests {
             "some/very/long/path/that/exceeds/the/fifty/char/limit/easily_b",
         );
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_python_sandbox_annotation() {
+        let content = "# sandbox\ndef main():\n    pass";
+        let annotations = PythonAnnotations::parse(content);
+        assert!(annotations.sandbox);
+    }
+
+    #[test]
+    fn test_python_sandbox_annotation_with_other_annotations() {
+        let content = "# no_cache\n# sandbox\ndef main():\n    pass";
+        let annotations = PythonAnnotations::parse(content);
+        assert!(annotations.sandbox);
+        assert!(annotations.no_cache);
+    }
+
+    #[test]
+    fn test_python_no_sandbox_annotation() {
+        let content = "# no_cache\ndef main():\n    pass";
+        let annotations = PythonAnnotations::parse(content);
+        assert!(!annotations.sandbox);
+    }
+
+    #[test]
+    fn test_typescript_sandbox_annotation() {
+        let content = "// sandbox\nexport function main() {}";
+        let annotations = TypeScriptAnnotations::parse(content);
+        assert!(annotations.sandbox);
+    }
+
+    #[test]
+    fn test_typescript_sandbox_annotation_with_other_annotations() {
+        let content = "// npm\n// sandbox\nexport function main() {}";
+        let annotations = TypeScriptAnnotations::parse(content);
+        assert!(annotations.sandbox);
+        assert!(annotations.npm);
+    }
+
+    #[test]
+    fn test_typescript_no_sandbox_annotation() {
+        let content = "// npm\nexport function main() {}";
+        let annotations = TypeScriptAnnotations::parse(content);
+        assert!(!annotations.sandbox);
+    }
+
+    #[test]
+    fn test_python_sandbox_no_space() {
+        let content = "#sandbox\ndef main():\n    pass";
+        let annotations = PythonAnnotations::parse(content);
+        assert!(annotations.sandbox);
+    }
+
+    #[test]
+    fn test_typescript_sandbox_no_space() {
+        let content = "//sandbox\nexport function main() {}";
+        let annotations = TypeScriptAnnotations::parse(content);
+        assert!(annotations.sandbox);
     }
 }

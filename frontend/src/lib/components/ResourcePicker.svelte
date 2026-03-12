@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { ResourceService } from '$lib/gen'
-	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
+	import { ResourceService, WorkspaceService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 	import { onMount, untrack } from 'svelte'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
@@ -28,6 +28,7 @@
 		class?: string
 		onClear?: () => void
 		excludedValues?: string[]
+		datatableAsPgResource?: boolean
 	}
 
 	let {
@@ -45,7 +46,8 @@
 		selectInputClass = '',
 		class: className = '',
 		onClear = undefined,
-		excludedValues = undefined
+		excludedValues = undefined,
+		datatableAsPgResource = false
 	}: Props = $props()
 
 	if (initialValue && value == undefined) {
@@ -117,6 +119,23 @@
 					type: x.resource_type
 				}))
 
+			if (datatableAsPgResource && resourceType === 'postgresql') {
+				try {
+					const datatables = await WorkspaceService.listDataTables({
+						workspace: $workspaceStore!
+					})
+					for (const dt of datatables) {
+						nc.push({
+							value: `datatable://${dt}`,
+							label: `datatable://${dt}`,
+							type: 'postgresql'
+						})
+					}
+				} catch (e) {
+					console.error('Failed to load data tables', e)
+				}
+			}
+
 			// TODO check if this is needed
 			if (!nc.find((x) => x.value == value) && (initialValue || value)) {
 				nc.push({ value: value ?? initialValue!, label: value ?? initialValue!, type: '' })
@@ -133,7 +152,7 @@
 		loading = false
 	}
 
-	let previousResourceType = resourceType
+	let previousResourceType = untrack(() => resourceType)
 
 	$effect(() => {
 		$workspaceStore && resourceType
@@ -155,8 +174,8 @@
 
 	let appConnect: AppConnect | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let hovering = $state(false)
+	let isDatatableSelected = $derived(value?.startsWith('datatable://') ?? false)
 </script>
 
 <AppConnect
@@ -212,16 +231,18 @@
 			id="resource-picker-select"
 		>
 			{#snippet endSnippet({ item, close })}
-				<Button
-					{disabled}
-					variant="subtle"
-					size="xs2"
-					wrapperClasses="-mr-2 pl-1 -my-2"
-					btnClasses="hover:bg-surface-tertiary"
-					on:click={() => (resourceEditor?.initEdit?.(item.value ?? ''), close())}
-					startIcon={{ icon: Pen }}
-					iconOnly
-				/>
+				{#if !item.value?.startsWith('datatable://')}
+					<Button
+						{disabled}
+						variant="subtle"
+						size="xs2"
+						wrapperClasses="-mr-2 pl-1 -my-2"
+						btnClasses="hover:bg-surface-tertiary"
+						on:click={() => (resourceEditor?.initEdit?.(item.value ?? ''), close())}
+						startIcon={{ icon: Pen }}
+						iconOnly
+					/>
+				{/if}
 			{/snippet}
 			{#snippet bottomSnippet({ close })}
 				<div class="flex bg-surface border-t divide-x">
@@ -276,7 +297,7 @@
 				</div>
 			{/snippet}
 		</Select>
-		{#if value && hovering}
+		{#if value && hovering && !isDatatableSelected}
 			<div class="absolute {disabled ? 'right-2' : 'right-10'} z-20">
 				<Button
 					variant="subtle"
@@ -295,7 +316,6 @@
 			class="mt-1"
 			_resourceMetadata={{ resource_type: resourceType }}
 			asset={{ kind: 'resource', path: value }}
-			{dbManagerDrawer}
 		/>
 	{/if}
 </div>

@@ -1,6 +1,12 @@
-// deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "../types.ts";
-import { SEP, colors, log, yamlParseFile, yamlStringify } from "../../deps.ts";
+import { sep as SEP } from "node:path";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "../core/log.ts";
+import { stringify as yamlStringify } from "yaml";
+import { yamlParseFile } from "./yaml.ts";
+import { readFile, writeFile, stat, rm, readdir } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import {
   ScriptMetadata,
   defaultScriptMetadata,
@@ -20,6 +26,25 @@ import { getIsWin } from "./utils.ts";
 import { extractRelativeImports } from "./relative_imports.ts";
 import { DoubleLinkedDependencyTree } from "./dependency_tree.ts";
 
+const _require = createRequire(import.meta.url);
+const _parserCache = new Map<string, Promise<any>>();
+
+function loadParser(pkgName: string): Promise<any> {
+  let p = _parserCache.get(pkgName);
+  if (!p) {
+    p = (async () => {
+      const mod = await import(pkgName);
+      const wasmPath = _require.resolve(
+        `${pkgName}/windmill_parser_wasm_bg.wasm`
+      );
+      await mod.default(readFileSync(wasmPath));
+      return mod;
+    })();
+    _parserCache.set(pkgName, p);
+  }
+  return p;
+}
+
 export class LockfileGenerationError extends Error {
   constructor(message: string) {
     super(message);
@@ -33,11 +58,12 @@ export async function getRawWorkspaceDependencies(): Promise<Record<string, stri
   const rawWorkspaceDeps: Record<string, string> = {};
   
   try {
-    for await (const entry of Deno.readDir("dependencies")) {
-      if (entry.isDirectory) continue;
+    const entries = await readdir("dependencies", { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) continue;
       
       const filePath = `dependencies/${entry.name}`;
-      const content = await Deno.readTextFile(filePath);
+      const content = await readFile(filePath, "utf-8");
       
       // Find matching language
       for (const lang of workspaceDependenciesLanguages) {
@@ -122,7 +148,7 @@ export async function filterWorkspaceDependenciesForScripts(
     if (content.startsWith("!inline ")) {
       const filePath = folder + sep + content.replace("!inline ", "");
       try {
-        content = await Deno.readTextFile(filePath);
+        content = await readFile(filePath, "utf-8");
       } catch {
         continue;
       }
@@ -176,8 +202,8 @@ export async function generateScriptMetadataInternal(
   );
 
   // read script content
-  const scriptContent = await Deno.readTextFile(scriptPath);
-  const metadataContent = await Deno.readTextFile(metadataWithType.path);
+  const scriptContent = await readFile(scriptPath, "utf-8");
+  const metadataContent = await readFile(metadataWithType.path, "utf-8");
 
   const filteredRawWorkspaceDependencies = filterWorkspaceDependencies(
     rawWorkspaceDependencies,
@@ -269,7 +295,7 @@ export async function generateScriptMetadataInternal(
   );
   await updateMetadataGlobalLock(remotePath, hash);
   if (!justUpdateMetadataLock) {
-    await Deno.writeTextFile(metaPath, newMetadataContent);
+    await writeFile(metaPath, newMetadataContent, "utf-8");
   }
   return `${remotePath} (${language})`;
 }
@@ -332,16 +358,29 @@ export function extractWorkspaceDepsAnnotation(
   if (!config) return null;
 
   const { comment, keyword, validityRe } = config;
-  const extraMarker = `extra_${keyword}:`;
+  const extraMarkerUnderscore = `extra_${keyword}:`;
+  const extraMarkerHyphen = `extra-${keyword}:`;
   const manualMarker = `${keyword}:`;
+
+  const stripComment = (l: string): string | null => {
+    if (!l.startsWith(comment)) return null;
+    return l.substring(comment.length).trimStart();
+  };
+  const isExtra = (l: string): boolean => {
+    const s = stripComment(l);
+    return s !== null && (s.startsWith(extraMarkerUnderscore) || s.startsWith(extraMarkerHyphen));
+  };
+  const isManual = (l: string): boolean => {
+    const s = stripComment(l);
+    return s !== null && s.startsWith(manualMarker);
+  };
 
   const lines = scriptContent.split("\n");
 
   // Find first annotation line (mirrors Rust find_position)
   let pos = -1;
   for (let i = 0; i < lines.length; i++) {
-    const l = lines[i];
-    if (l.startsWith(comment) && (l.includes(extraMarker) || l.includes(manualMarker))) {
+    if (isExtra(lines[i]) || isManual(lines[i])) {
       pos = i;
       break;
     }
@@ -349,10 +388,12 @@ export function extractWorkspaceDepsAnnotation(
   if (pos === -1) return null;
 
   const annotationLine = lines[pos];
-  const mode: AnnotationMode = annotationLine.includes(extraMarker) ? "extra" : "manual";
+  const mode: AnnotationMode = isExtra(annotationLine) ? "extra" : "manual";
 
   // Parse external references from the annotation line
-  const marker = mode === "extra" ? extraMarker : manualMarker;
+  const marker = mode === "extra"
+    ? (annotationLine.includes(extraMarkerUnderscore) ? extraMarkerUnderscore : extraMarkerHyphen)
+    : manualMarker;
   const unparsed = annotationLine.replaceAll(marker, "").replaceAll(comment, "");
   const external = unparsed
     .split(",")
@@ -518,12 +559,12 @@ async function updateScriptLock(
 
   const lockPath = remotePath + ".script.lock";
   if (lock != "") {
-    await Deno.writeTextFile(lockPath, lock);
+    await writeFile(lockPath, lock, "utf-8");
     metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
   } else {
     try {
-      if (await Deno.stat(lockPath)) {
-        await Deno.remove(lockPath);
+      if (await stat(lockPath)) {
+        await rm(lockPath);
       }
     } catch (e) {
       log.info(colors.yellow(`Error removing lock file ${lockPath}: ${e}`));
@@ -547,139 +588,98 @@ export async function inferSchema(
 }> {
   let inferedSchema: any;
   if (language === "python3") {
-    const { parse_python } = await import(
-      "../../wasm/py/windmill_parser_wasm.js"
-    );
+    const { parse_python } = await loadParser("windmill-parser-wasm-py");
     inferedSchema = JSON.parse(parse_python(content));
   } else if (language === "nativets") {
-    const { parse_deno } = await import(
-      "../../wasm/ts/windmill_parser_wasm.js"
-    );
+    const { parse_deno } = await loadParser("windmill-parser-wasm-ts");
     inferedSchema = JSON.parse(parse_deno(content));
   } else if (language === "bun") {
-    const { parse_deno } = await import(
-      "../../wasm/ts/windmill_parser_wasm.js"
-    );
+    const { parse_deno } = await loadParser("windmill-parser-wasm-ts");
     inferedSchema = JSON.parse(parse_deno(content));
   } else if (language === "deno") {
-    const { parse_deno } = await import(
-      "../../wasm/ts/windmill_parser_wasm.js"
-    );
+    const { parse_deno } = await loadParser("windmill-parser-wasm-ts");
     inferedSchema = JSON.parse(parse_deno(content));
   } else if (language === "go") {
-    const { parse_go } = await import("../../wasm/go/windmill_parser_wasm.js");
+    const { parse_go } = await loadParser("windmill-parser-wasm-go");
     inferedSchema = JSON.parse(parse_go(content));
   } else if (language === "mysql") {
-    const { parse_mysql } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
-
+    const { parse_mysql } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_mysql(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "mysql" } },
       ...inferedSchema.args,
     ];
   } else if (language === "bigquery") {
-    const { parse_bigquery } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_bigquery } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_bigquery(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "bigquery" } },
       ...inferedSchema.args,
     ];
   } else if (language === "oracledb") {
-    const { parse_oracledb } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_oracledb } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_oracledb(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "oracledb" } },
       ...inferedSchema.args,
     ];
   } else if (language === "snowflake") {
-    const { parse_snowflake } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_snowflake } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_snowflake(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "snowflake" } },
       ...inferedSchema.args,
     ];
   } else if (language === "mssql") {
-    const { parse_mssql } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_mssql } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_mssql(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "ms_sql_server" } },
       ...inferedSchema.args,
     ];
   } else if (language === "postgresql") {
-    const { parse_sql } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_sql } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_sql(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "postgresql" } },
       ...inferedSchema.args,
     ];
   } else if (language === "duckdb") {
-    const { parse_duckdb } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_duckdb } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_duckdb(content));
   } else if (language === "graphql") {
-    const { parse_graphql } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_graphql } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_graphql(content));
     inferedSchema.args = [
       { name: "api", typ: { resource: "graphql" } },
       ...inferedSchema.args,
     ];
   } else if (language === "bash") {
-    const { parse_bash } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_bash } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_bash(content));
   } else if (language === "powershell") {
-    const { parse_powershell } = await import(
-      "../../wasm/regex/windmill_parser_wasm.js"
-    );
+    const { parse_powershell } = await loadParser("windmill-parser-wasm-regex");
     inferedSchema = JSON.parse(parse_powershell(content));
   } else if (language === "php") {
-    const { parse_php } = await import(
-      "../../wasm/php/windmill_parser_wasm.js"
-    );
+    const { parse_php } = await loadParser("windmill-parser-wasm-php");
     inferedSchema = JSON.parse(parse_php(content));
   } else if (language === "rust") {
-    const { parse_rust } = await import(
-      "../../wasm/rust/windmill_parser_wasm.js"
-    );
+    const { parse_rust } = await loadParser("windmill-parser-wasm-rust");
     inferedSchema = JSON.parse(parse_rust(content));
   } else if (language === "csharp") {
-    const { parse_csharp } = await import(
-      "../../wasm/csharp/windmill_parser_wasm.js"
-    );
+    const { parse_csharp } = await loadParser("windmill-parser-wasm-csharp");
     inferedSchema = JSON.parse(parse_csharp(content));
   } else if (language === "nu") {
-    const { parse_nu } = await import("../../wasm/nu/windmill_parser_wasm.js");
+    const { parse_nu } = await loadParser("windmill-parser-wasm-nu");
     inferedSchema = JSON.parse(parse_nu(content));
   } else if (language === "ansible") {
-    const { parse_ansible } = await import(
-      "../../wasm/yaml/windmill_parser_wasm.js"
-    );
+    const { parse_ansible } = await loadParser("windmill-parser-wasm-yaml");
     inferedSchema = JSON.parse(parse_ansible(content));
   } else if (language === "java") {
-    const { parse_java } = await import(
-      "../../wasm/java/windmill_parser_wasm.js"
-    );
+    const { parse_java } = await loadParser("windmill-parser-wasm-java");
     inferedSchema = JSON.parse(parse_java(content));
   } else if (language === "ruby") {
-    const { parse_ruby } = await import(
-      "../../wasm/ruby/windmill_parser_wasm.js"
-    );
+    const { parse_ruby } = await loadParser("windmill-parser-wasm-ruby");
     inferedSchema = JSON.parse(parse_ruby(content));
     // for related places search: ADD_NEW_LANG
   } else {
@@ -779,16 +779,16 @@ export async function parseMetadataFile(
 ): Promise<{ isJson: boolean; payload: any; path: string }> {
   let metadataFilePath = scriptPath + ".script.json";
   try {
-    await Deno.stat(metadataFilePath);
+    await stat(metadataFilePath);
     return {
       path: metadataFilePath,
-      payload: JSON.parse(await Deno.readTextFile(metadataFilePath)),
+      payload: JSON.parse(await readFile(metadataFilePath, "utf-8")),
       isJson: true,
     };
   } catch {
     try {
       metadataFilePath = scriptPath + ".script.yaml";
-      await Deno.stat(metadataFilePath);
+      await stat(metadataFilePath);
       const payload: any = await yamlParseFile(metadataFilePath);
       replaceLock(payload);
 
@@ -813,12 +813,8 @@ export async function parseMetadataFile(
         yamlOptions
       );
 
-      await Deno.writeTextFile(metadataFilePath, scriptInitialMetadataYaml, {
-        createNew: true,
-      });
-      await Deno.writeTextFile(lockPath, "", {
-        createNew: true,
-      });
+      await writeFile(metadataFilePath, scriptInitialMetadataYaml, { flag: "wx", encoding: "utf-8" });
+      await writeFile(lockPath, "", { flag: "wx", encoding: "utf-8" });
 
       if (generateMetadataIfMissing) {
         log.info(
@@ -885,7 +881,7 @@ export async function readLockfile(): Promise<Lock> {
     }
   } catch {
     const lock = { locks: {}, version: "v2" as const };
-    await Deno.writeTextFile(WMILL_LOCKFILE, yamlStringify(lock, yamlOptions));
+    await writeFile(WMILL_LOCKFILE, yamlStringify(lock, yamlOptions), "utf-8");
     log.info(colors.green("wmill-lock.yaml created"));
 
     return lock;
@@ -959,9 +955,10 @@ export async function clearGlobalLock(path: string): Promise<void> {
         }
       });
     }
-    await Deno.writeTextFile(
+    await writeFile(
       WMILL_LOCKFILE,
-      yamlStringify(conf as Record<string, any>, yamlOptions)
+      yamlStringify(conf as Record<string, any>, yamlOptions),
+      "utf-8"
     );
   }
 }
@@ -991,8 +988,9 @@ export async function updateMetadataGlobalLock(
       conf.locks[path] = hash;
     }
   }
-  await Deno.writeTextFile(
+  await writeFile(
     WMILL_LOCKFILE,
-    yamlStringify(conf as Record<string, any>, yamlOptions)
+    yamlStringify(conf as Record<string, any>, yamlOptions),
+    "utf-8"
   );
 }

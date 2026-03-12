@@ -22,32 +22,53 @@
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { AlertTriangle, Loader2, SettingsIcon, StarIcon } from 'lucide-svelte'
 	import { StaleWhileLoading, useInfiniteQuery, useScrollToBottom } from '$lib/svelte5Utils.svelte'
-	import { Debounced, resource, watch, type ResourceReturn } from 'runed'
-	import Label from '$lib/components/Label.svelte'
-	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { resource, watch, type ResourceReturn } from 'runed'
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { favoriteManager, parseFavoriteAsset } from '$lib/components/sidebar/FavoriteMenu.svelte'
+	import FilterSearchbar, {
+		useUrlSyncedFilterInstance
+	} from '$lib/components/FilterSearchbar.svelte'
+	import { buildAssetsFilterSchema } from '$lib/components/assets/assetsFilter'
+	import { untrack } from 'svelte'
+	import { VolumeService } from '$lib/gen'
+	import VolumesDrawer from '$lib/components/assets/VolumesDrawer.svelte'
+	import { HardDriveIcon } from 'lucide-svelte'
 
 	interface AssetCursor {
 		created_at?: string
 		id?: number
 	}
 
-	let assetPathFilter: string = $state('')
-	let usagePathFilter: string = $state('')
-	let assetKindsFilter: Array<AssetKind> = $state([])
+	// Collect unique values for filter autocomplete
+	let allPaths: string[] = $state([])
+	let allAssetKinds: string[] = $state([
+		's3object',
+		'resource',
+		'variable',
+		'ducklake',
+		'datatable',
+		'volume'
+	])
 
-	let filters = new Debounced(
-		() => ({
-			assetPath: assetPathFilter || undefined,
-			usagePath: usagePathFilter || undefined,
-			assetKinds: assetKindsFilter.join(',') || undefined
-		}),
-		500
+	// FilterSearchbar setup
+	let assetsFilterSchema = $derived(
+		buildAssetsFilterSchema({
+			paths: allPaths,
+			assetKinds: allAssetKinds
+		})
 	)
+	let filterValues = useUrlSyncedFilterInstance(untrack(() => assetsFilterSchema))
+
+	let filters = $derived.by(() => ({
+		assetPath: filterValues.val.asset_path || undefined,
+		usagePath: filterValues.val.usage_path || undefined,
+		assetKinds: filterValues.val.asset_kinds || undefined,
+		path: filterValues.val.path || undefined,
+		columns: filterValues.val.columns || undefined,
+		broadFilter: filterValues.val._default_ || undefined
+	}))
 
 	const assetsQuery = useInfiniteQuery<ListAssetsResponse, AssetCursor | undefined>({
 		queryFn: async (cursor) => {
@@ -56,7 +77,7 @@
 				perPage: 50,
 				cursorCreatedAt: cursor?.created_at,
 				cursorId: cursor?.id,
-				...filters.current
+				...filters
 			})
 		},
 		initialPageParam: undefined,
@@ -72,7 +93,7 @@
 	)
 
 	watch(
-		() => [filters.current, $workspaceStore],
+		() => [filters, $workspaceStore],
 		() => assetsQuery.reset()
 	)
 
@@ -82,7 +103,6 @@
 	let assets = $derived(_assets.current?.flatMap((page) => page.assets))
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
-	let dbManagerDrawer = $derived(globalDbManagerDrawer.val) as any
 	let assetsUsageDropdown: AssetsUsageDrawer | undefined = $state()
 
 	let allS3Storages = resource(
@@ -111,6 +131,11 @@
 				d.map((d) => ({ label: d == 'main' ? 'Main data table' : d, value: d }))
 			)
 	)
+	let allVolumes = resource(
+		() => $workspaceStore,
+		() => VolumeService.listVolumes({ workspace: $workspaceStore! })
+	)
+	let volumesDrawer: VolumesDrawer | undefined = $state()
 
 	function extractFavorites(kind: AssetKind) {
 		return favoriteManager.current
@@ -141,6 +166,7 @@
 					settingsHref: string
 					docsHref: string
 					favorites?: { table: string; schema?: string; assetName: string; path: string }[]
+					itemExtra?: import('svelte').Snippet<[{ label: string; value: string }]>
 				})}
 					<div class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md flex-1">
 						<div class="flex justify-between border-b">
@@ -172,12 +198,16 @@
 								{#each props.data.current ?? [] as item}
 									<div class="text-xs py-2 text-primary flex justify-between items-center px-6">
 										{item.label}
-										<ExploreAssetButton
-											asset={{ kind: props.assetKind, path: item.value }}
-											{s3FilePicker}
-											{dbManagerDrawer}
-											btnClasses="dark:bg-surface"
-										/>
+										<div class="flex items-center gap-2">
+											{#if props.itemExtra}
+												{@render props.itemExtra(item)}
+											{/if}
+											<ExploreAssetButton
+												asset={{ kind: props.assetKind, path: item.value }}
+												{s3FilePicker}
+												btnClasses="dark:bg-surface"
+											/>
+										</div>
 									</div>
 								{/each}
 							</div>
@@ -241,40 +271,46 @@
 					docsHref: 'https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake',
 					favorites: extractFavorites('ducklake')
 				})}
+				{#snippet volumesButton(item: { label: string; value: string })}
+					{#if item.value === '/'}
+						<Button
+							variant="default"
+							unifiedSize="sm"
+							btnClasses="dark:bg-surface"
+							startIcon={{ icon: HardDriveIcon }}
+							on:click={() => volumesDrawer?.openDrawer()}
+						>
+							{allVolumes.current?.length ?? 0} {(allVolumes.current?.length ?? 0) === 1 ? 'volume' : 'volumes'}
+						</Button>
+					{/if}
+				{/snippet}
 				{@render card({
 					title: 'Object storage',
 					data: allS3Storages,
 					assetKind: 's3object',
 					settingsHref: '/workspace_settings?tab=windmill_lfs',
 					docsHref:
-						'https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files'
+						'https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files',
+					itemExtra: volumesButton
 				})}
 			</div>
 		</Section>
 		<Section label="Latest assets used">
-			<div class="flex gap-2 mb-4 items-end justify-between">
-				<div class="flex gap-2">
-					<Label class="lg:min-w-[16rem] max-w-[30rem]" label="Asset path">
-						<TextInput bind:value={assetPathFilter} />
-					</Label>
-					<Label class="lg:min-w-[16rem] max-w-[30rem]" label="Usage path">
-						<TextInput bind:value={usagePathFilter} />
-					</Label>
-					<Label class="lg:min-w-[8rem] max-w-[30rem]" label="Asset kinds">
-						<MultiSelect
-							hideMainClearBtn
-							bind:value={assetKindsFilter}
-							items={[
-								{ label: 'S3 Object', value: 's3object' },
-								{ label: 'Ducklake', value: 'ducklake' },
-								{ label: 'Data Table', value: 'datatable' },
-								{ label: 'Resource', value: 'resource' }
-							]}
-						/>
-					</Label>
+			{#snippet action()}
+				<div class="flex gap-2 grow justify-end">
+					<RefreshButton
+						variant="default"
+						onClick={() => assetsQuery.reset()}
+						loading={assetsQuery.isLoading}
+					/>
+					<FilterSearchbar
+						class="grow max-w-[26rem]"
+						schema={assetsFilterSchema}
+						bind:value={filterValues.val}
+						placeholder="Filter assets..."
+					/>
 				</div>
-				<RefreshButton onClick={() => assetsQuery.reset()} loading={assetsQuery.isLoading} />
-			</div>
+			{/snippet}
 			{@render table()}
 			{#if assetsQuery.isFetchingNextPage}
 				<Loader2 size={32} class="mx-auto my-4 text-primary animate-spin" />
@@ -286,7 +322,14 @@
 {/if}
 
 <AssetsUsageDrawer bind:this={assetsUsageDropdown} />
-<S3FilePicker bind:this={s3FilePicker} readOnlyMode />
+<S3FilePicker bind:this={s3FilePicker} readOnlyMode allowDelete />
+<VolumesDrawer
+	bind:this={volumesDrawer}
+	onExplore={async (name) => {
+		const storage = (await VolumeService.getVolumeStorage({ workspace: $workspaceStore! })) ?? undefined
+		s3FilePicker?.open({ s3: `volumes/${$workspaceStore}/${name}/`, storage })
+	}}
+/>
 
 {#snippet table()}
 	<DataTable>
@@ -311,7 +354,9 @@
 					<Cell first class="w-16">
 						<Tooltip>
 							<AssetGenericIcon assetKind={asset.kind} size="16px" class="!text-secondary" />
-							<svelte:fragment slot="text">{formatAssetKind(asset)}</svelte:fragment>
+							{#snippet text()}
+														{formatAssetKind(asset)}
+													{/snippet}
 						</Tooltip>
 					</Cell>
 					<Cell class="flex flex-col">
@@ -328,14 +373,15 @@
 							<ExploreAssetButton
 								{asset}
 								{s3FilePicker}
-								{dbManagerDrawer}
 								_resourceMetadata={asset.metadata}
 							/>
 						{/if}
 						{#if asset.kind === 'resource' && asset.metadata === undefined}
 							<Tooltip class={'w-24 flex items-center justify-center'}>
 								<AlertTriangle size={20} class="text-orange-600 dark:text-orange-500" />
-								<svelte:fragment slot="text">Could not find resource</svelte:fragment>
+								{#snippet text()}
+																Could not find resource
+															{/snippet}
 							</Tooltip>
 						{/if}
 					</Cell>

@@ -57,7 +57,8 @@
 		Circle,
 		CheckCircle,
 		RefreshCw,
-		CheckCheck
+		CheckCheck,
+		Disc
 	} from 'lucide-svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -95,6 +96,9 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 
 	let {
 		initialPath = $bindable(''),
@@ -129,6 +133,17 @@
 	}: FlowBuilderProps = $props()
 
 	let initialPathStore = writable(initialPath)
+
+	// For preserve_on_behalf_of feature
+	let preserveOnBehalfOf = writable(false)
+	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
+
+	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
+	$effect(() => {
+		if (savedFlow?.on_behalf_of_email !== undefined) {
+			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
+		}
+	})
 
 	// used for new flows for captures
 	let fakeInitialPath =
@@ -213,7 +228,9 @@
 		}
 	}
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // kept for legacy reasons
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(
+		untrack(() => savedPrimarySchedule)
+	) // kept for legacy reasons
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const simplifiedPoll = writable(false)
 
@@ -480,6 +497,7 @@
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined
 					}
 				})
@@ -532,6 +550,7 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined
 					}
 				})
@@ -559,7 +578,7 @@
 
 	function saveSessionDraft() {
 		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
+		timeout = window.setTimeout(() => {
 			try {
 				localStorage.setItem(
 					initialPath && initialPath != '' ? `flow-${initialPath}` : 'flow',
@@ -584,8 +603,8 @@
 	const selectionManager = new SelectionManager()
 	const selectedIdStore = $derived(selectionManager.getSelectedId())
 	// Initialize with selected id if provided
-	if (selectedId) {
-		selectionManager.selectId(selectedId)
+	if (untrack(() => selectedId)) {
+		selectionManager.selectId(untrack(() => selectedId) ?? '')
 	} else {
 		selectionManager.selectId('settings-metadata')
 	}
@@ -594,12 +613,11 @@
 		return selectedIdStore
 	}
 
-	const previewArgsStore = $state({ val: initialArgs })
+	const previewArgsStore = $state({ val: untrack(() => initialArgs) })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
-	const moving = writable<{ id: string } | undefined>(undefined)
-	const history = initHistory(flowStore.val)
-	const pathStore = writable<string>(pathStoreInit ?? initialPath)
+	const history = initHistory(untrack(() => flowStore).val)
+	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
 	const captureOn = writable<boolean>(false)
 	const showCaptureHint = writable<boolean | undefined>(undefined)
 	const flowInputEditorStateStore = writable<FlowInputEditorState>({
@@ -625,29 +643,33 @@
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		flowEditorDrawer,
-		moving,
 		history,
-		flowStateStore,
-		flowStore,
+		flowStateStore: untrack(() => flowStateStore),
+		flowStore: untrack(() => flowStore),
 		pathStore,
 		stepsInputArgs,
 		saveDraft,
 		initialPathStore,
 		fakeInitialPath,
 		flowInputsStore: writable<FlowInput>({}),
-		customUi,
+		customUi: untrack(() => customUi),
 		insertButtonOpen,
 		executionCount: writable(0),
 		flowInputEditorState: flowInputEditorStateStore,
 		modulesTestStates,
-		outputPickerOpenFns
+		outputPickerOpenFns,
+		preserveOnBehalfOf,
+		savedOnBehalfOfEmail
 	})
 
 	// Set up NoteEditor context for note editing capabilities
-	const noteEditor = new NoteEditor(flowStore, () => {
-		// Enable notes display when a note is created
-		flowEditor?.enableNotes?.()
-	})
+	const noteEditor = new NoteEditor(
+		untrack(() => flowStore),
+		() => {
+			// Enable notes display when a note is created
+			flowEditor?.enableNotes?.()
+		}
+	)
 	setNoteEditorContext(noteEditor)
 
 	setContext(
@@ -661,9 +683,9 @@
 			[
 				{ type: 'webhook', path: '', isDraft: false },
 				{ type: 'default_email', path: '', isDraft: false },
-				...(draftTriggersFromUrl ?? savedFlow?.draft?.draft_triggers ?? [])
+				...(untrack(() => draftTriggersFromUrl) ?? savedFlow?.draft?.draft_triggers ?? [])
 			],
-			selectedTriggerIndexFromUrl,
+			untrack(() => selectedTriggerIndexFromUrl),
 			saveSessionDraft
 		)
 	)
@@ -787,7 +809,7 @@
 		onClick: () => void
 	}> = []
 
-	if (customUi.topBar?.extraDeployOptions != false) {
+	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
 		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
 			dropdownItems.push({
 				label: 'Exit & see details',
@@ -795,10 +817,17 @@
 			})
 		}
 
-		if (!newFlow) {
+		if (!untrack(() => newFlow)) {
 			dropdownItems.push({
 				label: 'Fork',
 				onClick: () => window.open(`/flows/add?template=${initialPath}`)
+			})
+		}
+
+		if (!untrack(() => newFlow) && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
+			dropdownItems.push({
+				label: 'Edit in workspace fork',
+				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
 			})
 		}
 	}
@@ -838,14 +867,6 @@
 
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
-	const undoShortcutSnippet = createRawSnippet(() => ({
-		render: () => `<span class="ml-auto text-2xs text-tertiary">${mod}Z</span>`
-	}))
-
-	const redoShortcutSnippet = createRawSnippet(() => ({
-		render: () => `<span class="ml-auto text-2xs text-tertiary">${mod}⇧Z</span>`
-	}))
-
 	function getMoreItems(): Item[] {
 		return [
 			...baseMenuItems,
@@ -854,7 +875,7 @@
 				icon: Undo,
 				action: () => handleUndo(),
 				disabled: $history.index === 0,
-				extra: undoShortcutSnippet,
+				shortcut: `${mod}Z`,
 				separatorTop: baseMenuItems.length > 0
 			},
 			{
@@ -862,7 +883,7 @@
 				icon: Redo,
 				action: () => handleRedo(),
 				disabled: $history.index === $history.history.length - 1,
-				extra: redoShortcutSnippet
+				shortcut: `${mod}⇧Z`
 			},
 			{
 				displayName: 'Tutorials',
@@ -913,6 +934,11 @@
 						icon: CheckCheck
 					}
 				]
+			},
+			{
+				displayName: 'Test flow & record',
+				icon: Disc,
+				action: () => flowPreviewButtons?.openRecordingPreview()
 			}
 		]
 	}
@@ -1015,10 +1041,10 @@
 	}
 
 	let stepHistoryLoader = new StepHistoryLoader(
-		loadedFromHistoryFromUrl?.stepsState ?? {},
-		loadedFromHistoryFromUrl?.flowJobInitial,
+		untrack(() => loadedFromHistoryFromUrl)?.stepsState ?? {},
+		untrack(() => loadedFromHistoryFromUrl)?.flowJobInitial,
 		saveSessionDraft,
-		noInitial
+		untrack(() => noInitial)
 	)
 	setStepHistoryLoaderContext(stepHistoryLoader)
 
@@ -1115,7 +1141,7 @@
 			<div
 				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
-				<div class="flex w-full max-w-md gap-8 items-center">
+				<div class="flex w-full gap-8 items-center min-w-0">
 					<SummaryPathDisplay
 						bind:summary={flowStore.val.summary}
 						bind:path={$pathStore}
@@ -1124,7 +1150,7 @@
 					/>
 				</div>
 
-				<div class="gap-4 flex-row hidden md:flex w-full whitespace-nowrap max-w-md">
+				<div class="gap-4 flex-row hidden md:flex whitespace-nowrap">
 					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
 						{@const primaryScheduleIndex = triggersState.triggers.findIndex((t) => t.isPrimary)}
 						{@const scheduleIndex = triggersState.triggers.findIndex((t) => t.type === 'schedule')}

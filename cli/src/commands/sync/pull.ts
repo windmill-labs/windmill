@@ -1,6 +1,8 @@
-// deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "../../types.ts";
-import { colors, Command, JSZip, log } from "../../../deps.ts";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import * as log from "../../core/log.ts";
+import JSZip from "jszip";
 import { Workspace } from "../workspace/workspace.ts";
 import { getHeaders } from "../../utils/utils.ts";
 
@@ -49,10 +51,16 @@ export async function downloadZip(
   );
 
   if (!zipResponse.ok) {
-    console.log(
-      colors.red("Failed to request tarball from API " + zipResponse.statusText)
-    );
-    throw new Error(await zipResponse.text());
+    const body = await zipResponse.text();
+    if (zipResponse.status === 404 || body.includes("no rows returned")) {
+      log.info(colors.red(`Workspace '${workspace.workspaceId}' not found on ${workspace.remote}. Please check your --workspace and try again.`));
+    } else {
+      log.info(colors.red(`Failed to request tarball from API: ${zipResponse.status} ${zipResponse.statusText}`));
+      if (body) {
+        log.info(colors.red(body));
+      }
+    }
+    return process.exit(1);
   } else {
     log.debug(`Downloaded zip/tarball successfully`);
   }

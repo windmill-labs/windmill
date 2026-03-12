@@ -152,6 +152,21 @@ pub fn try_exact_property_access(
     None
 }
 
+/// JS runtime properties (not methods) that cannot be resolved by PostgreSQL's
+/// #> JSON path operator. Function calls like .map(...) already don't match the
+/// RE_FULL regex due to parentheses, so only property accesses need listing here.
+const JS_ONLY_PROPERTIES: &[&str] = &["length"];
+
+fn ends_with_js_only_property(rest: Option<&str>) -> bool {
+    match rest {
+        None => false,
+        Some(rest) => {
+            let last_segment = rest.rsplit('.').next().unwrap_or("");
+            JS_ONLY_PROPERTIES.contains(&last_segment)
+        }
+    }
+}
+
 pub async fn handle_full_regex(
     expr: &str,
     authed_client: &AuthedClient,
@@ -162,6 +177,13 @@ pub async fn handle_full_regex(
         let obj_key = captures.get(2).unwrap().as_str();
         let idx_o = captures.get(3).map(|y| y.as_str());
         let rest = captures.get(4).map(|y| y.as_str());
+
+        // Skip the SQL fast path when the expression accesses a JS runtime
+        // property (e.g. .length) that the PostgreSQL #> operator can't resolve.
+        if ends_with_js_only_property(rest) {
+            return None;
+        }
+
         let query = if let Some(idx) = idx_o {
             match rest {
                 Some(rest) => Some(format!("{}{}", idx, rest)),
@@ -274,16 +296,19 @@ pub async fn eval_timeout_quickjs(
 
     let expr_clone = expr.clone();
 
-    // Run the QuickJS evaluation with a timeout
+    // Run the QuickJS evaluation with a timeout.
+    // Use the current runtime handle rather than creating an independent
+    // current-thread runtime so that HTTP connections opened by the global
+    // reqwest client (HTTP_CLIENT) are managed by the main runtime.
+    // Creating a child runtime caused connection-pool dispatch tasks to be
+    // dropped when the child runtime exited, poisoning pooled connections
+    // and producing spurious "DispatchGone" / "runtime dropped the dispatch
+    // task" errors on subsequent requests from the main runtime.
+    let handle = tokio::runtime::Handle::current();
     tokio::time::timeout(
         std::time::Duration::from_millis(EVAL_TIMEOUT_MS),
         tokio::task::spawn_blocking(move || {
-            // Create a new tokio runtime for async operations within the blocking context
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?;
-
-            rt.block_on(async move {
+            handle.block_on(async move {
                 eval_quickjs_inner(
                     &expr_clone,
                     filtered_context,
@@ -300,7 +325,9 @@ pub async fn eval_timeout_quickjs(
     )
     .await
     .map_err(|_| {
-        anyhow::anyhow!("The expression evaluation `{expr}` took too long to execute (>{EVAL_TIMEOUT_MS}ms)")
+        anyhow::anyhow!(
+            "The expression evaluation `{expr}` took too long to execute (>{EVAL_TIMEOUT_MS}ms)"
+        )
     })??
 }
 
@@ -787,13 +814,11 @@ pub async fn eval_simple_js(
     expr: String,
     globals: HashMap<String, serde_json::Value>,
 ) -> anyhow::Result<Box<RawValue>> {
+    let handle = tokio::runtime::Handle::current();
     tokio::time::timeout(
         std::time::Duration::from_millis(EVAL_TIMEOUT_MS),
         tokio::task::spawn_blocking(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?;
-            rt.block_on(async move {
+            handle.block_on(async move {
                 let runtime = AsyncRuntime::new()?;
                 runtime.set_memory_limit(QUICKJS_MEMORY_LIMIT).await;
                 let context = AsyncContext::full(&runtime).await?;

@@ -4,7 +4,7 @@
 	import type { DriveStep } from 'driver.js'
 	import { goto } from '$app/navigation'
 	import { base } from '$lib/base'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { wait } from '$lib/utils'
 	import { DELAY_MEDIUM } from '../utils'
 
@@ -18,7 +18,7 @@
 
 	export function runTutorial() {
 		// Check if we're on the homepage
-		if ($page.url.pathname !== `${base}/` && $page.url.pathname !== `${base}`) {
+		if (page.url.pathname !== `${base}/` && page.url.pathname !== `${base}`) {
 			// Redirect to homepage with a tutorial parameter
 			goto(`${base}/?tutorial=workspace-onboarding-operator`)
 		} else {
@@ -127,7 +127,7 @@
 						driver.destroy()
 
 						// Clean up URL parameter if present
-						if ($page.url.searchParams.has('tutorial')) {
+						if (page.url.searchParams.has('tutorial')) {
 							goto(`${base}/`, { replaceState: true })
 						}
 					}
