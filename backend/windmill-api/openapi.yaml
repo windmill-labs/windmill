@@ -23577,7 +23577,6 @@ components:
           items:
             $ref: "#/components/schemas/GitSyncObjectType"
       required:
-        - script_path
         - git_repo_resource_path
 
     MetricMetadata:
