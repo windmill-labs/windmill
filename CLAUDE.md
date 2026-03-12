@@ -52,7 +52,7 @@ let { my_prop = $bindable(default_value) }: { my_prop?: string } = $props()
 
 ## Code Navigation
 
-`wm-ts-nav` is a tree-sitter navigator with SQLite index (~12ms warm). Build if not available: `cd wm-ts-nav && cargo build --release`
+`wm-ts-nav` is a tree-sitter navigator with SQLite index (~12ms warm). The `wm-ts-nav/nav` wrapper auto-rebuilds when source changes.
 
 **When to use `wm-ts-nav` vs Grep:**
 - "What's in this file?" → `outline` (full structure with signatures, saves reading the whole file)
@@ -68,7 +68,7 @@ let { my_prop = $bindable(default_value) }: { my_prop?: string } = $props()
 - "Find a string/pattern in code" → use **Grep** (faster, but matches comments/strings too)
 
 ```bash
-NAV=wm-ts-nav/target/release/wm-ts-nav
+NAV="sh wm-ts-nav/nav"
 $NAV --root backend outline backend/path/to/file.rs
 $NAV --root backend def "ServiceName"
 $NAV --root backend search "%" --kind function --parent ServiceName
