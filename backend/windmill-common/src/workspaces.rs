@@ -398,12 +398,6 @@ impl Default for DataTableForkBehavior {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct DataTable {
     pub database: DataTableDatabase,
-    #[serde(default, skip_serializing_if = "is_default_fork_behavior")]
-    pub fork_behavior: DataTableForkBehavior,
-}
-
-fn is_default_fork_behavior(v: &DataTableForkBehavior) -> bool {
-    *v == DataTableForkBehavior::SchemaOnly
 }
 
 #[derive(Deserialize, Serialize, Debug)]

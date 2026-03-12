@@ -1,6 +1,4 @@
 <script lang="ts" module>
-	export type DataTableForkBehavior = 'schema_only' | 'schema_and_data' | 'keep_original'
-
 	export type DataTableSettingsType = {
 		dataTables: {
 			name: string
@@ -8,7 +6,6 @@
 				resource_type: 'postgresql' | 'instance'
 				resource_path?: string | undefined
 			}
-			fork_behavior?: DataTableForkBehavior
 		}[]
 	}
 
@@ -20,8 +17,7 @@
 			for (const [name, rest] of Object.entries(settings.datatables)) {
 				s.dataTables.push({
 					name,
-					...rest,
-					fork_behavior: (rest as any).fork_behavior ?? 'schema_only'
+					...rest
 				})
 			}
 		}
@@ -40,9 +36,8 @@
 				throw dataTable.name + ' database cannot be called "windmill"'
 
 			s.datatables[dataTable.name] = {
-				database: dataTable.database,
-				fork_behavior: dataTable.fork_behavior
-			} as any
+				database: dataTable.database
+			}
 		}
 		return s
 	}
@@ -51,7 +46,7 @@
 </script>
 
 <script lang="ts">
-	import { Plus, Settings } from 'lucide-svelte'
+	import { Plus } from 'lucide-svelte'
 
 	import Button from '../common/button/Button.svelte'
 
@@ -80,8 +75,6 @@
 	import { deepEqual } from 'fast-equals'
 	import { clone } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
-	import Label from '../Label.svelte'
-	import { isCloudHosted } from '$lib/cloud'
 
 	type Props = {
 		dataTableSettings: DataTableSettingsType
@@ -265,47 +258,6 @@
 
 				<Cell class="w-12">
 					<div class="flex gap-2">
-						<Popover contentClasses="p-4 w-64" enableFlyTransition disableFocusTrap>
-							{#snippet trigger()}
-								<Button variant="default" iconOnly size="sm" startIcon={{ icon: Settings }} />
-							{/snippet}
-							{#snippet content()}
-								<Label
-									label="Fork behavior"
-									tooltip="Determines what happens to this datatable when the workspace is forked."
-								>
-									<Select
-										items={[
-											{ value: 'schema_only', label: 'Fork schema only' },
-											...(!isCloudHosted()
-												? [{ value: 'schema_and_data', label: 'Fork schema and data' }]
-												: []),
-											{ value: 'keep_original', label: 'Keep original datatable' }
-										]}
-										bind:value={
-											() => dataTable.fork_behavior ?? 'schema_only',
-											(v) => {
-												if (v === 'schema_and_data') {
-													confirmationModal
-														.ask({
-															title: 'Fork schema and data',
-															children:
-																'This will copy ALL data when the workspace is forked, which may take a long time and use significant storage space. Are you sure?',
-															confirmationText: 'Confirm'
-														})
-														.then((confirmed) => {
-															if (confirmed) dataTable.fork_behavior = v
-														})
-												} else {
-													dataTable.fork_behavior = v
-												}
-											}
-										}
-									/>
-								</Label>
-							{/snippet}
-						</Popover>
-
 						{#if dirtyMap[dataTable.name]}
 							<Popover
 								openOnHover

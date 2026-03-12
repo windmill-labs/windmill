@@ -1606,7 +1606,6 @@ async fn fork_datatable(
             resource_type: DataTableCatalogResourceType::Instance,
             resource_path: new_dbname.clone(),
         },
-        fork_behavior: DataTableForkBehavior::default(),
     };
     let mut datatables = HashMap::new();
     datatables.insert(new_datatable_name.to_string(), new_datatable);
@@ -1654,35 +1653,28 @@ async fn fork_all_datatables(
         None => return Ok(()),
     };
 
-    for (name, dt) in &datatables {
-        match dt.fork_behavior {
-            DataTableForkBehavior::KeepOriginal => continue,
-            behavior => {
-                let include_data =
-                    behavior == DataTableForkBehavior::SchemaAndData && !*CLOUD_HOSTED;
-                let new_db_name = format!(
-                    "__wmfork__{}__$current_name",
-                    target_workspace_id.replace('-', "_")
-                );
-                if let Err(e) = fork_datatable(
-                    db,
-                    target_workspace_id,
-                    name,
-                    name,
-                    &new_db_name,
-                    include_data,
-                )
-                .await
-                {
-                    tracing::error!(
-                        "Failed to fork datatable '{}' from '{}' to '{}': {}",
-                        name,
-                        source_workspace_id,
-                        target_workspace_id,
-                        e
-                    );
-                }
-            }
+    for (name, _dt) in &datatables {
+        let new_db_name = format!(
+            "__wmfork__{}__$current_name",
+            target_workspace_id.replace('-', "_")
+        );
+        if let Err(e) = fork_datatable(
+            db,
+            target_workspace_id,
+            name,
+            name,
+            &new_db_name,
+            false, // schema only
+        )
+        .await
+        {
+            tracing::error!(
+                "Failed to fork datatable '{}' from '{}' to '{}': {}",
+                name,
+                source_workspace_id,
+                target_workspace_id,
+                e
+            );
         }
     }
 
