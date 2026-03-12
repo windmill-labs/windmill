@@ -43,9 +43,11 @@ description: MUST use when writing Go scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -115,9 +117,11 @@ description: MUST use when writing Java scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -167,9 +171,11 @@ description: MUST use when writing GraphQL queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -226,9 +232,11 @@ description: MUST use when writing Rust scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -315,9 +323,11 @@ description: MUST use when writing Bun Native scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -967,9 +977,11 @@ description: MUST use when writing PostgreSQL queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -992,9 +1004,11 @@ description: MUST use when writing PHP scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -1063,9 +1077,11 @@ description: MUST use when writing BigQuery queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -1088,9 +1104,11 @@ description: MUST use when writing Bun/TypeScript scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -1742,9 +1760,11 @@ description: MUST use when writing C# scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -1797,9 +1817,11 @@ description: MUST use when writing MS SQL Server queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -1822,9 +1844,11 @@ description: MUST use when writing Deno/TypeScript scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2480,9 +2504,11 @@ description: MUST use when writing MySQL queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2505,9 +2531,11 @@ description: MUST use when writing PowerShell scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2574,9 +2602,11 @@ description: MUST use when writing Snowflake queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2599,9 +2629,11 @@ description: MUST use when writing Python scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -3404,9 +3436,11 @@ description: MUST use when writing DuckDB queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -3469,9 +3503,11 @@ description: MUST use when writing Bash scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -3532,9 +3568,11 @@ description: MUST use when writing Native TypeScript scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -4155,9 +4193,11 @@ description: MUST use when creating flows.
 
 Create a folder ending with \`.flow\` and add a YAML file with the flow definition.
 For rawscript modules, use \`!inline path/to/script.ts\` for the content key.
-After writing:
+After writing, tell the user they can run:
 - \`wmill flow generate-locks <path_to_flow_folder> --yes\` - Generate lock files for the specific flow you modified (e.g. \`wmill flow generate-locks f/my_folder/my_flow.flow --yes\`)
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 ## OpenFlow Schema
 
@@ -4356,7 +4396,7 @@ export async function main(user_id: string) {
 }
 \`\`\`
 
-After creating, generate lock files:
+After creating, tell the user they can generate lock files by running:
 \`\`\`bash
 wmill app generate-locks
 \`\`\`
@@ -4509,6 +4549,8 @@ data:
 
 ## CLI Commands
 
+Tell the user they can run these commands (do NOT run them yourself):
+
 | Command | Description |
 |---------|-------------|
 | \`wmill app new\` | Create a new raw app interactively |
@@ -4525,7 +4567,7 @@ data:
 3. **Keep runnables focused** - one function per file
 4. **Use descriptive IDs** - \`get_user.ts\` not \`a.ts\`
 5. **Always whitelist tables** - add to \`data.tables\` before querying
-6. **Generate locks** - run \`wmill app generate-locks\` after adding/modifying backend runnables
+6. **Generate locks** - tell the user to run \`wmill app generate-locks\` after adding/modifying backend runnables
 `,
   "triggers": `---
 name: triggers
@@ -4546,6 +4588,8 @@ Examples:
 - \`f/sync/postgres_cdc.postgres_trigger.yaml\`
 
 ## CLI Commands
+
+After writing, tell the user they can run these commands (do NOT run them yourself):
 
 \`\`\`bash
 # Push trigger configuration
@@ -4595,6 +4639,8 @@ Windmill uses 6-field cron expressions (includes seconds):
 - \`0 0 0 1 * *\` - First day of each month
 
 ## CLI Commands
+
+After writing, tell the user they can run these commands (do NOT run them yourself):
 
 \`\`\`bash
 # Push schedules to Windmill
@@ -4851,7 +4897,7 @@ wmill resource-type list --schema
 # Get specific resource type schema
 wmill resource-type get postgresql
 
-# Push resources
+# Push resources (tell the user to run this, do NOT run it yourself)
 wmill sync push
 \`\`\`
 `,
@@ -4864,7 +4910,7 @@ description: MUST use when using the CLI.
 
 The Windmill CLI (\`wmill\`) provides commands for managing scripts, flows, apps, and other resources.
 
-Current version: 1.651.1
+Current version: 1.653.0
 
 ## Global Options
 
@@ -5613,6 +5659,13 @@ properties:
         key:
           type: string
         value: {}
+  auto_offset_reset:
+    type: string
+    enum:
+    - latest
+    - earliest
+    description: Initial offset behavior when consumer group has no committed offset.
+      'latest' starts from new messages only, 'earliest' starts from the beginning.
   error_handler_path:
     type: string
     description: Path to a script or flow to run when the triggered job fails
