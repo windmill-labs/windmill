@@ -691,6 +691,11 @@ export async function inferSchema(
 
     argSigToJsonSchemaType(arg.typ, currentSchema.properties[arg.name]);
 
+    // Propagate original type from parser (e.g. "string | string[]" for T | T[] unions)
+    if ((arg as any).otyp) {
+      currentSchema.properties[arg.name].originalType = (arg as any).otyp;
+    }
+
     currentSchema.properties[arg.name].default = arg.default;
 
     if (!arg.has_default && !currentSchema.required.includes(arg.name)) {

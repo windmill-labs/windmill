@@ -384,6 +384,12 @@ export async function inferArgs(
 
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
 
+		// Propagate original type from parser (e.g. "string | string[]" for T | T[] unions).
+		// otyp comes from the WASM parser JSON but isn't in the generated OpenAPI type.
+		if ((arg as any).otyp) {
+			schema.properties[arg.name].originalType = (arg as any).otyp
+		}
+
 		schema.properties[arg.name].default = arg.default
 
 		if (!arg.has_default && !schema.required.includes(arg.name)) {
