@@ -16869,7 +16869,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-asset"
-version = "1.654.0"
+version = "1.653.0"
 dependencies = [
  "anyhow",
  "rustpython-ast",
@@ -16949,7 +16949,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql-asset"
-version = "1.654.0"
+version = "1.653.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -16979,7 +16979,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts-asset"
-version = "1.654.0"
+version = "1.653.0"
 dependencies = [
  "anyhow",
  "serde-wasm-bindgen",
