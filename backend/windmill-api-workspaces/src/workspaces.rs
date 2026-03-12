@@ -41,17 +41,17 @@ use windmill_common::workspaces::GitRepositorySettings;
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
     check_user_against_rule, get_datatable_resource_from_db_unchecked, DataTable,
-    DataTableCatalogResourceType, ProtectionRuleKind, ProtectionRules, ProtectionRuleset,
-    RuleCheckResult, WorkspaceGitSyncSettings,
+    DataTableCatalogResourceType, DataTableDatabase, ProtectionRuleKind, ProtectionRules,
+    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
-use windmill_common::PgDatabase;
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
+use windmill_common::{get_database_url, PgDatabase};
 use windmill_dep_map::scoped_dependency_map::{
     DependencyDependent, DependencyMap, ScopedDependencyMap,
 };
@@ -111,6 +111,7 @@ pub fn workspaced_service() -> Router {
         .route("/list_datatables", get(list_datatables))
         .route("/list_datatable_schemas", get(list_datatable_schemas))
         .route("/edit_datatable_config", post(edit_datatable_config))
+        .route("/fork_datatable", post(fork_datatable))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
         .route(
@@ -1379,6 +1380,130 @@ pub async fn export_datatable_schema(
         .collect();
 
     Ok(statements)
+}
+
+#[derive(Deserialize)]
+struct ForkDatatableRequest {
+    source_datatable_name: String,
+    new_datatable_name: String,
+    new_custom_instance_database_name: String,
+}
+
+async fn fork_datatable(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<ForkDatatableRequest>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    // Resolve the source datatable to get the original instance DB name
+    let db_resource =
+        get_datatable_resource_from_db_unchecked(&db, &w_id, &req.source_datatable_name).await?;
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+
+    // Interpolate $current_name with the original database name
+    let original_dbname = &pg_db.dbname;
+    let new_dbname = req
+        .new_custom_instance_database_name
+        .replace("$current_name", original_dbname);
+
+    // Create the new custom instance database
+    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+    let new_pg_creds = PgDatabase { dbname: new_dbname.clone(), ..wmill_pg_creds };
+
+    let db_exists = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+        &new_dbname
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    if !db_exists {
+        sqlx::query(&format!("CREATE DATABASE \"{}\"", &new_dbname))
+            .execute(&db)
+            .await?;
+    }
+
+    // Grant permissions to custom_instance_user on the new database
+    let (client, connection) = new_pg_creds.connect().await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+
+    client
+        .batch_execute(&format!(
+            "GRANT CONNECT ON DATABASE \"{new_dbname}\" TO custom_instance_user;
+             GRANT USAGE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON DATABASE \"{new_dbname}\" TO custom_instance_user;
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;
+             ALTER ROLE custom_instance_user CREATEROLE;
+             ALTER ROLE custom_instance_user REPLICATION;"
+        ))
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to grant permissions to custom_instance_user: {}",
+                e
+            ))
+        })?;
+
+    drop(client);
+    join_handle
+        .await
+        .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
+        .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+
+    // Register the new database in global_settings
+    let status_json = serde_json::json!({
+        "logs": {
+            "super_admin": "OK",
+            "database_credentials": "OK",
+            "valid_dbname": "OK",
+            "created_database": if db_exists { "SKIP" } else { "OK" },
+            "db_connect": "OK",
+            "grant_permissions": "OK"
+        },
+        "success": true,
+        "error": null,
+        "tag": "datatable"
+    });
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
+        serde_json::json!({ &new_dbname: status_json })
+    )
+    .execute(&db)
+    .await?;
+
+    // Update the forked workspace's datatable config to point to the new database
+    let new_datatable = DataTable {
+        database: DataTableDatabase {
+            resource_type: DataTableCatalogResourceType::Instance,
+            resource_path: new_dbname.clone(),
+        },
+    };
+    let mut datatables = HashMap::new();
+    datatables.insert(req.new_datatable_name.clone(), new_datatable);
+    let new_settings = DataTableSettings { datatables };
+    let config: serde_json::Value =
+        serde_json::to_value(new_settings).map_err(|err| Error::internal_err(err.to_string()))?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
+        config,
+        &w_id
+    )
+    .execute(&db)
+    .await?;
+
+    // TODO: Run the schema export (pg_dump from source) and apply it to the new database
+
+    Ok(format!(
+        "Forked datatable '{}' as '{}' with new database '{}'",
+        req.source_datatable_name, req.new_datatable_name, new_dbname
+    ))
 }
 
 async fn edit_ducklake_config(
