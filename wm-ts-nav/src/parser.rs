@@ -41,14 +41,16 @@ pub struct ParseResult {
 pub enum Lang {
     Rust,
     Typescript,
+    Tsx,
 }
 
 impl Lang {
     pub fn from_path(path: &Path) -> Option<Self> {
         match path.extension()?.to_str()? {
             "rs" => Some(Self::Rust),
-            "ts" | "tsx" | "js" | "jsx" => Some(Self::Typescript),
-            "svelte" => Some(Self::Typescript), // we extract <script> block
+            "tsx" | "jsx" => Some(Self::Tsx),
+            "ts" | "js" => Some(Self::Typescript),
+            "svelte" => Some(Self::Typescript), // we extract <script> block, which is pure TS
             _ => None,
         }
     }
@@ -63,7 +65,7 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
         Lang::Typescript if path.extension().map(|e| e == "svelte").unwrap_or(false) => {
             extract_svelte_script(&source)
         }
-        _ => source.clone(),
+        _ => source,
     };
 
     let mut parser = Parser::new();
@@ -73,6 +75,9 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
         }
         Lang::Typescript => {
             parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())?;
+        }
+        Lang::Tsx => {
+            parser.set_language(&tree_sitter_typescript::LANGUAGE_TSX.into())?;
         }
     }
 
@@ -84,14 +89,14 @@ pub fn parse_file(path: &Path) -> Result<ParseResult> {
     let mut symbols = Vec::new();
     match lang {
         Lang::Rust => extract_rust_symbols(root, &code, &mut symbols, None),
-        Lang::Typescript => extract_ts_symbols(root, &code, &mut symbols, None),
+        Lang::Typescript | Lang::Tsx => extract_ts_symbols(root, &code, &mut symbols, None),
     }
 
     let mut imports = Vec::new();
     let file_end = code.lines().count();
     match lang {
         Lang::Rust => collect_rust_imports(root, &code, &mut imports, file_end),
-        Lang::Typescript => collect_ts_imports(root, &code, &mut imports, file_end),
+        Lang::Typescript | Lang::Tsx => collect_ts_imports(root, &code, &mut imports, file_end),
     }
 
     let mut refs = Vec::new();

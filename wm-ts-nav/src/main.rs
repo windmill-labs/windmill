@@ -104,11 +104,10 @@ fn main() -> Result<()> {
     let db = db::Db::open(&cache_dir)?;
 
     // Always update index incrementally before any query
-    indexer::update_index(&db, &root)?;
+    let stats = indexer::update_index(&db, &root)?;
 
     match cli.command {
         Command::Index => {
-            let stats = indexer::update_index(&db, &root)?;
             println!(
                 "Indexed {} files: {} updated, {} unchanged, {} removed",
                 stats.files_scanned, stats.files_updated, stats.files_unchanged, stats.files_removed
