@@ -188,51 +188,6 @@
 
 				forkCreationLoading = false
 				sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
-
-				// Check if the source workspace has a "main" datatable and offer to fork it
-				try {
-					const datatables = await WorkspaceService.listDataTables({
-						workspace: $workspaceStore!
-					})
-					if (datatables.includes('main')) {
-						const forkDatatableAction = async (includeData: boolean) => {
-							try {
-								await WorkspaceService.forkDatatable({
-									workspace: prefixed_id,
-									requestBody: {
-										source_datatable_name: 'main',
-										new_datatable_name: 'main',
-										new_custom_instance_database_name: `__wmfork__${prefixed_id.replace(/-/g, '_')}__$current_name`,
-										include_data: includeData
-									}
-								})
-								sendUserToast(
-									`Successfully forked "main" datatable${includeData ? ' with data' : ''} to workspace "${prefixed_id}"`
-								)
-							} catch (e) {
-								sendUserToast(`Failed to fork datatable: ${e?.body ?? e}`, 'error')
-							}
-						}
-						sendUserToast(
-							`Fork the main datatable?`,
-							'info',
-							[
-								{
-									label: 'Fork schema only',
-									callback: () => forkDatatableAction(false)
-								},
-								{
-									label: 'Fork schema and data',
-									callback: () => forkDatatableAction(true)
-								}
-							],
-							undefined,
-							30000
-						)
-					}
-				} catch {
-					// Silently ignore if we can't list datatables
-				}
 			} else {
 				sendUserToast('No workspace selected, cannot fork non-existent workspace', true)
 			}

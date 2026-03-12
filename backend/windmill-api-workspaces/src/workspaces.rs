@@ -41,8 +41,8 @@ use windmill_common::workspaces::GitRepositorySettings;
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
     check_user_against_rule, get_datatable_resource_from_db_unchecked, DataTable,
-    DataTableCatalogResourceType, DataTableDatabase, ProtectionRuleKind, ProtectionRules,
-    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
+    DataTableCatalogResourceType, DataTableDatabase, DataTableForkBehavior, ProtectionRuleKind,
+    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::{
@@ -1394,18 +1394,37 @@ async fn fork_datatable(
     Json(req): Json<ForkDatatableRequest>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
+    fork_datatable_inner(
+        &db,
+        &w_id,
+        &req.source_datatable_name,
+        &req.new_datatable_name,
+        &req.new_custom_instance_database_name,
+        req.include_data,
+    )
+    .await
+}
 
+/// Core logic for forking a single datatable: creates a new instance DB,
+/// dumps the source schema (and optionally data), imports into the new DB,
+/// and updates the target workspace's datatable config.
+async fn fork_datatable_inner(
+    db: &DB,
+    w_id: &str,
+    source_datatable_name: &str,
+    new_datatable_name: &str,
+    new_custom_instance_database_name: &str,
+    include_data: bool,
+) -> Result<String> {
     // Resolve the source datatable to get the original instance DB name
     let db_resource =
-        get_datatable_resource_from_db_unchecked(&db, &w_id, &req.source_datatable_name).await?;
+        get_datatable_resource_from_db_unchecked(db, w_id, source_datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
 
     // Interpolate $current_name with the original database name
     let original_dbname = &pg_db.dbname;
-    let new_dbname = req
-        .new_custom_instance_database_name
-        .replace("$current_name", original_dbname);
+    let new_dbname = new_custom_instance_database_name.replace("$current_name", original_dbname);
 
     // Create the new custom instance database
     let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
@@ -1415,13 +1434,13 @@ async fn fork_datatable(
         "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
         &new_dbname
     )
-    .fetch_one(&db)
+    .fetch_one(db)
     .await?
     .unwrap_or(false);
 
     if !db_exists {
         sqlx::query(&format!("CREATE DATABASE \"{}\"", &new_dbname))
-            .execute(&db)
+            .execute(db)
             .await?;
     }
 
@@ -1472,8 +1491,11 @@ async fn fork_datatable(
         r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
         serde_json::json!({ &new_dbname: status_json })
     )
-    .execute(&db)
+    .execute(db)
     .await?;
+
+    // Export the schema (and optionally data) from the source BEFORE updating the config
+    let dump = dump_datatable(db, w_id, source_datatable_name, !include_data).await?;
 
     // Update the forked workspace's datatable config to point to the new database
     let new_datatable = DataTable {
@@ -1481,22 +1503,20 @@ async fn fork_datatable(
             resource_type: DataTableCatalogResourceType::Instance,
             resource_path: new_dbname.clone(),
         },
+        fork_behavior: DataTableForkBehavior::default(),
     };
     let mut datatables = HashMap::new();
-    datatables.insert(req.new_datatable_name.clone(), new_datatable);
+    datatables.insert(new_datatable_name.to_string(), new_datatable);
     let new_settings = DataTableSettings { datatables };
     let config: serde_json::Value =
         serde_json::to_value(new_settings).map_err(|err| Error::internal_err(err.to_string()))?;
 
-    // Export the schema from the source BEFORE updating the config (which points to the new empty DB)
-    let dump = dump_datatable(&db, &w_id, &req.source_datatable_name, !req.include_data).await?;
-
     sqlx::query!(
         "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
         config,
-        &w_id
+        w_id
     )
-    .execute(&db)
+    .execute(db)
     .await?;
 
     // Import the dumped schema into the new database
@@ -1504,8 +1524,65 @@ async fn fork_datatable(
 
     Ok(format!(
         "Forked datatable '{}' as '{}' with new database '{}'",
-        req.source_datatable_name, req.new_datatable_name, new_dbname
+        source_datatable_name, new_datatable_name, new_dbname
     ))
+}
+
+/// Fork all datatables from a source workspace into a target workspace,
+/// respecting each datatable's configured `fork_behavior`.
+async fn fork_all_datatables(
+    db: &DB,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    let datatable_config = sqlx::query_scalar!(
+        "SELECT datatable FROM workspace_settings WHERE workspace_id = $1",
+        source_workspace_id
+    )
+    .fetch_one(db)
+    .await?;
+
+    let datatables: HashMap<String, DataTable> = match datatable_config {
+        Some(config) => {
+            let settings: DataTableSettings = serde_json::from_value(config)
+                .unwrap_or(DataTableSettings { datatables: HashMap::new() });
+            settings.datatables
+        }
+        None => return Ok(()),
+    };
+
+    for (name, dt) in &datatables {
+        match dt.fork_behavior {
+            DataTableForkBehavior::KeepOriginal => continue,
+            behavior => {
+                let include_data = behavior == DataTableForkBehavior::SchemaAndData;
+                let new_db_name = format!(
+                    "__wmfork__{}__$current_name",
+                    target_workspace_id.replace('-', "_")
+                );
+                if let Err(e) = fork_datatable_inner(
+                    db,
+                    target_workspace_id,
+                    name,
+                    name,
+                    &new_db_name,
+                    include_data,
+                )
+                .await
+                {
+                    tracing::error!(
+                        "Failed to fork datatable '{}' from '{}' to '{}': {}",
+                        name,
+                        source_workspace_id,
+                        target_workspace_id,
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Import a pg_dump output into a target database using tokio_postgres.
@@ -3746,6 +3823,16 @@ async fn create_workspace_fork(
     )
     .await?;
     tx.commit().await?;
+
+    // Fork datatables after the transaction commits (creates external databases)
+    if let Err(e) = fork_all_datatables(&db, &parent_workspace_id, &forked_id).await {
+        tracing::error!(
+            "Failed to fork datatables for workspace '{}': {}",
+            &forked_id,
+            e
+        );
+    }
+
     Ok(format!("Created forked workspace {}", &forked_id))
 }
 

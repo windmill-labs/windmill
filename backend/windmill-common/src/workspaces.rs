@@ -381,9 +381,29 @@ pub async fn check_user_against_rule(
     Ok(RuleCheckResult::Allowed)
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DataTableForkBehavior {
+    SchemaOnly,
+    SchemaAndData,
+    KeepOriginal,
+}
+
+impl Default for DataTableForkBehavior {
+    fn default() -> Self {
+        DataTableForkBehavior::SchemaOnly
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug)]
 pub struct DataTable {
     pub database: DataTableDatabase,
+    #[serde(default, skip_serializing_if = "is_default_fork_behavior")]
+    pub fork_behavior: DataTableForkBehavior,
+}
+
+fn is_default_fork_behavior(v: &DataTableForkBehavior) -> bool {
+    *v == DataTableForkBehavior::SchemaOnly
 }
 
 #[derive(Deserialize, Serialize, Debug)]

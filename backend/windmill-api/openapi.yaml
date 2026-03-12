@@ -23358,6 +23358,13 @@ components:
                     type: string
                 required:
                   - resource_type
+              fork_behavior:
+                type: string
+                enum:
+                  - schema_only
+                  - schema_and_data
+                  - keep_original
+                default: schema_only
 
     DataTableSchema:
       type: object
