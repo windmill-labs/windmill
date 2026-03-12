@@ -1479,6 +1479,9 @@ async fn fork_datatable(
     let config: serde_json::Value =
         serde_json::to_value(new_settings).map_err(|err| Error::internal_err(err.to_string()))?;
 
+    // Export the schema from the source BEFORE updating the config (which points to the new empty DB)
+    let dump = dump_datatable(&db, &w_id, &req.source_datatable_name).await?;
+
     sqlx::query!(
         "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
         config,
@@ -1487,8 +1490,7 @@ async fn fork_datatable(
     .execute(&db)
     .await?;
 
-    // Export the schema from the source datatable and import it into the new database
-    let dump = dump_datatable(&db, &w_id, &req.source_datatable_name).await?;
+    // Import the dumped schema into the new database
     import_datatable_dump(&new_pg_creds, &dump).await?;
 
     Ok(format!(
