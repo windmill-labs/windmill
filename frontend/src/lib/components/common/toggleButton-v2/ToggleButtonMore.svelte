@@ -4,6 +4,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 
 	type TogglableItem = {
 		label: string
@@ -20,6 +21,7 @@
 		togglableItems: TogglableItem[]
 		btnText?: string
 		class?: string
+		hideSelectedOption?: boolean
 	}
 
 	let {
@@ -30,7 +32,8 @@
 		selected = $bindable(undefined),
 		togglableItems,
 		btnText,
-		class: className = ''
+		class: className = '',
+		hideSelectedOption = false
 	}: Props = $props()
 
 	let items = untrack(() => togglableItems).map((i) => ({
@@ -51,7 +54,7 @@
 	disappearTimeout={0}
 >
 	<div {id} class="flex">
-		{#if isAnOptionSelected(selected)}
+		{#if isAnOptionSelected(selected) && !hideSelectedOption}
 			{@const tooltip = togglableItems.find((i) => i.value === selected)?.tooltip}
 			<ToggleButton
 				{disabled}
@@ -65,7 +68,10 @@
 			/>
 		{/if}
 		<div class="flex items-center">
-			<DropdownV2 {btnText} enableFlyTransition {items} size={small ? 'sm' : 'md'} />
+			<!-- The tooltip fixes a bug where the other tooltips won't disappear -->
+			<Tooltip disablePopup>
+				<DropdownV2 {btnText} enableFlyTransition {items} size={small ? 'sm' : 'md'} />
+			</Tooltip>
 		</div>
 	</div>
 </Popover>

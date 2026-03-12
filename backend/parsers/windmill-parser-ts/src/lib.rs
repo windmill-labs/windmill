@@ -211,8 +211,6 @@ pub enum TypeDecl {
     Interface(TsInterfaceDecl),
     Alias(TsTypeAliasDecl),
 }
-pub mod asset_parser;
-pub use asset_parser::parse_assets;
 
 /// skip_params is a micro optimization for when we just want to find the main
 /// function without parsing all the params.

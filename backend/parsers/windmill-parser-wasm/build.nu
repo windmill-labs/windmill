@@ -61,6 +61,11 @@ const targets = [
     desc: "Workflow-as-Code",
     features: "wac-parser",
     env: "default",
+  }, {
+    ident: "asset",
+    desc: "Asset parsers (TS, Python, SQL) with SQL AST",
+    features: "asset-parser",
+    env: "default",
   },
   # ^^^ Add new entry here ^^^
 ];

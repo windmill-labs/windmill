@@ -930,28 +930,24 @@
 			{/if}
 		{:else if category == 'Telemetry'}
 			<SettingsPageHeader title="Telemetry" />
-			<div class="text-primary pb-4 text-xs">
-				Anonymous usage data is collected to help improve Windmill.
-				<br />The following information is collected:
-				<ul class="list-disc list-inside pl-2">
-					<li>version of your instances</li>
-					<li>instance base URL</li>
-					<li>job usage (language, total duration, count)</li>
-					<li>login type usage (login type, count)</li>
-					<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-					<li>user usage (author count, operator count)</li>
-					<li>superadmin email addresses</li>
-					<li>vCPU usage</li>
-					<li>memory usage</li>
-					<li>development instance status</li>
-				</ul>
-			</div>
 			{#if $enterpriseLicense}
 				<div class="text-primary pb-4 text-xs">
-					On Enterprise Edition, you must send data to check that usage is in line with the terms of
-					the subscription. You can either enable telemetry or regularly send usage data by clicking
-					the button below. For air-gapped instances, you can download the telemetry data and send
-					it manually.
+					Telemetry is required on Enterprise Edition for license compliance. When minimal telemetry
+					is enabled, only the following data is sent:
+					<ul class="list-disc list-inside pl-2">
+						<li>version of your instance</li>
+						<li>instance base URL</li>
+						<li>login type usage (login type, count)</li>
+						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
+						<li>user usage (author count, operator count)</li>
+						<li>superadmin email addresses</li>
+						<li>development instance status</li>
+					</ul>
+					<br />When minimal telemetry is disabled, the following is also collected:
+					<ul class="list-disc list-inside pl-2">
+						<li>job usage (language, total duration, count)</li>
+					</ul>
+					<br />For air-gapped instances, you can download the telemetry data and send it manually.
 				</div>
 				<div class="flex gap-2 mb-4">
 					<Button
@@ -972,6 +968,20 @@
 					>
 						Download usage
 					</Button>
+				</div>
+			{:else}
+				<div class="text-primary pb-4 text-xs">
+					Anonymous usage data is collected to help improve Windmill.
+					<br />The following information is collected:
+					<ul class="list-disc list-inside pl-2">
+						<li>version of your instance</li>
+						<li>instance base URL</li>
+						<li>job usage (language, total duration, count)</li>
+						<li>login type usage (login type, count)</li>
+						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
+						<li>user usage (author count, operator count)</li>
+						<li>development instance status</li>
+					</ul>
 				</div>
 			{/if}
 		{:else if category == 'Jobs'}
