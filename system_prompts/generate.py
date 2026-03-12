@@ -499,9 +499,6 @@ def generate_cli_commands_markdown(cli_data: dict) -> str:
     md = "# Windmill CLI Commands\n\n"
     md += "The Windmill CLI (`wmill`) provides commands for managing scripts, flows, apps, and other resources.\n\n"
 
-    if cli_data.get('version'):
-        md += f"Current version: {cli_data['version']}\n\n"
-
     # Global options
     if cli_data.get('global_options'):
         md += "## Global Options\n\n"

@@ -154,36 +154,6 @@ export const SDK_TYPESCRIPT = `# TypeScript SDK (windmill-client)
 Import: import * as wmill from 'windmill-client'
 
 /**
- * Create a SQL template function for PostgreSQL/datatable queries
- * @param name - Database/datatable name (default: "main")
- * @returns SQL template function for building parameterized queries
- * @example
- * let sql = wmill.datatable()
- * let name = 'Robin'
- * let age = 21
- * await sql\`
- *   SELECT * FROM friends
- *     WHERE name = \${name} AND age = \${age}::int
- * \`.fetch()
- */
-datatable(name: string = "main"): DatatableSqlTemplateFunction
-
-/**
- * Create a SQL template function for DuckDB/ducklake queries
- * @param name - DuckDB database name (default: "main")
- * @returns SQL template function for building parameterized queries
- * @example
- * let sql = wmill.ducklake()
- * let name = 'Robin'
- * let age = 21
- * await sql\`
- *   SELECT * FROM friends
- *     WHERE name = \${name} AND age = \${age}
- * \`.fetch()
- */
-ducklake(name: string = "main"): SqlTemplateFunction
-
-/**
  * Initialize the Windmill client with authentication token and base URL
  * @param token - Authentication token (defaults to WM_TOKEN env variable)
  * @param baseUrl - API base URL (defaults to BASE_INTERNAL_URL or BASE_URL env variable)
@@ -675,6 +645,36 @@ waitForApproval(options?: { timeout?: number; form?: object; }): PromiseLike<{ v
  * const results = await parallel(items, process, { concurrency: 5 });
  */
 async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: { concurrency?: number },): Promise<R[]>
+
+/**
+ * Create a SQL template function for PostgreSQL/datatable queries
+ * @param name - Database/datatable name (default: "main")
+ * @returns SQL template function for building parameterized queries
+ * @example
+ * let sql = wmill.datatable()
+ * let name = 'Robin'
+ * let age = 21
+ * await sql\`
+ *   SELECT * FROM friends
+ *     WHERE name = \${name} AND age = \${age}::int
+ * \`.fetch()
+ */
+datatable(name: string = "main"): DatatableSqlTemplateFunction
+
+/**
+ * Create a SQL template function for DuckDB/ducklake queries
+ * @param name - DuckDB database name (default: "main")
+ * @returns SQL template function for building parameterized queries
+ * @example
+ * let sql = wmill.ducklake()
+ * let name = 'Robin'
+ * let age = 21
+ * await sql\`
+ *   SELECT * FROM friends
+ *     WHERE name = \${name} AND age = \${age}
+ * \`.fetch()
+ */
+ducklake(name: string = "main"): SqlTemplateFunction
 `;
 
 export const SDK_PYTHON = `# Python SDK (wmill)
@@ -1358,8 +1358,6 @@ export const CLI_COMMANDS = `# Windmill CLI Commands
 
 The Windmill CLI (\`wmill\`) provides commands for managing scripts, flows, apps, and other resources.
 
-Current version: 1.653.0
-
 ## Global Options
 
 - \`--workspace <workspace:string>\` - Specify the target workspace. This overrides the default workspace.
@@ -1858,231 +1856,129 @@ workspace related commands
 
 `;
 
-export const LANG_GO = `# Go
+export const LANG_DUCKDB = `# DuckDB
 
-## Structure
+Arguments are defined with comments and used with \`$name\` syntax:
 
-The file package must be \`inner\` and export a function called \`main\`:
-
-\`\`\`go
-package inner
-
-func main(param1 string, param2 int) (map[string]interface{}, error) {
-    return map[string]interface{}{
-        "result": param1,
-        "count":  param2,
-    }, nil
-}
+\`\`\`sql
+-- $name (text) = default
+-- $age (integer)
+SELECT * FROM users WHERE name = $name AND age > $age;
 \`\`\`
 
-**Important:**
-- Package must be \`inner\`
-- Return type must be \`({return_type}, error)\`
-- Function name is \`main\` (lowercase)
+## Ducklake Integration
 
-## Return Types
+Attach Ducklake for data lake operations:
 
-The return type can be any Go type that can be serialized to JSON:
+\`\`\`sql
+-- Main ducklake
+ATTACH 'ducklake' AS dl;
 
-\`\`\`go
-package inner
+-- Named ducklake
+ATTACH 'ducklake://my_lake' AS dl;
 
-type Result struct {
-    Name  string \`json:"name"\`
-    Count int    \`json:"count"\`
-}
-
-func main(name string, count int) (Result, error) {
-    return Result{
-        Name:  name,
-        Count: count,
-    }, nil
-}
+-- Then query
+SELECT * FROM dl.schema.table;
 \`\`\`
 
-## Error Handling
+## External Database Connections
 
-Return errors as the second return value:
+Connect to external databases using resources:
 
-\`\`\`go
-package inner
+\`\`\`sql
+ATTACH '$res:path/to/resource' AS db (TYPE postgres);
+SELECT * FROM db.schema.table;
+\`\`\`
 
-import "errors"
+## S3 File Operations
 
-func main(value int) (string, error) {
-    if value < 0 {
-        return "", errors.New("value must be positive")
-    }
-    return "success", nil
-}
+Read files from S3 storage:
+
+\`\`\`sql
+-- Default storage
+SELECT * FROM read_csv('s3:///path/to/file.csv');
+
+-- Named storage
+SELECT * FROM read_csv('s3://storage_name/path/to/file.csv');
+
+-- Parquet files
+SELECT * FROM read_parquet('s3:///path/to/file.parquet');
+
+-- JSON files
+SELECT * FROM read_json('s3:///path/to/file.json');
 \`\`\`
 `;
 
-export const LANG_JAVA = `# Java
+export const LANG_CSHARP = `# C#
 
-The script must contain a Main public class with a \`public static main()\` method:
+The script must contain a public static \`Main\` method inside a class:
 
-\`\`\`java
-public class Main {
-    public static Object main(String name, int count) {
-        java.util.Map<String, Object> result = new java.util.HashMap<>();
-        result.put("name", name);
-        result.put("count", count);
-        return result;
+\`\`\`csharp
+public class Script
+{
+    public static object Main(string name, int count)
+    {
+        return new { Name = name, Count = count };
     }
 }
 \`\`\`
 
 **Important:**
-- Class must be named \`Main\`
-- Method must be \`public static Object main(...)\`
-- Return type is \`Object\` or \`void\`
+- Class name is irrelevant
+- Method must be \`public static\`
+- Return type can be \`object\` or specific type
 
-## Maven Dependencies
+## NuGet Packages
 
-Add dependencies using comments at the top:
+Add packages using the \`#r\` directive at the top:
 
-\`\`\`java
-//requirements:
-//com.google.code.gson:gson:2.10.1
-//org.apache.httpcomponents:httpclient:4.5.14
+\`\`\`csharp
+#r "nuget: Newtonsoft.Json, 13.0.3"
+#r "nuget: RestSharp, 110.2.0"
 
-import com.google.gson.Gson;
+using Newtonsoft.Json;
+using RestSharp;
 
-public class Main {
-    public static Object main(String input) {
-        Gson gson = new Gson();
-        return gson.fromJson(input, Object.class);
+public class Script
+{
+    public static object Main(string url)
+    {
+        var client = new RestClient(url);
+        var request = new RestRequest();
+        var response = client.Get(request);
+        return JsonConvert.DeserializeObject(response.Content);
     }
 }
 \`\`\`
 `;
 
-export const LANG_GRAPHQL = `# GraphQL
+export const LANG_POSTGRESQL = `# PostgreSQL
 
-## Structure
+Arguments are obtained directly in the statement with \`$1::{type}\`, \`$2::{type}\`, etc.
 
-Write GraphQL queries or mutations. Arguments can be added as query parameters:
+Name the parameters by adding comments at the beginning of the script (without specifying the type):
 
-\`\`\`graphql
-query GetUser($id: ID!) {
-  user(id: $id) {
-    id
-    name
-    email
-  }
-}
-\`\`\`
-
-## Variables
-
-Variables are passed as script arguments and automatically bound to the query:
-
-\`\`\`graphql
-query SearchProducts($query: String!, $limit: Int = 10) {
-  products(search: $query, first: $limit) {
-    edges {
-      node {
-        id
-        name
-        price
-      }
-    }
-  }
-}
-\`\`\`
-
-## Mutations
-
-\`\`\`graphql
-mutation CreateUser($input: CreateUserInput!) {
-  createUser(input: $input) {
-    id
-    name
-    createdAt
-  }
-}
+\`\`\`sql
+-- $1 name1
+-- $2 name2 = default_value
+SELECT * FROM users WHERE name = $1::TEXT AND age > $2::INT;
 \`\`\`
 `;
 
-export const LANG_RUST = `# Rust
+export const LANG_BIGQUERY = `# BigQuery
 
-## Structure
+Arguments use \`@name\` syntax.
 
-The script must contain a function called \`main\` with proper return type:
+Name the parameters by adding comments before the statement:
 
-\`\`\`rust
-use anyhow::anyhow;
-use serde::Serialize;
-
-#[derive(Serialize, Debug)]
-struct ReturnType {
-    result: String,
-    count: i32,
-}
-
-fn main(param1: String, param2: i32) -> anyhow::Result<ReturnType> {
-    Ok(ReturnType {
-        result: param1,
-        count: param2,
-    })
-}
-\`\`\`
-
-**Important:**
-- Arguments should be owned types
-- Return type must be serializable (\`#[derive(Serialize)]\`)
-- Return type is \`anyhow::Result<T>\`
-
-## Dependencies
-
-Packages must be specified with a partial cargo.toml at the beginning of the script:
-
-\`\`\`rust
-//! \`\`\`cargo
-//! [dependencies]
-//! anyhow = "1.0.86"
-//! reqwest = { version = "0.11", features = ["json"] }
-//! tokio = { version = "1", features = ["full"] }
-//! \`\`\`
-
-use anyhow::anyhow;
-// ... rest of the code
-\`\`\`
-
-**Note:** Serde is already included, no need to add it again.
-
-## Async Functions
-
-If you need to handle async functions (e.g., using tokio), keep the main function sync and create the runtime inside:
-
-\`\`\`rust
-//! \`\`\`cargo
-//! [dependencies]
-//! anyhow = "1.0.86"
-//! tokio = { version = "1", features = ["full"] }
-//! reqwest = { version = "0.11", features = ["json"] }
-//! \`\`\`
-
-use anyhow::anyhow;
-use serde::Serialize;
-
-#[derive(Serialize, Debug)]
-struct Response {
-    data: String,
-}
-
-fn main(url: String) -> anyhow::Result<Response> {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
-        let resp = reqwest::get(&url).await?.text().await?;
-        Ok(Response { data: resp })
-    })
-}
+\`\`\`sql
+-- @name1 (string)
+-- @name2 (int64) = 0
+SELECT * FROM users WHERE name = @name1 AND age > @name2;
 \`\`\`
 `;
 
-export const LANG_BUNNATIVE = `# TypeScript (Bun Native)
+export const LANG_NATIVETS = `# TypeScript (Native)
 
 Native TypeScript execution with fetch only - no external imports allowed.
 
@@ -2155,127 +2051,49 @@ type Event = {
 export async function preprocessor(event: Event) {
   return {
     param1: event.body.field1,
-    param2: event.query.id,
+    param2: event.query.id
   };
 }
 \`\`\`
-
-## S3 Object Operations
-
-Windmill provides built-in support for S3-compatible storage operations.
-
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
-
-\`\`\`typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
-\`\`\`
-
-## TypeScript Operations
-
-\`\`\`typescript
-import * as wmill from "windmill-client";
-
-// Load file content from S3
-const content: Uint8Array = await wmill.loadS3File(s3object);
-
-// Load file as stream
-const blob: Blob = await wmill.loadS3FileStream(s3object);
-
-// Write file to S3
-const result: S3Object = await wmill.writeS3File(
-  s3object, // Target path (or undefined to auto-generate)
-  fileContent, // string or Blob
-  s3ResourcePath // Optional: specific S3 resource to use
-);
-\`\`\`
 `;
 
-export const LANG_POSTGRESQL = `# PostgreSQL
+export const LANG_JAVA = `# Java
 
-Arguments are obtained directly in the statement with \`$1::{type}\`, \`$2::{type}\`, etc.
+The script must contain a Main public class with a \`public static main()\` method:
 
-Name the parameters by adding comments at the beginning of the script (without specifying the type):
-
-\`\`\`sql
--- $1 name1
--- $2 name2 = default_value
-SELECT * FROM users WHERE name = $1::TEXT AND age > $2::INT;
-\`\`\`
-`;
-
-export const LANG_PHP = `# PHP
-
-## Structure
-
-The script must start with \`<?php\` and contain at least one function called \`main\`:
-
-\`\`\`php
-<?php
-
-function main(string $param1, int $param2) {
-    return ["result" => $param1, "count" => $param2];
-}
-\`\`\`
-
-## Resource Types
-
-On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-
-You need to **redefine** the type of the resources that are needed before the main function. Always check if the class already exists using \`class_exists\`:
-
-\`\`\`php
-<?php
-
-if (!class_exists('Postgresql')) {
-    class Postgresql {
-        public string $host;
-        public int $port;
-        public string $user;
-        public string $password;
-        public string $dbname;
+\`\`\`java
+public class Main {
+    public static Object main(String name, int count) {
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        result.put("name", name);
+        result.put("count", count);
+        return result;
     }
 }
-
-function main(Postgresql $db) {
-    // $db contains the database connection details
-}
 \`\`\`
 
-The resource type name has to be exactly as specified.
+**Important:**
+- Class must be named \`Main\`
+- Method must be \`public static Object main(...)\`
+- Return type is \`Object\` or \`void\`
 
-## Library Dependencies
+## Maven Dependencies
 
-Specify library dependencies as comments before the main function:
+Add dependencies using comments at the top:
 
-\`\`\`php
-<?php
+\`\`\`java
+//requirements:
+//com.google.code.gson:gson:2.10.1
+//org.apache.httpcomponents:httpclient:4.5.14
 
-// require:
-// guzzlehttp/guzzle
-// stripe/stripe-php@^10.0
+import com.google.gson.Gson;
 
-function main() {
-    // Libraries are available
+public class Main {
+    public static Object main(String input) {
+        Gson gson = new Gson();
+        return gson.fromJson(input, Object.class);
+    }
 }
-\`\`\`
-
-One dependency per line. No need to require autoload, it is already done.
-`;
-
-export const LANG_BIGQUERY = `# BigQuery
-
-Arguments use \`@name\` syntax.
-
-Name the parameters by adding comments before the statement:
-
-\`\`\`sql
--- @name1 (string)
--- @name2 (int64) = 0
-SELECT * FROM users WHERE name = @name1 AND age > @name2;
 \`\`\`
 `;
 
@@ -2390,62 +2208,6 @@ const result: S3Object = await wmill.writeS3File(
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use
 );
-\`\`\`
-`;
-
-export const LANG_CSHARP = `# C#
-
-The script must contain a public static \`Main\` method inside a class:
-
-\`\`\`csharp
-public class Script
-{
-    public static object Main(string name, int count)
-    {
-        return new { Name = name, Count = count };
-    }
-}
-\`\`\`
-
-**Important:**
-- Class name is irrelevant
-- Method must be \`public static\`
-- Return type can be \`object\` or specific type
-
-## NuGet Packages
-
-Add packages using the \`#r\` directive at the top:
-
-\`\`\`csharp
-#r "nuget: Newtonsoft.Json, 13.0.3"
-#r "nuget: RestSharp, 110.2.0"
-
-using Newtonsoft.Json;
-using RestSharp;
-
-public class Script
-{
-    public static object Main(string url)
-    {
-        var client = new RestClient(url);
-        var request = new RestRequest();
-        var response = client.Get(request);
-        return JsonConvert.DeserializeObject(response.Content);
-    }
-}
-\`\`\`
-`;
-
-export const LANG_MSSQL = `# Microsoft SQL Server (MSSQL)
-
-Arguments use \`@P1\`, \`@P2\`, etc.
-
-Name the parameters by adding comments before the statement:
-
-\`\`\`sql
--- @P1 name1 (varchar)
--- @P2 name2 (int) = 0
-SELECT * FROM users WHERE name = @P1 AND age > @P2;
 \`\`\`
 `;
 
@@ -2567,86 +2329,80 @@ const result: S3Object = await wmill.writeS3File(
 \`\`\`
 `;
 
-export const LANG_MYSQL = `# MySQL
-
-Arguments use \`?\` placeholders.
-
-Name the parameters by adding comments before the statement:
-
-\`\`\`sql
--- ? name1 (text)
--- ? name2 (int) = 0
-SELECT * FROM users WHERE name = ? AND age > ?;
-\`\`\`
-`;
-
-export const LANG_POWERSHELL = `# PowerShell
+export const LANG_RUST = `# Rust
 
 ## Structure
 
-Arguments are obtained by calling the \`param\` function on the first line:
+The script must contain a function called \`main\` with proper return type:
 
-\`\`\`powershell
-param($Name, $Count = 0, [int]$Age)
+\`\`\`rust
+use anyhow::anyhow;
+use serde::Serialize;
 
-# Your code here
-Write-Output "Processing $Name, count: $Count, age: $Age"
+#[derive(Serialize, Debug)]
+struct ReturnType {
+    result: String,
+    count: i32,
+}
 
-# Return object
-@{
-    name = $Name
-    count = $Count
-    age = $Age
+fn main(param1: String, param2: i32) -> anyhow::Result<ReturnType> {
+    Ok(ReturnType {
+        result: param1,
+        count: param2,
+    })
 }
 \`\`\`
 
-## Parameter Types
+**Important:**
+- Arguments should be owned types
+- Return type must be serializable (\`#[derive(Serialize)]\`)
+- Return type is \`anyhow::Result<T>\`
 
-You can specify types for parameters:
+## Dependencies
 
-\`\`\`powershell
-param(
-    [string]$Name,
-    [int]$Count = 0,
-    [bool]$Enabled = $true,
-    [array]$Items
-)
+Packages must be specified with a partial cargo.toml at the beginning of the script:
 
-@{
-    name = $Name
-    count = $Count
-    enabled = $Enabled
-    items = $Items
-}
+\`\`\`rust
+//! \`\`\`cargo
+//! [dependencies]
+//! anyhow = "1.0.86"
+//! reqwest = { version = "0.11", features = ["json"] }
+//! tokio = { version = "1", features = ["full"] }
+//! \`\`\`
+
+use anyhow::anyhow;
+// ... rest of the code
 \`\`\`
 
-## Return Values
+**Note:** Serde is already included, no need to add it again.
 
-Return values by outputting them at the end of the script:
+## Async Functions
 
-\`\`\`powershell
-param($Input)
+If you need to handle async functions (e.g., using tokio), keep the main function sync and create the runtime inside:
 
-$result = @{
-    processed = $true
-    data = $Input
-    timestamp = Get-Date -Format "o"
+\`\`\`rust
+//! \`\`\`cargo
+//! [dependencies]
+//! anyhow = "1.0.86"
+//! tokio = { version = "1", features = ["full"] }
+//! reqwest = { version = "0.11", features = ["json"] }
+//! \`\`\`
+
+use anyhow::anyhow;
+use serde::Serialize;
+
+#[derive(Serialize, Debug)]
+struct Response {
+    data: String,
 }
 
-$result
-\`\`\`
-`;
-
-export const LANG_SNOWFLAKE = `# Snowflake
-
-Arguments use \`?\` placeholders.
-
-Name the parameters by adding comments before the statement:
-
-\`\`\`sql
--- ? name1 (text)
--- ? name2 (number) = 0
-SELECT * FROM users WHERE name = ? AND age > ?;
+fn main(url: String) -> anyhow::Result<Response> {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        let resp = reqwest::get(&url).await?.text().await?;
+        Ok(Response { data: resp })
+    })
+}
 \`\`\`
 `;
 
@@ -2770,56 +2526,120 @@ result: S3Object = wmill.write_s3_file(
 \`\`\`
 `;
 
-export const LANG_DUCKDB = `# DuckDB
+export const LANG_GO = `# Go
 
-Arguments are defined with comments and used with \`$name\` syntax:
+## Structure
 
-\`\`\`sql
--- $name (text) = default
--- $age (integer)
-SELECT * FROM users WHERE name = $name AND age > $age;
+The file package must be \`inner\` and export a function called \`main\`:
+
+\`\`\`go
+package inner
+
+func main(param1 string, param2 int) (map[string]interface{}, error) {
+    return map[string]interface{}{
+        "result": param1,
+        "count":  param2,
+    }, nil
+}
 \`\`\`
 
-## Ducklake Integration
+**Important:**
+- Package must be \`inner\`
+- Return type must be \`({return_type}, error)\`
+- Function name is \`main\` (lowercase)
 
-Attach Ducklake for data lake operations:
+## Return Types
 
-\`\`\`sql
--- Main ducklake
-ATTACH 'ducklake' AS dl;
+The return type can be any Go type that can be serialized to JSON:
 
--- Named ducklake
-ATTACH 'ducklake://my_lake' AS dl;
+\`\`\`go
+package inner
 
--- Then query
-SELECT * FROM dl.schema.table;
+type Result struct {
+    Name  string \`json:"name"\`
+    Count int    \`json:"count"\`
+}
+
+func main(name string, count int) (Result, error) {
+    return Result{
+        Name:  name,
+        Count: count,
+    }, nil
+}
 \`\`\`
 
-## External Database Connections
+## Error Handling
 
-Connect to external databases using resources:
+Return errors as the second return value:
 
-\`\`\`sql
-ATTACH '$res:path/to/resource' AS db (TYPE postgres);
-SELECT * FROM db.schema.table;
+\`\`\`go
+package inner
+
+import "errors"
+
+func main(value int) (string, error) {
+    if value < 0 {
+        return "", errors.New("value must be positive")
+    }
+    return "success", nil
+}
+\`\`\`
+`;
+
+export const LANG_POWERSHELL = `# PowerShell
+
+## Structure
+
+Arguments are obtained by calling the \`param\` function on the first line:
+
+\`\`\`powershell
+param($Name, $Count = 0, [int]$Age)
+
+# Your code here
+Write-Output "Processing $Name, count: $Count, age: $Age"
+
+# Return object
+@{
+    name = $Name
+    count = $Count
+    age = $Age
+}
 \`\`\`
 
-## S3 File Operations
+## Parameter Types
 
-Read files from S3 storage:
+You can specify types for parameters:
 
-\`\`\`sql
--- Default storage
-SELECT * FROM read_csv('s3:///path/to/file.csv');
+\`\`\`powershell
+param(
+    [string]$Name,
+    [int]$Count = 0,
+    [bool]$Enabled = $true,
+    [array]$Items
+)
 
--- Named storage
-SELECT * FROM read_csv('s3://storage_name/path/to/file.csv');
+@{
+    name = $Name
+    count = $Count
+    enabled = $Enabled
+    items = $Items
+}
+\`\`\`
 
--- Parquet files
-SELECT * FROM read_parquet('s3:///path/to/file.parquet');
+## Return Values
 
--- JSON files
-SELECT * FROM read_json('s3:///path/to/file.json');
+Return values by outputting them at the end of the script:
+
+\`\`\`powershell
+param($Input)
+
+$result = @{
+    processed = $true
+    data = $Input
+    timestamp = Get-Date -Format "o"
+}
+
+$result
 \`\`\`
 `;
 
@@ -2874,7 +2694,20 @@ echo "Job ID: $WM_JOB_ID"
 \`\`\`
 `;
 
-export const LANG_NATIVETS = `# TypeScript (Native)
+export const LANG_SNOWFLAKE = `# Snowflake
+
+Arguments use \`?\` placeholders.
+
+Name the parameters by adding comments before the statement:
+
+\`\`\`sql
+-- ? name1 (text)
+-- ? name2 (number) = 0
+SELECT * FROM users WHERE name = ? AND age > ?;
+\`\`\`
+`;
+
+export const LANG_BUNNATIVE = `# TypeScript (Bun Native)
 
 Native TypeScript execution with fetch only - no external imports allowed.
 
@@ -2947,9 +2780,174 @@ type Event = {
 export async function preprocessor(event: Event) {
   return {
     param1: event.body.field1,
-    param2: event.query.id
+    param2: event.query.id,
   };
 }
+\`\`\`
+
+## S3 Object Operations
+
+Windmill provides built-in support for S3-compatible storage operations.
+
+### S3Object Type
+
+The S3Object type represents a file in S3 storage:
+
+\`\`\`typescript
+type S3Object = {
+  s3: string; // Path within the bucket
+};
+\`\`\`
+
+## TypeScript Operations
+
+\`\`\`typescript
+import * as wmill from "windmill-client";
+
+// Load file content from S3
+const content: Uint8Array = await wmill.loadS3File(s3object);
+
+// Load file as stream
+const blob: Blob = await wmill.loadS3FileStream(s3object);
+
+// Write file to S3
+const result: S3Object = await wmill.writeS3File(
+  s3object, // Target path (or undefined to auto-generate)
+  fileContent, // string or Blob
+  s3ResourcePath // Optional: specific S3 resource to use
+);
+\`\`\`
+`;
+
+export const LANG_MSSQL = `# Microsoft SQL Server (MSSQL)
+
+Arguments use \`@P1\`, \`@P2\`, etc.
+
+Name the parameters by adding comments before the statement:
+
+\`\`\`sql
+-- @P1 name1 (varchar)
+-- @P2 name2 (int) = 0
+SELECT * FROM users WHERE name = @P1 AND age > @P2;
+\`\`\`
+`;
+
+export const LANG_GRAPHQL = `# GraphQL
+
+## Structure
+
+Write GraphQL queries or mutations. Arguments can be added as query parameters:
+
+\`\`\`graphql
+query GetUser($id: ID!) {
+  user(id: $id) {
+    id
+    name
+    email
+  }
+}
+\`\`\`
+
+## Variables
+
+Variables are passed as script arguments and automatically bound to the query:
+
+\`\`\`graphql
+query SearchProducts($query: String!, $limit: Int = 10) {
+  products(search: $query, first: $limit) {
+    edges {
+      node {
+        id
+        name
+        price
+      }
+    }
+  }
+}
+\`\`\`
+
+## Mutations
+
+\`\`\`graphql
+mutation CreateUser($input: CreateUserInput!) {
+  createUser(input: $input) {
+    id
+    name
+    createdAt
+  }
+}
+\`\`\`
+`;
+
+export const LANG_PHP = `# PHP
+
+## Structure
+
+The script must start with \`<?php\` and contain at least one function called \`main\`:
+
+\`\`\`php
+<?php
+
+function main(string $param1, int $param2) {
+    return ["result" => $param1, "count" => $param2];
+}
+\`\`\`
+
+## Resource Types
+
+On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
+
+You need to **redefine** the type of the resources that are needed before the main function. Always check if the class already exists using \`class_exists\`:
+
+\`\`\`php
+<?php
+
+if (!class_exists('Postgresql')) {
+    class Postgresql {
+        public string $host;
+        public int $port;
+        public string $user;
+        public string $password;
+        public string $dbname;
+    }
+}
+
+function main(Postgresql $db) {
+    // $db contains the database connection details
+}
+\`\`\`
+
+The resource type name has to be exactly as specified.
+
+## Library Dependencies
+
+Specify library dependencies as comments before the main function:
+
+\`\`\`php
+<?php
+
+// require:
+// guzzlehttp/guzzle
+// stripe/stripe-php@^10.0
+
+function main() {
+    // Libraries are available
+}
+\`\`\`
+
+One dependency per line. No need to require autoload, it is already done.
+`;
+
+export const LANG_MYSQL = `# MySQL
+
+Arguments use \`?\` placeholders.
+
+Name the parameters by adding comments before the statement:
+
+\`\`\`sql
+-- ? name1 (text)
+-- ? name2 (int) = 0
+SELECT * FROM users WHERE name = ? AND age > ?;
 \`\`\`
 `;
 
