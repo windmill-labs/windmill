@@ -8,6 +8,7 @@
 	import {
 		ArrowLeft,
 		Copy,
+		Database,
 		Download,
 		Expand,
 		LoaderCircle,
@@ -85,6 +86,7 @@
 	let importDrawerOpen = $state(false)
 	let importLoading = $state(false)
 	let importSource = $state<string | undefined>(undefined)
+	let importBehavior = $state<'schema_only' | 'schema_and_data'>('schema_only')
 
 	const isPostgresqlInput = $derived(
 		uriState.isDatatableInput ||
@@ -125,7 +127,7 @@
 				requestBody: {
 					source: importSource,
 					target,
-					fork_behavior: 'schema_only'
+					fork_behavior: importBehavior
 				}
 			})
 			sendUserToast('Database import completed successfully')
@@ -209,7 +211,18 @@
 							}
 						}
 					]}
-				/>
+				>
+					{#snippet buttonReplacement()}
+						<Button
+							loading={exportLoading}
+							startIcon={{ icon: Database }}
+							size="xs"
+							color="light"
+						>
+							Actions
+						</Button>
+					{/snippet}
+				</DropdownV2>
 			{/if}
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
@@ -269,6 +282,16 @@
 			<div class="flex flex-col gap-2">
 				<span class="text-sm font-medium">Source database</span>
 				<ResourcePicker datatableAsPgResource bind:value={importSource} resourceType="postgresql" />
+			</div>
+			<div class="flex flex-col gap-2">
+				<span class="text-sm font-medium">Import mode</span>
+				<Select
+					items={[
+						{ value: 'schema_only', label: 'Schema only' },
+						{ value: 'schema_and_data', label: 'Schema and data' }
+					]}
+					bind:value={importBehavior}
+				/>
 			</div>
 			<Button
 				disabled={!importSource}
