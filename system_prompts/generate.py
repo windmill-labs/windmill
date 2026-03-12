@@ -919,7 +919,7 @@ def main():
     # Read SDK files
     ts_content = ''
     if TS_SDK_DIR.exists():
-        for ts_file in TS_SDK_DIR.glob('*.ts'):
+        for ts_file in sorted(TS_SDK_DIR.glob('*.ts')):
             if not ts_file.name.endswith('.d.ts'):
                 ts_content += ts_file.read_text() + '\n'
     py_content = PY_SDK_PATH.read_text() if PY_SDK_PATH.exists() else ''
@@ -957,7 +957,7 @@ def main():
 
     # Read language files
     languages = {}
-    for lang_file in languages_dir.glob("*.md"):
+    for lang_file in sorted(languages_dir.glob("*.md")):
         languages[lang_file.stem] = lang_file.read_text()
 
     # Extract and generate CLI commands documentation
