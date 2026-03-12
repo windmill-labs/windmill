@@ -30,9 +30,6 @@
 		color ? (NOTE_COLORS[color as NoteColor] ?? NOTE_COLORS[NoteColor.BLUE]) : NOTE_COLORS[NoteColor.BLUE]
 	)
 
-	// Derive border class from header background (e.g. "bg-yellow-200" → "border-yellow-200")
-	let headerBorderClass = $derived(noteColorConfig.background.replace(/\bbg-/g, 'border-'))
-
 	// Measure height and report to parent (skip while editing to avoid full graph rebuilds)
 	$effect(() => {
 		if (containerElement && !editing) {

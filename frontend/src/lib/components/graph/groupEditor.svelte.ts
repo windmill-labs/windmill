@@ -1,5 +1,6 @@
 import type { StateStore } from '$lib/utils'
 import type { ExtendedOpenFlow } from '../flows/types'
+import { completeAndSplitGroup } from './groupDetectionUtils'
 import type { NoteColor } from './noteColors'
 import { DEFAULT_GROUP_NOTE_COLOR, getNextAvailableColor } from './noteColors'
 import { generateId } from './util'
@@ -216,6 +217,77 @@ export class GroupEditor {
 		}
 		if (changed) {
 			this.setGroups(groups.filter((g) => g.module_ids.length > 0))
+		}
+	}
+
+	/** Clean up groups: remove stale node IDs, complete paths, and split disconnected components. */
+	cleanupGroups(flowNodes: { id: string; parentIds?: string[] }[]): void {
+		if (!this.isAvailable()) return
+
+		const groups = this.getGroups()
+		if (groups.length === 0) return
+
+		let hasChanges = false
+		const nodeSet = new Set(flowNodes.map((n) => n.id))
+		const newGroups: FlowGroup[] = []
+
+		for (const group of groups) {
+			// Skip collapsed groups — their module nodes are replaced by a single
+			// collapsed-group placeholder and won't appear in flowNodes.
+			if (this.isRuntimeCollapsed(group.id)) {
+				newGroups.push(group)
+				continue
+			}
+
+			// Step 1: Remove stale module_ids
+			const validIds = group.module_ids.filter((id) => nodeSet.has(id))
+			if (validIds.length !== group.module_ids.length) {
+				group.module_ids = validIds
+				hasChanges = true
+			}
+
+			if (group.module_ids.length === 0) {
+				hasChanges = true
+				continue
+			}
+
+			// Step 2: Complete paths and split disconnected components
+			const components = completeAndSplitGroup(group.module_ids, flowNodes)
+
+			if (components.length <= 1) {
+				const completed = components.length > 0 ? components[0] : []
+				const sortedCompleted = [...completed].sort()
+				const sortedOriginal = [...group.module_ids].sort()
+
+				if (
+					sortedCompleted.length !== sortedOriginal.length ||
+					!sortedCompleted.every((id, i) => id === sortedOriginal[i])
+				) {
+					group.module_ids = completed
+					hasChanges = true
+				}
+				if (group.module_ids.length > 0) {
+					newGroups.push(group)
+				} else {
+					hasChanges = true
+				}
+			} else {
+				// Split into multiple groups
+				hasChanges = true
+				for (const component of components) {
+					if (component.length === 0) continue
+					newGroups.push({
+						...group,
+						id: generateId(),
+						module_ids: component,
+						summary: group.summary ? `${group.summary}` : undefined
+					})
+				}
+			}
+		}
+
+		if (hasChanges) {
+			this.setGroups(newGroups)
 		}
 	}
 

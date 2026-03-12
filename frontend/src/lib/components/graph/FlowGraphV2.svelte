@@ -352,7 +352,7 @@
 	}
 	type NodePos = { position: { x: number; y: number } }
 	let lastNodes: [NodeDep[], Map<string, { top: number; bottom: number }> | undefined, (NodeDep & NodePos)[]] | undefined = undefined
-	let currentContainerDescendants: Map<string, string[]> = new Map()
+	let currentContainerDescendants: Map<string, string[]> = $state(new Map())
 
 	const MAX_TOOLS_PER_ROW = 2
 
@@ -749,6 +749,11 @@
 			parentIds: n.parentIds,
 			data: { assets: (n.data as any).assets, module: (n.data as any).module }
 		}))
+
+		// Clean up groups: remove stale IDs, complete paths, split disconnected components
+		if (editMode && groupEditorContext?.groupEditor?.isAvailable()) {
+			groupEditorContext.groupEditor.cleanupGroups(graphNodeDeps)
+		}
 
 		// Pre-compute extra space per node for assets, AI tools, group notes, group headers
 		const nodeExtraSpace = computeNodeExtraSpace(graphNodeDeps)
