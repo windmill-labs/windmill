@@ -1585,34 +1585,61 @@ async fn fork_all_datatables(
     Ok(())
 }
 
-/// Import a pg_dump output into a target database using tokio_postgres.
-/// Filters out psql meta-commands (lines starting with `\`) and comment-only lines
-/// that are not valid SQL but are included in pg_dump's plain-text output.
+/// Import a pg_dump output into a target database using psql.
+/// psql natively handles COPY FROM stdin statements that pg_dump produces for data.
 async fn import_datatable_dump(target_db: &PgDatabase, dump: &str) -> Result<()> {
-    let filtered: String = dump
-        .lines()
-        .filter(|line| {
-            let trimmed = line.trim();
-            !trimmed.starts_with('\\')
-                && !trimmed.starts_with("--")
-                && !trimmed.starts_with("SELECT pg_catalog.set_config")
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let host = &target_db.host;
+    let port = target_db.port.unwrap_or(5432).to_string();
+    let user = target_db.user.as_deref().unwrap_or("postgres");
+    let dbname = &target_db.dbname;
 
-    let (client, connection) = target_db.connect().await?;
-    let join_handle = tokio::spawn(async move { connection.await });
+    let mut cmd = tokio::process::Command::new("psql");
+    cmd.arg("--host")
+        .arg(host)
+        .arg("--port")
+        .arg(&port)
+        .arg("--username")
+        .arg(user)
+        .arg("--dbname")
+        .arg(dbname)
+        .arg("--no-psqlrc")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
 
-    client
-        .batch_execute(&filtered)
+    if let Some(ref password) = target_db.password {
+        cmd.env("PGPASSWORD", password);
+    }
+
+    if let Some(ref sslmode) = target_db.sslmode {
+        cmd.env("PGSSLMODE", sslmode);
+    }
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| Error::internal_err(format!("Failed to spawn psql: {}", e)))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        use tokio::io::AsyncWriteExt;
+        stdin
+            .write_all(dump.as_bytes())
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to write to psql stdin: {}", e)))?;
+        drop(stdin);
+    }
+
+    let output = child
+        .wait_with_output()
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to import schema: {}", e)))?;
+        .map_err(|e| Error::internal_err(format!("Failed to wait for psql: {}", e)))?;
 
-    drop(client);
-    join_handle
-        .await
-        .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
-        .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::internal_err(format!(
+            "psql import failed: {}",
+            stderr
+        )));
+    }
 
     Ok(())
 }
