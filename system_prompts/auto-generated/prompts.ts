@@ -35,9 +35,11 @@ export const FLOW_BASE = `# Windmill Flow Building Guide
 
 Create a folder ending with \`.flow\` and add a YAML file with the flow definition.
 For rawscript modules, use \`!inline path/to/script.ts\` for the content key.
-After writing:
+After writing, tell the user they can run:
 - \`wmill flow generate-locks <path_to_flow_folder> --yes\` - Generate lock files for the specific flow you modified (e.g. \`wmill flow generate-locks f/my_folder/my_flow.flow --yes\`)
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 ## OpenFlow Schema
 
@@ -1356,7 +1358,7 @@ export const CLI_COMMANDS = `# Windmill CLI Commands
 
 The Windmill CLI (\`wmill\`) provides commands for managing scripts, flows, apps, and other resources.
 
-Current version: 1.651.1
+Current version: 1.653.0
 
 ## Global Options
 

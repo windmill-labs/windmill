@@ -34,6 +34,8 @@ Windmill uses 6-field cron expressions (includes seconds):
 
 ## CLI Commands
 
+After writing, tell the user they can run these commands (do NOT run them yourself):
+
 ```bash
 # Push schedules to Windmill
 wmill sync push
