@@ -92,7 +92,6 @@ export function rawAppToHubUrl(hubBaseUrl: string, summary?: string): URL {
 }
 
 type HubPaths = {
-	gitSync: string
 	gitSyncTest: string
 	gitInitRepo: string
 	slackErrorHandler: string
