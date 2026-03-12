@@ -19,7 +19,6 @@
 	import { resource } from 'runed'
 	import { untrack } from 'svelte'
 	import type { DbManagerUriState } from './dbManagerDrawerModel.svelte'
-	import DropdownV2 from './DropdownV2.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -197,23 +196,10 @@
 		{/if}
 		{#snippet actions()}
 			{#if isPostgresqlInput && ($userStore?.is_admin || $superadmin)}
-				<DropdownV2
-					enableFlyTransition
-					items={[
-						{
-							displayName: 'Export schemas',
-							icon: Download,
-							action: () => handleExportSchema()
-						},
-						{
-							displayName: 'Import database',
-							icon: Upload,
-							action: () => {
-								importDrawerOpen = true
-							}
-						}
-					]}
-				/>
+				<Button startIcon={{ icon: Download }} onClick={handleExportSchema}>Export</Button>
+				<Button startIcon={{ icon: Upload }} onClick={() => (importDrawerOpen = true)}>
+					Import
+				</Button>
 			{/if}
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
