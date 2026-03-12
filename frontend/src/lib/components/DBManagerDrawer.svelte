@@ -288,7 +288,7 @@
 				color="red"
 				on:click={handleImportDatabase}
 			>
-				Import schemas into current database
+				Import {importBehavior === 'schema_and_data' ? 'schemas and data' : 'schemas'} into current database
 			</Button>
 		</div>
 	</DrawerContent>
