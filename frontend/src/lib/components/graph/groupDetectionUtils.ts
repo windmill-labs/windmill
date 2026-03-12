@@ -1,3 +1,4 @@
+import { topologicalSort } from './graphBuilder.svelte'
 import { expandWithContainerDescendants } from './util'
 
 type FlowNode = { id: string; parentIds?: string[] }
@@ -75,7 +76,8 @@ export function computeGroupMembers(
 
 /**
  * Check whether a set of selected node IDs can form a valid group.
- * Uses topological ordering to find start (no in-group parents) and end (no in-group children).
+ * Uses topologicalSort to find start (first) and end (last) of selection,
+ * then validates with computeGroupMembers.
  */
 export function canFormValidGroup(
 	selectedIds: string[],
@@ -85,42 +87,15 @@ export function canFormValidGroup(
 	if (selectedIds.length === 0) return { valid: false }
 
 	const selectedSet = new Set(selectedIds)
-	const nodeMap = new Map<string, FlowNode>()
-	for (const n of flowNodes) nodeMap.set(n.id, n)
 
-	// Build children map
-	const childrenMap = new Map<string, string[]>()
-	for (const node of flowNodes) {
-		for (const pid of node.parentIds ?? []) {
-			const children = childrenMap.get(pid)
-			if (children) {
-				children.push(node.id)
-			} else {
-				childrenMap.set(pid, [node.id])
-			}
-		}
-	}
+	// Topological sort of the full graph, then filter to selected nodes
+	const sorted = topologicalSort(flowNodes)
+	const selectedSorted = sorted.filter((n) => selectedSet.has(n.id))
 
-	// Find entries (no in-selection parents) and exits (no in-selection children)
-	const entries: string[] = []
-	const exits: string[] = []
+	if (selectedSorted.length === 0) return { valid: false }
 
-	for (const id of selectedIds) {
-		const node = nodeMap.get(id)
-		if (!node) return { valid: false }
-
-		const hasInternalParent = (node.parentIds ?? []).some((pid) => selectedSet.has(pid))
-		if (!hasInternalParent) entries.push(id)
-
-		const hasInternalChild = (childrenMap.get(id) ?? []).some((cid) => selectedSet.has(cid))
-		if (!hasInternalChild) exits.push(id)
-	}
-
-	// Valid group needs exactly one entry and one exit
-	if (entries.length !== 1 || exits.length !== 1) return { valid: false }
-
-	const startId = entries[0]
-	const endId = exits[0]
+	const startId = selectedSorted[0].id
+	const endId = selectedSorted[selectedSorted.length - 1].id
 
 	// Validate that the computed members match the selection
 	const membership = computeGroupMembers(startId, endId, flowNodes, containerDescendants)
