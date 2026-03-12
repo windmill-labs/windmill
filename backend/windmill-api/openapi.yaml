@@ -12017,6 +12017,39 @@ paths:
         "200":
           description: kafka trigger offsets reset successfully
 
+  /w/{workspace}/kafka_triggers/commit_offsets/{path}:
+    post:
+      summary: commit kafka offsets for a specific trigger
+      operationId: commitKafkaOffsets
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: offsets to commit
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                topic:
+                  type: string
+                partition:
+                  type: integer
+                  format: int32
+                offset:
+                  type: integer
+                  format: int64
+              required:
+                - topic
+                - partition
+                - offset
+      responses:
+        "200":
+          description: kafka offsets committed successfully
+
   /w/{workspace}/nats_triggers/create:
     post:
       summary: create nats trigger
@@ -22098,6 +22131,10 @@ components:
             - earliest
           default: latest
           description: "Initial offset behavior when consumer group has no committed offset. 'latest' starts from new messages only, 'earliest' starts from the beginning."
+        auto_commit:
+          type: boolean
+          default: true
+          description: "When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint."
         server_id:
           type: string
           description: ID of the server currently handling this trigger (internal)
@@ -22165,6 +22202,10 @@ components:
             - earliest
           default: latest
           description: "Initial offset behavior when consumer group has no committed offset."
+        auto_commit:
+          type: boolean
+          default: true
+          description: "When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint."
         mode:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
@@ -22224,6 +22265,10 @@ components:
             - earliest
           default: latest
           description: "Initial offset behavior when consumer group has no committed offset."
+        auto_commit:
+          type: boolean
+          default: true
+          description: "When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint."
         path:
           type: string
           description: The unique path identifier for this trigger
