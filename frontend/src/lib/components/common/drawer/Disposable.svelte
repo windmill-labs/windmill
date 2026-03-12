@@ -1,5 +1,12 @@
 <script lang="ts" module>
 	export let openedDrawers: { val: string[] } = $state({ val: [] })
+
+	// Tracks the number of open disposables that requested a raised z-index
+	// base via minZIndex. While refcount > 0, all disposables use the raised
+	// base so that overlays opened on top (e.g. a Drawer from inside a Modal)
+	// stack correctly above it.
+	let minZIndexRefCount = 0
+	let activeMinZIndex = $state(0)
 </script>
 
 <script lang="ts">
@@ -11,6 +18,11 @@
 		id?: any
 		preventEscape?: boolean
 		initialOffset?: number
+		/** Minimum z-index base for this overlay. While any disposable with a
+		 *  minZIndex is open, all disposables use that as their base so that
+		 *  subsequent overlays stack above it (e.g. zIndexes.aiChat + 1 for
+		 *  modals that need to render above the AI chat panel). */
+		minZIndex?: number
 		children?: import('svelte').Snippet<[any]>
 		onOpen?: () => void
 		onClose?: () => void
@@ -21,13 +33,14 @@
 		id = (Math.random() + 1).toString(36).substring(10),
 		preventEscape = false,
 		initialOffset = 0,
+		minZIndex = 0,
 		children,
 		onOpen,
 		onClose
 	}: Props = $props()
 
 	let offset = $state(untrack(() => initialOffset))
-	let zIndex = $derived(zIndexes.disposables + offset)
+	let zIndex = $derived(Math.max(zIndexes.disposables, activeMinZIndex) + offset)
 
 	export function toggleDrawer() {
 		if (!open) {
@@ -44,6 +57,10 @@
 		}
 		openedDrawers.val.push(id)
 		offset = initialOffset + openedDrawers.val.length
+		if (minZIndex > 0) {
+			minZIndexRefCount++
+			activeMinZIndex = Math.max(activeMinZIndex, minZIndex)
+		}
 	}
 
 	export function closeDrawer() {
@@ -51,6 +68,12 @@
 		offset = initialOffset
 		if (openedDrawers.val.includes(id)) {
 			openedDrawers.val = openedDrawers.val.filter((drawer) => drawer !== id)
+			if (minZIndex > 0) {
+				minZIndexRefCount = Math.max(0, minZIndexRefCount - 1)
+				if (minZIndexRefCount === 0) {
+					activeMinZIndex = 0
+				}
+			}
 		}
 	}
 
@@ -89,6 +112,10 @@
 	if (open) {
 		openedDrawers.val.push(untrack(() => id))
 		offset = untrack(() => initialOffset) + openedDrawers.val.length
+		if (minZIndex > 0) {
+			minZIndexRefCount++
+			activeMinZIndex = Math.max(activeMinZIndex, minZIndex)
+		}
 	}
 
 	let wasEverOpen = false
