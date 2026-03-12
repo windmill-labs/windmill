@@ -347,7 +347,8 @@ export function topologicalSort(
 		if (visited.has(id)) return
 		visited.add(id)
 
-		const node = nodeMap.get(id)!
+		const node = nodeMap.get(id)
+		if (!node) return
 		node.parentIds?.forEach(visit)
 		result.push(node)
 	}
@@ -410,7 +411,9 @@ export function graphBuilder(
 		note?: string
 		color?: string
 		collapsed?: boolean
-		module_ids: string[]
+		start_id: string
+		end_id: string
+		memberIds: string[]
 	}>,
 	collapsedContainers: Set<string>,
 	showNotes: boolean
@@ -433,7 +436,7 @@ export function graphBuilder(
 		// Build a map: module_id -> collapsed group (only for collapsed groups)
 		const moduleToCollapsedGroup = new Map<string, (typeof collapsedGroups)[number]>()
 		for (const group of collapsedGroups) {
-			for (const moduleId of group.module_ids) {
+			for (const moduleId of group.memberIds) {
 				moduleToCollapsedGroup.set(moduleId, group)
 			}
 		}
@@ -696,8 +699,8 @@ export function graphBuilder(
 								summary: collapsedGroup.summary,
 								note: collapsedGroup.note,
 								color: collapsedGroup.color,
-								stepCount: collapsedGroup.module_ids.length,
-								modules: collapsedGroup.module_ids
+								stepCount: collapsedGroup.memberIds.length,
+								modules: collapsedGroup.memberIds
 									.map((id) => getAllModules(modules).find((m) => m.id === id))
 									.filter((m): m is FlowModule => m != null),
 								showNotes,

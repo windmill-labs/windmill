@@ -4,6 +4,7 @@
 	import type { Snippet } from 'svelte'
 	import { getNoteEditorContext } from './noteEditor.svelte'
 	import { getGroupEditorContext } from './groupEditor.svelte'
+	import { canFormValidGroup } from './groupDetectionUtils'
 	import { getGraphContext } from './graphContext'
 	import { tick } from 'svelte'
 
@@ -21,15 +22,24 @@
 	// Get Graph context for clearFlowSelection function
 	const graphContext = getGraphContext()
 
+	let canCreateGroup = $derived.by(() => {
+		if (selectedNodeIds.length < 1 || !groupEditorContext?.groupEditor || !graphContext) return false
+		const flowNodes = graphContext.getFlowNodes?.() ?? []
+		const contDesc = graphContext.getContainerDescendants?.() ?? new Map()
+		return canFormValidGroup(selectedNodeIds, flowNodes, contDesc).valid
+	})
+
 	const menuItems: ContextMenuItem[] = $derived([
 		{
 			id: 'create-group',
 			label: `Create group (${selectedNodeIds.length} nodes)`,
 			icon: Group,
-			disabled: selectedNodeIds.length === 0 || !groupEditorContext?.groupEditor,
+			disabled: selectedNodeIds.length === 0 || !groupEditorContext?.groupEditor || !canCreateGroup,
 			onClick: () => {
 				if (selectedNodeIds.length > 0 && groupEditorContext?.groupEditor && graphContext) {
-					groupEditorContext.groupEditor.createGroup(selectedNodeIds)
+					const flowNodes = graphContext.getFlowNodes?.() ?? []
+					const contDesc = graphContext.getContainerDescendants?.() ?? new Map()
+					groupEditorContext.groupEditor.createGroup(selectedNodeIds, flowNodes, contDesc)
 
 					tick().then(() => {
 						graphContext?.clearFlowSelection?.()

@@ -64,7 +64,9 @@
 			</button>
 		{/snippet}
 		{#snippet menu()}
-			<div class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none py-1">
+			<div
+				class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none py-1"
+			>
 				<!-- Color picker -->
 				<div class="px-4 py-2">
 					<div class="grid grid-cols-5 gap-1">
@@ -95,10 +97,15 @@
 				<!-- Add / Remove note -->
 				<button
 					class="px-4 py-2 text-primary font-normal hover:bg-surface-hover cursor-pointer text-xs w-full flex flex-row gap-2 items-center rounded-sm"
-					onclick={() => { note == null ? onAddNote() : onRemoveNote(); menuOpen = false }}
+					onclick={() => {
+						note == null ? onAddNote() : onRemoveNote()
+						menuOpen = false
+					}}
 				>
 					<StickyNote size={14} class="shrink-0" />
-					<p class="truncate grow min-w-0 whitespace-nowrap text-left">{note == null ? 'Add note' : 'Remove note'}</p>
+					<p class="truncate grow min-w-0 whitespace-nowrap text-left"
+						>{note == null ? 'Add note' : 'Remove note'}</p
+					>
 				</button>
 
 				{#if onDeleteGroup}
@@ -107,7 +114,10 @@
 					<!-- Ungroup -->
 					<button
 						class="px-4 py-2 font-normal hover:bg-red-500/10 cursor-pointer text-xs w-full flex flex-row gap-2 items-center rounded-sm text-red-600 dark:text-red-400"
-						onclick={() => { onDeleteGroup?.(); menuOpen = false }}
+						onclick={() => {
+							onDeleteGroup?.()
+							menuOpen = false
+						}}
 					>
 						<Ungroup size={14} class="shrink-0" />
 						<p class="truncate grow min-w-0 whitespace-nowrap text-left">Ungroup</p>

@@ -1,20 +1,22 @@
 import type { StateStore } from '$lib/utils'
 import type { ExtendedOpenFlow } from '../flows/types'
-import { completeAndSplitGroup } from './groupDetectionUtils'
+import { canFormValidGroup, type GroupMembership } from './groupDetectionUtils'
 import type { NoteColor } from './noteColors'
 import { DEFAULT_GROUP_NOTE_COLOR, getNextAvailableColor } from './noteColors'
 import { generateId } from './util'
 import { getContext, setContext } from 'svelte'
 
 /**
- * Type for a flow group (matches the generated type from OpenAPI)
+ * Type for a flow group (matches the generated type from OpenAPI).
+ * Members are computed dynamically from all nodes on paths between start_id and end_id.
  */
 export type FlowGroup = {
 	id: string
 	summary?: string
 	note?: string
 	collapsed_by_default?: boolean
-	module_ids: Array<string>
+	start_id: string
+	end_id: string
 	color?: string
 }
 
@@ -102,10 +104,15 @@ export class GroupEditor {
 	}
 
 	/**
-	 * Create a new group containing the specified module IDs.
+	 * Create a new group from selected node IDs.
+	 * Uses canFormValidGroup to determine start_id and end_id.
 	 * Returns the generated group ID.
 	 */
-	createGroup(moduleIds: string[]): string {
+	createGroup(
+		moduleIds: string[],
+		flowNodes: { id: string; parentIds?: string[] }[],
+		containerDescendants: Map<string, string[]>
+	): string | undefined {
 		// Filter subflow node IDs (same logic as NoteEditor.createGroupNote)
 		let filteredIds = [...moduleIds]
 		const subflowIds: string[] = []
@@ -122,6 +129,9 @@ export class GroupEditor {
 			filteredIds = [...filteredIds, ...subflowIds]
 		}
 
+		const result = canFormValidGroup(filteredIds, flowNodes, containerDescendants)
+		if (!result.valid) return undefined
+
 		const groups = this.getGroups()
 		const usedColors = new Set<NoteColor>()
 		for (const group of groups) {
@@ -133,7 +143,8 @@ export class GroupEditor {
 
 		const newGroup: FlowGroup = {
 			id: generateId(),
-			module_ids: filteredIds,
+			start_id: result.startId,
+			end_id: result.endId,
 			color
 		}
 		this.setGroups([...groups, newGroup])
@@ -177,10 +188,14 @@ export class GroupEditor {
 	}
 
 	/**
-	 * Returns the smallest group (by module_ids.length) that contains the given module ID.
+	 * Returns the smallest group (by member count) that contains the given module ID.
 	 * Also matches collapsed group node IDs (collapsed-group:{groupId}).
+	 * Requires pre-computed membership map.
 	 */
-	getClosestGroup(moduleId: string): FlowGroup | undefined {
+	getClosestGroup(
+		moduleId: string,
+		groupMemberships: Map<string, GroupMembership>
+	): FlowGroup | undefined {
 		const groups = this.getGroups()
 
 		// Check if this is a collapsed group node ID
@@ -190,10 +205,13 @@ export class GroupEditor {
 		}
 
 		let closest: FlowGroup | undefined = undefined
+		let closestSize = Infinity
 		for (const group of groups) {
-			if (group.module_ids.includes(moduleId)) {
-				if (!closest || group.module_ids.length < closest.module_ids.length) {
+			const membership = groupMemberships.get(group.id)
+			if (membership && membership.memberIds.includes(moduleId)) {
+				if (membership.memberIds.length < closestSize) {
 					closest = group
+					closestSize = membership.memberIds.length
 				}
 			}
 		}
@@ -204,32 +222,32 @@ export class GroupEditor {
 		return !!this.flowStore.val.value
 	}
 
-	/** Remove a deleted node from all groups. Removes empty groups. */
+	/**
+	 * Remove a deleted node from groups.
+	 * If nodeId === start_id or end_id: delete the group (cleanupGroups on next render will
+	 * catch any edge cases). If between: no-op (membership recomputes dynamically).
+	 */
 	removeNode(nodeId: string): void {
 		const groups = this.getGroups()
-		let changed = false
-		for (const group of groups) {
-			const idx = group.module_ids.indexOf(nodeId)
-			if (idx !== -1) {
-				group.module_ids.splice(idx, 1)
-				changed = true
-			}
-		}
-		if (changed) {
-			this.setGroups(groups.filter((g) => g.module_ids.length > 0))
+		const newGroups = groups.filter((g) => g.start_id !== nodeId && g.end_id !== nodeId)
+		if (newGroups.length !== groups.length) {
+			this.setGroups(newGroups)
 		}
 	}
 
-	/** Clean up groups: remove stale node IDs, complete paths, and split disconnected components. */
+	/**
+	 * Clean up groups: check start_id and end_id still exist, delete if not.
+	 * Much simpler than the old module_ids-based cleanup.
+	 */
 	cleanupGroups(flowNodes: { id: string; parentIds?: string[] }[]): void {
 		if (!this.isAvailable()) return
 
 		const groups = this.getGroups()
 		if (groups.length === 0) return
 
-		let hasChanges = false
 		const nodeSet = new Set(flowNodes.map((n) => n.id))
 		const newGroups: FlowGroup[] = []
+		let hasChanges = false
 
 		for (const group of groups) {
 			// Skip collapsed groups — their module nodes are replaced by a single
@@ -239,88 +257,15 @@ export class GroupEditor {
 				continue
 			}
 
-			// Step 1: Remove stale module_ids
-			const validIds = group.module_ids.filter((id) => nodeSet.has(id))
-			if (validIds.length !== group.module_ids.length) {
-				group.module_ids = validIds
-				hasChanges = true
-			}
-
-			if (group.module_ids.length === 0) {
-				hasChanges = true
-				continue
-			}
-
-			// Step 2: Complete paths and split disconnected components
-			const components = completeAndSplitGroup(group.module_ids, flowNodes)
-
-			if (components.length <= 1) {
-				const completed = components.length > 0 ? components[0] : []
-				const sortedCompleted = [...completed].sort()
-				const sortedOriginal = [...group.module_ids].sort()
-
-				if (
-					sortedCompleted.length !== sortedOriginal.length ||
-					!sortedCompleted.every((id, i) => id === sortedOriginal[i])
-				) {
-					group.module_ids = completed
-					hasChanges = true
-				}
-				if (group.module_ids.length > 0) {
-					newGroups.push(group)
-				} else {
-					hasChanges = true
-				}
+			if (nodeSet.has(group.start_id) && nodeSet.has(group.end_id)) {
+				newGroups.push(group)
 			} else {
-				// Split into multiple groups
 				hasChanges = true
-				for (const component of components) {
-					if (component.length === 0) continue
-					newGroups.push({
-						...group,
-						id: generateId(),
-						module_ids: component,
-						summary: group.summary ? `${group.summary}` : undefined
-					})
-				}
 			}
 		}
 
 		if (hasChanges) {
 			this.setGroups(newGroups)
-		}
-	}
-
-	/** Add a newly inserted node to the group that contains both its neighbors. */
-	addInsertedNode(newNodeId: string, sourceId?: string, targetId?: string): void {
-		if (!sourceId || !targetId) return
-		const groups = this.getGroups()
-		for (const group of groups) {
-			if (group.module_ids.includes(sourceId) && group.module_ids.includes(targetId)) {
-				group.module_ids.push(newNodeId)
-				this.setGroups(groups)
-				return
-			}
-		}
-	}
-
-	/** Handle a node that was moved to a new position in the flow. */
-	handleNodeMoved(movedId: string, sourceId?: string, targetId?: string): void {
-		const groups = this.getGroups()
-		const currentGroup = groups.find((g) => g.module_ids.includes(movedId))
-
-		if (currentGroup) {
-			// Was in a group — only keep if BOTH neighbors are in the same group
-			const sourceInGroup = sourceId ? currentGroup.module_ids.includes(sourceId) : false
-			const targetInGroup = targetId ? currentGroup.module_ids.includes(targetId) : false
-			if (!(sourceInGroup && targetInGroup)) {
-				// Moved to boundary or outside the group — remove
-				currentGroup.module_ids = currentGroup.module_ids.filter((id) => id !== movedId)
-				this.setGroups(groups.filter((g) => g.module_ids.length > 0))
-			}
-		} else {
-			// Wasn't in a group — check if moved into one
-			this.addInsertedNode(movedId, sourceId, targetId)
 		}
 	}
 }
@@ -393,9 +338,11 @@ export function computeCollapsedGroupNoteSpacing(
 /**
  * Compute adjusted node positions that account for group label spacing.
  * Follows the same push-down pattern as computeNoteNodes in noteUtils.
+ * Accepts a membership map to look up computed members per group.
  */
 export function computeGroupSpacing(
 	groups: FlowGroup[],
+	groupMemberships: Map<string, GroupMembership>,
 	nodes: Array<{ id: string; position: { x: number; y: number } }>,
 	noteHeights?: Record<string, number>
 ): Record<string, { x: number; y: number }> {
@@ -407,7 +354,8 @@ export function computeGroupSpacing(
 	const yPosMap: Record<number, number> = {}
 
 	for (const group of groups) {
-		if (group.module_ids.length === 0) continue
+		const memberIds = groupMemberships.get(group.id)?.memberIds ?? []
+		if (memberIds.length === 0) continue
 
 		// Find topmost node Y position in this group
 		// Check both member nodes (uncollapsed) and collapsed-group node (collapsed)
@@ -418,7 +366,7 @@ export function computeGroupSpacing(
 			if (node.id === collapsedNodeId && node.position.y < topY) {
 				topY = node.position.y
 				isCollapsed = true
-			} else if (group.module_ids.includes(node.id) && node.position.y < topY) {
+			} else if (memberIds.includes(node.id) && node.position.y < topY) {
 				topY = node.position.y
 				isCollapsed = false
 			}

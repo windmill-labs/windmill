@@ -66,8 +66,10 @@
 	import {
 		getGroupEditorContext,
 		GROUP_HEADER_HEIGHT,
-		GROUP_TOP_MARGIN
+		GROUP_TOP_MARGIN,
+		type FlowGroup
 	} from './groupEditor.svelte'
+	import { computeGroupMembers, type GroupMembership } from './groupDetectionUtils'
 	import SelectionTool from './SelectionTool.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
@@ -329,7 +331,10 @@
 		moveManager: untrack(() => moveManager),
 		clearFlowSelection,
 		yOffset,
-		diffManager
+		diffManager,
+		getFlowNodes: () => currentGraphNodeDeps,
+		getContainerDescendants: () => currentContainerDescendants,
+		getGroupMemberships: () => currentGroupMemberships
 	} as any)
 
 	if (triggerContext && untrack(() => allowSimplifiedPoll)) {
@@ -370,6 +375,33 @@
 		| [NodeDep[], Map<string, { top: number; bottom: number }> | undefined, (NodeDep & NodePos)[]]
 		| undefined = undefined
 	let currentContainerDescendants: Map<string, string[]> = $state(new Map())
+	let currentGraphNodeDeps: { id: string; parentIds?: string[] }[] = $state([])
+
+	/** Compute group memberships from start_id/end_id for a given set of flow nodes.
+	 *  Collapsed groups preserve their previous membership (their member nodes
+	 *  aren't in the graph — they've been replaced by a placeholder). */
+	function computeAllGroupMemberships(
+		groups: FlowGroup[],
+		flowNodes: { id: string; parentIds?: string[] }[],
+		contDescendants: Map<string, string[]>
+	): Map<string, GroupMembership> {
+		const map = new Map<string, GroupMembership>()
+		for (const group of groups) {
+			if (groupEditorContext?.groupEditor.isRuntimeCollapsed(group.id)) {
+				const prev = currentGroupMemberships.get(group.id)
+				if (prev) map.set(group.id, prev)
+				continue
+			}
+			map.set(
+				group.id,
+				computeGroupMembers(group.start_id, group.end_id, flowNodes, contDescendants)
+			)
+		}
+		return map
+	}
+
+	// Current group memberships — recomputed when groups, nodes, or containerDescendants change
+	let currentGroupMemberships: Map<string, GroupMembership> = $state(new Map())
 
 	const MAX_TOOLS_PER_ROW = 2
 
@@ -458,7 +490,7 @@
 			// Need to find topmost node per group - use topological sort
 			const sortedNodes = topologicalSort(graphNodes).reverse()
 			for (const group of groups) {
-				if (group.module_ids.length === 0) continue
+				const memberIds = currentGroupMemberships.get(group.id)?.memberIds ?? []
 				// Check if it's collapsed
 				const collapsedNodeId = `collapsed-group:${group.id}`
 				const hasCollapsedNode = graphNodes.some((n) => n.id === collapsedNodeId)
@@ -468,8 +500,8 @@
 				if (hasCollapsedNode) {
 					topmostNodeId = collapsedNodeId
 					isCollapsed = true
-				} else {
-					topmostNodeId = sortedNodes.find((node) => group.module_ids.includes(node.id))?.id
+				} else if (memberIds.length > 0) {
+					topmostNodeId = sortedNodes.find((node) => memberIds.includes(node.id))?.id
 				}
 
 				if (topmostNodeId) {
@@ -490,7 +522,7 @@
 					if (!isCollapsed) {
 						const bottommostNodeId = [...sortedNodes]
 							.reverse()
-							.find((node) => group.module_ids.includes(node.id))?.id
+							.find((node) => memberIds.includes(node.id))?.id
 						if (bottommostNodeId) {
 							const prevBottom = extraSpace.get(bottommostNodeId) ?? {
 								top: 0,
@@ -789,11 +821,19 @@
 			parentIds: n.parentIds,
 			data: { assets: (n.data as any).assets, module: (n.data as any).module }
 		}))
+		currentGraphNodeDeps = graphNodeDeps
 
-		// Clean up groups: remove stale IDs, complete paths, split disconnected components
+		// Clean up groups: check start_id/end_id still exist
 		if (editMode && groupEditorContext?.groupEditor?.isAvailable()) {
 			groupEditorContext.groupEditor.cleanupGroups(graphNodeDeps)
 		}
+
+		// Compute group memberships from start_id/end_id
+		currentGroupMemberships = computeAllGroupMemberships(
+			groupEditorContext?.groupEditor.getGroups() ?? [],
+			graphNodeDeps,
+			currentContainerDescendants
+		)
 
 		// Pre-compute extra space per node for assets, AI tools, group notes, group headers
 		const nodeExtraSpace = computeNodeExtraSpace(graphNodeDeps)
@@ -855,7 +895,7 @@
 				: {}
 			const sortedNodes = topologicalSort(graphNodeDeps).reverse()
 			for (const group of groups) {
-				if (group.module_ids.length === 0) continue
+				const memberIds = currentGroupMemberships.get(group.id)?.memberIds ?? []
 				const collapsedNodeId = `collapsed-group:${group.id}`
 				const hasCollapsedNode = graphNodeDeps.some((n) => n.id === collapsedNodeId)
 				let topNodeId: string | undefined
@@ -864,8 +904,8 @@
 				if (hasCollapsedNode) {
 					topNodeId = collapsedNodeId
 					isCollapsed = true
-				} else {
-					topNodeId = sortedNodes.find((node) => group.module_ids.includes(node.id))?.id
+				} else if (memberIds.length > 0) {
+					topNodeId = sortedNodes.find((node) => memberIds.includes(node.id))?.id
 				}
 
 				if (topNodeId) {
@@ -880,7 +920,7 @@
 				if (!isCollapsed) {
 					const bottomNodeId = [...sortedNodes]
 						.reverse()
-						.find((node) => group.module_ids.includes(node.id))?.id
+						.find((node) => memberIds.includes(node.id))?.id
 					if (bottomNodeId) {
 						const groupPadding = 16
 						groupBottomOffsets[bottomNodeId] = Math.max(
@@ -995,7 +1035,12 @@
 		effectiveModuleActions
 		currentGroups
 
-		const collapsedGroups = groupEditorContext?.groupEditor.getCollapsedGroups() ?? []
+		const collapsedGroups = (groupEditorContext?.groupEditor.getCollapsedGroups() ?? []).map(
+			(g) => ({
+				...g,
+				memberIds: untrack(() => currentGroupMemberships.get(g.id)?.memberIds ?? [])
+			})
+		)
 
 		return graphBuilder(
 			untrack(() => effectiveModules),
@@ -1298,7 +1343,7 @@
 					allNodes={nodesWithOffset as (Node & { type: string })[]}
 					{editMode}
 					{showNotes}
-					containerDescendants={currentContainerDescendants}
+					groupMemberships={currentGroupMemberships}
 				/>
 
 				<!-- SelectionTool for handling selection changes and filtering -->

@@ -129,9 +129,13 @@ export type FlowValue = {
          */
         collapsed_by_default?: boolean;
         /**
-         * IDs of the flow modules belonging to this group. Must reference valid FlowModule ids from the flow's modules array.
+         * ID of the first flow module in this group (topological entry point)
          */
-        module_ids: Array<(string)>;
+        start_id: string;
+        /**
+         * ID of the last flow module in this group (topological exit point)
+         */
+        end_id: string;
         /**
          * Color for the group in the flow editor
          */

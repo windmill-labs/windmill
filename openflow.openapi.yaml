@@ -216,7 +216,7 @@ components:
 
     FlowGroup:
       type: object
-      description: A semantic group of flow modules for organizational purposes. Does not affect execution — modules remain in their original position in the flow. Groups provide naming and collapsibility in the editor.
+      description: A semantic group of flow modules for organizational purposes. Does not affect execution — modules remain in their original position in the flow. Groups provide naming and collapsibility in the editor. Members are computed dynamically from all nodes on paths between start_id and end_id.
       properties:
         id:
           type: string
@@ -231,17 +231,19 @@ components:
           type: boolean
           default: false
           description: If true, this group is collapsed by default in the flow editor. UI hint only.
-        module_ids:
-          type: array
-          description: IDs of the flow modules belonging to this group. Must reference valid FlowModule ids from the flow's modules array.
-          items:
-            type: string
+        start_id:
+          type: string
+          description: ID of the first flow module in this group (topological entry point)
+        end_id:
+          type: string
+          description: ID of the last flow module in this group (topological exit point)
         color:
           type: string
           description: Color for the group in the flow editor
       required:
         - id
-        - module_ids
+        - start_id
+        - end_id
 
     RetryIf:
       type: object

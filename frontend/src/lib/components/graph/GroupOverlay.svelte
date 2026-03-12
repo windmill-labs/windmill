@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
-	import { calculateNodesBoundsWithOffset, expandWithContainerDescendants } from './util'
+	import { calculateNodesBoundsWithOffset } from './util'
 	import { getGroupEditorContext, GROUP_HEADER_HEIGHT, GROUP_TOP_MARGIN, type FlowGroup } from './groupEditor.svelte'
+	import type { GroupMembership } from './groupDetectionUtils'
 	import { NoteColor, NOTE_COLORS } from './noteColors'
 	import GroupActionBar from './GroupActionBar.svelte'
 	import GroupHeader from './GroupHeader.svelte'
@@ -13,10 +14,10 @@
 		allNodes: (Node & { type: string })[]
 		editMode: boolean
 		showNotes: boolean
-		containerDescendants: Map<string, string[]>
+		groupMemberships: Map<string, GroupMembership>
 	}
 
-	let { hoveredNodeId, allNodes, editMode, showNotes, containerDescendants }: Props = $props()
+	let { hoveredNodeId, allNodes, editMode, showNotes, groupMemberships }: Props = $props()
 
 	const groupEditorContext = getGroupEditorContext()
 
@@ -39,7 +40,7 @@
 			return allGroups.find((g) => g.id === headerHoveredGroupId)
 		}
 		if (!hoveredNodeId || !groupEditorContext?.groupEditor) return undefined
-		return groupEditorContext.groupEditor.getClosestGroup(hoveredNodeId)
+		return groupEditorContext.groupEditor.getClosestGroup(hoveredNodeId, groupMemberships)
 	})
 
 	// Manage visible group with delay to prevent flickering
@@ -71,7 +72,8 @@
 	let groupBoundsMap = $derived.by(() => {
 		const map: Record<string, { x: number; y: number; width: number; height: number; headerY: number } | null> = {}
 		for (const group of allGroups) {
-			if (group.module_ids.length === 0) {
+			const memberIds = groupMemberships.get(group.id)?.memberIds ?? []
+			if (memberIds.length === 0) {
 				map[group.id] = null
 				continue
 			}
@@ -95,9 +97,8 @@
 					headerY: node.position.y - headerTotal
 				}
 			} else {
-				// Expanded group bounds — expand module_ids to include container descendants
-				const expandedIds = expandWithContainerDescendants(group.module_ids, containerDescendants)
-				const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(expandedIds, allNodes)
+				// Expanded group bounds — memberIds already include container descendants
+				const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(memberIds, allNodes)
 				const padding = 16
 				const noteHeight = getGroupNoteHeight(group.id)
 				const topPadding = GROUP_HEADER_HEIGHT + noteHeight + GROUP_TOP_MARGIN
@@ -105,7 +106,7 @@
 				// Find the topmost node's center x to symmetrize the bounding box
 				let topNodeCenterX = (minX + maxX) / 2
 				let topNodeY = Infinity
-				for (const id of group.module_ids) {
+				for (const id of memberIds) {
 					const node = allNodes.find((n) => n.id === id)
 					if (node && node.position.y < topNodeY) {
 						topNodeY = node.position.y

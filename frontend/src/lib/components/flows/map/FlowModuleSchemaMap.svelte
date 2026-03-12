@@ -632,11 +632,6 @@
 								}
 								targetModules.splice(insertIndex, 0, ...removedModules)
 								selectionManager.selectByIds(removedModules.map((m) => m.id))
-								for (const m of removedModules) {
-									groupEditorContext?.groupEditor.handleNodeMoved(
-										m.id, detail.sourceId, detail.targetId
-									)
-								}
 							} else {
 								let indexToRemove = originalModules.findIndex((m) => moveManager.movingModuleId == m.id)
 								let [removedModule] = originalModules.splice(indexToRemove, 1)
@@ -647,9 +642,6 @@
 								}
 								targetModules.splice(insertIndex, 0, removedModule)
 								selectionManager.selectId(removedModule.id)
-								groupEditorContext?.groupEditor.handleNodeMoved(
-									removedModule.id, detail.sourceId, detail.targetId
-								)
 							}
 							moveManager.clearMoving()
 						} else {
@@ -687,7 +679,6 @@
 									toolKind
 								)
 								const id = targetModules[index].id
-								groupEditorContext?.groupEditor.addInsertedNode(id, detail.sourceId, detail.targetId)
 								selectionManager.selectId(id)
 
 								if (detail.inlineScript?.instructions) {
