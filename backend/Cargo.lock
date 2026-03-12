@@ -16187,6 +16187,7 @@ dependencies = [
  "windmill-api-auth",
  "windmill-api-client",
  "windmill-common",
+ "windmill-git-sync",
  "windmill-native-triggers",
  "windmill-test-utils",
  "windmill-worker",
