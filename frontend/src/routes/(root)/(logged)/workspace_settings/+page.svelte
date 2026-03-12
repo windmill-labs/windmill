@@ -51,6 +51,7 @@
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
+	import VolumeStorageSettings from '$lib/components/workspaceSettings/VolumeStorageSettings.svelte'
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
 	import { untrack } from 'svelte'
 	import { getHandlerType } from '$lib/components/triggers/utils'
@@ -1854,7 +1855,7 @@ export async function main(
 								}}
 							/>
 						{:else if tab == 'volume_storage'}
-							<StorageSettings
+							<VolumeStorageSettings
 								bind:s3ResourceSettings
 								{s3ResourceSavedSettings}
 								onSave={() => {
@@ -1863,7 +1864,6 @@ export async function main(
 								onDiscard={() => {
 									s3ResourceSettings = clone(s3ResourceSavedSettings)
 								}}
-								volumeOnly
 							/>
 						{:else if tab == 'ducklake'}
 							<DucklakeSettings
