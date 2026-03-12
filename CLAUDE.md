@@ -52,23 +52,25 @@ let { my_prop = $bindable(default_value) }: { my_prop?: string } = $props()
 
 ## Code Navigation
 
-Use `wm-ts-nav` for fast symbol navigation. It uses tree-sitter with a SQLite index that auto-updates on each call (~13ms warm, ~2s cold). Supports Rust (.rs), TypeScript (.ts/.tsx/.js), and Svelte (.svelte — extracts `<script>` blocks).
+`wm-ts-nav` is a tree-sitter navigator with SQLite index (~12ms warm). Build if not available: `cd wm-ts-nav && cargo build --release`
 
-If the binary is not available, build it first: `cd wm-ts-nav && cargo build --release`
+**When to use `wm-ts-nav` vs Grep:**
+- "What's in this file?" → `outline` (full structure with signatures, saves reading the whole file)
+- "Where is X defined?" → `def "X"` (finds declarations only, not usages)
+- "What methods does type Y have?" → `search "%" --parent Y` (across all files)
+- "What structs/functions match Y?" → `search "Y" --kind struct`
+- "Where is X used in code?" → `refs "X"` (skips comments/strings, slower than grep but no noise)
+- "Find a string/pattern in code" → use **Grep** (faster, but matches comments/strings too)
 
 ```bash
-# Find where a symbol is defined
-wm-ts-nav/target/release/wm-ts-nav --root backend def "ServiceName"
-
-# Search symbols by pattern (SQL LIKE wildcards supported)
-wm-ts-nav/target/release/wm-ts-nav --root backend search "Trigger" --kind struct
-
-# Show all symbols in a file (works with .rs, .ts, .svelte)
-wm-ts-nav/target/release/wm-ts-nav --root backend outline backend/path/to/file.rs
-
-# Search frontend symbols
-wm-ts-nav/target/release/wm-ts-nav --root frontend/src search "favoriteManager"
-wm-ts-nav/target/release/wm-ts-nav --root frontend/src outline frontend/src/lib/components/path/to/Component.svelte
+NAV=wm-ts-nav/target/release/wm-ts-nav
+$NAV --root backend outline backend/path/to/file.rs
+$NAV --root backend def "ServiceName"
+$NAV --root backend search "%" --kind function --parent ServiceName
+$NAV --root backend search "Trigger" --kind struct
+$NAV --root backend refs "ServiceName"
+$NAV --root frontend/src outline frontend/src/path/to/Component.svelte
+$NAV --root frontend/src search "favoriteManager"
 ```
 
 Use `--root backend` for Rust, `--root frontend/src` for frontend. Kinds: `function`, `struct`, `enum`, `trait`, `impl`, `type_alias`, `const`, `static`, `mod`, `macro`, `interface`, `class`

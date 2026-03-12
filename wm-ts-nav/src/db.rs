@@ -102,22 +102,23 @@ impl Db {
         &self,
         pattern: &str,
         kind_filter: Option<&str>,
+        parent_filter: Option<&str>,
         limit: usize,
     ) -> Result<Vec<SearchResult>> {
-        let query = if let Some(kind) = kind_filter {
-            format!(
-                "SELECT s.name, s.kind, s.line, s.end_line, s.signature, s.parent, f.path
-                 FROM symbols s JOIN files f ON s.file_id = f.id
-                 WHERE s.name LIKE ?1 AND s.kind = '{kind}'
-                 ORDER BY s.name LIMIT ?2"
-            )
-        } else {
+        let mut conditions = vec!["s.name LIKE ?1".to_string()];
+        if let Some(kind) = kind_filter {
+            conditions.push(format!("s.kind = '{kind}'"));
+        }
+        if let Some(parent) = parent_filter {
+            conditions.push(format!("s.parent LIKE '%{parent}%'"));
+        }
+        let where_clause = conditions.join(" AND ");
+        let query = format!(
             "SELECT s.name, s.kind, s.line, s.end_line, s.signature, s.parent, f.path
              FROM symbols s JOIN files f ON s.file_id = f.id
-             WHERE s.name LIKE ?1
+             WHERE {where_clause}
              ORDER BY s.name LIMIT ?2"
-                .to_string()
-        };
+        );
 
         let like_pattern = if pattern.contains('%') || pattern.contains('_') {
             pattern.to_string()

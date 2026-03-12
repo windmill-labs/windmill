@@ -1,6 +1,7 @@
 mod db;
 mod indexer;
 mod parser;
+mod refs;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -33,6 +34,9 @@ enum Command {
         /// Filter by kind (function, struct, enum, trait, impl, etc.)
         #[arg(short, long)]
         kind: Option<String>,
+        /// Filter by parent (e.g. --parent ServiceName to find methods on that type)
+        #[arg(short, long)]
+        parent: Option<String>,
         /// Max results
         #[arg(short, long, default_value = "50")]
         limit: usize,
@@ -44,6 +48,14 @@ enum Command {
         /// Filter by kind
         #[arg(short, long)]
         kind: Option<String>,
+    },
+    /// Find references to a symbol in code (skips comments and strings)
+    Refs {
+        /// Symbol name to find
+        name: String,
+        /// Max results
+        #[arg(short, long, default_value = "50")]
+        limit: usize,
     },
 }
 
@@ -85,15 +97,16 @@ fn main() -> Result<()> {
                     .as_deref()
                     .map(|s| format!("  {s}"))
                     .unwrap_or_default();
-                println!("L{:<5} {:12} {}{}{}", s.line, s.kind, s.name, parent, sig);
+                println!("L{}-{} {:12} {}{}{}", s.line, s.end_line, s.kind, s.name, parent, sig);
             }
         }
         Command::Search {
             pattern,
             kind,
+            parent,
             limit,
         } => {
-            let results = db.search_symbols(&pattern, kind.as_deref(), limit)?;
+            let results = db.search_symbols(&pattern, kind.as_deref(), parent.as_deref(), limit)?;
             if results.is_empty() {
                 println!("No symbols matching '{pattern}'");
                 return Ok(());
@@ -104,11 +117,16 @@ fn main() -> Result<()> {
                     .as_deref()
                     .map(|s| format!("  {s}"))
                     .unwrap_or_default();
-                println!("{}:{} {:12} {}{}", r.path, r.line, r.kind, r.name, sig);
+                let parent_info = r
+                    .parent
+                    .as_deref()
+                    .map(|p| format!(" [{p}]"))
+                    .unwrap_or_default();
+                println!("{}:{} {:12} {}{}{}", r.path, r.line, r.kind, r.name, parent_info, sig);
             }
         }
         Command::Def { name, kind } => {
-            let results = db.search_symbols(&name, kind.as_deref(), 100)?;
+            let results = db.search_symbols(&name, kind.as_deref(), None, 100)?;
             let exact: Vec<_> = results.iter().filter(|r| r.name == name).collect();
             if exact.is_empty() {
                 println!("No definition found for '{name}'");
@@ -129,6 +147,16 @@ fn main() -> Result<()> {
                     "{}:L{}-{} {} {}{}{}",
                     r.path, r.line, r.end_line, r.kind, r.name, parent, sig
                 );
+            }
+        }
+        Command::Refs { name, limit } => {
+            let results = refs::find_refs(&root, &name, limit)?;
+            if results.is_empty() {
+                println!("No references found for '{name}'");
+                return Ok(());
+            }
+            for r in &results {
+                println!("{}:{}  {}", r.path, r.line, r.context);
             }
         }
     }
