@@ -1325,11 +1325,11 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
 
 /// Export the schema of a datatable using pg_dump.
 /// Returns a list of SQL statements that recreate the entire schema (no data).
-pub async fn export_datatable_schema(
+pub async fn dump_datatable(
     db: &DB,
     w_id: &str,
     datatable_name: &str,
-) -> Result<Vec<String>> {
+) -> Result<String> {
     let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
 
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
@@ -1372,14 +1372,7 @@ pub async fn export_datatable_schema(
     let dump = String::from_utf8(output.stdout)
         .map_err(|e| Error::internal_err(format!("pg_dump output is not valid UTF-8: {}", e)))?;
 
-    let statements: Vec<String> = dump
-        .split(";\n")
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty() && !s.starts_with("--") && !s.starts_with("SET ") && *s != "")
-        .map(|s| format!("{};", s))
-        .collect();
-
-    Ok(statements)
+    Ok(dump)
 }
 
 #[derive(Deserialize)]
@@ -1498,12 +1491,33 @@ async fn fork_datatable(
     .execute(&db)
     .await?;
 
-    // TODO: Run the schema export (pg_dump from source) and apply it to the new database
+    // Export the schema from the source datatable and import it into the new database
+    let dump = dump_datatable(&db, &w_id, &req.source_datatable_name).await?;
+    import_datatable_dump(&new_pg_creds, &dump).await?;
 
     Ok(format!(
         "Forked datatable '{}' as '{}' with new database '{}'",
         req.source_datatable_name, req.new_datatable_name, new_dbname
     ))
+}
+
+/// Import schema statements into a target database using tokio_postgres.
+async fn import_datatable_dump(target_db: &PgDatabase, dump: &str) -> Result<()> {
+    let (client, connection) = target_db.connect().await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+
+    client
+        .batch_execute(dump)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to import schema: {}", e)))?;
+
+    drop(client);
+    join_handle
+        .await
+        .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
+        .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+
+    Ok(())
 }
 
 async fn edit_ducklake_config(
