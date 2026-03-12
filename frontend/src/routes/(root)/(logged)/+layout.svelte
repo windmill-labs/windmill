@@ -65,6 +65,7 @@
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
+	import CreateWorkspaceInner from '$lib/components/workspaceSettings/CreateWorkspaceInner.svelte'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -791,6 +792,6 @@
 	bind:isOpen={() => !!globalForkModal.val?.opened, (v) => !v && (globalForkModal.val = undefined)}
 >
 	{#if globalForkModal.val}
-		gijfjkdos
+		<CreateWorkspaceInner isFork />
 	{/if}
 </Modal2>
