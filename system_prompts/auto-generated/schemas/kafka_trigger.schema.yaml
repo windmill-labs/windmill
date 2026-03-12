@@ -25,6 +25,13 @@ properties:
         key:
           type: string
         value: {}
+  auto_offset_reset:
+    type: string
+    enum:
+    - latest
+    - earliest
+    description: Initial offset behavior when consumer group has no committed offset.
+      'latest' starts from new messages only, 'earliest' starts from the beginning.
   error_handler_path:
     type: string
     description: Path to a script or flow to run when the triggered job fails

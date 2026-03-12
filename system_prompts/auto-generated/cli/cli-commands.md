@@ -2,7 +2,7 @@
 
 The Windmill CLI (`wmill`) provides commands for managing scripts, flows, apps, and other resources.
 
-Current version: 1.651.1
+Current version: 1.653.0
 
 ## Global Options
 
