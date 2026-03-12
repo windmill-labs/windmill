@@ -111,7 +111,6 @@ pub fn workspaced_service() -> Router {
         .route("/list_datatables", get(list_datatables))
         .route("/list_datatable_schemas", get(list_datatable_schemas))
         .route("/edit_datatable_config", post(edit_datatable_config))
-        .route("/fork_datatable", post(fork_datatable))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
         .route(
@@ -1378,37 +1377,11 @@ pub async fn dump_datatable(
     Ok(dump)
 }
 
-#[derive(Deserialize)]
-struct ForkDatatableRequest {
-    source_datatable_name: String,
-    new_datatable_name: String,
-    new_custom_instance_database_name: String,
-    #[serde(default)]
-    include_data: bool,
-}
-
-async fn fork_datatable(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(req): Json<ForkDatatableRequest>,
-) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
-    fork_datatable_inner(
-        &db,
-        &w_id,
-        &req.source_datatable_name,
-        &req.new_datatable_name,
-        &req.new_custom_instance_database_name,
-        req.include_data,
-    )
-    .await
-}
 
 /// Core logic for forking a single datatable: creates a new instance DB,
 /// dumps the source schema (and optionally data), imports into the new DB,
 /// and updates the target workspace's datatable config.
-async fn fork_datatable_inner(
+async fn fork_datatable(
     db: &DB,
     w_id: &str,
     source_datatable_name: &str,
@@ -1560,7 +1533,7 @@ async fn fork_all_datatables(
                     "__wmfork__{}__$current_name",
                     target_workspace_id.replace('-', "_")
                 );
-                if let Err(e) = fork_datatable_inner(
+                if let Err(e) = fork_datatable(
                     db,
                     target_workspace_id,
                     name,

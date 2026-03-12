@@ -3333,41 +3333,6 @@ paths:
             application/json:
               schema: {}
 
-  /w/{workspace}/workspaces/fork_datatable:
-    post:
-      summary: fork a datatable to a new workspace
-      operationId: forkDatatable
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: Fork datatable request
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [source_datatable_name, new_datatable_name, new_custom_instance_database_name]
-              properties:
-                source_datatable_name:
-                  type: string
-                new_datatable_name:
-                  type: string
-                new_custom_instance_database_name:
-                  type: string
-                  description: "Name for the new database. Use $current_name to interpolate the original database name."
-                include_data:
-                  type: boolean
-                  default: false
-                  description: "If true, fork both schema and data. If false (default), fork schema only."
-      responses:
-        "200":
-          description: status
-          content:
-            application/json:
-              schema: {}
-
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
       summary: edit workspace git sync settings
