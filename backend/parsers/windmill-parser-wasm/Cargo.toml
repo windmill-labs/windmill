@@ -1,16 +1,10 @@
-# NOTE: This crate is standalone (not in workspace members) because
-# `cargo-features = ["panic-immediate-abort"]` requires nightly and breaks `cargo metadata`
-# on stable Rust.
-# TODO: Add to workspace members once panic-immediate-abort is stable
 cargo-features = ["panic-immediate-abort"]
-
-[workspace]
 
 [package]
 name = "windmill-parser-wasm"
-version = "1.639.0"
-edition = "2021"
-authors = ["Ruben Fiszel <ruben@windmill.dev>"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 
 [lib]
 crate-type = ["cdylib"]
@@ -18,9 +12,9 @@ name = "windmill_parser_wasm"
 path = "./src/lib.rs"
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3"
-windmill-parser-ts = { path = "../windmill-parser-ts" }
-windmill-parser-bash = { path = "../windmill-parser-bash" }
+wasm-bindgen-test.workspace = true
+windmill-parser-ts.workspace = true
+windmill-parser-bash.workspace = true
 
 [profile.release]
 panic = "immediate-abort"
