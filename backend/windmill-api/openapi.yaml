@@ -3357,6 +3357,10 @@ paths:
                 new_custom_instance_database_name:
                   type: string
                   description: "Name for the new database. Use $current_name to interpolate the original database name."
+                include_data:
+                  type: boolean
+                  default: false
+                  description: "If true, fork both schema and data. If false (default), fork schema only."
       responses:
         "200":
           description: status

@@ -1323,9 +1323,14 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
     Ok(schema_map)
 }
 
-/// Export the schema of a datatable using pg_dump.
-/// Returns a list of SQL statements that recreate the entire schema (no data).
-pub async fn dump_datatable(db: &DB, w_id: &str, datatable_name: &str) -> Result<String> {
+/// Export a datatable using pg_dump.
+/// If `schema_only` is true, only the schema is exported. Otherwise, schema and data are exported.
+pub async fn dump_datatable(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    schema_only: bool,
+) -> Result<String> {
     let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
 
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
@@ -1337,9 +1342,11 @@ pub async fn dump_datatable(db: &DB, w_id: &str, datatable_name: &str) -> Result
     let dbname = &pg_db.dbname;
 
     let mut cmd = tokio::process::Command::new("pg_dump");
-    cmd.arg("--format=plain")
-        .arg("--schema-only")
-        .arg("--host")
+    cmd.arg("--format=plain");
+    if schema_only {
+        cmd.arg("--schema-only");
+    }
+    cmd.arg("--host")
         .arg(host)
         .arg("--port")
         .arg(&port)
@@ -1376,6 +1383,8 @@ struct ForkDatatableRequest {
     source_datatable_name: String,
     new_datatable_name: String,
     new_custom_instance_database_name: String,
+    #[serde(default)]
+    include_data: bool,
 }
 
 async fn fork_datatable(
@@ -1480,7 +1489,7 @@ async fn fork_datatable(
         serde_json::to_value(new_settings).map_err(|err| Error::internal_err(err.to_string()))?;
 
     // Export the schema from the source BEFORE updating the config (which points to the new empty DB)
-    let dump = dump_datatable(&db, &w_id, &req.source_datatable_name).await?;
+    let dump = dump_datatable(&db, &w_id, &req.source_datatable_name, !req.include_data).await?;
 
     sqlx::query!(
         "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
