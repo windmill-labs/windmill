@@ -36,12 +36,14 @@
 		s3ResourceSettings = $bindable(),
 		s3ResourceSavedSettings,
 		onSave = undefined,
-		onDiscard = undefined
+		onDiscard = undefined,
+		volumeOnly = false
 	}: {
 		s3ResourceSettings: S3ResourceSettings
 		s3ResourceSavedSettings: S3ResourceSettings
 		onSave?: () => void
 		onDiscard?: () => void
+		volumeOnly?: boolean
 	} = $props()
 
 	let advancedPermissionModalState:
@@ -100,6 +102,9 @@
 	}
 
 	let hasUnsavedChanges = $derived.by(() => {
+		if (volumeOnly) {
+			return s3ResourceSettings.volumeStorage !== s3ResourceSavedSettings.volumeStorage
+		}
 		return !deepEqual(s3ResourceSettings, s3ResourceSavedSettings)
 	})
 
@@ -117,225 +122,13 @@
 	})
 </script>
 
-<Portal name="workspace-settings">
-	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={false} fromWorkspaceSettings={true} />
-</Portal>
-
-<SettingsPageHeader
-	title="Workspace object storage (S3/Azure Blob/GCS)"
-	description="Connect your Windmill workspace to your S3 bucket, Azure Blob storage, or Google Cloud Storage to enable users to read and write from object storage without having to have access to the credentials."
-	link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
-/>
-{#if !$enterpriseLicense}
-	<Alert type="info" title="S3 storage is limited to 20 files in Windmill CE">
-		Windmill S3 bucket browser will not work for buckets containing more than 20 files and uploads
-		are limited to files {'<'} 50MB. Consider upgrading to Windmill EE to use this feature with large
-		buckets.
-	</Alert>
-{:else}
-	<Alert type="info" title="Logs storage is set at the instance level">
-		This setting is only for storage of large files allowing to upload files directly to object
-		storage using S3Object and use the wmill sdk to read and write large files backed by an object
-		storage. Large-scale log management and distributed dependency caching is under <a
-			href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#instance-object-storage"
-			>Instance object storage</a
-		>, set by the superadmins in the instance settings UI.
-	</Alert>
-{/if}
-{#if s3ResourceSettings}
-	<DataTable containerClass="storage-settings-table mt-4">
-		<Head>
-			<tr>
-				{#each tableHeadNames as name, i}
-					<Cell head first={i == 0} last={i == tableHeadNames.length - 1}>
-						{name}
-						{#if tableHeadTooltips[name]}
-							<Tooltip>{@html tableHeadTooltips[name]}</Tooltip>
-						{/if}
-					</Cell>
-				{/each}
-			</tr>
-		</Head>
-		<tbody class="divide-y bg-surface-tertiary">
-			{#each tableRows as tableRow, idx}
-				<Row>
-					<Cell first class="w-48 relative">
-						{#if tableRow[0] === null}
-							<TextInput inputProps={{ placeholder: 'Primary storage', disabled: true }} />
-						{:else}
-							<TextInput
-								bind:value={tableRow[0]}
-								inputProps={{ placeholder: 'Name' }}
-								class="secondary-storage-name-input"
-							/>
-						{/if}
-					</Cell>
-					<Cell>
-						<div class="flex gap-2">
-							<div class="relative">
-								{#if tableRow[1].resourceType === 'filesystem'}
-								<Select
-									items={[{ value: 'filesystem', label: 'Filesystem' }]}
-									value={'filesystem'}
-									disabled
-									id="storage-resource-type-select"
-									class="w-40"
-								/>
-							{:else}
-								<Select
-									items={[
-										{ value: 's3', label: 'S3' },
-										{ value: 'azure_blob', label: 'Azure Blob' },
-										{ value: 's3_aws_oidc', label: 'AWS OIDC' },
-										{ value: 'azure_workload_identity', label: 'Azure Workload Identity' },
-										{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
-									]}
-									bind:value={tableRow[1].resourceType}
-									id="storage-resource-type-select"
-									class="w-40"
-								/>
-							{/if}
-							</div>
-							<div class="flex flex-1">
-								{#if tableRow[1].resourceType === 'filesystem'}
-									<TextInput
-										class="flex-1"
-										value={tableRow[1].resourcePath ?? ''}
-										inputProps={{ disabled: true, placeholder: 'Filesystem path' }}
-									/>
-								{:else}
-									<ResourcePicker
-										class="flex-1"
-										bind:value={tableRow[1].resourcePath}
-										resourceType={tableRow[1].resourceType}
-									/>
-								{/if}
-							</div>
-						</div>
-					</Cell>
-
-					<Cell class="w-12">
-						<div class="flex gap-2">
-							<Button
-								variant="default"
-								btnClasses="px-2.5 relative"
-								size="sm"
-								onClick={() =>
-									(advancedPermissionModalState = { open: true, storage: tableRow[1] })}
-							>
-								<Shield size={16} /> Permissions <ChevronDown size={14} />
-								{#if isPermissionsNonDefault(tableRow[1])}
-									<span class="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-accent"
-									></span>
-								{/if}
-							</Button>
-							{#if emptyString(tableRow[1].resourcePath) || isDirty(tableRow[0])}
-								<Popover
-									openOnHover
-									contentClasses="p-2 text-xs text-secondary"
-									class="cursor-not-allowed"
-								>
-									{#snippet trigger()}
-																	
-											<ExploreAssetButton asset={{ kind: 's3object', path: '' }} disabled />
-										
-																	{/snippet}
-									{#snippet content()}
-																	
-											{#if emptyString(tableRow[1].resourcePath)}
-												Please select a storage resource
-											{:else if isDirty(tableRow[0])}
-												Please save your changes
-											{/if}
-										
-																	{/snippet}
-								</Popover>
-							{:else}
-								<ExploreAssetButton
-									asset={{ kind: 's3object', path: (tableRow[0] ?? '') + '/' }}
-									s3FilePicker={s3FileViewer}
-								/>
-							{/if}
-						</div>
-					</Cell>
-					<Cell class="w-12">
-						{#if tableRow[0] !== null}
-							<CloseButton
-								small
-								on:close={() => {
-									if (s3ResourceSettings.secondaryStorage) {
-										s3ResourceSettings.secondaryStorage.splice(idx - 1, 1)
-										s3ResourceSettings.secondaryStorage = [...s3ResourceSettings.secondaryStorage]
-									}
-								}}
-							/>
-						{/if}
-					</Cell>
-				</Row>
-			{/each}
-			<Row class="!border-0">
-				<Cell colspan={tableHeadNames.length} class="pt-0 pb-2">
-					{#snippet addSecondaryStorageBtn()}
-						<Button
-							size="sm"
-							btnClasses="max-w-fit"
-							variant="default"
-							disabled={!s3ResourceSettings.resourcePath}
-							on:click={() => {
-								if (s3ResourceSettings.secondaryStorage === undefined) {
-									s3ResourceSettings.secondaryStorage = []
-								}
-								s3ResourceSettings.secondaryStorage.push([
-									`storage_${s3ResourceSettings.secondaryStorage.length + 1}`,
-									{
-										resourcePath: '',
-										resourceType: 's3',
-										publicResource: false,
-										advancedPermissions: defaultS3AdvancedPermissions(!!$enterpriseLicense)
-									}
-								])
-								s3ResourceSettings.secondaryStorage = s3ResourceSettings.secondaryStorage
-							}}
-						>
-							<Plus /> Add secondary storage
-							{#if s3ResourceSettings.resourcePath}
-								<Tooltip>
-									Secondary storage is a feature that allows you to read and write from storage that
-									isn't your main storage by specifying it in the s3 object as "secondary_storage"
-									with the name of it
-								</Tooltip>
-							{/if}
-						</Button>
-					{/snippet}
-					<div class="flex justify-center w-full">
-						{#if !s3ResourceSettings.resourcePath}
-							<Popover
-								class="cursor-not-allowed"
-								openOnHover
-								contentClasses="p-2 text-xs text-secondary"
-							>
-								{#snippet trigger()}
-									{@render addSecondaryStorageBtn()}
-								{/snippet}
-								{#snippet content()}
-									Setup a primary storage to use secondary storages
-								{/snippet}
-							</Popover>
-						{:else}
-							{@render addSecondaryStorageBtn()}
-						{/if}
-					</div>
-				</Cell>
-			</Row>
-		</tbody>
-	</DataTable>
-
-	<div class="mt-6 mb-2">
-		<SettingsPageHeader
-			title="Volume storage"
-			description="Select which storage volumes should use. If disabled, scripts with volumes will fail with an error."
-			link="https://www.windmill.dev/docs/core_concepts/persistent_storage/volumes"
-		/>
+{#if volumeOnly}
+	<SettingsPageHeader
+		title="Volume storage"
+		description="Select which storage volumes should use. If disabled, scripts with volumes will fail with an error."
+		link="https://www.windmill.dev/docs/core_concepts/persistent_storage/volumes"
+	/>
+	{#if s3ResourceSettings}
 		<div class="max-w-sm mt-2">
 			<Select
 				items={volumeStorageItems}
@@ -347,16 +140,239 @@
 				}
 			/>
 		</div>
-	</div>
 
-	<SettingsFooter
-		class="mt-5 mb-5"
-		inline
-		{hasUnsavedChanges}
-		onSave={editWindmillLFSSettings}
-		onDiscard={() => onDiscard?.()}
-		saveLabel="Save storage settings"
+		<SettingsFooter
+			class="mt-5 mb-5"
+			inline
+			{hasUnsavedChanges}
+			onSave={editWindmillLFSSettings}
+			onDiscard={() => onDiscard?.()}
+			saveLabel="Save volume storage settings"
+		/>
+	{/if}
+{:else}
+	<Portal name="workspace-settings">
+		<S3FilePicker bind:this={s3FileViewer} readOnlyMode={false} fromWorkspaceSettings={true} />
+	</Portal>
+
+	<SettingsPageHeader
+		title="Workspace object storage (S3/Azure Blob/GCS)"
+		description="Connect your Windmill workspace to your S3 bucket, Azure Blob storage, or Google Cloud Storage to enable users to read and write from object storage without having to have access to the credentials."
+		link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
 	/>
+	{#if !$enterpriseLicense}
+		<Alert type="info" title="S3 storage is limited to 20 files in Windmill CE">
+			Windmill S3 bucket browser will not work for buckets containing more than 20 files and uploads
+			are limited to files {'<'} 50MB. Consider upgrading to Windmill EE to use this feature with large
+			buckets.
+		</Alert>
+	{:else}
+		<Alert type="info" title="Logs storage is set at the instance level">
+			This setting is only for storage of large files allowing to upload files directly to object
+			storage using S3Object and use the wmill sdk to read and write large files backed by an object
+			storage. Large-scale log management and distributed dependency caching is under <a
+				href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#instance-object-storage"
+				>Instance object storage</a
+			>, set by the superadmins in the instance settings UI.
+		</Alert>
+	{/if}
+	{#if s3ResourceSettings}
+		<DataTable containerClass="storage-settings-table mt-4">
+			<Head>
+				<tr>
+					{#each tableHeadNames as name, i}
+						<Cell head first={i == 0} last={i == tableHeadNames.length - 1}>
+							{name}
+							{#if tableHeadTooltips[name]}
+								<Tooltip>{@html tableHeadTooltips[name]}</Tooltip>
+							{/if}
+						</Cell>
+					{/each}
+				</tr>
+			</Head>
+			<tbody class="divide-y bg-surface-tertiary">
+				{#each tableRows as tableRow, idx}
+					<Row>
+						<Cell first class="w-48 relative">
+							{#if tableRow[0] === null}
+								<TextInput inputProps={{ placeholder: 'Primary storage', disabled: true }} />
+							{:else}
+								<TextInput
+									bind:value={tableRow[0]}
+									inputProps={{ placeholder: 'Name' }}
+									class="secondary-storage-name-input"
+								/>
+							{/if}
+						</Cell>
+						<Cell>
+							<div class="flex gap-2">
+								<div class="relative">
+									{#if tableRow[1].resourceType === 'filesystem'}
+									<Select
+										items={[{ value: 'filesystem', label: 'Filesystem' }]}
+										value={'filesystem'}
+										disabled
+										id="storage-resource-type-select"
+										class="w-40"
+									/>
+								{:else}
+									<Select
+										items={[
+											{ value: 's3', label: 'S3' },
+											{ value: 'azure_blob', label: 'Azure Blob' },
+											{ value: 's3_aws_oidc', label: 'AWS OIDC' },
+											{ value: 'azure_workload_identity', label: 'Azure Workload Identity' },
+											{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
+										]}
+										bind:value={tableRow[1].resourceType}
+										id="storage-resource-type-select"
+										class="w-40"
+									/>
+								{/if}
+								</div>
+								<div class="flex flex-1">
+									{#if tableRow[1].resourceType === 'filesystem'}
+										<TextInput
+											class="flex-1"
+											value={tableRow[1].resourcePath ?? ''}
+											inputProps={{ disabled: true, placeholder: 'Filesystem path' }}
+										/>
+									{:else}
+										<ResourcePicker
+											class="flex-1"
+											bind:value={tableRow[1].resourcePath}
+											resourceType={tableRow[1].resourceType}
+										/>
+									{/if}
+								</div>
+							</div>
+						</Cell>
+
+						<Cell class="w-12">
+							<div class="flex gap-2">
+								<Button
+									variant="default"
+									btnClasses="px-2.5 relative"
+									size="sm"
+									onClick={() =>
+										(advancedPermissionModalState = { open: true, storage: tableRow[1] })}
+								>
+									<Shield size={16} /> Permissions <ChevronDown size={14} />
+									{#if isPermissionsNonDefault(tableRow[1])}
+										<span class="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-accent"
+										></span>
+									{/if}
+								</Button>
+								{#if emptyString(tableRow[1].resourcePath) || isDirty(tableRow[0])}
+									<Popover
+										openOnHover
+										contentClasses="p-2 text-xs text-secondary"
+										class="cursor-not-allowed"
+									>
+										{#snippet trigger()}
+
+												<ExploreAssetButton asset={{ kind: 's3object', path: '' }} disabled />
+
+																	{/snippet}
+										{#snippet content()}
+
+												{#if emptyString(tableRow[1].resourcePath)}
+													Please select a storage resource
+												{:else if isDirty(tableRow[0])}
+													Please save your changes
+												{/if}
+
+																	{/snippet}
+									</Popover>
+								{:else}
+									<ExploreAssetButton
+										asset={{ kind: 's3object', path: (tableRow[0] ?? '') + '/' }}
+										s3FilePicker={s3FileViewer}
+									/>
+								{/if}
+							</div>
+						</Cell>
+						<Cell class="w-12">
+							{#if tableRow[0] !== null}
+								<CloseButton
+									small
+									on:close={() => {
+										if (s3ResourceSettings.secondaryStorage) {
+											s3ResourceSettings.secondaryStorage.splice(idx - 1, 1)
+											s3ResourceSettings.secondaryStorage = [...s3ResourceSettings.secondaryStorage]
+										}
+									}}
+								/>
+							{/if}
+						</Cell>
+					</Row>
+				{/each}
+				<Row class="!border-0">
+					<Cell colspan={tableHeadNames.length} class="pt-0 pb-2">
+						{#snippet addSecondaryStorageBtn()}
+							<Button
+								size="sm"
+								btnClasses="max-w-fit"
+								variant="default"
+								disabled={!s3ResourceSettings.resourcePath}
+								on:click={() => {
+									if (s3ResourceSettings.secondaryStorage === undefined) {
+										s3ResourceSettings.secondaryStorage = []
+									}
+									s3ResourceSettings.secondaryStorage.push([
+										`storage_${s3ResourceSettings.secondaryStorage.length + 1}`,
+										{
+											resourcePath: '',
+											resourceType: 's3',
+											publicResource: false,
+											advancedPermissions: defaultS3AdvancedPermissions(!!$enterpriseLicense)
+										}
+									])
+									s3ResourceSettings.secondaryStorage = s3ResourceSettings.secondaryStorage
+								}}
+							>
+								<Plus /> Add secondary storage
+								{#if s3ResourceSettings.resourcePath}
+									<Tooltip>
+										Secondary storage is a feature that allows you to read and write from storage that
+										isn't your main storage by specifying it in the s3 object as "secondary_storage"
+										with the name of it
+									</Tooltip>
+								{/if}
+							</Button>
+						{/snippet}
+						<div class="flex justify-center w-full">
+							{#if !s3ResourceSettings.resourcePath}
+								<Popover
+									class="cursor-not-allowed"
+									openOnHover
+									contentClasses="p-2 text-xs text-secondary"
+								>
+									{#snippet trigger()}
+										{@render addSecondaryStorageBtn()}
+									{/snippet}
+									{#snippet content()}
+										Setup a primary storage to use secondary storages
+									{/snippet}
+								</Popover>
+							{:else}
+								{@render addSecondaryStorageBtn()}
+							{/if}
+						</div>
+					</Cell>
+				</Row>
+			</tbody>
+		</DataTable>
+
+		<SettingsFooter
+			class="mt-5 mb-5"
+			inline
+			{hasUnsavedChanges}
+			onSave={editWindmillLFSSettings}
+			onDiscard={() => onDiscard?.()}
+			saveLabel="Save storage settings"
+		/>
+	{/if}
 {/if}
 
 <Modal2
