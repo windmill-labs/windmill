@@ -30,7 +30,8 @@
 		usedTriggerKinds,
 		devopsRole,
 		whitelabelNameStore,
-		globalDbManagerDrawer
+		globalDbManagerDrawer,
+		globalForkModal
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -63,6 +64,7 @@
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
+	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -780,3 +782,15 @@
 {#if $workspaceStore && globalDbManagerDrawer.val}
 	<DBManagerDrawer uriState={globalDbManagerDrawer.val} />
 {/if}
+
+<Modal2
+	title="Fork workspace"
+	target="#content"
+	fixedHeight="md"
+	fixedWidth="sm"
+	bind:isOpen={() => !!globalForkModal.val?.opened, (v) => !v && (globalForkModal.val = undefined)}
+>
+	{#if globalForkModal.val}
+		gijfjkdos
+	{/if}
+</Modal2>

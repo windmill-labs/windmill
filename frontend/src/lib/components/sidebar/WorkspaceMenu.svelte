@@ -7,7 +7,8 @@
 		workspaceStore,
 		workspaceUsageStore,
 		workspaceColor,
-		clearWorkspaceFromStorage
+		clearWorkspaceFromStorage,
+		globalForkModal
 	} from '$lib/stores'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { Building, Plus, Settings, GitFork } from 'lucide-svelte'
@@ -180,7 +181,11 @@
 			{/if}
 			{#if !strictWorkspaceSelect && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')}
 				<div class="py-1" role="none">
-					<MenuItem href="{base}/user/fork_workspace" class={itemClass} {item}>
+					<MenuItem
+						class={itemClass}
+						{item}
+						onClick={() => (globalForkModal.val = { opened: true })}
+					>
 						<GitFork size={16} />
 						Fork current workspace
 					</MenuItem>
