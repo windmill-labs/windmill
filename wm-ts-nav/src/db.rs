@@ -207,24 +207,136 @@ impl Db {
         Ok(rows)
     }
 
-    pub fn find_refs(&self, name: &str, limit: usize) -> Result<Vec<RefResult>> {
+    pub fn find_refs(
+        &self,
+        name: &str,
+        limit: usize,
+        file_filter: Option<&str>,
+        with_caller: bool,
+    ) -> Result<Vec<RefResult>> {
+        let mut conditions = vec!["r.name = ?1".to_string()];
+        if let Some(file) = file_filter {
+            conditions.push(format!("f.path LIKE '%{}'", file.replace('\'', "''")));
+        }
+        let where_clause = conditions.join(" AND ");
+
+        if with_caller {
+            let query = format!(
+                "SELECT f.path, r.line, r.import_path, s.name, s.kind
+                 FROM refs r
+                 JOIN files f ON r.file_id = f.id
+                 LEFT JOIN symbols s ON s.file_id = r.file_id
+                     AND s.line <= r.line AND r.line <= s.end_line
+                     AND s.kind IN ('function', 'impl', 'class', 'interface', 'method')
+                 WHERE {where_clause}
+                 ORDER BY f.path, r.line
+                 LIMIT ?2"
+            );
+            let mut stmt = self.conn.prepare(&query)?;
+            let rows = stmt
+                .query_map(params![name, limit as i64], |row| {
+                    Ok(RefResult {
+                        path: row.get(0)?,
+                        line: row.get(1)?,
+                        import_path: row.get(2)?,
+                        caller_name: row.get(3)?,
+                        caller_kind: row.get(4)?,
+                    })
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(rows)
+        } else {
+            let query = format!(
+                "SELECT f.path, r.line, r.import_path
+                 FROM refs r JOIN files f ON r.file_id = f.id
+                 WHERE {where_clause}
+                 ORDER BY f.path, r.line
+                 LIMIT ?2"
+            );
+            let mut stmt = self.conn.prepare(&query)?;
+            let rows = stmt
+                .query_map(params![name, limit as i64], |row| {
+                    Ok(RefResult {
+                        path: row.get(0)?,
+                        line: row.get(1)?,
+                        import_path: row.get(2)?,
+                        caller_name: None,
+                        caller_kind: None,
+                    })
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(rows)
+        }
+    }
+
+    pub fn find_callers(&self, name: &str, limit: usize) -> Result<Vec<CallerResult>> {
         let mut stmt = self.conn.prepare(
-            "SELECT f.path, r.line, r.import_path
-             FROM refs r JOIN files f ON r.file_id = f.id
+            "SELECT DISTINCT s.name, s.kind, s.line, s.end_line, f.path, r.line as ref_line
+             FROM refs r
+             JOIN symbols s ON s.file_id = r.file_id
+                 AND s.line <= r.line AND r.line <= s.end_line
+                 AND s.kind IN ('function', 'impl', 'class', 'interface', 'method')
+             JOIN files f ON r.file_id = f.id
              WHERE r.name = ?1
-             ORDER BY f.path, r.line
+             ORDER BY f.path, s.line
              LIMIT ?2",
         )?;
         let rows = stmt
             .query_map(params![name, limit as i64], |row| {
-                Ok(RefResult {
-                    path: row.get(0)?,
-                    line: row.get(1)?,
-                    import_path: row.get(2)?,
+                Ok(CallerResult {
+                    caller_name: row.get(0)?,
+                    caller_kind: row.get(1)?,
+                    caller_line: row.get(2)?,
+                    caller_end_line: row.get(3)?,
+                    path: row.get(4)?,
+                    ref_line: row.get(5)?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    pub fn find_callees(
+        &self,
+        name: &str,
+        kind_filter: Option<&str>,
+        file_filter: Option<&str>,
+    ) -> Result<Vec<CalleeResult>> {
+        // First find the symbol
+        let results = self.search_symbols(name, kind_filter, None, 100)?;
+        let exact: Vec<_> = results.into_iter().filter(|r| r.name == name).collect();
+        if exact.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut all_callees = Vec::new();
+        for sym in &exact {
+            if let Some(file) = file_filter {
+                if !sym.path.contains(file) {
+                    continue;
+                }
+            }
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT r.name, r.import_path
+                 FROM refs r
+                 JOIN files f ON r.file_id = f.id
+                 WHERE f.path = ?1 AND r.line >= ?2 AND r.line <= ?3
+                 ORDER BY r.name",
+            )?;
+            let rows = stmt
+                .query_map(params![sym.path, sym.line, sym.end_line], |row| {
+                    Ok(CalleeResult {
+                        name: row.get(0)?,
+                        import_path: row.get(1)?,
+                    })
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            all_callees.extend(rows);
+        }
+        // Deduplicate by name
+        all_callees.sort_by(|a, b| a.name.cmp(&b.name));
+        all_callees.dedup_by(|a, b| a.name == b.name);
+        Ok(all_callees)
     }
 }
 
@@ -232,6 +344,24 @@ impl Db {
 pub struct RefResult {
     pub path: String,
     pub line: i64,
+    pub import_path: Option<String>,
+    pub caller_name: Option<String>,
+    pub caller_kind: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct CallerResult {
+    pub caller_name: String,
+    pub caller_kind: String,
+    pub caller_line: i64,
+    pub caller_end_line: i64,
+    pub path: String,
+    pub ref_line: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct CalleeResult {
+    pub name: String,
     pub import_path: Option<String>,
 }
 

@@ -60,6 +60,11 @@ let { my_prop = $bindable(default_value) }: { my_prop?: string } = $props()
 - "What methods does type Y have?" → `search "%" --parent Y` (across all files)
 - "What structs/functions match Y?" → `search "Y" --kind struct`
 - "Where is X used in code?" → `refs "X"` (skips comments/strings, slower than grep but no noise)
+- "Where is X used in this file?" → `refs "X" --file handler.rs` (scoped to one file)
+- "Which function uses X?" → `refs "X" --caller` (shows containing function for each ref)
+- "Show me function X's code" → `body "X"` (extracts just that symbol, no full file read)
+- "What calls function X?" → `callers "X"` (cross-file call graph from refs+symbols)
+- "What does function X call?" → `callees "X"` (all refs inside X's body)
 - "Find a string/pattern in code" → use **Grep** (faster, but matches comments/strings too)
 
 ```bash
@@ -69,6 +74,11 @@ $NAV --root backend def "ServiceName"
 $NAV --root backend search "%" --kind function --parent ServiceName
 $NAV --root backend search "Trigger" --kind struct
 $NAV --root backend refs "ServiceName"
+$NAV --root backend refs "Error" --file handler.rs
+$NAV --root backend refs "ServiceName" --caller
+$NAV --root backend body "update_index"
+$NAV --root backend callers "ServiceName"
+$NAV --root backend callees "update_index"
 $NAV --root frontend/src outline frontend/src/path/to/Component.svelte
 $NAV --root frontend/src search "favoriteManager"
 ```
