@@ -50,6 +50,29 @@ let { my_prop = $bindable(default_value) }: { my_prop?: string } = $props()
 
 2. **Create a `useMyPropState()` helper** — encapsulate the undefined-handling logic in a reusable function and call it higher in the component tree, so the child component always receives a defined value.
 
+## Code Navigation
+
+Use `wm-ts-nav` for fast symbol navigation. It uses tree-sitter with a SQLite index that auto-updates on each call (~13ms warm, ~2s cold). Supports Rust (.rs), TypeScript (.ts/.tsx/.js), and Svelte (.svelte — extracts `<script>` blocks).
+
+If the binary is not available, build it first: `cd wm-ts-nav && cargo build --release`
+
+```bash
+# Find where a symbol is defined
+wm-ts-nav/target/release/wm-ts-nav --root backend def "ServiceName"
+
+# Search symbols by pattern (SQL LIKE wildcards supported)
+wm-ts-nav/target/release/wm-ts-nav --root backend search "Trigger" --kind struct
+
+# Show all symbols in a file (works with .rs, .ts, .svelte)
+wm-ts-nav/target/release/wm-ts-nav --root backend outline backend/path/to/file.rs
+
+# Search frontend symbols
+wm-ts-nav/target/release/wm-ts-nav --root frontend/src search "favoriteManager"
+wm-ts-nav/target/release/wm-ts-nav --root frontend/src outline frontend/src/lib/components/path/to/Component.svelte
+```
+
+Use `--root backend` for Rust, `--root frontend/src` for frontend. Kinds: `function`, `struct`, `enum`, `trait`, `impl`, `type_alias`, `const`, `static`, `mod`, `macro`, `interface`, `class`
+
 ## Core Principles
 
 - Search for existing code to reuse before writing new code

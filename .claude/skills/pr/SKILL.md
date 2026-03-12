@@ -33,6 +33,7 @@ Follow conventional commit format for the PR title:
 - Keep under 70 characters
 - Use lowercase, imperative mood
 - No period at the end
+- If `*_ee.rs` files were modified, prefix with `[ee]`: `[ee] <type>: <description>`
 
 ## PR Body Format
 
@@ -88,15 +89,17 @@ Generated with [Claude Code](https://claude.com/claude-code)
 
 ## EE Companion PR (when `*_ee.rs` files were modified)
 
-If any `*_ee.rs` files were changed (check `git diff main...HEAD --name-only | grep '_ee\.rs$'`):
+The `*_ee.rs` files in the windmill repo are **symlinks** to `windmill-ee-private` — changes won't appear in `git diff` of the windmill repo. Instead, check the EE repo for uncommitted or unpushed changes.
 
-1. Find the EE worktree (same branch name as the current windmill branch):
-   - `~/windmill-ee-private__worktrees/<branch>/` (workmux worktrees)
-   - or `~/windmill-ee-private/` (main repo checkout)
-2. In the EE repo: commit and push the changes on the same branch name
-3. Create a companion PR:
+Follow the full EE PR workflow in `docs/enterprise.md`. The key PR-specific details:
+
+1. Find the EE repo/worktree: see "Finding the EE Repo" in `docs/enterprise.md`
+2. Check for changes: `git -C <ee-path> status --short`
+   - If there are no changes in the EE repo, skip this entire section
+3. Follow steps 1–5 from the "EE PR Workflow" in `docs/enterprise.md`
+4. Create the companion PR (title does NOT get the `[ee]` prefix):
    ```bash
-   gh pr create --draft --repo windmill-labs/windmill-ee-private --title "<same title>" --body "$(cat <<'EOF'
+   gh pr create --draft --repo windmill-labs/windmill-ee-private --title "<type>: <description>" --body "$(cat <<'EOF'
    Companion PR for windmill-labs/windmill#<PR_NUMBER>
 
    ---
@@ -104,17 +107,4 @@ If any `*_ee.rs` files were changed (check `git diff main...HEAD --name-only | g
    EOF
    )"
    ```
-   Link to the windmill PR in the body.
-4. Back in the windmill repo, update the EE ref:
-   ```bash
-   cd backend && bash write_latest_ee_ref.sh
-   ```
-5. Verify `ee-repo-ref.txt` contains the correct hash (from the feature branch, not main):
-   ```bash
-   cat backend/ee-repo-ref.txt
-   ```
-6. Commit `ee-repo-ref.txt`:
-   ```bash
-   git add backend/ee-repo-ref.txt && git commit -m "chore: update ee-repo-ref"
-   ```
-7. Push the updated windmill branch: `git push`
+5. Commit `ee-repo-ref.txt` and push the updated windmill branch
