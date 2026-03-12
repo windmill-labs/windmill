@@ -80,7 +80,6 @@
 
 	// Export/Import state
 	let exportDrawerOpen = $state(false)
-	let exportLoading = $state(false)
 	let exportResult = $state('')
 	let importDrawerOpen = $state(false)
 	let importLoading = $state(false)
@@ -92,16 +91,20 @@
 			(uriState.input?.type === 'database' && uriState.input.resourceType === 'postgresql')
 	)
 
+	function toSourceIdentifier(raw: string): string {
+		if (raw.startsWith('datatable://') || raw.startsWith('$res:')) return raw
+		return `$res:${raw}`
+	}
+
 	function currentSourceIdentifier(): string | undefined {
 		const input = uriState.effectiveInput
 		if (!input || input.type !== 'database') return undefined
-		return input.resourcePath
+		return toSourceIdentifier(input.resourcePath)
 	}
 
 	async function handleExportSchema() {
 		const source = currentSourceIdentifier()
 		if (!source || !$workspaceStore) return
-		exportLoading = true
 		try {
 			exportResult = await WorkspaceService.exportPgSchema({
 				workspace: $workspaceStore,
@@ -110,8 +113,6 @@
 			exportDrawerOpen = true
 		} catch (e) {
 			sendUserToast(`Failed to export schema: ${e}`, true)
-		} finally {
-			exportLoading = false
 		}
 	}
 
@@ -124,7 +125,7 @@
 			await WorkspaceService.forkPgDatabase({
 				workspace: $workspaceStore,
 				requestBody: {
-					source: importSource,
+					source: toSourceIdentifier(importSource),
 					target,
 					fork_behavior: importBehavior
 				}
