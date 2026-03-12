@@ -44,13 +44,14 @@ lazy_static::lazy_static! {
 /// Get email from a valid token, with caching.
 /// Used for WM_END_USER_EMAIL when user is authenticated but not a workspace member.
 async fn get_email_from_token(db: &DB, token: &str) -> Option<String> {
-    if let Some(cached) = TOKEN_EMAIL_CACHE.get(token) {
+    let t_hash = hash_token(token);
+    if let Some(cached) = TOKEN_EMAIL_CACHE.get(&t_hash) {
         return cached;
     }
 
     let email = sqlx::query_scalar!(
-        "SELECT email FROM token WHERE token = $1 AND (expiration > NOW() OR expiration IS NULL)",
-        token
+        "SELECT email FROM token WHERE token_hash = $1 AND (expiration > NOW() OR expiration IS NULL)",
+        t_hash
     )
     .fetch_optional(db)
     .await
@@ -58,7 +59,7 @@ async fn get_email_from_token(db: &DB, token: &str) -> Option<String> {
     .flatten()
     .flatten(); // email column is nullable, so we get Option<Option<String>>
 
-    TOKEN_EMAIL_CACHE.insert(token.to_string(), email.clone());
+    TOKEN_EMAIL_CACHE.insert(t_hash, email.clone());
     email
 }
 

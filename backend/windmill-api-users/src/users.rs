@@ -1880,7 +1880,7 @@ async fn impersonate(
 
     windmill_api_auth::register_token_expiry_notification(
         &mut *tx,
-        &token,
+        &t_hash,
         new_token.label.as_deref(),
         new_token.expiration,
     )

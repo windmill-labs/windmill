@@ -575,7 +575,7 @@ pub async fn create_token_internal(
 
     register_token_expiry_notification(
         &mut *tx,
-        &token,
+        &t_hash,
         token_config.label.as_deref(),
         token_config.expiration,
     )
@@ -597,12 +597,14 @@ pub async fn create_token_internal(
 }
 
 /// Insert a pending expiry notification row for user tokens that have an expiration.
+/// Stores the token_hash so the join in check_expiring_tokens works even when
+/// the plaintext token column is NULL (after hash migration).
 /// When updating this filter, also update:
 /// - `is_user_token` in src/monitor.rs
 /// - `isUserToken` in frontend/src/lib/components/settings/TokensTable.svelte
 pub async fn register_token_expiry_notification(
     tx: &mut sqlx::PgConnection,
-    token: &str,
+    token_hash: &str,
     label: Option<&str>,
     expiration: Option<chrono::DateTime<chrono::Utc>>,
 ) {
@@ -619,7 +621,7 @@ pub async fn register_token_expiry_notification(
     }
     if let Err(e) = sqlx::query!(
         "INSERT INTO token_expiry_notification (token, expiration) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        token,
+        token_hash,
         expiration,
     )
     .execute(&mut *tx)
