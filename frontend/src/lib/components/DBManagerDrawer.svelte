@@ -8,7 +8,6 @@
 	import {
 		ArrowLeft,
 		Copy,
-		Database,
 		Download,
 		Expand,
 		LoaderCircle,
@@ -211,18 +210,7 @@
 							}
 						}
 					]}
-				>
-					{#snippet buttonReplacement()}
-						<Button
-							loading={exportLoading}
-							startIcon={{ icon: Database }}
-							size="xs"
-							color="light"
-						>
-							Actions
-						</Button>
-					{/snippet}
-				</DropdownV2>
+				/>
 			{/if}
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
