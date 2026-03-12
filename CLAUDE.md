@@ -52,38 +52,26 @@ let { my_prop = $bindable(default_value) }: { my_prop?: string } = $props()
 
 ## Code Navigation
 
-`wm-ts-nav` is a tree-sitter navigator with SQLite index (~12ms warm). The `wm-ts-nav/nav` wrapper auto-rebuilds when source changes.
+`wm-ts-nav` is an AST-aware code navigator. Use **Grep** for regex/pattern search. Use **wm-ts-nav** for structural queries — it skips comments/strings and understands symbol boundaries.
 
-**When to use `wm-ts-nav` vs Grep:**
-- "What's in this file?" → `outline` (full structure with signatures, saves reading the whole file)
-- "Where is X defined?" → `def "X"` (finds declarations only, not usages)
-- "What methods does type Y have?" → `search "%" --parent Y` (across all files)
-- "What structs/functions match Y?" → `search "Y" --kind struct`
-- "Where is X used in code?" → `refs "X"` (skips comments/strings, slower than grep but no noise)
-- "Where is X used in this file?" → `refs "X" --file handler.rs` (scoped to one file)
-- "Which function uses X?" → `refs "X" --caller` (shows containing function for each ref)
-- "Show me function X's code" → `body "X"` (extracts just that symbol, no full file read)
-- "What calls function X?" → `callers "X"` (cross-file call graph from refs+symbols)
-- "What does function X call?" → `callees "X"` (all refs inside X's body)
-- "Find a string/pattern in code" → use **Grep** (faster, but matches comments/strings too)
+**Prefer wm-ts-nav over Read** to save context window:
+- `outline <file>` instead of reading a full file — understand structure first, then `body` or Read for specifics
+- `body "X"` instead of reading a full file to see one function/struct
+- `refs "X" --caller` instead of reading files to find which function contains each reference
+- `callers "X"` / `callees "X"` for call-graph questions
 
 ```bash
 NAV="sh wm-ts-nav/nav"
-$NAV --root backend outline backend/path/to/file.rs
-$NAV --root backend def "ServiceName"
-$NAV --root backend search "%" --kind function --parent ServiceName
-$NAV --root backend search "Trigger" --kind struct
-$NAV --root backend refs "ServiceName"
-$NAV --root backend refs "Error" --file handler.rs
-$NAV --root backend refs "ServiceName" --caller
-$NAV --root backend body "update_index"
-$NAV --root backend callers "ServiceName"
-$NAV --root backend callees "update_index"
-$NAV --root frontend/src outline frontend/src/path/to/Component.svelte
-$NAV --root frontend/src search "favoriteManager"
+# Use --root backend for Rust, --root frontend/src for TS/Svelte
+$NAV --root backend outline backend/path/to/file.rs      # file structure
+$NAV --root backend def "ServiceName"                     # find definition
+$NAV --root backend body "decrypt_oauth_data"             # extract source code
+$NAV --root backend search "%" --parent ServiceName       # methods on a type
+$NAV --root backend search "Trigger" --kind struct        # find by kind
+$NAV --root backend refs "X" --file handler.rs --caller   # scoped refs with caller
+$NAV --root backend callers "X"                           # who calls X?
+$NAV --root backend callees "X"                           # what does X call?
 ```
-
-Use `--root backend` for Rust, `--root frontend/src` for frontend. Kinds: `function`, `struct`, `enum`, `trait`, `impl`, `type_alias`, `const`, `static`, `mod`, `macro`, `interface`, `class`
 
 ## Core Principles
 
