@@ -80,6 +80,13 @@ wm_copy_dependencies() {
       && echo "CLI deps installed and client generated" \
       || echo "WARNING: CLI setup failed" >&2
   fi
+
+  local nav_bin="${main_repo_root}/wm-ts-nav/target/release/wm-ts-nav"
+  if [[ -f "$nav_bin" ]]; then
+    mkdir -p "${repo_root}/wm-ts-nav/target/release"
+    cp "$nav_bin" "${repo_root}/wm-ts-nav/target/release/"
+    echo "Copied wm-ts-nav binary"
+  fi
 }
 
 wm_allow_direnv() {

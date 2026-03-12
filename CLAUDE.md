@@ -4,7 +4,7 @@ Open-source platform for internal tools, workflows, API integrations, background
 
 ## Workflow
 
-1. **Understand**: Before coding, read relevant docs from `docs/` to understand the area you're changing
+1. **Understand**: Before coding, use `wm-ts-nav` to explore (see Code Navigation below). Use `outline` to understand file structure, `body` to read specific symbols, `def`/`callers`/`callees` to trace code. Read `docs/` for domain context.
 2. **Plan**: For non-trivial changes, use plan mode. For large features, break into reviewable stages
 3. **Execute**: Follow coding patterns from skills (`rust-backend`, `svelte-frontend`)
 4. **Validate**: After every change, run the appropriate checks per `docs/validation.md`
@@ -75,6 +75,7 @@ $NAV --root backend callees "X"                           # what does X call?
 
 ## Core Principles
 
+- **Use `outline`/`body` to explore, then `Read` with offset/limit from the results before editing** — avoid reading full files
 - Search for existing code to reuse before writing new code
 - Follow established patterns in the codebase
 - Keep changes focused — don't refactor beyond what's asked
