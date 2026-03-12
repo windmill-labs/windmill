@@ -23,6 +23,7 @@
 	import ResourcePicker from './ResourcePicker.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
 		uriState: DbManagerUriState
@@ -278,7 +279,7 @@
 				<Select
 					items={[
 						{ value: 'schema_only', label: 'Schema only' },
-						{ value: 'schema_and_data', label: 'Schema and data' }
+						...(isCloudHosted() ? [] : [{ value: 'schema_and_data', label: 'Schema and data' }])
 					]}
 					bind:value={importBehavior}
 				/>
@@ -286,7 +287,8 @@
 			{#if importBehavior === 'schema_and_data'}
 				<Alert type="warning" title="Heavy operation">
 					Importing schema and data will copy all rows from every table in the source database. This
-					may take a long time and use significant storage space depending on the size of the source.
+					may take a long time and use significant storage space depending on the size of the
+					source.
 				</Alert>
 			{/if}
 			<Button
