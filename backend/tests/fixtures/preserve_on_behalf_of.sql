@@ -66,6 +66,8 @@ INSERT INTO usr_to_group(workspace_id, group_, usr) VALUES
 ON CONFLICT DO NOTHING;
 
 -- Tokens for all users (token_hash = sha256 hex, token_prefix = first 10 chars)
+-- NOTE: plaintext `token` column is included for backward compat during transition.
+-- Remove it once the `token` column is dropped from the schema.
 INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin)
 VALUES (encode(sha256('SECRET_TOKEN'::bytea), 'hex'), 'SECRET_TOK', 'SECRET_TOKEN', 'test@windmill.dev', 'test token', true)
 ON CONFLICT DO NOTHING;

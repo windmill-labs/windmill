@@ -33,6 +33,8 @@ INSERT INTO usr(workspace_id, email, username, is_admin, role) VALUES
 INSERT INTO usr(workspace_id, email, username, is_admin, role) VALUES
 	('test-workspace', 'test3@windmill.dev', 'test-user-3', false, 'User');
 
+-- NOTE: plaintext `token` column is included for backward compat during transition.
+-- Remove it once the `token` column is dropped from the schema.
 insert INTO token(token_hash, token_prefix, token, email, label, super_admin) VALUES (encode(sha256('SECRET_TOKEN'::bytea), 'hex'), 'SECRET_TOK', 'SECRET_TOKEN', 'test@windmill.dev', 'test token', true);
 insert INTO token(token_hash, token_prefix, token, email, label, super_admin) VALUES (encode(sha256('SECRET_TOKEN_2'::bytea), 'hex'), 'SECRET_TOK', 'SECRET_TOKEN_2', 'test2@windmill.dev', 'test token 2', false);
 insert INTO token(token_hash, token_prefix, token, email, label, super_admin) VALUES (encode(sha256('SECRET_TOKEN_3'::bytea), 'hex'), 'SECRET_TOK', 'SECRET_TOKEN_3', 'test3@windmill.dev', 'test token 3', false);

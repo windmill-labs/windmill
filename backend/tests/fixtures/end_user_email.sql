@@ -24,6 +24,8 @@ VALUES ('other-ws@windmill.dev', 'hash', 'password', false, true, 'Other WS User
 INSERT INTO usr(workspace_id, email, username, is_admin, role)
 VALUES ('other-workspace', 'other-ws@windmill.dev', 'other-ws-user', true, 'Admin');
 
+-- NOTE: plaintext `token` column is included for backward compat during transition.
+-- Remove it once the `token` column is dropped from the schema.
 INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin)
 VALUES (encode(sha256('OTHER_WS_TOKEN'::bytea), 'hex'), 'OTHER_WS_T', 'OTHER_WS_TOKEN', 'other-ws@windmill.dev', 'other ws token', false);
 
