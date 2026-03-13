@@ -433,7 +433,9 @@ impl AuthCache {
                         folders: Vec::new(),
                         scopes: None,
                         username_override: None,
-                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                        token_prefix: Some(
+                            token.get(..TOKEN_PREFIX_LEN).unwrap_or(token).to_string(),
+                        ),
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
