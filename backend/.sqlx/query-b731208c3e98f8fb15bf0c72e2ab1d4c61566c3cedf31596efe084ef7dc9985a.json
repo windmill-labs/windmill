@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace_id, slack_command_script, slack_email FROM workspace_settings WHERE slack_team_id = $1 AND slack_command_script IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "slack_command_script",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "slack_email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "b731208c3e98f8fb15bf0c72e2ab1d4c61566c3cedf31596efe084ef7dc9985a"
+}

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE native_trigger\n        SET service_config = $1,\n            webhook_token_prefix = COALESCE($5, webhook_token_prefix),\n            webhook_token_hash = COALESCE($6, webhook_token_hash),\n            updated_at = NOW()\n        WHERE\n            workspace_id = $2\n            AND service_name = $3\n            AND external_id = $4\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Text",
+        {
+          "Custom": {
+            "name": "native_trigger_service",
+            "kind": {
+              "Enum": [
+                "nextcloud",
+                "google"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3d9f6390a26ccaf03ca43b414e578a2c606c5dadd7dc972c8faf5384f913acaf"
+}
