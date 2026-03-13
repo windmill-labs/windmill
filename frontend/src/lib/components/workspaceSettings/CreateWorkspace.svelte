@@ -3,12 +3,15 @@
 	import { GitForkIcon } from 'lucide-svelte'
 	import CreateWorkspaceInner from './CreateWorkspaceInner.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { goto } from '$app/navigation'
+	import { page } from '$app/state'
 
 	interface Props {
 		isFork?: boolean
 	}
 
 	let { isFork = false }: Props = $props()
+	const rd = page.url.searchParams.get('rd')
 </script>
 
 <CenteredModal title="{isFork ? 'Forking' : 'New'} Workspace" centerVertically={false}>
@@ -21,5 +24,5 @@
 			</span>
 		</div>
 	{/if}
-	<CreateWorkspaceInner {isFork} />
+	<CreateWorkspaceInner {isFork} onFinish={() => goto(rd ?? '/')} />
 </CenteredModal>

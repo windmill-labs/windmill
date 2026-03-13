@@ -793,6 +793,6 @@
 	bind:isOpen={() => !!globalForkModal.val?.opened, (v) => !v && (globalForkModal.val = undefined)}
 >
 	{#if globalForkModal.val}
-		<CreateWorkspaceInner isFork />
+		<CreateWorkspaceInner isFork onFinish={() => (globalForkModal.val = undefined)} />
 	{/if}
 </Modal2>
