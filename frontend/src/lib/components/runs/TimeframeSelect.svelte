@@ -79,7 +79,6 @@
 	import { CalendarIcon, RefreshCw } from 'lucide-svelte'
 	import { Button } from '../common'
 	import Popover from '../meltComponents/Popover.svelte'
-	import { formatDateRange } from '$lib/utils'
 	import { watch } from 'runed'
 	import { page } from '$app/state'
 	import InlineCalendarInput, {
