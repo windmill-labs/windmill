@@ -1644,6 +1644,9 @@ async fn fork_all_datatables(
     target_workspace_id: &str,
     datatable_behaviors: &Option<HashMap<String, DataTableForkBehavior>>,
 ) -> Result<()> {
+    if !target_workspace_id.starts_with("wm-fork") {
+        return Err(Error::BadRequest("Target workspace is not a fork".to_string()));
+    }
     let datatable_config = sqlx::query_scalar!(
         "SELECT datatable FROM workspace_settings WHERE workspace_id = $1",
         source_workspace_id
@@ -1673,7 +1676,7 @@ async fn fork_all_datatables(
         let include_data = behavior == DataTableForkBehavior::SchemaAndData && !*CLOUD_HOSTED;
 
         let new_db_name = format!(
-            "__wmfork__{}__$current_name",
+            "{}__$current_name",
             target_workspace_id.replace('-', "_")
         );
         if let Err(e) = fork_datatable(
@@ -3907,20 +3910,13 @@ async fn create_workspace_fork(
     tx.commit().await?;
 
     // Fork datatables after the transaction commits (creates external databases)
-    if let Err(e) = fork_all_datatables(
+    fork_all_datatables(
         &db,
         &parent_workspace_id,
         &forked_id,
         &nw.datatable_behaviors,
     )
-    .await
-    {
-        tracing::error!(
-            "Failed to fork datatables for workspace '{}': {}",
-            &forked_id,
-            e
-        );
-    }
+    .await?;
 
     Ok(format!("Created forked workspace {}", &forked_id))
 }
