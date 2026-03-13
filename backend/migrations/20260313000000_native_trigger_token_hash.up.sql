@@ -10,7 +10,16 @@ FROM token t
 WHERE t.token_prefix = nt.webhook_token_prefix;
 
 -- Remove orphaned triggers whose tokens no longer exist
-DELETE FROM native_trigger WHERE webhook_token_hash IS NULL;
+DO $$
+DECLARE
+    deleted_count INTEGER;
+BEGIN
+    DELETE FROM native_trigger WHERE webhook_token_hash IS NULL;
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+    IF deleted_count > 0 THEN
+        RAISE NOTICE 'Deleted % orphaned native_trigger(s) with no matching token', deleted_count;
+    END IF;
+END $$;
 
 ALTER TABLE native_trigger ALTER COLUMN webhook_token_hash SET NOT NULL;
 
