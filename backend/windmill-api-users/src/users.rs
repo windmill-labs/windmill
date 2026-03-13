@@ -528,7 +528,7 @@ async fn logout(
     cookies.remove(cookie);
     let mut tx = db.begin().await?;
     let t_hash = windmill_common::auth::hash_token(&token);
-    let t_prefix = &token[..TOKEN_PREFIX_LEN];
+    let t_prefix = token.get(..TOKEN_PREFIX_LEN).unwrap_or(&token);
 
     let email = if *INVALIDATE_ALL_SESSIONS_ON_LOGOUT {
         sqlx::query_scalar!(
