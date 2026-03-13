@@ -24,15 +24,15 @@ VALUES ('other-ws@windmill.dev', 'hash', 'password', false, true, 'Other WS User
 INSERT INTO usr(workspace_id, email, username, is_admin, role)
 VALUES ('other-workspace', 'other-ws@windmill.dev', 'other-ws-user', true, 'Admin');
 
-INSERT INTO token(token, email, label, super_admin)
-VALUES ('OTHER_WS_TOKEN', 'other-ws@windmill.dev', 'other ws token', false);
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin)
+VALUES (encode(sha256('OTHER_WS_TOKEN'::bytea), 'hex'), 'OTHER_WS_T', 'OTHER_WS_TOKEN', 'other-ws@windmill.dev', 'other ws token', false);
 
 -- User not in any workspace
 INSERT INTO password(email, password_hash, login_type, super_admin, verified, name)
 VALUES ('no-ws@windmill.dev', 'hash', 'password', false, true, 'No WS User');
 
-INSERT INTO token(token, email, label, super_admin)
-VALUES ('NO_WS_TOKEN', 'no-ws@windmill.dev', 'no ws token', false);
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin)
+VALUES (encode(sha256('NO_WS_TOKEN'::bytea), 'hex'), 'NO_WS_TOKE', 'NO_WS_TOKEN', 'no-ws@windmill.dev', 'no ws token', false);
 
 -- Script that returns WM_END_USER_EMAIL (public via extra_perms)
 INSERT INTO script (workspace_id, created_by, content, schema, summary, description, path, hash, language, lock, kind, extra_perms)
