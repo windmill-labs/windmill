@@ -144,6 +144,17 @@ export async function loadRunnablesFromBackend(
         continue;
       }
 
+      // Skip standalone script/flow/resource metadata files
+      // These have patterns like: foo.script.yaml, foo.flow.yaml, foo.resource.yaml
+      // Raw app runnable configs are just: foo.yaml
+      if (
+        fileName.endsWith(".script.yaml") ||
+        fileName.endsWith(".flow.yaml") ||
+        fileName.endsWith(".resource.yaml")
+      ) {
+        continue;
+      }
+
       const runnableId = fileName.replace(".yaml", "");
       processedIds.add(runnableId);
 

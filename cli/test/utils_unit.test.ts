@@ -596,3 +596,73 @@ describe("removeExtensionToPath", () => {
     expect(removeExtensionToPath("f/test/api.fetch.ts")).toBe("f/test/api");
   });
 });
+
+// =============================================================================
+// isFolderResourcePath - ensures raw app paths are properly identified
+// Regression test: generate-metadata was missing isRawAppPath check, causing
+// it to process files inside raw_app/backend/ as standalone scripts
+// =============================================================================
+
+import {
+  isFolderResourcePath,
+  isFlowPath,
+  isAppPath,
+  isRawAppPath,
+} from "../src/utils/resource_folders.ts";
+
+describe("isFolderResourcePath", () => {
+  // These tests use dotted paths (.flow, .app, .raw_app) which is the default format
+  // The non-dotted format (__flow, __app, __raw_app) is only used when nonDottedPaths
+  // is enabled via wmill.yaml, which requires runtime configuration
+
+  test("identifies flow paths", () => {
+    expect(isFlowPath("f/test/myflow.flow/flow.yaml")).toBe(true);
+    expect(isFlowPath("f/test/myflow.flow/inline_script.ts")).toBe(true);
+    expect(isFlowPath("f/test/script.ts")).toBe(false);
+  });
+
+  test("identifies app paths", () => {
+    expect(isAppPath("f/test/myapp.app/app.yaml")).toBe(true);
+    expect(isAppPath("f/test/myapp.app/inline_script.ts")).toBe(true);
+    expect(isAppPath("f/test/script.ts")).toBe(false);
+  });
+
+  test("identifies raw app paths", () => {
+    expect(isRawAppPath("f/test/myapp.raw_app/raw_app.yaml")).toBe(true);
+    expect(isRawAppPath("f/test/myapp.raw_app/backend/a.ts")).toBe(true);
+    expect(isRawAppPath("u/admin/testraw.raw_app/backend/a.ts")).toBe(true);
+    expect(isRawAppPath("f/test/script.ts")).toBe(false);
+  });
+
+  test("isFolderResourcePath includes all three types", () => {
+    // Flow
+    expect(isFolderResourcePath("f/test/myflow.flow/flow.yaml")).toBe(true);
+
+    // App
+    expect(isFolderResourcePath("f/test/myapp.app/app.yaml")).toBe(true);
+
+    // Raw App - THIS IS THE CRITICAL TEST
+    // Before the fix, isRawAppPath was missing from generate-metadata.ts
+    expect(isFolderResourcePath("f/test/myapp.raw_app/raw_app.yaml")).toBe(true);
+    expect(isFolderResourcePath("u/admin/testraw.raw_app/backend/a.ts")).toBe(true);
+
+    // Regular scripts should NOT match
+    expect(isFolderResourcePath("f/test/script.ts")).toBe(false);
+    expect(isFolderResourcePath("u/admin/my_script.ts")).toBe(false);
+  });
+
+  test("raw app backend files are identified as folder resources", () => {
+    // This is the specific case that was broken:
+    // Files inside raw_app/backend/ should be identified as folder resources
+    // so generate-metadata doesn't treat them as standalone scripts
+    const rawAppBackendPaths = [
+      "u/admin/testraw.raw_app/backend/a.ts",
+      "u/admin/testraw.raw_app/backend/runnable.py",
+      "f/myteam/dashboard.raw_app/backend/query.ts",
+    ];
+
+    for (const p of rawAppBackendPaths) {
+      expect(isFolderResourcePath(p)).toBe(true);
+    }
+  });
+});
