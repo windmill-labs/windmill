@@ -46,11 +46,13 @@
 				.map(([name, _]) => name)
 		)
 	)
+	let open = $state(false)
 </script>
 
 <div class="flex relative items-center {className}">
 	<Select
 		class="flex-1"
+		bind:open
 		bind:value
 		onCreateItem={(i) => (value = i)}
 		placeholder="Search or create..."
@@ -60,15 +62,14 @@
 		disabled={!$isCustomInstanceDbEnabled}
 	>
 		{#snippet endSnippet({ item })}
-			{#if !customInstanceDbs.current?.[item.value]?.success}
-				<div class="w-1.5 h-1.5 rounded-full bg-red-400"></div>
-			{:else}
-				<div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
-			{/if}
+			{@render customInstanceDbWizardButton({
+				dbname: item.value,
+				status: customInstanceDbs.current?.[item.value]
+			})}
 		{/snippet}
 	</Select>
 	{#if value}
-		{@render customInstanceDbWizardButton({ dbname: value, status })}
+		{@render customInstanceDbWizardButton({ dbname: value, status }, 'absolute right-1.5')}
 	{/if}
 </div>
 
@@ -80,18 +81,18 @@
 	bind:opened={() => openedDbNameWizard, (v) => !v && (openedDbNameWizard = undefined)}
 />
 
-{#snippet customInstanceDbWizardButton(db: typeof openedDbNameWizard)}
+{#snippet customInstanceDbWizardButton(db: typeof openedDbNameWizard, clazz: string = '')}
 	<Button
 		spacingSize="xs2"
 		variant="default"
-		wrapperClasses={'absolute right-1.5 h-6 bg-surface-input'}
-		onClick={() => (openedDbNameWizard = db)}
+		wrapperClasses="bg-surface-input h-6 -my-2 {clazz}"
+		onClick={() => ((openedDbNameWizard = db), (open = false))}
 	>
-		{#if !status}
+		{#if !db?.status}
 			<span class="text-yellow-600 dark:text-yellow-400">
 				Setup <ArrowRight class="inline" size={14} />
 			</span>
-		{:else if !status.success}
+		{:else if !db.status.success}
 			<span class="text-red-400 flex gap-1">
 				Error <TriangleAlert class="inline" size={16} />
 			</span>
