@@ -9,17 +9,13 @@ SET webhook_token_hash = t.token_hash
 FROM token t
 WHERE t.token_prefix = nt.webhook_token_prefix;
 
--- Remove orphaned triggers whose tokens no longer exist
-DO $$
-DECLARE
-    deleted_count INTEGER;
-BEGIN
-    DELETE FROM native_trigger WHERE webhook_token_hash IS NULL;
-    GET DIAGNOSTICS deleted_count = ROW_COUNT;
-    IF deleted_count > 0 THEN
-        RAISE NOTICE 'Deleted % orphaned native_trigger(s) with no matching token', deleted_count;
-    END IF;
-END $$;
+-- Mark orphaned triggers (whose tokens no longer exist) with an error
+-- instead of deleting them, so they remain visible in the UI.
+-- Use a placeholder hash (sha256 of empty string) that won't match any real token.
+UPDATE native_trigger
+SET webhook_token_hash = encode(sha256(''::bytea), 'hex'),
+    error = 'Webhook token not found during migration — re-create this trigger to fix'
+WHERE webhook_token_hash IS NULL;
 
 ALTER TABLE native_trigger ALTER COLUMN webhook_token_hash SET NOT NULL;
 
