@@ -67,6 +67,7 @@ files:
   copy:
     - backend/.env
     - scripts/
+    - wm-ts-nav/target/release/wm-ts-nav
 
 sandbox:
   enabled: false

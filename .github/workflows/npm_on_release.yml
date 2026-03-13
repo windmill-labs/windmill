@@ -14,7 +14,7 @@ jobs:
         with:
           node-version: "20.x"
           registry-url: "https://registry.npmjs.org"
-      - run: cd typescript-client && ./publish.sh && cd ..
+      - run: cd typescript-client && ./publish.sh --access public && cd ..
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
   publish_cli:
@@ -28,6 +28,6 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - run: cd cli && ./build.sh && cd npm && npm publish
+      - run: cd cli && ./build.sh && cd npm && npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

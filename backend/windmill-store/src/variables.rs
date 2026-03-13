@@ -536,12 +536,12 @@ async fn delete_variable(
     )
     .execute(&mut *tx)
     .await?;
-    sqlx::query!(
-        "DELETE FROM resource WHERE path = $1 AND workspace_id = $2",
+    let deleted_linked_resource = sqlx::query_scalar!(
+        "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
         path,
         w_id
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
     audit_log(
         &mut *tx,
@@ -575,8 +575,33 @@ async fn delete_variable(
 
     webhook.send_message(
         w_id.clone(),
-        WebhookMessage::DeleteVariable { workspace: w_id, path: path.to_owned() },
+        WebhookMessage::DeleteVariable { workspace: w_id.clone(), path: path.to_owned() },
     );
+
+    if deleted_linked_resource.is_some() {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::Resource {
+                path: path.to_string(),
+                parent_path: Some(path.to_string()),
+            },
+            Some(format!(
+                "Resource '{}' deleted (linked variable deleted)",
+                path
+            )),
+            true,
+            None,
+        )
+        .await?;
+
+        webhook.send_message(
+            w_id.clone(),
+            WebhookMessage::DeleteResource { workspace: w_id, path: path.to_owned() },
+        );
+    }
 
     Ok(format!("variable {} deleted", path))
 }

@@ -3,6 +3,13 @@
  *
  * Tests the sync pull and push functionality with a simulated filesystem
  * containing every kind of Windmill resource type.
+ *
+ * CROSS-LINKS - Related test helper locations (keep in sync when adding new helpers):
+ * @see test_fixtures.ts - Shared local fixtures (prefer using this module for new tests)
+ * @see test_backend.ts - API-based creation helpers (createTestApp, createTestResource, etc.)
+ *
+ * This file contains: Local fixtures (should migrate to test_fixtures.ts) + createRemoteScript
+ * If you add new helpers, update cross-links in the files above.
  */
 
 import { expect, test, describe } from "bun:test";
@@ -37,10 +44,13 @@ import { newPathAssigner } from "../windmill-utils-internal/src/path-utils/path-
 
 // =============================================================================
 // Test Fixtures - Every Type of Windmill Resource
+// See file header for cross-links to related helpers.
+// Consider migrating these to test_fixtures.ts for reuse across tests.
 // =============================================================================
 
 /**
- * Creates a mock script file structure
+ * Creates a mock script file structure.
+ * See file header for cross-links to related helpers.
  */
 function createScriptFixture(
   name: string,
@@ -89,7 +99,8 @@ kind: script
 }
 
 /**
- * Creates a mock flow file structure
+ * Creates a mock flow file structure.
+ * See file header for cross-links to related helpers.
  */
 function createFlowFixture(name: string): Record<string, { path: string; content: string }> {
   const flowSuffix = getFolderSuffix("flow");
@@ -123,7 +134,8 @@ schema:
 }
 
 /**
- * Creates a mock app file structure
+ * Creates a mock app file structure.
+ * See file header for cross-links to related helpers.
  */
 function createAppFixture(name: string): Record<string, { path: string; content: string }> {
   const appSuffix = getFolderSuffix("app");
@@ -151,7 +163,8 @@ policy:
 }
 
 /**
- * Creates a mock raw_app file structure
+ * Creates a mock raw_app file structure.
+ * See file header for cross-links to related helpers.
  */
 function createRawAppFixture(name: string): Record<string, { path: string; content: string }> {
   const rawAppSuffix = getFolderSuffix("raw_app");
@@ -1920,7 +1933,7 @@ excludes: []
 
 import type { TestBackend } from "./test_backend.ts";
 
-/** Create a script on the remote via API */
+/** Create a script on the remote via API. See file header for cross-links. */
 async function createRemoteScript(
   backend: TestBackend,
   scriptPath: string,

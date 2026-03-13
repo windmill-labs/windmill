@@ -1096,7 +1096,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 
 	<div class="flex flex-row items-center gap-2 whitespace-nowrap">
 		{@render right?.()}
-		{#if scriptPath && !noHistory}
+		{#if scriptPath && !noHistory && customUi?.history != false}
 			<Button
 				unifiedSize="sm"
 				variant="subtle"
@@ -1120,7 +1120,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				Library
 			</Button>
 		{/if}
-		{#if saveToWorkspace}
+		{#if saveToWorkspace && customUi?.saveToWorkspace != false}
 			<Button
 				unifiedSize="sm"
 				variant="subtle"
