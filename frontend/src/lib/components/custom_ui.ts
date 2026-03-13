@@ -41,6 +41,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 	tagSelectNoLabel?: boolean
 	tagLabel?: string
 	aiAgent?: boolean
+	aiSandbox?: boolean
 }
 
 export type DisplayResultUi = {
