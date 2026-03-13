@@ -58,6 +58,7 @@ import {
   isFlowInlineScriptPath as isFlowInlineScriptPathInternal,
   isFlowPath,
   isAppPath,
+  isRawAppPath,
 } from "../../utils/resource_folders.ts";
 
 export interface ScriptFile {
@@ -1027,7 +1028,8 @@ export async function generateMetadata(
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||
           ignore(p, isD) ||
           isFlowPath(p) ||
-          isAppPath(p)
+          isAppPath(p) ||
+          isRawAppPath(p)
         );
       },
       false,
