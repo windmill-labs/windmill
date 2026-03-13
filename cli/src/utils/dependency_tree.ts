@@ -40,7 +40,8 @@ interface DependencyNode {
   staleReason?: string;
   // Item metadata for generate-metadata command
   itemType: ItemType;
-  folder: string;        // Folder path (for flows/apps) or script path (for scripts)
+  folder: string;        // Folder path (for flows/apps) or remote path (for scripts)
+  originalPath: string;  // Original path passed to handler (with extension for scripts)
   isRawApp?: boolean;    // Only set for apps
   isDirectlyStale: boolean;  // True if this item's content changed (vs transitively stale)
 }
@@ -57,6 +58,7 @@ export class DoubleLinkedDependencyTree {
     rawWorkspaceDependencies: Record<string, string>,
     itemType: ItemType,
     folder: string,
+    originalPath: string,
     isDirectlyStale: boolean,
     isRawApp?: boolean
   ): Promise<void> {
@@ -67,7 +69,7 @@ export class DoubleLinkedDependencyTree {
       this.nodes.set(path, {
         content: "", stalenessHash: "", language: "deno", metadata: "",
         imports: new Set(), importedBy: new Set(),
-        itemType: "script", folder: "", isDirectlyStale: false,
+        itemType: "script", folder: "", originalPath: "", isDirectlyStale: false,
       });
     }
     const node = this.nodes.get(path)!;
@@ -77,6 +79,7 @@ export class DoubleLinkedDependencyTree {
     node.metadata = metadata;
     node.itemType = itemType;
     node.folder = folder;
+    node.originalPath = originalPath;
     node.isDirectlyStale = isDirectlyStale;
     node.isRawApp = isRawApp;
 
@@ -87,7 +90,7 @@ export class DoubleLinkedDependencyTree {
         this.nodes.set(importPath, {
           content: "", stalenessHash: "", language: "deno", metadata: "",
           imports: new Set(), importedBy: new Set(),
-          itemType: "script", folder: "", isDirectlyStale: false,
+          itemType: "script", folder: "", originalPath: "", isDirectlyStale: false,
         });
       }
       this.nodes.get(importPath)!.importedBy.add(path);
@@ -139,6 +142,10 @@ export class DoubleLinkedDependencyTree {
 
   getIsDirectlyStale(path: string): boolean {
     return this.nodes.get(path)?.isDirectlyStale ?? false;
+  }
+
+  getOriginalPath(path: string): string | undefined {
+    return this.nodes.get(path)?.originalPath;
   }
 
   /**

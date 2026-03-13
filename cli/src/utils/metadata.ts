@@ -220,7 +220,7 @@ export async function generateScriptMetadataInternal(
     if (dryRun) {
       // First pass: populate tree with script and its imports
       const imports = await extractRelativeImports(scriptContent, remotePath, language);
-      await tree.addScript(remotePath, scriptContent, language, metadataContent, imports, rawWorkspaceDependencies, "script", remotePath, isDirectlyStale);
+      await tree.addScript(remotePath, scriptContent, language, metadataContent, imports, rawWorkspaceDependencies, "script", remotePath, scriptPath, isDirectlyStale);
       return;
     }
     // Second pass: proceed to generate (caller verified this script is stale via tree)

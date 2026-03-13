@@ -176,7 +176,7 @@ export async function generateAppLocksInternal(
         const treePath = folderNormalized + "/" + context.path.join("/");
         const language = inlineScript.language as ScriptLanguage;
         const imports = await extractRelativeImports(content, treePath, language);
-        await tree.addScript(treePath, content, language, "", imports, rawWorkspaceDependencies, "app", folderNormalized, isDirectlyStale, rawApp);
+        await tree.addScript(treePath, content, language, "", imports, rawWorkspaceDependencies, "app", folderNormalized, appFolder, isDirectlyStale, rawApp);
 
         return inlineScript;
       });

@@ -121,7 +121,7 @@ export async function generateFlowLockInternal(
         const treePath = folderNormalized + "/" + path.basename(script.path, path.extname(script.path));
         const language = script.language as ScriptLanguage;
         const imports = await extractRelativeImports(content, treePath, language);
-        await tree.addScript(treePath, content, language, "", imports, rawWorkspaceDependencies, "flow", folderNormalized, isDirectlyStale);
+        await tree.addScript(treePath, content, language, "", imports, rawWorkspaceDependencies, "flow", folderNormalized, folder, isDirectlyStale);
       }
       return;
     }

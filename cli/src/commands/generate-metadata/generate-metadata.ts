@@ -204,13 +204,15 @@ async function generateMetadata(
     const itemType = tree.getItemType(p)!;
     const itemFolder = tree.getFolder(p)!;
 
-    // Scripts: one entry per script
+    // Scripts: one entry per script (use originalPath for handler)
     // Flows/Apps: one entry per folder (dedupe multiple inline scripts)
     if (itemType === "script") {
-      staleItems.push({ type: itemType, path: p, folder: itemFolder });
+      const originalPath = tree.getOriginalPath(p)!;
+      staleItems.push({ type: itemType, path: originalPath, folder: itemFolder });
     } else if (!seenFolders.has(itemFolder)) {
       seenFolders.add(itemFolder);
-      staleItems.push({ type: itemType, path: itemFolder, folder: itemFolder, isRawApp: tree.getIsRawApp(p) });
+      const originalPath = tree.getOriginalPath(p)!;
+      staleItems.push({ type: itemType, path: originalPath, folder: itemFolder, isRawApp: tree.getIsRawApp(p) });
     }
   }
 
@@ -292,7 +294,7 @@ async function generateMetadata(
     current++;
     log.info(`${formatProgress(current)} script ${colors.cyan(item.path)}`);
     await generateScriptMetadataInternal(
-      item.folder,
+      item.path, // originalPath with extension
       workspace,
       opts,
       false, // dryRun
