@@ -187,6 +187,7 @@ export async function generateScriptMetadataInternal(
   rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[],
   justUpdateMetadataLock?: boolean,
+  legacyBehaviour?: boolean,
   tree?: DoubleLinkedDependencyTree
 ): Promise<string | undefined> {
   const remotePath = scriptPath
@@ -194,7 +195,6 @@ export async function generateScriptMetadataInternal(
     .replaceAll(SEP, "/");
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
-
 
   const metadataWithType = await parseMetadataFile(
     remotePath,
@@ -213,31 +213,29 @@ export async function generateScriptMetadataInternal(
 
   // Note: rawWorkspaceDependencies are now passed in as parameter instead of being searched hierarchically
   let hash = await generateScriptHash(filteredRawWorkspaceDependencies, scriptContent, metadataContent);
+  const isDirectlyStale = !(await checkifMetadataUptodate(remotePath, hash, undefined));
 
-  // If tree is provided, add this script to it (for dependency tracking)
-  if (tree) {
-    const imports = await extractRelativeImports(scriptContent, remotePath, language);
-    await tree.addScript(remotePath, scriptContent, language, metadataContent, imports, rawWorkspaceDependencies);
-  }
-
-  // Staleness check: use tree if provided, otherwise use existing logic
-  let shouldRegenerate: boolean;
-  if (tree) {
-    // After propagateStaleness(), only stale items remain in tree
-    shouldRegenerate = tree.has(remotePath);
-  } else {
-    shouldRegenerate = !(await checkifMetadataUptodate(remotePath, hash, undefined));
-  }
-
-  if (!shouldRegenerate) {
-    if (!noStaleMessage) {
-      log.info(
-        colors.green(`Script ${remotePath} metadata is up-to-date, skipping`)
-      );
+  // New behaviour: tree-based dependency tracking
+  if (!legacyBehaviour && tree) {
+    if (dryRun) {
+      // First pass: populate tree with script and its imports
+      const imports = await extractRelativeImports(scriptContent, remotePath, language);
+      await tree.addScript(remotePath, scriptContent, language, metadataContent, imports, rawWorkspaceDependencies, "script", remotePath, isDirectlyStale);
+      return;
     }
-    return;
-  } else if (dryRun) {
-    return `${remotePath} (${language})`;
+    // Second pass: proceed to generate (caller verified this script is stale via tree)
+  } else {
+    // Legacy behaviour: use existing staleness check
+    if (!isDirectlyStale) {
+      if (!noStaleMessage) {
+        log.info(
+          colors.green(`Script ${remotePath} metadata is up-to-date, skipping`)
+        );
+      }
+      return;
+    } else if (dryRun) {
+      return `${remotePath} (${language})`;
+    }
   }
 
   if (!justUpdateMetadataLock && !noStaleMessage) {
@@ -262,7 +260,7 @@ export async function generateScriptMetadataInternal(
     const hasCodebase = findCodebase(scriptPath, codebases) != undefined;
 
     if (!hasCodebase) {
-      const tempScriptRefs = tree ? tree.flatten(remotePath) : undefined;
+      const tempScriptRefs = tree?.flatten(remotePath);
       await updateScriptLock(
         workspace,
         scriptContent,
@@ -429,7 +427,7 @@ export async function computeLockCacheKey(
   scriptContent: string,
   language: ScriptLanguage,
   rawWorkspaceDependencies: Record<string, string>,
-  tempScriptRefs?: Record<string, string>,
+  tempScriptRefs?: Record<string, string>
 ): Promise<string> {
   const annotation = extractWorkspaceDepsAnnotation(scriptContent, language);
   const annotationStr = annotation
@@ -458,7 +456,8 @@ async function fetchScriptLock(
   tempScriptRefs?: Record<string, string>
 ): Promise<string> {
   const hasRawDeps = Object.keys(rawWorkspaceDependencies).length > 0;
-  const cacheKey = hasRawDeps
+  const hasTempRefs = tempScriptRefs && Object.keys(tempScriptRefs).length > 0;
+  const cacheKey = (hasRawDeps || hasTempRefs)
     ? await computeLockCacheKey(scriptContent, language, rawWorkspaceDependencies, tempScriptRefs)
     : undefined;
   if (cacheKey && lockCache.has(cacheKey)) {
@@ -923,16 +922,10 @@ export async function checkifMetadataUptodate(
 export async function generateScriptHash(
   rawWorkspaceDependencies: Record<string, string>,
   scriptContent: string,
-  newMetadataContent: string,
-  importHashes: string[] = []
+  newMetadataContent: string
 ) {
-  // Sort import hashes for determinism
-  const sortedImportHashes = [...importHashes].sort().join("");
   return await generateHash(
-    JSON.stringify(rawWorkspaceDependencies) +
-      scriptContent +
-      newMetadataContent +
-      sortedImportHashes
+    JSON.stringify(rawWorkspaceDependencies) + scriptContent + newMetadataContent
   );
 }
 

@@ -27,6 +27,8 @@ export async function uploadScripts(
   }
 }
 
+export type ItemType = "script" | "flow" | "app";
+
 interface DependencyNode {
   content: string;
   stalenessHash: string;  // Hash for staleness detection (includes deps, content, metadata)
@@ -36,6 +38,11 @@ interface DependencyNode {
   imports: Set<string>;
   importedBy: Set<string>;
   staleReason?: string;
+  // Item metadata for generate-metadata command
+  itemType: ItemType;
+  folder: string;        // Folder path (for flows/apps) or script path (for scripts)
+  isRawApp?: boolean;    // Only set for apps
+  isDirectlyStale: boolean;  // True if this item's content changed (vs transitively stale)
 }
 
 export class DoubleLinkedDependencyTree {
@@ -47,7 +54,11 @@ export class DoubleLinkedDependencyTree {
     language: ScriptLanguage,
     metadata: string,
     imports: string[],
-    rawWorkspaceDependencies: Record<string, string>
+    rawWorkspaceDependencies: Record<string, string>,
+    itemType: ItemType,
+    folder: string,
+    isDirectlyStale: boolean,
+    isRawApp?: boolean
   ): Promise<void> {
     const filteredDeps = filterWorkspaceDependencies(rawWorkspaceDependencies, content, language);
     const stalenessHash = await generateScriptHash(filteredDeps, content, metadata);
@@ -56,6 +67,7 @@ export class DoubleLinkedDependencyTree {
       this.nodes.set(path, {
         content: "", stalenessHash: "", language: "deno", metadata: "",
         imports: new Set(), importedBy: new Set(),
+        itemType: "script", folder: "", isDirectlyStale: false,
       });
     }
     const node = this.nodes.get(path)!;
@@ -63,6 +75,10 @@ export class DoubleLinkedDependencyTree {
     node.stalenessHash = stalenessHash;
     node.language = language;
     node.metadata = metadata;
+    node.itemType = itemType;
+    node.folder = folder;
+    node.isDirectlyStale = isDirectlyStale;
+    node.isRawApp = isRawApp;
 
     for (const importPath of imports) {
       node.imports.add(importPath);
@@ -71,6 +87,7 @@ export class DoubleLinkedDependencyTree {
         this.nodes.set(importPath, {
           content: "", stalenessHash: "", language: "deno", metadata: "",
           imports: new Set(), importedBy: new Set(),
+          itemType: "script", folder: "", isDirectlyStale: false,
         });
       }
       this.nodes.get(importPath)!.importedBy.add(path);
@@ -108,15 +125,35 @@ export class DoubleLinkedDependencyTree {
     return this.nodes.get(path)?.staleReason;
   }
 
+  getItemType(path: string): ItemType | undefined {
+    return this.nodes.get(path)?.itemType;
+  }
+
+  getFolder(path: string): string | undefined {
+    return this.nodes.get(path)?.folder;
+  }
+
+  getIsRawApp(path: string): boolean | undefined {
+    return this.nodes.get(path)?.isRawApp;
+  }
+
+  getIsDirectlyStale(path: string): boolean {
+    return this.nodes.get(path)?.isDirectlyStale ?? false;
+  }
+
   /**
    * Mutates the tree by removing all nodes that are not stale.
    * Uses BFS on reverse graph (importedBy) to find all stale scripts.
+   * Starts from nodes with isDirectlyStale=true.
    */
-  propagateStaleness(directlyStale: Set<string>): void {
-    // Mark directly stale scripts
-    for (const path of directlyStale) {
-      const node = this.nodes.get(path);
-      if (node) node.staleReason = "content changed";
+  propagateStaleness(): void {
+    // Collect directly stale nodes
+    const directlyStale = new Set<string>();
+    for (const [path, node] of this.nodes.entries()) {
+      if (node.isDirectlyStale) {
+        directlyStale.add(path);
+        node.staleReason = "content changed";
+      }
     }
 
     const allStale = new Set(directlyStale);

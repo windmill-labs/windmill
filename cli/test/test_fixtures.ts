@@ -8,7 +8,8 @@
  * - Local creation functions: Create fixtures AND write them to disk
  *
  * CROSS-LINKS - Related test helper locations (keep in sync when adding new helpers):
- * @see test_backend.ts - API-based creation helpers (createTestApp, createTestResource, etc.)
+ * @see test_backend.ts - API-based creation helpers (createTestApp, createTestResource,
+ *   createAppWithInlineScript, createFlowWithInlineScript, etc.)
  * @see sync_pull_push.test.ts - Local fixtures + createRemoteScript (API-based)
  *
  * This file contains: Shared local fixtures (createLocalScript, createLocalFlow, etc.)

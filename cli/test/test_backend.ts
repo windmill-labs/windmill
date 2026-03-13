@@ -24,7 +24,8 @@
  * @see test_fixtures.ts - Local file fixtures (createLocalScript, createLocalFlow, etc.)
  * @see sync_pull_push.test.ts - Local fixtures + createRemoteScript (API-based)
  *
- * This file contains: API-based creation helpers (createTestApp, createTestResource, etc.)
+ * This file contains: API-based creation helpers (createTestApp, createTestResource,
+ *   createAppWithInlineScript, createFlowWithInlineScript, etc.)
  * If you add new helpers, update cross-links in the files above.
  */
 

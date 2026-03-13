@@ -10,6 +10,8 @@ import * as log from "../../core/log.ts";
 import {
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
+  readLockfile,
+  checkifMetadataUptodate,
 } from "../../utils/metadata.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
 import { generateAppLocksInternal, getAppFolders } from "../app/app_metadata.ts";
@@ -21,9 +23,14 @@ import {
 import { exts } from "../script/script.ts";
 import { isFlowPath, isAppPath } from "../../utils/resource_folders.ts";
 import { listSyncCodebases } from "../../utils/codebase.ts";
+import {
+  DoubleLinkedDependencyTree,
+  uploadScripts,
+  ItemType,
+} from "../../utils/dependency_tree.ts";
 
 interface StaleItem {
-  type: "script" | "flow" | "app";
+  type: ItemType;
   path: string;
   folder: string;
   isRawApp?: boolean;
@@ -53,8 +60,6 @@ async function generateMetadata(
   const codebases = await listSyncCodebases(opts);
   const ignore = await ignoreF(opts);
 
-  const staleItems: StaleItem[] = [];
-
   // --schema-only implies skipping flows and apps (they only have locks, no schemas)
   const skipScripts = opts.skipScripts ?? false;
   const skipFlows = opts.skipFlows ?? opts.schemaOnly ?? false;
@@ -71,6 +76,9 @@ async function generateMetadata(
   }
 
   log.info(colors.gray(`Checking ${checking.join(", ")}...`));
+
+  // Build dependency tree for relative import tracking
+  const tree = new DoubleLinkedDependencyTree();
 
   // === Collect stale scripts ===
   if (!skipScripts) {
@@ -90,19 +98,18 @@ async function generateMetadata(
     );
 
     for (const e of Object.keys(scriptElems)) {
-      const candidate = await generateScriptMetadataInternal(
+      await generateScriptMetadataInternal(
         e,
         workspace,
         opts,
-        true, // dryRun
+        true, // dryRun - populate tree
         true, // noStaleMessage
         rawWorkspaceDependencies,
         codebases,
-        false
+        false,
+        false, // legacyBehaviour
+        tree
       );
-      if (candidate) {
-        staleItems.push({ type: "script", path: candidate, folder: e });
-      }
     }
   }
 
@@ -124,18 +131,17 @@ async function generateMetadata(
       )
     ).map((x) => x.substring(0, x.lastIndexOf(SEP)));
 
-    for (const folder of flowElems) {
-      const candidate = await generateFlowLockInternal(
-        folder,
-        true, // dryRun
+    for (const flowFolder of flowElems) {
+      await generateFlowLockInternal(
+        flowFolder,
+        true, // dryRun - populate tree
         workspace,
         opts,
         false,
-        true // noStaleMessage
+        true, // noStaleMessage
+        false, // legacyBehaviour
+        tree
       );
-      if (candidate) {
-        staleItems.push({ type: "flow", path: candidate, folder });
-      }
     }
   }
 
@@ -159,45 +165,65 @@ async function generateMetadata(
     const appFolders = getAppFolders(elems, "app.yaml");
 
     for (const appFolder of rawAppFolders) {
-      const candidate = await generateAppLocksInternal(
+      await generateAppLocksInternal(
         appFolder,
         true, // rawApp
-        true, // dryRun
+        true, // dryRun - populate tree
         workspace,
         opts,
         false,
-        true // noStaleMessage
+        true, // noStaleMessage
+        false, // legacyBehaviour
+        tree
       );
-      if (candidate) {
-        staleItems.push({ type: "app", path: candidate, folder: appFolder, isRawApp: true });
-      }
     }
 
     for (const appFolder of appFolders) {
-      const candidate = await generateAppLocksInternal(
+      await generateAppLocksInternal(
         appFolder,
         false, // rawApp
-        true, // dryRun
+        true, // dryRun - populate tree
         workspace,
         opts,
         false,
-        true // noStaleMessage
+        true, // noStaleMessage
+        false, // legacyBehaviour
+        tree
       );
-      if (candidate) {
-        staleItems.push({ type: "app", path: candidate, folder: appFolder, isRawApp: false });
-      }
+    }
+  }
+
+  // === Propagate staleness through imports ===
+  tree.propagateStaleness();
+
+  // === Populate staleItems from tree ===
+  const staleItems: StaleItem[] = [];
+  const seenFolders = new Set<string>();
+
+  for (const p of tree.allPaths()) {
+    const itemType = tree.getItemType(p)!;
+    const itemFolder = tree.getFolder(p)!;
+
+    // Scripts: one entry per script
+    // Flows/Apps: one entry per folder (dedupe multiple inline scripts)
+    if (itemType === "script") {
+      staleItems.push({ type: itemType, path: p, folder: itemFolder });
+    } else if (!seenFolders.has(itemFolder)) {
+      seenFolders.add(itemFolder);
+      staleItems.push({ type: itemType, path: itemFolder, folder: itemFolder, isRawApp: tree.getIsRawApp(p) });
     }
   }
 
   // === Filter by folder if specified ===
   let filteredItems = staleItems;
   if (folder) {
-    // Strip trailing separator to match deprecated flow/app handler behavior
-    // (see generateFlowLockInternal line 64-66, generateAppLocksInternal line 109-110)
     if (folder.endsWith(SEP)) {
       folder = folder.substring(0, folder.length - 1);
     }
-    filteredItems = staleItems.filter((item) => item.folder === folder || item.folder.startsWith(folder + SEP));
+    const normalizedFolder = folder.replaceAll(SEP, "/");
+    filteredItems = staleItems.filter((item) =>
+      item.folder === normalizedFolder || item.folder.startsWith(normalizedFolder + "/")
+    );
   }
 
   // === Show stale items and confirm ===
@@ -270,10 +296,12 @@ async function generateMetadata(
       workspace,
       opts,
       false, // dryRun
-      true, // noStaleMessage - we handle output
+      true, // noStaleMessage
       rawWorkspaceDependencies,
       codebases,
-      false
+      false,
+      false, // legacyBehaviour
+      tree
     );
   }
 
@@ -282,26 +310,31 @@ async function generateMetadata(
     current++;
     log.info(`${formatProgress(current)} flow   ${colors.cyan(item.path)}`);
     await generateFlowLockInternal(
-      item.folder,
+      item.folder.replaceAll("/", SEP),
       false, // dryRun
       workspace,
       opts,
       false,
-      true // noStaleMessage - we handle output
+      true, // noStaleMessage
+      false, // legacyBehaviour
+      tree
     );
   }
+
   // Process apps
   for (const item of apps) {
     current++;
     log.info(`${formatProgress(current)} app    ${colors.cyan(item.path)}`);
     await generateAppLocksInternal(
-      item.folder,
+      item.folder.replaceAll("/", SEP),
       item.isRawApp!, // rawApp
       false, // dryRun
       workspace,
       opts,
       false,
-      true // noStaleMessage - we handle output
+      true, // noStaleMessage
+      false, // legacyBehaviour
+      tree
     );
   }
 
