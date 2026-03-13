@@ -35,7 +35,7 @@ function loadParser(pkgName: string): Promise<any> {
       const wasmPath = _require.resolve(
         `${pkgName}/windmill_parser_wasm_bg.wasm`
       );
-      await mod.default(readFileSync(wasmPath));
+      await mod.default({ module_or_path: readFileSync(wasmPath) });
       return mod;
     })();
     _parserCache.set(pkgName, p);
@@ -50,26 +50,25 @@ export class LockfileGenerationError extends Error {
   }
 }
 
-export async function generateAllMetadata() {}
 
 export async function getRawWorkspaceDependencies(): Promise<Record<string, string>> {
   const rawWorkspaceDeps: Record<string, string> = {};
-  
+
   try {
     const entries = await readdir("dependencies", { withFileTypes: true });
     for (const entry of entries) {
       if (entry.isDirectory()) continue;
-      
+
       const filePath = `dependencies/${entry.name}`;
       const content = await readFile(filePath, "utf-8");
-      
+
       // Find matching language
       for (const lang of workspaceDependenciesLanguages) {
         if (entry.name.endsWith(lang.filename)) {
           // Check if out of sync
           const contentHash = await generateHash(content + filePath);
           const isUpToDate = await checkifMetadataUptodate(filePath, contentHash, undefined);
-          
+
           if (!isUpToDate) {
             rawWorkspaceDeps[filePath] = content;
           }
@@ -223,7 +222,7 @@ export async function generateScriptMetadataInternal(
     return `${remotePath} (${language})`;
   }
 
-  if (!justUpdateMetadataLock) {
+  if (!justUpdateMetadataLock && !noStaleMessage) {
     log.info(colors.gray(`Generating metadata for ${scriptPath}`));
   }
 
@@ -690,6 +689,11 @@ export async function inferSchema(
     );
 
     argSigToJsonSchemaType(arg.typ, currentSchema.properties[arg.name]);
+
+    // For T | T[] detection for debouncing arg accumulation
+    if ((arg as any).otyp && (arg as any).otyp.includes('[') && (arg as any).otyp.includes('|')) {
+      currentSchema.properties[arg.name].originalType = (arg as any).otyp
+    }
 
     currentSchema.properties[arg.name].default = arg.default;
 

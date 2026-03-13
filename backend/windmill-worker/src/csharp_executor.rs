@@ -600,7 +600,10 @@ pub async fn handle_csharp_job(
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::CSharp).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::CSharp, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -633,7 +636,10 @@ pub async fn handle_csharp_job(
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::CSharp).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::CSharp, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("DOTNET_CLI_HOME", &*CSHARP_CACHE_DIR)

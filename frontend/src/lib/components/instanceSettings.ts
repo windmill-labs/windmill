@@ -51,6 +51,7 @@ export interface Setting {
 		| 'otel'
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
+		| 'github_enterprise_app'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -85,7 +86,8 @@ const indexerSettingsSchema = z
 		refresh_index_period: positiveNumber.optional(),
 		max_indexed_job_log_size: positiveNumber.optional(),
 		commit_log_max_batch_size: positiveNumber.optional(),
-		refresh_log_index_period: positiveNumber.optional()
+		refresh_log_index_period: positiveNumber.optional(),
+		max_index_time_window_secs: positiveNumber.optional()
 	})
 	.passthrough()
 
@@ -189,6 +191,16 @@ export const settings: Record<string, Setting[]> = {
 				'When enabled apps will be accessible at /a/{workspace_id}/{custom_path} instead of /a/{custom_path} allowing you to define same custom path for apps in different workspace without conflict',
 			key: 'app_workspaced_route',
 			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Audit log retention (days)',
+			key: 'audit_log_retention_days',
+			description: 'How long to keep audit log entries in the database. Default: 365 days.',
+			fieldType: 'number',
+			placeholder: '365',
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
@@ -464,7 +476,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Nuget Config',
-			description: 'Write a nuget.config file to set custom package sources and credentials',
+			description:
+				'Write a nuget.config file to set custom package sources and credentials. Use <clear /> inside <packageSources> to remove default sources and only use your custom ones',
 			key: 'nuget_config',
 			fieldType: 'codearea',
 			codeAreaLang: 'xml',
@@ -572,6 +585,15 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: 'Critical alerts in UI are only available in the EE version'
 		},
 		{
+			label: 'Alert on token expiry',
+			description:
+				'Send critical alerts when API tokens are about to expire (within 7 days) or have expired',
+			key: 'critical_alerts_on_token_expiry',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'Slack',
 			key: 'slack',
 			fieldType: 'slack_connect',
@@ -628,11 +650,10 @@ export const settings: Record<string, Setting[]> = {
 
 	Telemetry: [
 		{
-			label: 'Disable telemetry',
+			label: 'Minimal telemetry',
 			key: 'disable_stats',
 			fieldType: 'boolean',
-			storage: 'setting',
-			hiddenInEe: true
+			storage: 'setting'
 		}
 	],
 	'Secret Storage': [
@@ -644,6 +665,23 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'secret_backend',
 			storage: 'setting',
 			ee_only: 'HashiCorp Vault integration is an Enterprise Edition feature'
+		}
+	],
+	'GitHub Enterprise App': [
+		{
+			label: 'GitHub Enterprise App',
+			description:
+				'Configure a self-managed GitHub App for GitHub Enterprise Server (or any GitHub instance) to enable git sync without stats.windmill.dev.',
+			key: 'github_enterprise_app',
+			fieldType: 'github_enterprise_app',
+			storage: 'setting',
+			ee_only: '',
+			error:
+				'When self-managed mode is enabled, Base URL, App ID, App Slug, and Private Key are required.',
+			isValid: (v: any) => {
+				if (!v?.self_managed) return true
+				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.private_key)
+			}
 		}
 	]
 }
@@ -753,6 +791,13 @@ export const instanceSettingsNavigationGroups = [
 		title: 'Advanced',
 		items: [
 			{
+				id: 'github_enterprise_app',
+				label: 'GitHub Enterprise App',
+				aiId: 'instance-settings-github-enterprise-app',
+				aiDescription: 'Self-managed GitHub App for GitHub Enterprise Server git sync',
+				isEE: true
+			},
+			{
 				id: 'private_hub',
 				label: 'Private Hub',
 				aiId: 'instance-settings-private-hub',
@@ -789,7 +834,8 @@ export const tabToCategoryMap: Record<string, string> = {
 	secret_storage: 'Secret Storage',
 	object_storage: 'Object Storage',
 	jobs: 'Jobs',
-	private_hub: 'Private Hub'
+	private_hub: 'Private Hub',
+	github_enterprise_app: 'GitHub Enterprise App'
 }
 
 export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
@@ -818,7 +864,8 @@ export const categoryToTabMap: Record<string, string> = {
 	'Secret Storage': 'secret_storage',
 	'Object Storage': 'object_storage',
 	Jobs: 'jobs',
-	'Private Hub': 'private_hub'
+	'Private Hub': 'private_hub',
+	'GitHub Enterprise App': 'github_enterprise_app'
 }
 
 export interface SearchableSettingItem {

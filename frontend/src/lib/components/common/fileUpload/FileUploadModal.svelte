@@ -6,12 +6,16 @@
 	import { X } from 'lucide-svelte'
 	import FileUpload from './FileUpload.svelte'
 
-	export let title: string
-	export let open: boolean = false
 
-	export let fileKey: string | undefined = undefined
+	interface Props {
+		title: string;
+		open?: boolean;
+		fileKey?: string | undefined;
+	}
 
-	let s3Folder: string = ''
+	let { title, open = false, fileKey = $bindable(undefined) }: Props = $props();
+
+	let s3Folder: string = $state('')
 	const dispatch = createEventDispatcher()
 
 	function fadeFast(node: HTMLElement) {

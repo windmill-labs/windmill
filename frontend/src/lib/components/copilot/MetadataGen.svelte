@@ -4,7 +4,7 @@
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import { metadataCompletionEnabled } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { twMerge } from 'tailwind-merge'
 	import autosize from '$lib/autosize'
@@ -12,7 +12,7 @@
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
-	import { validateToolName } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
+	import { getToolNameError } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
 	import {
 		inputBaseClass,
 		inputBorderClass,
@@ -117,6 +117,7 @@ Generate a tool name for the script below:
 		elementProps?: Record<string, any>
 		class?: string
 		onChange?: (content: string) => void
+		siblingToolNames?: string[]
 	}
 
 	let {
@@ -130,8 +131,15 @@ Generate a tool name for the script below:
 		elementType = 'input',
 		elementProps = {},
 		class: clazz = '',
-		onChange = undefined
+		onChange = undefined,
+		siblingToolNames = undefined
 	}: Props = $props()
+
+	let toolNameError = $derived(
+		promptConfigName === 'agentToolFunctionName'
+			? getToolNameError(content ?? '', undefined, siblingToolNames)
+			: undefined
+	)
 
 	let el: HTMLElement | undefined = $state()
 	let generatedContent = $state('')
@@ -143,7 +151,7 @@ Generate a tool name for the script below:
 	let genHeight = $state(0)
 
 	let focused = $state(false)
-	let config: PromptConfig = promptConfigs[promptConfigName]
+	let config: PromptConfig = promptConfigs[untrack(() => promptConfigName)]
 
 	async function generateContent(automatic = false) {
 		abortController = new AbortController()
@@ -187,10 +195,10 @@ Generate a tool name for the script below:
 	if (
 		$copilotInfo.enabled &&
 		$metadataCompletionEnabled &&
-		generateOnAppear &&
+		untrack(() => generateOnAppear) &&
 		!content &&
-		code &&
-		!isInitialCode(code)
+		untrack(() => code) &&
+		!isInitialCode(untrack(() => code) ?? '')
 	) {
 		setTimeout(() => {
 			el?.focus()
@@ -347,16 +355,16 @@ Generate a tool name for the script below:
 				inputBaseClass,
 				inputSizeClasses.md,
 				inputBorderClass({
-					error: promptConfigName === 'agentToolFunctionName' && !validateToolName(content ?? '')
+					error: !!toolNameError
 				}),
 				'w-full'
 			)}
 			onfocus={() => (focused = true)}
 			onblur={() => (focused = false)}
 		/>
-		{#if promptConfigName === 'agentToolFunctionName' && !validateToolName(content ?? '')}
+		{#if toolNameError}
 			<p class="text-3xs text-red-400 leading-tight mt-0.5">
-				Invalid tool name, should only contain letters, numbers and underscores
+				{toolNameError}
 			</p>
 		{/if}
 	{/if}

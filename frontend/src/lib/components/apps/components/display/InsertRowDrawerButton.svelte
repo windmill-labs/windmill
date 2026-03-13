@@ -25,7 +25,7 @@
 </script>
 
 <svelte:window
-	on:keydown={(e) => {
+	onkeydown={(e) => {
 		if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
 			onConfirm()
 		}

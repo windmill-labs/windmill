@@ -84,6 +84,37 @@
 		/>
 		<InputError error={errors.writer_memory_budget ?? ''} />
 	</div>
+	<div class="flex flex-col gap-1">
+		<label for="max_index_time_window_secs" class="block text-xs font-semibold text-emphasis">
+			Index time window (days)
+			<Tooltip>
+				Maximum age of items to include in the index. Jobs and logs older than this window will not
+				be indexed and will be cleaned up from the index. Set to 0 to disable (index everything
+				within the retention period).
+			</Tooltip>
+		</label>
+		<IntegerInput
+			placeholder="7"
+			id="max_index_time_window_secs"
+			{disabled}
+			error={errors.max_index_time_window_secs ?? ''}
+			value={$values['indexer_settings'].max_index_time_window_secs != null
+				? Math.round($values['indexer_settings'].max_index_time_window_secs / 86400)
+				: undefined}
+			oninput={(v) => {
+				if (v == null) {
+					const { max_index_time_window_secs: _, ...rest } = $values['indexer_settings']
+					$values['indexer_settings'] = rest
+				} else {
+					$values['indexer_settings'] = {
+						...$values['indexer_settings'],
+						max_index_time_window_secs: v * 86400
+					}
+				}
+			}}
+		/>
+		<InputError error={errors.max_index_time_window_secs ?? ''} />
+	</div>
 	<Label label="Indexer status">
 		{#snippet action()}
 			<button

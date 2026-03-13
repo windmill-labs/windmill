@@ -15,7 +15,7 @@ import { sendUserToast } from '$lib/toast'
 import { tweened, type Tweened } from 'svelte/motion'
 import { subtractDaysFromDateString } from '$lib/utils'
 import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
-import type { Timeframe } from './TimeframeSelect.svelte'
+import type { Timeframe } from './timeframes'
 import { allowWildcards as _allowWildcards, type RunsFilterInstance } from './runsFilter'
 
 export function computeJobKinds(jobKindsCat: string | null): string {
@@ -133,7 +133,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 				])
 			})
 		}
-		promise = CancelablePromiseUtils.pipe(promise, () => {
+		promise = CancelablePromiseUtils.finallyDo(promise, () => {
 			if (slowStreamIntervalId) {
 				clearInterval(slowStreamIntervalId)
 				slowStreamIntervalId = undefined
@@ -161,7 +161,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			)
 		}, 15000)
 		paramChangePromise = loadJobsIntern(false, size)
-		paramChangePromise = CancelablePromiseUtils.pipe(paramChangePromise, () => {
+		paramChangePromise = CancelablePromiseUtils.finallyDo(paramChangePromise, () => {
 			if (slowStreamIntervalId) {
 				clearInterval(slowStreamIntervalId)
 				slowStreamIntervalId = undefined
@@ -687,6 +687,10 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		return () => {
 			clearTimeout(paramChangeTimeout)
 			paramChangePromise?.cancel()
+			if (slowStreamIntervalId) {
+				clearInterval(slowStreamIntervalId)
+				slowStreamIntervalId = undefined
+			}
 		}
 	})
 	$effect(() => {

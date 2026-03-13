@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.649.0
+  version: 1.655.0
   title: Windmill API
 
   contact:
@@ -1938,6 +1938,58 @@ paths:
       responses:
         "200":
           description: Successfully imported the installation
+
+  /w/{workspace}/github_app/ghes_installation_callback:
+    post:
+      summary: GHES installation callback
+      description: Register a self-managed GitHub App installation from GitHub Enterprise Server
+      operationId: ghesInstallationCallback
+      tags:
+        - Git Sync
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - installation_id
+              properties:
+                installation_id:
+                  type: integer
+                  format: int64
+                  description: The GitHub App installation ID from GHES
+      responses:
+        "200":
+          description: GHES installation registered successfully
+
+  /github_app/ghes_config:
+    get:
+      summary: Get GHES app config
+      description: Returns the GitHub Enterprise Server app configuration (without private key) for constructing the installation URL
+      operationId: getGhesConfig
+      tags:
+        - Git Sync
+      responses:
+        "200":
+          description: GHES app configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  base_url:
+                    type: string
+                  app_slug:
+                    type: string
+                  client_id:
+                    type: string
+                required:
+                  - base_url
+                  - app_slug
+                  - client_id
 
   /users/accept_invite:
     post:
@@ -12004,6 +12056,52 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/kafka_triggers/reset_offsets/{path}:
+    post:
+      summary: reset kafka trigger offsets to earliest
+      operationId: resetKafkaOffsets
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: kafka trigger offsets reset successfully
+
+  /w/{workspace}/kafka_triggers/commit_offsets/{path}:
+    post:
+      summary: commit kafka offsets for a specific trigger
+      operationId: commitKafkaOffsets
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: offsets to commit
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                topic:
+                  type: string
+                partition:
+                  type: integer
+                  format: int32
+                offset:
+                  type: integer
+                  format: int64
+              required:
+                - topic
+                - partition
+                - offset
+      responses:
+        "200":
+          description: kafka offsets committed successfully
+
   /w/{workspace}/nats_triggers/create:
     post:
       summary: create nats trigger
@@ -15198,6 +15296,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       responses:
         "200":
@@ -15243,6 +15342,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       requestBody:
         description: acl to add
@@ -15299,6 +15399,7 @@ paths:
                 gcp_trigger,
                 sqs_trigger,
                 email_trigger,
+                volume,
               ]
       requestBody:
         description: acl to add
@@ -16873,6 +16974,9 @@ paths:
                       lost_lock_ownership:
                         description: Is the current indexer service being replaced
                         type: boolean
+                      max_index_time_window_secs:
+                        description: Maximum time window in seconds for indexing
+                        type: number
 
   /srch/index/search/service_logs:
     get:
@@ -17282,7 +17386,90 @@ paths:
                     path:
                       type: string
                       description: The asset path
-                    
+
+
+  /w/{workspace}/volumes/list:
+    get:
+      summary: List all volumes in the workspace
+      operationId: listVolumes
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of volumes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Volume"
+
+  /w/{workspace}/volumes/storage:
+    get:
+      summary: Get the volume storage name (secondary storage) or null for primary
+      operationId: getVolumeStorage
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: volume storage name or null
+          content:
+            application/json:
+              schema:
+                type: string
+                nullable: true
+
+  /w/{workspace}/volumes/create:
+    post:
+      summary: Create a new volume
+      operationId: createVolume
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+      responses:
+        "200":
+          description: volume created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/volumes/delete/{name}:
+    delete:
+      summary: Delete a volume (admin only)
+      operationId: deleteVolume
+      tags:
+        - volume
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: volume deleted
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /mcp/w/{workspace}/list_tools:
     get:
@@ -18370,6 +18557,7 @@ components:
         - trigger
         - settings
         - key
+        - workspacedependencies
 
     AIProviderModel:
       type: object
@@ -18717,7 +18905,6 @@ components:
       required:
         - path
         - summary
-        - description
         - content
         - language
 
@@ -21972,7 +22159,7 @@ components:
           description: Path to the Kafka resource containing connection configuration
         group_id:
           type: string
-          description: Kafka consumer group ID for this trigger 
+          description: Kafka consumer group ID for this trigger
         topics:
           type: array
           items:
@@ -21989,6 +22176,17 @@ components:
             required:
               - key
               - value
+        auto_offset_reset:
+          type: string
+          enum:
+            - latest
+            - earliest
+          default: latest
+          description: "Initial offset behavior when consumer group has no committed offset. 'latest' starts from new messages only, 'earliest' starts from the beginning."
+        auto_commit:
+          type: boolean
+          default: true
+          description: "When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint."
         server_id:
           type: string
           description: ID of the server currently handling this trigger (internal)
@@ -22049,6 +22247,17 @@ components:
             required:
               - key
               - value
+        auto_offset_reset:
+          type: string
+          enum:
+            - latest
+            - earliest
+          default: latest
+          description: "Initial offset behavior when consumer group has no committed offset."
+        auto_commit:
+          type: boolean
+          default: true
+          description: "When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint."
         mode:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
@@ -22101,6 +22310,17 @@ components:
             required:
               - key
               - value
+        auto_offset_reset:
+          type: string
+          enum:
+            - latest
+            - earliest
+          default: latest
+          description: "Initial offset behavior when consumer group has no committed offset."
+        auto_commit:
+          type: boolean
+          default: true
+          description: "When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint."
         path:
           type: string
           description: The unique path identifier for this trigger
@@ -23409,7 +23629,6 @@ components:
           items:
             $ref: "#/components/schemas/GitSyncObjectType"
       required:
-        - script_path
         - git_repo_resource_path
 
     MetricMetadata:
@@ -23997,6 +24216,7 @@ components:
         - resource
         - ducklake
         - datatable
+        - volume
     Asset:
       type: object
       properties:
@@ -24005,6 +24225,38 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
+    Volume:
+      type: object
+      required:
+        - name
+        - size_bytes
+        - file_count
+        - created_at
+        - created_by
+      properties:
+        name:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        file_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        extra_perms:
+          type: object
+          additionalProperties: true
     ProtectionRuleset:
       type: object
       description: A workspace protection rule defining restrictions and bypass permissions

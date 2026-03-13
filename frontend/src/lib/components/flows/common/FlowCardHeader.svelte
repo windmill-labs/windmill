@@ -18,7 +18,7 @@
 	import { Flag, Lock, RefreshCw, Unlock } from 'lucide-svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { validateToolName } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
+	import { getToolNameError } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
 	import { DEFAULT_HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
 
 	interface Props {
@@ -28,6 +28,7 @@
 		children?: import('svelte').Snippet
 		action?: import('svelte').Snippet
 		isAgentTool?: boolean
+		siblingToolNames?: string[]
 	}
 
 	let {
@@ -36,8 +37,13 @@
 		summary = $bindable(undefined),
 		children,
 		action,
-		isAgentTool = false
+		isAgentTool = false,
+		siblingToolNames = undefined
 	}: Props = $props()
+
+	let toolNameError = $derived(
+		isAgentTool ? getToolNameError(summary ?? '', undefined, siblingToolNames) : undefined
+	)
 
 	let latestHash: string | undefined = $state(undefined)
 
@@ -55,8 +61,9 @@
 		const key = getCachedKey(path)
 		latestHash = cachedValues[key]?.latestHash
 	}
-	if (flowModuleValue?.type === 'script' && flowModuleValue.path) {
-		getCachedValues(flowModuleValue.path)
+	const untrackedFlowModuleValue = untrack(() => flowModuleValue)
+	if (untrackedFlowModuleValue?.type === 'script' && untrackedFlowModuleValue.path) {
+		getCachedValues(untrackedFlowModuleValue.path)
 	}
 
 	async function loadLatestHash(value: PathScript) {
@@ -102,6 +109,7 @@
 						elementProps={{
 							placeholder: isAgentTool ? 'Tool name' : 'Summary'
 						}}
+						{siblingToolNames}
 					/>
 				{:else if flowModuleValue.type === 'script' && 'path' in flowModuleValue && flowModuleValue.path}
 					<IconedPath path={flowModuleValue.path} hash={flowModuleValue.hash} class="grow" />
@@ -172,14 +180,16 @@
 							/>
 						</div>
 					{/if}
-					<input
-						bind:value={summary}
-						placeholder={isAgentTool ? 'Tool name' : 'Summary'}
-						class={twMerge(
-							'w-full grow',
-							isAgentTool && !validateToolName(summary ?? '') && '!border-red-400'
-						)}
-					/>
+					<div class="flex flex-col w-full grow">
+						<input
+							bind:value={summary}
+							placeholder={isAgentTool ? 'Tool name' : 'Summary'}
+							class={twMerge('w-full grow', toolNameError && '!border-red-400')}
+						/>
+						{#if toolNameError}
+							<p class="text-3xs text-red-400 leading-tight mt-0.5">{toolNameError}</p>
+						{/if}
+					</div>
 				{:else if flowModuleValue.type === 'flow'}
 					<Badge color="indigo" capitalize>flow</Badge>
 					<input bind:value={summary} placeholder="Summary" class="w-full grow" />

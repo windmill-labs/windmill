@@ -41,14 +41,14 @@
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	let resolvedConfig = $state(
-		initConfig(components['numberinputcomponent'].initialData.configuration, configuration)
+		initConfig(components['numberinputcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	onDestroy(() => {
 		listInputs?.remove(id)
 	})
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined as number | undefined
 	})
 
@@ -57,7 +57,7 @@
 		!iterContext && initValue != undefined ? initValue : resolvedConfig.defaultValue
 	)
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: number | undefined) {
 			value = nvalue
 			outputs?.result.set(value)
@@ -89,7 +89,7 @@
 		value = defaultValue
 	}
 
-	let css = $state(initCss($app.css?.numberinputcomponent, customCss))
+	let css = $state(initCss($app.css?.numberinputcomponent, untrack(() => customCss)))
 	$effect.pre(() => {
 		resolvedConfig.defaultValue
 		untrack(() => handleDefault(resolvedConfig.defaultValue))

@@ -36,6 +36,7 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { fade } from 'svelte/transition'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
@@ -156,7 +157,7 @@
 	)
 
 	const postgresConfig = $derived.by(getSaveCfg)
-	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
+	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 
 	const saveDisabled = $derived(
 		pathError !== '' ||
@@ -642,7 +643,7 @@
 							resourceType={'postgresql'}
 							datatableAsPgResource
 						/>
-						<CheckPostgresRequirement bind:postgres_resource_path bind:can_write />
+						<CheckPostgresRequirement {postgres_resource_path} {can_write} />
 					</div>
 					{#if loadingPostgres}
 						<div class="flex flex-col items-center justify-center h-full w-full">
@@ -769,7 +770,7 @@
 															</div>
 														{:else}
 															<SlotPicker
-																bind:edit
+																{edit}
 																{postgres_resource_path}
 																bind:replication_slot_name
 																disabled={!can_write}
@@ -854,7 +855,10 @@
 			</Section>
 
 			<Section label="Advanced" collapsable>
-				<div class="flex flex-col gap-4">
+				{#snippet header()}
+					<TriggerAdvancedBadges {error_handler_path} {retry} />
+				{/snippet}
+				<div class="flex flex-col gap-6">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
 							<Tab value="error_handler" label="Error Handler" />
@@ -874,6 +878,7 @@
 					</div>
 				</div>
 			</Section>
+			<div class="pb-8" />
 		</div>
 	{/if}
 {/snippet}

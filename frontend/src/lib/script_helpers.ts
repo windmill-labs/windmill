@@ -2,6 +2,8 @@ import { type Script } from './gen'
 
 import type { SupportedLanguage } from './common'
 
+import CLAUDE_SANDBOX_INIT_CODE from './templates/claude_sandbox.ts.template?raw'
+
 const PYTHON_FAILURE_MODULE_CODE = `import os
 
 def main(message: str, name: str, step_id: str):
@@ -719,6 +721,7 @@ type TriggerEvent =
     }
   | {
       kind: "http";
+      trigger_path: string;
       body: any;
       raw_string: string | null;
       route: string;
@@ -730,20 +733,25 @@ type TriggerEvent =
     }
   | {
       kind: "email";
+      trigger_path: string;
       parsed_email: any;
       raw_email: string;
       email_extra_args?: Record<string, string>;
     }
-  | { kind: "websocket"; msg: string; url: string }
+  | { kind: "websocket"; trigger_path: string; msg: string; url: string }
   | {
       kind: "kafka";
+      trigger_path: string;
       payload: string;
       brokers: string[];
       topic: string;
+      partition: number;
+      offset: number;
       group_id: string;
     }
   | {
       kind: "nats";
+      trigger_path: string;
       payload: string;
       servers: string[];
       subject: string;
@@ -754,6 +762,7 @@ type TriggerEvent =
     }
   | {
       kind: "sqs";
+      trigger_path: string;
       msg: string;
       queue_url: string;
       message_id?: string;
@@ -766,6 +775,7 @@ type TriggerEvent =
     }
   | {
       kind: "mqtt";
+      trigger_path: string;
       payload: string;
       topic: string;
       retain: boolean;
@@ -783,6 +793,7 @@ type TriggerEvent =
     }
   | {
       kind: "gcp";
+      trigger_path: string;
       payload: string;
       message_id: string;
       subscription: string;
@@ -795,6 +806,7 @@ type TriggerEvent =
     }
   | {
       kind: "postgres";
+      trigger_path: string;
       transaction_type: "insert" | "update" | "delete";
       schema_name: string;
       table_name: string;
@@ -867,6 +879,7 @@ class WebhookEvent(TypedDict):
 
 class HttpEvent(TypedDict):
     kind: Literal["http"]
+    trigger_path: str
     body: dict
     raw_string: Optional[str]
     route: str
@@ -879,6 +892,7 @@ class HttpEvent(TypedDict):
 
 class EmailEvent(TypedDict):
     kind: Literal["email"]
+    trigger_path: str
     parsed_email: dict
     raw_email: str
     email_extra_args: Optional[dict[str, str]]
@@ -886,20 +900,25 @@ class EmailEvent(TypedDict):
 
 class WebsocketEvent(TypedDict):
     kind: Literal["websocket"]
+    trigger_path: str
     msg: str
     url: str
 
 
 class KafkaEvent(TypedDict):
     kind: Literal["kafka"]
+    trigger_path: str
     payload: str
     brokers: list[str]
     topic: str
+    partition: int
+    offset: int
     group_id: str
 
 
 class NatsEvent(TypedDict):
     kind: Literal["nats"]
+    trigger_path: str
     payload: str
     servers: list[str]
     subject: str
@@ -916,6 +935,7 @@ class MessageAttribute(TypedDict):
 
 class SqsEvent(TypedDict):
     kind: Literal["sqs"]
+    trigger_path: str
     msg: str
     queue_url: str
     message_id: Optional[str]
@@ -936,6 +956,7 @@ class MqttV5Properties(TypedDict, total=False):
 
 class MqttEvent(TypedDict):
     kind: Literal["mqtt"]
+    trigger_path: str
     payload: str
     topic: str
     retain: bool
@@ -946,6 +967,7 @@ class MqttEvent(TypedDict):
 
 class GcpEvent(TypedDict):
     kind: Literal["gcp"]
+    trigger_path: str
     payload: str
     message_id: str
     subscription: str
@@ -959,6 +981,7 @@ class GcpEvent(TypedDict):
 
 class PostgresEvent(TypedDict):
     kind: Literal["postgres"]
+    trigger_path: str
     transaction_type: Literal["insert", "update", "delete"]
     schema_name: str
     table_name: str
@@ -1023,41 +1046,44 @@ export const PHP_PREPROCESSOR_FLOW_INTRO = `<?php
 export const PHP_PREPROCESSOR_MODULE_CODE = `function preprocessor(object $event) {
     // $event can be one of the following types:
     // 
+    // All events (except webhook) include 'trigger_path' => '...' (the path of the trigger in Windmill)
+    //
     // Webhook event:
     // ['kind' => 'webhook', 'body' => [...], 'raw_string' => '...', 'query' => [...], 'headers' => [...]]
-    // 
+    //
     // HTTP event:
-    // ['kind' => 'http', 'body' => [...], 'raw_string' => '...', 'route' => '...', 'path' => '...', 
+    // ['kind' => 'http', 'trigger_path' => '...', 'body' => [...], 'raw_string' => '...', 'route' => '...', 'path' => '...',
     //  'method' => '...', 'params' => [...], 'query' => [...], 'headers' => [...]]
-    // 
+    //
     // Email event:
-    // ['kind' => 'email', 'parsed_email' => [...], 'raw_email' => '...', 'email_extra_args' => [...]]
-    // 
+    // ['kind' => 'email', 'trigger_path' => '...', 'parsed_email' => [...], 'raw_email' => '...', 'email_extra_args' => [...]]
+    //
     // WebSocket event:
-    // ['kind' => 'websocket', 'msg' => '...', 'url' => '...']
-    // 
+    // ['kind' => 'websocket', 'trigger_path' => '...', 'msg' => '...', 'url' => '...']
+    //
     // Kafka event:
-    // ['kind' => 'kafka', 'payload' => '...', 'brokers' => [...], 'topic' => '...', 'group_id' => '...']
-    // 
+    // ['kind' => 'kafka', 'trigger_path' => '...', 'payload' => '...', 'brokers' => [...], 'topic' => '...',
+    //  'partition' => 0, 'offset' => 0, 'group_id' => '...']
+    //
     // NATS event:
-    // ['kind' => 'nats', 'payload' => '...', 'servers' => [...], 'subject' => '...', 
+    // ['kind' => 'nats', 'trigger_path' => '...', 'payload' => '...', 'servers' => [...], 'subject' => '...',
     //  'headers' => [...], 'status' => 200, 'description' => '...', 'length' => 100]
-    // 
+    //
     // SQS event:
-    // ['kind' => 'sqs', 'msg' => '...', 'queue_url' => '...', 'message_id' => '...', 
+    // ['kind' => 'sqs', 'trigger_path' => '...', 'msg' => '...', 'queue_url' => '...', 'message_id' => '...',
     //  'receipt_handle' => '...', 'attributes' => [...], 'message_attributes' => [...]]
-    // 
+    //
     // MQTT event:
-    // ['kind' => 'mqtt', 'payload' => '...', 'topic' => '...', 'retain' => true, 'pkid' => 1, 
+    // ['kind' => 'mqtt', 'trigger_path' => '...', 'payload' => '...', 'topic' => '...', 'retain' => true, 'pkid' => 1,
     //  'qos' => 1, 'v5' => [...]]
-    // 
+    //
     // GCP event:
-    // ['kind' => 'gcp', 'payload' => '...', 'message_id' => '...', 'subscription' => '...', 
-    //  'ordering_key' => '...', 'attributes' => [...], 'delivery_type' => 'push', 
+    // ['kind' => 'gcp', 'trigger_path' => '...', 'payload' => '...', 'message_id' => '...', 'subscription' => '...',
+    //  'ordering_key' => '...', 'attributes' => [...], 'delivery_type' => 'push',
     //  'headers' => [...], 'publish_time' => '...', 'ack_id' => '...']
-    // 
+    //
     // Postgres event:
-    // ['kind' => 'postgres', 'transaction_type' => 'insert', 'schema_name' => '...', 
+    // ['kind' => 'postgres', 'trigger_path' => '...', 'transaction_type' => 'insert', 'schema_name' => '...',
     //  'table_name' => '...', 'old_row' => [...], 'row' => [...]]
 
     return [
@@ -1349,6 +1375,9 @@ export const INITIAL_CODE = {
 	},
 	ruby: {
 		script: RUBY_INIT_CODE
+	},
+	claudesandbox: {
+		script: CLAUDE_SANDBOX_INIT_CODE
 	}
 	// for related places search: ADD_NEW_LANG
 }
@@ -1376,6 +1405,7 @@ export function initialCode(
 		| 'docker'
 		| 'powershell'
 		| 'bunnative'
+		| 'claudesandbox'
 		| undefined,
 	templateScript?: boolean
 ): string {
@@ -1465,7 +1495,9 @@ export function initialCode(
 		return INITIAL_CODE.ruby.script
 		// for related places search: ADD_NEW_LANG
 	} else if (language == 'bun' || language == 'bunnative') {
-		if (kind == 'trigger') {
+		if (subkind === 'claudesandbox') {
+			return INITIAL_CODE.claudesandbox.script
+		} else if (kind == 'trigger') {
 			return INITIAL_CODE.bun.trigger
 		} else if (language == 'bunnative' || subkind === 'bunnative') {
 			return INITIAL_CODE.bunnative.script
@@ -1505,6 +1537,7 @@ export function getResetCode(
 		| 'docker'
 		| 'powershell'
 		| 'bunnative'
+		| 'claudesandbox'
 		| undefined
 ) {
 	if (language === 'deno') {

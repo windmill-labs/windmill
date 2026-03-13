@@ -21,12 +21,53 @@ use rustpython_parser::{
     Parse,
 };
 
-pub mod asset_parser;
 pub mod pydantic_parser;
 
-pub use asset_parser::parse_assets;
-
 const FUNCTION_CALL: &str = "<function call>";
+
+/// Get the simple type name from an expression (e.g. `str`, `int`).
+fn simple_type_name(e: &Expr) -> Option<&str> {
+    match e {
+        Expr::Name(ExprName { id, .. }) => Some(id.as_ref()),
+        _ => None,
+    }
+}
+
+/// If `e` is `list[T]` or `List[T]`, return the inner expression `T`.
+fn list_elem_expr(e: &Expr) -> Option<&Expr> {
+    match e {
+        Expr::Subscript(x) => match x.value.as_ref() {
+            Expr::Name(ExprName { id, .. }) if id == "list" || id == "List" => {
+                Some(x.slice.as_ref())
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Detect `T | list[T]` or `list[T] | T` union patterns.
+/// Returns the original type string (e.g. "str | list[str]") for use as `otyp`.
+fn detect_py_union_array_otyp(e: &Expr) -> Option<String> {
+    let Expr::BinOp(x) = e else { return None };
+    // T | list[T]
+    if let (Some(scalar), Some(elem)) = (simple_type_name(&x.left), list_elem_expr(&x.right)) {
+        if let Some(elem_name) = simple_type_name(elem) {
+            if scalar == elem_name {
+                return Some(format!("{} | list[{}]", scalar, elem_name));
+            }
+        }
+    }
+    // list[T] | T
+    if let (Some(elem), Some(scalar)) = (list_elem_expr(&x.left), simple_type_name(&x.right)) {
+        if let Some(elem_name) = simple_type_name(elem) {
+            if scalar == elem_name {
+                return Some(format!("list[{}] | {}", elem_name, scalar));
+            }
+        }
+    }
+    None
+}
 
 /// Cheap string-based check to see if code might contain Pydantic models or dataclasses.
 /// Returns true if we should do full AST parsing for type detection, false otherwise.
@@ -296,11 +337,14 @@ pub fn parse_python_signature(
 
     // Check if main function was found
     if params.is_none() {
+        let is_wac_v2 = (code.contains("@workflow") || code.contains("workflow("))
+            && (code.contains("@task") || code.contains("task("))
+            && (code.contains("import wmill") || code.contains("from wmill"));
         return Ok(MainArgSignature {
             star_args: false,
             star_kwargs: false,
             args: vec![],
-            no_main_func: Some(true),
+            no_main_func: Some(!is_wac_v2),
             has_preprocessor: Some(has_preprocessor),
         });
     }
@@ -390,8 +434,19 @@ pub fn parse_python_signature(
                         _ => {}
                     }
 
+                    // Detect T | list[T] union types and set otyp for
+                    // debounce accumulation support. Falls back to docstring
+                    // description if no union array pattern is found.
+                    let union_otyp = params.args[i]
+                        .as_arg()
+                        .annotation
+                        .as_ref()
+                        .and_then(|ann| detect_py_union_array_otyp(ann.as_ref()));
+
                     Arg {
-                        otyp: metadata.descriptions.get(&arg_name).map(|d| d.to_string()),
+                        otyp: union_otyp.or_else(|| {
+                            metadata.descriptions.get(&arg_name).map(|d| d.to_string())
+                        }),
                         name: arg_name,
                         typ,
                         has_default: has_default || default.is_some(),
@@ -441,6 +496,9 @@ fn parse_expr(
                 Expr::Constant(ExprConstant { value: Constant::None, .. })
             ) {
                 (parse_expr(&x.left, enums, module).0, true)
+            } else if detect_py_union_array_otyp(e.as_ref()).is_some() {
+                // T | list[T] — parsed type is Unknown; otyp is set separately
+                (Typ::Unknown, false)
             } else {
                 (Typ::Unknown, false)
             }
@@ -1042,6 +1100,33 @@ def main(a: str, b: Optional[str], c: str | None): return
                 has_preprocessor: Some(false)
             }
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_union_array_type() -> anyhow::Result<()> {
+        let code = r#"
+def main(items: str | list[str], numbers: list[int] | int, plain: str):
+    pass
+"#;
+        let result = parse_python_signature(code, None, false)?;
+        assert_eq!(result.args.len(), 3);
+
+        // str | list[str] → otyp set, typ Unknown
+        assert_eq!(result.args[0].name, "items");
+        assert_eq!(result.args[0].otyp, Some("str | list[str]".to_string()));
+        assert_eq!(result.args[0].typ, Typ::Unknown);
+
+        // list[int] | int → otyp set, typ Unknown
+        assert_eq!(result.args[1].name, "numbers");
+        assert_eq!(result.args[1].otyp, Some("list[int] | int".to_string()));
+        assert_eq!(result.args[1].typ, Typ::Unknown);
+
+        // plain str → no otyp
+        assert_eq!(result.args[2].name, "plain");
+        assert_eq!(result.args[2].otyp, None);
+        assert_eq!(result.args[2].typ, Typ::Str(None));
 
         Ok(())
     }

@@ -14,6 +14,18 @@ clone_newnet: false
 clone_newuser: {CLONE_NEWUSER}
 clone_newcgroup: false
 
+uidmap {
+    inside_id: "1000"
+    outside_id: ""
+    count: 1
+}
+
+gidmap {
+    inside_id: "1000"
+    outside_id: ""
+    count: 1
+}
+
 skip_setsid: true
 keep_caps: false
 keep_env: true
@@ -128,6 +140,13 @@ mount {
     dst: "/tmp/{LANG}/args.json"
     is_bind: true
     rw: true
+}
+
+mount {
+    src: "{JOB_DIR}/checkpoint.json"
+    dst: "/tmp/{LANG}/checkpoint.json"
+    is_bind: true
+    mandatory: false
 }
 
 mount {

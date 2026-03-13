@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Alert } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
@@ -8,7 +8,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 
-	let success = $page.url.searchParams.get('success') === 'true'
+	let success = page.url.searchParams.get('success') === 'true'
 
 	let attempt = 0
 	if (!success) {
@@ -30,7 +30,7 @@
 	}
 </script>
 
-<!-- svelte-ignore missing-declaration -->
+<!-- svelte-ignore missing_declaration -->
 <CenteredModal title="Subscription upgrade {success ? 'succeeded' : 'failed'}">
 	{#if !success}
 		<div class="my-2">

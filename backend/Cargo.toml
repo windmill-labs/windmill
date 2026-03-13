@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.649.0"
+version = "1.655.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -59,6 +59,7 @@ members = [
     "./windmill-oauth",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
+    "./parsers/windmill-parser-ts-asset",
     "./parsers/windmill-parser-go",
     "./parsers/windmill-parser-rust",
     "./parsers/windmill-parser-csharp",
@@ -67,16 +68,21 @@ members = [
     "./parsers/windmill-parser-ruby",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
+    "./parsers/windmill-parser-py-asset",
     "./parsers/windmill-parser-py-imports",
+    "./parsers/windmill-parser-wac",
+    "./parsers/windmill-parser-sql",
+    "./parsers/windmill-parser-sql-asset",
     "./parsers/windmill-sql-datatype-parser-wasm",
     "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
+    "./windmill-worker-volumes",
     "./windmill-test-utils",
     "./windmill-api-integration-tests",
 ]
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.649.0"
+version = "1.655.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -250,10 +256,13 @@ reqwest.workspace = true
 windmill-queue = { workspace = true, features = ["failpoints"] }
 windmill-dep-map.workspace = true
 windmill-test-utils.workspace = true
+windmill-worker-volumes.workspace = true
+windmill-types.workspace = true
 axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
 tempfile.workspace = true
+tar.workspace = true
 windmill-parser-ts.workspace = true
 rumqttc.workspace = true
 rdkafka.workspace = true
@@ -267,6 +276,7 @@ aws-credential-types.workspace = true
 windmill-api = { path = "./windmill-api", default-features = false  }
 windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }
+windmill-worker-volumes = { path = "./windmill-worker-volumes" }
 windmill-dep-map = { path = "./windmill-dep-map" }
 windmill-types = { path = "./windmill-types" }
 windmill-common = { path = "./windmill-common", default-features = false }
@@ -314,7 +324,9 @@ windmill-api-workers = { path = "./windmill-api-workers" }
 windmill-store = { path = "./windmill-store" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
+windmill-parser-ts-asset = { path = "./parsers/windmill-parser-ts-asset" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
+windmill-parser-py-asset = { path = "./parsers/windmill-parser-py-asset" }
 windmill-parser-py-imports = { path = "./parsers/windmill-parser-py-imports" }
 windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
@@ -325,8 +337,10 @@ windmill-parser-ruby = { path = "./parsers/windmill-parser-ruby" }
 windmill-parser-nu = { path = "./parsers/windmill-parser-nu" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
+windmill-parser-sql-asset = { path = "./parsers/windmill-parser-sql-asset" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
+windmill-parser-wac = { path = "./parsers/windmill-parser-wac" }
 windmill-jseval = { path = "./windmill-jseval" }
 windmill-runtime-nativets = { path = "./windmill-runtime-nativets" }
 windmill-api-client = { path = "./windmill-api-client" }
@@ -439,6 +453,7 @@ base64 = "^0.22.1"
 base32 = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
+md-5 = "0.10.6"
 sha1 = "0.10.6"
 sqlx = { version = "0.8.0", features = [
     "macros",

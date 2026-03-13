@@ -97,13 +97,6 @@ async getResult(jobId: string): Promise<any>
 async getResultMaybe(jobId: string): Promise<any>
 
 /**
- * Wrap a function to execute as a Windmill task within a flow context
- * @param f - Function to wrap as a task
- * @returns Async wrapper function that executes as a Windmill job
- */
-task<P, T>(f: (_: P) => T): (_: P) => Promise<T>
-
-/**
  * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
  */
 async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null): Promise<string>
@@ -374,6 +367,8 @@ async usernameToEmail(username: string): Promise<string>
  * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
  * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
  * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
+ * @param {string} [options.resumeButtonText] - Optional text for the resume button.
+ * @param {string} [options.cancelButtonText] - Optional text for the cancel button.
  * 
  * @returns {Promise<void>} Resolves when the Slack approval request is successfully sent.
  * 
@@ -389,12 +384,14 @@ async usernameToEmail(username: string): Promise<string>
  *   approver: "approver123",
  *   defaultArgsJson: { key1: "value1", key2: 42 },
  *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
+ *   resumeButtonText: "Resume",
+ *   cancelButtonText: "Cancel",
  * });
  * ```
  * 
  * **Note:** This function requires execution within a Windmill flow or flow preview.
  */
-async requestInteractiveSlackApproval({ slackResourcePath, channelId, message, approver, defaultArgsJson, dynamicEnumsJson, }: SlackApprovalOptions): Promise<void>
+async requestInteractiveSlackApproval({ slackResourcePath, channelId, message, approver, defaultArgsJson, dynamicEnumsJson, resumeButtonText, cancelButtonText, }: SlackApprovalOptions): Promise<void>
 
 /**
  * Sends an interactive approval request via Teams, allowing optional customization of the message, approver, and form fields.
@@ -437,6 +434,75 @@ async requestInteractiveTeamsApproval({ teamName, channelName, message, approver
  * @returns S3 object record with storage and s3 key
  */
 parseS3Object(s3Object: S3Object): S3ObjectRecord
+
+setWorkflowCtx(ctx: WorkflowCtx | null): void
+
+async sleep(seconds: number): Promise<void>
+
+async step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+
+/**
+ * Create a task that dispatches to a separate Windmill script.
+ * 
+ * @example
+ * const extract = taskScript("f/data/extract");
+ * // inside workflow: await extract({ url: "https://..." })
+ */
+taskScript(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any>
+
+/**
+ * Create a task that dispatches to a separate Windmill flow.
+ * 
+ * @example
+ * const pipeline = taskFlow("f/etl/pipeline");
+ * // inside workflow: await pipeline({ input: data })
+ */
+taskFlow(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any>
+
+/**
+ * Mark an async function as a workflow-as-code entry point.
+ * 
+ * The function must be **deterministic**: given the same inputs it must call
+ * tasks in the same order on every replay. Branching on task results is fine
+ * (results are replayed from checkpoint), but branching on external state
+ * (current time, random values, external API calls) must use `step()` to
+ * checkpoint the value so replays see the same result.
+ */
+workflow<T>(fn: (...args: any[]) => Promise<T>): void
+
+/**
+ * Suspend the workflow and wait for an external approval.
+ * 
+ * Use `getResumeUrls()` (wrapped in `step()`) to obtain resume/cancel/approvalPage
+ * URLs before calling this function.
+ * 
+ * @example
+ * const urls = await step("urls", () => getResumeUrls());
+ * await step("notify", () => sendEmail(urls.approvalPage));
+ * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ */
+waitForApproval(options?: { timeout?: number; form?: object; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+
+/**
+ * Process items in parallel with optional concurrency control.
+ * 
+ * Each item is processed by calling `fn(item)`, which should be a task().
+ * Items are dispatched in batches of `concurrency` (default: all at once).
+ * 
+ * @example
+ * const process = task(async (item: string) => { ... });
+ * const results = await parallel(items, process, { concurrency: 5 });
+ */
+async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: { concurrency?: number },): Promise<R[]>
+
+/**
+ * Commit Kafka offsets for a trigger with auto_commit disabled.
+ * @param triggerPath - Path to the Kafka trigger (from event.wm_trigger.trigger_path)
+ * @param topic - Kafka topic name (from event.topic)
+ * @param partition - Partition number (from event.partition)
+ * @param offset - Message offset to commit (from event.offset)
+ */
+async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, offset: number,): Promise<void>
 
 /**
  * Create a SQL template function for PostgreSQL/datatable queries

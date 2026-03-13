@@ -37,8 +37,9 @@ use windmill_common::ee_oss::{
 use windmill_common::{
     agent_workers::AgentConfig,
     global_settings::{
-        APP_WORKSPACED_ROUTE_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
-        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING,
+        BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
@@ -97,8 +98,9 @@ use windmill_worker::{
 use crate::monitor::{
     initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_require_preexisting_user,
     load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db,
-    reload_app_workspaced_route_setting, reload_base_url_setting,
-    reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
+    reload_app_workspaced_route_setting, reload_audit_log_retention_days_setting,
+    reload_base_url_setting, reload_bunfig_install_scopes_setting,
+    reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
     reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
     reload_hub_api_secret_setting, reload_hub_base_url_setting, reload_job_default_timeout_setting,
     reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
@@ -241,7 +243,14 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     create_dir_all(&*HUB_CACHE_DIR)?;
     create_dir_all(&*BUN_BUNDLE_CACHE_DIR)?;
 
-    for path in paths.values() {
+    // Ensure the latest git sync script is always cached, regardless of hubPaths.json contents
+    let mut all_paths: Vec<String> = paths.into_values().collect();
+    let latest_git_sync = windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH.to_string();
+    if !all_paths.contains(&latest_git_sync) {
+        all_paths.push(latest_git_sync);
+    }
+
+    for path in &all_paths {
         tracing::info!("Caching hub script at {path}");
         let res = get_hub_script_content_and_requirements(Some(path), None).await?;
         if res
@@ -517,6 +526,51 @@ fn print_help() {
     println!("- At startup, Windmill logs currently set configuration keys for visibility.");
 }
 
+async fn resync_custom_instance_user_pwd_if_needed(db: &Pool<Postgres>) {
+    use windmill_common::utils::get_custom_pg_instance_password;
+    use windmill_common::{get_database_url, PgDatabase};
+
+    let user_pwd = match get_custom_pg_instance_password(db).await {
+        Ok(pwd) => pwd,
+        Err(_) => {
+            // Setting doesn't exist yet (fresh install or pre-migration), skip check
+            return;
+        }
+    };
+
+    let mut pg_creds = match get_database_url().await {
+        Ok(url) => match PgDatabase::parse_uri(&url.as_str().await) {
+            Ok(creds) => creds,
+            Err(e) => {
+                tracing::warn!("Failed to parse database URL for custom_instance_user check: {e}");
+                return;
+            }
+        },
+        Err(e) => {
+            tracing::warn!("Failed to get database URL for custom_instance_user check: {e}");
+            return;
+        }
+    };
+
+    pg_creds.user = Some("custom_instance_user".to_string());
+    pg_creds.password = Some(user_pwd);
+
+    match pg_creds.connect().await {
+        Ok(_) => {
+            tracing::info!("custom_instance_user password is in sync");
+        }
+        Err(e) => {
+            tracing::warn!("custom_instance_user password is out of sync ({e}), refreshing...");
+            if let Err(e) = windmill_api_settings::refresh_custom_instance_user_pwd_inner(db).await
+            {
+                tracing::error!("Failed to refresh custom_instance_user password: {e}");
+            } else {
+                tracing::info!("Successfully refreshed custom_instance_user password");
+            }
+        }
+    }
+}
+
 async fn windmill_main() -> anyhow::Result<()> {
     let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
@@ -647,6 +701,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer || mode == Mode::MCP {
         0
     } else if is_native_mode_from_env() {
+        NATIVE_MODE_RESOLVED.store(true, std::sync::atomic::Ordering::Relaxed);
         println!("Native mode enabled: forcing NUM_WORKERS=8");
         8
     } else {
@@ -819,6 +874,30 @@ async fn windmill_main() -> anyhow::Result<()> {
         }
     }
 
+    // Resolve native mode early (before connect_db) so connection pool size accounts for it.
+    // native_mode can come from env OR from the DB worker group config.
+    if worker_mode && !is_native_mode_from_env() {
+        if let Some(db) = conn.as_sql() {
+            let native_from_db: bool = sqlx::query_scalar!(
+                "SELECT (config->>'native_mode')::boolean FROM config WHERE name = $1",
+                format!("worker__{}", *windmill_common::worker::WORKER_GROUP)
+            )
+            .fetch_optional(db)
+            .await
+            .ok()
+            .flatten()
+            .flatten()
+            .unwrap_or(false);
+            if native_from_db {
+                NATIVE_MODE_RESOLVED.store(true, std::sync::atomic::Ordering::Relaxed);
+                num_workers = 8;
+                tracing::info!(
+                    "Native mode detected from worker config (early): forcing NUM_WORKERS=8"
+                );
+            }
+        }
+    }
+
     let conn = if mode == Mode::Agent {
         conn
     } else {
@@ -831,12 +910,18 @@ async fn windmill_main() -> anyhow::Result<()> {
             server_mode,
             indexer_mode,
             worker_mode,
+            num_workers,
             #[cfg(feature = "private")]
             killpill_rx.resubscribe(),
         )
         .await?;
 
         // NOTE: Variable/resource cache initialization moved to API server in windmill-api
+
+        // Check if custom_instance_user password is in sync
+        if server_mode {
+            resync_custom_instance_user_pwd_if_needed(&db).await;
+        }
 
         Connection::Sql(db)
     };
@@ -929,16 +1014,6 @@ Windmill Community Edition {GIT_VERSION}
             disable_s3_store,
         )
         .await;
-
-        // native_mode may also be set via DB worker group config (not just env).
-        // NATIVE_MODE_RESOLVED is updated by load_worker_config during initial_load.
-        if worker_mode
-            && !is_native_mode_from_env()
-            && NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed)
-        {
-            num_workers = 8;
-            tracing::info!("Native mode detected from worker config: forcing NUM_WORKERS=8");
-        }
 
         monitor_db(
             &conn,
@@ -1614,6 +1689,9 @@ async fn process_notify_event(
                 }
                 TIMEOUT_WAIT_RESULT_SETTING => reload_timeout_wait_result_setting(conn).await,
                 RETENTION_PERIOD_SECS_SETTING => reload_retention_period_setting(conn).await,
+                AUDIT_LOG_RETENTION_DAYS_SETTING => {
+                    reload_audit_log_retention_days_setting(conn).await
+                }
                 MONITOR_LOGS_ON_OBJECT_STORE_SETTING => {
                     reload_delete_logs_periodically_setting(conn).await
                 }
@@ -1715,6 +1793,11 @@ async fn process_notify_event(
                     tracing::info!("Critical alert UI setting changed");
                     if let Err(e) = reload_critical_alert_mute_ui_setting(conn).await {
                         tracing::error!(error = %e, "Could not reload critical alert UI setting");
+                    }
+                }
+                CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING => {
+                    if let Err(e) = reload_critical_alerts_on_token_expiry_setting(conn).await {
+                        tracing::error!(error = %e, "Could not reload critical alerts on token expiry setting");
                     }
                 }
                 "workspace_telemetry_enabled" => {
@@ -1824,7 +1907,7 @@ pub async fn run_workers(
 
     tracing::info!(
         "Starting {num_workers} workers and SLEEP_QUEUE={}ms",
-        *windmill_worker::SLEEP_QUEUE
+        windmill_worker::sleep_queue()
     );
 
     for i in 1..(num_workers + 1) {

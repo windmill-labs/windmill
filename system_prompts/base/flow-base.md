@@ -4,9 +4,11 @@
 
 Create a folder ending with `.flow` and add a YAML file with the flow definition.
 For rawscript modules, use `!inline path/to/script.ts` for the content key.
-After writing:
-- `wmill flow generate-locks --yes` - Generate lock files
+After writing, tell the user they can run:
+- `wmill flow generate-locks <path_to_flow_folder> --yes` - Generate lock files for the specific flow you modified (e.g. `wmill flow generate-locks f/my_folder/my_flow.flow --yes`)
 - `wmill sync push` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 ## OpenFlow Schema
 

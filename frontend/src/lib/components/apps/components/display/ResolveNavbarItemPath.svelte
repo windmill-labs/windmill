@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { type NavbarItem } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { initConfig } from '../../editor/appUtils'
@@ -12,7 +13,7 @@
 
 	let { navbarItem, id, index, resolvedPath = $bindable(undefined) }: Props = $props()
 
-	let resolvedConfig = $state(initConfig({ path: navbarItem.path }, { path: navbarItem.path }))
+	let resolvedConfig = $state(initConfig({ path: untrack(() => navbarItem).path }, { path: untrack(() => navbarItem).path }))
 
 	$effect.pre(() => {
 		resolvedPath = (

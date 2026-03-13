@@ -4,7 +4,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
-	import type { onSelectedIteration } from '$lib/components/graph/graphBuilder.svelte'
+	import type { OnSelectedIteration } from '$lib/components/graph/graphBuilder.svelte'
 	import { untrack } from 'svelte'
 
 	interface Props {
@@ -14,7 +14,7 @@
 		flowJobsSuccess: (boolean | undefined)[] | undefined
 		selected: number
 		selectedManually: boolean | undefined
-		onSelectedIteration?: onSelectedIteration
+		onSelectedIteration?: OnSelectedIteration
 		showIcon?: boolean
 	}
 
@@ -142,6 +142,7 @@
 
 					<div class="max-h-[300px]">
 						{#key items}
+							{#if items.length > 0}
 							<VirtualList height={300} width="100%" itemCount={items.length} itemSize={24}>
 								{#snippet header()}{/snippet}
 								{#snippet footer()}{/snippet}
@@ -170,6 +171,9 @@
 									</div>
 								{/snippet}
 							</VirtualList>
+							{:else}
+								<div class="text-xs text-tertiary py-2 px-2">No iterations</div>
+							{/if}
 						{/key}
 
 						<!-- {#each flowJobs ?? [] as id, idx (id)}

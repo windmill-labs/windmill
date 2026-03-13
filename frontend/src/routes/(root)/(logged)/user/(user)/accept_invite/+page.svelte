@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 
@@ -10,11 +12,10 @@
 	import { Button } from '$lib/components/common'
 
 	let workspace_id = $page.url.searchParams.get('workspace') ?? ''
-	let username = ''
-	let errorUsername = ''
-	let checking = false
+	let username = $state('')
+	let errorUsername = $state('')
+	let checking = $state(false)
 
-	$: validateName(username)
 
 	async function acceptInvite(): Promise<void> {
 		await UserService.acceptInvite({
@@ -47,7 +48,7 @@
 		}
 	}
 
-	let automateUsernameCreation = true
+	let automateUsernameCreation = $state(true)
 	async function getAutomateUsernameCreationSetting() {
 		automateUsernameCreation =
 			((await SettingService.getGlobal({ key: 'automate_username_creation' })) as any) ?? true
@@ -65,6 +66,9 @@
 		}
 	}
 	getAutomateUsernameCreationSetting()
+	run(() => {
+		validateName(username)
+	});
 </script>
 
 <!-- Enable submit form on enter -->
@@ -73,7 +77,7 @@
 	{#if !automateUsernameCreation}
 		<label class="block pb-2">
 			<span class="text-secondary text-sm">Your username in workspace {workspace_id}:</span>
-			<input on:keyup={handleKey} bind:value={username} class:input-error={errorUsername != ''} />
+			<input onkeyup={handleKey} bind:value={username} class:input-error={errorUsername != ''} />
 			{#if errorUsername}
 				<span class="text-red-500 text-xs">{errorUsername}</span>
 			{/if}

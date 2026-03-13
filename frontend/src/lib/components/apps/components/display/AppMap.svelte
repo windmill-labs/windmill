@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initCss } from '../../utils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { twMerge } from 'tailwind-merge'
@@ -46,10 +46,10 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = $state(
-		initConfig(components['mapcomponent'].initialData.configuration, configuration)
+		initConfig(components['mapcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		mapRegion: {
 			topLeft: { lat: 0, lon: 0 },
 			bottomRight: { lat: 0, lon: 0 }
@@ -151,7 +151,7 @@
 		map.changed()
 	}
 
-	let css = $state(initCss($app.css?.mapcomponent, customCss))
+	let css = $state(initCss($app.css?.mapcomponent, untrack(() => customCss)))
 
 	function updateRegionOutput() {
 		if (map && !resolvedConfig.lock) {
@@ -268,6 +268,7 @@
 
 {#if render}
 	<div class="relative h-full w-full component-wrapper">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			onpointermove={updateRegionOutput}
 			onwheel={updateRegionOutput}
@@ -279,6 +280,7 @@
 		></div>
 
 		{#if $mode !== 'preview'}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class="absolute bottom-0 left-0 px-1 py-0.5 bg-indigo-500 text-white text-2xs"
 				onpointerdown={handleSyncRegion}

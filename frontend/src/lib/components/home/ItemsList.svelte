@@ -31,7 +31,7 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
 	import { canWrite, getLocalSetting, storeLocalSetting } from '$lib/utils'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { setQuery } from '$lib/navigation'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
@@ -48,7 +48,11 @@
 		showEditButtons?: boolean
 	}
 
-	let { filter = $bindable(''), subtab = $bindable('script'), showEditButtons = true }: Props = $props()
+	let {
+		filter = $bindable(''),
+		subtab = $bindable('script'),
+		showEditButtons = true
+	}: Props = $props()
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -73,7 +77,7 @@
 	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = $state([])
 
 	let itemKind = $state(
-		($page.url.searchParams.get('kind') as 'script' | 'flow' | 'app' | 'all') ?? 'all'
+		(page.url.searchParams.get('kind') as 'script' | 'flow' | 'app' | 'all') ?? 'all'
 	)
 
 	let loading = $state(true)
@@ -367,7 +371,7 @@
 					if (itemKind != 'all') {
 						subtab = v
 					}
-					setQuery($page.url, 'kind', v)
+					setQuery(page.url, 'kind', v)
 				}}
 			>
 				{#snippet children({ item })}

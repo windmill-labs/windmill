@@ -5,7 +5,11 @@
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import AddPropertyForm from './AddPropertyForm.svelte'
 
-	export let schema: Schema | any = emptySchema()
+	interface Props {
+		schema?: Schema | any;
+	}
+
+	let { schema = $bindable(emptySchema()) }: Props = $props();
 
 	export const DEFAULT_PROPERTY: ModalSchemaProperty = {
 		selectedType: 'string',

@@ -2,7 +2,7 @@
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
 	import { truncateHash } from '$lib/utils'
-	import { base } from '$app/paths'
+	import { base } from '$lib/base'
 	import { truncateRev } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
@@ -89,7 +89,7 @@
 {/if}
 {#if concurrencyKey}
 	<div>
-		<Tooltip notClickable>
+		<Tooltip>
 			{#snippet text()}
 				This job has concurrency limits enabled with the key:
 				{#if onFilterByConcurrencyKey}

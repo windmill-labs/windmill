@@ -15,7 +15,7 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import { Calendar, Check, CornerDownLeft } from 'lucide-svelte'
 	import RunFormAdvancedPopup from './RunFormAdvancedPopup.svelte'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { replaceState } from '$app/navigation'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
@@ -108,7 +108,7 @@
 				nurl.hash = computeSharableHash(args)
 
 				try {
-					replaceState(nurl.toString(), $page.state)
+					replaceState(nurl.toString(), page.state)
 				} catch (e) {
 					console.error(e)
 				}

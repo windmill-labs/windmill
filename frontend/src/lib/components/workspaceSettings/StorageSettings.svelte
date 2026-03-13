@@ -160,6 +160,15 @@
 					<Cell>
 						<div class="flex gap-2">
 							<div class="relative">
+								{#if tableRow[1].resourceType === 'filesystem'}
+								<Select
+									items={[{ value: 'filesystem', label: 'Filesystem' }]}
+									value={'filesystem'}
+									disabled
+									id="storage-resource-type-select"
+									class="w-40"
+								/>
+							{:else}
 								<Select
 									items={[
 										{ value: 's3', label: 'S3' },
@@ -172,13 +181,22 @@
 									id="storage-resource-type-select"
 									class="w-40"
 								/>
+							{/if}
 							</div>
 							<div class="flex flex-1">
-								<ResourcePicker
-									class="flex-1"
-									bind:value={tableRow[1].resourcePath}
-									resourceType={tableRow[1].resourceType}
-								/>
+								{#if tableRow[1].resourceType === 'filesystem'}
+									<TextInput
+										class="flex-1"
+										value={tableRow[1].resourcePath ?? ''}
+										inputProps={{ disabled: true, placeholder: 'Filesystem path' }}
+									/>
+								{:else}
+									<ResourcePicker
+										class="flex-1"
+										bind:value={tableRow[1].resourcePath}
+										resourceType={tableRow[1].resourceType}
+									/>
+								{/if}
 							</div>
 						</div>
 					</Cell>
@@ -204,16 +222,20 @@
 									contentClasses="p-2 text-xs text-secondary"
 									class="cursor-not-allowed"
 								>
-									<svelte:fragment slot="trigger">
-										<ExploreAssetButton asset={{ kind: 's3object', path: '' }} disabled />
-									</svelte:fragment>
-									<svelte:fragment slot="content">
-										{#if emptyString(tableRow[1].resourcePath)}
-											Please select a storage resource
-										{:else if isDirty(tableRow[0])}
-											Please save your changes
-										{/if}
-									</svelte:fragment>
+									{#snippet trigger()}
+
+											<ExploreAssetButton asset={{ kind: 's3object', path: '' }} disabled />
+
+																	{/snippet}
+									{#snippet content()}
+
+											{#if emptyString(tableRow[1].resourcePath)}
+												Please select a storage resource
+											{:else if isDirty(tableRow[0])}
+												Please save your changes
+											{/if}
+
+																	{/snippet}
 								</Popover>
 							{:else}
 								<ExploreAssetButton

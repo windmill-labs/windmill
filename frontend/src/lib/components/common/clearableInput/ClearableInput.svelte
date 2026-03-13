@@ -1,21 +1,41 @@
 <script lang="ts">
+	import { run, createBubbler, stopPropagation, preventDefault } from 'svelte/legacy';
+
+	const bubble = createBubbler();
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { X } from 'lucide-svelte'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
-	export let value: any = ''
-	export let placeholder = ''
-	export let type: 'text' | 'textarea' | 'number' = 'text'
-	export let inputClass = ''
-	export let wrapperClass = ''
-	export let buttonClass = ''
+	interface Props {
+		value?: any;
+		placeholder?: string;
+		type?: 'text' | 'textarea' | 'number';
+		inputClass?: string;
+		wrapperClass?: string;
+		buttonClass?: string;
+		children?: import('svelte').Snippet;
+		[key: string]: any
+	}
+
+	let {
+		value = $bindable(''),
+		placeholder = '',
+		type = 'text',
+		inputClass = '',
+		wrapperClass = '',
+		buttonClass = '',
+		children,
+		...rest
+	}: Props = $props();
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
-	let isHovered = false
+	let isHovered = $state(false)
 
-	$: isNumeric = ['number', 'range'].includes(type)
-	$: dispatchIfMounted('change', value)
+	let isNumeric = $derived(['number', 'range'].includes(type))
+	run(() => {
+		dispatchIfMounted('change', value)
+	});
 
 	function handleInput(e) {
 		value = isNumeric ? +e.target.value : e.target.value
@@ -25,14 +45,16 @@
 		value = ''
 	}
 
-	$: if (value === undefined) value = ''
+	run(() => {
+		if (value === undefined) value = ''
+	});
 </script>
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="relative grow {wrapperClass}"
-	on:mouseenter={() => (isHovered = true)}
-	on:mouseleave={() => (isHovered = false)}
+	onmouseenter={() => (isHovered = true)}
+	onmouseleave={() => (isHovered = false)}
 >
 	{#if type === 'textarea'}
 		<textarea
@@ -40,11 +62,11 @@
 			{placeholder}
 			rows="1"
 			class="resize-y {inputClass}"
-			{...$$restProps}
-			on:input={handleInput}
-			on:keydown|stopPropagation
-			on:focus
-			on:blur
+			{...rest}
+			oninput={handleInput}
+			onkeydown={stopPropagation(bubble('keydown'))}
+			onfocus={bubble('focus')}
+			onblur={bubble('blur')}
 		></textarea>
 	{:else}
 		<input
@@ -52,11 +74,11 @@
 			{value}
 			{placeholder}
 			class=" {(value ? '!pr-[26px] ' : '') + inputClass}"
-			{...$$restProps}
-			on:input={handleInput}
-			on:keydown|stopPropagation
-			on:focus
-			on:blur
+			{...rest}
+			oninput={handleInput}
+			onkeydown={stopPropagation(bubble('keydown'))}
+			onfocus={bubble('focus')}
+			onblur={bubble('blur')}
 		/>
 	{/if}
 	{#if value && isHovered}
@@ -65,10 +87,10 @@
 			class="absolute z-10 top-[9.5px] right-2 rounded-full p-0.5 text-primary bg-surface-secondary
 			 hover:bg-surface-hover focus:bg-surface-hover {buttonClass}"
 			aria-label="Clear"
-			on:click|preventDefault|stopPropagation={clear}
+			onclick={stopPropagation(preventDefault(clear))}
 		>
 			<X size={11} class="" />
 		</button>
 	{/if}
-	<slot />
+	{@render children?.()}
 </div>

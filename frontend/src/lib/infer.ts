@@ -10,7 +10,7 @@ import type { Schema, SupportedLanguage } from './common.js'
 import { emptySchema, sortObject } from './utils.js'
 import { tick } from 'svelte'
 
-import initTsParser, { parse_assets_ts, parse_deno, parse_outputs } from 'windmill-parser-wasm-ts'
+import initTsParser, { parse_deno, parse_outputs } from 'windmill-parser-wasm-ts'
 import initRegexParsers, {
 	parse_sql,
 	parse_mysql,
@@ -22,10 +22,14 @@ import initRegexParsers, {
 	parse_mssql,
 	parse_db_resource,
 	parse_bash,
-	parse_powershell,
-	parse_assets_sql
+	parse_powershell
 } from 'windmill-parser-wasm-regex'
-import initPythonParser, { parse_assets_py, parse_python } from 'windmill-parser-wasm-py'
+import initPythonParser, { parse_python } from 'windmill-parser-wasm-py'
+import initAssetParser, {
+	parse_assets_ts,
+	parse_assets_py,
+	parse_assets_sql
+} from 'windmill-parser-wasm-asset'
 import initGoParser, { parse_go } from 'windmill-parser-wasm-go'
 import initPhpParser, { parse_php } from 'windmill-parser-wasm-php'
 import initRustParser, { parse_rust } from 'windmill-parser-wasm-rust'
@@ -50,6 +54,7 @@ import wasmUrlCSharp from 'windmill-parser-wasm-csharp/windmill_parser_wasm_bg.w
 import wasmUrlNu from 'windmill-parser-wasm-nu/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlJava from 'windmill-parser-wasm-java/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRuby from 'windmill-parser-wasm-ruby/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlAsset from 'windmill-parser-wasm-asset/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 import { type AssetWithAccessType } from './components/assets/lib.js'
@@ -94,20 +99,23 @@ async function initWasmJava() {
 async function initWasmRuby() {
 	await initRubyParser(wasmUrlRuby)
 }
+async function initWasmAsset() {
+	await initAssetParser(wasmUrlAsset)
+}
 
 type InferAssetsResult =
 	| {
-			status: 'ok'
-			assets: AssetWithAccessType[]
-			sql_queries?: InferAssetsSqlQueryDetails[]
-			columns?: Record<string, AssetUsageAccessType>
-	  }
+		status: 'ok'
+		assets: AssetWithAccessType[]
+		sql_queries?: InferAssetsSqlQueryDetails[]
+		columns?: Record<string, AssetUsageAccessType>
+	}
 	| {
-			status: 'error'
-			error: string
-			assets?: undefined
-			sql_queries?: undefined
-	  }
+		status: 'error'
+		error: string
+		assets?: undefined
+		sql_queries?: undefined
+	}
 
 export type InferAssetsSqlQueryDetails = {
 	query_string: string // SQL query with $1 placeholders for interpolations
@@ -122,6 +130,40 @@ export type PreparedAssetsSqlQuery =
 	| { columns: Record<string, string> } // e.g { id: "number", name: "text" }
 	| { error: string; columns?: undefined } // error message if preparation failed
 
+function parseVolumeAnnotations(code: string, commentPrefix: string): AssetWithAccessType[] {
+	const volumes: AssetWithAccessType[] = []
+	for (const line of code.split('\n')) {
+		const trimmed = line.trim()
+		if (!trimmed) continue
+		if (!trimmed.startsWith(commentPrefix)) break
+		const after = trimmed.slice(commentPrefix.length).trim()
+		const match = after.match(/^volume:\s*(\S+)/)
+		if (match) {
+			volumes.push({ kind: 'volume', path: match[1], access_type: 'rw' })
+		}
+	}
+	return volumes
+}
+
+function getCommentPrefix(language: SupportedLanguage | undefined): string | undefined {
+	switch (language) {
+		case 'python3':
+		case 'bash':
+		case 'powershell':
+		case 'ansible':
+		case 'ruby':
+			return '#'
+		case 'deno':
+		case 'bun':
+		case 'bunnative':
+		case 'nativets':
+		case 'go':
+			return '//'
+		default:
+			return undefined
+	}
+}
+
 export async function inferAssets(
 	language: SupportedLanguage | undefined,
 	code: string
@@ -133,28 +175,39 @@ export async function inferAssets(
 		return { status: 'ok', ...JSON.parse(raw_result) }
 	}
 
+	let result: InferAssetsResult | undefined
+
 	try {
 		if (language === 'duckdb') {
-			await initWasmRegex()
-			return wrap(parse_assets_sql(code))
-		}
-		if (language === 'deno' || language === 'nativets' || language === 'bun') {
-			await initWasmTs()
-			return wrap(parse_assets_ts(code))
-		}
-		if (language === 'python3') {
-			await initWasmPython()
-			return wrap(parse_assets_py(code))
-		}
-		if (language === 'ansible') {
+			await initWasmAsset()
+			result = wrap(parse_assets_sql(code))
+		} else if (language === 'deno' || language === 'nativets' || language === 'bun') {
+			await initWasmAsset()
+			result = wrap(parse_assets_ts(code))
+		} else if (language === 'python3') {
+			await initWasmAsset()
+			result = wrap(parse_assets_py(code))
+		} else if (language === 'ansible') {
 			await initWasmYaml()
-			return wrap(parse_assets_ansible(code))
+			result = wrap(parse_assets_ansible(code))
 		}
 	} catch (e) {
 		return { status: 'error', error: (e as Error)?.message || JSON.stringify(e) }
 	}
 
-	return { status: 'ok', assets: [] }
+	if (!result) {
+		result = { status: 'ok', assets: [] }
+	}
+
+	const prefix = getCommentPrefix(language)
+	if (prefix && result.status === 'ok') {
+		const volumeAssets = parseVolumeAnnotations(code, prefix)
+		if (volumeAssets.length > 0) {
+			result = { ...result, assets: [...result.assets, ...volumeAssets] }
+		}
+	}
+
+	return result
 }
 
 export async function inferAnsibleExecutionMode(code: string): Promise<any> {
@@ -330,6 +383,11 @@ export async function inferArgs(
 		schema.properties[arg.name] = sortObject(schema.properties[arg.name])
 
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
+
+		// For T | T[] detection for debouncing arg accumulation
+		if ((arg as any).otyp && (arg as any).otyp.includes('[') && (arg as any).otyp.includes('|')) {
+			schema.properties[arg.name].originalType = (arg as any).otyp
+		}
 
 		schema.properties[arg.name].default = arg.default
 

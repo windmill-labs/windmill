@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM token_expiry_notification WHERE expiration <= now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "a6b1c8808c892e62ae4ba04171d856a39c89cdc658b09c478050de5145a45ca4"
+}

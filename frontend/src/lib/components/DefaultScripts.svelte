@@ -6,16 +6,20 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import DefaultScriptsInner from './DefaultScriptsInner.svelte'
 
-	let drawer: Drawer
-	export let placement: 'left' | 'right' = 'left'
+	interface Props {
+		placement?: 'left' | 'right'
+		size?: 'xs3' | 'xs2'
+		noText?: boolean
+	}
 
-	export let size: 'xs3' | 'xs2' = 'xs2'
-	export let noText = false
+	let { placement = 'left', size = 'xs2', noText = false }: Props = $props()
+
+	let drawer: Drawer | undefined = $state()
 </script>
 
 {#if $userStore?.is_admin || $userStore?.is_super_admin}
 	<Drawer bind:this={drawer} {placement}>
-		<DrawerContent title="Edit Default Scripts" on:close={drawer.closeDrawer}>
+		<DrawerContent title="Edit Default Scripts" on:close={drawer?.closeDrawer}>
 			<DefaultScriptsInner />
 		</DrawerContent>
 	</Drawer>

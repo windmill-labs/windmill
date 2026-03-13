@@ -152,7 +152,7 @@
 		loading = false
 	}
 
-	let previousResourceType = resourceType
+	let previousResourceType = untrack(() => resourceType)
 
 	$effect(() => {
 		$workspaceStore && resourceType

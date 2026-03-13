@@ -96,8 +96,8 @@
 	let batchRerunOptionsIsOpen = $state(false)
 
 	// Initialize path filter from route param if provided and not already set via query params
-	if (initialPath && !filters.val.path) {
-		filters.val.path = initialPath
+	if (untrack(() => initialPath) && !filters.val.path) {
+		filters.val.path = untrack(() => initialPath)
 	}
 
 	// Apply persistent toggle values from local storage if URL doesn't specify them
@@ -595,7 +595,7 @@
 
 			<div class="hidden xl:flex gap-2 ml-6">
 				<ToggleButtonGroup
-					tabListClass="hidden 2xl:flex"
+					tabListClass="hidden xl:flex"
 					bind:selected={
 						() => filters.val.job_kinds ?? 'runs',
 						(v) => (v === 'runs' ? delete filters.val.job_kinds : (filters.val.job_kinds = v))
@@ -606,18 +606,17 @@
 						<ToggleButton
 							value="runs"
 							label="Runs"
-							showTooltipIcon
 							tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
 							{item}
 						/>
 						<ToggleButton
 							value="dependencies"
 							label="Deps"
-							showTooltipIcon
 							tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
 							{item}
 						/>
 						<ToggleButtonMore
+							hideSelectedOption={innerWidth < smallScreenWidth}
 							togglableItems={[
 								{
 									label: 'Previews',
@@ -743,7 +742,9 @@
 			<FilterSearchbar
 				class={twMerge(
 					'flex-1 relative min-w-[18rem]',
-					Object.keys(filters.val).length <= 3 ? 'max-w-[28rem]' : 'max-w-[34rem]',
+					Object.keys(filters.val).length <= 3
+						? 'max-w-[20rem] 2xl:max-w-[28rem]'
+						: 'max-w-[34rem]',
 					ButtonType.UnifiedMinHeightClasses.md
 				)}
 				schema={runsFilterSearchbarSchema}
@@ -784,7 +785,12 @@
 						tooltip={'How far behind the min datetime to start considering jobs for the concurrency graph. Change this value to include jobs started before the set time window for the computation of the graph'}
 					/>
 				{:else if !lastFetchWentToEnd && (jobs?.length ?? 0) >= (perPage.val ?? 1000)}
-					<Button wrapperClasses="ml-2" unifiedSize="md" loading={jobsLoader.loadingExtra} onClick={() => jobsLoader.loadExtraJobs()}>
+					<Button
+						wrapperClasses="ml-2"
+						unifiedSize="md"
+						loading={jobsLoader.loadingExtra}
+						onClick={() => jobsLoader.loadExtraJobs()}
+					>
 						Load more
 						<Tooltip>There are more jobs to load</Tooltip>
 					</Button>
@@ -830,7 +836,9 @@
 									<div class="flex-1 bg-surface-hover rounded-full h-1.5">
 										<div
 											class="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
-											style="width: {Math.round((batchProgress.loaded / batchProgress.total) * 100)}%"
+											style="width: {Math.round(
+												(batchProgress.loaded / batchProgress.total) * 100
+											)}%"
 										></div>
 									</div>
 									{#if currentBatchSize != null}
@@ -849,11 +857,7 @@
 											}}
 										/>
 									{/if}
-									<Button
-										size="xs"
-										destructive
-										onClick={() => jobsLoader.stopBatchLoading()}
-									>
+									<Button size="xs" destructive onClick={() => jobsLoader.stopBatchLoading()}>
 										Stop
 									</Button>
 								</div>

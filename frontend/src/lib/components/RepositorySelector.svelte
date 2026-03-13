@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { GitSyncService } from '$lib/gen'
 	import Select from './select/Select.svelte'
 
@@ -32,7 +33,7 @@
 	}: Props = $props()
 
 	// Track all loaded repositories across pages
-	let loadedRepositories = $state<Repository[]>(initialRepositories)
+	let loadedRepositories = $state<Repository[]>(untrack(() => initialRepositories))
 	let currentPage = $state(1)
 	let isLoadingMore = $state(false)
 

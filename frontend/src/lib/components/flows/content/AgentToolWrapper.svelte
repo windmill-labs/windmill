@@ -1,11 +1,6 @@
 <script lang="ts">
 	import type { AgentTool } from '../agentToolUtils'
-	import {
-		isFlowModuleTool,
-		isMcpTool,
-		isWebsearchTool,
-		type McpTool
-	} from '../agentToolUtils'
+	import { isFlowModuleTool, isMcpTool, isWebsearchTool } from '../agentToolUtils'
 	import type { FlowModule } from '$lib/gen'
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
 	import McpToolEditor from './McpToolEditor.svelte'
@@ -19,6 +14,7 @@
 		previousModule?: FlowModule | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		siblingToolNames?: string[]
 	}
 
 	let {
@@ -28,7 +24,8 @@
 		parentModule = undefined,
 		previousModule = undefined,
 		forceTestTab,
-		highlightArg
+		highlightArg,
+		siblingToolNames = undefined
 	}: Props = $props()
 </script>
 
@@ -48,10 +45,11 @@
 		forceTestTab={forceTestTab?.[tool.id]}
 		highlightArg={highlightArg?.[tool.id]}
 		isAgentTool={true}
+		{siblingToolNames}
 	/>
 {:else if isMcpTool(tool)}
 	<!-- MCP tool - use McpToolEditor -->
-	<McpToolEditor bind:tool={tool as McpTool} />
+	<McpToolEditor bind:tool />
 {:else if isWebsearchTool(tool)}
 	<WebsearchToolDisplay />
 {/if}

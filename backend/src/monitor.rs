@@ -44,10 +44,12 @@ use windmill_common::{
     apps::APP_WORKSPACED_ROUTE,
     auth::create_token_for_owner,
     ee_oss::CriticalErrorChannel,
+    email_oss::send_email_if_possible,
     error,
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
+        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
@@ -76,10 +78,11 @@ use windmill_common::{
         DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR,
         WORKER_CONFIG, WORKER_GROUP,
     },
-    KillpillSender, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE, CRITICAL_ALERT_MUTE_UI_ENABLED,
-    CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
-    METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
-    OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
+    KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
+    CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB,
+    DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+    MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
+    SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
 #[cfg(feature = "parquet")]
@@ -207,6 +210,10 @@ pub async fn initial_load(
         tracing::error!("Error loading critical alert mute ui setting: {e:#}");
     }
 
+    if let Err(e) = reload_critical_alerts_on_token_expiry_setting(conn).await {
+        tracing::error!("Error loading critical alerts on token expiry setting: {e:#}");
+    }
+
     if let Some(db) = conn.as_sql() {
         if let Err(e) = load_tag_per_workspace_enabled(db).await {
             tracing::error!("Error loading default tag per workpsace: {e:#}");
@@ -244,9 +251,8 @@ pub async fn initial_load(
                     .map(|x| x.tags.clone())
                     .unwrap_or_default();
                 // we only check from env as native_mode is not stored in the token
+                // NATIVE_MODE_RESOLVED is already set in main.rs during startup
                 let native_mode = windmill_common::worker::is_native_mode_from_env();
-                windmill_common::worker::NATIVE_MODE_RESOLVED
-                    .store(native_mode, std::sync::atomic::Ordering::Relaxed);
                 *config = WorkerConfig {
                     worker_tags,
                     env_vars: load_env_vars(
@@ -317,9 +323,15 @@ pub async fn initial_load(
 
     if server_mode {
         reload_retention_period_setting(&conn).await;
+        reload_audit_log_retention_days_setting(&conn).await;
         reload_request_size(&conn).await;
         reload_saml_metadata_setting(&conn).await;
         reload_scim_token_setting(&conn).await;
+
+        // Ensure audit partitions exist before any requests arrive
+        if let Some(db) = conn.as_sql() {
+            manage_audit_partitions(&db, audit_log_retention_days().await).await;
+        }
     }
 
     if worker_mode {
@@ -473,6 +485,21 @@ pub async fn reload_critical_alert_mute_ui_setting(conn: &Connection) -> error::
         load_value_from_global_settings_with_conn(conn, CRITICAL_ALERT_MUTE_UI_SETTING, true).await
     {
         CRITICAL_ALERT_MUTE_UI_ENABLED.store(t, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+pub async fn reload_critical_alerts_on_token_expiry_setting(
+    conn: &Connection,
+) -> error::Result<()> {
+    if let Ok(Some(serde_json::Value::Bool(t))) = load_value_from_global_settings_with_conn(
+        conn,
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
+        true,
+    )
+    .await
+    {
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY.store(t, Ordering::Relaxed);
     }
     Ok(())
 }
@@ -845,18 +872,91 @@ struct LogFile {
     hostname: String,
 }
 
+struct TokenRow {
+    token_prefix: Option<String>,
+    label: Option<String>,
+    email: Option<String>,
+    workspace_id: Option<String>,
+}
+
+/// When updating this filter, also update:
+/// - `register_token_expiry_notification` in windmill-api-auth/src/lib.rs
+/// - `isUserToken` in frontend/src/lib/components/settings/TokensTable.svelte
+fn is_user_token(label: Option<&str>) -> bool {
+    match label {
+        None => true,
+        Some(l) => {
+            l != "session"
+                && !l.starts_with("ephemeral")
+                && !l.starts_with("Ephemeral")
+                && l != "debugger-token"
+                && !l.starts_with("mcp-oauth-")
+        }
+    }
+}
+
+async fn report_token_expiration(db: &DB, token: &TokenRow, expired: bool) {
+    if !is_user_token(token.label.as_deref()) {
+        return;
+    }
+    let prefix = token.token_prefix.as_deref().unwrap_or("??????????");
+    let email_addr = token.email.as_deref().unwrap_or("unknown");
+    let token_desc = match token.label.as_deref() {
+        Some(l) if !l.is_empty() => format!("'{l}' ({prefix}****)"),
+        _ => format!("{prefix}****"),
+    };
+
+    let (alert_message, email_subject, email_body) = if expired {
+        (
+            format!(
+                "API token {token_desc} of '{email_addr}' has expired and been deleted"
+            ),
+            "Windmill: Your API token has expired",
+            format!(
+                "Your API token {token_desc} has expired and been deleted.\n\nPlease create a new token if you still need API access."
+            ),
+        )
+    } else {
+        (
+            format!("API token {token_desc} of '{email_addr}' is expiring soon"),
+            "Windmill: Your API token is expiring soon",
+            format!(
+                "Your API token {token_desc} is expiring soon.\n\nPlease rotate or renew your token to avoid service disruption."
+            ),
+        )
+    };
+
+    tracing::info!("{}", alert_message);
+    if CRITICAL_ALERTS_ON_TOKEN_EXPIRY.load(Ordering::Relaxed) {
+        report_critical_error(
+            alert_message,
+            db.clone(),
+            token.workspace_id.as_deref(),
+            None,
+        )
+        .await;
+    }
+    if let Some(email) = &token.email {
+        send_email_if_possible(email_subject, &email_body, email);
+    }
+}
+
 pub async fn delete_expired_items(db: &DB) -> () {
-    let tokens_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
+    let expired_tokens_r = sqlx::query_as!(
+        TokenRow,
         "DELETE FROM token WHERE expiration <= now()
-        RETURNING concat(substring(token for 10), '*****')",
+        RETURNING substring(token for 10) as token_prefix, label, email, workspace_id",
     )
     .fetch_all(db)
     .await;
 
-    match tokens_deleted_r {
+    match expired_tokens_r {
         Ok(tokens) => {
-            if tokens.len() > 0 {
-                tracing::info!("deleted {} tokens: {:?}", tokens.len(), tokens)
+            if !tokens.is_empty() {
+                tracing::info!("deleted {} expired tokens", tokens.len());
+                for t in &tokens {
+                    report_token_expiration(db, t, true).await;
+                }
             }
         }
         Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
@@ -942,12 +1042,10 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting log file: {:?}", e),
     }
 
-    #[cfg(not(feature = "enterprise"))]
-    let audit_retention_secs = 1 * 60 * 60 * 24 * 14;
+    let audit_retention_days = audit_log_retention_days().await;
+    let audit_retention_secs: i64 = audit_retention_days * 60 * 60 * 24;
 
-    #[cfg(feature = "enterprise")]
-    let audit_retention_secs = 1 * 60 * 60 * 24 * 365;
-
+    // Clean up old (non-partitioned) audit table — will eventually be empty and dropped
     if let Err(e) = sqlx::query_scalar!(
         "DELETE FROM audit WHERE timestamp <= now() - ($1::bigint::text || ' s')::interval",
         audit_retention_secs,
@@ -955,7 +1053,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
     .fetch_all(db)
     .await
     {
-        tracing::error!("Error deleting audit log on CE: {:?}", e);
+        tracing::error!("Error deleting audit log: {:?}", e);
     }
 
     if let Err(e) = sqlx::query_scalar!(
@@ -1062,6 +1160,41 @@ pub async fn delete_expired_items(db: &DB) -> () {
         {
             tracing::error!("Error deleting custom concurrency key: {:?}", e);
         }
+    }
+}
+
+pub async fn check_expiring_tokens(db: &DB) {
+    // Find tokens expiring within 7 days that still have a pending notification row
+    let expiring_tokens_r = sqlx::query_as!(
+        TokenRow,
+        "DELETE FROM token_expiry_notification n
+         USING token t
+         WHERE n.token = t.token
+           AND n.expiration > now()
+           AND n.expiration <= now() + interval '7 days'
+         RETURNING substring(t.token for 10) as token_prefix, t.label, t.email, t.workspace_id",
+    )
+    .fetch_all(db)
+    .await;
+
+    match expiring_tokens_r {
+        Ok(tokens) => {
+            for t in &tokens {
+                report_token_expiration(db, t, false).await;
+            }
+            if !tokens.is_empty() {
+                tracing::info!("Sent expiration warnings for {} token(s)", tokens.len());
+            }
+        }
+        Err(e) => tracing::error!("Error checking expiring tokens: {}", e),
+    }
+
+    // Clean up notification rows whose expiration has passed
+    if let Err(e) = sqlx::query!("DELETE FROM token_expiry_notification WHERE expiration <= now()")
+        .execute(db)
+        .await
+    {
+        tracing::error!("Error cleaning up expired token notifications: {}", e);
     }
 }
 
@@ -1445,6 +1578,22 @@ pub async fn reload_retention_period_setting(conn: &Connection) {
         tracing::error!("Error reloading retention period: {:?}", e)
     }
 }
+
+pub async fn reload_audit_log_retention_days_setting(conn: &Connection) {
+    if let Err(e) = reload_setting(
+        conn,
+        AUDIT_LOG_RETENTION_DAYS_SETTING,
+        "AUDIT_LOG_RETENTION_DAYS",
+        0, // 0 means use default: 365 for EE, 14 for CE
+        AUDIT_LOG_RETENTION_DAYS.clone(),
+        |x| x,
+    )
+    .await
+    {
+        tracing::error!("Error reloading audit log retention days: {:?}", e)
+    }
+}
+
 pub async fn reload_delete_logs_periodically_setting(conn: &Connection) {
     if let Err(e) = reload_setting(
         conn,
@@ -2052,6 +2201,25 @@ pub async fn monitor_db(
         }
     };
 
+    // Run every hour (10 iterations * 30s = 5 minutes)
+    // Check for tokens expiring within 7 days and send alerts
+    let check_expiring_tokens_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                check_expiring_tokens(&db).await;
+            }
+        }
+    };
+
+    // run every hour (120 iterations * 30s = 3600s)
+    let manage_audit_partitions_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
+            if let Some(db) = conn.as_sql() {
+                manage_audit_partitions(&db, audit_log_retention_days().await).await;
+            }
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -2073,6 +2241,8 @@ pub async fn monitor_db(
         cleanup_worker_group_stats_f,
         native_triggers_sync_f,
         cleanup_notify_events_f,
+        check_expiring_tokens_f,
+        manage_audit_partitions_f,
     );
 }
 
@@ -2694,7 +2864,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 &windmill_queue::MiniCompletedJob::from(job),
                 memory_peak,
                 None,
-                error::Error::ExecutionErr(error_message),
+                error::Error::ExecutionErr(error_message.clone()),
                 matches!(error_kind, ErrorMessage::SameWorker), // unrecoverable if the job is a same worker zombie
                 Some(&same_worker_tx_never_used),
                 "",
@@ -2705,8 +2875,72 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 &mut windmill_common::bench::BenchmarkIter::new(),
             )
             .await;
+
+            // If handle_job_error failed (e.g. schedule push failure rolled back the tx),
+            // the job is still in the queue. Force-complete it to prevent infinite zombie loops.
+            if let Err(e) = force_complete_zombie_job(db, &job_id, &error_message).await {
+                tracing::error!("Failed to force-complete zombie job {}: {e:#}", job_id);
+            }
         }
     }
+}
+
+/// Force-complete a zombie job that handle_job_error failed to complete.
+/// This is a minimal fallback: it inserts a failed completed job and deletes
+/// from the queue in a single transaction, without schedule pushing or
+/// error handler logic that could cause the completion to fail.
+async fn force_complete_zombie_job(
+    db: &Pool<Postgres>,
+    job_id: &Uuid,
+    error_message: &str,
+) -> error::Result<()> {
+    let still_queued = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM v2_job_queue WHERE id = $1)",
+        job_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    if !still_queued {
+        return Ok(());
+    }
+
+    tracing::error!(
+        "Zombie job {job_id} was not completed by handle_job_error, force-completing it"
+    );
+
+    let error_value = serde_json::json!({
+        "message": error_message,
+        "name": "ExecutionErr",
+    });
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        "INSERT INTO v2_job_completed
+            (workspace_id, id, started_at, duration_ms, result, memory_peak, status, worker)
+        SELECT q.workspace_id, q.id, q.started_at,
+            COALESCE((EXTRACT('epoch' FROM now()) - EXTRACT('epoch' FROM COALESCE(q.started_at, now()))) * 1000, 0)::bigint,
+            $2::jsonb, r.memory_peak, 'failure'::job_status, q.worker
+        FROM v2_job_queue q
+        LEFT JOIN v2_job_runtime r ON r.id = q.id
+        WHERE q.id = $1
+        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb",
+        job_id,
+        error_value,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!("DELETE FROM v2_job_queue WHERE id = $1", job_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    tracing::info!("Force-completed zombie job {job_id}");
+    Ok(())
 }
 
 async fn cleanup_concurrency_counters_orphaned_keys(db: &DB) -> error::Result<()> {
@@ -3236,4 +3470,73 @@ RETURNING job_id
         );
     }
     Ok(())
+}
+
+async fn audit_log_retention_days() -> i64 {
+    let v = *AUDIT_LOG_RETENTION_DAYS.read().await;
+    if v > 0 {
+        v
+    } else if cfg!(feature = "enterprise") {
+        365
+    } else {
+        14
+    }
+}
+
+async fn manage_audit_partitions(db: &DB, retention_days: i64) {
+    let today = chrono::Utc::now().date_naive();
+
+    // Create partitions for today and the next 3 days
+    for days_ahead in 0..=3i64 {
+        let date = today + chrono::Duration::days(days_ahead);
+        let next_date = date + chrono::Duration::days(1);
+        let partition_name = format!("audit_{}", date.format("%Y%m%d"));
+        let quoted_name = format!("\"{}\"", partition_name.replace('"', "\"\""));
+        let sql = format!(
+            "CREATE TABLE IF NOT EXISTS {quoted_name} PARTITION OF audit_partitioned \
+             FOR VALUES FROM ('{date}') TO ('{next_date}')"
+        );
+        if let Err(e) = sqlx::query(&sql).execute(db).await {
+            if !e.to_string().contains("already exists") {
+                tracing::error!("Error creating audit partition {partition_name}: {e:?}");
+            }
+        }
+    }
+
+    // Drop expired partitions
+    let cutoff_date = today - chrono::Duration::days(retention_days);
+
+    let partitions = sqlx::query_scalar::<_, String>(
+        "SELECT c.relname::text \
+         FROM pg_inherits i \
+         JOIN pg_class c ON c.oid = i.inhrelid \
+         WHERE i.inhparent = 'audit_partitioned'::regclass",
+    )
+    .fetch_all(db)
+    .await;
+
+    match partitions {
+        Ok(partitions) => {
+            for partition_name in partitions {
+                if let Some(date_str) = partition_name.strip_prefix("audit_") {
+                    if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y%m%d") {
+                        if date < cutoff_date {
+                            let quoted_name =
+                                format!("\"{}\"", partition_name.replace('"', "\"\""));
+                            let sql = format!("DROP TABLE IF EXISTS {quoted_name}");
+                            match sqlx::query(&sql).execute(db).await {
+                                Ok(_) => tracing::info!(
+                                    "Dropped expired audit partition {partition_name}"
+                                ),
+                                Err(e) => tracing::error!(
+                                    "Error dropping audit partition {partition_name}: {e:?}"
+                                ),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => tracing::error!("Error listing audit partitions: {e:?}"),
+    }
 }

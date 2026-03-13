@@ -52,6 +52,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
@@ -133,7 +134,7 @@
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const routeConfig = $derived.by(getRouteConfig)
-	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
+	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
 		drawerLoading ||
 			!can_write ||
@@ -695,6 +696,13 @@
 
 			{#if !is_static_website}
 				<Section label="Advanced" collapsable>
+					{#snippet header()}
+						<TriggerAdvancedBadges {error_handler_path} {retry} extraBadges={[
+							{ name: 'Async', active: request_type === 'async' },
+							{ name: 'SSE', active: request_type === 'sync_sse' },
+							{ name: 'Authentication', active: authentication_method !== 'none' }
+						]} />
+					{/snippet}
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
 							<Tab value="request_options" label="Request Options" />
@@ -909,6 +917,7 @@
 						</div>
 					</div>
 				</Section>
+				<div class="pb-8" />
 			{/if}
 		</div>
 	{/if}

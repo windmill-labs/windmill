@@ -20,11 +20,6 @@ pub use windmill_parser::{Arg, MainArgSignature, ObjectType, Typ};
 pub const SANITIZED_ENUM_STR: &str = "__sanitized_enum__";
 pub const SANITIZED_RAW_STRING_STR: &str = "__sanitized_raw_string__";
 
-mod asset_parser;
-mod asset_parser_utils;
-pub use asset_parser::parse_assets;
-pub use asset_parser_utils::parse_wmill_sdk_sql_assets;
-
 pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_mysql_file(&code)?;
     if let Some(x) = parsed {
@@ -238,7 +233,7 @@ lazy_static::lazy_static! {
 
     // used for `unsafe` sql interpolation
     // -- %%name%% (type) = default
-    static ref RE_ARG_SQL_INTERPOLATION: Regex = Regex::new(r#"(?m)^--\s*%%([a-z_][a-z0-9_]*)%%\s*([\s\w\/]+)?(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
+    static ref RE_ARG_SQL_INTERPOLATION: Regex = Regex::new(r#"(?m)^--\s*%%([a-z_][a-z0-9_]*)%%[ \t]*([\w][\w \t\/]*)?(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 }
 
 fn parsed_default(parsed_typ: &Typ, default: String) -> Option<serde_json::Value> {
@@ -1539,6 +1534,38 @@ SELECT $1::integer;
                     default: None,
                     has_default: false,
                     oidx: Some(1),
+                },],
+                no_main_func: None,
+                has_preprocessor: None
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_pgsql_safe_interpolated_args() -> anyhow::Result<()> {
+        // There was a bug where enum would be "angrycreative"/"bishop"/"test SELECT x"
+        let code = r#"
+-- %%table_name%% angrycreative/bishop/test
+SELECT x
+"#;
+        assert_eq!(
+            parse_pgsql_sig(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![Arg {
+                    otyp: Some("__sanitized_enum__".to_string()),
+                    name: "table_name".to_string(),
+                    typ: Typ::Str(Some(vec![
+                        "angrycreative".to_string(),
+                        "bishop".to_string(),
+                        "test".to_string()
+                    ])),
+                    default: None,
+                    has_default: false,
+                    oidx: None,
                 },],
                 no_main_func: None,
                 has_preprocessor: None

@@ -211,8 +211,6 @@ pub enum TypeDecl {
     Interface(TsInterfaceDecl),
     Alias(TsTypeAliasDecl),
 }
-pub mod asset_parser;
-pub use asset_parser::parse_assets;
 
 /// skip_params is a micro optimization for when we just want to find the main
 /// function without parsing all the params.
@@ -261,7 +259,9 @@ pub fn parse_deno_signature(
                 for specifier in &named_export.specifiers {
                     if let swc_ecma_ast::ExportSpecifier::Named(spec) = specifier {
                         let export_name = match &spec.exported {
-                            Some(swc_ecma_ast::ModuleExportName::Ident(ident)) => ident.sym.as_ref(),
+                            Some(swc_ecma_ast::ModuleExportName::Ident(ident)) => {
+                                ident.sym.as_ref()
+                            }
                             Some(swc_ecma_ast::ModuleExportName::Str(s)) => s.value.as_ref(),
                             None => match &spec.orig {
                                 swc_ecma_ast::ModuleExportName::Ident(ident) => ident.sym.as_ref(),
@@ -315,7 +315,11 @@ pub fn parse_deno_signature(
 
     let mut c: u16 = 0;
 
-    let no_main_func = entrypoint_params.is_none();
+    let is_wac_v2 = entrypoint_params.is_none()
+        && code.contains("workflow(")
+        && code.contains("task(")
+        && code.contains("windmill-client");
+    let no_main_func = entrypoint_params.is_none() && !is_wac_v2;
     let mut type_resolver = HashMap::new();
     let r = MainArgSignature {
         star_args: false,
@@ -359,8 +363,12 @@ fn parse_param(
     let r = match param.pat {
         Pat::Ident(ident) => {
             let (name, typ, nullable) = binding_ident_to_arg(symbol_table, type_resolver, &ident);
+            let otyp = ident
+                .type_ann
+                .as_ref()
+                .and_then(|ta| detect_union_array_otyp(&ta.type_ann));
             Ok(Arg {
-                otyp: None,
+                otyp,
                 name,
                 typ,
                 default: None,
@@ -370,13 +378,21 @@ fn parse_param(
         }
         // Pat::Object(ObjectPat { ... }) = todo!()
         Pat::Assign(AssignPat { left, right, .. }) => {
-            let (name, mut typ, _nullable) = match *left {
-                Pat::Ident(ident) => binding_ident_to_arg(symbol_table, type_resolver, &ident),
+            let (name, mut typ, _nullable, otyp) = match *left {
+                Pat::Ident(ident) => {
+                    let otyp = ident
+                        .type_ann
+                        .as_ref()
+                        .and_then(|ta| detect_union_array_otyp(&ta.type_ann));
+                    let (name, typ, nullable) =
+                        binding_ident_to_arg(symbol_table, type_resolver, &ident);
+                    (name, typ, nullable, otyp)
+                }
                 Pat::Object(ObjectPat { type_ann, .. }) => {
                     let (typ, nullable) = eval_type_ann(symbol_table, type_resolver, &type_ann);
                     *counter += 1;
                     let name = format!("anon{}", counter);
-                    (name, typ, nullable)
+                    (name, typ, nullable, None)
                 }
                 _ => {
                     return Err(anyhow::anyhow!(
@@ -412,7 +428,7 @@ fn parse_param(
             if typ == Typ::Unknown && dflt.is_some() {
                 typ = json_to_typ(dflt.as_ref().unwrap(), false);
             }
-            Ok(Arg { otyp: None, name, typ, default: dflt, has_default: true, oidx: None })
+            Ok(Arg { otyp, name, typ, default: dflt, has_default: true, oidx: None })
         }
         Pat::Object(ObjectPat { type_ann, .. }) => {
             let (typ, nullable) = eval_type_ann(symbol_table, type_resolver, &type_ann);
@@ -833,7 +849,9 @@ fn tstype_to_typ(
                     false,
                 ),
                 symbol @ _ if symbol.starts_with("DynMultiselect_") => (
-                    Typ::DynMultiselect(symbol.strip_prefix("DynMultiselect_").unwrap().to_string()),
+                    Typ::DynMultiselect(
+                        symbol.strip_prefix("DynMultiselect_").unwrap().to_string(),
+                    ),
                     false,
                 ),
                 symbol @ _ => {
@@ -953,6 +971,75 @@ fn one_of_properties(
             Some(ObjectProperty { key: sym.to_string(), typ: Box::new(typ) })
         })
         .collect()
+}
+
+fn ts_type_to_string(ts_type: &TsType) -> Option<String> {
+    match ts_type {
+        TsType::TsKeywordType(t) => Some(
+            match t.kind {
+                TsKeywordTypeKind::TsStringKeyword => "string",
+                TsKeywordTypeKind::TsNumberKeyword => "number",
+                TsKeywordTypeKind::TsBooleanKeyword => "boolean",
+                TsKeywordTypeKind::TsObjectKeyword => "object",
+                TsKeywordTypeKind::TsBigIntKeyword => "bigint",
+                TsKeywordTypeKind::TsAnyKeyword => "any",
+                _ => return None,
+            }
+            .to_string(),
+        ),
+        TsType::TsTypeRef(TsTypeRef { type_name, .. }) => match type_name {
+            TsEntityName::Ident(Ident { sym, .. }) => Some(sym.to_string()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn get_array_elem_type(ts_type: &TsType) -> Option<&TsType> {
+    match ts_type {
+        TsType::TsArrayType(TsArrayType { elem_type, .. }) => Some(elem_type),
+        _ => None,
+    }
+}
+
+/// Detects union types of the form `T | T[]` or `T[] | T` and returns
+/// the original type string (e.g. "string | string[]").
+fn detect_union_array_otyp(ts_type: &TsType) -> Option<String> {
+    let TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(TsUnionType {
+        types,
+        ..
+    })) = ts_type
+    else {
+        return None;
+    };
+
+    if types.len() != 2 {
+        return None;
+    }
+
+    // Check pattern: T | T[]
+    if let (Some(scalar_name), Some(array_elem)) =
+        (ts_type_to_string(&types[0]), get_array_elem_type(&types[1]))
+    {
+        if let Some(elem_name) = ts_type_to_string(array_elem) {
+            if scalar_name == elem_name {
+                return Some(format!("{} | {}[]", scalar_name, elem_name));
+            }
+        }
+    }
+
+    // Check pattern: T[] | T
+    if let (Some(array_elem), Some(scalar_name)) =
+        (get_array_elem_type(&types[0]), ts_type_to_string(&types[1]))
+    {
+        if let Some(elem_name) = ts_type_to_string(array_elem) {
+            if scalar_name == elem_name {
+                return Some(format!("{}[] | {}", elem_name, scalar_name));
+            }
+        }
+    }
+
+    None
 }
 
 fn find_undefined(types: &Vec<Box<TsType>>) -> Option<usize> {

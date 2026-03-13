@@ -23,6 +23,7 @@
 	let uptodateVersion: string | undefined = $state(undefined)
 	let yamlMode = $state(false)
 	let hasUnsavedChanges = $state(false)
+	let hasAnyInvalid = $state(false)
 	let showCloseConfirmModal = $state(false)
 	let diffData: { original: string; modified: string } = $state({ original: '', modified: '' })
 	let inlineDiff = $state(false)
@@ -98,15 +99,17 @@
 						<span class="text-accent">→ {uptodateVersion}</span>
 					{/if}
 				</div>
-				<svelte:fragment slot="text">
-					{#if isCloudHosted()}
-						The cloud version is updated daily.
-					{:else}
-						How to update?<br />
-						- docker: <code>docker compose up -d</code><br />
-						- <a href="https://github.com/windmill-labs/windmill-helm-charts#install">helm</a>
-					{/if}
-				</svelte:fragment>
+				{#snippet text()}
+							
+						{#if isCloudHosted()}
+							The cloud version is updated daily.
+						{:else}
+							How to update?<br />
+							- docker: <code>docker compose up -d</code><br />
+							- <a href="https://github.com/windmill-labs/windmill-helm-charts#install">helm</a>
+						{/if}
+					
+							{/snippet}
 			</MeltTooltip>
 		{/snippet}
 		{#snippet actions()}
@@ -145,6 +148,7 @@
 			showHeaderInfo={false}
 			bind:yamlMode
 			bind:hasUnsavedChanges
+			bind:hasAnyInvalid
 		/>
 	</DrawerContent>
 </Drawer>
@@ -157,7 +161,7 @@
 				options={{ right: 'Unified' }}
 				size="xs"
 			/>
-			<SaveButton onSave={handleSaveAndCloseDiff} disabled={!hasUnsavedChanges} size="xs" />
+			<SaveButton onSave={handleSaveAndCloseDiff} disabled={!hasUnsavedChanges || hasAnyInvalid} size="xs" />
 		{/snippet}
 		<!-- DiffEditor reacts to inlineDiff changes via $effect — no {#key} needed -->
 		<div class="h-full">

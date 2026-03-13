@@ -3,9 +3,9 @@
 	import { CheckCircle, XCircle } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 
-	let isLoading = true
-	let isSuccess = false
-	let errorMessage = ''
+	let isLoading = $state(true)
+	let isSuccess = $state(false)
+	let errorMessage = $state('')
 
 	function closeWindow() {
 		window.close()
@@ -13,6 +13,74 @@
 
 	onMount(async () => {
 		const url = new URL(window.location.href)
+
+		// Check for GHES flow: GitHub redirects back with installation_id and state params
+		// (no jwt_token param — that's the managed flow via stats.windmill.dev)
+		const jwt_token = url.searchParams.get('jwt_token') || ''
+		const stateParam = url.searchParams.get('state') || ''
+
+		if (!jwt_token && stateParam) {
+			// GHES self-managed flow
+			await handleGhesFlow(url, stateParam)
+		} else {
+			// Managed flow (existing)
+			await handleManagedFlow(url)
+		}
+	})
+
+	async function handleGhesFlow(url: URL, stateParam: string) {
+		const installation_id_str = url.searchParams.get('installation_id') || ''
+		const installation_id = parseInt(installation_id_str, 10)
+
+		let workspace_id: string
+		try {
+			const state = JSON.parse(decodeURIComponent(stateParam))
+			workspace_id = state.workspace_id
+		} catch {
+			isLoading = false
+			errorMessage = 'Invalid state parameter'
+			sendUserToast('Invalid state parameter in the URL', true)
+			return
+		}
+
+		if (!workspace_id || isNaN(installation_id)) {
+			isLoading = false
+			errorMessage = 'Missing or invalid required parameters'
+			sendUserToast('Missing or invalid required parameters in the URL', true)
+			return
+		}
+
+		try {
+			const response = await fetch(
+				`/api/w/${workspace_id}/github_app/ghes_installation_callback`,
+				{
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({
+						installation_id
+					})
+				}
+			)
+
+			if (!response.ok) {
+				const errorData = await response.text()
+				throw new Error(errorData || 'Failed to complete GitHub Enterprise app installation')
+			}
+
+			isSuccess = true
+			sendUserToast('GitHub Enterprise app installed successfully', false)
+		} catch (error) {
+			console.error('Error during GitHub Enterprise app installation:', error)
+			errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+			sendUserToast(`Error installing GitHub Enterprise app: ${errorMessage}`, true)
+		} finally {
+			isLoading = false
+		}
+	}
+
+	async function handleManagedFlow(url: URL) {
 		const workspace_id = url.searchParams.get('workspace_id') || ''
 		const installation_id_str = url.searchParams.get('installation_id') || ''
 		const account_id = url.searchParams.get('account_id') || ''
@@ -54,7 +122,7 @@
 		} finally {
 			isLoading = false
 		}
-	})
+	}
 </script>
 
 <div class="h-screen w-screen flex items-center justify-center bg-surface p-4">
@@ -74,7 +142,7 @@
 					The GitHub app has been successfully installed. You can now close this window and return to Windmill to start using the GitHub integration.
 				</p>
 				<button
-					on:click={closeWindow}
+					onclick={closeWindow}
 					class="w-full py-2 px-4 bg-green-600 hover:bg-green-700 text-white font-medium rounded transition-colors"
 				>
 					Close this window
@@ -94,7 +162,7 @@
 					Please try again or contact your administrator for assistance.
 				</p>
 				<button
-					on:click={closeWindow}
+					onclick={closeWindow}
 					class="w-full py-2 px-4 bg-red-600 hover:bg-red-700 text-white font-medium rounded transition-colors"
 				>
 					Close this window

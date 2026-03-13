@@ -408,7 +408,8 @@ async function remove(_opts: GlobalOptions, name: string) {
 
 async function whoami(_opts: GlobalOptions) {
   await requireLogin(_opts);
-  log.info(await wmill.globalWhoami());
+  const whoamiInfo = await wmill.globalWhoami();
+  log.info(JSON.stringify(whoamiInfo, null, 2));
   const activeName = await getActiveWorkspaceName(_opts);
   log.info("Active: " + colors.green.bold(activeName || "none"));
 }

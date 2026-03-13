@@ -302,6 +302,8 @@ struct LargeFileStorageWithSecondary {
     large_file_storage: LargeFileStorage,
     #[serde(default)]
     secondary_storage: HashMap<String, LargeFileStorage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    volume_storage: Option<String>,
 }
 #[derive(Deserialize, Debug)]
 struct EditLargeFileStorageConfig {
