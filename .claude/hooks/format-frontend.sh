@@ -15,8 +15,10 @@ if [[ "$FILE_PATH" == *"/frontend/"* ]]; then
     # Check if it's a formattable file type
     if [[ "$FILE_PATH" =~ \.(ts|js|svelte|json|css|html|md)$ ]]; then
         cd "$CLAUDE_PROJECT_DIR/frontend" || exit 0
-        # Run prettier silently, don't fail the hook if prettier fails
-        npx prettier --write "$FILE_PATH" 2>/dev/null || true
+        # Run prettier, surface errors as context but don't block Claude
+        if ./node_modules/.bin/prettier --plugin prettier-plugin-svelte --write "$FILE_PATH" 2>&1; then
+            echo "Formatted $(basename "$FILE_PATH")"
+        fi
     fi
 fi
 
