@@ -1,5 +1,9 @@
 <script lang="ts">
-	import type { CustomInstanceDbTag, ListCustomInstanceDbsResponse } from '$lib/gen'
+	import type {
+		CustomInstanceDb,
+		CustomInstanceDbTag,
+		ListCustomInstanceDbsResponse
+	} from '$lib/gen'
 	import type { ResourceReturn } from 'runed'
 	import Select from '../select/Select.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
@@ -27,10 +31,14 @@
 		tag
 	}: Props = $props()
 
-	let openedDbNameWizard = $state(false)
+	let openedDbNameWizard:
+		| {
+				status: CustomInstanceDb | undefined
+				dbname: string
+		  }
+		| undefined = $state(undefined)
 
 	let status = $derived(customInstanceDbs.current?.[value ?? ''])
-
 	let onlySelectedTags = $derived(
 		safeSelectItems(
 			Object.entries(customInstanceDbs.current ?? {})
@@ -38,7 +46,6 @@
 				.map(([name, _]) => name)
 		)
 	)
-	let currentIsAlreadyUsedElsewhere = $derived(tag && status && status.tag !== tag)
 </script>
 
 <div class="flex relative items-center {className}">
@@ -60,20 +67,30 @@
 			{/if}
 		{/snippet}
 	</Select>
+	{#if value}
+		{@render customInstanceDbWizardButton({ dbname: value, status })}
+	{/if}
+</div>
 
+<CustomInstanceDbWizardModal
+	{customInstanceDbs}
+	{confirmationModal}
+	{tag}
+	bottomHint={wizardBottomHint}
+	bind:opened={() => openedDbNameWizard, (v) => !v && (openedDbNameWizard = undefined)}
+/>
+
+{#snippet customInstanceDbWizardButton(db: typeof openedDbNameWizard)}
 	<Button
 		spacingSize="xs2"
 		variant="default"
 		wrapperClasses={'absolute right-1.5 h-6 bg-surface-input'}
-		onClick={() => (openedDbNameWizard = true)}
-		disabled={currentIsAlreadyUsedElsewhere}
+		onClick={() => (openedDbNameWizard = db)}
 	>
 		{#if !status}
 			<span class="text-yellow-600 dark:text-yellow-400">
 				Setup <ArrowRight class="inline" size={14} />
 			</span>
-		{:else if currentIsAlreadyUsedElsewhere}
-			<span class="text-red-400 flex gap-1">Already used as {status.tag}</span>
 		{:else if !status.success}
 			<span class="text-red-400 flex gap-1">
 				Error <TriangleAlert class="inline" size={16} />
@@ -82,15 +99,4 @@
 			<div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
 		{/if}
 	</Button>
-</div>
-
-<CustomInstanceDbWizardModal
-	{customInstanceDbs}
-	{confirmationModal}
-	{tag}
-	bottomHint={wizardBottomHint}
-	bind:opened={
-		() => (openedDbNameWizard ? { dbname: value ?? '', status: status! } : undefined),
-		(v) => !v && (openedDbNameWizard = false)
-	}
-/>
+{/snippet}
