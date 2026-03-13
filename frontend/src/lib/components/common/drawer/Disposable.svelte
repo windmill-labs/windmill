@@ -6,10 +6,11 @@
 	// inside a Modal) stack correctly above it.
 	// We track per-id entries so concurrent modals don't clobber each other
 	// (closing one must not reset the base while another is still open).
-	let minZIndexEntries: Map<string, number> = $state(new Map())
-	let activeMinZIndex = $derived(
-		minZIndexEntries.size > 0 ? Math.max(...minZIndexEntries.values()) : 0
-	)
+	let minZIndexEntries: Record<string, number> = $state({})
+	let activeMinZIndex = $derived.by(() => {
+		const values = Object.values(minZIndexEntries)
+		return values.length > 0 ? Math.max(...values) : 0
+	})
 </script>
 
 <script lang="ts">
@@ -64,7 +65,7 @@
 		openedDrawers.val.push(id)
 		offset = initialOffset + openedDrawers.val.length
 		if (minZIndex > 0) {
-			minZIndexEntries.set(id, minZIndex)
+			minZIndexEntries[id] = minZIndex
 		}
 	}
 
@@ -74,7 +75,7 @@
 		if (openedDrawers.val.includes(id)) {
 			openedDrawers.val = openedDrawers.val.filter((drawer) => drawer !== id)
 			if (minZIndex > 0) {
-				minZIndexEntries.delete(id)
+				delete minZIndexEntries[id]
 			}
 		}
 	}
@@ -115,7 +116,7 @@
 		openedDrawers.val.push(untrack(() => id))
 		offset = untrack(() => initialOffset) + openedDrawers.val.length
 		if (minZIndex > 0) {
-			minZIndexEntries.set(untrack(() => id), minZIndex)
+			minZIndexEntries[untrack(() => id)] = minZIndex
 		}
 	}
 
