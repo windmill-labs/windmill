@@ -51,6 +51,7 @@ export interface Setting {
 		| 'otel'
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
+		| 'github_enterprise_app'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -649,11 +650,10 @@ export const settings: Record<string, Setting[]> = {
 
 	Telemetry: [
 		{
-			label: 'Disable telemetry',
+			label: 'Minimal telemetry',
 			key: 'disable_stats',
 			fieldType: 'boolean',
-			storage: 'setting',
-			hiddenInEe: true
+			storage: 'setting'
 		}
 	],
 	'Secret Storage': [
@@ -665,6 +665,23 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'secret_backend',
 			storage: 'setting',
 			ee_only: 'HashiCorp Vault integration is an Enterprise Edition feature'
+		}
+	],
+	'GitHub Enterprise App': [
+		{
+			label: 'GitHub Enterprise App',
+			description:
+				'Configure a self-managed GitHub App for GitHub Enterprise Server (or any GitHub instance) to enable git sync without stats.windmill.dev.',
+			key: 'github_enterprise_app',
+			fieldType: 'github_enterprise_app',
+			storage: 'setting',
+			ee_only: '',
+			error:
+				'When self-managed mode is enabled, Base URL, App ID, App Slug, and Private Key are required.',
+			isValid: (v: any) => {
+				if (!v?.self_managed) return true
+				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.private_key)
+			}
 		}
 	]
 }
@@ -774,6 +791,13 @@ export const instanceSettingsNavigationGroups = [
 		title: 'Advanced',
 		items: [
 			{
+				id: 'github_enterprise_app',
+				label: 'GitHub Enterprise App',
+				aiId: 'instance-settings-github-enterprise-app',
+				aiDescription: 'Self-managed GitHub App for GitHub Enterprise Server git sync',
+				isEE: true
+			},
+			{
 				id: 'private_hub',
 				label: 'Private Hub',
 				aiId: 'instance-settings-private-hub',
@@ -810,7 +834,8 @@ export const tabToCategoryMap: Record<string, string> = {
 	secret_storage: 'Secret Storage',
 	object_storage: 'Object Storage',
 	jobs: 'Jobs',
-	private_hub: 'Private Hub'
+	private_hub: 'Private Hub',
+	github_enterprise_app: 'GitHub Enterprise App'
 }
 
 export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
@@ -839,7 +864,8 @@ export const categoryToTabMap: Record<string, string> = {
 	'Secret Storage': 'secret_storage',
 	'Object Storage': 'object_storage',
 	Jobs: 'jobs',
-	'Private Hub': 'private_hub'
+	'Private Hub': 'private_hub',
+	'GitHub Enterprise App': 'github_enterprise_app'
 }
 
 export interface SearchableSettingItem {

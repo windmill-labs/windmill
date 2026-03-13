@@ -215,7 +215,7 @@ impl AssetsFinder {
                     _ => return Err(()),
                 };
                 // We use the SQL parser to detect RW, specific tables, etc.
-                let sql_assets = windmill_parser_sql::parse_wmill_sdk_sql_assets(
+                let sql_assets = windmill_parser_sql_asset::parse_wmill_sdk_sql_assets(
                     *kind,
                     path,
                     schema.as_deref(),

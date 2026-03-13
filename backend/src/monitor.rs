@@ -251,9 +251,8 @@ pub async fn initial_load(
                     .map(|x| x.tags.clone())
                     .unwrap_or_default();
                 // we only check from env as native_mode is not stored in the token
+                // NATIVE_MODE_RESOLVED is already set in main.rs during startup
                 let native_mode = windmill_common::worker::is_native_mode_from_env();
-                windmill_common::worker::NATIVE_MODE_RESOLVED
-                    .store(native_mode, std::sync::atomic::Ordering::Relaxed);
                 *config = WorkerConfig {
                     worker_tags,
                     env_vars: load_env_vars(
@@ -880,10 +879,19 @@ struct TokenRow {
     workspace_id: Option<String>,
 }
 
+/// When updating this filter, also update:
+/// - `register_token_expiry_notification` in windmill-api-auth/src/lib.rs
+/// - `isUserToken` in frontend/src/lib/components/settings/TokensTable.svelte
 fn is_user_token(label: Option<&str>) -> bool {
     match label {
         None => true,
-        Some(l) => l != "session" && !l.starts_with("ephemeral") && !l.starts_with("Ephemeral"),
+        Some(l) => {
+            l != "session"
+                && !l.starts_with("ephemeral")
+                && !l.starts_with("Ephemeral")
+                && l != "debugger-token"
+                && !l.starts_with("mcp-oauth-")
+        }
     }
 }
 
