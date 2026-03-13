@@ -1609,15 +1609,19 @@ async fn fork_datatable(
             resource_path: new_dbname.clone(),
         },
     };
-    let mut datatables = HashMap::new();
-    datatables.insert(new_datatable_name.to_string(), new_datatable);
-    let new_settings = DataTableSettings { datatables };
-    let config: serde_json::Value =
-        serde_json::to_value(new_settings).map_err(|err| Error::internal_err(err.to_string()))?;
+    let datatable_value: serde_json::Value =
+        serde_json::to_value(&new_datatable).map_err(|err| Error::internal_err(err.to_string()))?;
 
     sqlx::query!(
-        "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
-        config,
+        r#"UPDATE workspace_settings
+           SET datatable = jsonb_set(
+               COALESCE(datatable, '{"datatables":{}}'::jsonb),
+               ARRAY['datatables', $1],
+               $2
+           )
+           WHERE workspace_id = $3"#,
+        new_datatable_name,
+        datatable_value,
         w_id
     )
     .execute(db)
