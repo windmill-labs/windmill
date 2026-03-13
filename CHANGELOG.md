@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.655.0](https://github.com/windmill-labs/windmill/compare/v1.654.0...v1.655.0) (2026-03-12)
+
+
+### Features
+
+* add auto_commit option to Kafka triggers with advanced UI badges ([#8317](https://github.com/windmill-labs/windmill/issues/8317)) ([ec20d76](https://github.com/windmill-labs/windmill/commit/ec20d76216492086842c4f5e4e3b36727a5631e9))
+* partition audit log table by day with configurable retention ([#8292](https://github.com/windmill-labs/windmill/issues/8292)) ([2aef01d](https://github.com/windmill-labs/windmill/commit/2aef01d18c0723aedcc626f4f3991195620774ab))
+* support minimal telemetry mode ([#8243](https://github.com/windmill-labs/windmill/issues/8243)) ([fe1519f](https://github.com/windmill-labs/windmill/commit/fe1519f1284aadd67d5dce46cf0cb52ab351f789))
+
+
+### Bug Fixes
+
+* **cli:** instruct agent to tell user about generate-metadata and sync push instead of running them ([#8318](https://github.com/windmill-labs/windmill/issues/8318)) ([7fb729c](https://github.com/windmill-labs/windmill/commit/7fb729cc8483a2e6966a8e8995678929f4d451a0))
+* fix saved inputs popover infinite loop ([#8311](https://github.com/windmill-labs/windmill/issues/8311)) ([425a75e](https://github.com/windmill-labs/windmill/commit/425a75e030b15fe65676169f9069fbb7da19828e))
+* native mode now properly sets DB pool size and sleep queue ([#8332](https://github.com/windmill-labs/windmill/issues/8332)) ([d8b4132](https://github.com/windmill-labs/windmill/commit/d8b4132b9ae90af759c6655f4f69479f6738e60a))
+* prevent zombie jobs from looping forever ([#8313](https://github.com/windmill-labs/windmill/issues/8313)) ([48bc3e2](https://github.com/windmill-labs/windmill/commit/48bc3e244558dccb1f08f455b299600861788b0d))
+* set min_connections(0) to prevent sqlx pool spin loop ([#8334](https://github.com/windmill-labs/windmill/issues/8334)) ([bf4340f](https://github.com/windmill-labs/windmill/commit/bf4340f40c1eb9cacee4c32e07ba44f2c92bf7c4))
+* show diff editor content for resources without a language ([#8331](https://github.com/windmill-labs/windmill/issues/8331)) ([cbc7e78](https://github.com/windmill-labs/windmill/commit/cbc7e78f8a60bff1d8730a6183cdbc9125d8e2b1))
+* skip python preinstall on native workers ([#8329](https://github.com/windmill-labs/windmill/issues/8329)) ([4306c9e](https://github.com/windmill-labs/windmill/commit/4306c9e4fef317e298a76924edb4f20aa7ced105))
+* skip token expiry notifications for debugger and mcp-oauth tokens ([#8316](https://github.com/windmill-labs/windmill/issues/8316)) ([8667329](https://github.com/windmill-labs/windmill/commit/86673291100fd16aaf216ed33ca9b648b8a2b7a5))
+* use !inline ref for scripts inside flows (preproc, error, ai tool) ([#8319](https://github.com/windmill-labs/windmill/issues/8319)) ([ca8a627](https://github.com/windmill-labs/windmill/commit/ca8a6274bc81ad49fa0c6166694ae4d65a4048cb))
+
 ## [1.654.0](https://github.com/windmill-labs/windmill/compare/v1.653.0...v1.654.0) (2026-03-10)
 
 

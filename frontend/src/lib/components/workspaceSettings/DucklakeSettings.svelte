@@ -190,7 +190,7 @@
 	let confirmationModal = createAsyncConfirmationModal()
 </script>
 
-<div class="flex flex-col gap-4 mb-8 mt-20">
+<div class="flex flex-col gap-4 mb-8">
 	<div class="flex flex-col gap-1">
 		<div class="text-primary text-lg font-semibold">Ducklake</div>
 		<Description link="https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake">

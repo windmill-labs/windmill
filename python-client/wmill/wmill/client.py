@@ -2842,3 +2842,28 @@ def _run_workflow(func, checkpoint: dict, input_args: dict):
     """Synchronous wrapper that runs the workflow coroutine to completion
     or until it suspends."""
     return _asyncio.run(_run_workflow_async(func, checkpoint, input_args))
+
+
+@init_global_client
+def commit_kafka_offsets(
+    trigger_path: str,
+    topic: str,
+    partition: int,
+    offset: int,
+) -> None:
+    """Commit Kafka offsets for a trigger with auto_commit disabled.
+
+    Args:
+        trigger_path: Path to the Kafka trigger (from event['wm_trigger']['trigger_path'])
+        topic: Kafka topic name (from event['topic'])
+        partition: Partition number (from event['partition'])
+        offset: Message offset to commit (from event['offset'])
+    """
+    _client.post(
+        f"/w/{_client.workspace}/kafka_triggers/commit_offsets/{trigger_path}",
+        json={
+            "topic": topic,
+            "partition": partition,
+            "offset": offset,
+        },
+    )
