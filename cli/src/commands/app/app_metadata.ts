@@ -207,7 +207,8 @@ export async function generateAppLocksInternal(
           remote_path,
           appFolder,
           filteredDeps,
-          opts.defaultTs
+          opts.defaultTs,
+          noStaleMessage
         );
         // Note: updateRawAppRunnables now writes each runnable to its own file
       } else {
@@ -223,7 +224,8 @@ export async function generateAppLocksInternal(
           remote_path,
           appFolder,
           filteredDeps,
-          opts.defaultTs
+          opts.defaultTs,
+          noStaleMessage
         );
 
         // Write the updated app file (only for normal apps, raw apps use separate files)
@@ -347,7 +349,8 @@ async function updateRawAppRunnables(
   remotePath: string,
   appFolder: string,
   rawDeps?: Record<string, string>,
-  defaultTs: "bun" | "deno" = "bun"
+  defaultTs: "bun" | "deno" = "bun",
+  noStaleMessage?: boolean
 ): Promise<void> {
   const runnablesFolder = path.join(appFolder, APP_BACKEND_FOLDER);
 
@@ -414,12 +417,11 @@ async function updateRawAppRunnables(
       continue;
     }
 
-    log.info(
-      colors.gray(
-        `Generating lock for runnable ${runnableId} (${language})
-        }`
-      )
-    );
+    if (!noStaleMessage) {
+      log.info(
+        colors.gray(`Generating lock for runnable ${runnableId} (${language})`)
+      );
+    }
 
     try {
       const lock = await generateInlineScriptLock(
@@ -459,11 +461,13 @@ async function updateRawAppRunnables(
       // Write the runnable to its own YAML file
       writeRunnableToBackend(runnablesFolder, runnableId, simplifiedRunnable);
 
-      log.info(
-        colors.gray(
-          `  Written ${runnableId}.yaml, ${basePath}${ext}${lock ? ` and ${basePath}lock` : ""}`
-        )
-      );
+      if (!noStaleMessage) {
+        log.info(
+          colors.gray(
+            `  Written ${runnableId}.yaml, ${basePath}${ext}${lock ? ` and ${basePath}lock` : ""}`
+          )
+        );
+      }
     } catch (error: any) {
       log.error(
         colors.red(
@@ -486,7 +490,8 @@ async function updateAppInlineScripts(
   remotePath: string,
   appFolder: string,
   rawDeps?: Record<string, string>,
-  defaultTs: "bun" | "deno" = "bun"
+  defaultTs: "bun" | "deno" = "bun",
+  noStaleMessage?: boolean
 ): Promise<any> {
   const pathAssigner = newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() });
 
@@ -518,13 +523,15 @@ async function updateAppInlineScripts(
     try {
       let lock: string | undefined;
       if (language !== "frontend") {
-        log.info(
-          colors.gray(
-            `Generating lock for inline script "${scriptName}" at ${context.path.join(
-              "."
-            )} (${language})`
-          )
-        );
+        if (!noStaleMessage) {
+          log.info(
+            colors.gray(
+              `Generating lock for inline script "${scriptName}" at ${context.path.join(
+                "."
+              )} (${language})`
+            )
+          );
+        }
 
         lock = await generateInlineScriptLock(
           workspace,
@@ -553,11 +560,13 @@ async function updateAppInlineScripts(
       const inlineLockRef =
         lock && lock !== "" ? `!inline ${basePath}lock` : "";
 
-      log.info(
-        colors.gray(
-          `  Written ${basePath}${ext}${lock ? ` and ${basePath}lock` : ""}`
-        )
-      );
+      if (!noStaleMessage) {
+        log.info(
+          colors.gray(
+            `  Written ${basePath}${ext}${lock ? ` and ${basePath}lock` : ""}`
+          )
+        );
+      }
 
       return {
         ...inlineScript,
