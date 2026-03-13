@@ -895,6 +895,19 @@ impl JobCompletedSender {
     pub fn is_sql(&self) -> bool {
         matches!(self, Self::Sql(_))
     }
+
+    pub fn set_worker_killpill(&mut self, killpill_tx: KillpillSender) {
+        if let Self::Sql(sql) = self {
+            sql.worker_killpill_tx = Some(killpill_tx);
+        }
+    }
+
+    pub fn send_worker_killpill(&self) {
+        if let Self::Sql(SqlJobCompletedSender { worker_killpill_tx: Some(killpill_tx), .. }) = self
+        {
+            killpill_tx.send();
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -902,6 +915,7 @@ pub struct SqlJobCompletedSender {
     sender: flume::Sender<SendResult>,
     unbounded_sender: flume::Sender<SendResult>,
     killpill_tx: broadcast::Sender<()>,
+    worker_killpill_tx: Option<KillpillSender>,
 }
 
 pub struct JobCompletedReceiver {
@@ -926,7 +940,12 @@ impl JobCompletedSender {
         let (unbounded_sender, unbounded_rx) = flume::unbounded::<SendResult>();
         let (killpill_tx, killpill_rx) = broadcast::channel::<()>(10);
         (
-            Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, killpill_tx }),
+            Self::Sql(SqlJobCompletedSender {
+                sender,
+                unbounded_sender,
+                killpill_tx,
+                worker_killpill_tx: None,
+            }),
             JobCompletedReceiver { bounded_rx: receiver, killpill_rx, unbounded_rx },
         )
     }
@@ -1722,7 +1741,8 @@ pub async fn run_worker(
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<SameWorkerPayload>(5);
 
-    let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
+    let (mut job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
+    job_completed_tx.set_worker_killpill(killpill_tx.clone());
 
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());

@@ -422,11 +422,14 @@ pub fn start_background_processor(
 }
 
 async fn send_job_completed(job_completed_tx: JobCompletedSender, jc: JobCompleted) {
-    job_completed_tx
+    if let Err(e) = job_completed_tx
         .send_job(jc, true)
         .with_context(windmill_common::otel_oss::otel_ctx())
         .await
-        .expect("send job completed")
+    {
+        tracing::error!("send job completed failed, triggering worker shutdown: {e:#}");
+        job_completed_tx.send_worker_killpill();
+    }
 }
 
 pub async fn process_result(
