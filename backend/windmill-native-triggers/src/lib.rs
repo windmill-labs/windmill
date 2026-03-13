@@ -190,7 +190,6 @@ pub struct NativeTrigger {
     pub service_name: ServiceName,
     pub script_path: String,
     pub is_flow: bool,
-    pub webhook_token_prefix: String,
     pub webhook_token_hash: Option<String>,
     pub service_config: Option<serde_json::Value>,
     pub error: Option<String>,
@@ -787,9 +786,8 @@ pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>
     config: &NativeTriggerConfig,
     service_config: C,
 ) -> Result<()> {
-    use windmill_common::auth::{hash_token, TOKEN_PREFIX_LEN};
+    use windmill_common::auth::hash_token;
 
-    let webhook_token_prefix: String = config.webhook_token[..TOKEN_PREFIX_LEN].to_string();
     let webhook_token_hash = hash_token(&config.webhook_token);
 
     sqlx::query!(
@@ -800,21 +798,19 @@ pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>
             service_name,
             script_path,
             is_flow,
-            webhook_token_prefix,
             webhook_token_hash,
             service_config
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8
+            $1, $2, $3, $4, $5, $6, $7
         )
         ON CONFLICT (external_id, workspace_id, service_name)
-        DO UPDATE SET script_path = $4, is_flow = $5, webhook_token_prefix = $6, webhook_token_hash = $7, service_config = $8, error = NULL, updated_at = NOW()
+        DO UPDATE SET script_path = $4, is_flow = $5, webhook_token_hash = $6, service_config = $7, error = NULL, updated_at = NOW()
         "#,
         external_id,
         workspace_id,
         service_name as ServiceName,
         config.script_path,
         config.is_flow,
-        webhook_token_prefix,
         webhook_token_hash,
         sqlx::types::Json(service_config) as _,
     )
@@ -832,23 +828,21 @@ pub async fn update_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres
     config: &NativeTriggerConfig,
     service_config: Option<&RawValue>,
 ) -> Result<()> {
-    use windmill_common::auth::{hash_token, TOKEN_PREFIX_LEN};
+    use windmill_common::auth::hash_token;
 
-    let webhook_token_prefix: String = config.webhook_token[..TOKEN_PREFIX_LEN].to_string();
     let webhook_token_hash = hash_token(&config.webhook_token);
 
     sqlx::query!(
         r#"
         UPDATE native_trigger
-        SET script_path = $1, is_flow = $2, webhook_token_prefix = $3, webhook_token_hash = $4, service_config = $5, error = NULL, updated_at = NOW()
+        SET script_path = $1, is_flow = $2, webhook_token_hash = $3, service_config = $4, error = NULL, updated_at = NOW()
         WHERE
-            workspace_id = $6
-            AND service_name = $7
-            AND external_id = $8
+            workspace_id = $5
+            AND service_name = $6
+            AND external_id = $7
         "#,
         config.script_path,
         config.is_flow,
-        webhook_token_prefix,
         webhook_token_hash,
         service_config.map(sqlx::types::Json) as _,
         workspace_id,
@@ -900,7 +894,6 @@ pub async fn get_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>>(
             service_name AS "service_name!: ServiceName",
             script_path,
             is_flow,
-            webhook_token_prefix,
             webhook_token_hash,
             service_config,
             error,
@@ -939,7 +932,6 @@ pub async fn get_native_trigger_by_script<'c, E: sqlx::Executor<'c, Database = P
             service_name AS "service_name!: ServiceName",
             script_path,
             is_flow,
-            webhook_token_prefix,
             webhook_token_hash,
             service_config,
             error,
@@ -986,7 +978,6 @@ pub async fn list_native_triggers<'c, E: sqlx::Executor<'c, Database = Postgres>
             nt.service_name AS "service_name!: ServiceName",
             nt.script_path,
             nt.is_flow,
-            nt.webhook_token_prefix,
             nt.webhook_token_hash,
             nt.service_config,
             nt.error,
@@ -1066,16 +1057,13 @@ pub async fn update_native_trigger_service_config<
     service_config: &serde_json::Value,
     new_webhook_token: Option<&str>,
 ) -> Result<()> {
-    let new_prefix =
-        new_webhook_token.map(|t| t[..windmill_common::auth::TOKEN_PREFIX_LEN].to_string());
     let new_hash = new_webhook_token.map(windmill_common::auth::hash_token);
 
     sqlx::query!(
         r#"
         UPDATE native_trigger
         SET service_config = $1,
-            webhook_token_prefix = COALESCE($5, webhook_token_prefix),
-            webhook_token_hash = COALESCE($6, webhook_token_hash),
+            webhook_token_hash = COALESCE($5, webhook_token_hash),
             updated_at = NOW()
         WHERE
             workspace_id = $2
@@ -1086,7 +1074,6 @@ pub async fn update_native_trigger_service_config<
         workspace_id,
         service_name as ServiceName,
         external_id,
-        new_prefix.as_deref(),
         new_hash.as_deref(),
     )
     .execute(db)

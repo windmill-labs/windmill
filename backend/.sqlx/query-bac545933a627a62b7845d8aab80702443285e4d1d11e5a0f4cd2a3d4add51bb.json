@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            nt.external_id,\n            nt.workspace_id,\n            nt.service_name AS \"service_name!: ServiceName\",\n            nt.script_path,\n            nt.is_flow,\n            nt.webhook_token_prefix,\n            nt.webhook_token_hash,\n            nt.service_config,\n            nt.error,\n            nt.created_at,\n            nt.updated_at\n        FROM\n            native_trigger nt\n        WHERE\n            nt.workspace_id = $1 AND\n            nt.service_name = $2 AND\n            ($5::text IS NULL OR nt.script_path = $5) AND\n            ($6::bool IS NULL OR nt.is_flow = $6) AND\n            (\n                (nt.is_flow = false AND EXISTS (\n                    SELECT 1 FROM script s\n                    WHERE s.workspace_id = nt.workspace_id\n                    AND s.path = nt.script_path\n                ))\n                OR\n                (nt.is_flow = true AND EXISTS (\n                    SELECT 1 FROM flow f\n                    WHERE f.workspace_id = nt.workspace_id\n                    AND f.path = nt.script_path\n                ))\n            )\n        LIMIT $3\n        OFFSET $4\n        ",
+  "query": "\n        SELECT\n            external_id,\n            workspace_id,\n            service_name AS \"service_name!: ServiceName\",\n            script_path,\n            is_flow,\n            webhook_token_hash,\n            service_config,\n            error,\n            created_at,\n            updated_at\n        FROM\n            native_trigger\n        WHERE\n            workspace_id = $1\n            AND service_name = $2\n            AND external_id = $3\n        ",
   "describe": {
     "columns": [
       {
@@ -40,31 +40,26 @@
       },
       {
         "ordinal": 5,
-        "name": "webhook_token_prefix",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 6,
         "name": "webhook_token_hash",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "service_config",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "error",
         "type_info": "Text"
       },
       {
-        "ordinal": 9,
+        "ordinal": 8,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 10,
+        "ordinal": 9,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -83,14 +78,10 @@
             }
           }
         },
-        "Int8",
-        "Int8",
-        "Text",
-        "Bool"
+        "Text"
       ]
     },
     "nullable": [
-      false,
       false,
       false,
       false,
@@ -103,5 +94,5 @@
       false
     ]
   },
-  "hash": "b0969b8cd77b4e715a07a4173ef9f8b045d68b0317932c38246b535fd81e5087"
+  "hash": "bac545933a627a62b7845d8aab80702443285e4d1d11e5a0f4cd2a3d4add51bb"
 }

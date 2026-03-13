@@ -122,7 +122,7 @@ mcp_oauth_server_code: code(char), client_id(char), user_email(char), workspace_
   FK: (client_id) -> mcp_oauth_server_client(client_id)
 metrics: id(char), value(jsonb), created_at(ts)
 mqtt_trigger: mqtt_resource_path(char), subscribe_topics(jsonb[]), client_version(mqtt_client_version), v5_config(jsonb), v3_config(jsonb), client_id(char), path(char), script_path(char), is_flow(bool), workspace_id(char), edited_by(char), email(char), edited_at(ts), extra_perms(jsonb), server_id(char), last_server_ping(ts), error(text), error_handler_path(char), error_handler_args(jsonb), retry(jsonb), mode(trigger_mode)
-native_trigger: external_id(char), workspace_id(char), service_name(native_trigger_service), script_path(char), is_flow(bool), webhook_token_prefix(char), service_config(jsonb), error(text), created_at(ts), updated_at(ts)
+native_trigger: external_id(char), workspace_id(char), service_name(native_trigger_service), script_path(char), is_flow(bool), webhook_token_hash(char), service_config(jsonb), error(text), created_at(ts), updated_at(ts)
   FK: (workspace_id) -> workspace(id)
 nats_trigger: path(char), nats_resource_path(char), subjects(char), stream_name(char), consumer_name(char), use_jetstream(bool), script_path(char), is_flow(bool), workspace_id(char), edited_by(char), email(char), edited_at(ts), extra_perms(jsonb), server_id(char), last_server_ping(ts), error(text), error_handler_path(char), error_handler_args(jsonb), retry(jsonb), mode(trigger_mode)
   FK: (workspace_id) -> workspace(id)

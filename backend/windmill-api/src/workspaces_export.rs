@@ -829,7 +829,7 @@ pub(crate) async fn tarball_workspace(
                     let trigger_str = &to_string_without_metadata(
                         &trigger,
                         false,
-                        Some(vec!["webhook_token_prefix", "webhook_token_hash"]),
+                        Some(vec!["webhook_token_hash"]),
                     )
                     .unwrap();
                     archive
