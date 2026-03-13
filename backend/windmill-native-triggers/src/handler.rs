@@ -1,6 +1,6 @@
 use crate::{
     decrypt_oauth_data, delete_native_trigger, delete_token_by_prefix, get_native_trigger,
-    get_token_by_prefix, list_native_triggers, store_native_trigger, update_native_trigger_error,
+    list_native_triggers, rotate_webhook_token, store_native_trigger, update_native_trigger_error,
     External, NativeTrigger, NativeTriggerConfig, NativeTriggerData, ServiceName,
 };
 use axum::{
@@ -234,32 +234,25 @@ async fn update_native_trigger_handler<T: External>(
     let runnable_changed =
         existing.script_path != data.script_path || existing.is_flow != data.is_flow;
 
-    let webhook_token = match get_token_by_prefix(&db, &existing.webhook_token_prefix).await? {
-        Some(token) if !runnable_changed => token,
-        existing_token => {
-            if let Some(_) = existing_token {
-                delete_token_by_prefix(&db, &existing.webhook_token_prefix).await?;
-            } else {
-                tracing::warn!(
-                    "Webhook token not found for trigger {} (prefix: {}), recreating token",
-                    external_id,
-                    existing.webhook_token_prefix
-                );
-            }
-            let token = new_webhook_token(
-                &mut *tx,
-                &db,
-                &authed,
-                &data.script_path,
-                data.is_flow,
-                &workspace_id,
-                service_name,
-            )
-            .await?;
-            tx.commit().await?;
-            tx = user_db.begin(&authed).await?;
-            token
-        }
+    let webhook_token = if runnable_changed {
+        // Scopes change when the runnable changes — create a fresh token
+        delete_token_by_prefix(&db, &existing.webhook_token_prefix).await?;
+        let token = new_webhook_token(
+            &mut *tx,
+            &db,
+            &authed,
+            &data.script_path,
+            data.is_flow,
+            &workspace_id,
+            service_name,
+        )
+        .await?;
+        tx.commit().await?;
+        tx = user_db.begin(&authed).await?;
+        token
+    } else {
+        // Same runnable — rotate the token keeping the same label
+        rotate_webhook_token(&db, &existing.webhook_token_prefix).await?
     };
 
     let service_config = handler

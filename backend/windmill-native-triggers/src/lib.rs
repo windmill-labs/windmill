@@ -719,20 +719,53 @@ async fn update_oauth_token_resource(
     }
 }
 
-/// Look up the full plaintext token from the token table using its prefix.
-/// Only webhook tokens store the plaintext (needed for URL construction).
-/// Returns None for tokens that only have a hash stored.
-pub async fn get_token_by_prefix<'c, E: sqlx::Executor<'c, Database = Postgres>>(
-    db: E,
-    token_prefix: &str,
-) -> Result<Option<String>> {
-    let token: Option<Option<String>> = sqlx::query_scalar!(
-        "SELECT token FROM token WHERE token_prefix = $1 AND token IS NOT NULL",
-        token_prefix
+/// Create a new webhook token that keeps the same label as the old one,
+/// delete the old token, and return the new plaintext token.
+/// Used when renewing external service webhooks (e.g. Google channel renewal)
+/// so we don't need to store plaintext tokens in the DB.
+pub async fn rotate_webhook_token(db: &DB, old_token_prefix: &str) -> Result<String> {
+    use windmill_common::auth::{hash_token, TOKEN_PREFIX_LEN};
+    use windmill_common::utils::rd_string;
+
+    let old = sqlx::query!(
+        "SELECT label, email, scopes, workspace_id, super_admin FROM token WHERE token_prefix = $1",
+        old_token_prefix
     )
     .fetch_optional(db)
+    .await?
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "Webhook token not found for prefix: {}",
+            old_token_prefix
+        ))
+    })?;
+
+    let new_token = rd_string(32);
+    let new_hash = hash_token(&new_token);
+    let new_prefix = &new_token[..TOKEN_PREFIX_LEN];
+
+    sqlx::query!(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes, workspace_id)
+         VALUES ($1, $2, NULL, $3, $4, $5, $6, $7)",
+        new_hash,
+        new_prefix,
+        old.email,
+        old.label,
+        old.super_admin,
+        old.scopes.as_deref(),
+        old.workspace_id,
+    )
+    .execute(db)
     .await?;
-    Ok(token.flatten())
+
+    sqlx::query!(
+        "DELETE FROM token WHERE token_prefix = $1",
+        old_token_prefix
+    )
+    .execute(db)
+    .await?;
+
+    Ok(new_token)
 }
 
 /// Delete a token from the token table using its prefix
@@ -1029,11 +1062,14 @@ pub async fn update_native_trigger_service_config<
     service_name: ServiceName,
     external_id: &str,
     service_config: &serde_json::Value,
+    new_webhook_token_prefix: Option<&str>,
 ) -> Result<()> {
     sqlx::query!(
         r#"
         UPDATE native_trigger
-        SET service_config = $1, updated_at = NOW()
+        SET service_config = $1,
+            webhook_token_prefix = COALESCE($5, webhook_token_prefix),
+            updated_at = NOW()
         WHERE
             workspace_id = $2
             AND service_name = $3
@@ -1043,6 +1079,7 @@ pub async fn update_native_trigger_service_config<
         workspace_id,
         service_name as ServiceName,
         external_id,
+        new_webhook_token_prefix,
     )
     .execute(db)
     .await?;
