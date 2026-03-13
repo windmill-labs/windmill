@@ -1939,6 +1939,58 @@ paths:
         "200":
           description: Successfully imported the installation
 
+  /w/{workspace}/github_app/ghes_installation_callback:
+    post:
+      summary: GHES installation callback
+      description: Register a self-managed GitHub App installation from GitHub Enterprise Server
+      operationId: ghesInstallationCallback
+      tags:
+        - Git Sync
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - installation_id
+              properties:
+                installation_id:
+                  type: integer
+                  format: int64
+                  description: The GitHub App installation ID from GHES
+      responses:
+        "200":
+          description: GHES installation registered successfully
+
+  /github_app/ghes_config:
+    get:
+      summary: Get GHES app config
+      description: Returns the GitHub Enterprise Server app configuration (without private key) for constructing the installation URL
+      operationId: getGhesConfig
+      tags:
+        - Git Sync
+      responses:
+        "200":
+          description: GHES app configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  base_url:
+                    type: string
+                  app_slug:
+                    type: string
+                  client_id:
+                    type: string
+                required:
+                  - base_url
+                  - app_slug
+                  - client_id
+
   /users/accept_invite:
     post:
       summary: accept invite to workspace
