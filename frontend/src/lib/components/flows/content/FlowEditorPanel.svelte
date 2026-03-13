@@ -91,22 +91,6 @@
 		}
 	}
 
-	function checkAgentToolDups(modules: FlowModule[]): string | undefined {
-		for (const m of modules) {
-			if (m.value.type === 'aiagent' && m.value.tools) {
-				const names = m.value.tools.map((t) => t.summary ?? '')
-				const seen = new Set<string>()
-				for (const name of names) {
-					if (!name) continue
-					if (seen.has(name)) {
-						return `Duplicate tool name "${name}" in agent step "${m.id}"`
-					}
-					seen.add(name)
-				}
-			}
-		}
-	}
-
 	$effect(() => {
 		computeMissingInputWarnings(flowStore, flowStateStore.val, flowInputsStore)
 	})
@@ -196,13 +180,9 @@
 	>
 {:else}
 	{@const dup = checkDup(flowStore.val.value.modules)}
-	{@const agentToolDup = checkAgentToolDups(flowStore.val.value.modules)}
 	{#if dup}
 		<div class="text-red-600 text-xl p-2">There are duplicate modules in the flow at id: {dup}</div>
 	{:else}
-		{#if agentToolDup}
-			<div class="text-red-600 text-sm p-2">{agentToolDup}</div>
-		{/if}
 		{#key selectedId}
 			{#each flowStore.val.value.modules as flowModule, index (flowModule.id ?? index)}
 				<FlowModuleWrapper
