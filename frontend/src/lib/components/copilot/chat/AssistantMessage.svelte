@@ -13,7 +13,7 @@
 </script>
 
 <div
-	class="prose prose-sm dark:prose-invert w-full max-w-full leading-snug space-y-2 prose-ul:!pl-6"
+	class="prose prose-xs dark:prose-invert w-full max-w-full leading-snug space-y-2 prose-ul:!pl-6 !text-2xs"
 >
 	<Markdown
 		md={message.content}

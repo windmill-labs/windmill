@@ -71,7 +71,7 @@
 	{:else}
 		<div
 			class={twMerge(
-				'text-sm py-1 mx-2',
+				'text-2xs py-1 mx-2',
 				message.role === 'user' &&
 					'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg relative group',
 				(message.role === 'assistant' || message.role === 'tool') && 'px-[1px]',
