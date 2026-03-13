@@ -105,17 +105,17 @@ async function initWasmAsset() {
 
 type InferAssetsResult =
 	| {
-			status: 'ok'
-			assets: AssetWithAccessType[]
-			sql_queries?: InferAssetsSqlQueryDetails[]
-			columns?: Record<string, AssetUsageAccessType>
-	  }
+		status: 'ok'
+		assets: AssetWithAccessType[]
+		sql_queries?: InferAssetsSqlQueryDetails[]
+		columns?: Record<string, AssetUsageAccessType>
+	}
 	| {
-			status: 'error'
-			error: string
-			assets?: undefined
-			sql_queries?: undefined
-	  }
+		status: 'error'
+		error: string
+		assets?: undefined
+		sql_queries?: undefined
+	}
 
 export type InferAssetsSqlQueryDetails = {
 	query_string: string // SQL query with $1 placeholders for interpolations
@@ -384,9 +384,8 @@ export async function inferArgs(
 
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
 
-		// Propagate original type from parser (e.g. "string | string[]" for T | T[] unions).
-		// otyp comes from the WASM parser JSON but isn't in the generated OpenAPI type.
-		if ((arg as any).otyp) {
+		// For T | T[] detection for debouncing arg accumulation
+		if ((arg as any).otyp && (arg as any).otyp.includes('[') && (arg as any).otyp.includes('|')) {
 			schema.properties[arg.name].originalType = (arg as any).otyp
 		}
 

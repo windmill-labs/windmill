@@ -49,7 +49,8 @@
 			cur += ch
 		}
 		parts.push(cur.trim())
-		return parts.length > 1 && parts.some((p) => p.endsWith('[]'))
+		// Match TS array syntax (T[]) and Python list syntax (list[T] / List[T])
+		return parts.length > 1 && parts.some((p) => p.endsWith('[]') || /^[Ll]ist\[.+\]$/.test(p))
 	}
 
 	// Get list of arguments eligible for accumulation from schema.
