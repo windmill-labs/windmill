@@ -281,7 +281,10 @@ impl AuthCache {
                                             scopes: None,
                                             username_override,
                                             token_prefix: Some(
-                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                                token
+                                                    .get(..TOKEN_PREFIX_LEN)
+                                                    .unwrap_or(token)
+                                                    .to_string(),
                                             ),
                                         })
                                     } else {
@@ -305,7 +308,10 @@ impl AuthCache {
                                             scopes: None,
                                             username_override,
                                             token_prefix: Some(
-                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                                token
+                                                    .get(..TOKEN_PREFIX_LEN)
+                                                    .unwrap_or(token)
+                                                    .to_string(),
                                             ),
                                         })
                                     }
@@ -321,7 +327,12 @@ impl AuthCache {
                                         folders,
                                         scopes: None,
                                         username_override,
-                                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                                        token_prefix: Some(
+                                            token
+                                                .get(..TOKEN_PREFIX_LEN)
+                                                .unwrap_or(token)
+                                                .to_string(),
+                                        ),
                                     })
                                 }
                             }
@@ -370,7 +381,10 @@ impl AuthCache {
                                                 scopes,
                                                 username_override,
                                                 token_prefix: Some(
-                                                    token[0..TOKEN_PREFIX_LEN].to_string(),
+                                                    token
+                                                        .get(..TOKEN_PREFIX_LEN)
+                                                        .unwrap_or(token)
+                                                        .to_string(),
                                                 ),
                                             })
                                         }
@@ -384,7 +398,10 @@ impl AuthCache {
                                             scopes,
                                             username_override,
                                             token_prefix: Some(
-                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                                token
+                                                    .get(..TOKEN_PREFIX_LEN)
+                                                    .unwrap_or(token)
+                                                    .to_string(),
                                             ),
                                         }),
                                         None => None,
@@ -399,7 +416,12 @@ impl AuthCache {
                                         folders: Vec::new(),
                                         scopes,
                                         username_override,
-                                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                                        token_prefix: Some(
+                                            token
+                                                .get(..TOKEN_PREFIX_LEN)
+                                                .unwrap_or(token)
+                                                .to_string(),
+                                        ),
                                     })
                                 }
                             }

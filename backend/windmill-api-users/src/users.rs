@@ -1648,7 +1648,7 @@ async fn login(
                 email: email.clone(),
                 username: email.clone(),
                 username_override: None,
-                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                token_prefix: Some(token.get(..TOKEN_PREFIX_LEN).unwrap_or(&token).to_string()),
             };
 
             audit_log(
