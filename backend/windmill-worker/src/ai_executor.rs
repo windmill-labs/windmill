@@ -1030,10 +1030,15 @@ pub async fn run_agent(
                 if tool_calls.is_empty() {
                     break;
                 } else if i == max_iterations - 1 {
-                    return Err(Error::internal_err(
-                        "AI agent reached max iterations, but there are still tool calls"
-                            .to_string(),
-                    ));
+                    messages.push(OpenAIMessage {
+                        role: "assistant".to_string(),
+                        content: Some(OpenAIContent::Text(
+                            "AI agent reached max iterations, but there are still tool calls"
+                                .to_string(),
+                        )),
+                        ..Default::default()
+                    });
+                    break;
                 }
 
                 messages.push(OpenAIMessage {
