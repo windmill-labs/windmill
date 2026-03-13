@@ -18,6 +18,9 @@ import type { AnyMeltElement } from '@melt-ui/svelte'
 import type { TriggerKind } from './components/triggers'
 import { stateSnapshot } from './svelte5Utils.svelte'
 
+// Intentional type error to make CI fail
+const _ciBreaker: string = 42
+
 export namespace OpenApi {
 	export enum OpenApiVersion {
 		V2,
