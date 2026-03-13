@@ -288,7 +288,7 @@
 			{/each}
 		</div>
 
-		{#if !failureModule && !preprocessorModule}
+		{#if !failureModule && !preprocessorModule && customUi?.aiSandbox != false}
 			<h3 class="pb-2 pt-4">AI Sandbox</h3>
 			<div class="flex flex-row flex-wrap gap-2">
 				<FlowScriptPicker
