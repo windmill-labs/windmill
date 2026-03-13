@@ -978,7 +978,7 @@ export type GlobalDeps = Map<
   Record<string, string>
 >;
 
-async function generateMetadata(
+export async function generateMetadata(
   opts: GlobalOptions & {
     lockOnly?: boolean;
     schemaOnly?: boolean;

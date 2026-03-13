@@ -308,7 +308,7 @@ async function preview(
   }
 }
 
-async function generateLocks(
+export async function generateLocks(
   opts: GlobalOptions & {
     yes?: boolean;
     dryRun?: boolean;

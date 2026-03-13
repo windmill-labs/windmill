@@ -37,7 +37,7 @@ function loadParser(pkgName: string): Promise<any> {
       const wasmPath = _require.resolve(
         `${pkgName}/windmill_parser_wasm_bg.wasm`
       );
-      await mod.default(readFileSync(wasmPath));
+      await mod.default({ module_or_path: readFileSync(wasmPath) });
       return mod;
     })();
     _parserCache.set(pkgName, p);
@@ -240,7 +240,7 @@ export async function generateScriptMetadataInternal(
     return `${remotePath} (${language})`;
   }
 
-  if (!justUpdateMetadataLock) {
+  if (!justUpdateMetadataLock && !noStaleMessage) {
     log.info(colors.gray(`Generating metadata for ${scriptPath}`));
   }
 

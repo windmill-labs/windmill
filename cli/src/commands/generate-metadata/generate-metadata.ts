@@ -1,233 +1,324 @@
-import { Command, colors, Confirm, log, SEP } from "../../../deps.ts";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { colors } from "@cliffy/ansi/colors";
+import { sep as SEP } from "node:path";
 import { GlobalOptions } from "../../types.ts";
-import { requireLogin } from "../../core/auth.ts";
+import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { resolveWorkspace } from "../../core/context.ts";
-import { mergeConfigWithConfigFile, SyncOptions } from "../../core/conf.ts";
-import { ignoreF, elementsToMap, FSFSElement } from "../sync/sync.ts";
-import { listSyncCodebases } from "../../utils/codebase.ts";
-import { isFlowPath, isAppPath } from "../../utils/resource_folders.ts";
-import { exts } from "../script/script.ts";
-import { inferContentTypeFromFilePath, ScriptLanguage } from "../../utils/script_common.ts";
+import { requireLogin } from "../../core/auth.ts";
+import * as log from "../../core/log.ts";
 import {
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
-  parseMetadataFile,
-  readLockfile,
-  checkifMetadataUptodate,
 } from "../../utils/metadata.ts";
-import { extractRelativeImports } from "../../utils/relative_imports.ts";
-import {
-  DoubleLinkedDependencyTree,
-  uploadScripts,
-} from "../../utils/dependency_tree.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
-import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
-import { yamlParseFile } from "../../../deps.ts";
-import { FlowFile } from "../flow/flow.ts";
+import { generateAppLocksInternal, getAppFolders } from "../app/app_metadata.ts";
+import {
+  elementsToMap,
+  FSFSElement,
+  ignoreF,
+} from "../sync/sync.ts";
+import { exts } from "../script/script.ts";
+import { isFlowPath, isAppPath } from "../../utils/resource_folders.ts";
+import { listSyncCodebases } from "../../utils/codebase.ts";
+
+interface StaleItem {
+  type: "script" | "flow" | "app";
+  path: string;
+  folder: string;
+  isRawApp?: boolean;
+}
 
 async function generateMetadata(
   opts: GlobalOptions & {
     yes?: boolean;
-    dryRun?: boolean;
     lockOnly?: boolean;
     schemaOnly?: boolean;
-  } & SyncOptions
+    dryRun?: boolean;
+    skipScripts?: boolean;
+    skipFlows?: boolean;
+    skipApps?: boolean;
+  } & SyncOptions,
+  folder?: string
 ) {
+  if (folder === "") {
+    folder = undefined;
+  }
+
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
-  const codebases = await listSyncCodebases(opts);
+
   const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
+  const codebases = await listSyncCodebases(opts);
   const ignore = await ignoreF(opts);
 
-  // Phase 1: Collect all scripts
-  const scriptElems = await elementsToMap(
-    await FSFSElement(Deno.cwd(), codebases, false),
-    (p, isD) => {
-      return (
-        (!isD && !exts.some((ext) => p.endsWith(ext))) ||
-        ignore(p, isD) ||
-        isFlowPath(p) ||
-        isAppPath(p)
-      );
-    },
-    false,
-    {}
-  );
+  const staleItems: StaleItem[] = [];
 
-  // Phase 2: Collect all flows
-  const flowElems = Object.keys(
-    await elementsToMap(
-      await FSFSElement(Deno.cwd(), [], true),
+  // --schema-only implies skipping flows and apps (they only have locks, no schemas)
+  const skipScripts = opts.skipScripts ?? false;
+  const skipFlows = opts.skipFlows ?? opts.schemaOnly ?? false;
+  const skipApps = opts.skipApps ?? opts.schemaOnly ?? false;
+
+  const checking: string[] = [];
+  if (!skipScripts) checking.push("scripts");
+  if (!skipFlows) checking.push("flows");
+  if (!skipApps) checking.push("apps");
+
+  if (checking.length === 0) {
+    log.info(colors.yellow("Nothing to check (all types skipped)"));
+    return;
+  }
+
+  log.info(colors.gray(`Checking ${checking.join(", ")}...`));
+
+  // === Collect stale scripts ===
+  if (!skipScripts) {
+    // TODO: run elementsToMap only once but for all runnable types.
+    const scriptElems = await elementsToMap(
+      await FSFSElement(process.cwd(), codebases, false),
       (p, isD) => {
         return (
+          (!isD && !exts.some((ext) => p.endsWith(ext))) ||
           ignore(p, isD) ||
-          (!isD && !p.endsWith(SEP + "flow.yaml") && !p.endsWith(SEP + "flow.json"))
+          isFlowPath(p) ||
+          isAppPath(p)
         );
       },
       false,
       {}
-    )
-  ).map((x) => x.substring(0, x.lastIndexOf(SEP)));
+    );
 
-  // Phase 3: Build dependency tree with all scripts
-  const tree = new DoubleLinkedDependencyTree();
-  const scriptPaths = Object.keys(scriptElems);
-  const scriptPathToRemote = new Map<string, string>();
-
-  log.info("Collecting scripts...");
-  for (const scriptPath of scriptPaths) {
-    const remotePath = scriptPath
-      .substring(0, scriptPath.indexOf("."))
-      .replaceAll(SEP, "/");
-    scriptPathToRemote.set(remotePath, scriptPath);
-
-    try {
-      const content = await Deno.readTextFile(scriptPath);
-      const metadataWithType = await parseMetadataFile(remotePath, undefined);
-      const metadata = await Deno.readTextFile(metadataWithType.path);
-      const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
-      const imports = await extractRelativeImports(content, remotePath, language);
-
-      await tree.addScript(remotePath, content, language, metadata, imports, rawWorkspaceDependencies);
-    } catch {
-      continue;
-    }
-  }
-
-  // Phase 4: Add flows to tree (they import what their inline scripts import)
-  log.info("Collecting flows...");
-  const flowImports = new Map<string, string[]>(); // flow folder -> import paths
-  for (const flowFolder of flowElems) {
-    try {
-      const flowValue = (await yamlParseFile(flowFolder + SEP + "flow.yaml")) as FlowFile;
-      const inlineScripts = extractInlineScriptsForFlows(
-        structuredClone(flowValue.value.modules),
-        {},
-        SEP,
-        opts.defaultTs
+    for (const e of Object.keys(scriptElems)) {
+      const candidate = await generateScriptMetadataInternal(
+        e,
+        workspace,
+        opts,
+        true, // dryRun
+        true, // noStaleMessage
+        rawWorkspaceDependencies,
+        codebases,
+        false
       );
-
-      const allImports: string[] = [];
-      const relativeFolderPath = flowFolder.replaceAll(SEP, "/");
-      for (const s of inlineScripts.filter((s) => !s.is_lock)) {
-        const language = s.language as ScriptLanguage;
-        const imports = await extractRelativeImports(s.content, relativeFolderPath, language);
-        allImports.push(...imports);
+      if (candidate) {
+        staleItems.push({ type: "script", path: candidate, folder: e });
       }
+    }
+  }
 
-      if (allImports.length > 0) {
-        flowImports.set(flowFolder, [...new Set(allImports)]);
-        // Add flow as a node that imports these scripts
-        // Using empty content/metadata since flow itself doesn't need hashing here
-        await tree.addScript(flowFolder, "", "deno", "", allImports, rawWorkspaceDependencies);
+  // === Collect stale flows ===
+  if (!skipFlows) {
+    const flowElems = Object.keys(
+      await elementsToMap(
+        await FSFSElement(process.cwd(), [], true),
+        (p, isD) => {
+          return (
+            ignore(p, isD) ||
+            (!isD &&
+              !p.endsWith(SEP + "flow.yaml") &&
+              !p.endsWith(SEP + "flow.json"))
+          );
+        },
+        false,
+        {}
+      )
+    ).map((x) => x.substring(0, x.lastIndexOf(SEP)));
+
+    for (const folder of flowElems) {
+      const candidate = await generateFlowLockInternal(
+        folder,
+        true, // dryRun
+        workspace,
+        opts,
+        false,
+        true // noStaleMessage
+      );
+      if (candidate) {
+        staleItems.push({ type: "flow", path: candidate, folder });
       }
-    } catch {
-      continue;
     }
   }
 
-  // Phase 5: Check which scripts are directly stale
-  const lockfile = await readLockfile();
-  const directlyStale = new Set<string>();
+  // === Collect stale apps ===
+  if (!skipApps) {
+    const elems = await elementsToMap(
+      await FSFSElement(process.cwd(), [], true),
+      (p, isD) => {
+        return (
+          ignore(p, isD) ||
+          (!isD &&
+            !p.endsWith(SEP + "raw_app.yaml") &&
+            !p.endsWith(SEP + "app.yaml"))
+        );
+      },
+      false,
+      {}
+    );
 
-  for (const remotePath of tree.allPaths()) {
-    const hash = tree.getStalenessHash(remotePath);
-    if (hash && !(await checkifMetadataUptodate(remotePath, hash, lockfile))) {
-      directlyStale.add(remotePath);
+    const rawAppFolders = getAppFolders(elems, "raw_app.yaml");
+    const appFolders = getAppFolders(elems, "app.yaml");
+
+    for (const appFolder of rawAppFolders) {
+      const candidate = await generateAppLocksInternal(
+        appFolder,
+        true, // rawApp
+        true, // dryRun
+        workspace,
+        opts,
+        false,
+        true // noStaleMessage
+      );
+      if (candidate) {
+        staleItems.push({ type: "app", path: candidate, folder: appFolder, isRawApp: true });
+      }
+    }
+
+    for (const appFolder of appFolders) {
+      const candidate = await generateAppLocksInternal(
+        appFolder,
+        false, // rawApp
+        true, // dryRun
+        workspace,
+        opts,
+        false,
+        true // noStaleMessage
+      );
+      if (candidate) {
+        staleItems.push({ type: "app", path: candidate, folder: appFolder, isRawApp: false });
+      }
     }
   }
 
-  // Phase 6: Propagate staleness
-  tree.propagateStaleness(directlyStale);
-
-  // Phase 7: Display stale items
-  const staleScripts: string[] = [];
-  const staleFlows: string[] = [];
-
-  for (const path of tree.allPaths()) {
-    if (flowImports.has(path)) {
-      staleFlows.push(path);
-    } else if (scriptPathToRemote.has(path)) {
-      staleScripts.push(path);
+  // === Filter by folder if specified ===
+  let filteredItems = staleItems;
+  if (folder) {
+    // Strip trailing separator to match deprecated flow/app handler behavior
+    // (see generateFlowLockInternal line 64-66, generateAppLocksInternal line 109-110)
+    if (folder.endsWith(SEP)) {
+      folder = folder.substring(0, folder.length - 1);
     }
+    filteredItems = staleItems.filter((item) => item.folder === folder || item.folder.startsWith(folder + SEP));
   }
 
-  if (staleScripts.length === 0 && staleFlows.length === 0) {
-    log.info(colors.green.bold("No metadata to update"));
+  // === Show stale items and confirm ===
+  if (filteredItems.length === 0) {
+    log.info(colors.green("All metadata up-to-date"));
     return;
   }
 
-  log.info("Stale items to update:");
-  for (const remotePath of staleScripts) {
-    const language = tree.getLanguage(remotePath);
-    const reason = tree.getStaleReason(remotePath);
-    log.info(colors.green(`+ [script] ${remotePath} (${language}) - ${reason}`));
+  // Group items by type for display
+  const scripts = filteredItems.filter((i) => i.type === "script");
+  const flows = filteredItems.filter((i) => i.type === "flow");
+  const apps = filteredItems.filter((i) => i.type === "app");
+
+  log.info("");
+  log.info(`Found ${filteredItems.length} item(s) with stale metadata:`);
+
+  if (scripts.length > 0) {
+    log.info(colors.gray(`  Scripts (${scripts.length}):`));
+    for (const item of scripts) {
+      log.info(colors.yellow(`    ${item.path}`));
+    }
   }
-  for (const flowFolder of staleFlows) {
-    const reason = tree.getStaleReason(flowFolder);
-    log.info(colors.yellow(`+ [flow] ${flowFolder} - ${reason}`));
+  if (flows.length > 0) {
+    log.info(colors.gray(`  Flows (${flows.length}):`));
+    for (const item of flows) {
+      log.info(colors.yellow(`    ${item.path}`));
+    }
+  }
+  if (apps.length > 0) {
+    log.info(colors.gray(`  Apps (${apps.length}):`));
+    for (const item of apps) {
+      log.info(colors.yellow(`    ${item.path}`));
+    }
   }
 
   if (opts.dryRun) {
-    log.info(colors.gray("Dry run complete."));
     return;
   }
+
+  log.info("");
 
   if (
     !opts.yes &&
     !(await Confirm.prompt({
-      message: "Update the metadata of the above items?",
+      message: "Update metadata?",
       default: true,
     }))
   ) {
     return;
   }
 
-  // Phase 8: Upload stale scripts
-  log.info(colors.gray("Uploading scripts to temp storage..."));
-  await uploadScripts(tree, workspace);
+  log.info("");
 
-  // Phase 9: Process stale scripts
-  for (const remotePath of staleScripts) {
-    const originalPath = scriptPathToRemote.get(remotePath);
-    if (!originalPath) continue;
+  // === Process all stale items with progress counter ===
+  const total = filteredItems.length;
+  const maxWidth = `[${total}/${total}]`.length;
+  let current = 0;
 
+  const formatProgress = (n: number) => {
+    const bracket = `[${n}/${total}]`;
+    return colors.gray(bracket.padEnd(maxWidth, " "));
+  };
+
+  // Process scripts
+  for (const item of scripts) {
+    current++;
+    log.info(`${formatProgress(current)} script ${colors.cyan(item.path)}`);
     await generateScriptMetadataInternal(
-      originalPath,
+      item.folder,
       workspace,
       opts,
-      false,
-      true,
+      false, // dryRun
+      true, // noStaleMessage - we handle output
       rawWorkspaceDependencies,
       codebases,
-      false,
-      tree
+      false
     );
   }
 
-  // Phase 10: Process stale flows
-  for (const flowFolder of staleFlows) {
+  // Process flows
+  for (const item of flows) {
+    current++;
+    log.info(`${formatProgress(current)} flow   ${colors.cyan(item.path)}`);
     await generateFlowLockInternal(
-      flowFolder,
-      false,
+      item.folder,
+      false, // dryRun
       workspace,
       opts,
       false,
-      true,
-      tree
+      true // noStaleMessage - we handle output
+    );
+  }
+  // Process apps
+  for (const item of apps) {
+    current++;
+    log.info(`${formatProgress(current)} app    ${colors.cyan(item.path)}`);
+    await generateAppLocksInternal(
+      item.folder,
+      item.isRawApp!, // rawApp
+      false, // dryRun
+      workspace,
+      opts,
+      false,
+      true // noStaleMessage - we handle output
     );
   }
 
-  log.info(colors.green.bold("Metadata generation complete!"));
+  log.info("");
+  log.info(colors.green(`Done. Updated ${total} item(s).`));
 }
 
 const command = new Command()
-  .description("Generate metadata (locks, schemas) for all scripts and flows")
+  .description("Generate metadata (locks, schemas) for all scripts, flows, and apps")
+  .arguments("[folder:string]")
   .option("--yes", "Skip confirmation prompt")
-  .option("--dry-run", "Perform a dry run without making changes")
+  .option("--dry-run", "Show what would be updated without making changes")
   .option("--lock-only", "Re-generate only the lock files")
-  .option("--schema-only", "Re-generate only script schemas")
+  .option("--schema-only", "Re-generate only script schemas (skips flows and apps)")
+  .option("--skip-scripts", "Skip processing scripts")
+  .option("--skip-flows", "Skip processing flows")
+  .option("--skip-apps", "Skip processing apps")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which files to include"

@@ -148,7 +148,7 @@ export async function generateFlowLockInternal(
     return remote_path;
   }
 
-  if (Object.keys(filteredDeps).length > 0) {
+  if (Object.keys(filteredDeps).length > 0 && !noStaleMessage) {
     log.info(
       (await blueColor())(
         `Found workspace dependencies (${workspaceDependenciesLanguages
@@ -171,7 +171,9 @@ export async function generateFlowLockInternal(
       }
     }
 
-    log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
+    if (!noStaleMessage) {
+      log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
+    }
     const fileReader = async (path: string) => await readFile(folder + SEP + path, "utf-8");
     await replaceInlineScripts(
       flowValue.value.modules,
@@ -234,7 +236,9 @@ export async function generateFlowLockInternal(
   for (const [path, hash] of Object.entries(hashes)) {
     await updateMetadataGlobalLock(folder, hash, path);
   }
-  log.info(colors.green(`Flow ${remote_path} lockfiles updated`));
+  if (!noStaleMessage) {
+    log.info(colors.green(`Flow ${remote_path} lockfiles updated`));
+  }
 }
 
 /**
