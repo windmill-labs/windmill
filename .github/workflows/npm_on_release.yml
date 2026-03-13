@@ -8,23 +8,17 @@ on:
 jobs:
   publish_typescript_client:
     runs-on: ubicloud-standard-8
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v3
         with:
           node-version: "20.x"
           registry-url: "https://registry.npmjs.org"
-      - run: cd typescript-client && ./publish.sh --provenance --access public && cd ..
+      - run: cd typescript-client && ./publish.sh --access public && cd ..
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
   publish_cli:
     runs-on: ubicloud-standard-8
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v3
@@ -34,6 +28,6 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - run: cd cli && ./build.sh && cd npm && npm publish --provenance --access public
+      - run: cd cli && ./build.sh && cd npm && npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
