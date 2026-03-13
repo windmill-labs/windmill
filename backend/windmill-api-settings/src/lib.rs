@@ -94,6 +94,10 @@ pub fn global_service() -> Router {
             post(setup_custom_instance_pg_database),
         )
         .route(
+            "/drop_custom_instance_pg_database/:name",
+            post(drop_custom_instance_pg_database),
+        )
+        .route(
             "/critical_alerts/acknowledge_all",
             post(acknowledge_all_critical_alerts),
         )
@@ -980,6 +984,67 @@ async fn setup_custom_instance_pg_database_inner(
         })?;
 
     Ok(())
+}
+
+async fn drop_custom_instance_pg_database(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(dbname): Path<String>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let dbname = dbname.trim();
+    if dbname.is_empty() {
+        return Err(error::Error::BadRequest(
+            "Database name cannot be empty".to_string(),
+        ));
+    }
+
+    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+    if wmill_pg_creds.dbname.trim().eq_ignore_ascii_case(dbname) {
+        return Err(error::Error::BadRequest(
+            "Cannot drop the main Windmill database".to_string(),
+        ));
+    }
+
+    let db_exists = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+        dbname
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    if !db_exists {
+        return Err(error::Error::NotFound(format!(
+            "Database '{}' does not exist",
+            dbname
+        )));
+    }
+
+    // Terminate all connections to the database before dropping
+    sqlx::query(&format!(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{dbname}' AND pid <> pg_backend_pid()"
+    ))
+    .execute(&db)
+    .await?;
+
+    sqlx::query(&format!("DROP DATABASE \"{dbname}\""))
+        .execute(&db)
+        .await
+        .map_err(|e| {
+            error::Error::ExecutionErr(format!("Failed to drop database '{}': {}", dbname, e))
+        })?;
+
+    // Remove from global_settings
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
+        dbname
+    )
+    .execute(&db)
+    .await?;
+
+    Ok(format!("Database '{}' dropped successfully", dbname))
 }
 
 // ============================================================================

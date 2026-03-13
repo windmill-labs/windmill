@@ -1077,6 +1077,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/CustomInstanceDb"
 
+  /settings/drop_custom_instance_pg_database/{name}:
+    post:
+      summary: Drops a custom instance database (superadmin only, irreversible)
+      operationId: dropCustomInstanceDb
+      tags:
+        - setting
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+          description: The name of the database to drop
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /settings/global/{key}:
     get:
       summary: get global settings

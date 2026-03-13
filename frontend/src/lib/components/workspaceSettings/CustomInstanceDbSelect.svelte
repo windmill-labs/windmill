@@ -1,9 +1,5 @@
 <script lang="ts">
-	import type {
-		CustomInstanceDb,
-		CustomInstanceDbTag,
-		ListCustomInstanceDbsResponse
-	} from '$lib/gen'
+	import type { CustomInstanceDbTag, ListCustomInstanceDbsResponse } from '$lib/gen'
 	import type { ResourceReturn } from 'runed'
 	import Select from '../select/Select.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
@@ -31,14 +27,8 @@
 		tag
 	}: Props = $props()
 
-	let openedDbNameWizard:
-		| {
-				status: CustomInstanceDb | undefined
-				dbname: string
-		  }
-		| undefined = $state(undefined)
+	let openedDbNameWizard: string | undefined = $state(undefined)
 
-	let status = $derived(customInstanceDbs.current?.[value ?? ''])
 	let onlySelectedTags = $derived(
 		safeSelectItems(
 			Object.entries(customInstanceDbs.current ?? {})
@@ -62,14 +52,11 @@
 		disabled={!$isCustomInstanceDbEnabled}
 	>
 		{#snippet endSnippet({ item })}
-			{@render customInstanceDbWizardButton({
-				dbname: item.value,
-				status: customInstanceDbs.current?.[item.value]
-			})}
+			{@render customInstanceDbWizardButton(item.value)}
 		{/snippet}
 	</Select>
 	{#if value}
-		{@render customInstanceDbWizardButton({ dbname: value, status }, 'absolute right-1.5')}
+		{@render customInstanceDbWizardButton(value, 'absolute right-1.5')}
 	{/if}
 </div>
 
@@ -78,21 +65,28 @@
 	{confirmationModal}
 	{tag}
 	bottomHint={wizardBottomHint}
-	bind:opened={() => openedDbNameWizard, (v) => !v && (openedDbNameWizard = undefined)}
+	bind:opened={
+		() =>
+			openedDbNameWizard
+				? { dbname: openedDbNameWizard, status: customInstanceDbs.current?.[openedDbNameWizard] }
+				: undefined,
+		(v) => !v && (openedDbNameWizard = undefined)
+	}
 />
 
-{#snippet customInstanceDbWizardButton(db: typeof openedDbNameWizard, clazz: string = '')}
+{#snippet customInstanceDbWizardButton(dbname: string, clazz: string = '')}
+	{@const status = customInstanceDbs.current?.[dbname]}
 	<Button
 		spacingSize="xs2"
 		variant="default"
 		wrapperClasses="bg-surface-input h-6 -my-2 {clazz}"
-		onClick={() => ((openedDbNameWizard = db), (open = false))}
+		onClick={() => ((openedDbNameWizard = dbname), (open = false))}
 	>
-		{#if !db?.status}
+		{#if !status}
 			<span class="text-yellow-600 dark:text-yellow-400">
 				Setup <ArrowRight class="inline" size={14} />
 			</span>
-		{:else if !db.status.success}
+		{:else if !status.success}
 			<span class="text-red-400 flex gap-1">
 				Error <TriangleAlert class="inline" size={16} />
 			</span>

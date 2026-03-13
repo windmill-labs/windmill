@@ -15,7 +15,7 @@
 	import type { ResourceReturn } from 'runed'
 	import type { ConfirmationModalHandle } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
-	import { ArrowRight, InfoIcon } from 'lucide-svelte'
+	import { ArrowRight, InfoIcon, Trash2 } from 'lucide-svelte'
 	import type { Snippet } from 'svelte'
 	import { truncate } from '$lib/utils'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
@@ -38,6 +38,7 @@
 	}: Props = $props()
 
 	let customInstanceDbSetupIsRunning = $state(false)
+	let dropIsRunning = $state(false)
 	let preventClose = false
 </script>
 
@@ -70,13 +71,50 @@
 							{@render bottomHint()}
 						</div>
 					{/if}
-					<ExploreAssetButton
-						class="flex-1"
-						asset={{ kind: 'resource', path: 'CUSTOM_INSTANCE_DB/' + dbname }}
-						_resourceMetadata={{ resource_type: 'postgresql' }}
-						disabled={!$isCustomInstanceDbEnabled || !enableManageButton}
-						onClick={() => (opened = undefined)}
-					/>
+					<div class="flex gap-2">
+						<ExploreAssetButton
+							class="flex-1"
+							asset={{ kind: 'resource', path: 'CUSTOM_INSTANCE_DB/' + dbname }}
+							_resourceMetadata={{ resource_type: 'postgresql' }}
+							disabled={!$isCustomInstanceDbEnabled || !enableManageButton}
+							onClick={() => (opened = undefined)}
+						/>
+						{#if $superadmin}
+							<Button
+								size="sm"
+								destructive
+								iconOnly
+								variant="accent"
+								startIcon={{ icon: Trash2 }}
+								loading={dropIsRunning}
+								onClick={async () => {
+									preventClose = true
+									let confirm = await confirmationModal.ask({
+										title: 'Drop database',
+										children: `This will permanently drop the database "${dbname}". All data will be lost. This action is irreversible.`,
+										confirmationText: 'Drop database'
+									})
+									preventClose = false
+									if (!confirm) return
+
+									try {
+										dropIsRunning = true
+										await SettingService.dropCustomInstanceDb({ name: dbname })
+										await customInstanceDbs.refetch()
+										sendUserToast(`Database "${dbname}" dropped successfully`)
+										opened = undefined
+									} catch (e) {
+										sendUserToast(`Failed to drop database: ${e}`, true)
+										console.error('Error dropping custom instance database', e)
+									} finally {
+										dropIsRunning = false
+									}
+								}}
+							>
+								Drop database
+							</Button>
+						{/if}
+					</div>
 				</div>
 			</div>
 			<div class="flex-1 shrink-0 flex flex-col pl-4 gap-2">

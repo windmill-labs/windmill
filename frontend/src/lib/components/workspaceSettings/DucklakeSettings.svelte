@@ -135,7 +135,7 @@
 			!Object.values(ducklakeIsDirty).every((v) => v === false)
 	)
 
-	const customInstanceDbs = resource([], SettingService.listCustomInstanceDbs)
+	const customInstanceDbs = resource([() => $workspaceStore], SettingService.listCustomInstanceDbs)
 
 	async function onSave() {
 		try {
@@ -333,32 +333,28 @@
 					<div class="flex gap-2">
 						<Popover contentClasses="p-4" enableFlyTransition closeOnOtherPopoverOpen>
 							{#snippet trigger()}
-													
-									<div class="relative">
-										<Button variant="default" iconOnly size="sm" endIcon={{ icon: SettingsIcon }} />
-										{#if ducklake.extra_args}
-											<div
-												class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent rounded-full border border-surface"
-											></div>
-										{/if}
-									</div>
-								
-													{/snippet}
+								<div class="relative">
+									<Button variant="default" iconOnly size="sm" endIcon={{ icon: SettingsIcon }} />
+									{#if ducklake.extra_args}
+										<div
+											class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent rounded-full border border-surface"
+										></div>
+									{/if}
+								</div>
+							{/snippet}
 							{#snippet content()}
-													
-									<Label
-										label="Extra args"
-										tooltip="Additional arguments to pass in the ATTACH command. The argument list is substituted as-is. Separate them with commas."
-									>
-										<TextInput
-											bind:value={ducklake.extra_args}
-											class="min-w-96"
-											underlyingInputEl="textarea"
-											inputProps={{ placeholder: "METADATA_SCHEMA 'schema', ENCRYPTED true" }}
-										/>
-									</Label>
-								
-													{/snippet}
+								<Label
+									label="Extra args"
+									tooltip="Additional arguments to pass in the ATTACH command. The argument list is substituted as-is. Separate them with commas."
+								>
+									<TextInput
+										bind:value={ducklake.extra_args}
+										class="min-w-96"
+										underlyingInputEl="textarea"
+										inputProps={{ placeholder: "METADATA_SCHEMA 'schema', ENCRYPTED true" }}
+									/>
+								</Label>
+							{/snippet}
 						</Popover>
 						{#if ducklakeIsDirty[ducklake.name]}
 							<Popover
@@ -367,18 +363,14 @@
 								class="cursor-not-allowed"
 							>
 								{#snippet trigger()}
-															
-										<ExploreAssetButton asset={{ kind: 'ducklake', path: '' }} disabled />
-									
-															{/snippet}
+									<ExploreAssetButton asset={{ kind: 'ducklake', path: '' }} disabled />
+								{/snippet}
 								{#snippet content()}
-																Please save settings first
-															{/snippet}
+									Please save settings first
+								{/snippet}
 							</Popover>
 						{:else}
-							<ExploreAssetButton
-								asset={{ kind: 'ducklake', path: ducklake.name }}
-							/>
+							<ExploreAssetButton asset={{ kind: 'ducklake', path: ducklake.name }} />
 						{/if}
 					</div>
 				</Cell>
