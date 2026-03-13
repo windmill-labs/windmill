@@ -1,5 +1,11 @@
 import { FlowModule, RawScript } from "../gen/types.gen.ts";
 
+export type LocalScriptInfo = {
+  content: string;
+  language: RawScript["language"];
+  lock?: string;
+};
+
 async function replaceRawscriptInline(
   id: string,
   rawscript: RawScript,
@@ -119,3 +125,58 @@ export async function replaceInlineScripts(
       }
     }));
   }
+
+/**
+ * Replaces PathScript ("script" type) modules with RawScript ("rawscript" type) using local file content.
+ * This is used during flow preview so that local script changes are tested instead of remote versions.
+ *
+ * @param modules - Array of flow modules to process
+ * @param scriptReader - Function that takes a script path and returns local content/language/lock, or undefined if not found locally
+ * @param logger - Logger for info/error messages
+ */
+export async function replacePathScriptsWithLocal(
+  modules: FlowModule[],
+  scriptReader: (scriptPath: string) => Promise<LocalScriptInfo | undefined>,
+  logger: {
+    info: (message: string) => void;
+    error: (message: string) => void;
+  } = {
+    info: () => {},
+    error: () => {},
+  }
+): Promise<void> {
+  await Promise.all(modules.map(async (module) => {
+    if (!module.value) {
+      return;
+    }
+
+    if (module.value.type === "script") {
+      const scriptPath = module.value.path;
+      const localScript = await scriptReader(scriptPath);
+      if (localScript) {
+        logger.info(`Using local script for ${scriptPath}`);
+        const pathScript = module.value;
+        (module as any).value = {
+          type: "rawscript",
+          content: localScript.content,
+          language: localScript.language,
+          lock: localScript.lock,
+          path: scriptPath,
+          input_transforms: pathScript.input_transforms,
+          tag: pathScript.tag_override,
+        } satisfies RawScript;
+      }
+    } else if (module.value.type === "forloopflow" || module.value.type === "whileloopflow") {
+      await replacePathScriptsWithLocal(module.value.modules, scriptReader, logger);
+    } else if (module.value.type === "branchall") {
+      await Promise.all(module.value.branches.map(async (branch) => {
+        await replacePathScriptsWithLocal(branch.modules, scriptReader, logger);
+      }));
+    } else if (module.value.type === "branchone") {
+      await Promise.all(module.value.branches.map(async (branch) => {
+        await replacePathScriptsWithLocal(branch.modules, scriptReader, logger);
+      }));
+      await replacePathScriptsWithLocal(module.value.default, scriptReader, logger);
+    }
+  }));
+}

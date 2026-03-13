@@ -18,8 +18,11 @@ import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
 import { Flow } from "../../../gen/types.gen.ts";
-import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
+import { replaceInlineScripts, replacePathScriptsWithLocal, type LocalScriptInfo } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { generateFlowLockInternal } from "./flow_metadata.ts";
+import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
+import { exts } from "../script/script.ts";
+import { stat } from "node:fs/promises";
 
 export interface FlowFile {
   summary: string;
@@ -272,6 +275,36 @@ async function preview(
   }
   if (localFlow.value.preprocessor_module) {
     await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, flowPath, SEP);
+  }
+
+  // Replace PathScript modules with local file content so preview uses local versions
+  const localScriptReader = async (scriptPath: string): Promise<LocalScriptInfo | undefined> => {
+    for (const ext of exts) {
+      const filePath = scriptPath + ext;
+      try {
+        const fileStat = await stat(filePath);
+        if (!fileStat.isFile()) continue;
+        const content = await readFile(filePath, "utf-8");
+        const language = inferContentTypeFromFilePath(filePath, undefined);
+        let lock: string | undefined;
+        try {
+          lock = await readFile(scriptPath + ".script.lock", "utf-8");
+        } catch {
+          // no lock file
+        }
+        return { content, language, lock };
+      } catch {
+        // file doesn't exist with this extension
+      }
+    }
+    return undefined;
+  };
+  await replacePathScriptsWithLocal(localFlow.value.modules, localScriptReader, log);
+  if (localFlow.value.failure_module) {
+    await replacePathScriptsWithLocal([localFlow.value.failure_module], localScriptReader, log);
+  }
+  if (localFlow.value.preprocessor_module) {
+    await replacePathScriptsWithLocal([localFlow.value.preprocessor_module], localScriptReader, log);
   }
 
   const input = opts.data ? await resolve(opts.data) : {};

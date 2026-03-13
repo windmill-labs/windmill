@@ -22,7 +22,8 @@ import { exts, removeExtensionToPath } from "../script/script.ts";
 import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { FlowFile } from "../flow/flow.ts";
-import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
+import { replaceInlineScripts, replacePathScriptsWithLocal, type LocalScriptInfo } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
+import { stat } from "node:fs/promises";
 import { parseMetadataFile } from "../../utils/metadata.ts";
 import {
   getFolderSuffixWithSep,
@@ -94,6 +95,29 @@ async function dev(opts: GlobalOptions & SyncOptions) {
           SEP,
           undefined,
         );
+        // Replace PathScript modules with local file content so dev mode uses local versions
+        const localScriptReader = async (scriptPath: string): Promise<LocalScriptInfo | undefined> => {
+          for (const ext of exts) {
+            const filePath = scriptPath + ext;
+            try {
+              const fileStat = await stat(filePath);
+              if (!fileStat.isFile()) continue;
+              const content = await readFile(filePath, "utf-8");
+              const language = inferContentTypeFromFilePath(filePath, conf.defaultTs);
+              let lock: string | undefined;
+              try {
+                lock = await readFile(scriptPath + ".script.lock", "utf-8");
+              } catch {
+                // no lock file
+              }
+              return { content, language, lock };
+            } catch {
+              // file doesn't exist with this extension
+            }
+          }
+          return undefined;
+        };
+        await replacePathScriptsWithLocal(localFlow.value.modules, localScriptReader, log);
         currentLastEdit = {
           type: "flow",
           flow: localFlow,
