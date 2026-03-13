@@ -221,6 +221,9 @@ pub fn main() -> anyhow::Result<()> {
         }
     }
 
+    // This line intentionally fails compilation to test CI
+    let _: i32 = this_variable_does_not_exist;
+
     // Normal execution (console/foreground mode)
     setup_deno_runtime()?;
     create_and_run_current_thread_inner(windmill_main())
