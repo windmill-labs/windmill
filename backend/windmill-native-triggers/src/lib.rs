@@ -723,14 +723,16 @@ async fn update_oauth_token_resource(
 /// delete the old token, and return the new plaintext token.
 /// Used when renewing external service webhooks (e.g. Google channel renewal)
 /// so we don't need to store plaintext tokens in the DB.
-/// Returns `Ok(None)` if the old token no longer exists (caller should create a fresh token).
+/// Returns `Ok(None)` if the old token no longer exists (e.g. manually deleted by user).
+/// In that case, `renew_channel` returns an error which `renew_expiring_channels` writes
+/// to the trigger's `error` column — visible in the UI so the user can re-create the trigger.
 pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<Option<String>> {
     use windmill_common::auth::{hash_token, TOKEN_PREFIX_LEN};
     use windmill_common::min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH;
     use windmill_common::utils::rd_string;
 
     let old = match sqlx::query!(
-        "SELECT label, email, scopes, workspace_id, super_admin FROM token WHERE token_hash = $1",
+        "SELECT label, email, scopes, workspace_id, super_admin, owner, expiration FROM token WHERE token_hash = $1",
         old_token_hash
     )
     .fetch_optional(db)
@@ -758,8 +760,8 @@ pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<Optio
     let mut tx = db.begin().await?;
 
     sqlx::query!(
-        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes, workspace_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes, workspace_id, owner, expiration)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         new_hash,
         new_prefix,
         plaintext as Option<&str>,
@@ -768,6 +770,8 @@ pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<Optio
         old.super_admin,
         old.scopes.as_deref(),
         old.workspace_id,
+        old.owner,
+        old.expiration,
     )
     .execute(&mut *tx)
     .await?;

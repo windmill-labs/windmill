@@ -620,7 +620,7 @@ pub async fn register_token_expiry_notification(
         return;
     }
     if let Err(e) = sqlx::query!(
-        "INSERT INTO token_expiry_notification (token, expiration) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        "INSERT INTO token_expiry_notification (token_hash, expiration) VALUES ($1, $2) ON CONFLICT DO NOTHING",
         token_hash,
         expiration,
     )

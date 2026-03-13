@@ -1171,7 +1171,7 @@ pub async fn check_expiring_tokens(db: &DB) {
         TokenRow,
         "DELETE FROM token_expiry_notification n
          USING token t
-         WHERE n.token = t.token_hash
+         WHERE n.token_hash = t.token_hash
            AND n.expiration > now()
            AND n.expiration <= now() + interval '7 days'
          RETURNING t.token_prefix, t.label, t.email, t.workspace_id",
