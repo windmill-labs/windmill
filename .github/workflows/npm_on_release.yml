@@ -7,7 +7,7 @@ on:
 
 jobs:
   publish_typescript_client:
-    runs-on: ubicloud-standard-8
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
@@ -19,7 +19,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - run: cd typescript-client && ./publish.sh --provenance --access public && cd ..
   publish_cli:
-    runs-on: ubicloud-standard-8
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
