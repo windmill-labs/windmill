@@ -11,8 +11,8 @@ import {
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
 } from "../../utils/metadata.ts";
-import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
-import { generateAppLocksInternal, getAppFolders } from "../app/app_metadata.ts";
+import { generateFlowLockInternal, FlowLocksResult } from "../flow/flow_metadata.ts";
+import { generateAppLocksInternal, getAppFolders, AppLocksResult } from "../app/app_metadata.ts";
 import {
   elementsToMap,
   FSFSElement,
@@ -286,21 +286,23 @@ async function generateMetadata(
   // Process flows
   for (const item of flows) {
     current++;
-    log.info(`${formatProgress(current)} flow   ${colors.cyan(item.path)}`);
-    await generateFlowLockInternal(
+    const result = await generateFlowLockInternal(
       item.folder,
       false, // dryRun
       workspace,
       opts,
       false,
       true // noStaleMessage - we handle output
-    );
+    ) as FlowLocksResult | void;
+    const scriptsInfo = result?.updatedScripts?.length
+      ? `: ${colors.gray(result.updatedScripts.join(", "))}`
+      : "";
+    log.info(`${formatProgress(current)} flow   ${colors.cyan(item.path)}${scriptsInfo}`);
   }
   // Process apps
   for (const item of apps) {
     current++;
-    log.info(`${formatProgress(current)} app    ${colors.cyan(item.path)}`);
-    await generateAppLocksInternal(
+    const result = await generateAppLocksInternal(
       item.folder,
       item.isRawApp!, // rawApp
       false, // dryRun
@@ -308,7 +310,11 @@ async function generateMetadata(
       opts,
       false,
       true // noStaleMessage - we handle output
-    );
+    ) as AppLocksResult | void;
+    const scriptsInfo = result?.updatedScripts?.length
+      ? `: ${colors.gray(result.updatedScripts.join(", "))}`
+      : "";
+    log.info(`${formatProgress(current)} app    ${colors.cyan(item.path)}${scriptsInfo}`);
   }
 
   log.info("");
