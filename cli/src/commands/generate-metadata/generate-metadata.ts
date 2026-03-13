@@ -193,12 +193,17 @@ async function generateMetadata(
   // === Filter by folder if specified ===
   let filteredItems = staleItems;
   if (folder) {
-    // Strip trailing separator to match deprecated flow/app handler behavior
-    // (see generateFlowLockInternal line 64-66, generateAppLocksInternal line 109-110)
-    if (folder.endsWith(SEP)) {
+    // Normalize to forward slashes (Windows users may use backslashes)
+    folder = folder.replaceAll("\\", "/");
+    // Strip trailing slash to match deprecated flow/app handler behavior
+    if (folder.endsWith("/")) {
       folder = folder.substring(0, folder.length - 1);
     }
-    filteredItems = staleItems.filter((item) => item.folder === folder || item.folder.startsWith(folder + SEP));
+    // Normalize item.folder for comparison (Windows file paths use backslashes)
+    filteredItems = staleItems.filter((item) => {
+      const normalizedFolder = item.folder.replaceAll("\\", "/");
+      return normalizedFolder === folder || normalizedFolder.startsWith(folder + "/");
+    });
   }
 
   // === Show stale items and confirm ===
