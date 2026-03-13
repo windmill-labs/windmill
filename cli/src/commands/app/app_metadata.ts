@@ -157,7 +157,7 @@ export async function generateAppLocksInternal(
     return remote_path;
   }
 
-  if (Object.keys(filteredDeps).length > 0) {
+  if (Object.keys(filteredDeps).length > 0 && !noStaleMessage) {
     log.info(
       (await blueColor())(
         `Found workspace dependencies (${workspaceDependenciesLanguages
@@ -180,9 +180,11 @@ export async function generateAppLocksInternal(
     }
 
     if (changedScripts.length > 0) {
-      log.info(
-        `Recomputing locks of ${changedScripts.join(", ")} in ${appFolder}`
-      );
+      if (!noStaleMessage) {
+        log.info(
+          `Recomputing locks of ${changedScripts.join(", ")} in ${appFolder}`
+        );
+      }
 
       if (rawApp) {
         const runnablesPath = path.join(appFolder, APP_BACKEND_FOLDER);
@@ -230,7 +232,7 @@ export async function generateAppLocksInternal(
           yamlStringify(appFile as Record<string, any>, yamlOptions)
         );
       }
-    } else {
+    } else if (!noStaleMessage) {
       log.info(colors.gray(`No scripts changed in ${appFolder}`));
     }
   }
@@ -246,7 +248,9 @@ export async function generateAppLocksInternal(
   for (const [scriptPath, hash] of Object.entries(hashes)) {
     await updateMetadataGlobalLock(appFolder, hash, scriptPath);
   }
-  log.info(colors.green(`App ${remote_path} lockfiles updated`));
+  if (!noStaleMessage) {
+    log.info(colors.green(`App ${remote_path} lockfiles updated`));
+  }
 }
 
 /**
@@ -767,7 +771,7 @@ export async function inferRunnableSchemaFromFile(
   }
 }
 
-function getAppFolders(elems: Record<string, any>, extension: string) {
+export function getAppFolders(elems: Record<string, any>, extension: string) {
   return Object.keys(elems)
     .filter((p) => p.endsWith(SEP + extension))
     .map((p) => p.substring(0, p.length - (SEP + extension).length));
