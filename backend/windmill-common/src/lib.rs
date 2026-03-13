@@ -392,7 +392,7 @@ pub struct PrepareQueryResult {
     pub error: Option<String>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct PgDatabase {
     pub host: String,
     pub user: Option<String>,

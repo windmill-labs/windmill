@@ -1636,6 +1636,90 @@ async fn fork_datatable(
     ))
 }
 
+/// Fork a resource-type datatable by creating a new database on the same server,
+/// dumping/importing data, and updating the resource in the forked workspace.
+async fn fork_resource_datatable(
+    db: &DB,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    datatable_name: &str,
+    resource_path: &str,
+    include_data: bool,
+) -> Result<()> {
+    // Resolve the source PG credentials from the resource
+    let source_pg =
+        resolve_pg_source(db, source_workspace_id, &format!("$res:{}", resource_path)).await?;
+    let original_dbname = &source_pg.dbname;
+
+    // Generate the new database name
+    let new_dbname = format!(
+        "{}__{}_{}",
+        target_workspace_id.replace('-', "_"),
+        datatable_name,
+        original_dbname
+    );
+
+    // Connect to the server (using the source credentials but targeting the default/postgres db)
+    // to create the new database
+    let admin_pg = PgDatabase { dbname: "postgres".to_string(), ..source_pg.clone() };
+    let (client, connection) = admin_pg.connect().await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+
+    // Check if the database already exists
+    let row = client
+        .query_one(
+            "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+            &[&new_dbname],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to check database existence: {}", e)))?;
+    let db_exists: bool = row.get(0);
+
+    if !db_exists {
+        client
+            .execute(&format!("CREATE DATABASE \"{}\"", &new_dbname), &[])
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!("Failed to create database '{}': {}", new_dbname, e))
+            })?;
+    }
+
+    drop(client);
+    join_handle
+        .await
+        .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
+        .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+
+    // Export the schema (and optionally data) from the source
+    let dump = pg_dump_database(&source_pg, !include_data).await?;
+
+    // Import the dump into the new database
+    let new_pg = PgDatabase { dbname: new_dbname.clone(), ..source_pg.clone() };
+    pg_import_dump(&new_pg, &dump).await?;
+
+    // Update the resource in the forked workspace: set dbname and non_diffable
+    sqlx::query!(
+        r#"UPDATE resource
+           SET value = jsonb_set(COALESCE(value, '{}'::jsonb), '{dbname}', to_jsonb($1::text)),
+               non_diffable = true
+           WHERE workspace_id = $2 AND path = $3"#,
+        new_dbname,
+        target_workspace_id,
+        resource_path
+    )
+    .execute(db)
+    .await?;
+
+    tracing::info!(
+        "Forked resource datatable '{}': created database '{}' from '{}'",
+        datatable_name,
+        new_dbname,
+        original_dbname
+    );
+
+    Ok(())
+}
+
 /// Fork all datatables from a source workspace into a target workspace.
 /// Uses per-datatable behaviors from the provided map, defaulting to SchemaOnly.
 async fn fork_all_datatables(
@@ -1645,7 +1729,9 @@ async fn fork_all_datatables(
     datatable_behaviors: &Option<HashMap<String, DataTableForkBehavior>>,
 ) -> Result<()> {
     if !target_workspace_id.starts_with("wm-fork") {
-        return Err(Error::BadRequest("Target workspace is not a fork".to_string()));
+        return Err(Error::BadRequest(
+            "Target workspace is not a fork".to_string(),
+        ));
     }
     let datatable_config = sqlx::query_scalar!(
         "SELECT datatable FROM workspace_settings WHERE workspace_id = $1",
@@ -1663,7 +1749,7 @@ async fn fork_all_datatables(
         None => return Ok(()),
     };
 
-    for (name, _dt) in &datatables {
+    for (name, dt) in &datatables {
         let behavior = datatable_behaviors
             .as_ref()
             .and_then(|m| m.get(name).copied())
@@ -1675,27 +1761,46 @@ async fn fork_all_datatables(
 
         let include_data = behavior == DataTableForkBehavior::SchemaAndData && !*CLOUD_HOSTED;
 
-        let new_db_name = format!(
-            "{}__$current_name",
-            target_workspace_id.replace('-', "_")
-        );
-        if let Err(e) = fork_datatable(
-            db,
-            target_workspace_id,
-            name,
-            name,
-            &new_db_name,
-            include_data,
-        )
-        .await
-        {
-            tracing::error!(
-                "Failed to fork datatable '{}' from '{}' to '{}': {}",
+        if dt.database.resource_type == DataTableCatalogResourceType::Instance {
+            let new_db_name = format!("{}__$current_name", target_workspace_id.replace('-', "_"));
+            if let Err(e) = fork_datatable(
+                db,
+                target_workspace_id,
                 name,
+                name,
+                &new_db_name,
+                include_data,
+            )
+            .await
+            {
+                tracing::error!(
+                    "Failed to fork instance datatable '{}' from '{}' to '{}': {}",
+                    name,
+                    source_workspace_id,
+                    target_workspace_id,
+                    e
+                );
+            }
+        } else {
+            // Resource-type datatable (Postgresql)
+            if let Err(e) = fork_resource_datatable(
+                db,
                 source_workspace_id,
                 target_workspace_id,
-                e
-            );
+                name,
+                &dt.database.resource_path,
+                include_data,
+            )
+            .await
+            {
+                tracing::error!(
+                    "Failed to fork resource datatable '{}' from '{}' to '{}': {}",
+                    name,
+                    source_workspace_id,
+                    target_workspace_id,
+                    e
+                );
+            }
         }
     }
 
