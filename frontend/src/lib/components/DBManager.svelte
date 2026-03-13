@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { type DBSchema } from '$lib/stores'
-	import { ChevronDownIcon, EditIcon, Loader2, Plus, Table2, Trash2Icon } from 'lucide-svelte'
+	import {
+		ChevronDownIcon,
+		EditIcon,
+		Loader2,
+		Plus,
+		Table2,
+		Trash2Icon,
+		UploadIcon
+	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
@@ -36,6 +44,7 @@
 		dbType: DbType
 		dbSchema: DBSchema
 		dbSupportsSchemas: boolean
+		databaseIsEmpty?: boolean
 		colDefs: Record<string, ColumnDef[]> | undefined
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 		dbSchemaOps: IDbSchemaOps
@@ -53,6 +62,7 @@
 		disabledTables?: SelectedTable[]
 		features?: DbFeatures
 		asset?: Asset
+		onImport?: (mode: 'schema_and_data' | 'schema_only') => void
 	}
 	let {
 		dbType,
@@ -60,6 +70,7 @@
 		dbTableOpsFactory,
 		dbSchemaOps,
 		dbSupportsSchemas,
+		databaseIsEmpty,
 		colDefs,
 		refresh,
 		initialSchemaKey,
@@ -71,7 +82,8 @@
 		selectedTables = $bindable([]),
 		disabledTables = [],
 		features,
-		asset
+		asset,
+		onImport
 	}: Props = $props()
 
 	// Helper to check if a table is selected in multi-select mode
@@ -525,6 +537,32 @@
 		{#if tableKey && colDefs?.[tableKey]?.length}
 			{@const dbTableOps = dbTableOpsFactory({ colDefs: colDefs[tableKey], tableKey })}
 			<DBTable {dbTableOps} bind:this={_dbTable} />
+		{:else if databaseIsEmpty}
+			<div class="h-full w-full center-center flex-col gap-4">
+				<span class="text-hint">Database is empty</span>
+				{#if onImport}
+					<div class="flex gap-4">
+						<button
+							onclick={() => onImport('schema_only')}
+							class="hover:opacity-70 transition-opacity rounded-md border aspect-square w-52 gap-4 p-4 center-center flex-col"
+						>
+							<UploadIcon size={64} class="text-secondary" />
+							<span class="text-center font-normal text-sm text-secondary">
+								Import schema from database
+							</span>
+						</button>
+						<button
+							onclick={() => onImport('schema_and_data')}
+							class="hover:opacity-70 transition-opacity rounded-md border aspect-square w-52 gap-4 p-4 center-center flex-col"
+						>
+							<UploadIcon size={64} class="text-secondary" />
+							<span class="text-center font-normal text-sm text-secondary">
+								Import schema and data from database
+							</span>
+						</button>
+					</div>
+				{/if}
+			</div>
 		{/if}
 	</Pane>
 </Splitpanes>

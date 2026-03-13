@@ -38,7 +38,9 @@
 	const datatables = resource<string[]>([], async () => {
 		if (!$workspaceStore) return []
 		try {
-			return await WorkspaceService.listDataTables({ workspace: $workspaceStore })
+			return (await WorkspaceService.listDataTables({ workspace: $workspaceStore })).map(
+				(d) => d.name
+			)
 		} catch (e) {
 			console.error('Failed to load datatables:', e)
 			return []
@@ -86,10 +88,11 @@
 	let importSource = $state<string | undefined>(undefined)
 	let importBehavior = $state<'schema_only' | 'schema_and_data'>('schema_only')
 
-	const isPostgresqlInput = $derived(
+	let isPostgresqlInput = $derived(
 		uriState.isDatatableInput ||
 			(uriState.input?.type === 'database' && uriState.input.resourceType === 'postgresql')
 	)
+	let enableImportExport = $derived(isPostgresqlInput && (!!$userStore?.is_admin || !!$superadmin))
 
 	function toSourceIdentifier(raw: string): string {
 		if (raw.startsWith('datatable://') || raw.startsWith('$res:')) return raw
@@ -172,6 +175,9 @@
 					bind:hasReplResult
 					bind:selectedSchemaKey={uriState.selectedSchema}
 					bind:selectedTableKey={uriState.selectedTable}
+					onImport={enableImportExport
+						? (mode) => ((importDrawerOpen = true), (importBehavior = mode))
+						: undefined}
 				>
 					{#snippet dbSelector()}
 						{#if uriState.isDatatableInput}
@@ -195,7 +201,7 @@
 			{/key}
 		{/if}
 		{#snippet actions()}
-			{#if isPostgresqlInput && ($userStore?.is_admin || $superadmin)}
+			{#if enableImportExport}
 				<Button startIcon={{ icon: Download }} onClick={handleExportSchema}>Export</Button>
 				<Button startIcon={{ icon: Upload }} onClick={() => (importDrawerOpen = true)}>
 					Import
