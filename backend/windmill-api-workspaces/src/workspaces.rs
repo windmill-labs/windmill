@@ -1645,7 +1645,9 @@ async fn fork_all_datatables(
     datatable_behaviors: &Option<HashMap<String, DataTableForkBehavior>>,
 ) -> Result<()> {
     if !target_workspace_id.starts_with("wm-fork") {
-        return Err(Error::BadRequest("Target workspace is not a fork".to_string()));
+        return Err(Error::BadRequest(
+            "Target workspace is not a fork".to_string(),
+        ));
     }
     let datatable_config = sqlx::query_scalar!(
         "SELECT datatable FROM workspace_settings WHERE workspace_id = $1",
@@ -1663,7 +1665,7 @@ async fn fork_all_datatables(
         None => return Ok(()),
     };
 
-    for (name, _dt) in &datatables {
+    for (name, dt) in &datatables {
         let behavior = datatable_behaviors
             .as_ref()
             .and_then(|m| m.get(name).copied())
@@ -1673,12 +1675,21 @@ async fn fork_all_datatables(
             continue;
         }
 
+        // Resource-type datatables cannot be forked (would require creating an instance DB
+        // from an external resource). Skip gracefully.
+        if dt.database.resource_type != DataTableCatalogResourceType::Instance {
+            tracing::warn!(
+                "Skipping fork of datatable '{}' in '{}': resource type '{}' is not supported for forking",
+                name,
+                source_workspace_id,
+                dt.database.resource_type.as_ref()
+            );
+            continue;
+        }
+
         let include_data = behavior == DataTableForkBehavior::SchemaAndData && !*CLOUD_HOSTED;
 
-        let new_db_name = format!(
-            "{}__$current_name",
-            target_workspace_id.replace('-', "_")
-        );
+        let new_db_name = format!("{}__$current_name", target_workspace_id.replace('-', "_"));
         if let Err(e) = fork_datatable(
             db,
             target_workspace_id,
