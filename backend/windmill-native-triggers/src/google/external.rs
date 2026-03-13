@@ -325,10 +325,15 @@ impl Google {
             .transpose()?
             .ok_or_else(|| Error::InternalErr("Missing service config".to_string()))?;
 
-        let old_hash = trigger.webhook_token_hash.as_deref().ok_or_else(|| {
-            Error::InternalErr("Missing webhook_token_hash for trigger".to_string())
-        })?;
-        let webhook_token = rotate_webhook_token(db, old_hash).await?;
+        let webhook_token = match rotate_webhook_token(db, &trigger.webhook_token_hash).await? {
+            Some(token) => token,
+            None => {
+                return Err(Error::InternalErr(format!(
+                    "Cannot renew channel {}: webhook token no longer exists and no user context to create a fresh one",
+                    trigger.external_id
+                )));
+            }
+        };
 
         let base_url = &*BASE_URL.read().await;
         // Reuse the same channel ID so external_id stays permanent

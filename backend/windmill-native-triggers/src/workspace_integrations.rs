@@ -303,13 +303,11 @@ async fn delete_triggers_for_service(db: &DB, workspace_id: &str, service_name: 
 
     // Delete all associated webhook tokens
     for trigger in &triggers {
-        if let Some(ref token_hash) = trigger.webhook_token_hash {
-            if let Err(e) = delete_token_by_hash(db, token_hash).await {
-                tracing::error!(
-                    "Failed to delete webhook token with hash {}: {e}",
-                    token_hash
-                );
-            }
+        if let Err(e) = delete_token_by_hash(db, &trigger.webhook_token_hash).await {
+            tracing::error!(
+                "Failed to delete webhook token with hash {}: {e}",
+                trigger.webhook_token_hash
+            );
         }
     }
 }

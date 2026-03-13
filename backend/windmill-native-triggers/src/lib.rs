@@ -190,7 +190,7 @@ pub struct NativeTrigger {
     pub service_name: ServiceName,
     pub script_path: String,
     pub is_flow: bool,
-    pub webhook_token_hash: Option<String>,
+    pub webhook_token_hash: String,
     pub service_config: Option<serde_json::Value>,
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -723,46 +723,62 @@ async fn update_oauth_token_resource(
 /// delete the old token, and return the new plaintext token.
 /// Used when renewing external service webhooks (e.g. Google channel renewal)
 /// so we don't need to store plaintext tokens in the DB.
-pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<String> {
+/// Returns `Ok(None)` if the old token no longer exists (caller should create a fresh token).
+pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<Option<String>> {
     use windmill_common::auth::{hash_token, TOKEN_PREFIX_LEN};
+    use windmill_common::min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH;
     use windmill_common::utils::rd_string;
 
-    let old = sqlx::query!(
+    let old = match sqlx::query!(
         "SELECT label, email, scopes, workspace_id, super_admin FROM token WHERE token_hash = $1",
         old_token_hash
     )
     .fetch_optional(db)
     .await?
-    .ok_or_else(|| {
-        Error::NotFound(format!(
-            "Webhook token not found for hash: {}",
-            old_token_hash
-        ))
-    })?;
+    {
+        Some(row) => row,
+        None => {
+            tracing::warn!(
+                "Webhook token not found for hash {}, caller should create a fresh token",
+                old_token_hash
+            );
+            return Ok(None);
+        }
+    };
 
     let new_token = rd_string(32);
     let new_hash = hash_token(&new_token);
     let new_prefix = &new_token[..TOKEN_PREFIX_LEN];
+    let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
+        None
+    } else {
+        Some(&new_token)
+    };
+
+    let mut tx = db.begin().await?;
 
     sqlx::query!(
         "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes, workspace_id)
-         VALUES ($1, $2, NULL, $3, $4, $5, $6, $7)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         new_hash,
         new_prefix,
+        plaintext as Option<&str>,
         old.email,
         old.label,
         old.super_admin,
         old.scopes.as_deref(),
         old.workspace_id,
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
 
     sqlx::query!("DELETE FROM token WHERE token_hash = $1", old_token_hash)
-        .execute(db)
+        .execute(&mut *tx)
         .await?;
 
-    Ok(new_token)
+    tx.commit().await?;
+
+    Ok(Some(new_token))
 }
 
 /// Delete a token from the token table using its hash (exact match).

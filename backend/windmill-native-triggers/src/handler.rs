@@ -234,29 +234,9 @@ async fn update_native_trigger_handler<T: External>(
     let runnable_changed =
         existing.script_path != data.script_path || existing.is_flow != data.is_flow;
 
-    let webhook_token = if let Some(old_hash) = &existing.webhook_token_hash {
-        if runnable_changed {
-            // Scopes change when the runnable changes — delete old, create fresh token
-            delete_token_by_hash(&db, old_hash).await?;
-            let token = new_webhook_token(
-                &mut *tx,
-                &db,
-                &authed,
-                &data.script_path,
-                data.is_flow,
-                &workspace_id,
-                service_name,
-            )
-            .await?;
-            tx.commit().await?;
-            tx = user_db.begin(&authed).await?;
-            token
-        } else {
-            // Same runnable — rotate the token keeping the same label
-            rotate_webhook_token(&db, old_hash).await?
-        }
-    } else {
-        // No hash stored (pre-migration trigger) — create a fresh token
+    let webhook_token = if runnable_changed {
+        // Scopes change when the runnable changes — delete old, create fresh token
+        delete_token_by_hash(&db, &existing.webhook_token_hash).await?;
         let token = new_webhook_token(
             &mut *tx,
             &db,
@@ -270,6 +250,27 @@ async fn update_native_trigger_handler<T: External>(
         tx.commit().await?;
         tx = user_db.begin(&authed).await?;
         token
+    } else {
+        // Same runnable — rotate the token keeping the same label
+        match rotate_webhook_token(&db, &existing.webhook_token_hash).await? {
+            Some(token) => token,
+            None => {
+                // Old token gone — create a fresh one
+                let token = new_webhook_token(
+                    &mut *tx,
+                    &db,
+                    &authed,
+                    &data.script_path,
+                    data.is_flow,
+                    &workspace_id,
+                    service_name,
+                )
+                .await?;
+                tx.commit().await?;
+                tx = user_db.begin(&authed).await?;
+                token
+            }
+        }
     };
 
     let service_config = handler
@@ -439,18 +440,11 @@ async fn delete_native_trigger_handler<T: External>(
     }
 
     // Delete the webhook token using its hash
-    if let Some(ref token_hash) = existing.webhook_token_hash {
-        if !delete_token_by_hash(&db, token_hash).await? {
-            tracing::warn!(
-                "Webhook token not found when deleting trigger {} (hash: {})",
-                external_id,
-                token_hash
-            );
-        }
-    } else {
+    if !delete_token_by_hash(&db, &existing.webhook_token_hash).await? {
         tracing::warn!(
-            "No webhook_token_hash stored for trigger {}, cannot delete token",
+            "Webhook token not found when deleting trigger {} (hash: {})",
             external_id,
+            existing.webhook_token_hash
         );
     }
 

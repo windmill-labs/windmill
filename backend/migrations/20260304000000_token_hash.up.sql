@@ -24,3 +24,8 @@ CREATE UNIQUE INDEX token_hash_unique ON token (token_hash);
 
 -- Index on prefix for deletion/listing
 CREATE INDEX idx_token_prefix ON token (token_prefix);
+
+-- Keep old workers fast during rolling upgrades: they query WHERE token = $1
+-- after the PK swap drops the old primary key index on token.
+-- Can be dropped once all workers are past MIN_VERSION_SUPPORTS_TOKEN_HASH.
+CREATE INDEX idx_token_plaintext ON token (token) WHERE token IS NOT NULL;

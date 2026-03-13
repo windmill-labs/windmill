@@ -1,10 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes, workspace_id)\n         VALUES ($1, $2, NULL, $3, $4, $5, $6, $7)",
+  "query": "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes, workspace_id)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
   "describe": {
     "columns": [],
     "parameters": {
       "Left": [
+        "Varchar",
         "Varchar",
         "Varchar",
         "Varchar",
@@ -16,5 +17,5 @@
     },
     "nullable": []
   },
-  "hash": "509588b81366668241ec5471f8765850d30408d06f6ff77184442df3ede93416"
+  "hash": "20cb62341ead7414c14fc22e1ddbe3e5357ede31a4b3412668b6961e7c055795"
 }

@@ -9,7 +9,9 @@ SET webhook_token_hash = t.token_hash
 FROM token t
 WHERE t.token_prefix = nt.webhook_token_prefix;
 
--- New triggers will always have a hash, but existing ones might not
--- if their token was already deleted. Leave those NULL.
+-- Remove orphaned triggers whose tokens no longer exist
+DELETE FROM native_trigger WHERE webhook_token_hash IS NULL;
+
+ALTER TABLE native_trigger ALTER COLUMN webhook_token_hash SET NOT NULL;
 
 ALTER TABLE native_trigger DROP COLUMN webhook_token_prefix;
