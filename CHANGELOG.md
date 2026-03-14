@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.657.1](https://github.com/windmill-labs/windmill/compare/v1.657.0...v1.657.1) (2026-03-14)
+
+
+### Bug Fixes
+
+* powershell WindmillClient module loading on Windows workers ([#8370](https://github.com/windmill-labs/windmill/issues/8370)) ([3a268a9](https://github.com/windmill-labs/windmill/commit/3a268a9cf16add2ea2530e6eab247120a4d4754e))
+
 ## [1.657.0](https://github.com/windmill-labs/windmill/compare/v1.656.0...v1.657.0) (2026-03-14)
 
 
