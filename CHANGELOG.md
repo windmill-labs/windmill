@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.657.0](https://github.com/windmill-labs/windmill/compare/v1.656.0...v1.657.0) (2026-03-14)
+
+
+### Features
+
+* add datatable config support to CLI settings sync and backend export ([#8024](https://github.com/windmill-labs/windmill/issues/8024)) ([5df37fb](https://github.com/windmill-labs/windmill/commit/5df37fb0dbf9190a430f066cf2d3c48914782e53))
+
 ## [1.656.0](https://github.com/windmill-labs/windmill/compare/v1.655.0...v1.656.0) (2026-03-13)
 
 
