@@ -1493,6 +1493,23 @@ folder related commands
 - \`folder add-missing\` - create default folder.meta.yaml for all subdirectories of f/ that are missing one
   - \`-y, --yes\` - skip confirmation prompt
 
+### generate-metadata
+
+Generate metadata (locks, schemas) for all scripts, flows, and apps
+
+**Arguments:** \`[folder:string]\`
+
+**Options:**
+- \`--yes\` - Skip confirmation prompt
+- \`--dry-run\` - Show what would be updated without making changes
+- \`--lock-only\` - Re-generate only the lock files
+- \`--schema-only\` - Re-generate only script schemas (skips flows and apps)
+- \`--skip-scripts\` - Skip processing scripts
+- \`--skip-flows\` - Skip processing flows
+- \`--skip-apps\` - Skip processing apps
+- \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
+- \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
+
 ### gitsync-settings
 
 Manage git-sync settings between local wmill.yaml and Windmill backend
