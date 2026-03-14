@@ -382,7 +382,7 @@ pub mod types {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub lock: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub no_main_func: Option<bool>,
+        pub auto_kind: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_behalf_of_email: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -353,6 +353,7 @@ pub async fn handle_child(
 }
 
 pub const OTEL_PREFIX: &str = "OTEL: ";
+pub const WAC_STEP_PREFIX: &str = "WM_WAC_STEP: ";
 
 pub async fn write_lines(
     output: impl stream::Stream<Item = io::Result<String>> + Send,
@@ -436,6 +437,19 @@ pub async fn write_lines(
                         if let Some(otel_suffix) = line.strip_prefix(OTEL_PREFIX) {
                             tracing::event!(tracing::Level::INFO, otel_suffix);
                         }
+                    }
+                    if let Some(step_json) = line.strip_prefix(WAC_STEP_PREFIX) {
+                        // Real-time WAC step start marker — fire-and-forget DB write
+                        let conn = conn.clone();
+                        let job_id = job_id.clone();
+                        let step_json = step_json.to_string();
+                        tokio::spawn(async move {
+                            if let Err(e) = handle_wac_step_marker(&conn, &job_id, &step_json).await
+                            {
+                                tracing::warn!(%job_id, "Failed to write WAC step marker: {e}");
+                            }
+                        });
+                        continue;
                     }
                     if let Some(stream) = extract_stream_from_logs(&line) {
                         let len = stream.len();
@@ -562,6 +576,58 @@ pub async fn write_lines(
     {
         panic::resume_unwind(p);
     }
+}
+
+/// Handle a real-time WAC step start marker emitted via stdout.
+/// Writes a timeline entry (with started_at but no duration_ms) to workflow_as_code_status
+/// so the frontend can show the step immediately while it's still running.
+async fn handle_wac_step_marker(
+    conn: &Connection,
+    job_id: &Uuid,
+    json_str: &str,
+) -> error::Result<()> {
+    #[derive(serde::Deserialize)]
+    struct StepMarker {
+        key: String,
+        started_at: String,
+    }
+    let marker: StepMarker = serde_json::from_str(json_str).map_err(|e| {
+        error::Error::internal_err(format!("Failed to parse WM_WAC_STEP marker: {e}"))
+    })?;
+
+    let step_timeline_key = format!("_step/{}", marker.key);
+    let timeline_val = serde_json::json!({
+        "scheduled_for": marker.started_at,
+        "started_at": marker.started_at,
+        "name": marker.key,
+    });
+
+    match conn {
+        Connection::Sql(db) => {
+            sqlx::query(
+                "INSERT INTO v2_job_status (id, workflow_as_code_status)
+                 VALUES ($1, jsonb_build_object($2, $3::jsonb))
+                 ON CONFLICT (id) DO UPDATE SET
+                 workflow_as_code_status = jsonb_set(
+                     COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+                     ARRAY[$2],
+                     $3::jsonb
+                 )",
+            )
+            .bind(job_id)
+            .bind(&step_timeline_key)
+            .bind(&timeline_val)
+            .execute(db)
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!("DB error writing WAC step marker: {e}"))
+            })?;
+        }
+        Connection::Http(_) => {
+            // Agent workers don't support WAC v2 yet
+        }
+    }
+    Ok(())
 }
 
 pub(crate) async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {

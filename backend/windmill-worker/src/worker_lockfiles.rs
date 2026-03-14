@@ -2535,6 +2535,7 @@ async fn capture_dependency_job(
                 &workspace_dependencies,
                 windmill_common::worker::TypeScriptAnnotations::parse(job_raw_code).npm,
                 &mut Some(occupancy_metrics),
+                false,
             )
             .await?
             {

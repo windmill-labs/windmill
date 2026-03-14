@@ -90,7 +90,7 @@ struct ScriptMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visible_to_runner_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub no_main_func: Option<bool>,
+    pub auto_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codebase: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -500,7 +500,7 @@ pub(crate) async fn tarball_workspace(
                 delete_after_use: script.delete_after_use,
                 restart_unless_cancelled: script.restart_unless_cancelled,
                 visible_to_runner_only: script.visible_to_runner_only,
-                no_main_func: script.no_main_func,
+                auto_kind: script.auto_kind,
                 codebase: script.codebase,
                 has_preprocessor: script.has_preprocessor,
                 on_behalf_of_email: script.on_behalf_of_email,

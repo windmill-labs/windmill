@@ -16,7 +16,7 @@ use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectType, Typ};
 use rustpython_parser::{
     ast::{
         Constant, Expr, ExprAttribute, ExprConstant, ExprDict, ExprList, ExprName, Stmt,
-        StmtAssign, StmtClassDef, StmtFunctionDef, Suite,
+        StmtAssign, StmtAsyncFunctionDef, StmtClassDef, StmtFunctionDef, Suite,
     },
     Parse,
 };
@@ -39,11 +39,17 @@ fn should_parse_for_models(code: &str) -> bool {
 
 fn filter_non_main(code: &str, main_name: &str) -> String {
     let def_main = format!("def {}(", main_name);
+    let async_def_main = format!("async def {}(", main_name);
     let mut filtered_code = String::new();
     let mut code_iter = code.split("\n");
     let mut remaining: String = String::new();
     while let Some(line) = code_iter.next() {
-        if line.starts_with(&def_main) {
+        if line.starts_with(&async_def_main) {
+            filtered_code += &async_def_main;
+            remaining += line.strip_prefix(&async_def_main).unwrap();
+            remaining += &code_iter.join("\n");
+            break;
+        } else if line.starts_with(&def_main) {
             filtered_code += &def_main;
             remaining += line.strip_prefix(&def_main).unwrap();
             remaining += &code_iter.join("\n");
@@ -266,6 +272,11 @@ pub fn parse_python_signature(
             Stmt::FunctionDef(StmtFunctionDef { name, args, .. }) if name == &main_name => {
                 Some(args.as_ref().clone())
             }
+            Stmt::AsyncFunctionDef(StmtAsyncFunctionDef { name, args, .. })
+                if name == &main_name =>
+            {
+                Some(args.as_ref().clone())
+            }
             _ => None,
         });
 
@@ -284,6 +295,11 @@ pub fn parse_python_signature(
                 Stmt::FunctionDef(StmtFunctionDef { name, args, .. }) if &name == &main_name => {
                     Some(*args)
                 }
+                Stmt::AsyncFunctionDef(StmtAsyncFunctionDef { name, args, .. })
+                    if &name == &main_name =>
+                {
+                    Some(*args)
+                }
                 _ => None,
             });
 
@@ -300,7 +316,11 @@ pub fn parse_python_signature(
             star_args: false,
             star_kwargs: false,
             args: vec![],
-            no_main_func: Some(!is_wac_v2),
+            auto_kind: if is_wac_v2 {
+                Some("wac".to_string())
+            } else {
+                Some("lib".to_string())
+            },
             has_preprocessor: Some(has_preprocessor),
         });
     }
@@ -400,7 +420,7 @@ pub fn parse_python_signature(
                     }
                 })
                 .collect(),
-            no_main_func: Some(false),
+            auto_kind: None,
             has_preprocessor: Some(has_preprocessor),
         })
     } else {
@@ -408,7 +428,11 @@ pub fn parse_python_signature(
             star_args: false,
             star_kwargs: false,
             args: vec![],
-            no_main_func: Some(params.is_none()),
+            auto_kind: if params.is_none() {
+                Some("lib".to_string())
+            } else {
+                None
+            },
             has_preprocessor: Some(has_preprocessor),
         })
     }
@@ -672,7 +696,7 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         oidx: None
                     },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false)
             }
         );
@@ -737,7 +761,7 @@ def main(test1: str,
                         oidx: None
                     }
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false)
             }
         );
@@ -797,7 +821,7 @@ def main(test1: str,
                         oidx: None
                     }
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false)
             }
         );
@@ -841,7 +865,7 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                         oidx: None
                     }
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false)
             }
         );
@@ -872,7 +896,7 @@ def main(test1: DynSelect_foo): return
                     has_default: false,
                     oidx: None
                 }],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false)
             }
         );
@@ -896,7 +920,7 @@ def hello(): return
                 star_args: false,
                 star_kwargs: false,
                 args: vec![],
-                no_main_func: Some(true),
+                auto_kind: Some("lib".to_string()),
                 has_preprocessor: Some(false)
             }
         );
@@ -924,7 +948,7 @@ def main(): return
                 star_args: false,
                 star_kwargs: false,
                 args: vec![],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(true)
             }
         );
@@ -989,7 +1013,7 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         oidx: None
                     }
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false)
             }
         );
@@ -1038,7 +1062,7 @@ def main(a: str, b: Optional[str], c: str | None): return
                         oidx: None
                     },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false)
             }
         );

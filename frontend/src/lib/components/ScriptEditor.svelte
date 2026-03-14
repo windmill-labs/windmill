@@ -28,6 +28,7 @@
 	import { langToExt } from '$lib/editorLangUtils'
 	import { WebsocketProvider } from 'y-websocket'
 	import Modal from './common/modal/Modal.svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import DiffEditor from './DiffEditor.svelte'
 	import {
 		AlertTriangle,
@@ -103,7 +104,7 @@
 		path: string | undefined
 		lang: Preview['language']
 		kind?: string | undefined
-		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox'
+		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox' | 'wac_python' | 'wac_typescript'
 		tag: string | undefined
 		initialArgs?: Record<string, any>
 		fixedOverflowWidgets?: boolean
@@ -170,34 +171,37 @@
 
 	// Module tab state
 	let activeModuleTab: string | null = $state(null)
-	let mainCodeBackup: string | null = $state(null)
+	// editorCode is what the editor shows; code always holds the main script content
+	let editorCode: string = $state(code)
+	// Sync editorCode when code changes externally (template reset, copilot, etc.)
+	let lastSyncedCode = code
+	$effect.pre(() => {
+		if (activeModuleTab === null && code !== lastSyncedCode) {
+			editorCode = code
+			lastSyncedCode = code
+		}
+	})
 
 	function switchToModule(modulePath: string) {
-		if (activeModuleTab === null) {
-			// Switching from main: save main code
-			mainCodeBackup = code
-		} else if (modules && activeModuleTab !== modulePath) {
+		if (activeModuleTab !== null && modules && activeModuleTab !== modulePath) {
 			// Switching from another module: save its content
-			modules[activeModuleTab] = { ...modules[activeModuleTab], content: code }
+			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
 		}
 		if (modules && modules[modulePath]) {
 			activeModuleTab = modulePath
-			code = modules[modulePath].content
-			editor?.setCode(code)
+			editorCode = modules[modulePath].content
+			editor?.setCode(editorCode)
 		}
 	}
 
 	function switchToMain() {
 		if (activeModuleTab !== null && modules) {
 			// Save current module content
-			modules[activeModuleTab] = { ...modules[activeModuleTab], content: code }
+			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
 		}
 		activeModuleTab = null
-		if (mainCodeBackup !== null) {
-			code = mainCodeBackup
-			mainCodeBackup = null
-			editor?.setCode(code)
-		}
+		editorCode = code
+		editor?.setCode(editorCode)
 	}
 
 	let effectiveLang = $derived(
@@ -207,57 +211,113 @@
 	)
 
 	let isWacV2 = $derived.by(() => {
-		const mainCode = activeModuleTab === null ? code : (mainCodeBackup ?? code)
-		return mainCode.includes('windmill-client')
+		const mainCode = code
+		const isTsWac = mainCode.includes('windmill-client')
 			&& mainCode.includes('workflow')
 			&& mainCode.includes('task')
+		const isPyWac = (mainCode.includes('import wmill') || mainCode.includes('from wmill'))
+			&& mainCode.includes('workflow')
+			&& mainCode.includes('task')
+		return isTsWac || isPyWac
 	})
 	let supportsModules = $derived(
 		(lang === 'bun' || lang === 'python3') && isWacV2
 	)
-	let mainFileName = $derived('main.' + langToExt(scriptLangToEditorLang(lang)))
+	let mainFileName = $derived('script.' + langToExt(scriptLangToEditorLang(lang)))
 
 	let modulePathInput = $state('')
-	let showAddModuleDialog = $state(false)
+	let showAddModulePopover = $state(false)
+	let modulePathInputEl: HTMLInputElement | undefined = $state(undefined)
+	let modulePathError = $state('')
 
-	function inferModuleLang(filePath: string): ScriptModule['language'] {
-		if (filePath.endsWith('.py')) return 'python3'
-		if (filePath.endsWith('.go')) return 'go'
-		if (filePath.endsWith('.sh')) return 'bash'
-		if (filePath.endsWith('.ps1')) return 'powershell'
-		if (filePath.endsWith('.php')) return 'php'
-		if (filePath.endsWith('.rs')) return 'rust'
-		if (filePath.endsWith('.cs')) return 'csharp'
-		if (filePath.endsWith('.rb')) return 'ruby'
-		if (filePath.endsWith('.java')) return 'java'
-		if (filePath.endsWith('.nu')) return 'nu'
-		if (filePath.endsWith('.ts')) return (lang === 'deno' ? 'deno' : 'bun') as ScriptModule['language']
-		if (filePath.endsWith('.js')) return 'bun'
-		if (filePath.endsWith('.pg.sql')) return 'postgresql'
-		if (filePath.endsWith('.my.sql')) return 'mysql'
-		if (filePath.endsWith('.bq.sql')) return 'bigquery'
-		if (filePath.endsWith('.sf.sql')) return 'snowflake'
-		if (filePath.endsWith('.ms.sql')) return 'mssql'
-		if (filePath.endsWith('.gql')) return 'graphql'
-		return lang as ScriptModule['language']
+	const SUPPORTED_MODULE_EXTENSIONS: Record<string, ScriptModule['language']> = {
+		'.ts': 'bun',
+		'.py': 'python3',
+		'.go': 'go',
+		'.sh': 'bash',
+		'.ps1': 'powershell',
+		'.sql': 'postgresql',
+		'.gql': 'graphql',
+		'.php': 'php',
+		'.rs': 'rust',
+		'.yml': 'ansible',
+		'.cs': 'csharp',
+		'.nu': 'nu',
+		'.java': 'java',
+		'.rb': 'ruby'
+	}
+
+	function inferModuleLang(filePath: string): ScriptModule['language'] | undefined {
+		for (const [ext, moduleLang] of Object.entries(SUPPORTED_MODULE_EXTENSIONS)) {
+			if (filePath.endsWith(ext)) return moduleLang
+		}
+		return undefined
+	}
+
+	function getModuleDefaultContent(filePath: string): string {
+		if (filePath.endsWith('.py')) {
+			return `def hello() -> str:\n    return "world"\n`
+		} else if (filePath.endsWith('.ts')) {
+			return `export function hello(): string {\n  return "world"\n}\n`
+		} else if (filePath.endsWith('.go')) {
+			return `package inner\n\nfunc Hello() string {\n\treturn "world"\n}\n`
+		} else if (filePath.endsWith('.sh')) {
+			return `#!/bin/bash\necho "world"\n`
+		} else if (filePath.endsWith('.ps1')) {
+			return `function Hello {\n    return "world"\n}\n`
+		} else if (filePath.endsWith('.sql')) {
+			return `SELECT 'world' as result;\n`
+		} else if (filePath.endsWith('.gql')) {
+			return `query Hello {\n  hello\n}\n`
+		} else if (filePath.endsWith('.php')) {
+			return `<?php\nfunction hello(): string {\n    return "world";\n}\n`
+		} else if (filePath.endsWith('.rs')) {
+			return `pub fn hello() -> String {\n    "world".to_string()\n}\n`
+		} else if (filePath.endsWith('.yml')) {
+			return `---\n- name: Hello\n  debug:\n    msg: "world"\n`
+		} else if (filePath.endsWith('.cs')) {
+			return `public static string Hello() {\n    return "world";\n}\n`
+		} else if (filePath.endsWith('.nu')) {
+			return `def hello [] {\n    "world"\n}\n`
+		} else if (filePath.endsWith('.java')) {
+			return `public class Helper {\n    public static String hello() {\n        return "world";\n    }\n}\n`
+		} else if (filePath.endsWith('.rb')) {
+			return `def hello\n  "world"\nend\n`
+		}
+		return ''
+	}
+
+	function validateModulePath(path: string): string {
+		if (!path.trim()) return ''
+		const moduleLang = inferModuleLang(path)
+		if (!moduleLang) {
+			const exts = Object.keys(SUPPORTED_MODULE_EXTENSIONS).join(', ')
+			return `File must end with a supported extension: ${exts}`
+		}
+		if (modules?.[path.trim()]) {
+			return `Module ${path.trim()} already exists`
+		}
+		return ''
 	}
 
 	function addModule() {
-		if (!modulePathInput.trim()) return
 		const modulePath = modulePathInput.trim()
+		if (!modulePath) return
+		const error = validateModulePath(modulePath)
+		if (error) {
+			modulePathError = error
+			return
+		}
 		if (!modules) {
 			modules = {}
 		}
-		if (modules[modulePath]) {
-			sendUserToast(`Module ${modulePath} already exists`, true)
-			return
-		}
 		modules[modulePath] = {
-			content: '',
-			language: inferModuleLang(modulePath)
+			content: getModuleDefaultContent(modulePath),
+			language: inferModuleLang(modulePath)!
 		}
 		modulePathInput = ''
-		showAddModuleDialog = false
+		modulePathError = ''
+		showAddModulePopover = false
 		switchToModule(modulePath)
 	}
 
@@ -272,10 +332,9 @@
 
 	export function flushModuleState() {
 		if (activeModuleTab !== null && modules) {
-			modules[activeModuleTab] = { ...modules[activeModuleTab], content: code }
-			code = mainCodeBackup ?? code
+			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
 			activeModuleTab = null
-			mainCodeBackup = null
+			editorCode = code
 		}
 	}
 
@@ -445,6 +504,10 @@
 	export async function runTest() {
 		// Not defined if JobProgressBar not loaded
 		jobProgressBar?.reset()
+		// Flush module edits back to modules map before running preview
+		if (activeModuleTab !== null && modules && activeModuleTab) {
+			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
+		}
 		//@ts-ignore
 		let job = await jobLoader.runPreview(
 			path,
@@ -471,7 +534,9 @@
 					}
 					console.error(error)
 				}
-			}
+			},
+			undefined,
+			modules
 		)
 		logPanel?.setFocusToLogs()
 		return job
@@ -526,7 +591,7 @@
 				selectedTab = 'main'
 			} else {
 				hasPreprocessor =
-					(selectedTab === 'preprocessor' ? !result?.no_main_func : result?.has_preprocessor) ??
+					(selectedTab === 'preprocessor' ? !result?.auto_kind : result?.has_preprocessor) ??
 					false
 
 				if (!hasPreprocessor && selectedTab === 'preprocessor') {
@@ -1432,9 +1497,33 @@
 	</Splitpanes>
 </SplitPanesWrapper>
 
+{#snippet addModuleForm(close: () => void)}
+	<div class="flex flex-col gap-2">
+		<label for="module-name-input" class="text-xs font-semibold text-emphasis">File name</label>
+		<input
+			id="module-name-input"
+			type="text"
+			class="border rounded px-2 py-1.5 text-sm bg-surface"
+			bind:this={modulePathInputEl}
+			bind:value={modulePathInput}
+			placeholder={lang === 'python3' ? 'helper.py' : 'helper.ts'}
+			oninput={() => { modulePathError = validateModulePath(modulePathInput) }}
+			onkeydown={(e) => { if (e.key === 'Enter') addModule(); if (e.key === 'Escape') close() }}
+		/>
+		{#if modulePathError}
+			<p class="text-red-500 text-2xs">{modulePathError}</p>
+		{/if}
+		<p class="text-tertiary text-2xs">Supports subfolders, e.g. <code class="text-2xs">utils/math.{lang === 'python3' ? 'py' : 'ts'}</code></p>
+		<div class="flex justify-end gap-2">
+			<Button variant="default" size="xs" onclick={() => { modulePathInput = ''; modulePathError = ''; close() }}>Cancel</Button>
+			<Button variant="accent" size="xs" onclick={addModule} disabled={!modulePathInput.trim() || !!modulePathError}>Add</Button>
+		</div>
+	</div>
+{/snippet}
+
 {#snippet editorContent()}
 	<div class="h-full !overflow-visible bg-surface dark:bg-[#272D38] relative flex flex-col">
-		{#if supportsModules && modules && Object.keys(modules).length > 0}
+		{#if supportsModules}
 			<div class="flex items-center border-b border-tertiary/30 bg-surface-secondary px-1 gap-0.5 text-xs overflow-x-auto shrink-0">
 				<button
 					class="px-2 py-1 rounded-t {activeModuleTab === null ? 'bg-surface font-semibold border-b-2 border-blue-500' : 'hover:bg-surface-hover'}"
@@ -1442,7 +1531,7 @@
 				>
 					{mainFileName}
 				</button>
-				{#each Object.keys(modules) as modulePath}
+				{#each Object.keys(modules ?? {}) as modulePath}
 					<button
 						class="px-2 py-1 rounded-t flex items-center gap-1 {activeModuleTab === modulePath ? 'bg-surface font-semibold border-b-2 border-blue-500' : 'hover:bg-surface-hover'}"
 						onclick={() => switchToModule(modulePath)}
@@ -1459,26 +1548,46 @@
 						</span>
 					</button>
 				{/each}
-				<button
-					class="px-2 py-1 rounded-t hover:bg-surface-hover"
-					onclick={() => (showAddModuleDialog = true)}
+				<Popover
+					placement="bottom-start"
+					bind:isOpen={showAddModulePopover}
+					openFocus={modulePathInputEl}
+					contentClasses="p-3 w-72"
 				>
-					<Plus size={12} />
-				</button>
+					{#snippet trigger()}
+						<span class="px-2 py-1 rounded-t hover:bg-surface-hover inline-flex items-center">
+							<Plus size={12} />
+						</span>
+					{/snippet}
+					{#snippet content({ close })}
+						{@render addModuleForm(close)}
+					{/snippet}
+				</Popover>
 			</div>
 		{/if}
 		<div class="relative flex-1 !overflow-visible">
 		<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-			{#if supportsModules && (!modules || Object.keys(modules).length === 0)}
-				<Button
-					variant="default"
-					size="xs"
-					onclick={() => (showAddModuleDialog = true)}
-					startIcon={{ icon: Plus }}
-					btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
+			{#if false}
+				<Popover
+					placement="bottom-end"
+					bind:isOpen={showAddModulePopover}
+					openFocus={modulePathInputEl}
+					contentClasses="p-3 w-72"
 				>
-					Module
-				</Button>
+					{#snippet trigger()}
+						<Button
+							variant="default"
+							size="xs"
+							startIcon={{ icon: Plus }}
+							btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
+						>
+							Module
+						</Button>
+					{/snippet}
+					{#snippet content({ close })}
+						{@render addModuleForm(close)}
+					{/snippet}
+				</Popover>
 			{/if}
 			{#if assets?.length}
 				<AssetsDropdownButton {assets} />
@@ -1605,14 +1714,18 @@
 			lineNumbersMinChars={4}
 			folding
 			{path}
-			bind:code
+			bind:code={editorCode}
 			bind:websocketAlive
 			bind:this={editor}
 			{yContent}
 			awareness={wsProvider?.awareness}
 			on:change={(e) => {
 				if (activeModuleTab === null) {
+					code = editorCode
+					lastSyncedCode = code
 					inferSchema(e.detail)
+				} else if (modules && activeModuleTab) {
+					modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
 				}
 				// Refresh breakpoint positions when code changes (decorations track their lines)
 				if (debugMode && breakpointDecorations.length > 0) {
@@ -1623,16 +1736,16 @@
 			on:toggleTestPanel={toggleTestPanel}
 			cmdEnterAction={async () => {
 				if (activeModuleTab === null) {
-					await inferSchema(code)
+					await inferSchema(editorCode)
 				}
 				runTest()
 			}}
 			formatAction={async () => {
 				if (activeModuleTab === null) {
-					await inferSchema(code)
+					await inferSchema(editorCode)
 				}
 				try {
-					localStorage.setItem(path ?? 'last_save', code)
+					localStorage.setItem(path ?? 'last_save', editorCode)
 				} catch (e) {
 					console.error('Could not save last_save to local storage', e)
 				}
@@ -1686,24 +1799,6 @@
 	on:addInventories={handleAddInventories}
 />
 
-{#if showAddModuleDialog}
-	<Modal title="Add Module" bind:open={showAddModuleDialog}>
-		<div class="flex flex-col gap-2 p-4">
-			<label class="text-sm font-medium">Relative path (e.g. helper.ts, utils/math.py)</label>
-			<input
-				type="text"
-				class="border rounded px-2 py-1 text-sm"
-				bind:value={modulePathInput}
-				placeholder="helper.ts"
-				onkeydown={(e) => { if (e.key === 'Enter') addModule() }}
-			/>
-			<div class="flex justify-end gap-2 mt-2">
-				<Button variant="default" size="xs" onclick={() => (showAddModuleDialog = false)}>Cancel</Button>
-				<Button variant="accent" size="xs" onclick={addModule}>Add</Button>
-			</div>
-		</div>
-	</Modal>
-{/if}
 
 <style global>
 	/* Debug breakpoint glyph - red circle in the glyph margin */

@@ -1,3 +1,4 @@
+use serde_json::json;
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
 use windmill_common::scripts::ScriptLang;
@@ -408,5 +409,56 @@ def main():
 
     run_deployed_relative_imports(&db, content.clone(), ScriptLang::Python3).await?;
     run_preview_relative_imports(&db, content, ScriptLang::Python3).await?;
+    Ok(())
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base"))]
+async fn test_python_wac_v2_with_args(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+from wmill import task, workflow
+
+@task()
+def greet(label: str, count: int) -> str:
+    return f"hello {label} x{count}"
+
+@workflow
+async def main(item: str, qty: int, email: str):
+    greeting = await greet(item, qty)
+    return {"item": item, "qty": qty, "email": email, "greeting": greeting}
+"#
+    .to_string();
+
+    // WAC requires at least 2 workers (parent + task sub-jobs)
+    let db = &db;
+    in_test_worker(
+        db,
+        async move {
+            let job = Box::pin(
+                RunJob::from(JobPayload::Code(RawCode {
+                    language: ScriptLang::Python3,
+                    content,
+                    ..RawCode::default()
+                }))
+                .arg("item", json!("widget"))
+                .arg("qty", json!(5))
+                .arg("email", json!("test@example.com"))
+                .run_until_complete(db, false, port),
+            )
+            .await;
+
+            let result = job.json_result().unwrap();
+            assert_eq!(result["item"], json!("widget"));
+            assert_eq!(result["qty"], json!(5));
+            assert_eq!(result["email"], json!("test@example.com"));
+            assert_eq!(result["greeting"], json!("hello widget x5"));
+        },
+        port,
+    )
+    .await;
     Ok(())
 }

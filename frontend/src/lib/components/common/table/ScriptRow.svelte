@@ -115,7 +115,7 @@
 <Row
 	aiId={`script-run-button-${script.path}`}
 	aiDescription={`Button to access the form to run the script ${script.summary ?? script.path}`}
-	href={script.draft_only || (script.no_main_func && script.kind !== 'preprocessor')
+	href={script.draft_only || (script.auto_kind === 'lib' && script.kind !== 'preprocessor')
 		? `${base}/scripts/edit/${script.path}`
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
@@ -136,7 +136,7 @@
 			<Badge color="red" baseClass="border">Archived</Badge>
 		{/if}
 
-		{#if script.no_main_func && script.kind !== 'preprocessor'}
+		{#if script.auto_kind === 'lib' && script.kind !== 'preprocessor'}
 			<NoMainFuncBadge />
 		{/if}
 		{#if script.kind !== 'script'}

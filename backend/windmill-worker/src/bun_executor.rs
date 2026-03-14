@@ -205,6 +205,7 @@ pub async fn gen_bun_lockfile(
     workspace_dependencies: &WorkspaceDependenciesPrefetched,
     npm_mode: bool,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    quiet: bool,
 ) -> Result<Option<String>> {
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
@@ -253,7 +254,8 @@ pub async fn gen_bun_lockfile(
         let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
 
         if let Some(db) = db {
-            handle_child(
+            let mut quiet_buf = String::new();
+            let result = handle_child(
                 job_id,
                 db,
                 mem_peak,
@@ -266,10 +268,20 @@ pub async fn gen_bun_lockfile(
                 None,
                 false,
                 occupancy_metrics,
-                None,
+                if quiet { Some(&mut quiet_buf) } else { None },
                 None,
             )
-            .await?;
+            .await;
+            if quiet && result.is_err() {
+                append_logs(
+                    job_id,
+                    w_id,
+                    format!("\n--- BUN BUILD (failed) ---\n{quiet_buf}"),
+                    db,
+                )
+                .await;
+            }
+            result?;
         } else {
             Box::into_pin(child_process.wait()).await?;
         }
@@ -293,11 +305,14 @@ pub async fn gen_bun_lockfile(
             common_bun_proc_envs,
             npm_mode,
             occupancy_metrics,
+            quiet,
         )
         .await?;
     } else {
-        if let Some(db) = db {
-            append_logs(job_id, w_id, "\nempty dependencies, skipping install", db).await;
+        if !quiet {
+            if let Some(db) = db {
+                append_logs(job_id, w_id, "\nempty dependencies, skipping install", db).await;
+            }
         }
     }
 
@@ -424,6 +439,7 @@ pub async fn install_bun_lockfile(
     common_bun_proc_envs: HashMap<String, String>,
     npm_mode: bool,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    quiet: bool,
 ) -> Result<()> {
     let mut child_cmd = Command::new(if npm_mode { &*NPM_PATH } else { &*BUN_PATH });
 
@@ -511,7 +527,7 @@ pub async fn install_bun_lockfile(
         false
     };
 
-    if npm_mode || no_cache {
+    if !quiet && (npm_mode || no_cache) {
         if let Some(db) = db {
             append_logs(&job_id.clone(), w_id, npm_logs, db).await;
         }
@@ -523,7 +539,8 @@ pub async fn install_bun_lockfile(
 
     let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
     if let Some(db) = db {
-        handle_child(
+        let mut quiet_buf = String::new();
+        let result = handle_child(
             job_id,
             db,
             mem_peak,
@@ -536,11 +553,22 @@ pub async fn install_bun_lockfile(
             None,
             false,
             occupancy_metrics,
-            None,
+            if quiet { Some(&mut quiet_buf) } else { None },
             None,
         )
         .warn_after_seconds(10)
-        .await?;
+        .await;
+        if quiet && result.is_err() {
+            // On failure, flush suppressed install output so the user can diagnose
+            append_logs(
+                job_id,
+                w_id,
+                format!("\n--- BUN INSTALL (failed) ---\n{quiet_buf}"),
+                db,
+            )
+            .await;
+        }
+        result?;
     } else {
         Box::into_pin(child_process.wait()).await?;
     }
@@ -1021,6 +1049,7 @@ pub async fn handle_bun_job(
     occupancy_metrics: &mut OccupancyMetrics,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
+    modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
@@ -1086,6 +1115,23 @@ pub async fn handle_bun_job(
         job.flow_step_id.as_deref() != Some("preprocessor") && job.preprocessed == Some(false);
 
     let is_wac_v2 = main_override.is_none() && crate::wac_executor::is_wac_v2_ts(inner_content);
+
+    // Detect WAC v2 replay (resumed from suspend) to suppress verbose logs.
+    // The actual step name is logged later by handle_wac_v2_output.
+    let wac_replay_info: Option<String> = if is_wac_v2 {
+        if let Connection::Sql(db) = conn {
+            let checkpoint = crate::wac_executor::load_checkpoint(db, &job.id).await?;
+            if !checkpoint.completed_steps.is_empty() {
+                Some(String::new())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     // For WAC v2, inject variable names into unnamed task() calls so the
     // runtime can use them for step naming (timeline, graph).
@@ -1177,14 +1223,17 @@ pub async fn handle_bun_job(
                         common_bun_proc_envs.clone(),
                         annotation.npm,
                         &mut Some(occupancy_metrics),
+                        wac_replay_info.is_some(),
                     )
                     .await?;
                 }
             }
             MaybeLock::Unresolved { ref workspace_dependencies } => {
                 // if is_sandboxing_enabled() || !empty_trusted_deps || has_custom_config_registry {
-                let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
-                append_logs(&job.id, &job.workspace_id, logs1, conn).await;
+                if wac_replay_info.is_none() {
+                    let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
+                    append_logs(&job.id, &job.workspace_id, logs1, conn).await;
+                }
                 gen_bun_lockfile(
                     mem_peak,
                     canceled_by,
@@ -1200,6 +1249,7 @@ pub async fn handle_bun_job(
                     workspace_dependencies,
                     annotation.npm,
                     &mut Some(occupancy_metrics),
+                    wac_replay_info.is_some(),
                 )
                 .await?;
 
@@ -1212,7 +1262,13 @@ pub async fn handle_bun_job(
         annotation.nodejs = true
     }
 
-    let mut init_logs = if annotation.native {
+    let mut init_logs = if let Some(ref replay_header) = wac_replay_info {
+        // WAC v2 replay: use concise header, but still write main.ts if needed
+        if !annotation.native && !has_bundle_cache && codebase.is_none() {
+            write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?)?;
+        }
+        replay_header.clone()
+    } else if annotation.native {
         "\n\n--- NATIVE CODE EXECUTION ---\n".to_string()
     } else if has_bundle_cache {
         if annotation.nodejs {
@@ -1340,7 +1396,7 @@ pub async fn handle_bun_job(
             format!(
                 r#"
 import * as Main from "{main_import}";
-import {{ WorkflowCtx, StepSuspend, setWorkflowCtx }} from "windmill-client";
+import {{ WorkflowCtx, StepSuspend, setWorkflowCtx }} from "/home/rfiszel/windmill__worktrees/module-mode/typescript-client/dist/client.bundle.mjs";
 
 import * as fs from "fs/promises";
 
@@ -1394,7 +1450,7 @@ async function run() {{
                 return {{ type: "complete", result: dispatch.result ?? null }};
             }}
             if (dispatch.mode === "inline_checkpoint") {{
-                return {{ type: "inline_checkpoint", key: dispatch.key, result: dispatch.result ?? null }};
+                return {{ type: "inline_checkpoint", key: dispatch.key, result: dispatch.result ?? null, started_at: dispatch.started_at, duration_ms: dispatch.duration_ms }};
             }}
             if (dispatch.mode === "approval") {{
                 return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form }};
@@ -1410,6 +1466,9 @@ async function run() {{
 
 try {{
     const output = await run();
+    if (output.type === "complete") {{
+        console.log(`\n--- WAC: complete ---`);
+    }}
     const output_json = JSON.stringify(output, (key, value) =>
         typeof value === 'undefined' ? null : value
     );
@@ -1954,7 +2013,7 @@ try {{
 
     // WAC v2 post-execution: parse output and handle dispatch/suspend
     if is_wac_v2 {
-        return handle_wac_v2_output(result, job, conn).await;
+        return handle_wac_v2_output(result, job, conn, modules).await;
     }
 
     Ok(result)
@@ -1963,41 +2022,17 @@ try {{
 /// Resolve a module file from the parent script's modules map.
 /// For Script jobs, fetches from the `script` table by hash.
 /// For Preview jobs, fetches from `v2_job.raw_code` (modules stored inline).
-async fn resolve_parent_module(
-    db: &sqlx::Pool<sqlx::Postgres>,
-    job: &MiniPulledJob,
+fn resolve_parent_module(
+    modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
     module_key: &str,
 ) -> error::Result<windmill_common::scripts::ScriptModule> {
-    use windmill_common::scripts::ScriptModule;
-
-    // For Script jobs: look up from the script table
-    if let Some(hash) = job.runnable_id {
-        let row: Option<Option<serde_json::Value>> =
-            sqlx::query_scalar("SELECT modules FROM script WHERE hash = $1")
-                .bind(hash.0)
-                .fetch_optional(db)
-                .await?;
-
-        if let Some(Some(modules_val)) = row {
-            let modules: std::collections::HashMap<String, ScriptModule> =
-                serde_json::from_value(modules_val).map_err(|e| {
-                    error::Error::internal_err(format!("Failed to parse script modules: {e}"))
-                })?;
-            if let Some(module) = modules.get(module_key) {
-                return Ok(module.clone());
-            }
+    if let Some(modules) = modules {
+        if let Some(module) = modules.get(module_key) {
+            return Ok(module.clone());
         }
-        return Err(error::Error::ExecutionErr(format!(
-            "Module '{}' not found in script modules",
-            module_key
-        )));
     }
-
-    // For Preview jobs: modules are not yet stored in v2_job,
-    // so we look up from the parent job's raw_code modules if available
     Err(error::Error::ExecutionErr(format!(
-        "Module-relative taskScript('./{}') is not yet supported in preview mode. \
-         Deploy the script first, or use a workspace script path instead.",
+        "Module '{}' not found in script modules",
         module_key
     )))
 }
@@ -2008,6 +2043,7 @@ pub async fn handle_wac_v2_output(
     result: Box<RawValue>,
     job: &MiniPulledJob,
     conn: &Connection,
+    modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> error::Result<Box<RawValue>> {
     use crate::wac_executor::{
         add_completed_step, load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch,
@@ -2287,7 +2323,7 @@ pub async fn handle_wac_v2_output(
                         "script" if step.script.starts_with("./") => {
                             // Module-relative path: resolve from parent script's modules
                             let module_key = step.script.strip_prefix("./").unwrap();
-                            let module = resolve_parent_module(db, job, module_key).await?;
+                            let module = resolve_parent_module(modules, module_key)?;
                             let payload = JobPayload::Code(RawCode {
                                 content: module.content,
                                 path: job.runnable_path.clone(),
@@ -2696,7 +2732,7 @@ pub async fn handle_wac_v2_output(
                 job.id, seconds, key
             )))
         }
-        WacOutput::InlineCheckpoint { key, result: value } => {
+        WacOutput::InlineCheckpoint { key, result: value, started_at, duration_ms } => {
             let db = match conn {
                 Connection::Sql(db) => db,
                 _ => {
@@ -2731,7 +2767,7 @@ pub async fn handle_wac_v2_output(
 
             add_completed_step(&mut checkpoint, &key, value);
 
-            // Save checkpoint + reset running in a single transaction
+            // Save checkpoint + write step timeline entry + reset running in a single transaction
             {
                 let mut tx = db.begin().await?;
                 let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
@@ -2754,6 +2790,34 @@ pub async fn handle_wac_v2_output(
                 .map_err(|e| {
                     error::Error::internal_err(format!("Failed to save WAC checkpoint: {e}"))
                 })?;
+
+                // Write timeline entry for the inline step (keyed as _step/<key>)
+                if let Some(ref sa) = started_at {
+                    let mut timeline_val = serde_json::json!({
+                        "scheduled_for": sa,
+                        "started_at": sa,
+                        "name": key,
+                    });
+                    if let Some(dur) = duration_ms {
+                        timeline_val["duration_ms"] = serde_json::json!(dur);
+                    }
+                    let step_timeline_key = format!("_step/{}", key);
+                    sqlx::query(
+                        "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+                            COALESCE(workflow_as_code_status, '{}'::jsonb),
+                            ARRAY[$2],
+                            $3
+                        ) WHERE id = $1",
+                    )
+                    .bind(&job.id)
+                    .bind(&step_timeline_key)
+                    .bind(&timeline_val)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        error::Error::internal_err(format!("Failed to write step timeline: {e}"))
+                    })?;
+                }
 
                 // Reset running=false so the job is immediately eligible for pickup.
                 // Unlike dispatch (which sets suspend>0), inline checkpoints don't suspend —
@@ -3184,6 +3248,7 @@ pub async fn start_worker(
                         common_bun_proc_envs.clone(),
                         annotation.npm,
                         &mut None,
+                        false,
                     )
                     .await?;
                 }
@@ -3279,6 +3344,7 @@ pub async fn start_worker(
                 common_bun_proc_envs.clone(),
                 annotation.npm,
                 &mut None,
+                false,
             )
             .await?;
             tracing::info!("dedicated worker requirements installed: {reqs}");
@@ -3308,6 +3374,7 @@ pub async fn start_worker(
             .await?,
             annotation.npm,
             &mut None,
+            false,
         )
         .await?;
     }

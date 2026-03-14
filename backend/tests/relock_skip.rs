@@ -39,7 +39,7 @@ mod relock_skip {
             deployment_message: None,
             concurrency_key: None,
             visible_to_runner_only: None,
-            no_main_func: None,
+            auto_kind: None,
             codebase: None,
             has_preprocessor: None,
             on_behalf_of_email: None,

@@ -3099,7 +3099,7 @@ async fn clone_scripts(
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, restart_unless_cancelled, concurrency_key,
-            visible_to_runner_only, no_main_func, codebase, has_preprocessor,
+            visible_to_runner_only, auto_kind, codebase, has_preprocessor,
             on_behalf_of_email, assets
         )
         SELECT
@@ -3109,7 +3109,7 @@ async fn clone_scripts(
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, restart_unless_cancelled, concurrency_key,
-            visible_to_runner_only, no_main_func, codebase, has_preprocessor,
+            visible_to_runner_only, auto_kind, codebase, has_preprocessor,
             on_behalf_of_email, assets
         FROM script
         WHERE workspace_id = $2"#,

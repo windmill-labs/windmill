@@ -317,6 +317,19 @@ pub fn parse_deno_signature(
                         entrypoint_params = Some(fn_decl.function.params.clone());
                     }
                 }
+                Decl::Var(var_decl) if entrypoint_params.is_none() => {
+                    for decl in &var_decl.decls {
+                        if let Some(name) = &decl.name.as_ident() {
+                            if name.sym.as_ref() == entrypoint_function {
+                                if let Some(init) = &decl.init {
+                                    if let Some(params) = extract_workflow_params(init) {
+                                        entrypoint_params = Some(params);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -328,7 +341,13 @@ pub fn parse_deno_signature(
         && code.contains("workflow(")
         && code.contains("task(")
         && code.contains("windmill-client");
-    let no_main_func = entrypoint_params.is_none() && !is_wac_v2;
+    let auto_kind = if is_wac_v2 {
+        Some("wac".to_string())
+    } else if entrypoint_params.is_none() {
+        Some("lib".to_string())
+    } else {
+        None
+    };
     let mut type_resolver = HashMap::new();
     let r = MainArgSignature {
         star_args: false,
@@ -355,7 +374,7 @@ pub fn parse_deno_signature(
                 .transpose()?
                 .unwrap_or_else(|| vec![])
         },
-        no_main_func: Some(no_main_func),
+        auto_kind,
         has_preprocessor: Some(has_preprocessor),
     };
     Ok(r)

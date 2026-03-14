@@ -1558,6 +1558,8 @@ export class WorkflowCtx {
         this._suspended = true;
         const steps = [...this.pending];
         this.pending = [];
+        const names = steps.map(s => s.name).join(", ");
+        console.log(`\n--- WAC: ${names} ---`);
         throw new StepSuspend({
           mode: steps.length > 1 ? "parallel" : "sequential",
           steps,
@@ -1589,6 +1591,7 @@ export class WorkflowCtx {
     }
 
     // Throw immediately — approval is always a blocking step
+    console.log(`\n--- WAC: approval(${key}) ---`);
     throw new StepSuspend({
       mode: "approval",
       key,
@@ -1609,6 +1612,7 @@ export class WorkflowCtx {
       return { then: () => new Promise(() => {}) };
     }
 
+    console.log(`\n--- WAC: sleep(${key}, ${seconds}s) ---`);
     throw new StepSuspend({
       mode: "sleep",
       key,
@@ -1636,8 +1640,13 @@ export class WorkflowCtx {
       return new Promise(() => {});
     }
 
+    console.log(`\n--- WAC: ${key} ---`);
+    const startedAt = new Date().toISOString();
+    console.log(`WM_WAC_STEP: ${JSON.stringify({ key, started_at: startedAt })}`);
+    const t0 = Date.now();
     const result = await fn();
-    throw new StepSuspend({ mode: "inline_checkpoint", steps: [], key, result });
+    const durationMs = Date.now() - t0;
+    throw new StepSuspend({ mode: "inline_checkpoint", steps: [], key, result, started_at: startedAt, duration_ms: durationMs });
   }
 }
 

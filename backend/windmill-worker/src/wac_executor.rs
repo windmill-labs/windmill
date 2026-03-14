@@ -47,7 +47,14 @@ pub enum WacOutput {
     /// An inline step executed in the parent process — persist result to
     /// checkpoint and re-run immediately (no child job, no suspend).
     #[serde(rename = "inline_checkpoint")]
-    InlineCheckpoint { key: String, result: Value },
+    InlineCheckpoint {
+        key: String,
+        result: Value,
+        #[serde(default)]
+        started_at: Option<String>,
+        #[serde(default)]
+        duration_ms: Option<u64>,
+    },
     /// Suspend the workflow waiting for an external approval event.
     /// No child job is dispatched — the parent suspends directly and resumes
     /// when a user hits the resume/cancel endpoint.

@@ -101,7 +101,7 @@ pub async fn prefetch_cached_script(
         delete_after_use: script.delete_after_use,
         restart_unless_cancelled: script.restart_unless_cancelled,
         visible_to_runner_only: script.visible_to_runner_only,
-        no_main_func: script.no_main_func,
+        auto_kind: script.auto_kind,
         codebase: script.codebase,
         has_preprocessor: script.has_preprocessor,
         on_behalf_of_email: script.on_behalf_of_email,
@@ -340,7 +340,7 @@ pub async fn fetch_script_for_update<'a>(
             delete_after_use,
             restart_unless_cancelled,
             visible_to_runner_only,
-            no_main_func,
+            auto_kind,
             codebase,
             has_preprocessor,
             on_behalf_of_email,
@@ -413,7 +413,7 @@ pub async fn clone_script<'c>(
         restart_unless_cancelled: s.restart_unless_cancelled,
         deployment_message,
         visible_to_runner_only: s.visible_to_runner_only,
-        no_main_func: s.no_main_func,
+        auto_kind: s.auto_kind,
         codebase: s.codebase,
         has_preprocessor: s.has_preprocessor,
         on_behalf_of_email: s.on_behalf_of_email,
@@ -437,14 +437,14 @@ pub async fn clone_script<'c>(
     created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
     draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-    delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
+    delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
     codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
             content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
             draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-            delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
+            delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
             codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle
 
     FROM script WHERE hash = $2 AND workspace_id = $3;

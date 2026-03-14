@@ -236,7 +236,7 @@ export async function inferArgs(
 	schema: Schema,
 	mainOverride?: string
 ): Promise<{
-	no_main_func: boolean | null
+	auto_kind: string | null
 	has_preprocessor: boolean | null
 } | null> {
 	const lastRun = get(loadSchemaLastRun)
@@ -393,7 +393,7 @@ export async function inferArgs(
 	await tick()
 
 	return {
-		no_main_func: inferedSchema.no_main_func,
+		auto_kind: inferedSchema.auto_kind,
 		has_preprocessor: inferedSchema.has_preprocessor
 	}
 }

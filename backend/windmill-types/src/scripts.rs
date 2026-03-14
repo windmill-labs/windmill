@@ -360,7 +360,7 @@ pub struct Script<SR> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visible_to_runner_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub no_main_func: Option<bool>,
+    pub auto_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codebase: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -431,7 +431,7 @@ pub struct ListableScript {
     pub has_deploy_errors: bool,
     pub ws_error_handler_muted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub no_main_func: Option<bool>,
+    pub auto_kind: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub use_codebase: bool,
     #[sqlx(default)]
@@ -500,7 +500,7 @@ pub struct NewScript {
     pub deployment_message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visible_to_runner_only: Option<bool>,
-    pub no_main_func: Option<bool>,
+    pub auto_kind: Option<String>,
     pub codebase: Option<String>,
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
@@ -538,7 +538,7 @@ impl Hash for NewScript {
         self.restart_unless_cancelled.hash(state);
         self.deployment_message.hash(state);
         self.visible_to_runner_only.hash(state);
-        self.no_main_func.hash(state);
+        self.auto_kind.hash(state);
         self.codebase.hash(state);
         self.has_preprocessor.hash(state);
         self.on_behalf_of_email.hash(state);

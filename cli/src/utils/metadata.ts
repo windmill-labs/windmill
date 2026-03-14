@@ -19,7 +19,7 @@ import {
   languageNeedsLock,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { getModuleFolderSuffix } from "./resource_folders.ts";
+import { getModuleFolderSuffix, isModuleEntryPoint, getScriptBasePathFromModulePath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders } from "./utils.ts";
 
@@ -189,13 +189,18 @@ export async function generateScriptMetadataInternal(
   codebases: SyncCodebase[],
   justUpdateMetadataLock?: boolean
 ): Promise<string | undefined> {
-  const remotePath = scriptPath
-    .substring(0, scriptPath.indexOf("."))
-    .replaceAll(SEP, "/");
+  // Detect folder layout: my_script__mod/script.ts
+  const isFolderLayout = isModuleEntryPoint(scriptPath);
+
+  // remotePath is the Windmill API path (e.g., "u/admin/my_script")
+  const remotePath = isFolderLayout
+    ? getScriptBasePathFromModulePath(scriptPath)!.replaceAll(SEP, "/")
+    : scriptPath.substring(0, scriptPath.indexOf(".")).replaceAll(SEP, "/");
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
-
+  // For folder layout, parseMetadataFile is called with remotePath which
+  // will find __mod/script.yaml via the folder layout fallback
   const metadataWithType = await parseMetadataFile(
     remotePath,
     undefined,
@@ -211,11 +216,35 @@ export async function generateScriptMetadataInternal(
     language
   );
 
+  // Compute the module folder path early so we can include module hashes in stale check
+  const moduleFolderPath = isFolderLayout
+    ? path.dirname(scriptPath)
+    : scriptPath.substring(0, scriptPath.indexOf(".")) + getModuleFolderSuffix();
 
-  // Note: rawWorkspaceDependencies are now passed in as parameter instead of being searched hierarchically
+  const hasModules = existsSync(moduleFolderPath) && statSync(moduleFolderPath).isDirectory();
+
   let hash = await generateScriptHash(filteredRawWorkspaceDependencies, scriptContent, metadataContent);
 
-  if (await checkifMetadataUptodate(remotePath, hash, undefined)) {
+  // Compute per-module hashes for stale detection (like flow inline scripts)
+  let moduleHashes: Record<string, string> = {};
+  if (hasModules) {
+    moduleHashes = await computeModuleHashes(
+      moduleFolderPath, opts.defaultTs, rawWorkspaceDependencies, isFolderLayout
+    );
+  }
+  const hasModuleHashes = Object.keys(moduleHashes).length > 0;
+
+  // If modules exist, combine main script hash + module hashes into a meta-hash
+  let checkHash = hash;
+  let checkSubpath: string | undefined;
+  if (hasModuleHashes) {
+    const sortedEntries = Object.entries(moduleHashes).sort(([a], [b]) => a.localeCompare(b));
+    checkHash = await generateHash(hash + JSON.stringify(sortedEntries));
+    checkSubpath = SCRIPT_TOP_HASH;
+  }
+
+  const conf = await readLockfile();
+  if (await checkifMetadataUptodate(remotePath, checkHash, conf, checkSubpath)) {
     if (!noStaleMessage) {
       log.info(
         colors.green(`Script ${remotePath} metadata is up-to-date, skipping`)
@@ -223,7 +252,19 @@ export async function generateScriptMetadataInternal(
     }
     return;
   } else if (dryRun) {
-    return `${remotePath} (${language})`;
+    let detail = `${remotePath} (${language})`;
+    if (hasModuleHashes) {
+      const changed: string[] = [];
+      for (const [modulePath, moduleHash] of Object.entries(moduleHashes)) {
+        if (!(await checkifMetadataUptodate(remotePath, moduleHash, conf, modulePath))) {
+          changed.push(modulePath);
+        }
+      }
+      if (changed.length > 0) {
+        detail += ` [changed modules: ${changed.join(", ")}]`;
+      }
+    }
+    return detail;
   }
 
   if (!justUpdateMetadataLock && !noStaleMessage) {
@@ -248,33 +289,71 @@ export async function generateScriptMetadataInternal(
     const hasCodebase = findCodebase(scriptPath, codebases) != undefined;
 
     if (!hasCodebase) {
+      const lockPathOverride = isFolderLayout
+        ? path.dirname(scriptPath) + "/script.lock"
+        : undefined;
       await updateScriptLock(
         workspace,
         scriptContent,
         language,
         remotePath,
         metadataParsedContent,
-        filteredRawWorkspaceDependencies
+        filteredRawWorkspaceDependencies,
+        lockPathOverride,
       );
     } else {
       metadataParsedContent.lock = "";
     }
 
-    // Generate locks for modules in __module/ folder
-    const scriptBasePath = scriptPath.substring(0, scriptPath.indexOf("."));
-    const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
-    if (existsSync(moduleFolderPath) && statSync(moduleFolderPath).isDirectory()) {
-      await updateModuleLocks(workspace, moduleFolderPath, "", remotePath, rawWorkspaceDependencies, opts.defaultTs);
+    // Generate locks for modules in __mod/ folder
+    if (hasModules) {
+      // Identify which modules changed by comparing per-module hashes
+      let changedModules: string[] | undefined;
+      if (hasModuleHashes) {
+        changedModules = [];
+        for (const [modulePath, moduleHash] of Object.entries(moduleHashes)) {
+          if (!(await checkifMetadataUptodate(remotePath, moduleHash, conf, modulePath))) {
+            changedModules.push(modulePath);
+          }
+        }
+        if (changedModules.length === 0) {
+          changedModules = undefined; // no modules changed, skip lock regeneration
+        }
+      }
+      await updateModuleLocks(
+        workspace, moduleFolderPath, "", remotePath,
+        rawWorkspaceDependencies, opts.defaultTs, changedModules,
+      );
     }
   } else {
-    metadataParsedContent.lock =
-      "!inline " + remotePath.replaceAll(SEP, "/") + ".script.lock";
+    if (isFolderLayout) {
+      metadataParsedContent.lock =
+        "!inline " + remotePath.replaceAll(SEP, "/") + getModuleFolderSuffix() + "/script.lock";
+    } else {
+      metadataParsedContent.lock =
+        "!inline " + remotePath.replaceAll(SEP, "/") + ".script.lock";
+    }
   }
-  let metaPath = remotePath + ".script.yaml";
-  let newMetadataContent = yamlStringify(metadataParsedContent, yamlOptions);
-  if (metadataWithType.isJson) {
-    metaPath = remotePath + ".script.json";
-    newMetadataContent = JSON.stringify(metadataParsedContent);
+
+  // Write metadata back to the correct path
+  let metaPath: string;
+  let newMetadataContent: string;
+  if (isFolderLayout) {
+    if (metadataWithType.isJson) {
+      metaPath = path.dirname(scriptPath) + "/script.json";
+      newMetadataContent = JSON.stringify(metadataParsedContent);
+    } else {
+      metaPath = path.dirname(scriptPath) + "/script.yaml";
+      newMetadataContent = yamlStringify(metadataParsedContent, yamlOptions);
+    }
+  } else {
+    if (metadataWithType.isJson) {
+      metaPath = remotePath + ".script.json";
+      newMetadataContent = JSON.stringify(metadataParsedContent);
+    } else {
+      metaPath = remotePath + ".script.yaml";
+      newMetadataContent = yamlStringify(metadataParsedContent, yamlOptions);
+    }
   }
 
   const metadataContentUsedForHash = newMetadataContent;
@@ -284,7 +363,21 @@ export async function generateScriptMetadataInternal(
     scriptContent,
     metadataContentUsedForHash
   );
-  await updateMetadataGlobalLock(remotePath, hash);
+
+  // Store hashes in wmill-lock.yaml
+  if (hasModuleHashes) {
+    // Use per-module hash tracking (like flow inline scripts)
+    const sortedEntries = Object.entries(moduleHashes).sort(([a], [b]) => a.localeCompare(b));
+    const metaHash = await generateHash(hash + JSON.stringify(sortedEntries));
+    await clearGlobalLock(remotePath);
+    await updateMetadataGlobalLock(remotePath, metaHash, SCRIPT_TOP_HASH);
+    for (const [modulePath, moduleHash] of Object.entries(moduleHashes)) {
+      await updateMetadataGlobalLock(remotePath, moduleHash, modulePath);
+    }
+  } else {
+    await updateMetadataGlobalLock(remotePath, hash);
+  }
+
   if (!justUpdateMetadataLock) {
     await writeFile(metaPath, newMetadataContent, "utf-8");
   }
@@ -512,7 +605,8 @@ async function updateScriptLock(
   language: ScriptLanguage,
   remotePath: string,
   metadataContent: Record<string, any>,
-  rawWorkspaceDependencies: Record<string, string>
+  rawWorkspaceDependencies: Record<string, string>,
+  lockPathOverride?: string,
 ): Promise<void> {
   if (
     !(
@@ -539,7 +633,7 @@ async function updateScriptLock(
     rawWorkspaceDependencies,
   );
 
-  const lockPath = remotePath + ".script.lock";
+  const lockPath = lockPathOverride ?? remotePath + ".script.lock";
   if (lock != "") {
     await writeFile(lockPath, lock, "utf-8");
     metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
@@ -556,7 +650,7 @@ async function updateScriptLock(
 }
 
 /**
- * Generate locks for all module files in a __module/ directory.
+ * Generate locks for all module files in a __mod/ directory.
  * Recursively walks the directory and generates a lock for each module
  * whose language requires one.
  */
@@ -567,6 +661,7 @@ async function updateModuleLocks(
   scriptRemotePath: string,
   rawWorkspaceDependencies: Record<string, string>,
   defaultTs: "bun" | "deno" | undefined,
+  changedModules?: string[],
 ): Promise<void> {
   const entries = readdirSync(dirPath, { withFileTypes: true });
   for (const entry of entries) {
@@ -574,8 +669,12 @@ async function updateModuleLocks(
     const relPath = relPrefix ? relPrefix + "/" + entry.name : entry.name;
 
     if (entry.isDirectory()) {
-      await updateModuleLocks(workspace, fullPath, relPath, scriptRemotePath, rawWorkspaceDependencies, defaultTs);
-    } else if (entry.isFile() && !entry.name.endsWith(".script.lock")) {
+      await updateModuleLocks(workspace, fullPath, relPath, scriptRemotePath, rawWorkspaceDependencies, defaultTs, changedModules);
+    } else if (entry.isFile()
+      && !entry.name.endsWith(".lock")
+      // In folder layout, skip entry point files (script.{ext}, script.yaml, script.json, script.lock)
+      && !(relPrefix === "" && entry.name.startsWith("script."))
+    ) {
       let modLanguage: ScriptLanguage;
       try {
         modLanguage = inferContentTypeFromFilePath(entry.name, defaultTs);
@@ -584,6 +683,12 @@ async function updateModuleLocks(
       }
 
       if (!languageNeedsLock(modLanguage)) continue;
+
+      // Skip unchanged modules when per-module hash tracking is active
+      if (changedModules) {
+        const normalizedRelPath = normalizeLockPath(relPath);
+        if (!changedModules.includes(normalizedRelPath)) continue;
+      }
 
       const moduleContent = readFileSync(fullPath, "utf-8");
       const moduleRemotePath = scriptRemotePath + "/" + relPath;
@@ -600,7 +705,7 @@ async function updateModuleLocks(
         );
 
         const baseName = entry.name.substring(0, entry.name.indexOf("."));
-        const lockPath = path.join(dirPath, baseName + ".script.lock");
+        const lockPath = path.join(dirPath, baseName + ".lock");
         if (lock != "") {
           writeFileSync(lockPath, lock, "utf-8");
         } else {
@@ -845,62 +950,87 @@ export async function parseMetadataFile(
         isJson: false,
       };
     } catch {
-      // no metadata file at all. Create it
-      log.info(
-        (await blueColor())(
-          `Creating script metadata file for ${metadataFilePath}`
-        )
-      );
-      metadataFilePath = scriptPath + ".script.yaml";
-      let scriptInitialMetadata = defaultScriptMetadata();
-      const lockPath = scriptPath + ".script.lock";
-      scriptInitialMetadata.lock = "!inline " + lockPath;
-      const scriptInitialMetadataYaml = yamlStringify(
-        scriptInitialMetadata as Record<string, any>,
-        yamlOptions
-      );
-
-      await writeFile(metadataFilePath, scriptInitialMetadataYaml, { flag: "wx", encoding: "utf-8" });
-      await writeFile(lockPath, "", { flag: "wx", encoding: "utf-8" });
-
-      if (generateMetadataIfMissing) {
-        log.info(
-          (await blueColor())(
-            `Generating lockfile and schema for ${metadataFilePath}`
-          )
-        );
+      // Try folder layout: {scriptPath}__mod/script.yaml or .json
+      const moduleFolderMeta = scriptPath + getModuleFolderSuffix();
+      try {
+        metadataFilePath = moduleFolderMeta + "/script.json";
+        await stat(metadataFilePath);
+        return {
+          path: metadataFilePath,
+          payload: JSON.parse(await readFile(metadataFilePath, "utf-8")),
+          isJson: true,
+        };
+      } catch {
         try {
-          await generateScriptMetadataInternal(
-            generateMetadataIfMissing.path,
-            generateMetadataIfMissing.workspaceRemote,
-            generateMetadataIfMissing,
-            false,
-            false,
-            generateMetadataIfMissing.rawWorkspaceDependencies,
-            generateMetadataIfMissing.codebases,
-            false
-          );
-          scriptInitialMetadata = (await yamlParseFile(
-            metadataFilePath
-          )) as ScriptMetadata;
-          if (!generateMetadataIfMissing.schemaOnly) {
-            replaceLock(scriptInitialMetadata);
-          }
-        } catch (e) {
-          log.info(
-            colors.yellow(
-              `Failed to generate lockfile and schema for ${metadataFilePath}: ${e}`
-            )
-          );
+          metadataFilePath = moduleFolderMeta + "/script.yaml";
+          await stat(metadataFilePath);
+          const payload: any = await yamlParseFile(metadataFilePath);
+          replaceLock(payload);
+          return {
+            path: metadataFilePath,
+            payload,
+            isJson: false,
+          };
+        } catch {
+          // fall through to create metadata
         }
       }
-      return {
-        path: metadataFilePath,
-        payload: scriptInitialMetadata,
-        isJson: false,
-      };
     }
   }
+  // no metadata file at all. Create it
+  log.info(
+    (await blueColor())(
+      `Creating script metadata file for ${metadataFilePath}`
+    )
+  );
+  metadataFilePath = scriptPath + ".script.yaml";
+  let scriptInitialMetadata = defaultScriptMetadata();
+  const lockPath = scriptPath + ".script.lock";
+  scriptInitialMetadata.lock = "!inline " + lockPath;
+  const scriptInitialMetadataYaml = yamlStringify(
+    scriptInitialMetadata as Record<string, any>,
+    yamlOptions
+  );
+
+  await writeFile(metadataFilePath, scriptInitialMetadataYaml, { flag: "wx", encoding: "utf-8" });
+  await writeFile(lockPath, "", { flag: "wx", encoding: "utf-8" });
+
+  if (generateMetadataIfMissing) {
+    log.info(
+      (await blueColor())(
+        `Generating lockfile and schema for ${metadataFilePath}`
+      )
+    );
+    try {
+      await generateScriptMetadataInternal(
+        generateMetadataIfMissing.path,
+        generateMetadataIfMissing.workspaceRemote,
+        generateMetadataIfMissing,
+        false,
+        false,
+        generateMetadataIfMissing.rawWorkspaceDependencies,
+        generateMetadataIfMissing.codebases,
+        false
+      );
+      scriptInitialMetadata = (await yamlParseFile(
+        metadataFilePath
+      )) as ScriptMetadata;
+      if (!generateMetadataIfMissing.schemaOnly) {
+        replaceLock(scriptInitialMetadata);
+      }
+    } catch (e) {
+      log.info(
+        colors.yellow(
+          `Failed to generate lockfile and schema for ${metadataFilePath}: ${e}`
+        )
+      );
+    }
+  }
+  return {
+    path: metadataFilePath,
+    payload: scriptInitialMetadata,
+    isJson: false,
+  };
 }
 
 interface Lock {
@@ -909,6 +1039,7 @@ interface Lock {
 }
 
 const WMILL_LOCKFILE = "wmill-lock.yaml";
+const SCRIPT_TOP_HASH = "__script_hash";
 
 /**
  * Normalizes a path to use Linux separators (forward slashes).
@@ -975,6 +1106,46 @@ export async function generateScriptHash(
   return await generateHash(
     JSON.stringify(rawWorkspaceDependencies) + scriptContent + newMetadataContent
   );
+}
+
+async function computeModuleHashes(
+  moduleFolderPath: string,
+  defaultTs: "bun" | "deno" | undefined,
+  rawWorkspaceDependencies: Record<string, string>,
+  isFolderLayout: boolean,
+): Promise<Record<string, string>> {
+  const hashes: Record<string, string> = {};
+
+  async function readDir(dirPath: string, relPrefix: string) {
+    const entries = readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      const relPath = relPrefix ? relPrefix + "/" + entry.name : entry.name;
+      const isTopLevel = relPrefix === "";
+
+      if (entry.isDirectory()) {
+        await readDir(fullPath, relPath);
+      } else if (
+        entry.isFile() &&
+        !entry.name.endsWith(".lock") &&
+        !(isFolderLayout && isTopLevel && entry.name.startsWith("script."))
+      ) {
+        try {
+          inferContentTypeFromFilePath(entry.name, defaultTs);
+        } catch {
+          continue;
+        }
+        const content = readFileSync(fullPath, "utf-8");
+        const normalizedPath = normalizeLockPath(relPath);
+        hashes[normalizedPath] = await generateHash(
+          content + JSON.stringify(rawWorkspaceDependencies)
+        );
+      }
+    }
+  }
+
+  await readDir(moduleFolderPath, "");
+  return hashes;
 }
 
 export async function clearGlobalLock(path: string): Promise<void> {

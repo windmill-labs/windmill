@@ -588,6 +588,7 @@ pub async fn handle_python_job(
     occupancy_metrics: &mut OccupancyMetrics,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
+    modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
@@ -722,8 +723,8 @@ from wmill.client import _run_workflow
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
-args = {{}}
 {transforms}
+args = kwargs
 
 with open("checkpoint.json") as f:
     checkpoint = json.load(f, strict=False)
@@ -747,6 +748,9 @@ for k, v in list(args.items()):
 
 try:
     output = _run_workflow(workflow_fn, checkpoint, args)
+    if isinstance(output, dict) and output.get("type") == "complete":
+        print("")
+        print("--- WAC: complete ---")
     output_json = json.dumps(output, separators=(',', ':'), default=str)
     with open(result_json, 'w') as f:
         f.write(output_json)
@@ -1036,7 +1040,10 @@ mount {{
     // WAC v2 post-execution: parse output and handle dispatch/suspend.
     // Box::pin to avoid bloating handle_python_job's async state machine (stack overflow).
     if is_wac_v2 {
-        return Box::pin(crate::bun_executor::handle_wac_v2_output(result, job, conn)).await;
+        return Box::pin(crate::bun_executor::handle_wac_v2_output(
+            result, job, conn, modules,
+        ))
+        .await;
     }
 
     Ok(result)
@@ -2630,4 +2637,57 @@ for line in sys.stdin:
         client,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_python_module_dir_nested_path() {
+        assert_eq!(
+            compute_python_module_dir("f/my_folder/my_script"),
+            "f/my_folder"
+        );
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_deep_path() {
+        assert_eq!(compute_python_module_dir("f/a/b/c/script"), "f/a/b/c");
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_root_level() {
+        // Root-level script (no parent dirs) should fall back to "tmp"
+        assert_eq!(compute_python_module_dir("my_script"), "tmp");
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_single_folder() {
+        assert_eq!(compute_python_module_dir("f/script"), "f");
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_digit_prefix() {
+        // Dirs starting with digits get underscore-prefixed
+        assert_eq!(
+            compute_python_module_dir("1st_folder/script"),
+            "_1st_folder"
+        );
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_hyphens_replaced() {
+        // Hyphens are replaced with underscores
+        assert_eq!(
+            compute_python_module_dir("my-folder/sub-dir/script"),
+            "my_folder/sub_dir"
+        );
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_at_replaced() {
+        // @ is replaced with .
+        assert_eq!(compute_python_module_dir("u/@admin/script"), "u/.admin");
+    }
 }

@@ -2064,6 +2064,7 @@ pub async fn run_worker(
             }
         }
 
+        let mut was_suspended_job = false;
         let next_job = {
             // println!("2: {:?}",  instant.elapsed());
             #[cfg(feature = "benchmark")]
@@ -2147,7 +2148,9 @@ pub async fn run_worker(
 
                         let suspend_first = suspend_first_success
                             || rand::random::<f64>() < likelihood_of_suspend
-                            || last_suspend_first.elapsed().as_secs_f64() > 5.0;
+                            || last_suspend_first.elapsed().as_secs_f64() > 5.0
+                            || crate::result_processor::WAC_SUSPEND_READY
+                                .swap(false, Ordering::Relaxed);
 
                         if suspend_first {
                             last_suspend_first = Instant::now();
@@ -2220,6 +2223,7 @@ pub async fn run_worker(
                             }
                         }
 
+                        was_suspended_job = job.as_ref().is_ok_and(|j| j.suspended);
                         if let Ok(j) = job.as_ref() {
                             let suspend_success = j.suspended;
                             if suspend_first {
@@ -2437,7 +2441,9 @@ pub async fn run_worker(
                         .expect("send job completed END");
                     add_time!(bench, "sent job completed");
                 } else {
-                    add_outstanding_wait_time(&conn, &job, *OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
+                    if !was_suspended_job {
+                        add_outstanding_wait_time(&conn, &job, *OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
+                    }
 
                     #[cfg(feature = "prometheus")]
                     register_metric(
@@ -3307,10 +3313,22 @@ pub async fn handle_queued_job(
             "none"
         };
 
-        logs.push_str(&format!(
-            "job={} {}={} worker={} hostname={} isolation={}\n",
-            &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname, isolation_label
-        ));
+        // Skip verbose job header for WAC v2 replays (checkpoint has completed steps)
+        let is_wac_replay = if let Connection::Sql(db) = conn {
+            crate::wac_executor::load_checkpoint(db, &job.id)
+                .await
+                .map(|c| !c.completed_steps.is_empty())
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        if !is_wac_replay {
+            logs.push_str(&format!(
+                "job={} {}={} worker={} hostname={} isolation={}\n",
+                &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname, isolation_label
+            ));
+        }
 
         if *NO_LOGS_AT_ALL {
             logs.push_str("Logs are fully disabled for this worker\n");
@@ -3788,7 +3806,7 @@ async fn handle_code_execution_job(
 
     // Box::pin the script fetching match to prevent large enum on stack
     let (
-        ScriptData { code, lock, modules },
+        ScriptData { code, lock, modules: modules_from_data },
         ScriptMetadata { language, envs, codebase, schema_validator, schema },
     ) = match job.kind {
         JobKind::Preview => {
@@ -3909,6 +3927,16 @@ async fn handle_code_execution_job(
         ),
     };
 
+    // For preview jobs, extract modules from args._MODULES if not already set
+    let modules = modules_from_data.clone().or_else(|| {
+        job.args.as_ref().and_then(|args| {
+            args.get("_MODULES").and_then(|raw| {
+                serde_json::from_str::<std::collections::HashMap<String, ScriptModule>>(raw.get())
+                    .ok()
+            })
+        })
+    });
+
     try_validate_schema(
         job,
         conn,
@@ -3942,7 +3970,7 @@ async fn handle_code_execution_job(
         envs,
         codebase,
         lock,
-        modules,
+        &modules,
         false,
     )
     .await
@@ -4501,6 +4529,7 @@ mount {{
                     occupancy_metrics,
                     precomputed_agent_info,
                     has_stream,
+                    modules,
                 ))
                 .await
             }
@@ -4564,6 +4593,7 @@ mount {{
                 occupancy_metrics,
                 precomputed_agent_info,
                 has_stream,
+                modules,
             ))
             .await
         }

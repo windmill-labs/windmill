@@ -100,6 +100,8 @@ import {
   getNonDottedPaths,
   isScriptModulePath,
   getModuleFolderSuffix,
+  isModuleEntryPoint,
+  getScriptBasePathFromModulePath,
 } from "../../utils/resource_folders.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -537,6 +539,29 @@ function ZipFSElement(
   resourceTypeToIsFileset: Record<string, boolean>,
   ignoreCodebaseChanges: boolean,
 ): DynFSElement {
+  // Pre-scan: find zip base paths of scripts that have modules.
+  // These scripts use the folder layout: {basePath}__mod/script.{ext}
+  let _moduleScriptPaths: Set<string> | null = null;
+  async function getModuleScriptPaths(): Promise<Set<string>> {
+    if (_moduleScriptPaths === null) {
+      _moduleScriptPaths = new Set();
+      for (const filename in zip.files) {
+        if (filename.endsWith(".script.json") && !zip.files[filename].dir) {
+          try {
+            const content = await zip.files[filename].async("text");
+            const parsed = JSON.parse(content);
+            if (parsed.modules && Object.keys(parsed.modules).length > 0) {
+              _moduleScriptPaths.add(
+                filename.slice(0, -".script.json".length)
+              );
+            }
+          } catch {}
+        }
+      }
+    }
+    return _moduleScriptPaths;
+  }
+
   async function _internal_file(
     p: string,
     f: JSZip.JSZipObject,
@@ -578,7 +603,22 @@ function ZipFSElement(
       }
     }
 
-    const finalPath = transformPath();
+    let finalPath = transformPath();
+
+    // Redirect content files for scripts with modules into __mod/ folder
+    if (kind == "other" && exts.some((ext) => p.endsWith(ext))) {
+      const normalizedP = p.replace(/^\.[\\/]/, "");
+      const moduleScripts = await getModuleScriptPaths();
+      for (const basePath of moduleScripts) {
+        if (normalizedP.startsWith(basePath + ".")) {
+          const ext = normalizedP.slice(basePath.length); // e.g., ".ts", ".py"
+          const dir = path.dirname(finalPath);
+          const base = path.basename(basePath);
+          finalPath = path.join(dir, base + getModuleFolderSuffix(), "script" + ext);
+          break;
+        }
+      }
+    }
 
     const r = [
       {
@@ -896,15 +936,23 @@ function ZipFSElement(
               log.error(`Failed to parse script.yaml at path: ${p}`);
               throw error;
             }
+            const hasModules = parsed["modules"] && Object.keys(parsed["modules"]).length > 0;
             if (
               parsed["lock"] &&
               parsed["lock"] != "" &&
               parsed["codebase"] == undefined
             ) {
-              parsed["lock"] =
-                "!inline " +
-                removeSuffix(p.replaceAll(SEP, "/"), ".json") +
-                ".lock";
+              if (hasModules) {
+                // Lock lives inside __mod/ folder as script.lock
+                const scriptBase = removeSuffix(removeSuffix(p.replaceAll(SEP, "/"), ".json"), ".script");
+                parsed["lock"] =
+                  "!inline " + scriptBase + getModuleFolderSuffix() + "/script.lock";
+              } else {
+                parsed["lock"] =
+                  "!inline " +
+                  removeSuffix(p.replaceAll(SEP, "/"), ".json") +
+                  ".lock";
+              }
             } else if (parsed["lock"] == "") {
               parsed["lock"] = "";
             } else {
@@ -913,7 +961,7 @@ function ZipFSElement(
             if (ignoreCodebaseChanges && parsed["codebase"]) {
               parsed["codebase"] = undefined;
             }
-            // Modules are stored as files in __module/ folder, not in metadata
+            // Modules are stored as files in __mod/ folder, not in metadata
             delete parsed["modules"];
             return useYaml
               ? yamlStringify(parsed, yamlOptions)
@@ -974,10 +1022,28 @@ function ZipFSElement(
         throw error;
       }
       const lock = parsed["lock"];
+      const scriptModules: Record<string, ScriptModule> | undefined = parsed["modules"];
+      const hasModules = scriptModules && Object.keys(scriptModules).length > 0;
+
+      // Compute base path and module folder
+      const metaExt = useYaml ? ".yaml" : ".json";
+      const scriptBasePath = removeSuffix(
+        removeSuffix(finalPath, metaExt),
+        ".script"
+      );
+      const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
+
+      if (hasModules) {
+        // Redirect metadata into __mod/script.yaml
+        r[0].path = path.join(moduleFolderPath, "script" + metaExt);
+      }
+
       if (lock && lock != "") {
         r.push({
           isDirectory: false,
-          path: removeSuffix(finalPath, ".json") + ".lock",
+          path: hasModules
+            ? path.join(moduleFolderPath, "script.lock")
+            : removeSuffix(finalPath, metaExt) + ".lock",
           async *getChildren() {},
           async getContentText() {
             return lock;
@@ -985,21 +1051,13 @@ function ZipFSElement(
         });
       }
 
-      // Extract script modules into __module/ folder
-      const scriptModules: Record<string, ScriptModule> | undefined = parsed["modules"];
-      if (scriptModules && Object.keys(scriptModules).length > 0) {
-        // The script metadata base path (without .script.json/.script.yaml)
-        const scriptBasePath = removeSuffix(
-          removeSuffix(finalPath, ".json"),
-          ".script"
-        );
-        const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
-
+      // Extract script modules into __mod/ folder
+      if (hasModules) {
         r.push({
           isDirectory: true,
           path: moduleFolderPath,
           async *getChildren() {
-            for (const [relPath, mod] of Object.entries(scriptModules)) {
+            for (const [relPath, mod] of Object.entries(scriptModules!)) {
               // Yield the module content file
               yield {
                 isDirectory: false,
@@ -1015,7 +1073,7 @@ function ZipFSElement(
                 const baseName = relPath.substring(0, relPath.indexOf("."));
                 yield {
                   isDirectory: false,
-                  path: path.join(moduleFolderPath, baseName + ".script.lock"),
+                  path: path.join(moduleFolderPath, baseName + ".lock"),
                   async *getChildren() {},
                   async getContentText() {
                     return mod.lock!;
@@ -1849,7 +1907,7 @@ async function buildTracker(changes: Change[]) {
 
 /**
  * When a module file changes, find and push the parent script.
- * The parent script's handleFile will read the __module/ folder and include all modules.
+ * The parent script's handleFile will read the __mod/ folder and include all modules.
  */
 async function pushParentScriptForModule(
   modulePath: string,
@@ -1864,8 +1922,26 @@ async function pushParentScriptForModule(
   const idx = modulePath.indexOf(moduleSuffix);
   if (idx === -1) return;
   const scriptBasePath = modulePath.substring(0, idx);
+  const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
 
-  // Find the parent script content file
+  // Try folder layout first: look for script.{ext} inside __mod/
+  try {
+    const entryPoint = await findContentFile(moduleFolderPath + "/script.yaml");
+    if (entryPoint) {
+      await handleFile(
+        entryPoint,
+        workspace,
+        alreadySynced,
+        message,
+        opts,
+        rawWorkspaceDependencies,
+        codebases,
+      );
+      return;
+    }
+  } catch {}
+
+  // Fall back to flat layout: look for content file alongside __mod/
   try {
     const contentPath = await findContentFile(scriptBasePath + ".script.yaml");
     if (contentPath) {

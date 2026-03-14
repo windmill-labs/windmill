@@ -208,7 +208,7 @@
 					kind: 'script',
 					starred: false,
 					schema: hubScript.schema as Script['schema'],
-					no_main_func: false,
+					auto_kind: undefined,
 					has_preprocessor: false
 				}
 				can_write = false
