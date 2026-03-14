@@ -18,7 +18,7 @@ const NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT: &str =
     include_str!("../nsjail/run.powershell.config.proto");
 
 lazy_static::lazy_static! {
-    static ref RE_POWERSHELL_IMPORTS: Regex = Regex::new(r#"^Import-Module\s+(?:-Name\s+)?"?([^\s"]+)"?(?:\s+-RequiredVersion\s+"?([^\s"]+)"?)?"#).unwrap();
+    static ref RE_POWERSHELL_IMPORTS: Regex = Regex::new(r#"^\s*Import-Module\s+(?:-Name\s+)?"?([^\s"]+)"?(?:\s+-RequiredVersion\s+"?([^\s"]+)"?)?"#).unwrap();
 }
 
 use crate::{
@@ -196,17 +196,24 @@ async fn get_module_versions(module_path: &str) -> Result<Vec<String>, Error> {
                         .to_string();
 
                     // Check if this looks like a version (contains dots and numbers)
+                    // and verify a module manifest (.psd1) or script (.psm1) actually exists
                     if version.chars().any(|c| c.is_numeric()) && version.contains('.') {
-                        versions.push(version);
+                        let has_module_files = fs::read_dir(&version_path)
+                            .map(|entries| {
+                                entries.filter_map(|e| e.ok()).any(|e| {
+                                    let name = e.file_name();
+                                    let name = name.to_string_lossy();
+                                    name.ends_with(".psd1") || name.ends_with(".psm1")
+                                })
+                            })
+                            .unwrap_or(false);
+                        if has_module_files {
+                            versions.push(version);
+                        }
                     }
                 }
             }
         }
-    }
-
-    // If no version subdirectories found, treat as single version installation
-    if versions.is_empty() {
-        versions.push("unknown".to_string());
     }
 
     Ok(versions)
@@ -466,8 +473,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
     let strict_termination_end = "\n\
         } catch {\n\
-            Write-Output \"An error occurred:\n\"\
-            Write-Output $_
+            Write-Output \"An error occurred:\"\n\
+            Write-Output $_\n\
             exit 1\n\
         }\n";
 
