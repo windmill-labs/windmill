@@ -696,3 +696,231 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         "No result.out, result2.out or result.json found"
     )))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    // --- RE_POWERSHELL_IMPORTS regex tests ---
+
+    fn match_import(line: &str) -> Option<(String, Option<String>)> {
+        RE_POWERSHELL_IMPORTS.captures(line).map(|cap| {
+            let name = cap.get(1).unwrap().as_str().to_string();
+            let version = cap.get(2).map(|m| m.as_str().to_string());
+            (name, version)
+        })
+    }
+
+    #[test]
+    fn test_import_module_basic() {
+        let (name, version) = match_import("Import-Module WindmillClient").unwrap();
+        assert_eq!(name, "WindmillClient");
+        assert_eq!(version, None);
+    }
+
+    #[test]
+    fn test_import_module_with_leading_whitespace() {
+        let (name, _) = match_import("    Import-Module WindmillClient").unwrap();
+        assert_eq!(name, "WindmillClient");
+    }
+
+    #[test]
+    fn test_import_module_with_tab_indent() {
+        let (name, _) = match_import("\tImport-Module WindmillClient").unwrap();
+        assert_eq!(name, "WindmillClient");
+    }
+
+    #[test]
+    fn test_import_module_with_name_flag() {
+        let (name, _) = match_import("Import-Module -Name WindmillClient").unwrap();
+        assert_eq!(name, "WindmillClient");
+    }
+
+    #[test]
+    fn test_import_module_with_required_version() {
+        let (name, version) =
+            match_import(r#"Import-Module WindmillClient -RequiredVersion "1.655.0""#).unwrap();
+        assert_eq!(name, "WindmillClient");
+        assert_eq!(version, Some("1.655.0".to_string()));
+    }
+
+    #[test]
+    fn test_import_module_quoted_name() {
+        let (name, _) = match_import(r#"Import-Module "WindmillClient""#).unwrap();
+        assert_eq!(name, "WindmillClient");
+    }
+
+    #[test]
+    fn test_import_module_name_flag_quoted_with_version() {
+        let (name, version) =
+            match_import(r#"Import-Module -Name "WindmillClient" -RequiredVersion "2.0.0""#)
+                .unwrap();
+        assert_eq!(name, "WindmillClient");
+        assert_eq!(version, Some("2.0.0".to_string()));
+    }
+
+    #[test]
+    fn test_import_module_indented_with_version() {
+        let (name, version) =
+            match_import(r#"    Import-Module WindmillClient -RequiredVersion 1.0.0"#).unwrap();
+        assert_eq!(name, "WindmillClient");
+        assert_eq!(version, Some("1.0.0".to_string()));
+    }
+
+    #[test]
+    fn test_commented_import_not_matched() {
+        assert!(match_import("# Import-Module WindmillClient").is_none());
+    }
+
+    // --- get_module_versions / check_module_installed tests ---
+
+    #[tokio::test]
+    async fn test_empty_module_dir_not_installed() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("WindmillClient");
+        fs::create_dir(&module_dir).unwrap();
+
+        let versions = get_module_versions(module_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        assert!(versions.is_empty(), "empty dir should have no versions");
+    }
+
+    #[tokio::test]
+    async fn test_empty_version_subdir_not_installed() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("WindmillClient");
+        let version_dir = module_dir.join("1.655.0");
+        fs::create_dir_all(&version_dir).unwrap();
+
+        let versions = get_module_versions(module_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        assert!(
+            versions.is_empty(),
+            "version dir without .psd1/.psm1 should not count"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_valid_versioned_module_detected() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("WindmillClient");
+        let version_dir = module_dir.join("1.655.0");
+        fs::create_dir_all(&version_dir).unwrap();
+        fs::write(version_dir.join("WindmillClient.psd1"), "# manifest").unwrap();
+        fs::write(version_dir.join("WindmillClient.psm1"), "# module").unwrap();
+
+        let versions = get_module_versions(module_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(versions, vec!["1.655.0"]);
+    }
+
+    #[tokio::test]
+    async fn test_flat_module_with_files_detected() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("MyModule");
+        fs::create_dir(&module_dir).unwrap();
+        fs::write(module_dir.join("MyModule.psm1"), "# module").unwrap();
+
+        let versions = get_module_versions(module_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(versions, vec!["unknown"]);
+    }
+
+    #[tokio::test]
+    async fn test_flat_module_without_files_not_detected() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("MyModule");
+        fs::create_dir(&module_dir).unwrap();
+        fs::write(module_dir.join("readme.txt"), "not a module").unwrap();
+
+        let versions = get_module_versions(module_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        assert!(versions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_check_module_installed_empty_dir_returns_false() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("WindmillClient");
+        fs::create_dir(&module_dir).unwrap();
+
+        let mut dirs = HashMap::new();
+        dirs.insert(
+            "windmillclient".to_string(),
+            module_dir.to_str().unwrap().to_string(),
+        );
+
+        let (installed, _) = check_module_installed(&dirs, "WindmillClient", None)
+            .await
+            .unwrap();
+        assert!(
+            !installed,
+            "empty module dir should not be considered installed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_check_module_installed_valid_module_returns_true() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("WindmillClient");
+        let version_dir = module_dir.join("1.655.0");
+        fs::create_dir_all(&version_dir).unwrap();
+        fs::write(version_dir.join("WindmillClient.psd1"), "# manifest").unwrap();
+
+        let mut dirs = HashMap::new();
+        dirs.insert(
+            "windmillclient".to_string(),
+            module_dir.to_str().unwrap().to_string(),
+        );
+
+        let (installed, versions) = check_module_installed(&dirs, "WindmillClient", None)
+            .await
+            .unwrap();
+        assert!(installed);
+        assert_eq!(versions, vec!["1.655.0"]);
+    }
+
+    #[tokio::test]
+    async fn test_check_module_installed_wrong_version_returns_false() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("WindmillClient");
+        let version_dir = module_dir.join("1.0.0");
+        fs::create_dir_all(&version_dir).unwrap();
+        fs::write(version_dir.join("WindmillClient.psd1"), "# manifest").unwrap();
+
+        let mut dirs = HashMap::new();
+        dirs.insert(
+            "windmillclient".to_string(),
+            module_dir.to_str().unwrap().to_string(),
+        );
+
+        let (installed, _) = check_module_installed(&dirs, "WindmillClient", Some("2.0.0"))
+            .await
+            .unwrap();
+        assert!(!installed, "wrong version should not match");
+    }
+
+    #[tokio::test]
+    async fn test_multiple_versions_detected() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("WindmillClient");
+        for ver in &["1.0.0", "1.655.0"] {
+            let version_dir = module_dir.join(ver);
+            fs::create_dir_all(&version_dir).unwrap();
+            fs::write(version_dir.join("WindmillClient.psd1"), "# manifest").unwrap();
+        }
+
+        let mut versions = get_module_versions(module_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        versions.sort();
+        assert_eq!(versions, vec!["1.0.0", "1.655.0"]);
+    }
+}
