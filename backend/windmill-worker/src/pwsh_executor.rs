@@ -216,6 +216,23 @@ async fn get_module_versions(module_path: &str) -> Result<Vec<String>, Error> {
         }
     }
 
+    // If no version subdirectories found, check if module files exist directly
+    // in the module directory (flat/single-version installation)
+    if versions.is_empty() {
+        let has_module_files = fs::read_dir(module_path)
+            .map(|entries| {
+                entries.filter_map(|e| e.ok()).any(|e| {
+                    let name = e.file_name();
+                    let name = name.to_string_lossy();
+                    name.ends_with(".psd1") || name.ends_with(".psm1")
+                })
+            })
+            .unwrap_or(false);
+        if has_module_files {
+            versions.push("unknown".to_string());
+        }
+    }
+
     Ok(versions)
 }
 
