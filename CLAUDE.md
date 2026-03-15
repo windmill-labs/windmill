@@ -50,28 +50,6 @@ let { my_prop = $bindable(default_value) }: { my_prop?: string } = $props()
 
 2. **Create a `useMyPropState()` helper** — encapsulate the undefined-handling logic in a reusable function and call it higher in the component tree, so the child component always receives a defined value.
 
-## CLI: `nonDottedPaths` Convention
-
-The CLI supports two folder/file naming modes controlled by `nonDottedPaths` in `wmill.yaml`:
-
-| | Dotted (default) | Non-dotted (`nonDottedPaths: true`) |
-|---|---|---|
-| Flow folders | `name.flow/` | `name__flow/` |
-| App folders | `name.app/` | `name__app/` |
-| Raw app folders | `name.raw_app/` | `name__raw_app/` |
-| Inline scripts | `a.inline_script.ts` | `a.ts` |
-| Lock files | `a.inline_script.lock` | `a.lock` |
-
-**Required pattern**: Every call to `newPathAssigner()` or `extractInlineScripts*()` in CLI code **must** pass the current setting:
-
-```typescript
-newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() })
-```
-
-Use `getFolderSuffix(type)` for folder suffixes — never hardcode `.flow`/`__flow`.
-
-Key files: `cli/src/utils/resource_folders.ts` (config), `cli/windmill-utils-internal/src/path-utils/path-assigner.ts` (path generation).
-
 ## Code Navigation
 
 `wm-ts-nav` is an AST-aware code navigator. Use **wm-ts-nav** for structural queries — it skips comments/strings and understands symbol boundaries.
