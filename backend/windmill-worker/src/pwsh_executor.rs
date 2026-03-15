@@ -458,25 +458,26 @@ pub async fn handle_powershell_job(
     logs2.push_str("\n\n--- POWERSHELL CODE EXECUTION ---\n");
     append_logs(&job.id, &job.workspace_id, logs2, db).await;
 
-    // make sure default (only allhostsallusers) modules are loaded, disable autoload (cache can be large to explore especially on cloud) and add /tmp/windmill/cache to PSModulePath
+    // Pre-load system modules and cached modules (e.g. WindmillClient), then disable
+    // autoloading so the large cache dir isn't scanned on every command invocation.
     #[cfg(unix)]
     let profile = format!(
         "$PSModuleAutoloadingPreference = 'None'
 $PSModulePathBackup = $env:PSModulePath
-$env:PSModulePath = \"$PSHome/Modules\"
+$env:PSModulePath = \"$PSHome/Modules:{}\"
 Get-Module -ListAvailable | Import-Module
 $env:PSModulePath = \"{}:$PSModulePathBackup\"",
-        *POWERSHELL_CACHE_DIR
+        *POWERSHELL_CACHE_DIR, *POWERSHELL_CACHE_DIR
     );
 
     #[cfg(windows)]
     let profile = format!(
         "$PSModuleAutoloadingPreference = 'None'
 $PSModulePathBackup = $env:PSModulePath
-$env:PSModulePath = \"C:\\Program Files\\PowerShell\\7\\Modules\"
+$env:PSModulePath = \"C:\\Program Files\\PowerShell\\7\\Modules;{}\"
 Get-Module -ListAvailable | Import-Module
 $env:PSModulePath = \"{};$PSModulePathBackup\"",
-        *POWERSHELL_CACHE_DIR
+        *POWERSHELL_CACHE_DIR, *POWERSHELL_CACHE_DIR
     );
 
     // NOTE: powershell error handling / termination is quite tricky compared to bash
