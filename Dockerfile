@@ -54,7 +54,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     cargo build --release -p windmill_duckdb_ffi_internal
 
-FROM node:24-alpine as frontend
+FROM node:25-alpine as frontend
 
 # install dependencies
 WORKDIR /frontend
