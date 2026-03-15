@@ -143,5 +143,8 @@ hyper-tls = { workspace = true, optional = true }
 hyper-util = { workspace = true, optional = true }
 rcgen = { workspace = true, optional = true }
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [build-dependencies]
 libffi-sys = { workspace = true, optional = true }
