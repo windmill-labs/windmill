@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT workspace_id\n            FROM workspace_settings\n            WHERE auto_invite->'instance_groups' ? $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4babcd56ecc58f8e695f1b2f6f9df6214c40684fd0b9a7ab06d59f80d2757624"
+}

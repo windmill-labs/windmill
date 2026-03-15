@@ -64,6 +64,7 @@ import {
   getModuleFolderSuffix,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
+  isRawAppPath,
 } from "../../utils/resource_folders.ts";
 
 export interface ScriptFile {
@@ -1156,6 +1157,7 @@ export async function generateMetadata(
           ignore(p, isD) ||
           isFlowPath(p) ||
           isAppPath(p) ||
+          isRawAppPath(p) ||
           // Skip module helper files; only entry points (script.{ext}) are processed
           (isScriptModulePath(p) && !isModuleEntryPoint(p))
         );

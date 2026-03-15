@@ -1535,6 +1535,92 @@ Write-Output "hello $msg"
     Ok(())
 }
 
+#[sqlx::test(fixtures("base"))]
+async fn test_powershell_param_block_with_attributes(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$Name,
+    [int]$Count = 3
+)
+Write-Output "$Name-$Count"
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Powershell,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .arg("Name", json!("test"))
+    .arg("Count", json!(7))
+    .run_until_complete(&db, false, port)
+    .await;
+    assert_eq!(job.json_result(), Some(json!("test-7")));
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_powershell_error_caught(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Script with param block that throws an error — verifies the catch block works
+    let content = r#"
+param($x)
+throw "intentional error"
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Powershell,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+    }))
+    .arg("x", json!(1))
+    .run_until_complete(&db, false, port)
+    .await;
+    assert!(!job.success, "job should fail on thrown error");
+    let result_str = serde_json::to_string(&job.result).unwrap_or_default();
+    assert!(
+        result_str.contains("An error occurred:"),
+        "catch block should output 'An error occurred:', got: {result_str}"
+    );
+    assert!(
+        result_str.contains("intentional error"),
+        "catch block should output the error message, got: {result_str}"
+    );
+    // Verify the catch block doesn't leak "Write-Output" as literal text
+    // (regression from the old broken line continuation in strict_termination_end)
+    let after_marker = result_str.split("An error occurred:").nth(1).unwrap_or("");
+    assert!(
+        !after_marker.starts_with("\\nWrite-Output"),
+        "catch block should not output literal 'Write-Output' text, got: {result_str}"
+    );
+    Ok(())
+}
+
 #[cfg(feature = "php")]
 #[sqlx::test(fixtures("base"))]
 async fn test_php_job(db: Pool<Postgres>) -> anyhow::Result<()> {

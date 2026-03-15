@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                jsonb_strip_nulls(jsonb_build_object(\n                    'path', path,\n                    'kind', kind,\n                    'access_type', usage_access_type,\n                    'columns', columns\n                )) as \"list!: _\"\n            FROM asset\n            WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3\n            ORDER BY path, kind",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "list!: _",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "asset_usage_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "job"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a750630d79166f5b6d5be0e049c36135212666ce74dbf290d701b6402b800f13"
+}

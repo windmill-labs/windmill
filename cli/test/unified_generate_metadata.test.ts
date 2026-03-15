@@ -8,7 +8,7 @@
 import { expect, test, describe } from "bun:test";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
-import { writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import {
   createLocalScript,
   createLocalFlow,
@@ -20,7 +20,12 @@ import {
 /**
  * Helper to set up a workspace with wmill.yaml
  */
-async function setupWorkspace(backend: any, tempDir: string, workspaceName: string) {
+async function setupWorkspace(
+  backend: any,
+  tempDir: string,
+  workspaceName: string,
+  nonDottedPaths = false
+) {
   const testWorkspace = {
     remote: backend.baseUrl,
     workspaceId: backend.workspace,
@@ -30,9 +35,86 @@ async function setupWorkspace(backend: any, tempDir: string, workspaceName: stri
   await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
 
   await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
-includes:
+${nonDottedPaths ? "nonDottedPaths: true\n" : ""}includes:
   - "**"
 excludes: []`, "utf-8");
+}
+
+async function createLocalNonDottedFlow(tempDir: string, name: string) {
+  const flowDir = `${tempDir}/f/test/${name}__flow`;
+  await mkdir(flowDir, { recursive: true });
+
+  await writeFile(
+    `${flowDir}/a.ts`,
+    `export async function main() {\n  return "Hello from flow ${name}";\n}`,
+    "utf-8"
+  );
+
+  await writeFile(
+    `${flowDir}/flow.yaml`,
+    `summary: "${name} flow"
+description: "A flow for testing"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []
+`,
+    "utf-8"
+  );
+}
+
+async function createLocalNonDottedApp(tempDir: string, name: string) {
+  const appDir = `${tempDir}/f/test/${name}__app`;
+  await mkdir(appDir, { recursive: true });
+
+  await writeFile(
+    `${appDir}/app.yaml`,
+    `summary: "${name} app"
+value:
+  type: app
+  grid:
+    - id: button1
+      data:
+        type: buttoncomponent
+        componentInput:
+          type: runnable
+          runnable:
+            type: runnableByName
+            inlineScript:
+              content: |
+                export async function main() {
+                  return "hello from app";
+                }
+              language: bun
+  hiddenInlineScripts: []
+  css: {}
+  norefreshbar: false
+policy:
+  on_behalf_of: null
+  on_behalf_of_email: null
+  triggerables: {}
+  execution_mode: viewer
+`,
+    "utf-8"
+  );
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await stat(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // =============================================================================
@@ -154,6 +236,87 @@ describe("generate-metadata flags", () => {
       );
 
       expect(result.code).toEqual(0);
+    });
+  });
+
+  test("--lock-only preserves non-dotted flow filenames", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "lock_only_non_dotted_test", true);
+
+      await createLocalNonDottedFlow(tempDir, "my_flow");
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "--lock-only"],
+        tempDir,
+        "lock_only_non_dotted_test"
+      );
+
+      expect(result.code).toEqual(0);
+
+      const flowDir = `${tempDir}/f/test/my_flow__flow`;
+      const flowYaml = await readFile(`${flowDir}/flow.yaml`, "utf-8");
+
+      expect(flowYaml).toContain("!inline a.ts");
+      expect(flowYaml).toContain("!inline a.lock");
+      expect(flowYaml).not.toContain(".inline_script.");
+      expect(await fileExists(`${flowDir}/a.lock`)).toEqual(true);
+      expect(await fileExists(`${flowDir}/a.inline_script.ts`)).toEqual(false);
+      expect(await fileExists(`${flowDir}/a.inline_script.lock`)).toEqual(false);
+    });
+  });
+
+  test("generate-metadata preserves non-dotted flow inline script filenames", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "full_gen_non_dotted_flow_test", true);
+
+      await createLocalNonDottedFlow(tempDir, "my_flow");
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "full_gen_non_dotted_flow_test"
+      );
+
+      expect(result.code).toEqual(0);
+
+      const flowDir = `${tempDir}/f/test/my_flow__flow`;
+      const flowYaml = await readFile(`${flowDir}/flow.yaml`, "utf-8");
+
+      // Inline script references should use non-dotted naming
+      expect(flowYaml).toContain("!inline a.ts");
+      expect(flowYaml).toContain("!inline a.lock");
+      expect(flowYaml).not.toContain(".inline_script.");
+      expect(await fileExists(`${flowDir}/a.ts`)).toEqual(true);
+      expect(await fileExists(`${flowDir}/a.lock`)).toEqual(true);
+      expect(await fileExists(`${flowDir}/a.inline_script.ts`)).toEqual(false);
+      expect(await fileExists(`${flowDir}/a.inline_script.lock`)).toEqual(false);
+    });
+  });
+
+  test("generate-metadata uses non-dotted app inline script filenames", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "non_dotted_app_gen_test", true);
+
+      await createLocalNonDottedApp(tempDir, "my_app");
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "non_dotted_app_gen_test"
+      );
+
+      expect(result.code).toEqual(0);
+
+      const appDir = `${tempDir}/f/test/my_app__app`;
+      const appYaml = await readFile(`${appDir}/app.yaml`, "utf-8");
+
+      // Inline script references should use non-dotted naming
+      expect(appYaml).not.toContain(".inline_script.");
+      // Verify no dotted inline script files were created
+      const { readdir: readdirAsync } = await import("node:fs/promises");
+      const files = await readdirAsync(appDir);
+      const dottedFiles = files.filter((f: string) => f.includes(".inline_script."));
+      expect(dottedFiles.length).toEqual(0);
     });
   });
 

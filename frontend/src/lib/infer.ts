@@ -105,17 +105,17 @@ async function initWasmAsset() {
 
 type InferAssetsResult =
 	| {
-			status: 'ok'
-			assets: AssetWithAccessType[]
-			sql_queries?: InferAssetsSqlQueryDetails[]
-			columns?: Record<string, AssetUsageAccessType>
-	  }
+		status: 'ok'
+		assets: AssetWithAccessType[]
+		sql_queries?: InferAssetsSqlQueryDetails[]
+		columns?: Record<string, AssetUsageAccessType>
+	}
 	| {
-			status: 'error'
-			error: string
-			assets?: undefined
-			sql_queries?: undefined
-	  }
+		status: 'error'
+		error: string
+		assets?: undefined
+		sql_queries?: undefined
+	}
 
 export type InferAssetsSqlQueryDetails = {
 	query_string: string // SQL query with $1 placeholders for interpolations
@@ -383,6 +383,11 @@ export async function inferArgs(
 		schema.properties[arg.name] = sortObject(schema.properties[arg.name])
 
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
+
+		// For T | T[] detection for debouncing arg accumulation
+		if ((arg as any).otyp && (arg as any).otyp.includes('[') && (arg as any).otyp.includes('|')) {
+			schema.properties[arg.name].originalType = (arg as any).otyp
+		}
 
 		schema.properties[arg.name].default = arg.default
 

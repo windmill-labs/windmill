@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            eig.igroup as group_name,\n            ws.auto_invite->'instance_groups_roles' as instance_groups_roles\n        FROM email_to_igroup eig\n        INNER JOIN workspace_settings ws ON ws.workspace_id = $1\n        WHERE eig.email = $2\n        AND ws.auto_invite->'instance_groups' ? eig.igroup\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "instance_groups_roles",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "7e5913aa98624836a9bd7b5cc5cb10cc79a1249f48de45ea1c15235d4b05576b"
+}

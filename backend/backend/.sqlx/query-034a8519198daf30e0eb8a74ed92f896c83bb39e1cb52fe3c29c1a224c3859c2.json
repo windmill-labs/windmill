@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_diff SET has_changes = true, exists_in_source = $5, exists_in_fork = $6\n                    WHERE path = $3 AND kind = $4 AND (\n                        (source_workspace_id = $1 AND fork_workspace_id = $2)\n                        OR (source_workspace_id = $2 AND fork_workspace_id =$1)\n                    )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "034a8519198daf30e0eb8a74ed92f896c83bb39e1cb52fe3c29c1a224c3859c2"
+}

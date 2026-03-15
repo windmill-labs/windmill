@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, conversation_id, message_type as \"message_type: MessageType\", content, job_id, created_at, step_name, success\n         FROM (\n            SELECT id, conversation_id, message_type, content, job_id, created_at, step_name, success\n            FROM flow_conversation_message\n            WHERE conversation_id = $1\n            ORDER BY created_at DESC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END\n            LIMIT $2 OFFSET $3\n         ) AS messages\n         ORDER BY created_at ASC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END\n         ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "conversation_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "message_type: MessageType",
+        "type_info": {
+          "Custom": {
+            "name": "message_type",
+            "kind": {
+              "Enum": [
+                "user",
+                "assistant",
+                "tool"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "content",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "job_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "step_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "success",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "a739af2f72e117acc58374f6ed44f8223efa4826d6c10639f98e624474b247a3"
+}

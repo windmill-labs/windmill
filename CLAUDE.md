@@ -4,7 +4,7 @@ Open-source platform for internal tools, workflows, API integrations, background
 
 ## Workflow
 
-1. **Understand**: Before coding, use `wm-ts-nav` to explore (see Code Navigation below). Use `outline` to understand file structure, `body` to read specific symbols, `def`/`callers`/`callees` to trace code. Read `docs/` for domain context.
+1. **Understand**: Before coding, explore the codebase (see Code Navigation below). Use `outline` to understand file structure, `body` to read specific symbols, `def`/`callers`/`callees` to trace code, `Grep` to find usages. Read `docs/` for domain context.
 2. **Plan**: For non-trivial changes, use plan mode. For large features, break into reviewable stages
 3. **Execute**: Follow coding patterns from skills (`rust-backend`, `svelte-frontend`)
 4. **Validate**: After every change, run the appropriate checks per `docs/validation.md`
@@ -52,11 +52,9 @@ let { my_prop = $bindable(default_value) }: { my_prop?: string } = $props()
 
 ## Code Navigation
 
-`wm-ts-nav` is an AST-aware code navigator. Use **Grep** for regex/pattern search. Use **wm-ts-nav** for structural queries — it skips comments/strings and understands symbol boundaries.
+`wm-ts-nav` is an AST-aware code navigator. Use **wm-ts-nav** for structural queries — it skips comments/strings and understands symbol boundaries.
 
-**Prefer wm-ts-nav over Read** to save context window:
-- `outline <file>` instead of reading a full file — understand structure first, then `body` or Read for specifics
-- `body "X"` instead of reading a full file to see one function/struct
+**MUST use `outline` before `Read`** on unfamiliar files — a 500-line file costs ~500 lines of context, while `outline` costs ~20. Then **MUST use `body "X"`** instead of reading a full file to see one function/struct. Use `Read` with offset/limit only when you need surrounding context that `body` doesn't capture.
 - `refs "X" --caller` instead of reading files to find which function contains each reference
 - `callers "X"` / `callees "X"` for call-graph questions
 
@@ -73,20 +71,14 @@ $NAV --root backend callers "X"                           # who calls X?
 $NAV --root backend callees "X"                           # what does X call?
 ```
 
-**Limitations** — syntax-level analysis, no type inference:
-- Import paths are stored literally — `crate::X` and `super::X` pointing to the same type won't be linked
-- Re-export chains (`pub use`) aren't followed — refs through different re-export paths won't connect
-- Trait methods can't be resolved to their trait definition
-- Nested `use` trees (`use foo::{bar::{A, B}, baz::C}`) aren't parsed correctly
-- Glob imports (`use foo::*`) — refs won't show import origin
-- Macro-generated symbols (e.g. `sqlx::FromRow`) — invisible to tree-sitter
-- Single-char identifiers — intentionally filtered out of refs
+**Limitations** — syntax-level analysis, no type inference. Use **Grep** instead when completeness matters (finding all usages, exhaustiveness checks):
+- `refs`/`callers`/`callees` can't follow re-exports, glob imports, or different import paths to the same symbol
+- Trait impls, macro-generated symbols (`sqlx::FromRow`), and namespace member access (`ns.X`) are invisible
 - `callees` shows all identifiers in a function body, not just actual calls
-- `import * as ns` namespace imports — member accesses through `ns.X` aren't resolved
 
 ## Core Principles
 
-- **Use `outline`/`body` to explore, then `Read` with offset/limit from the results before editing** — avoid reading full files
+- **MUST `outline` before `Read`** on unfamiliar files — then `body` or `Read` with offset/limit for specifics
 - Search for existing code to reuse before writing new code
 - Follow established patterns in the codebase
 - Keep changes focused — don't refactor beyond what's asked
