@@ -68,7 +68,7 @@ export {
   workspaceAdd,
 };
 
-export const VERSION = "1.657.1";
+export const VERSION = "1.657.2";
 
 // Re-exported from constants.ts to maintain backwards compatibility
 export { WM_FORK_PREFIX } from "./core/constants.ts";
