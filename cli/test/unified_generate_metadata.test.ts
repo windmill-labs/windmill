@@ -8,7 +8,7 @@
 import { expect, test, describe } from "bun:test";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
-import { writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import {
   createLocalScript,
   createLocalFlow,
@@ -19,7 +19,12 @@ import {
 /**
  * Helper to set up a workspace with wmill.yaml
  */
-async function setupWorkspace(backend: any, tempDir: string, workspaceName: string) {
+async function setupWorkspace(
+  backend: any,
+  tempDir: string,
+  workspaceName: string,
+  nonDottedPaths = false
+) {
   const testWorkspace = {
     remote: backend.baseUrl,
     workspaceId: backend.workspace,
@@ -29,9 +34,50 @@ async function setupWorkspace(backend: any, tempDir: string, workspaceName: stri
   await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
 
   await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
-includes:
+${nonDottedPaths ? "nonDottedPaths: true\n" : ""}includes:
   - "**"
 excludes: []`, "utf-8");
+}
+
+async function createLocalNonDottedFlow(tempDir: string, name: string) {
+  const flowDir = `${tempDir}/f/test/${name}__flow`;
+  await mkdir(flowDir, { recursive: true });
+
+  await writeFile(
+    `${flowDir}/a.ts`,
+    `export async function main() {\n  return "Hello from flow ${name}";\n}`,
+    "utf-8"
+  );
+
+  await writeFile(
+    `${flowDir}/flow.yaml`,
+    `summary: "${name} flow"
+description: "A flow for testing"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline a.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []
+`,
+    "utf-8"
+  );
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await stat(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // =============================================================================
@@ -153,6 +199,32 @@ describe("generate-metadata flags", () => {
       );
 
       expect(result.code).toEqual(0);
+    });
+  });
+
+  test("--lock-only preserves non-dotted flow filenames", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "lock_only_non_dotted_test", true);
+
+      await createLocalNonDottedFlow(tempDir, "my_flow");
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "--lock-only"],
+        tempDir,
+        "lock_only_non_dotted_test"
+      );
+
+      expect(result.code).toEqual(0);
+
+      const flowDir = `${tempDir}/f/test/my_flow__flow`;
+      const flowYaml = await readFile(`${flowDir}/flow.yaml`, "utf-8");
+
+      expect(flowYaml).toContain("!inline a.ts");
+      expect(flowYaml).toContain("!inline a.lock");
+      expect(flowYaml).not.toContain(".inline_script.");
+      expect(await fileExists(`${flowDir}/a.lock`)).toEqual(true);
+      expect(await fileExists(`${flowDir}/a.inline_script.ts`)).toEqual(false);
+      expect(await fileExists(`${flowDir}/a.inline_script.lock`)).toEqual(false);
     });
   });
 

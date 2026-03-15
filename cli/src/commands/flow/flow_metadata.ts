@@ -29,7 +29,10 @@ import { FlowFile } from "./flow.ts";
 import { FlowValue } from "../../../gen/types.gen.ts";
 import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { workspaceDependenciesLanguages } from "../../utils/script_common.ts";
-import { extractNameFromFolder, getFolderSuffix } from "../../utils/resource_folders.ts";
+import {
+  extractNameFromFolder,
+  getNonDottedPaths,
+} from "../../utils/resource_folders.ts";
 
 const TOP_HASH = "__flow_hash";
 async function generateFlowHash(
@@ -157,7 +160,9 @@ export async function generateFlowLockInternal(
       filteredDeps
     );
 
-    const lockAssigner = newPathAssigner(opts.defaultTs ?? "bun");
+    const lockAssigner = newPathAssigner(opts.defaultTs ?? "bun", {
+      skipInlineScriptSuffix: getNonDottedPaths(),
+    });
     const inlineScripts = extractInlineScriptsForFlows(
       flowValue.value.modules,
       {},
