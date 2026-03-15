@@ -702,6 +702,55 @@ describe("generate-metadata with script modules", () => {
     });
   });
 
+  test("modifying a module re-triggers stale detection", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "module_modify_test");
+
+      await createLocalScriptWithModules(tempDir, "f/test", "order_workflow", "bun", [
+        { path: "helper.ts", content: 'export function greet() { return "hi"; }\n' },
+        { path: "utils.ts", content: 'export const VERSION = "1.0";\n' },
+      ]);
+
+      // First run — generate metadata
+      const result1 = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "module_modify_test"
+      );
+      expect(result1.code).toEqual(0);
+
+      // Second run — should be up-to-date
+      const result2 = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "module_modify_test"
+      );
+      expect(result2.code).toEqual(0);
+      const output2 = result2.stdout + result2.stderr;
+      expect(output2).not.toContain("order_workflow");
+
+      // Modify one module
+      await writeFile(
+        `${tempDir}/f/test/order_workflow__mod/helper.ts`,
+        'export function greet() { return "hello world"; }\n',
+        "utf-8"
+      );
+
+      // Third run — should detect the script as stale with the changed module
+      const result3 = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "module_modify_test"
+      );
+      expect(result3.code).toEqual(0);
+      const output3 = result3.stdout + result3.stderr;
+      expect(output3).toContain("order_workflow");
+      expect(output3).toContain("helper.ts");
+      // utils.ts was not modified, should not be listed as changed
+      expect(output3).not.toContain("utils.ts");
+    });
+  });
+
   test("script with modules and lock files does not crash", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspace(backend, tempDir, "module_with_locks_test");
