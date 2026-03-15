@@ -1768,6 +1768,66 @@ excludes: []
     });
   });
 
+test("Integration: Sync pull with nonDottedPaths uses non-dotted inline script filenames", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      // Push a flow using default dotted paths
+      await writeFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+      "utf-8",
+      );
+
+      const uniqueId = Date.now();
+      const flowName = `f/test/nondot_pull_inline_${uniqueId}`;
+      const flowFixture = createFlowFixture(flowName);
+      await mkdir(`${tempDir}/f/test/nondot_pull_inline_${uniqueId}${getFolderSuffix("flow")}`, { recursive: true });
+      for (const file of Object.values(flowFixture)) {
+        await writeFile(`${tempDir}/${file.path}`, file.content, "utf-8");
+      }
+
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--includes", `f/test/nondot_pull_inline_${uniqueId}*/**`],
+        tempDir,
+      );
+      expect(pushResult.code).toEqual(0);
+
+      // Pull into a fresh directory with nonDottedPaths enabled
+      const tempDir2 = await mkdtemp(join(tmpdir(), "wmill_nondot_inline_"));
+      try {
+        await writeFile(
+          `${tempDir2}/wmill.yaml`,
+          `defaultTs: bun
+nonDottedPaths: true
+includes:
+  - "**"
+excludes: []
+`,
+        "utf-8",
+        );
+
+        const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir2);
+        expect(pullResult.code).toEqual(0);
+
+        // Verify pulled files use non-dotted inline script naming
+        const files = await listFilesRecursive(tempDir2);
+        const flowFiles = files.filter((f) => f.includes(`nondot_pull_inline_${uniqueId}`));
+
+        expect(flowFiles.length > 0).toBeTruthy();
+        // Should use __flow folder, not .flow
+        expect(flowFiles.some((f) => f.includes("__flow/"))).toBeTruthy();
+        // No files should have .inline_script. in their name
+        const dottedInlineFiles = flowFiles.filter((f) => f.includes(".inline_script."));
+        expect(dottedInlineFiles.length).toEqual(0);
+      } finally {
+        await cleanupTempDir(tempDir2);
+      }
+    });
+  });
+
 // =============================================================================
 // ws_error_handler_muted Persistence Tests
 // =============================================================================

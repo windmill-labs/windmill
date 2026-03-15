@@ -71,6 +71,42 @@ schema:
   );
 }
 
+async function createLocalNonDottedApp(tempDir: string, name: string) {
+  const appDir = `${tempDir}/f/test/${name}__app`;
+  await mkdir(appDir, { recursive: true });
+
+  await writeFile(
+    `${appDir}/app.yaml`,
+    `summary: "${name} app"
+value:
+  type: app
+  grid:
+    - id: button1
+      data:
+        type: buttoncomponent
+        componentInput:
+          type: runnable
+          runnable:
+            type: runnableByName
+            inlineScript:
+              content: |
+                export async function main() {
+                  return "hello from app";
+                }
+              language: bun
+  hiddenInlineScripts: []
+  css: {}
+  norefreshbar: false
+policy:
+  on_behalf_of: null
+  on_behalf_of_email: null
+  triggerables: {}
+  execution_mode: viewer
+`,
+    "utf-8"
+  );
+}
+
 async function fileExists(filePath: string): Promise<boolean> {
   try {
     await stat(filePath);
@@ -225,6 +261,61 @@ describe("generate-metadata flags", () => {
       expect(await fileExists(`${flowDir}/a.lock`)).toEqual(true);
       expect(await fileExists(`${flowDir}/a.inline_script.ts`)).toEqual(false);
       expect(await fileExists(`${flowDir}/a.inline_script.lock`)).toEqual(false);
+    });
+  });
+
+  test("generate-metadata preserves non-dotted flow inline script filenames", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "full_gen_non_dotted_flow_test", true);
+
+      await createLocalNonDottedFlow(tempDir, "my_flow");
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "full_gen_non_dotted_flow_test"
+      );
+
+      expect(result.code).toEqual(0);
+
+      const flowDir = `${tempDir}/f/test/my_flow__flow`;
+      const flowYaml = await readFile(`${flowDir}/flow.yaml`, "utf-8");
+
+      // Inline script references should use non-dotted naming
+      expect(flowYaml).toContain("!inline a.ts");
+      expect(flowYaml).toContain("!inline a.lock");
+      expect(flowYaml).not.toContain(".inline_script.");
+      expect(await fileExists(`${flowDir}/a.ts`)).toEqual(true);
+      expect(await fileExists(`${flowDir}/a.lock`)).toEqual(true);
+      expect(await fileExists(`${flowDir}/a.inline_script.ts`)).toEqual(false);
+      expect(await fileExists(`${flowDir}/a.inline_script.lock`)).toEqual(false);
+    });
+  });
+
+  test("generate-metadata uses non-dotted app inline script filenames", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "non_dotted_app_gen_test", true);
+
+      await createLocalNonDottedApp(tempDir, "my_app");
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "non_dotted_app_gen_test"
+      );
+
+      expect(result.code).toEqual(0);
+
+      const appDir = `${tempDir}/f/test/my_app__app`;
+      const appYaml = await readFile(`${appDir}/app.yaml`, "utf-8");
+
+      // Inline script references should use non-dotted naming
+      expect(appYaml).not.toContain(".inline_script.");
+      // Verify no dotted inline script files were created
+      const { readdir: readdirAsync } = await import("node:fs/promises");
+      const files = await readdirAsync(appDir);
+      const dottedFiles = files.filter((f: string) => f.includes(".inline_script."));
+      expect(dottedFiles.length).toEqual(0);
     });
   });
 
