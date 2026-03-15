@@ -546,7 +546,7 @@ impl Hash for NewScript {
         self.assets.hash(state);
         if let Some(modules) = &self.modules {
             let mut sorted: Vec<_> = modules.iter().collect();
-            sorted.sort_by_key(|(k, _)| k.clone());
+            sorted.sort_by_key(|(k, _)| *k);
             for (k, v) in sorted {
                 k.hash(state);
                 v.hash(state);
