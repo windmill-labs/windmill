@@ -1097,21 +1097,16 @@ export function getFlowPrompt(): string {
 
     # Replace hardcoded path conventions with placeholders for CLI runtime resolution.
     # init.ts resolves these based on the nonDottedPaths setting in wmill.yaml.
-    # (Frontend auto-generated files keep the default dotted conventions.)
+    # (Frontend auto-generated files keep the default non-dotted conventions.)
     skills_ts = (skills_ts
+        .replace("\\`__flow\\`", "\\`{{FLOW_SUFFIX}}\\`")
         .replace(
-            "Create a folder ending with \\`.flow\\`"
-            " and add a YAML file with the flow definition.\n"
-            "For rawscript modules, use \\`!inline path/to/script.ts\\`"
-            " for the content key.",
-
-            "Create a folder ending with \\`{{FLOW_SUFFIX}}\\`"
-            " and add a \\`flow.yaml\\` file with the flow definition.\n"
-            "For rawscript modules, use \\`!inline path/to/script.ts\\`"
-            " for the content key. {{INLINE_SCRIPT_NAMING}}"
+            "Inline script files should NOT include \\`.inline_script.\\`"
+            " in their names (e.g. use \\`a.ts\\`, not \\`a.inline_script.ts\\`).",
+            "{{INLINE_SCRIPT_NAMING}}"
         )
-        .replace("my_flow.flow", "my_flow{{FLOW_SUFFIX}}")
-        .replace("my_app.raw_app/", "my_app{{RAW_APP_SUFFIX}}/")
+        .replace("my_flow__flow", "my_flow{{FLOW_SUFFIX}}")
+        .replace("my_app__raw_app/", "my_app{{RAW_APP_SUFFIX}}/")
     )
     (CLI_GUIDANCE_DIR / "skills.ts").write_text(skills_ts)
 
