@@ -4236,10 +4236,10 @@ description: MUST use when creating flows.
 
 ## CLI Commands
 
-Create a folder ending with \`.flow\` and add a YAML file with the flow definition.
-For rawscript modules, use \`!inline path/to/script.ts\` for the content key.
+Create a folder ending with \`{{FLOW_SUFFIX}}\` and add a \`flow.yaml\` file with the flow definition.
+For rawscript modules, use \`!inline path/to/script.ts\` for the content key. {{INLINE_SCRIPT_NAMING}}
 After writing, tell the user they can run:
-- \`wmill flow generate-locks <path_to_flow_folder> --yes\` - Generate lock files for the specific flow you modified (e.g. \`wmill flow generate-locks f/my_folder/my_flow.flow --yes\`)
+- \`wmill flow generate-locks <path_to_flow_folder> --yes\` - Generate lock files for the specific flow you modified (e.g. \`wmill flow generate-locks f/my_folder/my_flow{{FLOW_SUFFIX}} --yes\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -4375,7 +4375,7 @@ This interactive command creates a complete app structure with your choice of fr
 ## App Structure
 
 \`\`\`
-my_app.raw_app/
+my_app{{RAW_APP_SUFFIX}}/
 ├── AGENTS.md              # AI agent instructions (auto-generated)
 ├── DATATABLES.md          # Database schemas (run 'wmill app generate-agents' to refresh)
 ├── raw_app.yaml           # App configuration (summary, path, data settings)
