@@ -1714,6 +1714,11 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
     );
   }
 
+  // Files inside __mod/ folders are script module files — always valid wmill files
+  if (isScriptModulePath(p)) {
+    return false;
+  }
+
   try {
     const typ = getTypeStrFromPath(p);
     if (
@@ -1859,18 +1864,34 @@ async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
         tracker.rawApps.push(folder);
       }
     } else if (isScriptModulePath(p)) {
-      // Module file changed — find the parent script content file
-      const moduleSuffix = getModuleFolderSuffix() + "/";
-      const idx = p.indexOf(moduleSuffix);
-      if (idx !== -1) {
-        const scriptBasePath = p.substring(0, idx);
-        try {
-          const contentPath = await findContentFile(scriptBasePath + ".script.yaml");
-          if (contentPath && !tracker.scripts.includes(contentPath)) {
-            tracker.scripts.push(contentPath);
+      if (isModuleEntryPoint(p)) {
+        // Entry point (e.g. __mod/script.ts) IS the parent script content file
+        if (!tracker.scripts.includes(p)) {
+          tracker.scripts.push(p);
+        }
+      } else {
+        // Module file changed — find the parent script content file
+        const moduleSuffix = getModuleFolderSuffix() + "/";
+        const idx = p.indexOf(moduleSuffix);
+        if (idx !== -1) {
+          const scriptBasePath = p.substring(0, idx);
+          // Try folder layout first: __mod/script.{ext}
+          try {
+            const contentPath = await findContentFile(scriptBasePath + getModuleFolderSuffix() + "/script.yaml");
+            if (contentPath && !tracker.scripts.includes(contentPath)) {
+              tracker.scripts.push(contentPath);
+            }
+          } catch {
+            // Fall back to flat layout: scriptBasePath.script.yaml
+            try {
+              const contentPath = await findContentFile(scriptBasePath + ".script.yaml");
+              if (contentPath && !tracker.scripts.includes(contentPath)) {
+                tracker.scripts.push(contentPath);
+              }
+            } catch {
+              // ignore — content file not found
+            }
           }
-        } catch {
-          // ignore — content file not found
         }
       }
     } else {

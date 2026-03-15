@@ -240,6 +240,7 @@ pub fn parse_deno_signature(
 
     let mut has_preprocessor = false;
     let mut entrypoint_params = None;
+    let mut is_wac = false;
 
     let ast = parser
         .parse_module()
@@ -282,6 +283,7 @@ pub fn parse_deno_signature(
             if let ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(export_default)) = &item {
                 if let Some(params) = extract_workflow_params(&export_default.expr) {
                     entrypoint_params = Some(params);
+                    is_wac = true;
                 }
             }
         }
@@ -324,6 +326,7 @@ pub fn parse_deno_signature(
                                 if let Some(init) = &decl.init {
                                     if let Some(params) = extract_workflow_params(init) {
                                         entrypoint_params = Some(params);
+                                        is_wac = true;
                                     }
                                 }
                             }
@@ -337,14 +340,15 @@ pub fn parse_deno_signature(
 
     let mut c: u16 = 0;
 
-    let is_wac_v2 = entrypoint_params.is_none()
-        && code.contains("workflow(")
-        && code.contains("task(")
-        && code.contains("windmill-client");
-    let auto_kind = if is_wac_v2 {
+    let auto_kind = if is_wac {
         Some("wac".to_string())
     } else if entrypoint_params.is_none() {
-        Some("lib".to_string())
+        if code.contains("workflow(") && code.contains("task(") && code.contains("windmill-client")
+        {
+            Some("wac".to_string())
+        } else {
+            Some("lib".to_string())
+        }
     } else {
         None
     };

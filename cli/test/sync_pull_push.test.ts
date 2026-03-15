@@ -39,6 +39,7 @@ import {
   isAppInlineScriptPath,
   isFlowInlineScriptPath,
   isRawAppBackendPath,
+  getModuleFolderSuffix,
 } from "../src/utils/resource_folders.ts";
 import { newPathAssigner } from "../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
@@ -2398,6 +2399,318 @@ describe("http trigger sync", () => {
       expect(
         output.includes("0 change") || output.includes("no change") || output.includes("nothing")
       ).toBeTruthy();
+    });
+  });
+});
+
+// =============================================================================
+// Script Module Sync Tests
+// =============================================================================
+
+describe("script module sync", () => {
+  test("push script with modules via API and pull back", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/module_script_${uniqueId}`;
+      const modSuffix = getModuleFolderSuffix();
+
+      // Create a script with modules via API
+      const resp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/scripts/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: scriptPath,
+            content: 'import { greet } from "./helper";\nexport async function main() { return greet(); }',
+            language: "bun",
+            summary: "Script with modules",
+            description: "Test script with module files",
+            schema: {
+              $schema: "https://json-schema.org/draft/2020-12/schema",
+              type: "object",
+              properties: {},
+              required: [],
+            },
+            modules: {
+              "helper.ts": {
+                content: 'export function greet() { return "hello from module"; }\n',
+                language: "bun",
+              },
+            },
+          }),
+        }
+      );
+      expect(resp.status).toBeLessThan(300);
+      await resp.text();
+
+      await writeWmillYaml(tempDir);
+
+      // Pull the script
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      // Verify module files exist on disk
+      const files = await listFilesRecursive(tempDir);
+      const moduleFile = files.find(
+        (f) => f.includes(`module_script_${uniqueId}${modSuffix}`) && f.endsWith("helper.ts")
+      );
+      expect(moduleFile).toBeDefined();
+
+      // Scripts with modules use folder layout: main content is at __mod/script.ts
+      const mainFile = files.find(
+        (f) => f.includes(`module_script_${uniqueId}${modSuffix}`) && f.endsWith("script.ts")
+      );
+      expect(mainFile).toBeDefined();
+
+      // Verify module content
+      if (moduleFile) {
+        const content = await readFile(`${tempDir}/${moduleFile}`, "utf-8");
+        expect(content).toContain("greet");
+        expect(content).toContain("hello from module");
+      }
+    });
+  });
+
+  test("push script with module lock files and pull back", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/locked_module_${uniqueId}`;
+      const modSuffix = getModuleFolderSuffix();
+
+      // Create a script with a module that has a lock
+      const resp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/scripts/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: scriptPath,
+            content: 'export async function main() { return "main"; }',
+            language: "bun",
+            summary: "Script with locked module",
+            schema: {
+              $schema: "https://json-schema.org/draft/2020-12/schema",
+              type: "object",
+              properties: {},
+              required: [],
+            },
+            modules: {
+              "dep.ts": {
+                content: 'import lodash from "lodash";\nexport const x = lodash.identity(1);\n',
+                language: "bun",
+                lock: "lodash@4.17.21\n",
+              },
+            },
+          }),
+        }
+      );
+      expect(resp.status).toBeLessThan(300);
+      await resp.text();
+
+      await writeWmillYaml(tempDir);
+
+      // Pull
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      // Verify lock file exists on disk
+      const files = await listFilesRecursive(tempDir);
+      const lockFile = files.find(
+        (f) => f.includes(`locked_module_${uniqueId}${modSuffix}`) && f.endsWith("dep.lock")
+      );
+      expect(lockFile).toBeDefined();
+
+      // Verify lock content
+      if (lockFile) {
+        const lockContent = await readFile(`${tempDir}/${lockFile}`, "utf-8");
+        expect(lockContent).toContain("lodash");
+      }
+    });
+  });
+
+  test("local script with modules pushes and round-trips", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const uniqueId = Date.now();
+      const modSuffix = getModuleFolderSuffix();
+
+      await writeWmillYaml(tempDir);
+
+      // Create local script with modules using folder layout:
+      //   f/test/modular_<id>__mod/script.ts       (entry point)
+      //   f/test/modular_<id>__mod/script.yaml      (metadata)
+      //   f/test/modular_<id>__mod/helper.ts        (module file)
+      const scriptDir = `${tempDir}/f/test`;
+      const scriptName = `modular_${uniqueId}`;
+      const modDir = `${scriptDir}/${scriptName}${modSuffix}`;
+      await mkdir(modDir, { recursive: true });
+
+      // Entry point (main script content)
+      await writeFile(
+        `${modDir}/script.ts`,
+        'import { helper } from "./helper";\nexport async function main() { return helper(); }',
+        "utf-8"
+      );
+      // Script metadata
+      await writeFile(
+        `${modDir}/script.yaml`,
+        `summary: "Script with modules"
+description: "Test"
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []
+is_template: false
+lock: ""
+kind: script
+`,
+        "utf-8"
+      );
+
+      // Module file
+      await writeFile(
+        `${modDir}/helper.ts`,
+        'export function helper() { return "from module"; }\n',
+        "utf-8"
+      );
+
+      // Push
+      const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(pushResult.code).toEqual(0);
+
+      // Pull into a fresh directory to verify round-trip
+      const pullDir = await mkdtemp(join(tmpdir(), "windmill_module_pull_"));
+      try {
+        await writeWmillYaml(pullDir);
+
+        const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], pullDir);
+        expect(pullResult.code).toEqual(0);
+
+        // Verify module file came back
+        const files = await listFilesRecursive(pullDir);
+        const pulledModule = files.find(
+          (f) => f.includes(`${scriptName}${modSuffix}`) && f.endsWith("helper.ts")
+        );
+        expect(pulledModule).toBeDefined();
+
+        if (pulledModule) {
+          const content = await readFile(`${pullDir}/${pulledModule}`, "utf-8");
+          expect(content).toContain("from module");
+        }
+      } finally {
+        await rm(pullDir, { recursive: true });
+      }
+    });
+  });
+
+  test("script with nested module paths pushes and pulls correctly", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/nested_mod_${uniqueId}`;
+      const modSuffix = getModuleFolderSuffix();
+
+      // Create script with nested modules via API
+      const resp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/scripts/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: scriptPath,
+            content: 'export async function main() { return "main"; }',
+            language: "bun",
+            summary: "Script with nested modules",
+            schema: {
+              $schema: "https://json-schema.org/draft/2020-12/schema",
+              type: "object",
+              properties: {},
+              required: [],
+            },
+            modules: {
+              "utils/format.ts": {
+                content: 'export function format(s: string) { return s.trim(); }\n',
+                language: "bun",
+              },
+              "utils/validate.ts": {
+                content: 'export function validate(s: string) { return s.length > 0; }\n',
+                language: "bun",
+              },
+            },
+          }),
+        }
+      );
+      expect(resp.status).toBeLessThan(300);
+      await resp.text();
+
+      await writeWmillYaml(tempDir);
+
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      // Verify nested module files exist
+      const files = await listFilesRecursive(tempDir);
+      const formatFile = files.find(
+        (f) => f.includes(`nested_mod_${uniqueId}${modSuffix}`) && f.includes("utils/format.ts")
+      );
+      const validateFile = files.find(
+        (f) => f.includes(`nested_mod_${uniqueId}${modSuffix}`) && f.includes("utils/validate.ts")
+      );
+      expect(formatFile).toBeDefined();
+      expect(validateFile).toBeDefined();
+    });
+  });
+
+  test("pull script with modules does not create stale metadata", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/fresh_mod_${uniqueId}`;
+
+      // Create a script with modules on remote
+      const resp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/scripts/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: scriptPath,
+            content: 'export async function main() { return "main"; }',
+            language: "bun",
+            summary: "Script with modules for freshness test",
+            schema: {
+              $schema: "https://json-schema.org/draft/2020-12/schema",
+              type: "object",
+              properties: {},
+              required: [],
+            },
+            modules: {
+              "helper.ts": {
+                content: 'export function help() { return true; }\n',
+                language: "bun",
+              },
+            },
+          }),
+        }
+      );
+      expect(resp.status).toBeLessThan(300);
+      await resp.text();
+
+      await writeWmillYaml(tempDir);
+
+      // Pull
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      // Run generate-metadata — should show up-to-date for pulled scripts
+      const metaResult = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir
+      );
+      expect(metaResult.code).toEqual(0);
+      // The script we just pulled should NOT be stale
+      // (it may still show other scripts as stale from seedTestData)
+      const output = metaResult.stdout + metaResult.stderr;
+      expect(output).not.toContain(`fresh_mod_${uniqueId}`);
     });
   });
 });

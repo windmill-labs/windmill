@@ -36,7 +36,7 @@ pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
     };
 
     let mut sig = MainArgSignature::default();
-    sig.auto_kind = Some(false);
+    sig.auto_kind = None;
 
     let batches = args
         .lines()
