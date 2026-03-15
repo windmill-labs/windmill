@@ -1278,26 +1278,6 @@
 												color="light"
 												startIcon={{
 													icon: LanguageIcon,
-													props: { lang: 'python3', width: 16, height: 16 }
-												} as ButtonType.Icon}
-												on:click={() => {
-													template = 'wac_python'
-													script.language = 'python3'
-													script.modules = { 'helper.py': { content: 'def main(a: str) -> str:\n    return f"hello {a}"\n', language: 'python3' } }
-													initContent('python3', script.kind, template)
-													showWacAlphaModalIfNeeded()
-												}}
-											>
-												WAC Python
-											</Button>
-										</span>
-										<span title="Workflow-as-Code">
-											<Button
-												size="xs2"
-												variant="border"
-												color="light"
-												startIcon={{
-													icon: LanguageIcon,
 													props: { lang: 'bun', width: 16, height: 16 }
 												} as ButtonType.Icon}
 												on:click={() => {
@@ -1309,6 +1289,26 @@
 												}}
 											>
 												WAC TypeScript
+											</Button>
+										</span>
+										<span title="Workflow-as-Code">
+											<Button
+												size="xs2"
+												variant="border"
+												color="light"
+												startIcon={{
+													icon: LanguageIcon,
+													props: { lang: 'python3', width: 16, height: 16 }
+												} as ButtonType.Icon}
+												on:click={() => {
+													template = 'wac_python'
+													script.language = 'python3'
+													script.modules = { 'helper.py': { content: 'def main(a: str) -> str:\n    return f"hello {a}"\n', language: 'python3' } }
+													initContent('python3', script.kind, template)
+													showWacAlphaModalIfNeeded()
+												}}
+											>
+												WAC Python
 											</Button>
 										</span>
 									</div>

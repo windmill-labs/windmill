@@ -7,6 +7,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { importFlowStore } from '$lib/components/flows/flowStore.svelte'
+	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -18,8 +19,11 @@
 	const SKIP_FLOW_MODAL_KEY = 'windmill_skip_flow_modal'
 
 	let drawer: Drawer | undefined = $state(undefined)
+	let wacDrawer: Drawer | undefined = $state(undefined)
 	let pendingRaw: string | undefined = $state(undefined)
+	let pendingWacRaw: string | undefined = $state(undefined)
 	let importType: 'yaml' | 'json' = $state('yaml')
+	let wacImportType: 'yaml' | 'json' = $state('yaml')
 	let flowModalOpen = $state(false)
 	let wacHovered = $state(false)
 	let skipModal = $state(
@@ -31,6 +35,14 @@
 			importType === 'yaml' ? YAML.parse(pendingRaw ?? '') : JSON.parse(pendingRaw ?? '')
 		await goto('/flows/add')
 		drawer?.closeDrawer?.()
+	}
+
+	async function importWacRaw() {
+		const parsed =
+			wacImportType === 'yaml' ? YAML.parse(pendingWacRaw ?? '') : JSON.parse(pendingWacRaw ?? '')
+		$importScriptStore = parsed
+		await goto(`${base}/scripts/add?import=true`)
+		wacDrawer?.closeDrawer?.()
 	}
 
 	function handleFlowClick() {
@@ -81,12 +93,18 @@
 				}
 			},
 			{
+				label: 'Workflow-as-Code in TypeScript',
+				onClick: () => selectWacTypescript()
+			},
+			{
 				label: 'Workflow-as-Code in Python',
 				onClick: () => selectWacPython()
 			},
 			{
-				label: 'Workflow-as-Code in TypeScript',
-				onClick: () => selectWacTypescript()
+				label: 'Import Workflow-as-Code',
+				onClick: () => {
+					wacDrawer?.toggleDrawer?.()
+				}
 			}
 		]}
 	>
@@ -111,8 +129,8 @@
 				<div class="text-center">
 					<h3 class="font-semibold text-primary">Flow Editor</h3>
 					<p class="text-xs text-tertiary mt-1">
-						Visual builder for composing scripts into workflows with branching, loops,
-						and error handling.
+						Visual builder for composing scripts into workflows with branching, loops, and error
+						handling.
 					</p>
 				</div>
 			</button>
@@ -125,7 +143,9 @@
 				onmouseleave={() => (wacHovered = false)}
 			>
 				<!-- Alpha badge -->
-				<div class="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full bg-purple-500 text-white text-2xs font-bold uppercase tracking-wide">
+				<div
+					class="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full bg-purple-500 text-white text-2xs font-bold uppercase tracking-wide"
+				>
 					Alpha
 				</div>
 
@@ -142,8 +162,7 @@
 					<div class="text-center">
 						<h3 class="font-semibold text-primary whitespace-nowrap">Workflow-as-Code</h3>
 						<p class="text-xs text-tertiary mt-1">
-							Write workflows as Python or TypeScript code
-							as a regular Windmill script.
+							Write workflows as Python or TypeScript code as a regular Windmill script.
 						</p>
 					</div>
 				</div>
@@ -188,10 +207,7 @@
 
 <!-- Import Drawer -->
 <Drawer bind:this={drawer} size="800px">
-	<DrawerContent
-		title="Import flow from YAML/JSON"
-		on:close={() => drawer?.toggleDrawer?.()}
-	>
+	<DrawerContent title="Import flow from YAML/JSON" on:close={() => drawer?.toggleDrawer?.()}>
 		<Tabs bind:selected={importType}>
 			<Tab value="yaml" label="YAML" />
 			<Tab value="json" label="JSON" />
@@ -214,6 +230,35 @@
 		</Tabs>
 		{#snippet actions()}
 			<Button size="sm" on:click={importRaw}>Import</Button>
+		{/snippet}
+	</DrawerContent>
+</Drawer>
+
+<!-- Import WAC Drawer -->
+<Drawer bind:this={wacDrawer} size="800px">
+	<DrawerContent title="Import Workflow-as-Code" on:close={() => wacDrawer?.toggleDrawer?.()}>
+		<Tabs bind:selected={wacImportType}>
+			<Tab value="yaml" label="YAML" />
+			<Tab value="json" label="JSON" />
+			{#snippet content()}
+				<div class="relative pt-2 h-full">
+					{#key wacImportType}
+						{#await import('$lib/components/SimpleEditor.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default
+								bind:code={pendingWacRaw}
+								lang={wacImportType}
+								class="h-full"
+								fixedOverflowWidgets={false}
+							/>
+						{/await}
+					{/key}
+				</div>
+			{/snippet}
+		</Tabs>
+		{#snippet actions()}
+			<Button size="sm" on:click={importWacRaw}>Import</Button>
 		{/snippet}
 	</DrawerContent>
 </Drawer>
