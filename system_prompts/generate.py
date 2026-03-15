@@ -1094,6 +1094,25 @@ export function getFlowPrompt(): string {
 
     # Generate skills TypeScript export for CLI
     skills_ts = generate_skills_ts_export(skills, schema_yaml_content)
+
+    # Replace hardcoded path conventions with placeholders for CLI runtime resolution.
+    # init.ts resolves these based on the nonDottedPaths setting in wmill.yaml.
+    # (Frontend auto-generated files keep the default dotted conventions.)
+    skills_ts = (skills_ts
+        .replace(
+            "Create a folder ending with \\`.flow\\`"
+            " and add a YAML file with the flow definition.\n"
+            "For rawscript modules, use \\`!inline path/to/script.ts\\`"
+            " for the content key.",
+
+            "Create a folder ending with \\`{{FLOW_SUFFIX}}\\`"
+            " and add a \\`flow.yaml\\` file with the flow definition.\n"
+            "For rawscript modules, use \\`!inline path/to/script.ts\\`"
+            " for the content key. {{INLINE_SCRIPT_NAMING}}"
+        )
+        .replace("my_flow.flow", "my_flow{{FLOW_SUFFIX}}")
+        .replace("my_app.raw_app/", "my_app{{RAW_APP_SUFFIX}}/")
+    )
     (CLI_GUIDANCE_DIR / "skills.ts").write_text(skills_ts)
 
     print(f"\nGenerated files:")
