@@ -3100,7 +3100,7 @@ async fn clone_scripts(
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, restart_unless_cancelled, concurrency_key,
             visible_to_runner_only, auto_kind, codebase, has_preprocessor,
-            on_behalf_of_email, assets
+            on_behalf_of_email, assets, modules
         )
         SELECT
             $1, hash, path, parent_hashes, summary, description, content,
@@ -3110,7 +3110,7 @@ async fn clone_scripts(
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, restart_unless_cancelled, concurrency_key,
             visible_to_runner_only, auto_kind, codebase, has_preprocessor,
-            on_behalf_of_email, assets
+            on_behalf_of_email, assets, modules
         FROM script
         WHERE workspace_id = $2"#,
         target_workspace_id,

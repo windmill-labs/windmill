@@ -1563,6 +1563,7 @@ Write-Output "$Name-$Count"
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("Name", json!("test"))
     .arg("Count", json!(7))
@@ -1597,6 +1598,7 @@ throw "intentional error"
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("x", json!(1))
     .run_until_complete(&db, false, port)

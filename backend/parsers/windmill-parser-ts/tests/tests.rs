@@ -689,7 +689,7 @@ mod tests {
                         oidx: None,
                     },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );

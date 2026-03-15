@@ -1396,7 +1396,7 @@ pub async fn handle_bun_job(
             format!(
                 r#"
 import * as Main from "{main_import}";
-import {{ WorkflowCtx, StepSuspend, setWorkflowCtx }} from "/home/rfiszel/windmill__worktrees/module-mode/typescript-client/dist/client.bundle.mjs";
+import {{ WorkflowCtx, StepSuspend, setWorkflowCtx }} from "windmill-client";
 
 import * as fs from "fs/promises";
 
