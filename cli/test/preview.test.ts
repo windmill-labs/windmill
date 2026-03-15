@@ -381,3 +381,47 @@ test("flow preview: simple flow", async () => {
   });
 });
 
+test("flow preview: uses local script for PathScript steps", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, { defaultTs: "bun" });
+
+    // Create a local script file that the flow will reference by path
+    await createScript(
+      tempDir,
+      "f/test/helper_script.ts",
+      `export function main(name: string = "World") { return \`Local script says: \${name}!\`; }`
+    );
+
+    // Create a flow that references the script by path (PathScript)
+    const flowDir = `${tempDir}/f/test/path_flow.flow`;
+    await mkdir(flowDir, { recursive: true });
+    const flowYaml = `summary: "Flow with PathScript"
+description: "Test flow that references a script by path"
+value:
+  modules:
+    - id: "a"
+      value:
+        type: "script"
+        path: "f/test/helper_script"
+        input_transforms:
+          name:
+            type: "static"
+            value: "PathTest"
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []
+`;
+    await writeFile(`${flowDir}/flow.yaml`, flowYaml, "utf-8");
+
+    const result = await backend.runCLICommand(
+      ["flow", "preview", "f/test/path_flow.flow"],
+      tempDir
+    );
+
+    expect(result.code).toEqual(0);
+    expect(result.stdout + result.stderr).toContain("Local script says: PathTest!");
+  });
+});
+
