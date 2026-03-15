@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.657.2](https://github.com/windmill-labs/windmill/compare/v1.657.1...v1.657.2) (2026-03-15)
+
+
+### Bug Fixes
+
+* **cli:** Fix nonDottedPaths handling in cli flow lock generation ([#8375](https://github.com/windmill-labs/windmill/issues/8375)) ([eb03ebb](https://github.com/windmill-labs/windmill/commit/eb03ebbb0486b33c290fba3c34ea959e6e82fd13))
+
 ## [1.657.1](https://github.com/windmill-labs/windmill/compare/v1.657.0...v1.657.1) (2026-03-14)
 
 
