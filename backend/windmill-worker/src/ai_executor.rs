@@ -1042,6 +1042,8 @@ pub async fn run_agent(
                     struct MaxIterError<'a> {
                         message: String,
                         name: &'static str,
+                        #[serde(skip_serializing_if = "Option::is_none")]
+                        step_id: Option<&'a str>,
                         result: MaxIterPartialResult<'a>,
                     }
                     #[derive(serde::Serialize)]
@@ -1055,6 +1057,7 @@ pub async fn run_agent(
                                 max_iterations
                             ),
                             name: "ExecutionErr",
+                            step_id: effective_flow_step_id,
                             result: MaxIterPartialResult { messages: &messages },
                         })?,
                     ));
