@@ -125,6 +125,11 @@ RUN objcopy --only-keep-debug /windmill/target/release/windmill /windmill/target
     && strip /windmill/target/release/windmill \
     && objcopy --add-gnu-debuglink=/windmill/target/release/windmill.debug /windmill/target/release/windmill
 
+# Lightweight stage for extracting the .debug file without bloating the final image.
+# Usage: docker build --target debuginfo --output type=local,dest=./out .
+FROM scratch AS debuginfo
+COPY --from=builder /windmill/target/release/windmill.debug /windmill.debug
+
 FROM ${DEBIAN_IMAGE}
 
 ARG TARGETPLATFORM
@@ -259,7 +264,6 @@ ENV TZ=Etc/UTC
 
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
-COPY --from=builder /windmill/target/release/windmill.debug ${APP}/windmill.debug
 COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so ${APP}/libwindmill_duckdb_ffi_internal.so
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
