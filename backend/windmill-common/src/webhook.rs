@@ -8,6 +8,7 @@ use tokio::{select, sync::mpsc};
 use crate::METRICS_ENABLED;
 
 use crate::db::DB;
+use crate::global_settings::INSTANCE_EVENTS_WEBHOOK_SETTING;
 use crate::oauth2::InstanceEvent;
 use crate::utils::configure_client;
 
@@ -168,6 +169,11 @@ impl WebhookShared {
             .build()
             .unwrap();
 
+            let mut cached_instance_webhook: Option<String> = None;
+            let mut cache_last_read = std::time::Instant::now()
+                .checked_sub(Duration::from_secs(120))
+                .unwrap_or_else(std::time::Instant::now);
+
             loop {
                 select! {
                     biased;
@@ -208,11 +214,33 @@ impl WebhookShared {
                             }
                         },
                         Some(WebhookPayload::InstanceEvent(event)) => {
-                            #[cfg(feature = "prometheus")]
-                            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
-                            let r = client.post(INSTANCE_EVENTS_WEBHOOK.as_ref().unwrap()).json(&event).send().await;
-                            if let Err(e) = r {
-                                tracing::error!("Error sending instance event: {}", e);
+                            // Resolve instance events webhook URL: env var takes precedence, then DB setting
+                            let url = if let Some(env_url) = INSTANCE_EVENTS_WEBHOOK.as_ref() {
+                                Some(env_url.clone())
+                            } else {
+                                // Re-read from DB every 60 seconds
+                                if cache_last_read.elapsed() > Duration::from_secs(60) {
+                                    cached_instance_webhook = sqlx::query_scalar!(
+                                        "SELECT value FROM global_settings WHERE name = $1",
+                                        INSTANCE_EVENTS_WEBHOOK_SETTING
+                                    )
+                                    .fetch_optional(&db)
+                                    .await
+                                    .ok()
+                                    .flatten()
+                                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+                                    .filter(|s| !s.is_empty());
+                                    cache_last_read = std::time::Instant::now();
+                                }
+                                cached_instance_webhook.clone()
+                            };
+                            if let Some(url) = url {
+                                #[cfg(feature = "prometheus")]
+                                if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
+                                let r = client.post(&url).json(&event).send().await;
+                                if let Err(e) = r {
+                                    tracing::error!("Error sending instance event: {}", e);
+                                }
                             }
                         },
                         None => break,
@@ -232,9 +260,6 @@ impl WebhookShared {
     }
 
     pub fn send_instance_event(&self, event: InstanceEvent) {
-        if INSTANCE_EVENTS_WEBHOOK.is_none() {
-            return;
-        }
         let _ = self.channel.send(WebhookPayload::InstanceEvent(event));
     }
 }

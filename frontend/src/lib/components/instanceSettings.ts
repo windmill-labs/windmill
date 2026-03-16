@@ -610,6 +610,17 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		}
 	],
+	Webhooks: [
+		{
+			label: 'Instance Events Webhook',
+			description:
+				'URL to receive POST requests for instance events (user creation, OAuth signups, workspace joins, etc.). Can be overridden by the INSTANCE_EVENTS_WEBHOOK environment variable.',
+			key: 'instance_events_webhook',
+			fieldType: 'text',
+			placeholder: 'https://example.com/webhook',
+			storage: 'setting'
+		}
+	],
 	'OTEL/Prom': [
 		{
 			label: 'OpenTelemetry',
@@ -772,6 +783,12 @@ export const instanceSettingsNavigationGroups = [
 				isEE: true
 			},
 			{
+				id: 'webhooks',
+				label: 'Webhooks',
+				aiId: 'instance-settings-webhooks',
+				aiDescription: 'Instance events webhook settings'
+			},
+			{
 				id: 'otel_prom',
 				label: 'OTEL/Prometheus',
 				aiId: 'instance-settings-otel-prom',
@@ -828,6 +845,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	smtp: 'SMTP',
 	registries: 'Registries',
 	alerts: 'Alerts',
+	webhooks: 'Webhooks',
 	otel_prom: 'OTEL/Prom',
 	indexer: 'Indexer',
 	telemetry: 'Telemetry',
@@ -858,6 +876,7 @@ export const categoryToTabMap: Record<string, string> = {
 	'Auth/OAuth/SAML': 'sso',
 	Registries: 'registries',
 	Alerts: 'alerts',
+	Webhooks: 'webhooks',
 	'OTEL/Prom': 'otel_prom',
 	Indexer: 'indexer',
 	Telemetry: 'telemetry',

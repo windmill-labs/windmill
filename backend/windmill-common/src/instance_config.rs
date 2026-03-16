@@ -259,6 +259,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub saml_metadata: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_events_webhook: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub openai_azure_base_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_keep_alive_version: Option<String>,

@@ -59,6 +59,7 @@ pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
 pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
 pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
 pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
+pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
 
 pub const ENV_SETTINGS: &[&str] = &[
     "DISABLE_NSJAIL",
