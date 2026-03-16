@@ -1,4 +1,4 @@
-import { FlowModule, RawScript } from "../gen/types.gen.ts";
+import { FlowModule, FlowValue, RawScript } from "../gen/types.gen.ts";
 
 export type LocalScriptInfo = {
   content: string;
@@ -177,6 +177,83 @@ export async function replacePathScriptsWithLocal(
         await replacePathScriptsWithLocal(branch.modules, scriptReader, logger);
       }));
       await replacePathScriptsWithLocal(module.value.default, scriptReader, logger);
+    } else if (module.value.type === "aiagent") {
+      await Promise.all((module.value.tools ?? []).map(async (tool) => {
+        const toolValue = tool.value;
+        if (!toolValue || toolValue.tool_type !== "flowmodule" || toolValue.type !== "script") {
+          return;
+        }
+        const localScript = await scriptReader(toolValue.path);
+        if (localScript) {
+          logger.info(`Using local script for AI agent tool ${tool.id}: ${toolValue.path}`);
+          (tool as any).value = {
+            tool_type: "flowmodule",
+            type: "rawscript",
+            content: localScript.content,
+            language: localScript.language,
+            lock: localScript.lock,
+            path: toolValue.path,
+            input_transforms: toolValue.input_transforms,
+            tag: toolValue.tag_override,
+          };
+        }
+      }));
     }
   }));
+}
+
+/**
+ * Replaces all PathScript modules in a flow value (modules, failure_module, preprocessor_module)
+ * with RawScript using local file content.
+ */
+export async function replaceAllPathScriptsWithLocal(
+  flowValue: FlowValue,
+  scriptReader: (scriptPath: string) => Promise<LocalScriptInfo | undefined>,
+  logger: {
+    info: (message: string) => void;
+    error: (message: string) => void;
+  } = {
+    info: () => {},
+    error: () => {},
+  }
+): Promise<void> {
+  await replacePathScriptsWithLocal(flowValue.modules, scriptReader, logger);
+  if (flowValue.failure_module) {
+    await replacePathScriptsWithLocal([flowValue.failure_module], scriptReader, logger);
+  }
+  if (flowValue.preprocessor_module) {
+    await replacePathScriptsWithLocal([flowValue.preprocessor_module], scriptReader, logger);
+  }
+}
+
+/**
+ * Creates a scriptReader callback that resolves script paths to local file content.
+ */
+export function createLocalScriptReader(
+  exts: string[],
+  inferLanguage: (filePath: string) => RawScript["language"],
+  readFile: (path: string) => Promise<string>,
+  stat: (path: string) => Promise<{ isFile(): boolean }>,
+): (scriptPath: string) => Promise<LocalScriptInfo | undefined> {
+  return async (scriptPath) => {
+    for (const ext of exts) {
+      const filePath = scriptPath + ext;
+      try {
+        const fileStat = await stat(filePath);
+        if (!fileStat.isFile()) continue;
+        const content = await readFile(filePath);
+        const language = inferLanguage(filePath);
+        let lock: string | undefined;
+        try {
+          lock = await readFile(scriptPath + ".script.lock");
+        } catch {
+          // no lock file
+        }
+        return { content, language, lock };
+      } catch {
+        // file doesn't exist with this extension
+      }
+    }
+    return undefined;
+  };
 }
