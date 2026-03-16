@@ -96,6 +96,7 @@ impl ScriptLang {
                 Python3 => "requirements.in",
                 // Go => "go.mod",
                 Php => "composer.json",
+                Powershell => "modules.json",
                 _ => return None,
             }
             .to_owned(),
