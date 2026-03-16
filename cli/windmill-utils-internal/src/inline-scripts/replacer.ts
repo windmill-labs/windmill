@@ -1,4 +1,4 @@
-import { FlowModule, FlowValue, RawScript } from "../gen/types.gen.ts";
+import { AiAgent, FlowModule, FlowValue, RawScript } from "../gen/types.gen.ts";
 
 export type LocalScriptInfo = {
   content: string;
@@ -156,7 +156,7 @@ export async function replacePathScriptsWithLocal(
       if (localScript) {
         logger.info(`Using local script for ${scriptPath}`);
         const pathScript = module.value;
-        (module as any).value = {
+        (module as FlowModule).value = {
           type: "rawscript",
           content: localScript.content,
           language: localScript.language,
@@ -186,7 +186,7 @@ export async function replacePathScriptsWithLocal(
         const localScript = await scriptReader(toolValue.path);
         if (localScript) {
           logger.info(`Using local script for AI agent tool ${tool.id}: ${toolValue.path}`);
-          (tool as any).value = {
+          (tool as AiAgent["tools"][number]).value = {
             tool_type: "flowmodule",
             type: "rawscript",
             content: localScript.content,
