@@ -89,7 +89,7 @@ lazy_static::lazy_static! {
     }));
 }
 
-const DEFAULT_MAX_AGENT_ITERATIONS: usize = 3;
+const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
 const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
 
 fn find_module_by_id(
