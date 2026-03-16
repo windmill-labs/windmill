@@ -32,10 +32,11 @@ async function bundleSingleFileCodebaseScript(
   }
 
   const esbuild = await import("esbuild");
-  const format = codebase.format ?? "cjs";
   const out = await esbuild.build({
     entryPoints: [filePath],
-    format,
+    // Inline rawscripts are executed through the standard module wrapper,
+    // so the bundle must expose `main` as an ESM export.
+    format: "esm",
     bundle: true,
     write: false,
     external: codebase.external,
@@ -45,7 +46,7 @@ async function bundleSingleFileCodebaseScript(
     outdir: "/",
     platform: "node",
     packages: "bundle",
-    target: format == "cjs" ? "node20.15.1" : "esnext",
+    target: "esnext",
     banner: codebase.banner,
   });
 
@@ -84,16 +85,19 @@ export function createPreviewLocalScriptReader(opts: {
 
       const language = inferContentTypeFromFilePath(filePath, opts.defaultTs);
       const metadata = await parseMetadataFileIfExists(scriptPath);
+      const rawLock = metadata?.payload?.lock ?? (await readOptionalLock(scriptPath));
       const codebase =
         language === "bun" ? findCodebase(filePath, opts.codebases) : undefined;
       const content = codebase
         ? await bundleSingleFileCodebaseScript(filePath, codebase)
         : await readFile(filePath, "utf-8");
+      const lock =
+        typeof rawLock === "string" && rawLock.trim() === "" ? undefined : rawLock;
 
       return {
         content,
         language,
-        lock: metadata?.payload?.lock ?? (await readOptionalLock(scriptPath)),
+        lock,
         tag: metadata?.payload?.tag,
       };
     }
