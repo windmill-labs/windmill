@@ -877,15 +877,38 @@ async fn windmill_main() -> anyhow::Result<()> {
             );
         }
 
-        // Log the worker's own oom_score_adj so we can see the gap vs jobs (which get 1000)
+        // Lower the worker's oom_score_adj so the OOM killer strongly prefers killing
+        // job subprocesses (oom_score_adj=1000) over the worker itself.
+        // Kubernetes sets it high for burstable QoS (e.g. 937), leaving a tiny gap vs jobs.
+        // Requires CAP_SYS_RESOURCE to lower it; if missing, we just warn.
+        #[cfg(any(target_os = "linux"))]
         match std::fs::read_to_string("/proc/self/oom_score_adj") {
-            Ok(val) => {
-                let val = val.trim();
-                tracing::info!(
-                    "Worker oom_score_adj={val} (jobs get 1000, gap={}). \
-                    A small gap means the OOM killer may target the worker instead of a job",
-                    1000 - val.parse::<i32>().unwrap_or(0)
-                );
+            Ok(current) => {
+                let current = current.trim().to_string();
+                let current_val = current.parse::<i32>().unwrap_or(0);
+                if current_val > 0 {
+                    match std::fs::write("/proc/self/oom_score_adj", "0") {
+                        Ok(_) => {
+                            tracing::info!(
+                                "Lowered worker oom_score_adj from {current} to 0 \
+                                (jobs get 1000, gap=1000)"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Could not lower worker oom_score_adj from {current} to 0: {e}. \
+                                Gap to jobs is only {} — OOM killer may target the worker instead. \
+                                Add CAP_SYS_RESOURCE to the container to fix this",
+                                1000 - current_val
+                            );
+                        }
+                    }
+                } else {
+                    tracing::info!(
+                        "Worker oom_score_adj={current} (jobs get 1000, gap={})",
+                        1000 - current_val
+                    );
+                }
             }
             Err(e) => {
                 tracing::warn!("Could not read worker oom_score_adj: {e}");
