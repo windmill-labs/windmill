@@ -33,7 +33,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::assets::{clear_static_asset_usage, AssetUsageKind};
-use windmill_common::flows::{FlowModule, FlowModuleValue};
+use windmill_common::flows::FlowModule;
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
 };
@@ -1603,66 +1603,27 @@ async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
         });
     }
 
-    // Check node-level debouncing: reject if inside branches, version-check otherwise.
-    check_node_debouncing(&flow_value.modules, false)?;
-    if has_any_node_debouncing(&flow_value.modules)
-        && !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
-    {
+    // Check node-level debouncing on all modules (including nested branches/loops)
+    let mut has_node_debouncing = false;
+    let check_result = FlowModule::traverse_modules(&flow_value.modules, &mut |m| {
+        if m.debouncing
+            .as_ref()
+            .is_some_and(|d| d.debounce_delay_s.is_some_and(|s| s > 0))
+        {
+            has_node_debouncing = true;
+        }
+        Ok(())
+    });
+    if let Err(e) = check_result {
+        tracing::warn!("Failed to traverse flow modules for debounce guard: {e}");
+    }
+    if has_node_debouncing && !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await {
         return Err(Error::WorkersAreBehind {
             feature: "Flow node debouncing".into(),
             min_version: "1.597.0".into(),
         });
     }
 
-    Ok(())
-}
-
-fn has_module_debouncing(m: &FlowModule) -> bool {
-    m.debouncing
-        .as_ref()
-        .is_some_and(|d| d.debounce_delay_s.is_some_and(|s| s > 0))
-}
-
-/// Returns true if any top-level module has debouncing configured.
-fn has_any_node_debouncing(modules: &[FlowModule]) -> bool {
-    modules.iter().any(has_module_debouncing)
-}
-
-/// Recursively validates that debouncing is not configured on modules inside
-/// branches (BranchAll/BranchOne). Debouncing inside branches is not supported
-/// because cancelling one branch's step would leave sibling branches running,
-/// making the parent flow continue instead of being fully discarded.
-fn check_node_debouncing(modules: &[FlowModule], inside_branch: bool) -> Result<()> {
-    for module in modules {
-        if inside_branch && has_module_debouncing(module) {
-            return Err(Error::BadRequest(format!(
-                "Node-level debouncing is not supported inside branches (module '{}'). \
-                 Move the debounce configuration to a top-level step instead.",
-                module.id
-            )));
-        }
-
-        if let Ok(value) = module.get_value() {
-            match value {
-                FlowModuleValue::BranchAll { branches, .. } => {
-                    for branch in &branches {
-                        check_node_debouncing(&branch.modules, true)?;
-                    }
-                }
-                FlowModuleValue::BranchOne { branches, default, .. } => {
-                    for branch in &branches {
-                        check_node_debouncing(&branch.modules, true)?;
-                    }
-                    check_node_debouncing(&default, true)?;
-                }
-                FlowModuleValue::ForloopFlow { modules, .. }
-                | FlowModuleValue::WhileloopFlow { modules, .. } => {
-                    check_node_debouncing(&modules, inside_branch)?;
-                }
-                _ => {}
-            }
-        }
-    }
     Ok(())
 }
 

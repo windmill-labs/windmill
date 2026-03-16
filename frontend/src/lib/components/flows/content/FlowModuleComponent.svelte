@@ -1132,13 +1132,11 @@
 														label="Suspend"
 													/>
 													<Tab value="sleep" active={Boolean(flowModule.sleep)} label="Sleep" />
-													{#if parentModule?.value?.type !== 'branchall' && parentModule?.value?.type !== 'branchone'}
-														<Tab
-															value="debounce"
-															active={Boolean(flowModule.debouncing?.debounce_delay_s)}
-															label="Debounce"
-														/>
-													{/if}
+													<Tab
+														value="debounce"
+														active={Boolean(flowModule.debouncing?.debounce_delay_s)}
+														label="Debounce"
+													/>
 													<Tab
 														value="mock"
 														active={Boolean(flowModule.mock?.enabled)}
