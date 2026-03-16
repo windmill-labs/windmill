@@ -3,6 +3,7 @@ name: "{LANG} run script"
 mode: ONCE
 hostname: "{LANG}"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 disable_rl: true
 
