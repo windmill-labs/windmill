@@ -51,6 +51,7 @@
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
+	import VolumeStorageSettings from '$lib/components/workspaceSettings/VolumeStorageSettings.svelte'
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
 	import { untrack } from 'svelte'
 	import { getHandlerType } from '$lib/components/triggers/utils'
@@ -295,6 +296,8 @@
 			| 'ai'
 			| 'windmill_data_tables'
 			| 'windmill_lfs'
+			| 'volume_storage'
+			| 'ducklake'
 			| 'git_sync'
 			| 'default_app'
 			| 'native_triggers'
@@ -844,22 +847,40 @@
 
 	// Function to check if there are unsaved changes in storage settings
 	function getStorageSettingsInitialAndModifiedValues() {
-		const savedValue = {
-			s3ResourceSettings: s3ResourceSavedSettings,
-			ducklakeSettings: ducklakeSavedSettings
+		return {
+			savedValue: { s3ResourceSettings: s3ResourceSavedSettings },
+			modifiedValue: { s3ResourceSettings: s3ResourceSettings }
 		}
-
-		const modifiedValue = {
-			s3ResourceSettings: s3ResourceSettings,
-			ducklakeSettings: ducklakeSettings
-		}
-
-		return { savedValue, modifiedValue }
 	}
 
 	// Function to discard unsaved storage settings changes
 	function discardStorageSettingsChanges() {
 		s3ResourceSettings = clone(s3ResourceSavedSettings)
+	}
+
+	// Function to check if there are unsaved changes in volume storage settings
+	function getVolumeStorageInitialAndModifiedValues() {
+		return {
+			savedValue: { volumeStorage: s3ResourceSavedSettings.volumeStorage },
+			modifiedValue: { volumeStorage: s3ResourceSettings.volumeStorage }
+		}
+	}
+
+	// Function to discard unsaved volume storage changes
+	function discardVolumeStorageChanges() {
+		s3ResourceSettings.volumeStorage = s3ResourceSavedSettings.volumeStorage
+	}
+
+	// Function to check if there are unsaved changes in ducklake settings
+	function getDucklakeSettingsInitialAndModifiedValues() {
+		return {
+			savedValue: { ducklakeSettings: ducklakeSavedSettings },
+			modifiedValue: { ducklakeSettings: ducklakeSettings }
+		}
+	}
+
+	// Function to discard unsaved ducklake settings changes
+	function discardDucklakeSettingsChanges() {
 		ducklakeSettings = clone(ducklakeSavedSettings)
 	}
 
@@ -998,6 +1019,10 @@
 				return getAiSettingsInitialAndModifiedValues()
 			case 'windmill_lfs':
 				return getStorageSettingsInitialAndModifiedValues()
+			case 'volume_storage':
+				return getVolumeStorageInitialAndModifiedValues()
+			case 'ducklake':
+				return getDucklakeSettingsInitialAndModifiedValues()
 			case 'deploy_to':
 				return getDeploySettingsInitialAndModifiedValues()
 			case 'webhook':
@@ -1037,6 +1062,12 @@
 				break
 			case 'windmill_lfs':
 				discardStorageSettingsChanges()
+				break
+			case 'volume_storage':
+				discardVolumeStorageChanges()
+				break
+			case 'ducklake':
+				discardDucklakeSettingsChanges()
 				break
 			case 'deploy_to':
 				discardDeploySettingsChanges()
@@ -1178,6 +1209,18 @@
 					label: 'Object storage (S3)',
 					aiId: 'workspace-settings-windmill-lfs',
 					aiDescription: 'Object Storage (S3) workspace settings'
+				},
+				{
+					id: 'volume_storage',
+					label: 'Volumes',
+					aiId: 'workspace-settings-volume-storage',
+					aiDescription: 'Volume storage workspace settings'
+				},
+				{
+					id: 'ducklake',
+					label: 'Ducklake',
+					aiId: 'workspace-settings-ducklake',
+					aiDescription: 'Ducklake workspace settings'
 				}
 			]
 		},
@@ -1811,6 +1854,18 @@ export async function main(
 									s3ResourceSettings = clone(s3ResourceSavedSettings)
 								}}
 							/>
+						{:else if tab == 'volume_storage'}
+							<VolumeStorageSettings
+								bind:s3ResourceSettings
+								{s3ResourceSavedSettings}
+								onSave={() => {
+									s3ResourceSavedSettings = clone(s3ResourceSettings)
+								}}
+								onDiscard={() => {
+									s3ResourceSettings = clone(s3ResourceSavedSettings)
+								}}
+							/>
+						{:else if tab == 'ducklake'}
 							<DucklakeSettings
 								bind:ducklakeSettings
 								bind:ducklakeSavedSettings

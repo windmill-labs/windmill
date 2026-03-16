@@ -10,8 +10,8 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-test-utils/private", "dep:aws-config", "dep:aws-credential-types", "dep:aws-sdk-sqs"]
-enterprise = ["windmill-test-utils/enterprise", "dep:base64"]
+private = ["windmill-test-utils/private", "dep:aws-config", "dep:aws-credential-types", "dep:aws-sdk-sqs", "windmill-git-sync/private"]
+enterprise = ["windmill-test-utils/enterprise", "dep:base64", "windmill-git-sync/enterprise"]
 deno_core = ["windmill-test-utils/deno_core"]
 mcp = []
 run_inline = ["dep:windmill-worker", "windmill-test-utils/run_inline", "windmill-test-utils/duckdb"]
@@ -22,6 +22,7 @@ windmill-api-client.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-native-triggers = { workspace = true, features = ["native_trigger"] }
 windmill-api-auth.workspace = true
+windmill-git-sync.workspace = true
 windmill-worker = { workspace = true, optional = true }
 sqlx.workspace = true
 serde_json.workspace = true

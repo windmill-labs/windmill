@@ -303,7 +303,7 @@ pub struct PowershellRepo {
 
 lazy_static::lazy_static! {
 
-    pub static ref SLEEP_QUEUE: u64 = std::env::var("SLEEP_QUEUE")
+    static ref SLEEP_QUEUE_BASE: u64 = std::env::var("SLEEP_QUEUE")
     .ok()
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or_else(|| {
@@ -647,6 +647,14 @@ lazy_static::lazy_static! {
     pub static ref FLOW_RUNNER_RUNNING: Mutex<bool> = Mutex::new(false);
 }
 
+pub fn sleep_queue() -> u64 {
+    if NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed) {
+        300
+    } else {
+        *SLEEP_QUEUE_BASE
+    }
+}
+
 type Envs = Vec<(String, String)>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -887,6 +895,19 @@ impl JobCompletedSender {
     pub fn is_sql(&self) -> bool {
         matches!(self, Self::Sql(_))
     }
+
+    pub fn set_worker_killpill(&mut self, killpill_tx: KillpillSender) {
+        if let Self::Sql(sql) = self {
+            sql.worker_killpill_tx = Some(killpill_tx);
+        }
+    }
+
+    pub fn send_worker_killpill(&self) {
+        if let Self::Sql(SqlJobCompletedSender { worker_killpill_tx: Some(killpill_tx), .. }) = self
+        {
+            killpill_tx.send();
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -894,6 +915,7 @@ pub struct SqlJobCompletedSender {
     sender: flume::Sender<SendResult>,
     unbounded_sender: flume::Sender<SendResult>,
     killpill_tx: broadcast::Sender<()>,
+    worker_killpill_tx: Option<KillpillSender>,
 }
 
 pub struct JobCompletedReceiver {
@@ -918,7 +940,12 @@ impl JobCompletedSender {
         let (unbounded_sender, unbounded_rx) = flume::unbounded::<SendResult>();
         let (killpill_tx, killpill_rx) = broadcast::channel::<()>(10);
         (
-            Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, killpill_tx }),
+            Self::Sql(SqlJobCompletedSender {
+                sender,
+                unbounded_sender,
+                killpill_tx,
+                worker_killpill_tx: None,
+            }),
             JobCompletedReceiver { bounded_rx: receiver, killpill_rx, unbounded_rx },
         )
     }
@@ -1373,7 +1400,7 @@ fn start_interactive_worker_shell(
                         {
                             Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION)
                         }
-                        _ => Duration::from_millis(*SLEEP_QUEUE * 10),
+                        _ => Duration::from_millis(sleep_queue() * 10),
                     };
                     tokio::select! {
                         _ = tokio::time::sleep(nap_time) => {
@@ -1386,7 +1413,7 @@ fn start_interactive_worker_shell(
 
                 Err(err) => {
                     tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
-                    tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 20)).await;
+                    tokio::time::sleep(Duration::from_millis(sleep_queue() * 20)).await;
                 }
             };
         }
@@ -1714,7 +1741,8 @@ pub async fn run_worker(
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<SameWorkerPayload>(5);
 
-    let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
+    let (mut job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
+    job_completed_tx.set_worker_killpill(killpill_tx.clone());
 
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
@@ -2699,7 +2727,7 @@ pub async fn run_worker(
                     None
                 };
 
-                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
+                tokio::time::sleep(Duration::from_millis(sleep_queue())).await;
 
                 #[cfg(feature = "benchmark")]
                 {
@@ -2720,7 +2748,7 @@ pub async fn run_worker(
             }
             Err(err) => {
                 tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
-                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 5)).await;
+                tokio::time::sleep(Duration::from_millis(sleep_queue() * 5)).await;
             }
         };
     }

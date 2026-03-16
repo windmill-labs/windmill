@@ -33,11 +33,13 @@ export const FLOW_BASE = `# Windmill Flow Building Guide
 
 ## CLI Commands
 
-Create a folder ending with \`.flow\` and add a YAML file with the flow definition.
-For rawscript modules, use \`!inline path/to/script.ts\` for the content key.
-After writing:
-- \`wmill flow generate-locks <path_to_flow_folder> --yes\` - Generate lock files for the specific flow you modified (e.g. \`wmill flow generate-locks f/my_folder/my_flow.flow --yes\`)
+Create a folder ending with \`__flow\` and add a \`flow.yaml\` file with the flow definition.
+For rawscript modules, use \`!inline path/to/script.ts\` for the content key. Inline script files should NOT include \`.inline_script.\` in their names (e.g. use \`a.ts\`, not \`a.inline_script.ts\`).
+After writing, tell the user they can run:
+- \`wmill flow generate-locks <path_to_flow_folder> --yes\` - Generate lock files for the specific flow you modified (e.g. \`wmill flow generate-locks f/my_folder/my_flow__flow --yes\`)
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 ## OpenFlow Schema
 
@@ -150,36 +152,6 @@ Reference a specific resource using \`$res:\` prefix:
 export const SDK_TYPESCRIPT = `# TypeScript SDK (windmill-client)
 
 Import: import * as wmill from 'windmill-client'
-
-/**
- * Create a SQL template function for PostgreSQL/datatable queries
- * @param name - Database/datatable name (default: "main")
- * @returns SQL template function for building parameterized queries
- * @example
- * let sql = wmill.datatable()
- * let name = 'Robin'
- * let age = 21
- * await sql\`
- *   SELECT * FROM friends
- *     WHERE name = \${name} AND age = \${age}::int
- * \`.fetch()
- */
-datatable(name: string = "main"): DatatableSqlTemplateFunction
-
-/**
- * Create a SQL template function for DuckDB/ducklake queries
- * @param name - DuckDB database name (default: "main")
- * @returns SQL template function for building parameterized queries
- * @example
- * let sql = wmill.ducklake()
- * let name = 'Robin'
- * let age = 21
- * await sql\`
- *   SELECT * FROM friends
- *     WHERE name = \${name} AND age = \${age}
- * \`.fetch()
- */
-ducklake(name: string = "main"): SqlTemplateFunction
 
 /**
  * Initialize the Windmill client with authentication token and base URL
@@ -673,6 +645,45 @@ waitForApproval(options?: { timeout?: number; form?: object; }): PromiseLike<{ v
  * const results = await parallel(items, process, { concurrency: 5 });
  */
 async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: { concurrency?: number },): Promise<R[]>
+
+/**
+ * Commit Kafka offsets for a trigger with auto_commit disabled.
+ * @param triggerPath - Path to the Kafka trigger (from event.wm_trigger.trigger_path)
+ * @param topic - Kafka topic name (from event.topic)
+ * @param partition - Partition number (from event.partition)
+ * @param offset - Message offset to commit (from event.offset)
+ */
+async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, offset: number,): Promise<void>
+
+/**
+ * Create a SQL template function for PostgreSQL/datatable queries
+ * @param name - Database/datatable name (default: "main")
+ * @returns SQL template function for building parameterized queries
+ * @example
+ * let sql = wmill.datatable()
+ * let name = 'Robin'
+ * let age = 21
+ * await sql\`
+ *   SELECT * FROM friends
+ *     WHERE name = \${name} AND age = \${age}::int
+ * \`.fetch()
+ */
+datatable(name: string = "main"): DatatableSqlTemplateFunction
+
+/**
+ * Create a SQL template function for DuckDB/ducklake queries
+ * @param name - DuckDB database name (default: "main")
+ * @returns SQL template function for building parameterized queries
+ * @example
+ * let sql = wmill.ducklake()
+ * let name = 'Robin'
+ * let age = 21
+ * await sql\`
+ *   SELECT * FROM friends
+ *     WHERE name = \${name} AND age = \${age}
+ * \`.fetch()
+ */
+ducklake(name: string = "main"): SqlTemplateFunction
 `;
 
 export const SDK_PYTHON = `# Python SDK (wmill)
@@ -1346,6 +1357,15 @@ async def wait_for_approval(timeout: int = 1800, form: dict | None = None) -> di
 #     results = await parallel(items, process, concurrency=5)
 async def parallel(items, fn, concurrency: Optional[int] = None)
 
+# Commit Kafka offsets for a trigger with auto_commit disabled.
+# 
+# Args:
+#     trigger_path: Path to the Kafka trigger (from event['wm_trigger']['trigger_path'])
+#     topic: Kafka topic name (from event['topic'])
+#     partition: Partition number (from event['partition'])
+#     offset: Message offset to commit (from event['offset'])
+def commit_kafka_offsets(trigger_path: str, topic: str, partition: int, offset: int) -> None
+
 `;
 
 export const OPENFLOW_SCHEMA = `## OpenFlow Schema
@@ -1355,8 +1375,6 @@ export const OPENFLOW_SCHEMA = `## OpenFlow Schema
 export const CLI_COMMANDS = `# Windmill CLI Commands
 
 The Windmill CLI (\`wmill\`) provides commands for managing scripts, flows, apps, and other resources.
-
-Current version: 1.651.1
 
 ## Global Options
 
@@ -1474,6 +1492,23 @@ folder related commands
 - \`folder push <name:string>\` - push a local folder to the remote by name. This overrides any remote versions.
 - \`folder add-missing\` - create default folder.meta.yaml for all subdirectories of f/ that are missing one
   - \`-y, --yes\` - skip confirmation prompt
+
+### generate-metadata
+
+Generate metadata (locks, schemas) for all scripts, flows, and apps
+
+**Arguments:** \`[folder:string]\`
+
+**Options:**
+- \`--yes\` - Skip confirmation prompt
+- \`--dry-run\` - Show what would be updated without making changes
+- \`--lock-only\` - Re-generate only the lock files
+- \`--schema-only\` - Re-generate only script schemas (skips flows and apps)
+- \`--skip-scripts\` - Skip processing scripts
+- \`--skip-flows\` - Skip processing flows
+- \`--skip-apps\` - Skip processing apps
+- \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
+- \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
 
 ### gitsync-settings
 
@@ -1856,412 +1891,55 @@ workspace related commands
 
 `;
 
-export const LANG_GO = `# Go
+export const LANG_BASH = `# Bash
 
 ## Structure
 
-The file package must be \`inner\` and export a function called \`main\`:
+Do not include \`#!/bin/bash\`. Arguments are obtained as positional parameters:
 
-\`\`\`go
-package inner
+\`\`\`bash
+# Get arguments
+var1="$1"
+var2="$2"
 
-func main(param1 string, param2 int) (map[string]interface{}, error) {
-    return map[string]interface{}{
-        "result": param1,
-        "count":  param2,
-    }, nil
-}
+echo "Processing $var1 and $var2"
+
+# Return JSON by echoing to stdout
+echo "{\\"result\\": \\"$var1\\", \\"count\\": $var2}"
 \`\`\`
 
 **Important:**
-- Package must be \`inner\`
-- Return type must be \`({return_type}, error)\`
-- Function name is \`main\` (lowercase)
+- Do not include shebang (\`#!/bin/bash\`)
+- Arguments are always strings
+- Access with \`$1\`, \`$2\`, etc.
 
-## Return Types
+## Output
 
-The return type can be any Go type that can be serialized to JSON:
+The script output is captured as the result. For structured data, output valid JSON:
 
-\`\`\`go
-package inner
+\`\`\`bash
+name="$1"
+count="$2"
 
-type Result struct {
-    Name  string \`json:"name"\`
-    Count int    \`json:"count"\`
+# Output JSON result
+cat << EOF
+{
+  "name": "$name",
+  "count": $count,
+  "timestamp": "$(date -Iseconds)"
 }
-
-func main(name string, count int) (Result, error) {
-    return Result{
-        Name:  name,
-        Count: count,
-    }, nil
-}
+EOF
 \`\`\`
 
-## Error Handling
+## Environment Variables
 
-Return errors as the second return value:
+Environment variables set in Windmill are available:
 
-\`\`\`go
-package inner
-
-import "errors"
-
-func main(value int) (string, error) {
-    if value < 0 {
-        return "", errors.New("value must be positive")
-    }
-    return "success", nil
-}
+\`\`\`bash
+# Access environment variable
+echo "Workspace: $WM_WORKSPACE"
+echo "Job ID: $WM_JOB_ID"
 \`\`\`
-`;
-
-export const LANG_JAVA = `# Java
-
-The script must contain a Main public class with a \`public static main()\` method:
-
-\`\`\`java
-public class Main {
-    public static Object main(String name, int count) {
-        java.util.Map<String, Object> result = new java.util.HashMap<>();
-        result.put("name", name);
-        result.put("count", count);
-        return result;
-    }
-}
-\`\`\`
-
-**Important:**
-- Class must be named \`Main\`
-- Method must be \`public static Object main(...)\`
-- Return type is \`Object\` or \`void\`
-
-## Maven Dependencies
-
-Add dependencies using comments at the top:
-
-\`\`\`java
-//requirements:
-//com.google.code.gson:gson:2.10.1
-//org.apache.httpcomponents:httpclient:4.5.14
-
-import com.google.gson.Gson;
-
-public class Main {
-    public static Object main(String input) {
-        Gson gson = new Gson();
-        return gson.fromJson(input, Object.class);
-    }
-}
-\`\`\`
-`;
-
-export const LANG_GRAPHQL = `# GraphQL
-
-## Structure
-
-Write GraphQL queries or mutations. Arguments can be added as query parameters:
-
-\`\`\`graphql
-query GetUser($id: ID!) {
-  user(id: $id) {
-    id
-    name
-    email
-  }
-}
-\`\`\`
-
-## Variables
-
-Variables are passed as script arguments and automatically bound to the query:
-
-\`\`\`graphql
-query SearchProducts($query: String!, $limit: Int = 10) {
-  products(search: $query, first: $limit) {
-    edges {
-      node {
-        id
-        name
-        price
-      }
-    }
-  }
-}
-\`\`\`
-
-## Mutations
-
-\`\`\`graphql
-mutation CreateUser($input: CreateUserInput!) {
-  createUser(input: $input) {
-    id
-    name
-    createdAt
-  }
-}
-\`\`\`
-`;
-
-export const LANG_RUST = `# Rust
-
-## Structure
-
-The script must contain a function called \`main\` with proper return type:
-
-\`\`\`rust
-use anyhow::anyhow;
-use serde::Serialize;
-
-#[derive(Serialize, Debug)]
-struct ReturnType {
-    result: String,
-    count: i32,
-}
-
-fn main(param1: String, param2: i32) -> anyhow::Result<ReturnType> {
-    Ok(ReturnType {
-        result: param1,
-        count: param2,
-    })
-}
-\`\`\`
-
-**Important:**
-- Arguments should be owned types
-- Return type must be serializable (\`#[derive(Serialize)]\`)
-- Return type is \`anyhow::Result<T>\`
-
-## Dependencies
-
-Packages must be specified with a partial cargo.toml at the beginning of the script:
-
-\`\`\`rust
-//! \`\`\`cargo
-//! [dependencies]
-//! anyhow = "1.0.86"
-//! reqwest = { version = "0.11", features = ["json"] }
-//! tokio = { version = "1", features = ["full"] }
-//! \`\`\`
-
-use anyhow::anyhow;
-// ... rest of the code
-\`\`\`
-
-**Note:** Serde is already included, no need to add it again.
-
-## Async Functions
-
-If you need to handle async functions (e.g., using tokio), keep the main function sync and create the runtime inside:
-
-\`\`\`rust
-//! \`\`\`cargo
-//! [dependencies]
-//! anyhow = "1.0.86"
-//! tokio = { version = "1", features = ["full"] }
-//! reqwest = { version = "0.11", features = ["json"] }
-//! \`\`\`
-
-use anyhow::anyhow;
-use serde::Serialize;
-
-#[derive(Serialize, Debug)]
-struct Response {
-    data: String,
-}
-
-fn main(url: String) -> anyhow::Result<Response> {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
-        let resp = reqwest::get(&url).await?.text().await?;
-        Ok(Response { data: resp })
-    })
-}
-\`\`\`
-`;
-
-export const LANG_BUNNATIVE = `# TypeScript (Bun Native)
-
-Native TypeScript execution with fetch only - no external imports allowed.
-
-## Structure
-
-Export a single **async** function called \`main\`:
-
-\`\`\`typescript
-export async function main(param1: string, param2: number) {
-  // Your code here
-  return { result: param1, count: param2 };
-}
-\`\`\`
-
-Do not call the main function.
-
-## Resource Types
-
-On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-
-Use the \`RT\` namespace for resource types:
-
-\`\`\`typescript
-export async function main(stripe: RT.Stripe) {
-  // stripe contains API key and config from the resource
-}
-\`\`\`
-
-Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
-
-Before using a resource type, check the \`rt.d.ts\` file in the project root to see all available resource types and their fields. This file is generated by \`wmill resource-type generate-namespace\`.
-
-## Imports
-
-**No imports allowed.** Use the globally available \`fetch\` function:
-
-\`\`\`typescript
-export async function main(url: string) {
-  const response = await fetch(url);
-  return await response.json();
-}
-\`\`\`
-
-## Windmill Client
-
-The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
-
-## Preprocessor Scripts
-
-For preprocessor scripts, the function should be named \`preprocessor\` and receives an \`event\` parameter:
-
-\`\`\`typescript
-type Event = {
-  kind:
-    | "webhook"
-    | "http"
-    | "websocket"
-    | "kafka"
-    | "email"
-    | "nats"
-    | "postgres"
-    | "sqs"
-    | "mqtt"
-    | "gcp";
-  body: any;
-  headers: Record<string, string>;
-  query: Record<string, string>;
-};
-
-export async function preprocessor(event: Event) {
-  return {
-    param1: event.body.field1,
-    param2: event.query.id,
-  };
-}
-\`\`\`
-
-## S3 Object Operations
-
-Windmill provides built-in support for S3-compatible storage operations.
-
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
-
-\`\`\`typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
-\`\`\`
-
-## TypeScript Operations
-
-\`\`\`typescript
-import * as wmill from "windmill-client";
-
-// Load file content from S3
-const content: Uint8Array = await wmill.loadS3File(s3object);
-
-// Load file as stream
-const blob: Blob = await wmill.loadS3FileStream(s3object);
-
-// Write file to S3
-const result: S3Object = await wmill.writeS3File(
-  s3object, // Target path (or undefined to auto-generate)
-  fileContent, // string or Blob
-  s3ResourcePath // Optional: specific S3 resource to use
-);
-\`\`\`
-`;
-
-export const LANG_POSTGRESQL = `# PostgreSQL
-
-Arguments are obtained directly in the statement with \`$1::{type}\`, \`$2::{type}\`, etc.
-
-Name the parameters by adding comments at the beginning of the script (without specifying the type):
-
-\`\`\`sql
--- $1 name1
--- $2 name2 = default_value
-SELECT * FROM users WHERE name = $1::TEXT AND age > $2::INT;
-\`\`\`
-`;
-
-export const LANG_PHP = `# PHP
-
-## Structure
-
-The script must start with \`<?php\` and contain at least one function called \`main\`:
-
-\`\`\`php
-<?php
-
-function main(string $param1, int $param2) {
-    return ["result" => $param1, "count" => $param2];
-}
-\`\`\`
-
-## Resource Types
-
-On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-
-You need to **redefine** the type of the resources that are needed before the main function. Always check if the class already exists using \`class_exists\`:
-
-\`\`\`php
-<?php
-
-if (!class_exists('Postgresql')) {
-    class Postgresql {
-        public string $host;
-        public int $port;
-        public string $user;
-        public string $password;
-        public string $dbname;
-    }
-}
-
-function main(Postgresql $db) {
-    // $db contains the database connection details
-}
-\`\`\`
-
-The resource type name has to be exactly as specified.
-
-## Library Dependencies
-
-Specify library dependencies as comments before the main function:
-
-\`\`\`php
-<?php
-
-// require:
-// guzzlehttp/guzzle
-// stripe/stripe-php@^10.0
-
-function main() {
-    // Libraries are available
-}
-\`\`\`
-
-One dependency per line. No need to require autoload, it is already done.
 `;
 
 export const LANG_BIGQUERY = `# BigQuery
@@ -2391,6 +2069,118 @@ const result: S3Object = await wmill.writeS3File(
 \`\`\`
 `;
 
+export const LANG_BUNNATIVE = `# TypeScript (Bun Native)
+
+Native TypeScript execution with fetch only - no external imports allowed.
+
+## Structure
+
+Export a single **async** function called \`main\`:
+
+\`\`\`typescript
+export async function main(param1: string, param2: number) {
+  // Your code here
+  return { result: param1, count: param2 };
+}
+\`\`\`
+
+Do not call the main function.
+
+## Resource Types
+
+On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
+
+Use the \`RT\` namespace for resource types:
+
+\`\`\`typescript
+export async function main(stripe: RT.Stripe) {
+  // stripe contains API key and config from the resource
+}
+\`\`\`
+
+Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
+
+Before using a resource type, check the \`rt.d.ts\` file in the project root to see all available resource types and their fields. This file is generated by \`wmill resource-type generate-namespace\`.
+
+## Imports
+
+**No imports allowed.** Use the globally available \`fetch\` function:
+
+\`\`\`typescript
+export async function main(url: string) {
+  const response = await fetch(url);
+  return await response.json();
+}
+\`\`\`
+
+## Windmill Client
+
+The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
+
+## Preprocessor Scripts
+
+For preprocessor scripts, the function should be named \`preprocessor\` and receives an \`event\` parameter:
+
+\`\`\`typescript
+type Event = {
+  kind:
+    | "webhook"
+    | "http"
+    | "websocket"
+    | "kafka"
+    | "email"
+    | "nats"
+    | "postgres"
+    | "sqs"
+    | "mqtt"
+    | "gcp";
+  body: any;
+  headers: Record<string, string>;
+  query: Record<string, string>;
+};
+
+export async function preprocessor(event: Event) {
+  return {
+    param1: event.body.field1,
+    param2: event.query.id,
+  };
+}
+\`\`\`
+
+## S3 Object Operations
+
+Windmill provides built-in support for S3-compatible storage operations.
+
+### S3Object Type
+
+The S3Object type represents a file in S3 storage:
+
+\`\`\`typescript
+type S3Object = {
+  s3: string; // Path within the bucket
+};
+\`\`\`
+
+## TypeScript Operations
+
+\`\`\`typescript
+import * as wmill from "windmill-client";
+
+// Load file content from S3
+const content: Uint8Array = await wmill.loadS3File(s3object);
+
+// Load file as stream
+const blob: Blob = await wmill.loadS3FileStream(s3object);
+
+// Write file to S3
+const result: S3Object = await wmill.writeS3File(
+  s3object, // Target path (or undefined to auto-generate)
+  fileContent, // string or Blob
+  s3ResourcePath // Optional: specific S3 resource to use
+);
+\`\`\`
+`;
+
 export const LANG_CSHARP = `# C#
 
 The script must contain a public static \`Main\` method inside a class:
@@ -2431,19 +2221,6 @@ public class Script
         return JsonConvert.DeserializeObject(response.Content);
     }
 }
-\`\`\`
-`;
-
-export const LANG_MSSQL = `# Microsoft SQL Server (MSSQL)
-
-Arguments use \`@P1\`, \`@P2\`, etc.
-
-Name the parameters by adding comments before the statement:
-
-\`\`\`sql
--- @P1 name1 (varchar)
--- @P2 name2 (int) = 0
-SELECT * FROM users WHERE name = @P1 AND age > @P2;
 \`\`\`
 `;
 
@@ -2565,6 +2342,219 @@ const result: S3Object = await wmill.writeS3File(
 \`\`\`
 `;
 
+export const LANG_DUCKDB = `# DuckDB
+
+Arguments are defined with comments and used with \`$name\` syntax:
+
+\`\`\`sql
+-- $name (text) = default
+-- $age (integer)
+SELECT * FROM users WHERE name = $name AND age > $age;
+\`\`\`
+
+## Ducklake Integration
+
+Attach Ducklake for data lake operations:
+
+\`\`\`sql
+-- Main ducklake
+ATTACH 'ducklake' AS dl;
+
+-- Named ducklake
+ATTACH 'ducklake://my_lake' AS dl;
+
+-- Then query
+SELECT * FROM dl.schema.table;
+\`\`\`
+
+## External Database Connections
+
+Connect to external databases using resources:
+
+\`\`\`sql
+ATTACH '$res:path/to/resource' AS db (TYPE postgres);
+SELECT * FROM db.schema.table;
+\`\`\`
+
+## S3 File Operations
+
+Read files from S3 storage:
+
+\`\`\`sql
+-- Default storage
+SELECT * FROM read_csv('s3:///path/to/file.csv');
+
+-- Named storage
+SELECT * FROM read_csv('s3://storage_name/path/to/file.csv');
+
+-- Parquet files
+SELECT * FROM read_parquet('s3:///path/to/file.parquet');
+
+-- JSON files
+SELECT * FROM read_json('s3:///path/to/file.json');
+\`\`\`
+`;
+
+export const LANG_GO = `# Go
+
+## Structure
+
+The file package must be \`inner\` and export a function called \`main\`:
+
+\`\`\`go
+package inner
+
+func main(param1 string, param2 int) (map[string]interface{}, error) {
+    return map[string]interface{}{
+        "result": param1,
+        "count":  param2,
+    }, nil
+}
+\`\`\`
+
+**Important:**
+- Package must be \`inner\`
+- Return type must be \`({return_type}, error)\`
+- Function name is \`main\` (lowercase)
+
+## Return Types
+
+The return type can be any Go type that can be serialized to JSON:
+
+\`\`\`go
+package inner
+
+type Result struct {
+    Name  string \`json:"name"\`
+    Count int    \`json:"count"\`
+}
+
+func main(name string, count int) (Result, error) {
+    return Result{
+        Name:  name,
+        Count: count,
+    }, nil
+}
+\`\`\`
+
+## Error Handling
+
+Return errors as the second return value:
+
+\`\`\`go
+package inner
+
+import "errors"
+
+func main(value int) (string, error) {
+    if value < 0 {
+        return "", errors.New("value must be positive")
+    }
+    return "success", nil
+}
+\`\`\`
+`;
+
+export const LANG_GRAPHQL = `# GraphQL
+
+## Structure
+
+Write GraphQL queries or mutations. Arguments can be added as query parameters:
+
+\`\`\`graphql
+query GetUser($id: ID!) {
+  user(id: $id) {
+    id
+    name
+    email
+  }
+}
+\`\`\`
+
+## Variables
+
+Variables are passed as script arguments and automatically bound to the query:
+
+\`\`\`graphql
+query SearchProducts($query: String!, $limit: Int = 10) {
+  products(search: $query, first: $limit) {
+    edges {
+      node {
+        id
+        name
+        price
+      }
+    }
+  }
+}
+\`\`\`
+
+## Mutations
+
+\`\`\`graphql
+mutation CreateUser($input: CreateUserInput!) {
+  createUser(input: $input) {
+    id
+    name
+    createdAt
+  }
+}
+\`\`\`
+`;
+
+export const LANG_JAVA = `# Java
+
+The script must contain a Main public class with a \`public static main()\` method:
+
+\`\`\`java
+public class Main {
+    public static Object main(String name, int count) {
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        result.put("name", name);
+        result.put("count", count);
+        return result;
+    }
+}
+\`\`\`
+
+**Important:**
+- Class must be named \`Main\`
+- Method must be \`public static Object main(...)\`
+- Return type is \`Object\` or \`void\`
+
+## Maven Dependencies
+
+Add dependencies using comments at the top:
+
+\`\`\`java
+//requirements:
+//com.google.code.gson:gson:2.10.1
+//org.apache.httpcomponents:httpclient:4.5.14
+
+import com.google.gson.Gson;
+
+public class Main {
+    public static Object main(String input) {
+        Gson gson = new Gson();
+        return gson.fromJson(input, Object.class);
+    }
+}
+\`\`\`
+`;
+
+export const LANG_MSSQL = `# Microsoft SQL Server (MSSQL)
+
+Arguments use \`@P1\`, \`@P2\`, etc.
+
+Name the parameters by adding comments before the statement:
+
+\`\`\`sql
+-- @P1 name1 (varchar)
+-- @P2 name2 (int) = 0
+SELECT * FROM users WHERE name = @P1 AND age > @P2;
+\`\`\`
+`;
+
 export const LANG_MYSQL = `# MySQL
 
 Arguments use \`?\` placeholders.
@@ -2575,6 +2565,157 @@ Name the parameters by adding comments before the statement:
 -- ? name1 (text)
 -- ? name2 (int) = 0
 SELECT * FROM users WHERE name = ? AND age > ?;
+\`\`\`
+`;
+
+export const LANG_NATIVETS = `# TypeScript (Native)
+
+Native TypeScript execution with fetch only - no external imports allowed.
+
+## Structure
+
+Export a single **async** function called \`main\`:
+
+\`\`\`typescript
+export async function main(param1: string, param2: number) {
+  // Your code here
+  return { result: param1, count: param2 };
+}
+\`\`\`
+
+Do not call the main function.
+
+## Resource Types
+
+On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
+
+Use the \`RT\` namespace for resource types:
+
+\`\`\`typescript
+export async function main(stripe: RT.Stripe) {
+  // stripe contains API key and config from the resource
+}
+\`\`\`
+
+Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
+
+Before using a resource type, check the \`rt.d.ts\` file in the project root to see all available resource types and their fields. This file is generated by \`wmill resource-type generate-namespace\`.
+
+## Imports
+
+**No imports allowed.** Use the globally available \`fetch\` function:
+
+\`\`\`typescript
+export async function main(url: string) {
+  const response = await fetch(url);
+  return await response.json();
+}
+\`\`\`
+
+## Windmill Client
+
+The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
+
+## Preprocessor Scripts
+
+For preprocessor scripts, the function should be named \`preprocessor\` and receives an \`event\` parameter:
+
+\`\`\`typescript
+type Event = {
+  kind:
+    | "webhook"
+    | "http"
+    | "websocket"
+    | "kafka"
+    | "email"
+    | "nats"
+    | "postgres"
+    | "sqs"
+    | "mqtt"
+    | "gcp";
+  body: any;
+  headers: Record<string, string>;
+  query: Record<string, string>;
+};
+
+export async function preprocessor(event: Event) {
+  return {
+    param1: event.body.field1,
+    param2: event.query.id
+  };
+}
+\`\`\`
+`;
+
+export const LANG_PHP = `# PHP
+
+## Structure
+
+The script must start with \`<?php\` and contain at least one function called \`main\`:
+
+\`\`\`php
+<?php
+
+function main(string $param1, int $param2) {
+    return ["result" => $param1, "count" => $param2];
+}
+\`\`\`
+
+## Resource Types
+
+On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
+
+You need to **redefine** the type of the resources that are needed before the main function. Always check if the class already exists using \`class_exists\`:
+
+\`\`\`php
+<?php
+
+if (!class_exists('Postgresql')) {
+    class Postgresql {
+        public string $host;
+        public int $port;
+        public string $user;
+        public string $password;
+        public string $dbname;
+    }
+}
+
+function main(Postgresql $db) {
+    // $db contains the database connection details
+}
+\`\`\`
+
+The resource type name has to be exactly as specified.
+
+## Library Dependencies
+
+Specify library dependencies as comments before the main function:
+
+\`\`\`php
+<?php
+
+// require:
+// guzzlehttp/guzzle
+// stripe/stripe-php@^10.0
+
+function main() {
+    // Libraries are available
+}
+\`\`\`
+
+One dependency per line. No need to require autoload, it is already done.
+`;
+
+export const LANG_POSTGRESQL = `# PostgreSQL
+
+Arguments are obtained directly in the statement with \`$1::{type}\`, \`$2::{type}\`, etc.
+
+Name the parameters by adding comments at the beginning of the script (without specifying the type):
+
+\`\`\`sql
+-- $1 name1
+-- $2 name2 = default_value
+SELECT * FROM users WHERE name = $1::TEXT AND age > $2::INT;
 \`\`\`
 `;
 
@@ -2632,19 +2773,6 @@ $result = @{
 }
 
 $result
-\`\`\`
-`;
-
-export const LANG_SNOWFLAKE = `# Snowflake
-
-Arguments use \`?\` placeholders.
-
-Name the parameters by adding comments before the statement:
-
-\`\`\`sql
--- ? name1 (text)
--- ? name2 (number) = 0
-SELECT * FROM users WHERE name = ? AND age > ?;
 \`\`\`
 `;
 
@@ -2768,186 +2896,93 @@ result: S3Object = wmill.write_s3_file(
 \`\`\`
 `;
 
-export const LANG_DUCKDB = `# DuckDB
-
-Arguments are defined with comments and used with \`$name\` syntax:
-
-\`\`\`sql
--- $name (text) = default
--- $age (integer)
-SELECT * FROM users WHERE name = $name AND age > $age;
-\`\`\`
-
-## Ducklake Integration
-
-Attach Ducklake for data lake operations:
-
-\`\`\`sql
--- Main ducklake
-ATTACH 'ducklake' AS dl;
-
--- Named ducklake
-ATTACH 'ducklake://my_lake' AS dl;
-
--- Then query
-SELECT * FROM dl.schema.table;
-\`\`\`
-
-## External Database Connections
-
-Connect to external databases using resources:
-
-\`\`\`sql
-ATTACH '$res:path/to/resource' AS db (TYPE postgres);
-SELECT * FROM db.schema.table;
-\`\`\`
-
-## S3 File Operations
-
-Read files from S3 storage:
-
-\`\`\`sql
--- Default storage
-SELECT * FROM read_csv('s3:///path/to/file.csv');
-
--- Named storage
-SELECT * FROM read_csv('s3://storage_name/path/to/file.csv');
-
--- Parquet files
-SELECT * FROM read_parquet('s3:///path/to/file.parquet');
-
--- JSON files
-SELECT * FROM read_json('s3:///path/to/file.json');
-\`\`\`
-`;
-
-export const LANG_BASH = `# Bash
+export const LANG_RUST = `# Rust
 
 ## Structure
 
-Do not include \`#!/bin/bash\`. Arguments are obtained as positional parameters:
+The script must contain a function called \`main\` with proper return type:
 
-\`\`\`bash
-# Get arguments
-var1="$1"
-var2="$2"
+\`\`\`rust
+use anyhow::anyhow;
+use serde::Serialize;
 
-echo "Processing $var1 and $var2"
+#[derive(Serialize, Debug)]
+struct ReturnType {
+    result: String,
+    count: i32,
+}
 
-# Return JSON by echoing to stdout
-echo "{\\"result\\": \\"$var1\\", \\"count\\": $var2}"
+fn main(param1: String, param2: i32) -> anyhow::Result<ReturnType> {
+    Ok(ReturnType {
+        result: param1,
+        count: param2,
+    })
+}
 \`\`\`
 
 **Important:**
-- Do not include shebang (\`#!/bin/bash\`)
-- Arguments are always strings
-- Access with \`$1\`, \`$2\`, etc.
+- Arguments should be owned types
+- Return type must be serializable (\`#[derive(Serialize)]\`)
+- Return type is \`anyhow::Result<T>\`
 
-## Output
+## Dependencies
 
-The script output is captured as the result. For structured data, output valid JSON:
+Packages must be specified with a partial cargo.toml at the beginning of the script:
 
-\`\`\`bash
-name="$1"
-count="$2"
+\`\`\`rust
+//! \`\`\`cargo
+//! [dependencies]
+//! anyhow = "1.0.86"
+//! reqwest = { version = "0.11", features = ["json"] }
+//! tokio = { version = "1", features = ["full"] }
+//! \`\`\`
 
-# Output JSON result
-cat << EOF
-{
-  "name": "$name",
-  "count": $count,
-  "timestamp": "$(date -Iseconds)"
-}
-EOF
+use anyhow::anyhow;
+// ... rest of the code
 \`\`\`
 
-## Environment Variables
+**Note:** Serde is already included, no need to add it again.
 
-Environment variables set in Windmill are available:
+## Async Functions
 
-\`\`\`bash
-# Access environment variable
-echo "Workspace: $WM_WORKSPACE"
-echo "Job ID: $WM_JOB_ID"
+If you need to handle async functions (e.g., using tokio), keep the main function sync and create the runtime inside:
+
+\`\`\`rust
+//! \`\`\`cargo
+//! [dependencies]
+//! anyhow = "1.0.86"
+//! tokio = { version = "1", features = ["full"] }
+//! reqwest = { version = "0.11", features = ["json"] }
+//! \`\`\`
+
+use anyhow::anyhow;
+use serde::Serialize;
+
+#[derive(Serialize, Debug)]
+struct Response {
+    data: String,
+}
+
+fn main(url: String) -> anyhow::Result<Response> {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        let resp = reqwest::get(&url).await?.text().await?;
+        Ok(Response { data: resp })
+    })
+}
 \`\`\`
 `;
 
-export const LANG_NATIVETS = `# TypeScript (Native)
+export const LANG_SNOWFLAKE = `# Snowflake
 
-Native TypeScript execution with fetch only - no external imports allowed.
+Arguments use \`?\` placeholders.
 
-## Structure
+Name the parameters by adding comments before the statement:
 
-Export a single **async** function called \`main\`:
-
-\`\`\`typescript
-export async function main(param1: string, param2: number) {
-  // Your code here
-  return { result: param1, count: param2 };
-}
-\`\`\`
-
-Do not call the main function.
-
-## Resource Types
-
-On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-
-Use the \`RT\` namespace for resource types:
-
-\`\`\`typescript
-export async function main(stripe: RT.Stripe) {
-  // stripe contains API key and config from the resource
-}
-\`\`\`
-
-Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
-
-Before using a resource type, check the \`rt.d.ts\` file in the project root to see all available resource types and their fields. This file is generated by \`wmill resource-type generate-namespace\`.
-
-## Imports
-
-**No imports allowed.** Use the globally available \`fetch\` function:
-
-\`\`\`typescript
-export async function main(url: string) {
-  const response = await fetch(url);
-  return await response.json();
-}
-\`\`\`
-
-## Windmill Client
-
-The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
-
-## Preprocessor Scripts
-
-For preprocessor scripts, the function should be named \`preprocessor\` and receives an \`event\` parameter:
-
-\`\`\`typescript
-type Event = {
-  kind:
-    | "webhook"
-    | "http"
-    | "websocket"
-    | "kafka"
-    | "email"
-    | "nats"
-    | "postgres"
-    | "sqs"
-    | "mqtt"
-    | "gcp";
-  body: any;
-  headers: Record<string, string>;
-  query: Record<string, string>;
-};
-
-export async function preprocessor(event: Event) {
-  return {
-    param1: event.body.field1,
-    param2: event.query.id
-  };
-}
+\`\`\`sql
+-- ? name1 (text)
+-- ? name2 (number) = 0
+SELECT * FROM users WHERE name = ? AND age > ?;
 \`\`\`
 `;
 

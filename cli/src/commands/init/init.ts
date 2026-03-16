@@ -252,6 +252,16 @@ async function initAction(opts: InitOptions) {
     }
   }
 
+  // Read nonDottedPaths from config to specialize generated skills
+  let nonDottedPaths = true; // default for new inits
+  try {
+    const { readConfigFile } = await import("../../core/conf.ts");
+    const config = await readConfigFile();
+    nonDottedPaths = config.nonDottedPaths ?? true;
+  } catch {
+    // If config can't be read, use default
+  }
+
   // Create guidance files (AGENTS.md, CLAUDE.md, and Claude skills)
   try {
     // Generate skills reference section for AGENTS.md
@@ -290,6 +300,20 @@ async function initAction(opts: InitOptions) {
 
           let skillContent = SKILL_CONTENT[skill.name];
           if (skillContent) {
+            // Replace placeholders with actual suffixes based on nonDottedPaths
+            if (nonDottedPaths) {
+              skillContent = skillContent
+                .replaceAll("{{FLOW_SUFFIX}}", "__flow")
+                .replaceAll("{{APP_SUFFIX}}", "__app")
+                .replaceAll("{{RAW_APP_SUFFIX}}", "__raw_app")
+                .replaceAll("{{INLINE_SCRIPT_NAMING}}", "Inline script files should NOT include `.inline_script.` in their names (e.g. use `a.ts`, not `a.inline_script.ts`).");
+            } else {
+              skillContent = skillContent
+                .replaceAll("{{FLOW_SUFFIX}}", ".flow")
+                .replaceAll("{{APP_SUFFIX}}", ".app")
+                .replaceAll("{{RAW_APP_SUFFIX}}", ".raw_app")
+                .replaceAll("{{INLINE_SCRIPT_NAMING}}", "Inline script files use the `.inline_script.` naming convention (e.g. `a.inline_script.ts`).");
+            }
             // Check if this skill has schemas that need to be appended
             const schemaMappings = SCHEMA_MAPPINGS[skill.name];
             if (schemaMappings && schemaMappings.length > 0) {

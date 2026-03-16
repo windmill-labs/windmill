@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT kafka_resource_path, topics, group_id, mode AS \"mode: String\"\n        FROM kafka_trigger\n        WHERE workspace_id = $1 AND path = $2\n        ",
+  "query": "\n        SELECT kafka_resource_path, topics, group_id, mode AS \"mode: String\",\n               auto_offset_reset, auto_commit, reset_offset\n        FROM kafka_trigger\n        WHERE workspace_id = $1 AND path = $2\n        ",
   "describe": {
     "columns": [
       {
@@ -33,6 +33,21 @@
             }
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "auto_offset_reset",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "auto_commit",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "reset_offset",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -45,8 +60,11 @@
       false,
       false,
       false,
+      false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "7e3bfb33fb771aec39b43a7550091ce7c9b1261b52d10f4a7f3273fed3c916df"
+  "hash": "4cf4be7a981173d3f242887d9313c7e60d23e9827f23c0de5b546ed56697d54a"
 }

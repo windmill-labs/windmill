@@ -283,6 +283,8 @@ struct SimplifiedSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_settings: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    datatable: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     slack_team_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     slack_name: Option<String>,
@@ -323,6 +325,8 @@ struct SimplifiedSettingsLegacy {
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_settings: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    datatable: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     slack_team_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     slack_name: Option<String>,
@@ -347,6 +351,7 @@ struct SettingsRow {
     mute_critical_alerts: Option<bool>,
     color: Option<String>,
     operator_settings: Option<serde_json::Value>,
+    datatable: Option<Value>,
     slack_team_id: Option<String>,
     slack_name: Option<String>,
     slack_command_script: Option<String>,
@@ -955,6 +960,7 @@ pub(crate) async fn tarball_workspace(
                  mute_critical_alerts,
                  color,
                  operator_settings,
+                 datatable,
                  slack_team_id,
                  slack_name,
                  slack_command_script
@@ -983,6 +989,7 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color.clone(),
                 operator_settings: row.operator_settings.clone(),
+                datatable: row.datatable.clone(),
                 slack_team_id: row.slack_team_id.clone(),
                 slack_name: row.slack_name.clone(),
                 slack_command_script: row.slack_command_script.clone(),
@@ -1045,6 +1052,7 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color,
                 operator_settings: row.operator_settings,
+                datatable: row.datatable,
                 slack_team_id: row.slack_team_id,
                 slack_name: row.slack_name,
                 slack_command_script: row.slack_command_script,

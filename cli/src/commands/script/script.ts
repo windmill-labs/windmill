@@ -58,6 +58,7 @@ import {
   isFlowInlineScriptPath as isFlowInlineScriptPathInternal,
   isFlowPath,
   isAppPath,
+  isRawAppPath,
 } from "../../utils/resource_folders.ts";
 
 export interface ScriptFile {
@@ -978,7 +979,7 @@ export type GlobalDeps = Map<
   Record<string, string>
 >;
 
-async function generateMetadata(
+export async function generateMetadata(
   opts: GlobalOptions & {
     lockOnly?: boolean;
     schemaOnly?: boolean;
@@ -986,6 +987,9 @@ async function generateMetadata(
   } & SyncOptions,
   scriptPath: string | undefined
 ) {
+  log.warn(
+    colors.yellow('This command is deprecated. Use "wmill generate-metadata" instead.')
+  );
   log.info(
     "This command only works for workspace scripts, for flows inline scripts use `wmill flow generate-locks`"
   );
@@ -1024,7 +1028,8 @@ async function generateMetadata(
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||
           ignore(p, isD) ||
           isFlowPath(p) ||
-          isAppPath(p)
+          isAppPath(p) ||
+          isRawAppPath(p)
         );
       },
       false,
