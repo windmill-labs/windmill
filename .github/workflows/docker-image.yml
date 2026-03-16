@@ -199,10 +199,17 @@ jobs:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
           path: "/usr/src/app/windmill"
 
+      - uses: shrink/actions-docker-extract@v3
+        id: extract-ee-debug
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
+          path: "/usr/src/app/windmill.debug"
+
       - name: Rename binary with corresponding architecture
         run: |
           mv "${{ steps.extract.outputs.destination }}/windmill" "${{ steps.extract.outputs.destination }}/windmill-${ARCH}"
           mv "${{ steps.extract-ee.outputs.destination }}/windmill" "${{ steps.extract-ee.outputs.destination }}/windmill-ee-${ARCH}"
+          mv "${{ steps.extract-ee-debug.outputs.destination }}/windmill.debug" "${{ steps.extract-ee-debug.outputs.destination }}/windmill-ee-${ARCH}.debug"
 
       - name: Attach binary to release
         uses: softprops/action-gh-release@v2
@@ -210,60 +217,8 @@ jobs:
           files: |
             ${{ steps.extract.outputs.destination }}/*
             ${{ steps.extract-ee.outputs.destination }}/*
+            ${{ steps.extract-ee-debug.outputs.destination }}/*
             ${{ steps.extract-duckdb-ffi-internal.outputs.destination }}/*
-
-  attach_ee_debug_to_release:
-    needs: [build_ee]
-    runs-on: ubicloud
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-    strategy:
-      matrix:
-        platform: [linux/amd64, linux/arm64]
-        include:
-          - platform: linux/amd64
-            arch: amd64
-          - platform: linux/arm64
-            arch: arm64
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
-
-      - name: Read EE repo commit hash
-        run: |
-          echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
-
-      - uses: actions/checkout@v4
-        with:
-          repository: windmill-labs/windmill-ee-private
-          path: ./windmill-ee-private
-          ref: ${{ env.ee_repo_ref }}
-          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
-
-      - name: Substitute EE code
-        run: |
-          ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
-
-      - uses: depot/setup-action@v1
-
-      - name: Extract EE debug info from builder stage (depot cache hit)
-        uses: depot/build-push-action@v1
-        with:
-          context: .
-          platforms: ${{ matrix.platform }}
-          target: debuginfo
-          build-args: |
-            features=ee
-          outputs: type=local,dest=./debuginfo
-
-      - name: Rename debug file with corresponding architecture
-        run: |
-          mv ./debuginfo/windmill.debug ./debuginfo/windmill-ee-${{ matrix.arch }}.debug
-
-      - name: Attach debug file to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ./debuginfo/windmill-ee-${{ matrix.arch }}.debug
 
   # attach_arm64_binary_to_release:
   #   needs: [build, build_ee]
