@@ -324,8 +324,6 @@ pub struct AIAgentResult<'a> {
     pub output: Box<RawValue>,
     pub messages: Vec<Message<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub wm_stream: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<TokenUsage>,
