@@ -3,6 +3,13 @@
  *
  * Tests the sync pull and push functionality with a simulated filesystem
  * containing every kind of Windmill resource type.
+ *
+ * CROSS-LINKS - Related test helper locations (keep in sync when adding new helpers):
+ * @see test_fixtures.ts - Shared local fixtures (prefer using this module for new tests)
+ * @see test_backend.ts - API-based creation helpers (createTestApp, createTestResource, etc.)
+ *
+ * This file contains: Local fixtures (should migrate to test_fixtures.ts) + createRemoteScript
+ * If you add new helpers, update cross-links in the files above.
  */
 
 import { expect, test, describe } from "bun:test";
@@ -37,10 +44,13 @@ import { newPathAssigner } from "../windmill-utils-internal/src/path-utils/path-
 
 // =============================================================================
 // Test Fixtures - Every Type of Windmill Resource
+// See file header for cross-links to related helpers.
+// Consider migrating these to test_fixtures.ts for reuse across tests.
 // =============================================================================
 
 /**
- * Creates a mock script file structure
+ * Creates a mock script file structure.
+ * See file header for cross-links to related helpers.
  */
 function createScriptFixture(
   name: string,
@@ -89,7 +99,8 @@ kind: script
 }
 
 /**
- * Creates a mock flow file structure
+ * Creates a mock flow file structure.
+ * See file header for cross-links to related helpers.
  */
 function createFlowFixture(name: string): Record<string, { path: string; content: string }> {
   const flowSuffix = getFolderSuffix("flow");
@@ -123,7 +134,8 @@ schema:
 }
 
 /**
- * Creates a mock app file structure
+ * Creates a mock app file structure.
+ * See file header for cross-links to related helpers.
  */
 function createAppFixture(name: string): Record<string, { path: string; content: string }> {
   const appSuffix = getFolderSuffix("app");
@@ -151,7 +163,8 @@ policy:
 }
 
 /**
- * Creates a mock raw_app file structure
+ * Creates a mock raw_app file structure.
+ * See file header for cross-links to related helpers.
  */
 function createRawAppFixture(name: string): Record<string, { path: string; content: string }> {
   const rawAppSuffix = getFolderSuffix("raw_app");
@@ -1755,6 +1768,66 @@ excludes: []
     });
   });
 
+test("Integration: Sync pull with nonDottedPaths uses non-dotted inline script filenames", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      // Push a flow using default dotted paths
+      await writeFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+      "utf-8",
+      );
+
+      const uniqueId = Date.now();
+      const flowName = `f/test/nondot_pull_inline_${uniqueId}`;
+      const flowFixture = createFlowFixture(flowName);
+      await mkdir(`${tempDir}/f/test/nondot_pull_inline_${uniqueId}${getFolderSuffix("flow")}`, { recursive: true });
+      for (const file of Object.values(flowFixture)) {
+        await writeFile(`${tempDir}/${file.path}`, file.content, "utf-8");
+      }
+
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--includes", `f/test/nondot_pull_inline_${uniqueId}*/**`],
+        tempDir,
+      );
+      expect(pushResult.code).toEqual(0);
+
+      // Pull into a fresh directory with nonDottedPaths enabled
+      const tempDir2 = await mkdtemp(join(tmpdir(), "wmill_nondot_inline_"));
+      try {
+        await writeFile(
+          `${tempDir2}/wmill.yaml`,
+          `defaultTs: bun
+nonDottedPaths: true
+includes:
+  - "**"
+excludes: []
+`,
+        "utf-8",
+        );
+
+        const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir2);
+        expect(pullResult.code).toEqual(0);
+
+        // Verify pulled files use non-dotted inline script naming
+        const files = await listFilesRecursive(tempDir2);
+        const flowFiles = files.filter((f) => f.includes(`nondot_pull_inline_${uniqueId}`));
+
+        expect(flowFiles.length > 0).toBeTruthy();
+        // Should use __flow folder, not .flow
+        expect(flowFiles.some((f) => f.includes("__flow/"))).toBeTruthy();
+        // No files should have .inline_script. in their name
+        const dottedInlineFiles = flowFiles.filter((f) => f.includes(".inline_script."));
+        expect(dottedInlineFiles.length).toEqual(0);
+      } finally {
+        await cleanupTempDir(tempDir2);
+      }
+    });
+  });
+
 // =============================================================================
 // ws_error_handler_muted Persistence Tests
 // =============================================================================
@@ -1920,7 +1993,7 @@ excludes: []
 
 import type { TestBackend } from "./test_backend.ts";
 
-/** Create a script on the remote via API */
+/** Create a script on the remote via API. See file header for cross-links. */
 async function createRemoteScript(
   backend: TestBackend,
   scriptPath: string,

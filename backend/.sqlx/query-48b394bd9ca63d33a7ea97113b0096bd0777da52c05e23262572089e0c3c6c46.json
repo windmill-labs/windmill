@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE workspace_settings\n        SET git_app_installations = (\n            SELECT jsonb_agg(\n                CASE\n                    WHEN (elem->>'installation_id')::bigint = $2 THEN $1::jsonb\n                    ELSE elem\n                END\n            )\n            FROM jsonb_array_elements(git_app_installations) AS elem\n        )\n        WHERE workspace_id = $3\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "48b394bd9ca63d33a7ea97113b0096bd0777da52c05e23262572089e0c3c6c46"
+}

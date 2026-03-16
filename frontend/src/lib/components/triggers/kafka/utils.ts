@@ -25,6 +25,7 @@ export async function saveKafkaTriggerFromCfg(
 		topics: cfg.topics,
 		filters: cfg.filters ?? [],
 		auto_offset_reset: cfg.auto_offset_reset ?? 'latest',
+		auto_commit: cfg.auto_commit ?? true,
 		...errorHandlerAndRetries
 	}
 	try {

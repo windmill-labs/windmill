@@ -300,6 +300,7 @@ export type AiToolN = {
 	data: {
 		tool: string
 		type?: string
+		nameError?: string
 		eventHandlers: GraphEventHandlers
 		moduleId: string
 		insertable: boolean
