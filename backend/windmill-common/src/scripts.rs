@@ -57,6 +57,13 @@ pub fn extract_workspace_dependencies_annotated_refs(
             None,
             runnable_path,
         ),
+        Powershell => WorkspaceDependenciesAnnotatedRefs::parse(
+            "#",
+            "modules_json",
+            code,
+            None,
+            runnable_path,
+        ),
         _ => return None,
     }
 }

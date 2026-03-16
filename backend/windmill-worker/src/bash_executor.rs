@@ -41,7 +41,8 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{
     common::{
         build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
-        read_file_content, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
+        read_file_content, resolve_nsjail_timeout, start_child_process, OccupancyMetrics,
+        DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -192,6 +193,8 @@ exit $exit_status
     // Use nsjail if globally enabled OR if script has #sandbox annotation
     let nsjail = (is_sandboxing_enabled() || annotation.sandbox) && is_regular_job;
     let child = if nsjail {
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -200,7 +203,8 @@ exit $exit_status
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
-                .replace("#{DEV}", DEV_CONF_NSJAIL),
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut cmd_args = vec![
             "--config",
