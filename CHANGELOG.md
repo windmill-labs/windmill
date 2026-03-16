@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.658.0](https://github.com/windmill-labs/windmill/compare/v1.657.2...v1.658.0) (2026-03-16)
+
+
+### Features
+
+* add GET /api/saml/metadata endpoint ([#8394](https://github.com/windmill-labs/windmill/issues/8394)) ([50b24cf](https://github.com/windmill-labs/windmill/commit/50b24cfdc8bf54656adbdc3315037aa773632076))
+* support custom headers in customai resource type ([#8364](https://github.com/windmill-labs/windmill/issues/8364)) ([5acb367](https://github.com/windmill-labs/windmill/commit/5acb367cf9b4b96ac7129c91df229d1a25258f5b))
+* support multiple secret variables during resource creation ([#8386](https://github.com/windmill-labs/windmill/issues/8386)) ([54841b7](https://github.com/windmill-labs/windmill/commit/54841b7549d5c9719d4dc3cb43e282ba057cd0f3))
+
+
+### Bug Fixes
+
+* /updatesqlx now uses ee-repo-ref.txt commit hash ([#8387](https://github.com/windmill-labs/windmill/issues/8387)) ([a519d41](https://github.com/windmill-labs/windmill/commit/a519d4113086430ace1d7ac8795bd2c2a8cf99e9))
+* **native-triggers:** preserve API error response body in HttpRequestError ([#8392](https://github.com/windmill-labs/windmill/issues/8392)) ([1eee89d](https://github.com/windmill-labs/windmill/commit/1eee89d99fbf31751d6257a4015e0b22e3871372))
+* OutputPicker shows stale result after 'Test up to here' ([#8390](https://github.com/windmill-labs/windmill/issues/8390)) ([2907084](https://github.com/windmill-labs/windmill/commit/2907084ca653fc5540bb04a409d2789ddaeec05b))
+* propagate enterprise feature to windmill-api-schedule ([#8391](https://github.com/windmill-labs/windmill/issues/8391)) ([50ef9e7](https://github.com/windmill-labs/windmill/commit/50ef9e79fcef8ee2cccd789b5eb1aacf5647365f))
+* set nsjail time_limit from job timeout so configured defaults are respected ([#8389](https://github.com/windmill-labs/windmill/issues/8389)) ([65a92d9](https://github.com/windmill-labs/windmill/commit/65a92d98994dbe4ae90a5e554e55b3ab44463f86))
+* soft error on AI agent max iterations + rename retries tab to error handling ([#8366](https://github.com/windmill-labs/windmill/issues/8366)) ([1a1e8a1](https://github.com/windmill-labs/windmill/commit/1a1e8a164cccbfcc663b963cb062af9208ff51be))
+* use bookworm-based php image to fix glibc 2.38 incompatibility ([#8381](https://github.com/windmill-labs/windmill/issues/8381)) ([68fd900](https://github.com/windmill-labs/windmill/commit/68fd900076ecf8b20f6622cd5794f1b52c0f5cab))
+
 ## [1.657.2](https://github.com/windmill-labs/windmill/compare/v1.657.1...v1.657.2) (2026-03-15)
 
 
