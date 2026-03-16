@@ -12,7 +12,7 @@
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
-	import { validateToolName } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
+	import { getToolNameError } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
 	import {
 		inputBaseClass,
 		inputBorderClass,
@@ -117,6 +117,7 @@ Generate a tool name for the script below:
 		elementProps?: Record<string, any>
 		class?: string
 		onChange?: (content: string) => void
+		siblingToolNames?: string[]
 	}
 
 	let {
@@ -130,8 +131,15 @@ Generate a tool name for the script below:
 		elementType = 'input',
 		elementProps = {},
 		class: clazz = '',
-		onChange = undefined
+		onChange = undefined,
+		siblingToolNames = undefined
 	}: Props = $props()
+
+	let toolNameError = $derived(
+		promptConfigName === 'agentToolFunctionName'
+			? getToolNameError(content ?? '', undefined, siblingToolNames)
+			: undefined
+	)
 
 	let el: HTMLElement | undefined = $state()
 	let generatedContent = $state('')
@@ -347,16 +355,16 @@ Generate a tool name for the script below:
 				inputBaseClass,
 				inputSizeClasses.md,
 				inputBorderClass({
-					error: promptConfigName === 'agentToolFunctionName' && !validateToolName(content ?? '')
+					error: !!toolNameError
 				}),
 				'w-full'
 			)}
 			onfocus={() => (focused = true)}
 			onblur={() => (focused = false)}
 		/>
-		{#if promptConfigName === 'agentToolFunctionName' && !validateToolName(content ?? '')}
+		{#if toolNameError}
 			<p class="text-3xs text-red-400 leading-tight mt-0.5">
-				Invalid tool name, should only contain letters, numbers and underscores
+				{toolNameError}
 			</p>
 		{/if}
 	{/if}

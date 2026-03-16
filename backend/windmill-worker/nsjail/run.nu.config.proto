@@ -3,6 +3,7 @@ name: "nu run script"
 mode: ONCE
 hostname: "nu"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 disable_rl: true
 

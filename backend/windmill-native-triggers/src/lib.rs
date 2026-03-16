@@ -443,10 +443,16 @@ pub async fn make_http_request<T: DeserializeOwned + Send, B: Serialize>(
         request = request.json(body_content);
     }
 
-    let response = request.send().await?.error_for_status()?;
+    let response = request.send().await?;
+    let status = response.status();
+    let bytes = response.bytes().await?;
+
+    if !status.is_success() {
+        let body = String::from_utf8_lossy(&bytes);
+        return Err(HttpRequestError::ApiError { status, body: body.into_owned() });
+    }
 
     // Handle empty responses (e.g. 204 No Content from Google channels/stop)
-    let bytes = response.bytes().await?;
     if bytes.is_empty() {
         serde_json::from_str("null").map_err(HttpRequestError::Json)
     } else {
@@ -458,6 +464,7 @@ pub async fn make_http_request<T: DeserializeOwned + Send, B: Serialize>(
 pub enum HttpRequestError {
     Reqwest(reqwest::Error),
     Json(serde_json::Error),
+    ApiError { status: StatusCode, body: String },
 }
 
 impl std::fmt::Display for HttpRequestError {
@@ -465,6 +472,9 @@ impl std::fmt::Display for HttpRequestError {
         match self {
             HttpRequestError::Reqwest(e) => write!(f, "{}", e),
             HttpRequestError::Json(e) => write!(f, "JSON decode error: {}", e),
+            HttpRequestError::ApiError { status, body } => {
+                write!(f, "HTTP {} error: {}", status.as_u16(), body)
+            }
         }
     }
 }
@@ -474,6 +484,7 @@ impl std::error::Error for HttpRequestError {
         match self {
             HttpRequestError::Reqwest(e) => Some(e),
             HttpRequestError::Json(e) => Some(e),
+            HttpRequestError::ApiError { .. } => None,
         }
     }
 }
@@ -489,6 +500,7 @@ impl HttpRequestError {
         match self {
             HttpRequestError::Reqwest(e) => e.status(),
             HttpRequestError::Json(_) => None,
+            HttpRequestError::ApiError { status, .. } => Some(*status),
         }
     }
 }

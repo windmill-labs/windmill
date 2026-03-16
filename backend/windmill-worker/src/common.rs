@@ -805,6 +805,17 @@ pub async fn resolve_job_timeout(
     }
 }
 
+/// Compute the nsjail timeout (in seconds) with a 15s buffer so handle_child fires first.
+pub async fn resolve_nsjail_timeout(
+    conn: &Connection,
+    w_id: &str,
+    job_id: Uuid,
+    custom_timeout: Option<i32>,
+) -> String {
+    let (duration, _, _) = resolve_job_timeout(conn, w_id, job_id, custom_timeout).await;
+    (duration.as_secs() + 15).to_string()
+}
+
 async fn hash_args(
     #[allow(unused)] db: &DB,
     #[allow(unused)] client: &AuthedClient,
