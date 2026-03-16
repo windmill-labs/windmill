@@ -327,7 +327,7 @@ components:
           description: Retry configuration if this step fails
           $ref: '#/components/schemas/Retry'
         debouncing:
-          description: Debounce configuration for this step
+          description: "Debounce configuration for this step (EE only)"
           type: object
           properties:
             debounce_delay_s:
