@@ -112,7 +112,6 @@ def main(a: int, b: int):
 // ============================================================================
 
 #[sqlx::test(fixtures("base"))]
-#[ignore = "Bun module resolution in bundle mode needs loader.bun.js integration — tracked separately"]
 async fn test_bun_script_with_module(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;

@@ -4389,7 +4389,7 @@ pub async fn push<'c, 'd>(
     tx: PushIsolationLevel<'c>,
     workspace_id: &str,
     job_payload: JobPayload,
-    mut args: PushArgs<'d>,
+    args: PushArgs<'d>,
     user: &str,
     email: &str,
     permissioned_as: String,

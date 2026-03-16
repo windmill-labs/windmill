@@ -1289,6 +1289,15 @@ pub async fn handle_bun_job(
         "\n\n--- NODE CODE EXECUTION ---\n".to_string()
     } else {
         write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?)?;
+        // When modules are present, overwrite main.ts with the bundled output that has
+        // module content inlined — avoids runtime loader issues with local module files
+        if modules.as_ref().is_some_and(|m| !m.is_empty()) {
+            let bundle_path = std::path::Path::new(job_dir).join("out").join("main.js");
+            if bundle_path.exists() {
+                let bundled = std::fs::read_to_string(&bundle_path)?;
+                write_file(job_dir, "main.ts", &bundled)?;
+            }
+        }
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
     };
 
