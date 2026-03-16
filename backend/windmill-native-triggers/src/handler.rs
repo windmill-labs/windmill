@@ -234,6 +234,10 @@ async fn update_native_trigger_handler<T: External>(
     let runnable_changed =
         existing.script_path != data.script_path || existing.is_flow != data.is_flow;
 
+    // If we rotated the token, track the new hash so we can clean it up
+    // if the subsequent trigger update fails (the old token is already gone).
+    let mut new_token_hash_to_rollback: Option<String> = None;
+
     let webhook_token = if runnable_changed {
         // Scopes change when the runnable changes — delete old, create fresh token
         delete_token_by_hash(&db, &existing.webhook_token_hash).await?;
@@ -253,7 +257,10 @@ async fn update_native_trigger_handler<T: External>(
     } else {
         // Same runnable — rotate the token keeping the same label
         match rotate_webhook_token(&db, &existing.webhook_token_hash).await? {
-            Some(token) => token,
+            Some(rotated) => {
+                new_token_hash_to_rollback = Some(rotated.new_token_hash);
+                rotated.new_token
+            }
             None => {
                 // Old token gone — create a fresh one
                 let token = new_webhook_token(
@@ -273,46 +280,66 @@ async fn update_native_trigger_handler<T: External>(
         }
     };
 
-    let service_config = handler
-        .update(
+    // Helper closure: update trigger + commit. On failure, clean up the
+    // rotated token so we don't leak it (the old one was already deleted).
+    let result: Result<()> = async {
+        let service_config = handler
+            .update(
+                &workspace_id,
+                &oauth_data,
+                &external_id,
+                &webhook_token,
+                &data,
+                &db,
+                &mut tx,
+            )
+            .await?;
+
+        let config = NativeTriggerConfig {
+            script_path: data.script_path.clone(),
+            is_flow: data.is_flow,
+            webhook_token,
+        };
+
+        store_native_trigger(
+            &mut *tx,
             &workspace_id,
-            &oauth_data,
+            service_name,
             &external_id,
-            &webhook_token,
-            &data,
-            &db,
-            &mut tx,
+            &config,
+            service_config,
         )
         .await?;
 
-    let config = NativeTriggerConfig {
-        script_path: data.script_path.clone(),
-        is_flow: data.is_flow,
-        webhook_token,
-    };
+        audit_log(
+            &mut *tx,
+            &authed,
+            &format!("native_triggers.{}.update", service_name),
+            ActionKind::Update,
+            &workspace_id,
+            Some(&external_id),
+            None,
+        )
+        .await?;
 
-    store_native_trigger(
-        &mut *tx,
-        &workspace_id,
-        service_name,
-        &external_id,
-        &config,
-        service_config,
-    )
-    .await?;
+        tx.commit().await?;
 
-    audit_log(
-        &mut *tx,
-        &authed,
-        &format!("native_triggers.{}.update", service_name),
-        ActionKind::Update,
-        &workspace_id,
-        Some(&external_id),
-        None,
-    )
-    .await?;
+        Ok(())
+    }
+    .await;
 
-    tx.commit().await?;
+    if let Err(e) = result {
+        // Rotation already committed — clean up the new token to avoid a leak
+        if let Some(new_hash) = new_token_hash_to_rollback {
+            if let Err(cleanup_err) = delete_token_by_hash(&db, &new_hash).await {
+                tracing::error!(
+                    "Failed to clean up rotated token after trigger update failure: {}",
+                    cleanup_err
+                );
+            }
+        }
+        return Err(e);
+    }
 
     Ok(format!("Native trigger updated"))
 }

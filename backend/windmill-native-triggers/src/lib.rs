@@ -732,13 +732,17 @@ async fn update_oauth_token_resource(
 }
 
 /// Create a new webhook token that keeps the same label as the old one,
-/// delete the old token, and return the new plaintext token.
-/// Used when renewing external service webhooks (e.g. Google channel renewal)
-/// so we don't need to store plaintext tokens in the DB.
+/// delete the old token, and return the new plaintext token together with
+/// its hash.
+///
+/// Both operations happen in a single transaction so we never leak tokens.
+/// If the caller's subsequent trigger update fails, it should call
+/// `delete_token_by_hash` on `new_token_hash` to roll back to a clean state.
+///
 /// Returns `Ok(None)` if the old token no longer exists (e.g. manually deleted by user).
 /// In that case, `renew_channel` returns an error which `renew_expiring_channels` writes
 /// to the trigger's `error` column — visible in the UI so the user can re-create the trigger.
-pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<Option<String>> {
+pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<Option<RotatedToken>> {
     use windmill_common::auth::{hash_token, TOKEN_PREFIX_LEN};
     use windmill_common::min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH;
     use windmill_common::utils::rd_string;
@@ -794,7 +798,14 @@ pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<Optio
 
     tx.commit().await?;
 
-    Ok(Some(new_token))
+    Ok(Some(RotatedToken { new_token, new_token_hash: new_hash }))
+}
+
+pub struct RotatedToken {
+    pub new_token: String,
+    /// Hash of the new token — callers should use this to clean up
+    /// the new token if their subsequent update fails.
+    pub new_token_hash: String,
 }
 
 /// Delete a token from the token table using its hash (exact match).

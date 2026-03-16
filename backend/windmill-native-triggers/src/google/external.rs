@@ -311,13 +311,14 @@ impl Google {
     /// Renew an expiring Google watch channel.
     /// Rotates the webhook token (creating a new one with the same label),
     /// stops the old channel and creates a new one with the same channel ID.
-    /// Returns (new_service_config, new_plaintext_token).
+    /// Returns (new_service_config, new_plaintext_token, new_token_hash).
+    /// On failure after rotation, callers should delete new_token_hash to roll back.
     pub async fn renew_channel(
         &self,
         w_id: &str,
         trigger: &NativeTrigger,
         db: &DB,
-    ) -> Result<(serde_json::Value, String)> {
+    ) -> Result<(serde_json::Value, String, String)> {
         let config: GoogleServiceConfig = trigger
             .service_config
             .as_ref()
@@ -325,8 +326,8 @@ impl Google {
             .transpose()?
             .ok_or_else(|| Error::InternalErr("Missing service config".to_string()))?;
 
-        let webhook_token = match rotate_webhook_token(db, &trigger.webhook_token_hash).await? {
-            Some(token) => token,
+        let rotated = match rotate_webhook_token(db, &trigger.webhook_token_hash).await? {
+            Some(r) => r,
             None => {
                 return Err(Error::InternalErr(format!(
                     "Cannot renew channel {}: webhook token no longer exists and no user context to create a fresh one",
@@ -334,7 +335,6 @@ impl Google {
                 )));
             }
         };
-
         let base_url = &*BASE_URL.read().await;
         // Reuse the same channel ID so external_id stays permanent
         let channel_id = trigger.external_id.clone();
@@ -345,7 +345,7 @@ impl Google {
             trigger.is_flow,
             Some(&channel_id),
             ServiceName::Google,
-            &webhook_token,
+            &rotated.new_token,
         );
 
         tracing::info!(
@@ -412,7 +412,7 @@ impl Google {
 
         let config_value = serde_json::to_value(&new_config)
             .map_err(|e| Error::internal_err(format!("Failed to serialize config: {}", e)))?;
-        Ok((config_value, webhook_token))
+        Ok((config_value, rotated.new_token, rotated.new_token_hash))
     }
 }
 
@@ -469,7 +469,7 @@ async fn renew_expiring_channels(
         );
 
         match handler.renew_channel(workspace_id, trigger, db).await {
-            Ok((new_config, new_token)) => {
+            Ok((new_config, new_token, new_token_hash)) => {
                 match update_native_trigger_service_config(
                     db,
                     workspace_id,
@@ -493,6 +493,15 @@ async fn renew_expiring_channels(
                         });
                     }
                     Err(e) => {
+                        // Rotation already committed — clean up the new token
+                        if let Err(cleanup_err) =
+                            crate::delete_token_by_hash(db, &new_token_hash).await
+                        {
+                            tracing::error!(
+                                "Failed to clean up rotated token after trigger update failure for {}: {}",
+                                trigger.external_id, cleanup_err
+                            );
+                        }
                         tracing::error!(
                             "Failed to update DB after renewing Google channel {}: {}",
                             trigger.external_id,
