@@ -870,7 +870,26 @@ async fn windmill_main() -> anyhow::Result<()> {
     if worker_mode {
         #[cfg(any(target_os = "linux"))]
         if let Err(e) = disable_oom_group() {
-            tracing::warn!("failed to disable oom group: {:?}", e);
+            tracing::warn!(
+                "Failed to disable cgroup OOM group kill: {e:?}. \
+                When a job exceeds memory, the OOM killer will kill the entire pod \
+                instead of just the offending job process"
+            );
+        }
+
+        // Log the worker's own oom_score_adj so we can see the gap vs jobs (which get 1000)
+        match std::fs::read_to_string("/proc/self/oom_score_adj") {
+            Ok(val) => {
+                let val = val.trim();
+                tracing::info!(
+                    "Worker oom_score_adj={val} (jobs get 1000, gap={}). \
+                    A small gap means the OOM killer may target the worker instead of a job",
+                    1000 - val.parse::<i32>().unwrap_or(0)
+                );
+            }
+            Err(e) => {
+                tracing::warn!("Could not read worker oom_score_adj: {e}");
+            }
         }
     }
 
