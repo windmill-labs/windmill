@@ -3,6 +3,7 @@ name: "php run script"
 mode: ONCE
 hostname: "php"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 disable_rl: true
 

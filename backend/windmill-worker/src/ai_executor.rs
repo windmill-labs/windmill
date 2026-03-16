@@ -830,6 +830,8 @@ pub async fn run_agent(
                 .await
                 .0;
 
+            let resource_headers = args.provider.get_headers();
+
             // Helper to build HTTP request with headers
             let build_http_request = |body: String| {
                 let mut req = HTTP_CLIENT
@@ -842,6 +844,10 @@ pub async fn run_agent(
                 }
 
                 for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+                    req = req.header(header_name.as_str(), header_value.as_str());
+                }
+
+                for (header_name, header_value) in resource_headers {
                     req = req.header(header_name.as_str(), header_value.as_str());
                 }
 

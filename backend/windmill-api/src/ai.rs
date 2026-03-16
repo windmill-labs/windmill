@@ -169,6 +169,9 @@ struct AIStandardResource {
     /// Enable 1M context window for Anthropic
     #[serde(alias = "enable_1M_context", default)]
     enable_1m_context: bool,
+    /// Custom HTTP headers to include in AI requests
+    #[serde(default)]
+    headers: HashMap<String, String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -200,6 +203,7 @@ struct AIRequestConfig {
     pub aws_session_token: Option<String>,
     pub platform: AIPlatform,
     pub enable_1m_context: bool,
+    pub custom_headers: HashMap<String, String>,
 }
 
 impl AIRequestConfig {
@@ -221,11 +225,13 @@ impl AIRequestConfig {
             aws_session_token,
             platform,
             enable_1m_context,
+            custom_headers,
         ) = match resource {
             AIResource::Standard(resource) => {
                 let region = resource.region.clone();
                 let platform = resource.platform.clone();
                 let enable_1m_context = resource.enable_1m_context;
+                let custom_headers = resource.headers.clone();
                 // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
                 let base_url = if matches!(provider, AIProvider::AWSBedrock) {
                     String::new()
@@ -271,6 +277,7 @@ impl AIRequestConfig {
                     aws_session_token,
                     platform,
                     enable_1m_context,
+                    custom_headers,
                 )
             }
             AIResource::OAuth(resource) => {
@@ -294,6 +301,7 @@ impl AIRequestConfig {
                     None,
                     AIPlatform::Standard,
                     false,
+                    HashMap::new(),
                 )
             }
         };
@@ -310,6 +318,7 @@ impl AIRequestConfig {
             aws_session_token,
             platform,
             enable_1m_context,
+            custom_headers,
         })
     }
 
@@ -440,6 +449,11 @@ impl AIRequestConfig {
 
         // Apply custom headers from AI_HTTP_HEADERS environment variable
         for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+            request = request.header(header_name.as_str(), header_value.as_str());
+        }
+
+        // Apply custom headers from the resource
+        for (header_name, header_value) in &self.custom_headers {
             request = request.header(header_name.as_str(), header_value.as_str());
         }
 
