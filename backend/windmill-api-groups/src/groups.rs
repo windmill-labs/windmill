@@ -328,9 +328,133 @@ async fn create_igroup(
     Ok(format!("Created group {}", normalized_name))
 }
 
+fn validate_instance_role(role: &Option<String>) -> Result<Option<String>> {
+    match role.as_deref() {
+        None => Ok(None),
+        Some("") | Some("user") => Ok(None),
+        Some("devops") => Ok(Some("devops".to_string())),
+        Some("superadmin") => Ok(Some("superadmin".to_string())),
+        Some(other) => Err(Error::BadRequest(format!(
+            "Invalid instance_role '{}'. Must be 'devops', 'superadmin', 'user', or empty to clear",
+            other
+        ))),
+    }
+}
+
+/// Compute the highest-precedence instance role from all groups a user belongs to.
+/// superadmin > devops > none
+pub async fn compute_effective_instance_role(
+    email: &str,
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<Option<String>> {
+    let roles = sqlx::query_scalar!(
+        "SELECT ig.instance_role FROM email_to_igroup eig
+         JOIN instance_group ig ON ig.name = eig.igroup
+         WHERE eig.email = $1 AND ig.instance_role IS NOT NULL",
+        email
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut highest: Option<String> = None;
+    for role in roles.into_iter().flatten() {
+        match role.as_str() {
+            "superadmin" => return Ok(Some("superadmin".to_string())),
+            "devops" => highest = Some("devops".to_string()),
+            _ => {}
+        }
+    }
+    Ok(highest)
+}
+
+/// Apply computed instance role to password table and invalidate session tokens.
+/// Only applies if role_source = 'instance_group' or user has no elevated role.
+pub async fn apply_instance_role(
+    email: &str,
+    role: Option<&str>,
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<()> {
+    let current = sqlx::query!(
+        "SELECT super_admin, devops, role_source FROM password WHERE email = $1",
+        email
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let current = match current {
+        Some(c) => c,
+        None => return Ok(()), // user doesn't exist in password table
+    };
+
+    // Don't touch manually-set elevated roles — manual always wins
+    if current.role_source == "manual" && (current.super_admin || current.devops) {
+        return Ok(());
+    }
+
+    let (new_super_admin, new_devops) = match role {
+        Some("superadmin") => (true, false),
+        Some("devops") => (false, true),
+        _ => (false, false),
+    };
+
+    // Only update if something actually changed
+    if current.super_admin == new_super_admin && current.devops == new_devops {
+        return Ok(());
+    }
+
+    sqlx::query!(
+        "UPDATE password SET super_admin = $1, devops = $2, role_source = 'instance_group' WHERE email = $3",
+        new_super_admin,
+        new_devops,
+        email
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Invalidate session tokens to force re-login with new privileges
+    sqlx::query!(
+        "DELETE FROM token WHERE email = $1 AND label = 'session'",
+        email
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Update super_admin flag on non-session tokens
+    sqlx::query!(
+        "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'",
+        new_super_admin,
+        email
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+/// Recompute and apply roles for all members of a given instance group.
+pub async fn propagate_instance_group_roles(
+    group_name: &str,
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<()> {
+    let members = sqlx::query_scalar!(
+        "SELECT email FROM email_to_igroup WHERE igroup = $1",
+        group_name
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for email in members {
+        let effective_role = compute_effective_instance_role(&email, tx).await?;
+        apply_instance_role(&email, effective_role.as_deref(), tx).await?;
+    }
+
+    Ok(())
+}
+
 #[derive(Deserialize)]
 struct IGroupUpdate {
     new_summary: String,
+    instance_role: Option<String>,
 }
 
 async fn update_igroup(
@@ -348,17 +472,37 @@ async fn update_igroup(
         .await?;
     not_found_if_none(exists_opt, "instance_group", name.clone())?;
 
-    sqlx::query("UPDATE instance_group SET summary = $1 WHERE name = $2")
+    let validated_role = validate_instance_role(&igroup_update.instance_role)?;
+
+    // Fetch old role before updating so we can detect changes
+    let old_role = if igroup_update.instance_role.is_some() {
+        sqlx::query_scalar!(
+            "SELECT instance_role FROM instance_group WHERE name = $1",
+            &name
+        )
+        .fetch_one(&mut *tx)
+        .await?
+    } else {
+        None
+    };
+
+    sqlx::query("UPDATE instance_group SET summary = $1, instance_role = $2 WHERE name = $3")
         .bind(igroup_update.new_summary)
+        .bind(&validated_role)
         .bind(&name)
         .execute(&mut *tx)
         .await?;
+
+    // If instance_role actually changed, propagate to all group members
+    if igroup_update.instance_role.is_some() && old_role != validated_role {
+        propagate_instance_group_roles(&name, &mut tx).await?;
+    }
 
     audit_log(
         &mut *tx,
         &authed,
         "igroup.updated",
-        ActionKind::Delete,
+        ActionKind::Update,
         "global",
         Some(&name.to_string()),
         None,
@@ -366,7 +510,7 @@ async fn update_igroup(
     .await?;
 
     tx.commit().await?;
-    Ok(format!("Deleted group {}", name))
+    Ok(format!("Updated group {}", name))
 }
 
 async fn delete_igroup(
@@ -376,13 +520,37 @@ async fn delete_igroup(
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
-    sqlx::query!("DELETE FROM instance_group WHERE name = $1", name)
-        .execute(&mut *tx)
-        .await?;
+
+    // Fetch group's instance_role and members before deletion
+    let group_role = sqlx::query_scalar!(
+        "SELECT instance_role FROM instance_group WHERE name = $1",
+        &name
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
+    let affected_members: Vec<String> = if group_role.is_some() {
+        sqlx::query_scalar!("SELECT email FROM email_to_igroup WHERE igroup = $1", &name)
+            .fetch_all(&mut *tx)
+            .await?
+    } else {
+        vec![]
+    };
 
     sqlx::query!("DELETE FROM email_to_igroup WHERE igroup = $1", name)
         .execute(&mut *tx)
         .await?;
+
+    sqlx::query!("DELETE FROM instance_group WHERE name = $1", name)
+        .execute(&mut *tx)
+        .await?;
+
+    // Recompute roles for affected members after deletion
+    for email in &affected_members {
+        let effective_role = compute_effective_instance_role(email, &mut tx).await?;
+        apply_instance_role(email, effective_role.as_deref(), &mut tx).await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -723,6 +891,10 @@ async fn add_user_igroup(
         }
     }
 
+    // Apply instance-level role from group membership
+    let effective_role = compute_effective_instance_role(&email, &mut tx).await?;
+    apply_instance_role(&email, effective_role.as_deref(), &mut tx).await?;
+
     tx.commit().await?;
     Ok(format!("Added {} to igroup {}", email, name))
 }
@@ -732,6 +904,7 @@ struct IGroup {
     name: String,
     summary: Option<String>,
     emails: Option<Vec<String>>,
+    instance_role: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -739,6 +912,7 @@ struct IGroupWithWorkspaces {
     name: String,
     summary: Option<String>,
     emails: Option<Vec<String>>,
+    instance_role: Option<String>,
     workspaces: Vec<WorkspaceInfo>,
 }
 
@@ -753,7 +927,7 @@ async fn list_igroups(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
 
     let groups = sqlx::query_as!(
         IGroup,
-        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name"
+        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, instance_role FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name, instance_role"
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -770,7 +944,7 @@ async fn list_igroups_with_workspaces(
     // Get all instance groups with their emails first
     let groups = sqlx::query_as!(
         IGroup,
-        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name, summary"
+        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, instance_role FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name, summary, instance_role"
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -825,6 +999,7 @@ async fn list_igroups_with_workspaces(
             name: group.name,
             summary: group.summary,
             emails: group.emails,
+            instance_role: group.instance_role,
             workspaces,
         });
     }
@@ -833,16 +1008,54 @@ async fn list_igroups_with_workspaces(
     return Ok(Json(result));
 }
 
-async fn get_igroup(Path(name): Path<String>, Extension(db): Extension<DB>) -> JsonResult<IGroup> {
+async fn get_igroup(
+    Path(name): Path<String>,
+    Extension(db): Extension<DB>,
+) -> JsonResult<IGroupWithWorkspaces> {
     let group = sqlx::query_as!(
         IGroup,
-        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup WHERE name = $1 GROUP BY name",
+        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, instance_role FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup WHERE name = $1 GROUP BY name, instance_role",
         name
     )
     .fetch_optional(&db)
     .await?;
     let group = not_found_if_none(group, "IGroup", &name)?;
-    return Ok(Json(group));
+
+    let workspace_mappings = sqlx::query!(
+        r#"
+        SELECT
+            ws.workspace_id,
+            w.name as workspace_name,
+            ws.auto_invite->'instance_groups_roles'->$1 as role
+        FROM workspace_settings ws
+        INNER JOIN workspace w ON w.id = ws.workspace_id AND w.deleted = false
+        WHERE ws.auto_invite->'instance_groups' ? $1
+        ORDER BY ws.workspace_id
+        "#,
+        &name
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let workspaces: Vec<WorkspaceInfo> = workspace_mappings
+        .into_iter()
+        .map(|m| WorkspaceInfo {
+            workspace_id: m.workspace_id,
+            workspace_name: m.workspace_name,
+            role: m
+                .role
+                .and_then(|r| r.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| "developer".to_string()),
+        })
+        .collect();
+
+    return Ok(Json(IGroupWithWorkspaces {
+        name: group.name,
+        summary: group.summary,
+        emails: group.emails,
+        instance_role: group.instance_role,
+        workspaces,
+    }));
 }
 
 async fn remove_user_igroup(
@@ -885,6 +1098,10 @@ async fn remove_user_igroup(
         use windmill_api_workspaces::workspaces_ee::remove_users_from_instance_group_workspaces;
         remove_users_from_instance_group_workspaces(&email, &name, &mut tx).await?;
     }
+
+    // Recompute instance-level role after group removal
+    let effective_role = compute_effective_instance_role(&email, &mut tx).await?;
+    apply_instance_role(&email, effective_role.as_deref(), &mut tx).await?;
 
     tx.commit().await?;
     Ok(format!("Removed {} from igroup {}", email, name))
@@ -967,6 +1184,8 @@ struct ExportedIGroup {
     external_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     emails: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    instance_role: Option<String>,
 }
 
 #[cfg(feature = "enterprise")]
@@ -978,7 +1197,7 @@ async fn export_igroups(
     let mut tx = db.begin().await?;
     let igroups = sqlx::query_as!(
         ExportedIGroup,
-        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, id, scim_display_name, external_id FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name",
+        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, id, scim_display_name, external_id, instance_role FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name",
     ).fetch_all(&mut *tx).await?;
 
     audit_log(
@@ -1022,13 +1241,15 @@ async fn overwrite_igroups(
         .await?;
 
     for igroup in igroups.iter() {
+        let validated_role = validate_instance_role(&igroup.instance_role)?;
         sqlx::query!(
-            "INSERT INTO instance_group (name, summary, id, scim_display_name, external_id) VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO instance_group (name, summary, id, scim_display_name, external_id, instance_role) VALUES ($1, $2, $3, $4, $5, $6)",
             igroup.name,
             igroup.summary,
             igroup.id,
             igroup.scim_display_name,
             igroup.external_id,
+            validated_role,
         )
         .execute(&mut *tx)
         .await?;
@@ -1044,6 +1265,31 @@ async fn overwrite_igroups(
                 .await?;
             }
         }
+    }
+
+    // Propagate instance roles for all groups that have one
+    for igroup in igroups.iter() {
+        if igroup.instance_role.is_some() {
+            propagate_instance_group_roles(&igroup.name, &mut tx).await?;
+        }
+    }
+
+    // Demote orphaned users: those whose role was set by a group that no longer
+    // grants them any instance_role after the import
+    let orphaned_users = sqlx::query_scalar!(
+        "SELECT email FROM password
+         WHERE role_source = 'instance_group' AND (super_admin = true OR devops = true)
+         AND email NOT IN (
+             SELECT eig.email FROM email_to_igroup eig
+             JOIN instance_group ig ON ig.name = eig.igroup
+             WHERE ig.instance_role IS NOT NULL
+         )"
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for email in &orphaned_users {
+        apply_instance_role(email, None, &mut tx).await?;
     }
 
     audit_log(

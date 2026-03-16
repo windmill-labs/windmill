@@ -1,23 +1,22 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM variable WHERE path = $1 AND workspace_id = $2 RETURNING path",
+  "query": "SELECT instance_role FROM instance_group WHERE name = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "path",
+        "name": "instance_role",
         "type_info": "Varchar"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
         "Text"
       ]
     },
     "nullable": [
-      false
+      true
     ]
   },
-  "hash": "3317484a9c09c07c2c9db9debaecc4a4d518093ab48e79365dbb808068e0b8ff"
+  "hash": "e8717d0197b51a0837f85a2615d1d4a0dc97741055d83d4102395f1a05824d6b"
 }
