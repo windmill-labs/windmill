@@ -891,12 +891,17 @@ async fn delete_resource(
     .fetch_optional(&mut *tx)
     .await?;
     not_found_if_none(deleted_path, "Resource", &path)?;
-    let deleted_linked_variable = sqlx::query_scalar!(
-        "DELETE FROM variable WHERE path = $1 AND workspace_id = $2 RETURNING path",
-        path,
-        w_id
+
+    // Delete the exact-path linked variable (single secret case)
+    // and any variables with {path}_{field_name} suffix (multiple secrets case)
+    let linked_var_prefix = format!("{path}\\_%");
+    let deleted_linked_variables: Vec<String> = sqlx::query_scalar(
+        "DELETE FROM variable WHERE workspace_id = $1 AND (path = $2 OR path LIKE $3) RETURNING path",
     )
-    .fetch_optional(&mut *tx)
+    .bind(&w_id)
+    .bind(path)
+    .bind(&linked_var_prefix)
+    .fetch_all(&mut *tx)
     .await?;
     audit_log(
         &mut *tx,
@@ -927,19 +932,19 @@ async fn delete_resource(
         WebhookMessage::DeleteResource { workspace: w_id.clone(), path: path.to_owned() },
     );
 
-    if deleted_linked_variable.is_some() {
+    for var_path in &deleted_linked_variables {
         handle_deployment_metadata(
             &authed.email,
             &authed.username,
             &db,
             &w_id,
             DeployedObject::Variable {
-                path: path.to_string(),
-                parent_path: Some(path.to_string()),
+                path: var_path.clone(),
+                parent_path: Some(var_path.clone()),
             },
             Some(format!(
                 "Variable '{}' deleted (linked resource deleted)",
-                path
+                var_path
             )),
             true,
             None,
@@ -948,7 +953,10 @@ async fn delete_resource(
 
         webhook.send_message(
             w_id.clone(),
-            WebhookMessage::DeleteVariable { workspace: w_id, path: path.to_owned() },
+            WebhookMessage::DeleteVariable {
+                workspace: w_id.clone(),
+                path: var_path.clone(),
+            },
         );
     }
 
