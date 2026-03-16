@@ -328,6 +328,7 @@ const LANG_ANNOTATION_CONFIG: Partial<
   nativets: { comment: "//", keyword: "package_json" },
   go: { comment: "//", keyword: "go_mod" },
   php: { comment: "//", keyword: "composer_json" },
+  powershell: { comment: "#", keyword: "modules_json" },
 };
 
 export function extractWorkspaceDepsAnnotation(
@@ -505,7 +506,8 @@ async function updateScriptLock(
 ): Promise<void> {
   if (
     !(
-      workspaceDependenciesLanguages.some((l) => l.language == language) ||
+      (workspaceDependenciesLanguages.some((l) => l.language == language) &&
+        language !== "powershell") ||
       language == "deno" ||
       language == "rust" ||
       language == "ansible"
