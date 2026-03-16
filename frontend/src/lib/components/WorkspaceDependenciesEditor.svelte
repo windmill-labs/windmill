@@ -50,6 +50,8 @@
 			// 	return 'go.mod'
 			case 'php':
 				return 'composer.json'
+			case 'powershell':
+				return 'modules.json'
 			default:
 				return null
 		}
@@ -113,7 +115,8 @@
 		{ value: 'python3', label: 'Python' },
 		{ value: 'bun', label: 'TypeScript (Bun/Bunnative)' },
 		// { value: 'go', label: 'Go' },
-		{ value: 'php', label: 'PHP' }
+		{ value: 'php', label: 'PHP' },
+		{ value: 'powershell', label: 'PowerShell' }
 	]
 
 	// Default templates for each language
@@ -156,6 +159,13 @@ numpy>=1.24.0
     "monolog/monolog": "^3.5",
     "vlucas/phpdotenv": "^5.6",
     "symfony/console": "^6.4"
+  }
+}`,
+
+		powershell: `{
+  "modules": {
+    "PSWriteColor": "*",
+    "ImportExcel": "7.8.6"
   }
 }`
 	}

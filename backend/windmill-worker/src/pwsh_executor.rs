@@ -24,7 +24,7 @@ lazy_static::lazy_static! {
 use crate::{
     common::{
         build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
-        read_file_content, start_child_process, OccupancyMetrics,
+        read_file_content, start_child_process, MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
@@ -261,8 +261,67 @@ struct ModuleRequest {
     version: Option<String>,
 }
 
+/// Parse Import-Module statements from PowerShell code into module requests.
+fn parse_script_imports(code: &str) -> Vec<ModuleRequest> {
+    let mut modules = Vec::new();
+    for line in code.lines() {
+        for cap in RE_POWERSHELL_IMPORTS.captures_iter(line) {
+            let name = cap.get(1).unwrap().as_str().to_string();
+            let version = cap.get(2).map(|m| m.as_str().to_string());
+            modules.push(ModuleRequest { name, version });
+        }
+    }
+    modules
+}
+
+/// Parse a modules.json workspace dependencies content into module requests.
+/// Format: { "modules": { "ModuleName": "1.0.0", "Another": null } }
+fn parse_modules_json(content: &str) -> Result<Vec<ModuleRequest>, Error> {
+    let parsed: serde_json::Value = serde_json::from_str(content).map_err(|e| {
+        Error::internal_err(format!("Failed to parse PowerShell modules.json: {e}"))
+    })?;
+    let modules = parsed
+        .get("modules")
+        .and_then(|m| m.as_object())
+        .ok_or_else(|| {
+            Error::internal_err(
+                "PowerShell modules.json must have a \"modules\" object".to_string(),
+            )
+        })?;
+    let mut result = Vec::new();
+    for (name, version) in modules {
+        let version = match version {
+            serde_json::Value::String(v) if v != "*" => Some(v.clone()),
+            _ => None,
+        };
+        result.push(ModuleRequest { name: name.clone(), version });
+    }
+    Ok(result)
+}
+
+/// Merge workspace dependency modules with script import modules.
+/// Workspace dependency versions take precedence on overlap.
+fn merge_module_requests(
+    workspace_modules: Vec<ModuleRequest>,
+    script_modules: Vec<ModuleRequest>,
+) -> Vec<ModuleRequest> {
+    let mut seen: HashMap<String, ModuleRequest> = HashMap::new();
+    // Script imports first (lower priority)
+    for m in script_modules {
+        let key = m.name.to_lowercase();
+        seen.entry(key).or_insert(m);
+    }
+    // Workspace deps override
+    for m in workspace_modules {
+        let key = m.name.to_lowercase();
+        seen.insert(key, m);
+    }
+    seen.into_values().collect()
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_powershell_job(
+    maybe_lock: MaybeLock,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
@@ -327,18 +386,29 @@ pub async fn handle_powershell_job(
             .join(" ")
     };
 
-    // First, collect all imported modules
-    let mut imported_modules: Vec<(String, Option<String>)> = Vec::new();
-    for line in content.lines() {
-        for cap in RE_POWERSHELL_IMPORTS.captures_iter(line) {
-            let module_name = cap.get(1).unwrap().as_str().to_string();
-            let required_version = cap.get(2).map(|m| m.as_str().to_string());
-            imported_modules.push((module_name, required_version));
+    // Resolve modules from workspace dependencies and/or script imports
+    let all_modules = match &maybe_lock {
+        MaybeLock::Resolved { lock } if !lock.is_empty() => {
+            // Deployed script with lock: parse workspace deps from lock, merge with script imports
+            let ws_modules = parse_modules_json(lock)?;
+            let script_modules = parse_script_imports(content);
+            merge_module_requests(ws_modules, script_modules)
         }
-    }
+        MaybeLock::Unresolved { workspace_dependencies } => {
+            let script_modules = parse_script_imports(content);
+            match workspace_dependencies.get_powershell()? {
+                Some(modules_json) => {
+                    let ws_modules = parse_modules_json(&modules_json)?;
+                    merge_module_requests(ws_modules, script_modules)
+                }
+                None => script_modules,
+            }
+        }
+        _ => parse_script_imports(content),
+    };
 
     // Only scan the top-level cache directory if there are modules to check
-    let module_dirs = if !imported_modules.is_empty() {
+    let module_dirs = if !all_modules.is_empty() {
         scan_module_directories().await?
     } else {
         HashMap::new()
@@ -347,19 +417,20 @@ pub async fn handle_powershell_job(
     let mut modules_to_install: Vec<ModuleRequest> = Vec::new();
     let mut logs1 = String::new();
 
-    for (module_name, required_version) in imported_modules {
+    for module_req in all_modules {
         // Check if this specific module is already installed, only scanning versions if needed
-        let (is_installed, installed_versions) =
-            check_module_installed(&module_dirs, &module_name, required_version.as_deref()).await?;
+        let (is_installed, installed_versions) = check_module_installed(
+            &module_dirs,
+            &module_req.name,
+            module_req.version.as_deref(),
+        )
+        .await?;
 
         if !is_installed {
-            modules_to_install.push(ModuleRequest {
-                name: module_name.clone(),
-                version: required_version.clone(),
-            });
+            modules_to_install.push(module_req);
         } else {
             // Log what versions are actually installed
-            let version_info = if let Some(version) = &required_version {
+            let version_info = if let Some(version) = &module_req.version {
                 format!(" version {} found in cache", version)
             } else if installed_versions.len() == 1 {
                 format!(" (version {}) found in cache", installed_versions[0])
@@ -371,7 +442,7 @@ pub async fn handle_powershell_job(
             } else {
                 " found in cache".to_string()
             };
-            logs1.push_str(&format!("\n{}{}", module_name, version_info));
+            logs1.push_str(&format!("\n{}{}", module_req.name, version_info));
         }
     }
 
@@ -905,6 +976,92 @@ mod tests {
             .await
             .unwrap();
         assert!(!installed, "wrong version should not match");
+    }
+
+    // --- parse_modules_json tests ---
+
+    #[test]
+    fn test_parse_modules_json_basic() {
+        let json = r#"{"modules": {"PSWriteColor": "1.0.0", "ImportExcel": null}}"#;
+        let modules = parse_modules_json(json).unwrap();
+        assert_eq!(modules.len(), 2);
+        let by_name: HashMap<String, Option<String>> =
+            modules.into_iter().map(|m| (m.name, m.version)).collect();
+        assert_eq!(by_name["PSWriteColor"], Some("1.0.0".to_string()));
+        assert_eq!(by_name["ImportExcel"], None);
+    }
+
+    #[test]
+    fn test_parse_modules_json_wildcard_treated_as_none() {
+        let json = r#"{"modules": {"Mod": "*"}}"#;
+        let modules = parse_modules_json(json).unwrap();
+        assert_eq!(modules[0].version, None);
+    }
+
+    #[test]
+    fn test_parse_modules_json_empty() {
+        let json = r#"{"modules": {}}"#;
+        let modules = parse_modules_json(json).unwrap();
+        assert!(modules.is_empty());
+    }
+
+    #[test]
+    fn test_parse_modules_json_missing_modules_key() {
+        let json = r#"{"deps": {}}"#;
+        assert!(parse_modules_json(json).is_err());
+    }
+
+    #[test]
+    fn test_parse_modules_json_invalid_json() {
+        assert!(parse_modules_json("not json").is_err());
+    }
+
+    // --- parse_script_imports tests ---
+
+    #[test]
+    fn test_parse_script_imports() {
+        let code = r#"Import-Module PSWriteColor
+Import-Module ImportExcel -RequiredVersion "7.8.6"
+# Import-Module Commented
+Write-Host "Hello""#;
+        let modules = parse_script_imports(code);
+        assert_eq!(modules.len(), 2);
+        assert_eq!(modules[0].name, "PSWriteColor");
+        assert_eq!(modules[0].version, None);
+        assert_eq!(modules[1].name, "ImportExcel");
+        assert_eq!(modules[1].version, Some("7.8.6".to_string()));
+    }
+
+    // --- merge_module_requests tests ---
+
+    #[test]
+    fn test_merge_workspace_overrides_script() {
+        let ws = vec![ModuleRequest { name: "Mod".to_string(), version: Some("2.0".to_string()) }];
+        let script =
+            vec![ModuleRequest { name: "Mod".to_string(), version: Some("1.0".to_string()) }];
+        let merged = merge_module_requests(ws, script);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].version, Some("2.0".to_string()));
+    }
+
+    #[test]
+    fn test_merge_combines_distinct_modules() {
+        let ws = vec![ModuleRequest { name: "WsMod".to_string(), version: None }];
+        let script = vec![ModuleRequest { name: "ScriptMod".to_string(), version: None }];
+        let merged = merge_module_requests(ws, script);
+        assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn test_merge_case_insensitive() {
+        let ws =
+            vec![ModuleRequest { name: "MyModule".to_string(), version: Some("2.0".to_string()) }];
+        let script =
+            vec![ModuleRequest { name: "mymodule".to_string(), version: Some("1.0".to_string()) }];
+        let merged = merge_module_requests(ws, script);
+        assert_eq!(merged.len(), 1);
+        // Workspace version wins
+        assert_eq!(merged[0].version, Some("2.0".to_string()));
     }
 
     #[tokio::test]
