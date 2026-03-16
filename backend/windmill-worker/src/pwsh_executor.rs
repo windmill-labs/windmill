@@ -24,7 +24,8 @@ lazy_static::lazy_static! {
 use crate::{
     common::{
         build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
-        read_file_content, start_child_process, MaybeLock, OccupancyMetrics,
+        read_file_content, resolve_nsjail_timeout, start_child_process, MaybeLock,
+        OccupancyMetrics,
     },
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
@@ -613,6 +614,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
     let nsjail = is_sandboxing_enabled() && is_regular_job;
     let child = if nsjail {
+        let nsjail_timeout =
+            resolve_nsjail_timeout(db, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -620,7 +623,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
-                .replace("{CACHE_DIR}", &*POWERSHELL_CACHE_DIR),
+                .replace("{CACHE_DIR}", &*POWERSHELL_CACHE_DIR)
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let cmd_args = vec![
             "--config",

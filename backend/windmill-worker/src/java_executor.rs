@@ -23,7 +23,7 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process, OccupancyMetrics,
+        read_result, resolve_nsjail_timeout, start_child_process, OccupancyMetrics,
     },
     handle_child, is_sandboxing_enabled, read_ee_registry,
     universal_pkg_installer::{par_install_language_dependencies_all_at_once, RequiredDependency},
@@ -600,6 +600,8 @@ async fn run<'a>(
         )
         .await;
 
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         write_file(
             job_dir,
             "run.config.proto",
@@ -608,7 +610,8 @@ async fn run<'a>(
                 .replace("{CACHE_DIR}", &*JAVA_CACHE_DIR)
                 .replace("{SHARED_MOUNT}", &shared_mount)
                 // .replace("{CACHED_TARGET}", &shared_mount)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
         cmd.env_clear()
