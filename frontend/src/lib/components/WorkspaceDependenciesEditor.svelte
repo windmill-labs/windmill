@@ -40,6 +40,19 @@
 		return deps.name || `Default (${deps.language})`
 	}
 
+	function getEditorLang(language: ScriptLang): string {
+		switch (language) {
+			case 'bun':
+			case 'php':
+			case 'powershell':
+				return 'json'
+			case 'python3':
+				return 'plaintext'
+			default:
+				return 'markdown'
+		}
+	}
+
 	export function getFileExtension(language: ScriptLang): string | null {
 		switch (language) {
 			case 'python3':
@@ -507,7 +520,7 @@ numpy>=1.24.0
 						<Module.default
 							bind:this={editor}
 							autoHeight
-							lang="markdown"
+							lang={getEditorLang(workspaceDependencies.language)}
 							code={workspaceDependencies.content}
 							on:change={(e) => handleEditorChange(e.detail)}
 							fixedOverflowWidgets={false}
@@ -515,6 +528,15 @@ numpy>=1.24.0
 						/>
 					{/await}
 				</div>
+				{#if workspaceDependencies.language === 'powershell'}
+					<div class="text-sm text-tertiary mt-2">
+						JSON object with a <code>"modules"</code> key mapping module names to versions. Use
+						<code>"*"</code>
+						or <code>null</code> for latest version, or a specific version string to pin. These
+						modules are merged with script-level
+						<code>Import-Module</code> statements at runtime (workspace versions take precedence).
+					</div>
+				{/if}
 			</Section>
 		</div>
 
