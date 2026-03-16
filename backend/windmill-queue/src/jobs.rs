@@ -4812,10 +4812,13 @@ async fn push_inner<'c, 'd>(
         }) => {
             // Inject modules into job args as _MODULES so the worker can extract them
             if let Some(ref modules) = modules {
-                if let Ok(modules_json) = serde_json::to_string(modules) {
-                    if let Ok(raw) = RawValue::from_string(modules_json) {
+                match serde_json::to_string(modules).and_then(|s| RawValue::from_string(s)) {
+                    Ok(raw) => {
                         let extra = args.extra.get_or_insert_with(HashMap::new);
                         extra.insert("_MODULES".to_string(), raw);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to serialize modules for preview job: {e}");
                     }
                 }
             }

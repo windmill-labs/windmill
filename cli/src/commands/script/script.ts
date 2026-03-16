@@ -473,7 +473,7 @@ export async function handleFile(
               Boolean(remote.restart_unless_cancelled) &&
             Boolean(typed.visible_to_runner_only) ==
               Boolean(remote.visible_to_runner_only) &&
-            (typed.auto_kind ?? undefined) == (remote.auto_kind ?? undefined) &&
+            (typed.auto_kind ?? undefined) === (remote.auto_kind ?? undefined) &&
             Boolean(typed.has_preprocessor) ==
               Boolean(remote.has_preprocessor) &&
             typed.priority == Boolean(remote.priority) &&
@@ -610,6 +610,29 @@ export async function writeModulesToDisk(
 ): Promise<void> {
   // Ensure the module folder exists
   fs.mkdirSync(moduleFolderPath, { recursive: true });
+
+  // Clean up stale module files that are no longer in the modules map
+  const expectedFiles = new Set<string>();
+  for (const [relPath, mod] of Object.entries(modules)) {
+    expectedFiles.add(relPath);
+    if (mod.lock) {
+      expectedFiles.add(relPath.replace(/\.[^.]+$/, '') + ".lock");
+    }
+  }
+
+  function cleanDir(dirPath: string, relPrefix: string) {
+    if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) return;
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const relPath = relPrefix ? relPrefix + "/" + entry.name : entry.name;
+      if (entry.isDirectory()) {
+        cleanDir(path.join(dirPath, entry.name), relPath);
+      } else if (!expectedFiles.has(relPath)) {
+        fs.unlinkSync(path.join(dirPath, entry.name));
+      }
+    }
+  }
+  cleanDir(moduleFolderPath, "");
 
   for (const [relPath, mod] of Object.entries(modules)) {
     const fullPath = path.join(moduleFolderPath, relPath);

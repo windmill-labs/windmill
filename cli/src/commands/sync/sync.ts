@@ -1070,7 +1070,7 @@ function ZipFSElement(
 
               // Yield the module lock file if present
               if (mod.lock) {
-                const baseName = relPath.substring(0, relPath.indexOf("."));
+                const baseName = relPath.replace(/\.[^.]+$/, '');
                 yield {
                   isDirectory: false,
                   path: path.join(moduleFolderPath, baseName + ".lock"),
