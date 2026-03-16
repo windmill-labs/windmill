@@ -762,8 +762,10 @@ pub async fn run_agent(
         .map(|m| m.clamp(1, HARD_MAX_AGENT_ITERATIONS))
         .unwrap_or(DEFAULT_MAX_AGENT_ITERATIONS);
 
+
     // Main agent loop
     for i in 0..max_iterations {
+
         if used_structured_output_tool {
             break;
         }
@@ -1036,10 +1038,13 @@ pub async fn run_agent(
                 if tool_calls.is_empty() {
                     break;
                 } else if i == max_iterations - 1 {
-                    return Err(Error::internal_err(
-                        "AI agent reached max iterations, but there are still tool calls"
-                            .to_string(),
-                    ));
+                    let partial_result = serde_json::to_string(&serde_json::json!({
+                        "messages": messages,
+                    })).unwrap_or_default();
+                    return Err(Error::internal_err(format!(
+                        "AI agent reached max iterations ({}), you can either increase max_iterations or enable the \"continue on error\" option from the advanced options of the step. Partial result:\n{}",
+                        max_iterations, partial_result
+                    )));
                 }
 
                 messages.push(OpenAIMessage {
