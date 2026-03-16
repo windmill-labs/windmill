@@ -3,6 +3,7 @@ name: "ruby run script"
 mode: ONCE
 hostname: "ruby"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 disable_rl: true
 
