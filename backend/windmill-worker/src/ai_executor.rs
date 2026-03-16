@@ -89,7 +89,7 @@ lazy_static::lazy_static! {
     }));
 }
 
-const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
+const DEFAULT_MAX_AGENT_ITERATIONS: usize = 3;
 const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
 
 fn find_module_by_id(
@@ -762,8 +762,11 @@ pub async fn run_agent(
         .map(|m| m.clamp(1, HARD_MAX_AGENT_ITERATIONS))
         .unwrap_or(DEFAULT_MAX_AGENT_ITERATIONS);
 
+    let mut agent_error: Option<String> = None;
+
     // Main agent loop
     for i in 0..max_iterations {
+
         if used_structured_output_tool {
             break;
         }
@@ -1030,13 +1033,8 @@ pub async fn run_agent(
                 if tool_calls.is_empty() {
                     break;
                 } else if i == max_iterations - 1 {
-                    let error_msg = "AI agent reached max iterations, but there are still tool calls".to_string();
-                    messages.push(OpenAIMessage {
-                        role: "assistant".to_string(),
-                        content: Some(OpenAIContent::Text(error_msg.clone())),
-                        ..Default::default()
-                    });
-                    content = Some(OpenAIContent::Text(error_msg));
+                    let error_msg = format!("AI agent reached max iterations ({}), you can increase max_iterations if necessary.", max_iterations);
+                    agent_error = Some(error_msg);
                     break;
                 }
 
@@ -1220,6 +1218,7 @@ pub async fn run_agent(
     Ok(to_raw_value(&AIAgentResult {
         output: output_value,
         messages: final_messages,
+        error: agent_error,
         wm_stream: if !final_events_str.is_empty() {
             Some(final_events_str)
         } else {
