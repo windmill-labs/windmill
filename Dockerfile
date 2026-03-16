@@ -120,8 +120,15 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 # Split debug info into a separate file, then strip the binary.
 # The .debug file can be extracted as a CI artifact for production debugging.
+# The debuglink allows gdb to auto-discover the debug file when placed next to the binary.
 RUN objcopy --only-keep-debug /windmill/target/release/windmill /windmill/target/release/windmill.debug \
-    && strip /windmill/target/release/windmill
+    && strip /windmill/target/release/windmill \
+    && objcopy --add-gnu-debuglink=/windmill/target/release/windmill.debug /windmill/target/release/windmill
+
+# Standalone stage for extracting the .debug file without including it in the final image.
+# Build with: docker build --target debuginfo --output type=local,dest=./out .
+FROM scratch AS debuginfo
+COPY --from=builder /windmill/target/release/windmill.debug /windmill.debug
 
 FROM ${DEBIAN_IMAGE}
 
@@ -257,7 +264,6 @@ ENV TZ=Etc/UTC
 
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
-COPY --from=builder /windmill/target/release/windmill.debug ${APP}/windmill.debug
 COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so ${APP}/libwindmill_duckdb_ffi_internal.so
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
