@@ -30,7 +30,8 @@ use crate::{
     bash_executor::BIN_BASH,
     common::{
         build_command_with_isolation, check_executor_binary_exists, get_reserved_variables,
-        read_and_check_result, start_child_process, transform_json, OccupancyMetrics,
+        read_and_check_result, resolve_nsjail_timeout, start_child_process, transform_json,
+        OccupancyMetrics,
     },
     handle_child::handle_child,
     is_sandboxing_enabled,
@@ -1180,6 +1181,8 @@ mount {{
                 )
             })
             .join("\n");
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -1193,7 +1196,8 @@ mount {{
                 .replace(
                     "{ADDITIONAL_PYTHON_PATHS}",
                     additional_python_paths_folders.as_str(),
-                ),
+                )
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
     } else {
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);

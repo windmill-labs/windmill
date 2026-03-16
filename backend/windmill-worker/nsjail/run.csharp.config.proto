@@ -3,6 +3,7 @@ name: "csharp run script"
 mode: ONCE
 hostname: "csharp"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 disable_rl: true
 
