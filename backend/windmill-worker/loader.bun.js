@@ -77,6 +77,17 @@ const p = {
       if (args.importer?.startsWith(cdirNodeModules)) {
         return undefined;
       }
+
+      // Check if the import resolves to a local module file (written by write_module_files)
+      if (args.path.startsWith(".")) {
+        // Try resolving relative to the working directory (job_dir)
+        const cwdPath = resolve(cdir, args.path);
+        try {
+          const content = readFileSync(cwdPath, "utf8");
+          return { path: cwdPath, loader: "tsx" };
+        } catch {}
+      }
+
       const file_path =
         args.importer == "./main.ts" || args.importer == resolve("./main.ts")
           ? current_path

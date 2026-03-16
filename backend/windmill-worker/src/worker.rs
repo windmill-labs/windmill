@@ -4016,6 +4016,7 @@ pub async fn write_module_files(
         if let Some(parent) = std::path::Path::new(&full_path).parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
+        tracing::debug!("Writing module file: {full_path}");
         tokio::fs::write(&full_path, &module.content).await?;
     }
     Ok(())

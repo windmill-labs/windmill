@@ -4389,7 +4389,7 @@ pub async fn push<'c, 'd>(
     tx: PushIsolationLevel<'c>,
     workspace_id: &str,
     job_payload: JobPayload,
-    args: PushArgs<'d>,
+    mut args: PushArgs<'d>,
     user: &str,
     email: &str,
     permissioned_as: String,
@@ -4453,7 +4453,7 @@ async fn push_inner<'c, 'd>(
     mut tx: PushIsolationLevel<'c>,
     workspace_id: &str,
     job_payload: JobPayload,
-    args: PushArgs<'d>,
+    mut args: PushArgs<'d>,
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
@@ -4809,19 +4809,30 @@ async fn push_inner<'c, 'd>(
             concurrency_settings,
             debouncing_settings,
             modules,
-        }) => JobPayloadUntagged {
-            runnable_id: hash,
-            runnable_path: path,
-            raw_code_tuple: Some((content, lock)),
-            job_kind: JobKind::Preview,
-            language: Some(language),
-            concurrency_settings: concurrency_settings.into(),
-            debouncing_settings,
-            cache_ttl,
-            cache_ignore_s3_path,
-            dedicated_worker,
-            ..Default::default()
-        },
+        }) => {
+            // Inject modules into job args as _MODULES so the worker can extract them
+            if let Some(ref modules) = modules {
+                if let Ok(modules_json) = serde_json::to_string(modules) {
+                    if let Ok(raw) = RawValue::from_string(modules_json) {
+                        let extra = args.extra.get_or_insert_with(HashMap::new);
+                        extra.insert("_MODULES".to_string(), raw);
+                    }
+                }
+            }
+            JobPayloadUntagged {
+                runnable_id: hash,
+                runnable_path: path,
+                raw_code_tuple: Some((content, lock)),
+                job_kind: JobKind::Preview,
+                language: Some(language),
+                concurrency_settings: concurrency_settings.into(),
+                debouncing_settings,
+                cache_ttl,
+                cache_ignore_s3_path,
+                dedicated_worker,
+                ..Default::default()
+            }
+        }
         JobPayload::Dependencies {
             hash,
             language,

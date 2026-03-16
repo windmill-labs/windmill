@@ -706,6 +706,13 @@ pub async fn handle_python_job(
     } else {
         String::new()
     };
+
+    let sys_path_insert = if modules.is_some() {
+        let module_dir = compute_python_module_dir(&script_path);
+        format!("sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), \"{module_dir}\"))\n")
+    } else {
+        String::new()
+    };
     let main_override = main_name.unwrap_or_else(|| "main".to_string());
     let res_to_json_body = python_res_to_json_body(postprocessor);
     let wrapper_content: String = if is_wac_v2 {
@@ -718,7 +725,7 @@ import json
 {import_datetime}
 import traceback
 import sys
-from {module_dir_dot} import {last} as inner_script
+{sys_path_insert}from {module_dir_dot} import {last} as inner_script
 from wmill.client import _run_workflow
 
 with open("args.json") as f:
@@ -780,7 +787,7 @@ import json
 {import_datetime}
 import traceback
 import sys
-{os_main_override}
+{sys_path_insert}{os_main_override}
 from {module_dir_dot} import {last} as inner_script
 import re
 
