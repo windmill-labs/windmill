@@ -39,7 +39,6 @@ def main(name: str):
         content: main_content,
         path: Some("f/test/my_script".to_string()),
         language: ScriptLang::Python3,
-        lock: Some("".to_string()), // empty lock prevents pip from resolving module names as packages
         modules: Some(modules),
         ..RawCode::default()
     });
@@ -92,7 +91,6 @@ def main(a: int, b: int):
         content: main_content,
         path: Some("f/test/my_script".to_string()),
         language: ScriptLang::Python3,
-        lock: Some("".to_string()), // empty lock prevents pip from resolving module names as packages
         modules: Some(modules),
         ..RawCode::default()
     });
