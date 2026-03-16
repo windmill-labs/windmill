@@ -741,6 +741,38 @@ export function replaceLock(o?: { lock?: string | string[] }) {
     }
   }
 }
+
+export async function parseMetadataFileIfExists(
+  scriptPath: string
+): Promise<{ isJson: boolean; payload: any; path: string } | undefined> {
+  let metadataFilePath = scriptPath + ".script.json";
+  try {
+    await stat(metadataFilePath);
+    const payload = JSON.parse(await readFile(metadataFilePath, "utf-8"));
+    replaceLock(payload);
+    return {
+      path: metadataFilePath,
+      payload,
+      isJson: true,
+    };
+  } catch {
+    try {
+      metadataFilePath = scriptPath + ".script.yaml";
+      await stat(metadataFilePath);
+      const payload: any = await yamlParseFile(metadataFilePath);
+      replaceLock(payload);
+
+      return {
+        path: metadataFilePath,
+        payload,
+        isJson: false,
+      };
+    } catch {
+      return undefined;
+    }
+  }
+}
+
 export async function parseMetadataFile(
   scriptPath: string,
   generateMetadataIfMissing:

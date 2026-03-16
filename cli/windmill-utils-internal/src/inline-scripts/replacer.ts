@@ -4,6 +4,7 @@ export type LocalScriptInfo = {
   content: string;
   language: RawScript["language"];
   lock?: string;
+  tag?: string;
 };
 
 async function replaceRawscriptInline(
@@ -163,7 +164,7 @@ export async function replacePathScriptsWithLocal(
           lock: localScript.lock,
           path: scriptPath,
           input_transforms: pathScript.input_transforms,
-          tag: pathScript.tag_override,
+          tag: pathScript.tag_override ?? localScript.tag,
         } satisfies RawScript;
       }
     } else if (module.value.type === "forloopflow" || module.value.type === "whileloopflow") {
@@ -194,7 +195,7 @@ export async function replacePathScriptsWithLocal(
             lock: localScript.lock,
             path: toolValue.path,
             input_transforms: toolValue.input_transforms,
-            tag: toolValue.tag_override,
+            tag: toolValue.tag_override ?? localScript.tag,
           };
         }
       }));

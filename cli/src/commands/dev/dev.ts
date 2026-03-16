@@ -16,34 +16,34 @@ import { resolveWorkspace } from "../../core/context.ts";
 import {
   SyncOptions,
   mergeConfigWithConfigFile,
-  readConfigFile,
 } from "../../core/conf.ts";
 import { exts, removeExtensionToPath } from "../script/script.ts";
 import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { FlowFile } from "../flow/flow.ts";
-import { replaceInlineScripts, replaceAllPathScriptsWithLocal, createLocalScriptReader } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
-import { stat } from "node:fs/promises";
+import { replaceInlineScripts, replaceAllPathScriptsWithLocal } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { parseMetadataFile } from "../../utils/metadata.ts";
 import {
   getFolderSuffixWithSep,
   getMetadataFileName,
   extractFolderPath,
 } from "../../utils/resource_folders.ts";
+import { listSyncCodebases } from "../../utils/codebase.ts";
+import { createPreviewLocalScriptReader } from "../../utils/local_path_scripts.ts";
 
 const PORT = 3001;
 async function dev(opts: GlobalOptions & SyncOptions) {
+  opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
   log.info("Started dev mode");
-  const conf = await readConfigFile();
   let currentLastEdit: LastEditScript | LastEditFlow | undefined = undefined;
 
   const fsWatcher = watch(".", { recursive: true });
   const base = await realpath(".");
-  opts = await mergeConfigWithConfigFile(opts);
   const ignore = await ignoreF(opts);
+  const codebases = await listSyncCodebases(opts);
 
   const changesTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
   function watchChanges() {
@@ -57,7 +57,11 @@ async function dev(opts: GlobalOptions & SyncOptions) {
         }
         changesTimeouts[key] = setTimeout(async () => {
           delete changesTimeouts[key];
-          await loadPaths([filePath]);
+          await loadPaths([filePath]).catch((error) => {
+            log.error(
+              `Failed to reload ${filePath}: ${error instanceof Error ? error.message : error}`
+            );
+          });
         }, 100);
       });
       fsWatcher.on("error", (err) => {
@@ -96,12 +100,11 @@ async function dev(opts: GlobalOptions & SyncOptions) {
           undefined,
         );
         // Replace PathScript modules with local file content so dev mode uses local versions
-        const localScriptReader = createLocalScriptReader(
+        const localScriptReader = createPreviewLocalScriptReader({
           exts,
-          (fp) => inferContentTypeFromFilePath(fp, conf.defaultTs),
-          (p) => readFile(p, "utf-8"),
-          stat,
-        );
+          defaultTs: opts.defaultTs,
+          codebases,
+        });
         await replaceAllPathScriptsWithLocal(localFlow.value, localScriptReader, log);
         currentLastEdit = {
           type: "flow",
@@ -114,7 +117,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
         const content = await readFile(cpath, "utf-8");
         const splitted = cpath.split(".");
         const wmPath = splitted[0];
-        const lang = inferContentTypeFromFilePath(cpath, conf.defaultTs);
+        const lang = inferContentTypeFromFilePath(cpath, opts.defaultTs);
         const typed =
           (await parseMetadataFile(
             removeExtensionToPath(cpath),

@@ -8,7 +8,7 @@ import { sep as SEP } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 import { requireLogin } from "../../core/auth.ts";
@@ -18,10 +18,11 @@ import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
 import { Flow } from "../../../gen/types.gen.ts";
-import { replaceInlineScripts, replaceAllPathScriptsWithLocal, createLocalScriptReader } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
+import { replaceInlineScripts, replaceAllPathScriptsWithLocal } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { generateFlowLockInternal } from "./flow_metadata.ts";
-import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { exts } from "../script/script.ts";
+import { listSyncCodebases } from "../../utils/codebase.ts";
+import { createPreviewLocalScriptReader } from "../../utils/local_path_scripts.ts";
 
 export interface FlowFile {
   summary: string;
@@ -235,11 +236,13 @@ async function preview(
   opts: GlobalOptions & {
     data?: string;
     silent: boolean;
-  },
+  } & SyncOptions,
   flowPath: string
 ) {
+  opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  const codebases = await listSyncCodebases(opts);
 
   // Normalize path - ensure it's a directory path to a .flow folder
   if (!flowPath.endsWith(".flow") && !flowPath.endsWith(".flow" + SEP)) {
@@ -277,12 +280,11 @@ async function preview(
   }
 
   // Replace PathScript modules with local file content so preview uses local versions
-  const localScriptReader = createLocalScriptReader(
+  const localScriptReader = createPreviewLocalScriptReader({
     exts,
-    (fp) => inferContentTypeFromFilePath(fp, undefined),
-    (p) => readFile(p, "utf-8"),
-    stat,
-  );
+    defaultTs: opts.defaultTs,
+    codebases,
+  });
   await replaceAllPathScriptsWithLocal(localFlow.value, localScriptReader, log);
 
   const input = opts.data ? await resolve(opts.data) : {};

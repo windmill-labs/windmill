@@ -88,7 +88,7 @@ describe("replacePathScriptsWithLocal", () => {
 
     const scriptReader = async (scriptPath: string): Promise<LocalScriptInfo | undefined> => {
       if (scriptPath === "f/scripts/tagged") {
-        return { content: "code", language: "python3" };
+        return { content: "code", language: "python3", tag: "script-worker" };
       }
       return undefined;
     };
@@ -97,6 +97,22 @@ describe("replacePathScriptsWithLocal", () => {
 
     expect(module.value.type).toBe("rawscript");
     expect((module.value as any).tag).toBe("my-worker");
+  });
+
+  test("uses local script tag when no tag_override is set", async () => {
+    const module = makePathScriptModule("a", "f/scripts/tagged");
+
+    const scriptReader = async (scriptPath: string): Promise<LocalScriptInfo | undefined> => {
+      if (scriptPath === "f/scripts/tagged") {
+        return { content: "code", language: "python3", tag: "script-worker" };
+      }
+      return undefined;
+    };
+
+    await replacePathScriptsWithLocal([module], scriptReader, noopLogger);
+
+    expect(module.value.type).toBe("rawscript");
+    expect((module.value as any).tag).toBe("script-worker");
   });
 
   test("leaves PathScript untouched when local file not found", async () => {

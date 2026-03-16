@@ -1,0 +1,103 @@
+import { execSync } from "node:child_process";
+import { readFile, stat } from "node:fs/promises";
+import type { SyncCodebase } from "./codebase.ts";
+import { parseMetadataFileIfExists } from "./metadata.ts";
+import { inferContentTypeFromFilePath } from "./script_common.ts";
+import { findCodebase } from "../commands/sync/sync.ts";
+import type { LocalScriptInfo } from "../../windmill-utils-internal/src/inline-scripts/replacer.ts";
+
+export class UnsupportedLocalPathScriptPreviewError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsupportedLocalPathScriptPreviewError";
+  }
+}
+
+async function readOptionalLock(scriptPath: string): Promise<string | undefined> {
+  try {
+    return await readFile(scriptPath + ".script.lock", "utf-8");
+  } catch {
+    return undefined;
+  }
+}
+
+async function bundleSingleFileCodebaseScript(
+  filePath: string,
+  codebase: SyncCodebase
+): Promise<string> {
+  if (codebase.customBundler) {
+    return execSync(codebase.customBundler + " " + filePath, {
+      maxBuffer: 1024 * 1024 * 50,
+    }).toString();
+  }
+
+  const esbuild = await import("esbuild");
+  const format = codebase.format ?? "cjs";
+  const out = await esbuild.build({
+    entryPoints: [filePath],
+    format,
+    bundle: true,
+    write: false,
+    external: codebase.external,
+    inject: codebase.inject,
+    define: codebase.define,
+    loader: codebase.loader ?? { ".node": "file" },
+    outdir: "/",
+    platform: "node",
+    packages: "bundle",
+    target: format == "cjs" ? "node20.15.1" : "esnext",
+    banner: codebase.banner,
+  });
+
+  if (out.outputFiles.length === 0) {
+    throw new Error(`No output files found for ${filePath}`);
+  }
+  if (out.outputFiles.length > 1) {
+    throw new UnsupportedLocalPathScriptPreviewError(
+      `Local PathScript ${filePath} requires a multi-file bundle, which flow preview/dev cannot inline yet`
+    );
+  }
+  if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
+    throw new UnsupportedLocalPathScriptPreviewError(
+      `Local PathScript ${filePath} requires codebase assets, which flow preview/dev cannot inline yet`
+    );
+  }
+
+  return out.outputFiles[0].text;
+}
+
+export function createPreviewLocalScriptReader(opts: {
+  exts: string[];
+  defaultTs?: "bun" | "deno";
+  codebases: SyncCodebase[];
+}): (scriptPath: string) => Promise<LocalScriptInfo | undefined> {
+  return async (scriptPath) => {
+    for (const ext of opts.exts) {
+      const filePath = scriptPath + ext;
+      let fileStat;
+      try {
+        fileStat = await stat(filePath);
+      } catch (error) {
+        continue;
+      }
+      if (!fileStat.isFile()) continue;
+
+      const language = inferContentTypeFromFilePath(filePath, opts.defaultTs);
+      const metadata = await parseMetadataFileIfExists(scriptPath);
+      const codebase =
+        language === "bun" ? findCodebase(filePath, opts.codebases) : undefined;
+      const content = codebase
+        ? await bundleSingleFileCodebaseScript(filePath, codebase)
+        : await readFile(filePath, "utf-8");
+
+      return {
+        content,
+        language,
+        lock: metadata?.payload?.lock ?? (await readOptionalLock(scriptPath)),
+        tag: metadata?.payload?.tag,
+      };
+    }
+
+    return undefined;
+  };
+}
