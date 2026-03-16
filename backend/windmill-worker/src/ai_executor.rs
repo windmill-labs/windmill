@@ -1056,7 +1056,7 @@ pub async fn run_agent(
                             ),
                             name: "ExecutionErr",
                             result: MaxIterPartialResult { messages: &messages },
-                        }).unwrap(),
+                        })?,
                     ));
                 }
 
