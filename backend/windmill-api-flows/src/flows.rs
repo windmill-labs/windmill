@@ -36,6 +36,7 @@ use windmill_common::assets::{clear_static_asset_usage, AssetUsageKind};
 use windmill_common::flows::FlowModule;
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
+    MIN_VERSION_SUPPORTS_NODE_DEBOUNCING,
 };
 use windmill_common::runnable_settings::RunnableSettingsTrait;
 use windmill_common::utils::query_elems_from_hub;
@@ -1617,10 +1618,10 @@ async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
     if let Err(e) = check_result {
         tracing::warn!("Failed to traverse flow modules for debounce guard: {e}");
     }
-    if has_node_debouncing && !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await {
+    if has_node_debouncing && !MIN_VERSION_SUPPORTS_NODE_DEBOUNCING.met().await {
         return Err(Error::WorkersAreBehind {
             feature: "Flow node debouncing".into(),
-            min_version: "1.597.0".into(),
+            min_version: "1.658.0".into(),
         });
     }
 
