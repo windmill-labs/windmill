@@ -218,6 +218,7 @@
 		}
 		activeModuleTab = null
 		editorCode = code
+		lastSyncedCode = code
 		editor?.setCode(editorCode)
 	}
 
@@ -378,7 +379,7 @@
 		const mod = modules[oldPath]
 		const newLang = inferModuleLang(newPath)
 		delete modules[oldPath]
-		modules[newPath] = { ...mod, language: newLang! }
+		modules[newPath] = { ...mod, language: newLang ?? mod.language }
 		modules = { ...modules }
 		if (activeModuleTab === oldPath) {
 			activeModuleTab = newPath
@@ -562,7 +563,7 @@
 		// Not defined if JobProgressBar not loaded
 		jobProgressBar?.reset()
 		// Flush module edits back to modules map before running preview
-		if (activeModuleTab !== null && modules && activeModuleTab) {
+		if (activeModuleTab !== null && modules) {
 			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
 		}
 		//@ts-ignore
@@ -1898,7 +1899,7 @@
 					await inferSchema(editorCode)
 				}
 				try {
-					localStorage.setItem(path ?? 'last_save', editorCode)
+					localStorage.setItem(path ?? 'last_save', activeModuleTab === null ? editorCode : code)
 				} catch (e) {
 					console.error('Could not save last_save to local storage', e)
 				}

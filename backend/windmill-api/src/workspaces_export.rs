@@ -93,6 +93,7 @@ struct ScriptMetadata {
     // parser at deploy time from the script content (workflow/task patterns for "wac",
     // no main function for "lib").
     #[serde(skip_serializing)]
+    #[allow(dead_code)]
     pub auto_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codebase: Option<String>,

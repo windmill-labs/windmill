@@ -3982,6 +3982,11 @@ pub async fn write_module_files(
     base_dir: Option<&str>,
 ) -> error::Result<()> {
     for (relpath, module) in modules {
+        // Reject path traversal attempts in module paths
+        if relpath.contains("..") {
+            tracing::warn!("Skipping module with path traversal: {relpath}");
+            continue;
+        }
         let full_path = match base_dir {
             Some(dir) => format!("{}/{}/{}", job_dir, dir, relpath),
             None => format!("{}/{}", job_dir, relpath),

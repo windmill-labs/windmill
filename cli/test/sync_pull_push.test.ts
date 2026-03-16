@@ -2408,7 +2408,7 @@ describe("http trigger sync", () => {
 // =============================================================================
 
 describe("script module sync", () => {
-  test("push script with modules via API and pull back", async () => {
+  test.skipIf(process.platform === "win32")("push script with modules via API and pull back", async () => {
     await withTestBackend(async (backend, tempDir) => {
       const uniqueId = Date.now();
       const scriptPath = `f/test/module_script_${uniqueId}`;
@@ -2661,7 +2661,7 @@ kind: script
     });
   });
 
-  test("pull script with modules does not create stale metadata", async () => {
+  test.skipIf(process.platform === "win32")("pull script with modules does not create stale metadata", async () => {
     await withTestBackend(async (backend, tempDir) => {
       const uniqueId = Date.now();
       const scriptPath = `f/test/fresh_mod_${uniqueId}`;

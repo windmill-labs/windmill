@@ -625,6 +625,13 @@ export async function writeModulesToDisk(
       const relPath = relPrefix ? relPrefix + "/" + entry.name : entry.name;
       if (entry.isDirectory()) {
         cleanDir(path.join(dirPath, entry.name), relPath);
+        // Remove empty directories after cleaning
+        try {
+          const remaining = fs.readdirSync(path.join(dirPath, entry.name));
+          if (remaining.length === 0) {
+            fs.rmdirSync(path.join(dirPath, entry.name));
+          }
+        } catch {}
       } else if (!expectedFiles.has(relPath)) {
         fs.unlinkSync(path.join(dirPath, entry.name));
       }
