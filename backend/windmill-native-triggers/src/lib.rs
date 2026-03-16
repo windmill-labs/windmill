@@ -731,13 +731,11 @@ async fn update_oauth_token_resource(
     }
 }
 
-/// Create a new webhook token that keeps the same label as the old one,
-/// delete the old token, and return the new plaintext token together with
-/// its hash.
-///
-/// Both operations happen in a single transaction so we never leak tokens.
-/// If the caller's subsequent trigger update fails, it should call
-/// `delete_token_by_hash` on `new_token_hash` to roll back to a clean state.
+/// Create a new webhook token that keeps the same label as the old one.
+/// The old token is **not** deleted — callers must call `delete_token_by_hash`
+/// on `old_token_hash` after the trigger row has been successfully updated.
+/// This ensures the trigger keeps working if the external service call or
+/// subsequent DB update fails.
 ///
 /// Returns `Ok(None)` if the old token no longer exists (e.g. manually deleted by user).
 /// In that case, `renew_channel` returns an error which `renew_expiring_channels` writes
@@ -773,8 +771,6 @@ pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<Optio
         Some(&new_token)
     };
 
-    let mut tx = db.begin().await?;
-
     sqlx::query!(
         "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes, workspace_id, owner, expiration)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
@@ -789,23 +785,20 @@ pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<Optio
         old.owner,
         old.expiration,
     )
-    .execute(&mut *tx)
+    .execute(db)
     .await?;
 
-    sqlx::query!("DELETE FROM token WHERE token_hash = $1", old_token_hash)
-        .execute(&mut *tx)
-        .await?;
-
-    tx.commit().await?;
-
-    Ok(Some(RotatedToken { new_token, new_token_hash: new_hash }))
+    Ok(Some(RotatedToken {
+        new_token,
+        old_token_hash: old_token_hash.to_string(),
+    }))
 }
 
 pub struct RotatedToken {
     pub new_token: String,
-    /// Hash of the new token — callers should use this to clean up
-    /// the new token if their subsequent update fails.
-    pub new_token_hash: String,
+    /// Hash of the old token — callers should delete this after the
+    /// trigger row has been successfully updated to point at the new token.
+    pub old_token_hash: String,
 }
 
 /// Delete a token from the token table using its hash (exact match).

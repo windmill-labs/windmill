@@ -318,13 +318,13 @@ async fn test_plaintext_backward_compat(db: Pool<Postgres>) -> anyhow::Result<()
     Ok(())
 }
 
-/// Test 6: rotate_webhook_token atomically creates a new token and deletes the old one.
-/// Returns new_token_hash so callers can roll back on subsequent failure.
+/// Test 6: rotate_webhook_token creates a new token and keeps the old one alive.
+/// Callers delete the old token after successfully updating the trigger.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_rotate_webhook_token(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
-    use windmill_native_triggers::rotate_webhook_token;
+    use windmill_native_triggers::{delete_token_by_hash, rotate_webhook_token};
 
     // Insert a token directly with known values
     let original_token = "test-webhook-token-original-1234";
@@ -348,39 +348,51 @@ async fn test_rotate_webhook_token(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // New token should be different
     assert_ne!(rotated.new_token, original_token);
-
-    // new_token_hash should match the hash of the new token
-    let expected_new_hash = hash_token(&rotated.new_token);
-    assert_eq!(rotated.new_token_hash, expected_new_hash);
+    assert_eq!(rotated.old_token_hash, original_hash);
 
     // New token's hash should exist in DB
+    let new_hash = hash_token(&rotated.new_token);
     let exists: bool = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM token WHERE token_hash = $1) AS exists",
-        rotated.new_token_hash
+        new_hash
     )
     .fetch_one(&db)
     .await?
     .unwrap_or(false);
     assert!(exists, "new token hash must exist in DB after rotation");
 
-    // Old token should be gone (deleted atomically during rotation)
+    // Old token should still exist (deletion deferred to caller)
     let old_exists: bool = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM token WHERE token_hash = $1) AS exists",
         original_hash
     )
     .fetch_one(&db)
     .await?
-    .unwrap_or(true);
+    .unwrap_or(false);
     assert!(
-        !old_exists,
-        "old token must be deleted atomically during rotation"
+        old_exists,
+        "old token must still exist until caller deletes it"
     );
 
+    // Caller deletes old token after successful trigger update
+    let deleted = delete_token_by_hash(&db, &rotated.old_token_hash).await?;
+    assert!(deleted, "old token must be deletable");
+
+    // Old token should now be gone
+    let old_gone: bool = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM token WHERE token_hash = $1) AS exists",
+        original_hash
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(true);
+    assert!(!old_gone, "old token must be gone after explicit deletion");
+
     // Rotating a non-existent hash should return None
-    let result = rotate_webhook_token(&db, &original_hash).await?;
+    let result = rotate_webhook_token(&db, "nonexistent_hash").await?;
     assert!(
         result.is_none(),
-        "rotating a deleted token must return None"
+        "rotating a non-existent token must return None"
     );
 
     Ok(())
