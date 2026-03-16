@@ -894,7 +894,8 @@ async fn delete_resource(
 
     // Delete the exact-path linked variable (single secret case)
     // and any variables with {path}_{field_name} suffix (multiple secrets case)
-    let linked_var_prefix = format!("{path}\\_%");
+    let escaped_path = path.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+    let linked_var_prefix = format!("{escaped_path}\\_%");
     let deleted_linked_variables: Vec<String> = sqlx::query_scalar(
         "DELETE FROM variable WHERE workspace_id = $1 AND (path = $2 OR path LIKE $3) RETURNING path",
     )
