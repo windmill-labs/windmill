@@ -179,11 +179,10 @@
 
 		for (const serviceName of Object.keys(supportedServices)) {
 			try {
-				const available =
-					await WorkspaceIntegrationService.checkInstanceSharingAvailable({
-						workspace: $workspaceStore,
-						serviceName: serviceName as NativeServiceName
-					})
+				const available = await WorkspaceIntegrationService.checkInstanceSharingAvailable({
+					workspace: $workspaceStore,
+					serviceName: serviceName as NativeServiceName
+				})
 				instanceSharingAvailable[serviceName] = available
 			} catch {
 				instanceSharingAvailable[serviceName] = false
@@ -389,7 +388,10 @@
 									<span class="font-semibold">Connected</span>
 								</div>
 								<Button
-									onclick={() => connectService(serviceName, getRedirectUri(serviceName))}
+									onclick={() =>
+										integration?.oauth_data?.instance_shared
+											? connectWithInstanceCredentials(serviceName)
+											: connectService(serviceName, getRedirectUri(serviceName))}
 									disabled={isConnecting}
 									startIcon={{ icon: Plug }}
 								>

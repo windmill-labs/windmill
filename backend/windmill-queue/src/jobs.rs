@@ -3030,8 +3030,16 @@ impl PulledJobResult {
                     if let Some(s) = str_o.as_ref() {
                         match serde_json::from_str::<Vec<Box<RawValue>>>(s) {
                             Ok(ref mut vec) => accumulated_arg.append(vec),
-                            Err(e) => {
-                                return Err(error::Error::ArgumentErr(format!("cannot consolidate arguments of non-list type. Type provided for argument `{arg_name_to_accumulate}` is not a list\nUnwrapped Error: {e}")));
+                            Err(_) => {
+                                // Value is not an array — wrap the scalar into a
+                                // single-element array. This supports union types
+                                // like T | T[] where the caller may pass a bare T.
+                                match RawValue::from_string(s.to_string()) {
+                                    Ok(raw) => accumulated_arg.push(raw),
+                                    Err(e) => {
+                                        return Err(error::Error::ArgumentErr(format!("cannot consolidate argument `{arg_name_to_accumulate}`: value is neither a valid list nor a valid JSON value\nUnwrapped Error: {e}")));
+                                    }
+                                }
                             }
                         }
                     }

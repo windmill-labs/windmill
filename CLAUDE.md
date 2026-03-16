@@ -58,6 +58,8 @@ let { my_prop = $bindable(default_value) }: { my_prop?: string } = $props()
 - `refs "X" --caller` instead of reading files to find which function contains each reference
 - `callers "X"` / `callees "X"` for call-graph questions
 
+EE files (`*_ee.rs`, `*_ee.ts`, `*_ee.svelte`) are indexed — you can `outline`, `def`, `body`, `refs` etc. on them just like regular files.
+
 ```bash
 NAV="sh wm-ts-nav/nav"
 # Use --root backend for Rust, --root frontend/src for TS/Svelte

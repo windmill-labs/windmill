@@ -12,6 +12,7 @@
 		action?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 		isAgentTool?: boolean
+		siblingToolNames?: string[]
 	}
 
 	let {
@@ -23,7 +24,8 @@
 		header,
 		action,
 		children,
-		isAgentTool = false
+		isAgentTool = false,
+		siblingToolNames = undefined
 	}: Props = $props()
 </script>
 
@@ -38,6 +40,7 @@
 				{flowModuleValue}
 				{action}
 				{isAgentTool}
+				{siblingToolNames}
 			>
 				{@render header?.()}
 			</FlowCardHeader>

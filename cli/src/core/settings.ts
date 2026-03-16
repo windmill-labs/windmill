@@ -53,6 +53,7 @@ export interface SimplifiedSettings {
   mute_critical_alerts?: boolean;
   color?: string;
   operator_settings?: any;
+  datatable?: any;
   slack_team_id?: string;
   slack_name?: string;
   slack_command_script?: string;
@@ -100,6 +101,7 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
   if (settings.mute_critical_alerts !== undefined) result.mute_critical_alerts = settings.mute_critical_alerts;
   if (settings.color !== undefined) result.color = settings.color;
   if (settings.operator_settings !== undefined) result.operator_settings = settings.operator_settings;
+  if (settings.datatable !== undefined) result.datatable = settings.datatable;
   if (settings.slack_team_id !== undefined) result.slack_team_id = settings.slack_team_id;
   if (settings.slack_name !== undefined) result.slack_name = settings.slack_name;
   if (settings.slack_command_script !== undefined) result.slack_command_script = settings.slack_command_script;
@@ -192,6 +194,7 @@ export async function pushWorkspaceSettings(
       mute_critical_alerts: remoteSettings.mute_critical_alerts,
       color: remoteSettings.color,
       operator_settings: remoteSettings.operator_settings,
+      datatable: remoteSettings.datatable,
       slack_team_id: remoteSettings.slack_team_id,
       slack_name: remoteSettings.slack_name,
       slack_command_script: remoteSettings.slack_command_script,
@@ -379,6 +382,14 @@ export async function pushWorkspaceSettings(
     await wmill.updateOperatorSettings({
       workspace,
       requestBody: localSettings.operator_settings,
+    });
+  }
+
+  if (!deepEqual(localSettings.datatable, settings.datatable)) {
+    log.debug(`Updating datatable config...`);
+    await wmill.editDataTableConfig({
+      workspace,
+      requestBody: { settings: localSettings.datatable ?? { datatables: {} } },
     });
   }
 

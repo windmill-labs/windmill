@@ -305,6 +305,7 @@
 				{enableAi}
 				{forceTestTab}
 				{highlightArg}
+				siblingToolNames={flowModule.value.tools.map((t) => t.summary ?? '')}
 			/>
 		{/if}
 	{/each}

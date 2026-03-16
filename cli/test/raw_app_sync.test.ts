@@ -107,7 +107,7 @@ async function readFileContent(filePath: string): Promise<string> {
  * Create a raw app directory structure on disk
  * Uses .raw_app folder suffix with raw_app.yaml metadata
  */
-async function createRawAppOnDisk(appDir: string): Promise<void> {
+async function createRawAppOnDisk(appDir: string, includeBackend: boolean = false): Promise<void> {
   await mkdir(appDir, { recursive: true });
   await mkdir(path.join(appDir, "inline_scripts"), { recursive: true });
 
@@ -131,6 +131,16 @@ async function createRawAppOnDisk(appDir: string): Promise<void> {
     INLINE_SCRIPT_A_LOCK,
     "utf-8"
   );
+
+  // Optionally create backend runnable (type: inline)
+  if (includeBackend) {
+    await mkdir(path.join(appDir, "backend"), { recursive: true });
+    await writeFile(path.join(appDir, "backend", "query.yaml"), "type: inline\n", "utf-8");
+    await writeFile(path.join(appDir, "backend", "query.ts"), `export async function main(x: number): Promise<string> {
+  return \`Result: \${x}\`;
+}
+`, "utf-8");
+  }
 }
 
 test("Raw App: full sync workflow - push, pull, modify, push, clear, pull", async () => {
@@ -153,7 +163,7 @@ excludes: []`, "utf-8");
       // Create folder structure
       const appDir = path.join(tempDir, "f", "test", "my_raw_app.raw_app");
       await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
-      await createRawAppOnDisk(appDir);
+      await createRawAppOnDisk(appDir, true);  // Include backend for metadata test
 
       // =========================================================================
       // STEP 1: Initial push - create raw app on backend
@@ -266,6 +276,47 @@ excludes: []`, "utf-8");
 
       const pulledInlineScript = await readFileContent(inlineScriptPath);
       expect(pulledInlineScript).toContain("modified:");
+
+      // =========================================================================
+      // STEP 7: Test that script generate-metadata does NOT process backend runnables
+      // =========================================================================
+
+      // Create a standalone script (should be processed by script generate-metadata)
+      await writeFile(path.join(tempDir, "f", "test", "standalone.ts"), `export async function main(): Promise<string> {
+  return "hello";
+}
+`, "utf-8");
+
+      // Run script generate-metadata
+      const metaResult1 = await backend.runCLICommand(
+        ['script', 'generate-metadata', '--yes'],
+        tempDir, "raw_app_test"
+      );
+      expect(metaResult1.code).toEqual(0);
+
+      // Run generate-metadata --skip-flows --skip-apps
+      const metaResult2 = await backend.runCLICommand(
+        ['generate-metadata', '--skip-flows', '--skip-apps', '--yes'],
+        tempDir, "raw_app_test"
+      );
+      expect(metaResult2.code).toEqual(0);
+
+      // Backend runnables should NOT have .script.yaml files
+      const backendDir = path.join(appDir, "backend");
+      expect(await fileExists(path.join(backendDir, "query.yaml"))).toBeTruthy();
+      expect(await fileExists(path.join(backendDir, "query.ts"))).toBeTruthy();
+      expect(await fileExists(path.join(backendDir, "query.script.yaml"))).toBeFalsy();
+      expect(await fileExists(path.join(backendDir, "query.script.lock"))).toBeFalsy();
+
+      // Bug: raw app backend files get misprocessed and create script files at wrong location
+      // The path f/test/my_raw_app.raw_app/backend/query.ts gets truncated at first "."
+      // becoming f/test/my_raw_app.script.yaml (stripping .raw_app/backend/query.ts)
+      expect(await fileExists(path.join(tempDir, "f", "test", "my_raw_app.script.yaml"))).toBeFalsy();
+      expect(await fileExists(path.join(tempDir, "f", "test", "my_raw_app.script.lock"))).toBeFalsy();
+
+      // Standalone script SHOULD have metadata
+      expect(await fileExists(path.join(tempDir, "f", "test", "standalone.script.yaml"))).toBeTruthy();
+      expect(await fileExists(path.join(tempDir, "f", "test", "standalone.script.lock"))).toBeTruthy();
     });
 });
 

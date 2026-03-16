@@ -4562,7 +4562,17 @@ mount {{
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
+            let maybe_lock = resolve_maybe_lock(
+                &lock,
+                &code,
+                language,
+                &job.workspace_id,
+                job.runnable_path(),
+                conn.clone(),
+            )
+            .await?;
             Box::pin(handle_powershell_job(
+                maybe_lock,
                 mem_peak,
                 canceled_by,
                 job,

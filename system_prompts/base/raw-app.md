@@ -13,7 +13,7 @@ This interactive command creates a complete app structure with your choice of fr
 ## App Structure
 
 ```
-my_app.raw_app/
+my_app__raw_app/
 ├── AGENTS.md              # AI agent instructions (auto-generated)
 ├── DATATABLES.md          # Database schemas (run 'wmill app generate-agents' to refresh)
 ├── raw_app.yaml           # App configuration (summary, path, data settings)
