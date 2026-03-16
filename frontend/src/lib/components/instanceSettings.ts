@@ -614,7 +614,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Instance Events Webhook',
 			description:
-				'URL to receive POST requests for instance events (user creation, OAuth signups, workspace joins, etc.).',
+				'URL to receive POST requests for instance events (user added, OAuth signup, user invited/added/joined workspace).',
 			key: 'instance_events_webhook',
 			fieldType: 'text',
 			placeholder: 'https://example.com/webhook',
