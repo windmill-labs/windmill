@@ -240,10 +240,12 @@ async function preview(
   } & SyncOptions,
   flowPath: string
 ) {
-  opts = await mergeConfigWithConfigFile(opts);
+  const useLocalPathScripts = !!opts.local;
+  if (useLocalPathScripts) {
+    opts = await mergeConfigWithConfigFile(opts);
+  }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
-  const useLocalPathScripts = !!opts.local;
   const codebases = useLocalPathScripts ? await listSyncCodebases(opts) : [];
 
   // Normalize path - ensure it's a directory path to a .flow folder
