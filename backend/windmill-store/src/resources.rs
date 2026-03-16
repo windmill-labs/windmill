@@ -883,6 +883,15 @@ async fn delete_resource(
     }
     let mut tx = user_db.begin(&authed).await?;
 
+    // Fetch the resource value before deleting, so we can find linked $var: references
+    let resource_value: Option<Option<serde_json::Value>> = sqlx::query_scalar(
+        "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
     let deleted_path = sqlx::query_scalar!(
         "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
         path,
@@ -892,18 +901,31 @@ async fn delete_resource(
     .await?;
     not_found_if_none(deleted_path, "Resource", &path)?;
 
-    // Delete the exact-path linked variable (single secret case)
-    // and any variables with {path}_{field_name} suffix (multiple secrets case)
-    let escaped_path = path.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
-    let linked_var_prefix = format!("{escaped_path}\\_%");
-    let deleted_linked_variables: Vec<String> = sqlx::query_scalar(
-        "DELETE FROM variable WHERE workspace_id = $1 AND (path = $2 OR path LIKE $3) RETURNING path",
-    )
-    .bind(&w_id)
-    .bind(path)
-    .bind(&linked_var_prefix)
-    .fetch_all(&mut *tx)
-    .await?;
+    // Collect all $var: paths referenced in the resource value
+    let mut linked_var_paths: Vec<String> = Vec::new();
+    if let Some(Some(value)) = resource_value {
+        collect_var_refs(&value, &mut linked_var_paths);
+    }
+
+    // Delete linked variables that are actually referenced in the resource value
+    let deleted_linked_variables: Vec<String> = if linked_var_paths.is_empty() {
+        Vec::new()
+    } else {
+        let placeholders: Vec<String> = linked_var_paths
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("${}", i + 2))
+            .collect();
+        let query = format!(
+            "DELETE FROM variable WHERE workspace_id = $1 AND path IN ({}) RETURNING path",
+            placeholders.join(", ")
+        );
+        let mut q = sqlx::query_scalar::<_, String>(&query).bind(&w_id);
+        for var_path in &linked_var_paths {
+            q = q.bind(var_path);
+        }
+        q.fetch_all(&mut *tx).await?
+    };
     audit_log(
         &mut *tx,
         &authed,
@@ -962,6 +984,28 @@ async fn delete_resource(
     }
 
     Ok(format!("resource {} deleted", path))
+}
+
+/// Recursively collect all `$var:path` references from a JSON value.
+fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(s) => {
+            if let Some(var_path) = s.strip_prefix("$var:") {
+                out.push(var_path.to_string());
+            }
+        }
+        serde_json::Value::Object(m) => {
+            for v in m.values() {
+                collect_var_refs(v, out);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                collect_var_refs(v, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 async fn delete_resources_bulk(
