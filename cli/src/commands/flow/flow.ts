@@ -236,13 +236,15 @@ async function preview(
   opts: GlobalOptions & {
     data?: string;
     silent: boolean;
+    local?: boolean;
   } & SyncOptions,
   flowPath: string
 ) {
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
-  const codebases = await listSyncCodebases(opts);
+  const useLocalPathScripts = !!opts.local;
+  const codebases = useLocalPathScripts ? await listSyncCodebases(opts) : [];
 
   // Normalize path - ensure it's a directory path to a .flow folder
   if (!flowPath.endsWith(".flow") && !flowPath.endsWith(".flow" + SEP)) {
@@ -279,13 +281,16 @@ async function preview(
     await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, flowPath, SEP);
   }
 
-  // Replace PathScript modules with local file content so preview uses local versions
-  const localScriptReader = createPreviewLocalScriptReader({
-    exts,
-    defaultTs: opts.defaultTs,
-    codebases,
-  });
-  await replaceAllPathScriptsWithLocal(localFlow.value, localScriptReader, log);
+  if (useLocalPathScripts) {
+    // Opt-in local rewrite for PathScript modules. By default preview keeps the
+    // historical behavior and lets the backend resolve workspace scripts remotely.
+    const localScriptReader = createPreviewLocalScriptReader({
+      exts,
+      defaultTs: opts.defaultTs,
+      codebases,
+    });
+    await replaceAllPathScriptsWithLocal(localFlow.value, localScriptReader, log);
+  }
 
   const input = opts.data ? await resolve(opts.data) : {};
 
@@ -467,6 +472,10 @@ const command = new Command()
   .option(
     "-s --silent",
     "Do not output anything other then the final output. Useful for scripting."
+  )
+  .option(
+    "--local",
+    "Resolve PathScript steps from local files instead of remote workspace scripts."
   )
   .action(preview as any)
   .command(
