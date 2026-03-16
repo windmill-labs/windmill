@@ -211,7 +211,7 @@ struct AuthorizationCode {
 struct RefreshTokenRow {
     id: i64,
     refresh_token: String,
-    access_token: String,
+    access_token_hash: String,
     client_id: String,
     user_email: String,
     workspace_id: String,
@@ -425,7 +425,7 @@ async fn handle_authorization_code_grant(
     // Create refresh token — store the hash of the access token so we can delete it later
     let refresh_token_result = sqlx::query!(
         "INSERT INTO mcp_oauth_refresh_token
-         (refresh_token, access_token, client_id, user_email, workspace_id, scopes, token_family, expires_at)
+         (refresh_token, access_token_hash, client_id, user_email, workspace_id, scopes, token_family, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval)",
         refresh_token,
         access_token_hash,
@@ -480,7 +480,7 @@ async fn handle_refresh_token_grant(
            AND used_at IS NULL
            AND NOT revoked
            AND expires_at > now()
-         RETURNING id, refresh_token, access_token, client_id, user_email, workspace_id,
+         RETURNING id, refresh_token, access_token_hash, client_id, user_email, workspace_id,
                    scopes, token_family, created_at, expires_at, used_at, revoked",
         refresh_token_value,
         req.client_id
@@ -515,10 +515,10 @@ async fn handle_refresh_token_grant(
         }
     };
 
-    // Delete old access token — access_token column in mcp_oauth_refresh_token now stores the hash
+    // Delete old access token using the stored hash
     if let Err(e) = sqlx::query!(
         "DELETE FROM token WHERE token_hash = $1",
-        token_row.access_token
+        token_row.access_token_hash
     )
     .execute(db)
     .await
@@ -568,7 +568,7 @@ async fn handle_refresh_token_grant(
     // Create new refresh token (same token family for tracking) — store hash of access token
     if let Err(e) = sqlx::query!(
         "INSERT INTO mcp_oauth_refresh_token
-         (refresh_token, access_token, client_id, user_email, workspace_id, scopes, token_family, expires_at)
+         (refresh_token, access_token_hash, client_id, user_email, workspace_id, scopes, token_family, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval)",
         new_refresh_token,
         new_access_token_hash,
