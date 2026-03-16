@@ -511,6 +511,7 @@ pub struct NewScript {
     pub modules: Option<HashMap<String, ScriptModule>>,
 }
 
+// IMPORTANT: update this Hash impl when adding fields to NewScript
 impl Hash for NewScript {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.path.hash(state);

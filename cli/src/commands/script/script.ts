@@ -432,7 +432,7 @@ export async function handleFile(
       deployment_message: message,
       restart_unless_cancelled: typed?.restart_unless_cancelled,
       visible_to_runner_only: typed?.visible_to_runner_only,
-      no_main_func: typed?.no_main_func,
+      auto_kind: typed?.auto_kind,
       has_preprocessor: typed?.has_preprocessor,
       priority: typed?.priority,
       concurrency_key: typed?.concurrency_key,
@@ -473,7 +473,7 @@ export async function handleFile(
               Boolean(remote.restart_unless_cancelled) &&
             Boolean(typed.visible_to_runner_only) ==
               Boolean(remote.visible_to_runner_only) &&
-            Boolean(typed.no_main_func) == Boolean(remote.no_main_func) &&
+            (typed.auto_kind ?? undefined) == (remote.auto_kind ?? undefined) &&
             Boolean(typed.has_preprocessor) ==
               Boolean(remote.has_preprocessor) &&
             typed.priority == Boolean(remote.priority) &&
@@ -573,7 +573,7 @@ export async function readModulesFromDisk(
           const language = inferContentTypeFromFilePath(entry.name, defaultTs);
 
           // Check for an accompanying lock file (helper.lock)
-          const baseName = entry.name.substring(0, entry.name.indexOf("."));
+          const baseName = entry.name.replace(/\.[^.]+$/, '');
           const lockPath = path.join(dirPath, baseName + ".lock");
           let lock: string | undefined;
           if (fs.existsSync(lockPath)) {
@@ -621,7 +621,7 @@ export async function writeModulesToDisk(
 
     // Write the lock file if present
     if (mod.lock) {
-      const baseName = relPath.substring(0, relPath.indexOf("."));
+      const baseName = relPath.replace(/\.[^.]+$/, '');
       const lockPath = path.join(moduleFolderPath, baseName + ".lock");
       const lockDir = path.dirname(lockPath);
       fs.mkdirSync(lockDir, { recursive: true });

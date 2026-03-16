@@ -402,10 +402,10 @@ export async function updateScriptSchema(
   } else {
     delete metadataContent.has_preprocessor;
   }
-  if (result.no_main_func) {
-    metadataContent.no_main_func = result.no_main_func;
+  if (result.auto_kind) {
+    metadataContent.auto_kind = result.auto_kind;
   } else {
-    delete metadataContent.no_main_func;
+    delete metadataContent.auto_kind;
   }
 }
 
@@ -703,7 +703,7 @@ async function updateModuleLocks(
           rawWorkspaceDependencies,
         );
 
-        const baseName = entry.name.substring(0, entry.name.indexOf("."));
+        const baseName = entry.name.replace(/\.[^.]+$/, '');
         const lockPath = path.join(dirPath, baseName + ".lock");
         if (lock != "") {
           writeFileSync(lockPath, lock, "utf-8");
@@ -735,7 +735,7 @@ export async function inferSchema(
 ): Promise<{
   schema: any;
   has_preprocessor: boolean | undefined;
-  no_main_func: boolean | undefined;
+  auto_kind: string | undefined;
 }> {
   let inferedSchema: any;
   if (language === "python3") {
@@ -845,7 +845,7 @@ export async function inferSchema(
     return {
       schema: defaultScriptMetadata().schema,
       has_preprocessor: false,
-      no_main_func: false,
+      auto_kind: undefined,
     };
   }
 
@@ -885,7 +885,7 @@ export async function inferSchema(
   return {
     schema: currentSchema,
     has_preprocessor: inferedSchema.has_preprocessor,
-    no_main_func: inferedSchema.no_main_func,
+    auto_kind: inferedSchema.auto_kind,
   };
 }
 

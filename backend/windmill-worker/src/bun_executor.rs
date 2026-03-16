@@ -1289,8 +1289,11 @@ pub async fn handle_bun_job(
         "\n\n--- NODE CODE EXECUTION ---\n".to_string()
     } else {
         write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?)?;
-        // When modules are present, overwrite main.ts with the bundled output that has
-        // module content inlined — avoids runtime loader issues with local module files
+        // Module inlining has two phases:
+        // 1. BUILD phase: loader.bun.js checks for local module files on disk (written by
+        //    write_module_files) and resolves them directly, so they get inlined into the bundle.
+        // 2. RUN phase: overwrite main.ts with the bundled output below. The runtime wrapper
+        //    imports main.ts, which now contains the inlined modules from the build step.
         if modules.as_ref().is_some_and(|m| !m.is_empty()) {
             let bundle_path = std::path::Path::new(job_dir).join("out").join("main.js");
             if bundle_path.exists() {

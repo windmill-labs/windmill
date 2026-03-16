@@ -1742,28 +1742,6 @@
 		{/if}
 		<div class="relative flex-1 !overflow-visible">
 			<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-				{#if false}
-					<Popover
-						placement="bottom-end"
-						bind:isOpen={showAddModulePopover}
-						openFocus={modulePathInputEl}
-						contentClasses="p-3 w-72"
-					>
-						{#snippet trigger()}
-							<Button
-								variant="default"
-								size="xs"
-								startIcon={{ icon: Plus }}
-								btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
-							>
-								Module
-							</Button>
-						{/snippet}
-						{#snippet content({ close })}
-							{@render addModuleForm(close)}
-						{/snippet}
-					</Popover>
-				{/if}
 				{#if assets?.length}
 					<AssetsDropdownButton {assets} />
 				{/if}

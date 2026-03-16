@@ -3976,33 +3976,6 @@ async fn handle_code_execution_job(
     .await
 }
 
-/// Compute the directory (relative to job_dir) where Python writes the main script.
-/// Module files must be placed in this same directory for relative imports to work.
-fn compute_python_module_dir(script_path: &str) -> String {
-    let parts: Vec<String> = script_path
-        .split("/")
-        .map(|x| {
-            if x.starts_with(|x: char| x.is_ascii_digit()) {
-                format!("_{}", x)
-            } else {
-                x.to_string()
-            }
-        })
-        .collect();
-    let dirs_full = parts[..parts.len().saturating_sub(1)]
-        .join("/")
-        .replace("-", "_")
-        .replace("@", ".");
-    if dirs_full.len() > 0 {
-        dirs_full
-            .strip_prefix("/")
-            .unwrap_or(&dirs_full)
-            .to_string()
-    } else {
-        "tmp".to_string()
-    }
-}
-
 pub async fn write_module_files(
     job_dir: &str,
     modules: &std::collections::HashMap<String, ScriptModule>,
@@ -4015,6 +3988,20 @@ pub async fn write_module_files(
         };
         if let Some(parent) = std::path::Path::new(&full_path).parent() {
             tokio::fs::create_dir_all(parent).await?;
+        }
+        // For Python modules, create __init__.py in each intermediate directory
+        // between base_dir and the module's parent so that relative imports work.
+        if let Some(dir) = base_dir {
+            let rel = std::path::Path::new(relpath);
+            let base = std::path::Path::new(job_dir).join(dir);
+            let mut current = base.clone();
+            for component in rel.parent().into_iter().flat_map(|p| p.components()) {
+                current = current.join(component);
+                let init_py = current.join("__init__.py");
+                if !init_py.exists() {
+                    tokio::fs::write(&init_py, "").await?;
+                }
+            }
         }
         tracing::debug!("Writing module file: {full_path}");
         tokio::fs::write(&full_path, &module.content).await?;
@@ -4048,12 +4035,17 @@ pub async fn run_language_executor(
     run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
     if let Some(modules) = modules {
+        #[cfg(feature = "python")]
         let base_dir = if language == Some(ScriptLang::Python3) {
             let script_path = crate::common::use_flow_root_path(job.runnable_path());
-            Some(compute_python_module_dir(&script_path))
+            Some(crate::python_executor::compute_python_module_dir(
+                &script_path,
+            ))
         } else {
             None
         };
+        #[cfg(not(feature = "python"))]
+        let base_dir: Option<String> = None;
         write_module_files(job_dir, modules, base_dir.as_deref()).await?;
     }
 
