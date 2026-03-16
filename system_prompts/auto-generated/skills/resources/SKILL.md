@@ -242,6 +242,6 @@ wmill resource-type list --schema
 # Get specific resource type schema
 wmill resource-type get postgresql
 
-# Push resources
+# Push resources (tell the user to run this, do NOT run it yourself)
 wmill sync push
 ```

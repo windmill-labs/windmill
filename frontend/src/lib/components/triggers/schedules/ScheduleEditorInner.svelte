@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
+	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import CronInput from '$lib/components/CronInput.svelte'
@@ -911,8 +912,17 @@
 			</Section>
 
 			<Section label="Advanced" collapsable>
+				{#snippet header()}
+					<TriggerAdvancedBadges error_handler_path={errorHandlerPath} {retry} extraBadges={[
+						{ name: 'Recovery Handler', active: !!recoveryHandlerPath },
+						{ name: 'Success Handler', active: !!successHandlerPath },
+						{ name: 'Dynamic Skip', active: !!dynamicSkipPath },
+						{ name: 'Custom Tag', active: !!tag }
+					]} />
+				{/snippet}
 				{@render errorHandler()}
 			</Section>
+			<div class="pb-8" />
 		</div>
 	{/if}
 {/snippet}

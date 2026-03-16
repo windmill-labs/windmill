@@ -46,7 +46,8 @@
 		closeDrawer,
 		showHeaderInfo = true,
 		yamlMode = $bindable(false),
-		hasUnsavedChanges = $bindable(false)
+		hasUnsavedChanges = $bindable(false),
+		hasAnyInvalid = $bindable(false)
 	} = $props()
 
 	function removeHash() {
@@ -510,6 +511,7 @@
 							hideTabs
 							bind:yamlMode
 							bind:hasUnsavedChanges
+							bind:hasAnyInvalid
 							tab={instanceSettingsCategory}
 							{authSubTab}
 							{closeDrawer}

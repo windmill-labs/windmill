@@ -22,6 +22,7 @@
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
+	import GhesAppSettings from './instanceSettings/GhesAppSettings.svelte'
 	import IndexerMemorySettings from './instanceSettings/IndexerMemorySettings.svelte'
 	import IndexerJobIndexSettings from './instanceSettings/IndexerJobIndexSettings.svelte'
 	import IndexerLogIndexSettings from './instanceSettings/IndexerLogIndexSettings.svelte'
@@ -283,8 +284,14 @@
 		{/if}
 	{:else}
 		<SettingCard
-			label={setting.fieldType != 'smtp_connect' ? setting.label : undefined}
-			description={setting.description}
+			label={setting.key === 'disable_stats'
+				? ($enterpriseLicense ? 'Minimal telemetry' : 'Disable telemetry')
+				: (setting.fieldType != 'smtp_connect' ? setting.label : undefined)}
+			description={setting.key === 'disable_stats'
+				? ($enterpriseLicense
+					? 'Reduces telemetry to only what is needed for license compliance (no job usage data).'
+					: 'Disables telemetry entirely.')
+				: setting.description}
 			ee_only={setting.ee_only}
 			tooltip={setting.tooltip}
 			settingKey={setting.key}
@@ -710,6 +717,8 @@
 					<SmtpSettings {values} disabled={loading} />
 				{:else if setting.fieldType == 'secret_backend'}
 					<SecretBackendConfig {values} disabled={loading} />
+				{:else if setting.fieldType == 'github_enterprise_app'}
+					<GhesAppSettings {values} disabled={loading || !$enterpriseLicense} />
 				{/if}
 				{#if hasError}
 					<span class="text-red-600 dark:text-red-400 text-xs">

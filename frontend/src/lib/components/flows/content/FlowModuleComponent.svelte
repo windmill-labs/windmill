@@ -111,6 +111,7 @@
 		forceTestTab?: boolean
 		highlightArg?: string
 		isAgentTool?: boolean
+		siblingToolNames?: string[]
 	}
 
 	let {
@@ -126,7 +127,8 @@
 		savedModule = undefined,
 		forceTestTab = false,
 		highlightArg = undefined,
-		isAgentTool = false
+		isAgentTool = false,
+		siblingToolNames = undefined
 	}: Props = $props()
 
 	let workspaceScriptTag: string | undefined = $state(undefined)
@@ -238,7 +240,9 @@
 	}
 
 	let forceReload = $state(0)
-	let editorPanelSize = $state(untrack(() => noEditor) ? 0 : flowModule.value.type == 'script' ? 30 : 50)
+	let editorPanelSize = $state(
+		untrack(() => noEditor) ? 0 : flowModule.value.type == 'script' ? 30 : 50
+	)
 	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
@@ -727,6 +731,7 @@
 			}}
 			bind:summary={flowModule.summary}
 			{isAgentTool}
+			{siblingToolNames}
 		>
 			{#snippet header()}
 				<FlowModuleHeader
@@ -1063,8 +1068,8 @@
 														{enableAi}
 														{isAgentTool}
 														allowedAiTransforms={isAgentTool && flowModule.value.type === 'aiagent'
-														? ['user_message']
-														: undefined}
+															? ['user_message']
+															: undefined}
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 													/>

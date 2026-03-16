@@ -102,8 +102,8 @@
 			})
 		}
 
-		if (defaultLang !== undefined) {
-			setupModel(defaultLang, defaultOriginal, defaultModified, defaultModifiedLang)
+		if (defaultLang !== undefined || defaultOriginal !== undefined || defaultModified !== undefined) {
+			setupModel(defaultLang ?? 'plaintext', defaultOriginal, defaultModified, defaultModifiedLang)
 		}
 	}
 

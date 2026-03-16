@@ -291,7 +291,12 @@
 				workers.some(([_, pings]) => pings.some((p) => p.native_mode === true)))
 	)
 	let nonNativeTags = $derived(
-		(nconfig?.worker_tags ?? []).filter((t) => !nativeTags.includes(t) && t !== 'flow')
+		(nconfig?.worker_tags ?? []).filter(
+			(t) =>
+				!nativeTags.some((nt) => t === nt || t.startsWith(`${nt}-`)) &&
+				t !== 'flow' &&
+				!t.startsWith('flow-')
+		)
 	)
 	let isAutoNativeMode = $derived(name === 'native')
 	let isNativeModeEnabled = $derived(nconfig?.native_mode === true || isAutoNativeMode)
@@ -569,8 +574,8 @@
 						<Alert size="xs" type="warning" title="Non-native tags detected">
 							This worker group has native mode enabled but includes non-native tags: {nonNativeTags.join(
 								', '
-							)}. Non-native jobs will be failed. This is fine if those custom tags are only used
-							for native language jobs.
+							)}. This is fine if jobs sent to those tags are native only, otherwise they will be
+							failed.
 						</Alert>
 					{/if}
 					{#if isNativeModeEnabled && nconfig?.worker_tags != undefined && !nconfig.worker_tags.includes(defaultTagPerWorkspace && workspaceTag ? `flow-${workspaceTag}` : 'flow')}

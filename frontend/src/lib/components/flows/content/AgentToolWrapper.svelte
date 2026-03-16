@@ -14,6 +14,7 @@
 		previousModule?: FlowModule | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		siblingToolNames?: string[]
 	}
 
 	let {
@@ -23,7 +24,8 @@
 		parentModule = undefined,
 		previousModule = undefined,
 		forceTestTab,
-		highlightArg
+		highlightArg,
+		siblingToolNames = undefined
 	}: Props = $props()
 </script>
 
@@ -43,6 +45,7 @@
 		forceTestTab={forceTestTab?.[tool.id]}
 		highlightArg={highlightArg?.[tool.id]}
 		isAgentTool={true}
+		{siblingToolNames}
 	/>
 {:else if isMcpTool(tool)}
 	<!-- MCP tool - use McpToolEditor -->

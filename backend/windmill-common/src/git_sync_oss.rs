@@ -21,15 +21,14 @@ pub fn prepend_token_to_github_url(
 ) -> crate::error::Result<String> {
     let url = Url::parse(github_url)?;
 
-    if url.host_str() != Some("github.com") {
-        return Err(crate::error::Error::BadRequest(
-            "Invalid: not a github URL".to_string(),
-        ));
-    }
+    let host = url.host_str().ok_or_else(|| {
+        crate::error::Error::BadRequest("Invalid GitHub URL: no host".to_string())
+    })?;
 
     Ok(format!(
-        "https://x-access-token:{}@github.com{}",
+        "https://x-access-token:{}@{}{}",
         installation_token,
+        host,
         url.path()
     ))
 }
