@@ -1,5 +1,6 @@
 -- Reverse of step 1: drop indexes and columns
 
+DROP INDEX IF EXISTS idx_token_plaintext;
 DROP INDEX IF EXISTS idx_token_prefix;
 DROP INDEX IF EXISTS token_hash_unique;
 
