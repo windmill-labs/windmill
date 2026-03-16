@@ -170,9 +170,7 @@ impl WebhookShared {
             .unwrap();
 
             let mut cached_instance_webhook: Option<String> = None;
-            let mut cache_last_read = std::time::Instant::now()
-                .checked_sub(Duration::from_secs(120))
-                .unwrap_or_else(std::time::Instant::now);
+            let mut cache_last_read: Option<std::time::Instant> = None;
 
             loop {
                 select! {
@@ -219,7 +217,7 @@ impl WebhookShared {
                                 Some(env_url.clone())
                             } else {
                                 // Re-read from DB every 60 seconds
-                                if cache_last_read.elapsed() > Duration::from_secs(60) {
+                                if cache_last_read.map_or(true, |t: std::time::Instant| t.elapsed() > Duration::from_secs(60)) {
                                     cached_instance_webhook = sqlx::query_scalar!(
                                         "SELECT value FROM global_settings WHERE name = $1",
                                         INSTANCE_EVENTS_WEBHOOK_SETTING
@@ -230,17 +228,19 @@ impl WebhookShared {
                                     .flatten()
                                     .and_then(|v| v.as_str().map(|s| s.to_string()))
                                     .filter(|s| !s.is_empty());
-                                    cache_last_read = std::time::Instant::now();
+                                    cache_last_read = Some(std::time::Instant::now());
                                 }
                                 cached_instance_webhook.clone()
                             };
                             if let Some(url) = url {
                                 #[cfg(feature = "prometheus")]
-                                if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
+                                let timer = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
                                 let r = client.post(&url).json(&event).send().await;
                                 if let Err(e) = r {
                                     tracing::error!("Error sending instance event: {}", e);
                                 }
+                                #[cfg(feature = "prometheus")]
+                                timer.map(|x| x.stop_and_record());
                             }
                         },
                         None => break,
