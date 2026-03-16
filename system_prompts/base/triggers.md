@@ -13,6 +13,8 @@ Examples:
 
 ## CLI Commands
 
+After writing, tell the user they can run these commands (do NOT run them yourself):
+
 ```bash
 # Push trigger configuration
 wmill sync push

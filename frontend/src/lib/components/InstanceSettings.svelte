@@ -30,6 +30,7 @@
 		quickSetup?: boolean
 		yamlMode?: boolean
 		hasUnsavedChanges?: boolean
+		hasAnyInvalid?: boolean
 	}
 
 	let {
@@ -40,7 +41,8 @@
 		onNavigateToTab,
 		quickSetup = false,
 		yamlMode = $bindable(false),
-		hasUnsavedChanges = $bindable(false)
+		hasUnsavedChanges = $bindable(false),
+		hasAnyInvalid = $bindable(false)
 	}: Props = $props()
 
 	let values: Writable<Record<string, any>> = writable({})
@@ -77,7 +79,8 @@
 		smtp_settings: {},
 		otel: {},
 		indexer_settings: {},
-		critical_error_channels: []
+		critical_error_channels: [],
+		github_enterprise_app: {}
 	}
 
 	function applyFormDefaults(vals: Record<string, any>): void {
@@ -438,6 +441,10 @@
 		return result
 	})
 
+	$effect(() => {
+		hasAnyInvalid = Object.values(invalidCategories).some(Boolean)
+	})
+
 	export function isDirty(category: string): boolean {
 		return dirtyCategories[category] ?? false
 	}
@@ -601,7 +608,8 @@
 		secret_backend: ['token'],
 		object_store_cache_config: ['secret_key', 'serviceAccountKey'],
 		custom_instance_pg_databases: ['user_pwd'],
-		rsa_keys: ['private_key']
+		rsa_keys: ['private_key'],
+		github_enterprise_app: ['private_key']
 	}
 
 	/** Returns SENSITIVE_UNCHANGED if the value is non-empty and matches the initial */
@@ -1007,6 +1015,11 @@
 				title="Secret Storage"
 				description="Configure where secrets (secret variables) are stored."
 				link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
+			/>
+		{:else if category == 'GitHub Enterprise App'}
+			<SettingsPageHeader
+				title="GitHub Enterprise App"
+				description="Configure a self-managed GitHub App for GitHub Enterprise Server git sync."
 			/>
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings

@@ -13,7 +13,7 @@ This interactive command creates a complete app structure with your choice of fr
 ## App Structure
 
 ```
-my_app.raw_app/
+my_app__raw_app/
 ├── AGENTS.md              # AI agent instructions (auto-generated)
 ├── DATATABLES.md          # Database schemas (run 'wmill app generate-agents' to refresh)
 ├── raw_app.yaml           # App configuration (summary, path, data settings)
@@ -79,7 +79,7 @@ export async function main(user_id: string) {
 }
 ```
 
-After creating, generate lock files:
+After creating, tell the user they can generate lock files by running:
 ```bash
 wmill app generate-locks
 ```
@@ -232,6 +232,8 @@ data:
 
 ## CLI Commands
 
+Tell the user they can run these commands (do NOT run them yourself):
+
 | Command | Description |
 |---------|-------------|
 | `wmill app new` | Create a new raw app interactively |
@@ -248,4 +250,4 @@ data:
 3. **Keep runnables focused** - one function per file
 4. **Use descriptive IDs** - `get_user.ts` not `a.ts`
 5. **Always whitelist tables** - add to `data.tables` before querying
-6. **Generate locks** - run `wmill app generate-locks` after adding/modifying backend runnables
+6. **Generate locks** - tell the user to run `wmill app generate-locks` after adding/modifying backend runnables
