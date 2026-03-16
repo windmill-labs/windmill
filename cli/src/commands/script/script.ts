@@ -432,7 +432,6 @@ export async function handleFile(
       deployment_message: message,
       restart_unless_cancelled: typed?.restart_unless_cancelled,
       visible_to_runner_only: typed?.visible_to_runner_only,
-      auto_kind: typed?.auto_kind,
       has_preprocessor: typed?.has_preprocessor,
       priority: typed?.priority,
       concurrency_key: typed?.concurrency_key,
@@ -473,7 +472,6 @@ export async function handleFile(
               Boolean(remote.restart_unless_cancelled) &&
             Boolean(typed.visible_to_runner_only) ==
               Boolean(remote.visible_to_runner_only) &&
-            (typed.auto_kind ?? undefined) === (remote.auto_kind ?? undefined) &&
             Boolean(typed.has_preprocessor) ==
               Boolean(remote.has_preprocessor) &&
             typed.priority == Boolean(remote.priority) &&

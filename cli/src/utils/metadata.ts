@@ -402,11 +402,9 @@ export async function updateScriptSchema(
   } else {
     delete metadataContent.has_preprocessor;
   }
-  if (result.auto_kind) {
-    metadataContent.auto_kind = result.auto_kind;
-  } else {
-    delete metadataContent.auto_kind;
-  }
+  // auto_kind is intentionally not written to metadata — it is auto-detected
+  // by the parser at deploy time from script content.
+  delete metadataContent.auto_kind;
 }
 
 // ---------------------------------------------------------------------------
