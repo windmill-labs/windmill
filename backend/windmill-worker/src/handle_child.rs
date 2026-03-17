@@ -128,17 +128,22 @@ pub async fn handle_child(
     let pid = child.id();
     #[cfg(target_os = "linux")]
     if let Some(pid) = pid {
-        //set the highest oom priority
-        if let Some(mut file) = File::create(format!("/proc/{pid}/oom_score_adj"))
-            .await
-            .map_err(|e| {
-                tracing::error!("Could not create oom_score_file to pid {pid}: {e:#}");
-                e
-            })
-            .ok()
-        {
-            let _ = file.write_all(b"1000").await;
-            let _ = file.sync_all().await;
+        //set the highest oom priority so OOM killer targets this job, not the worker
+        match File::create(format!("/proc/{pid}/oom_score_adj")).await {
+            Ok(mut file) => {
+                if let Err(e) = file.write_all(b"1000").await {
+                    tracing::error!("Failed to write oom_score_adj for pid {pid}: {e:#}");
+                }
+                if let Err(e) = file.sync_all().await {
+                    tracing::warn!("Failed to sync oom_score_adj for pid {pid}: {e:#}");
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Could not open /proc/{pid}/oom_score_adj: {e:#}. \
+                    OOM killer may target the worker instead of this job"
+                );
+            }
         }
     } else {
         tracing::info!("could not get child pid");
