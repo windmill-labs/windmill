@@ -17,22 +17,30 @@
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
+		FileText,
+		FolderOpen,
 		LayoutDashboard,
 		ListFilterPlus,
-		SearchCode
+		Route,
+		SearchCode,
+		Type,
+		User,
+		Users
 	} from 'lucide-svelte'
 
-	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
+	import { HOME_SEARCH_SHOW_FLOW } from '$lib/consts'
 
 	import SearchItems from '../SearchItems.svelte'
+	import FilterSearchbar, {
+		type FilterSchemaRec,
+		useUrlSyncedFilterInstance
+	} from '../FilterSearchbar.svelte'
 	import ListFilters from './ListFilters.svelte'
 	import NoItemFound from './NoItemFound.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
 	import { canWrite, getLocalSetting, storeLocalSetting } from '$lib/utils'
-	import { page } from '$app/state'
-	import { setQuery } from '$lib/navigation'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
@@ -41,18 +49,64 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { getContext, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
-	import TextInput from '../text_input/TextInput.svelte'
+
 	interface Props {
-		filter?: string
 		subtab?: 'flow' | 'script' | 'app'
 		showEditButtons?: boolean
 	}
 
 	let {
-		filter = $bindable(''),
 		subtab = $bindable('script'),
 		showEditButtons = true
 	}: Props = $props()
+
+	const filterSchema: FilterSchemaRec = {
+		_default_: { type: 'string', hidden: true },
+		summary: {
+			type: 'string',
+			label: 'Summary',
+			description: 'Filter by summary text',
+			icon: Type
+		},
+		path: { type: 'string', label: 'Path', description: 'Filter by path', icon: Route },
+		description: {
+			type: 'string',
+			label: 'Description',
+			description: 'Filter by description',
+			icon: FileText
+		},
+		kind: {
+			type: 'oneof',
+			label: 'Kind',
+			description: 'Filter by runnable type',
+			options: [
+				{ value: 'script', label: 'Script' },
+				{ value: 'flow', label: 'Flow' },
+				{ value: 'app', label: 'App' }
+			]
+		},
+		user: {
+			type: 'string',
+			label: 'User',
+			description: 'Filter by owner user (u/...)',
+			icon: User
+		},
+		group: {
+			type: 'string',
+			label: 'Group',
+			description: 'Filter by group access',
+			icon: Users
+		},
+		folder: {
+			type: 'string',
+			label: 'Folder',
+			description: 'Filter by folder (f/...)',
+			icon: FolderOpen
+		}
+	}
+
+	let filterValue = useUrlSyncedFilterInstance(filterSchema)
+	let freeTextFilter = $derived((filterValue.val._default_ as string) ?? '')
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -76,9 +130,21 @@
 
 	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = $state([])
 
-	let itemKind = $state(
-		(page.url.searchParams.get('kind') as 'script' | 'flow' | 'app' | 'all') ?? 'all'
-	)
+	let itemKind = $state('all' as 'script' | 'flow' | 'app' | 'all')
+
+	// Sync FilterSearchbar kind → itemKind
+	$effect(() => {
+		const k = filterValue.val.kind
+		itemKind = k ? (k as 'script' | 'flow' | 'app') : 'all'
+	})
+
+	// Sync kind → subtab
+	$effect(() => {
+		const k = filterValue.val.kind as string | undefined
+		if (k === 'script' || k === 'flow' || k === 'app') {
+			subtab = k
+		}
+	})
 
 	let loading = $state(true)
 
@@ -89,8 +155,7 @@
 			workspace: $workspaceStore!,
 			showArchived: archived ? true : undefined,
 			includeWithoutMain: includeWithoutMain ? true : undefined,
-			includeDraftOnly: true,
-			withoutDescription: true
+			includeDraftOnly: true
 		})
 
 		scripts = loadedScripts.map((script: Script) => {
@@ -107,8 +172,7 @@
 			await FlowService.listFlows({
 				workspace: $workspaceStore!,
 				showArchived: archived ? true : undefined,
-				includeDraftOnly: true,
-				withoutDescription: true
+				includeDraftOnly: true
 			})
 		).map((x: Flow) => {
 			return {
@@ -301,21 +365,76 @@
 			ownerFilter = undefined
 		}
 	})
-	let preFilteredItems = $derived(
-		ownerFilter != undefined
-			? combinedItems?.filter(
-					(x) =>
-						x.path.startsWith(ownerFilter + '/') &&
-						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
-				)
-			: combinedItems?.filter(
-					(x) =>
-						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
-				)
+	let preFilteredItems = $derived.by(() => {
+		let result = combinedItems
+		if (!result) return undefined
+
+		const fv = filterValue.val
+
+		// Kind filter (from searchbar or ToggleButtonGroup)
+		if (fv.kind) {
+			const k = fv.kind as string
+			result = result.filter((x) =>
+				k === 'app' ? x.type === 'app' || x.type === 'raw_app' : x.type === k
+			)
+		}
+
+		// Owner filter from ListFilters badges
+		if (ownerFilter != undefined) {
+			result = result.filter((x) => x.path.startsWith(ownerFilter + '/'))
+		}
+
+		// User filter
+		if (fv.user) {
+			const u = (fv.user as string).toLowerCase()
+			result = result.filter((x) => x.path.toLowerCase().startsWith(`u/${u}/`))
+		}
+
+		// Folder filter
+		if (fv.folder) {
+			const f = (fv.folder as string).toLowerCase()
+			result = result.filter((x) => x.path.toLowerCase().startsWith(`f/${f}/`))
+		}
+
+		// Group filter (check extra_perms for g/<group>)
+		if (fv.group) {
+			const g = `g/${fv.group as string}`
+			result = result.filter((x) => {
+				const perms = (x as any).extra_perms as Record<string, boolean> | undefined
+				return perms && g in perms
+			})
+		}
+
+		// Summary filter
+		if (fv.summary) {
+			const s = (fv.summary as string).toLowerCase()
+			result = result.filter((x) => x.summary?.toLowerCase().includes(s))
+		}
+
+		// Path filter
+		if (fv.path) {
+			const p = (fv.path as string).toLowerCase()
+			result = result.filter((x) => x.path.toLowerCase().includes(p))
+		}
+
+		// Description filter
+		if (fv.description) {
+			const d = (fv.description as string).toLowerCase()
+			result = result.filter((x) => (x as any).description?.toLowerCase().includes(d))
+		}
+
+		// User folders filter
+		result = result.filter((x) =>
+			filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
+		)
+
+		return result
+	})
+	let hasActiveFilters = $derived(
+		Object.keys(filterValue.val).some((k) => k !== '_default_' && filterValue.val[k] != null) ||
+			ownerFilter != undefined
 	)
-	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)
+	let items = $derived(freeTextFilter !== '' ? filteredItems : preFilteredItems)
 	$effect(() => {
 		items && resetScroll()
 	})
@@ -331,7 +450,7 @@
 </script>
 
 <SearchItems
-	{filter}
+	filter={freeTextFilter}
 	items={preFilteredItems}
 	bind:filteredItems
 	f={(x) => (x.summary ? x.summary + ' (' + x.path + ')' : x.path)}
@@ -368,10 +487,11 @@
 			<ToggleButtonGroup
 				bind:selected={itemKind}
 				onSelected={(v) => {
-					if (itemKind != 'all') {
-						subtab = v
+					if (v === 'all') {
+						delete filterValue.val.kind
+					} else {
+						filterValue.val.kind = v
 					}
-					setQuery(page.url, 'kind', v)
 				}}
 			>
 				{#snippet children({ item })}
@@ -399,39 +519,12 @@
 			</ToggleButtonGroup>
 		</div>
 
-		<div class="relative text-primary grow min-w-[100px]">
-			<!-- svelte-ignore a11y_autofocus -->
-			<TextInput
-				inputProps={{
-					autofocus: true,
-					placeholder: HOME_SEARCH_PLACEHOLDER,
-					id: 'home-search-input'
-				}}
-				size="md"
-				bind:value={filter}
-				class="!pr-10"
-			/>
-			<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-2 mr-4">
-				<svg
-					class="h-4 w-4 fill-current"
-					xmlns="http://www.w3.org/2000/svg"
-					xmlns:xlink="http://www.w3.org/1999/xlink"
-					version="1.1"
-					id="Capa_1"
-					x="0px"
-					y="0px"
-					viewBox="0 0 56.966 56.966"
-					style="enable-background:new 0 0 56.966 56.966;"
-					xml:space="preserve"
-					width="512px"
-					height="512px"
-				>
-					<path
-						d="M55.146,51.887L41.588,37.786c3.486-4.144,5.396-9.358,5.396-14.786c0-12.682-10.318-23-23-23s-23,10.318-23,23  s10.318,23,23,23c4.761,0,9.298-1.436,13.177-4.162l13.661,14.208c0.571,0.593,1.339,0.92,2.162,0.92  c0.779,0,1.518-0.297,2.079-0.837C56.255,54.982,56.293,53.08,55.146,51.887z M23.984,6c9.374,0,17,7.626,17,17s-7.626,17-17,17  s-17-7.626-17-17S14.61,6,23.984,6z"
-					/>
-				</svg>
-			</button>
-		</div>
+		<FilterSearchbar
+			schema={filterSchema}
+			bind:value={filterValue.val}
+			placeholder="Filter scripts, flows, and apps..."
+			class="grow min-w-[100px]"
+		/>
 		<Button
 			on:click={() => openSearchWithPrefilledText('#')}
 			variant="default"
@@ -522,13 +615,15 @@
 				<Skeleton layout={[[4], 0.5]} />
 			{/each}
 		{:else if filteredItems.length === 0}
-			<NoItemFound hasFilters={filter !== '' || archived || filterUserFolders} />
+			<NoItemFound
+				hasFilters={freeTextFilter !== '' || hasActiveFilters || archived || filterUserFolders}
+			/>
 		{:else if treeView}
 			<TreeViewRoot
 				{items}
 				{nbDisplayed}
 				{collapseAll}
-				isSearching={filter !== ''}
+				isSearching={freeTextFilter !== '' || hasActiveFilters}
 				on:scriptChanged={() => loadScripts(includeWithoutMain)}
 				on:flowChanged={loadFlows}
 				on:appChanged={loadApps}

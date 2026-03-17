@@ -20,18 +20,23 @@
 		Globe2,
 		Loader2,
 		Code,
-		LayoutDashboard
+		LayoutDashboard,
+		Route,
+		Tag,
+		Type
 	} from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
+	import FilterSearchbar, {
+		type FilterSchemaRec
+	} from '$lib/components/FilterSearchbar.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 	import { HOME_SHOW_HUB, HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
-	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { goto, replaceState } from '$app/navigation'
 	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
@@ -52,7 +57,65 @@
 
 	let subtab: 'flow' | 'script' | 'app' = $state('script')
 
-	let filter: string = $state('')
+	// Hub filter schema and state
+	const hubFilterSchema: FilterSchemaRec = {
+		_default_: { type: 'string', hidden: true },
+		tag: {
+			type: 'string',
+			label: 'Tag',
+			description: 'Filter by integration/app tag',
+			icon: Tag
+		},
+		summary: {
+			type: 'string',
+			label: 'Summary',
+			description: 'Filter by summary text',
+			icon: Type
+		},
+		path: { type: 'string', label: 'Path', description: 'Filter by path', icon: Route },
+		kind: {
+			type: 'oneof',
+			label: 'Kind',
+			description: 'Filter by runnable type',
+			options: [
+				{ value: 'script', label: 'Script' },
+				{ value: 'flow', label: 'Flow' },
+				{ value: 'app', label: 'App' }
+			]
+		}
+	}
+
+	let hubFilterValue: Record<string, any> = $state({})
+	let hubFreeText = $derived((hubFilterValue._default_ as string) ?? '')
+	let hubAppFilter: string | undefined = $state(undefined)
+
+	// Sync hub kind filter ↔ subtab
+	$effect(() => {
+		const k = hubFilterValue.kind as string | undefined
+		if (k === 'script' || k === 'flow' || k === 'app') {
+			subtab = k
+		}
+	})
+
+	// Sync hub tag filter → hubAppFilter
+	$effect(() => {
+		const tag = hubFilterValue.tag as string | undefined
+		if (tag !== hubAppFilter) {
+			hubAppFilter = tag ?? undefined
+		}
+	})
+
+	// Sync hubAppFilter → hub tag filter (when ListFilters badge is clicked)
+	$effect(() => {
+		const currentTag = hubFilterValue.tag as string | undefined
+		if (hubAppFilter !== currentTag) {
+			if (hubAppFilter) {
+				hubFilterValue.tag = hubAppFilter
+			} else {
+				delete hubFilterValue.tag
+			}
+		}
+	})
 
 	let flowViewer: Drawer | undefined = $state(undefined)
 	let flowViewerFlow: { flow?: OpenFlow & { id?: number } } | undefined = $state(undefined)
@@ -308,11 +371,11 @@
 		{#if tab == 'hub'}
 			<div class="flex flex-col gap-y-16">
 				<div class="flex flex-col pb-8">
-					{#snippet toggleKinds()}
+					<div class="w-full flex items-center gap-2">
 						<ToggleButtonGroup
 							bind:selected={subtab}
 							onSelected={(v) => {
-								setQuery(page.url, 'kind', v, window.location.hash)
+								hubFilterValue.kind = v
 							}}
 							noWFull
 						>
@@ -334,6 +397,12 @@
 								/>
 							{/snippet}
 						</ToggleButtonGroup>
+						<FilterSearchbar
+							schema={hubFilterSchema}
+							bind:value={hubFilterValue}
+							placeholder="Search hub..."
+							class="grow"
+						/>
 						<Button
 							startIcon={{ icon: ExternalLink }}
 							target="_blank"
@@ -342,26 +411,38 @@
 						>
 							Hub
 						</Button>
-					{/snippet}
+					</div>
 
 					{#if subtab == 'script'}
-						<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}>
-							{#snippet children()}
-								{@render toggleKinds?.()}
-							{/snippet}
-						</PickHubScript>
+						<PickHubScript
+							syncQuery
+							filter={hubFreeText}
+							bind:appFilter={hubAppFilter}
+							summaryFilter={hubFilterValue.summary}
+							pathFilter={hubFilterValue.path}
+							hideSearchbar
+							on:pick={(e) => viewCode(e.detail)}
+						/>
 					{:else if subtab == 'flow'}
-						<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}>
-							{#snippet children()}
-								{@render toggleKinds?.()}
-							{/snippet}
-						</PickHubFlow>
+						<PickHubFlow
+							syncQuery
+							filter={hubFreeText}
+							bind:appFilter={hubAppFilter}
+							summaryFilter={hubFilterValue.summary}
+							pathFilter={hubFilterValue.path}
+							hideSearchbar
+							on:pick={(e) => viewFlow(e.detail)}
+						/>
 					{:else if subtab == 'app'}
-						<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}>
-							{#snippet children()}
-								{@render toggleKinds?.()}
-							{/snippet}
-						</PickHubApp>
+						<PickHubApp
+							syncQuery
+							filter={hubFreeText}
+							bind:appFilter={hubAppFilter}
+							summaryFilter={hubFilterValue.summary}
+							pathFilter={hubFilterValue.path}
+							hideSearchbar
+							on:pick={(e) => viewApp(e.detail)}
+						/>
 					{/if}
 				</div>
 			</div>
@@ -369,7 +450,7 @@
 	</div>
 
 	{#if tab == 'workspace'}
-		<ItemsList bind:filter bind:subtab showEditButtons={showCreateButtons} />
+		<ItemsList bind:subtab showEditButtons={showCreateButtons} />
 	{/if}
 </div>
 

@@ -16,6 +16,10 @@
 		syncQuery?: boolean
 		children?: import('svelte').Snippet
 		size?: ButtonType.UnifiedSize
+		hideSearchbar?: boolean
+		appFilter?: string | undefined
+		summaryFilter?: string
+		pathFilter?: string
 	}
 
 	let {
@@ -23,7 +27,11 @@
 		filter = $bindable(''),
 		syncQuery = false,
 		children,
-		size = 'md'
+		size = 'md',
+		hideSearchbar = false,
+		appFilter = $bindable(undefined),
+		summaryFilter,
+		pathFilter
 	}: Props = $props()
 
 	let loading = $state(false)
@@ -31,7 +39,6 @@
 
 	const dispatch = createEventDispatcher()
 
-	let appFilter: string | undefined = $state(undefined)
 	let items: {
 		path: string
 		summary: string
@@ -131,6 +138,20 @@
 		dispatch('pick', item)
 	}
 
+	// Apply summary/path post-filters
+	let displayItems = $derived.by(() => {
+		let result = items
+		if (summaryFilter) {
+			const s = summaryFilter.toLowerCase()
+			result = result.filter((x) => x.summary.toLowerCase().includes(s))
+		}
+		if (pathFilter) {
+			const p = pathFilter.toLowerCase()
+			result = result.filter((x) => x.path.toLowerCase().includes(p))
+		}
+		return result
+	})
+
 	$effect(() => {
 		;[filter, kind, appFilter]
 		untrack(() => applyFilter(filter, kind, appFilter))
@@ -144,6 +165,7 @@
 {#if $disableHubStore}
 	<!-- Hub disabled, show nothing -->
 {:else}
+{#if !hideSearchbar}
 <div class="w-full flex items-center gap-2">
 	{@render children?.()}
 	<div class="relative w-full">
@@ -160,6 +182,7 @@
 		{/if}
 	</div>
 </div>
+{/if}
 
 {#if hubNotAvailable}
 	<Alert type="warning" title="Hub not available">
@@ -167,11 +190,11 @@
 	</Alert>
 {:else if (items.length > 0 && apps.length > 0) || !loading}
 	<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
-	{#if items.length == 0}
+	{#if displayItems.length == 0}
 		<NoItemFound />
 	{:else}
 		<ul class="divide-y border rounded-md bg-surface-tertiary">
-			{#each items as item (item.path)}
+			{#each displayItems as item (item.path)}
 				<li class="flex flex-row w-full">
 					<button
 						class="p-4 gap-4 flex flex-row grow hover:bg-surface-hover transition-all items-center"
@@ -202,7 +225,7 @@
 			{/each}
 		</ul>
 	{/if}
-	{#if items.length == 20}
+	{#if displayItems.length == 20}
 		<div class="text-primary text-xs font-normal py-4">
 			There are more items than being displayed. Refine your search.
 		</div>

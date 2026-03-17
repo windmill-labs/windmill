@@ -15,20 +15,46 @@
 		syncQuery?: boolean
 		children?: import('svelte').Snippet
 		size?: ButtonType.UnifiedSize
+		hideSearchbar?: boolean
+		appFilter?: string | undefined
+		summaryFilter?: string
+		pathFilter?: string
 	}
 
-	let { filter = $bindable(''), syncQuery = false, children, size = 'md' }: Props = $props()
+	let {
+		filter = $bindable(''),
+		syncQuery = false,
+		children,
+		size = 'md',
+		hideSearchbar = false,
+		appFilter = $bindable(undefined),
+		summaryFilter,
+		pathFilter
+	}: Props = $props()
 
 	type Item = { apps: string[]; summary: string; path: string }
 	let hubFlows: any[] | undefined = $state(undefined)
 	let filteredItems: (Item & { marked?: string })[] = $state([])
-	let appFilter: string | undefined = $state(undefined)
 
 	const prefilteredItems = $derived(
 		appFilter ? (hubFlows ?? []).filter((i: Item) => i.apps.includes(appFilter!)) : (hubFlows ?? [])
 	)
 
 	const apps = $derived(Array.from(new Set(filteredItems?.flatMap((x) => x.apps) ?? [])).sort())
+
+	// Apply summary/path post-filters
+	let displayItems = $derived.by(() => {
+		let result = filteredItems
+		if (summaryFilter) {
+			const s = summaryFilter.toLowerCase()
+			result = result.filter((x) => x.summary.toLowerCase().includes(s))
+		}
+		if (pathFilter) {
+			const p = pathFilter.toLowerCase()
+			result = result.filter((x) => x.path.toLowerCase().includes(p))
+		}
+		return result
+	})
 
 	const dispatch = createEventDispatcher()
 
@@ -54,6 +80,7 @@
 	bind:filteredItems
 	f={(x) => x.summary + ' (' + x.apps.join(', ') + ')'}
 />
+{#if !hideSearchbar}
 <div class="w-full flex items-center gap-2">
 	{@render children?.()}
 	<TextInput
@@ -65,6 +92,7 @@
 		class="grow !pr-9"
 	/>
 </div>
+{/if}
 <ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 
 {#if hubNotAvailable}
@@ -72,11 +100,11 @@
 		Could not connect to the Windmill Hub. If you are in a closed environment, you can disable the Hub in the <a href="/#superadmin-settings?tab=private_hub">instance settings</a>.
 	</Alert>
 {:else if hubFlows}
-	{#if filteredItems.length == 0}
+	{#if displayItems.length == 0}
 		<NoItemFound />
 	{:else}
 		<ul class="divide-y border rounded-md bg-surface-tertiary overflow-hidden">
-			{#each filteredItems as item (item)}
+			{#each displayItems as item (item)}
 				<li class="flex flex-row w-full">
 					<button
 						class="p-4 gap-4 flex flex-row grow justify-between hover:bg-surface-hover transition-all items-center"
