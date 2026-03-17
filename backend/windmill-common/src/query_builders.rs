@@ -2548,7 +2548,10 @@ fn expand_snowflake_primary_keys(json_str: &str) -> Result<String, String> {
     let p: SnowflakePrimaryKeysPayload = serde_json::from_str(json_str)
         .map_err(|e| format!("Invalid SNOWFLAKE_PRIMARY_KEYS payload: {}", e))?;
     match p.table {
-        Some(table) => Ok(format!("SHOW PRIMARY KEYS IN TABLE {}", table)),
+        Some(table) => Ok(format!(
+            "SHOW PRIMARY KEYS IN TABLE {}",
+            quote_table_name(&table, DbType::Snowflake)
+        )),
         None => Ok("SHOW PRIMARY KEYS IN ACCOUNT".to_string()),
     }
 }
@@ -4448,7 +4451,7 @@ mod tests {
     fn test_expand_snowflake_primary_keys_single_table() {
         let marker = r#"-- WM_INTERNAL_DB_SNOWFLAKE_PRIMARY_KEYS {"table":"MY_SCHEMA.MY_TABLE"}"#;
         let sql = expand_code(marker, &ScriptLang::Snowflake);
-        assert_eq!(sql, "SHOW PRIMARY KEYS IN TABLE MY_SCHEMA.MY_TABLE");
+        assert_eq!(sql, "SHOW PRIMARY KEYS IN TABLE \"MY_SCHEMA\".\"MY_TABLE\"");
     }
 
     #[test]
