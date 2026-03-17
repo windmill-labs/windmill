@@ -28,6 +28,7 @@ async function createWmillConfig(
       relative_path: string;
       includes?: string[];
       format?: "cjs" | "esm";
+      customBundler?: string;
       assets?: Array<{ from: string; to: string }>;
     }>;
   }
@@ -44,6 +45,9 @@ async function createWmillConfig(
       }
       if (cb.format) {
         yamlContent += `    format: ${cb.format}\n`;
+      }
+      if (cb.customBundler) {
+        yamlContent += `    customBundler: ${JSON.stringify(cb.customBundler)}\n`;
       }
       if (cb.assets && cb.assets.length > 0) {
         yamlContent += "    assets:\n";
@@ -545,6 +549,42 @@ export function main(name: string = "World") {
     expect(result.code).toEqual(0);
     expect(result.stdout + result.stderr).toContain(
       "Hello from local flow codebase, FlowTest!"
+    );
+  });
+});
+
+test("flow preview: customBundler handles script paths with spaces", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, {
+      defaultTs: "bun",
+      codebases: [{
+        relative_path: "f/codebase custom",
+        includes: ["f/codebase custom/**"],
+        customBundler: "cat",
+      }],
+    });
+
+    await createScript(
+      tempDir,
+      "f/codebase custom/custom bundler.ts",
+      `export function main() {
+  return "Custom bundler path with spaces";
+}`
+    );
+
+    await createPathScriptFlow(tempDir, "f/test/custom_bundler_path.flow", {
+      summary: "Flow with customBundler path",
+      scriptPath: "f/codebase custom/custom bundler",
+    });
+
+    const result = await backend.runCLICommand(
+      ["flow", "preview", "f/test/custom_bundler_path.flow"],
+      tempDir
+    );
+
+    expect(result.code).toEqual(0);
+    expect(result.stdout + result.stderr).toContain(
+      "Custom bundler path with spaces"
     );
   });
 });
