@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_api_auth::{require_super_admin, ApiAuthed};
+use windmill_api_auth::{require_devops_role, require_super_admin, ApiAuthed};
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
@@ -2586,7 +2586,7 @@ async fn list_workspaces_as_super_admin(
     Query(pagination): Query<Pagination>,
     ApiAuthed { email, .. }: ApiAuthed,
 ) -> JsonResult<Vec<Workspace>> {
-    require_super_admin(&db, &email).await?;
+    require_devops_role(&db, &email).await?;
     let (per_page, offset) = paginate(pagination);
 
     let mut tx = user_db.begin(&authed).await?;
