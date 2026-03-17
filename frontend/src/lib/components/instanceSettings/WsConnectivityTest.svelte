@@ -12,7 +12,7 @@
 
 	let { values }: Props = $props()
 
-	let enabled = $derived($values['ws_base_url'] != null && $values['ws_base_url'] !== '')
+	let enabled = $derived($values['ws_base_url'] != null)
 
 	interface ServiceResult {
 		name: string
@@ -80,9 +80,9 @@
 					clearTimeout(timeout)
 					resolve(false)
 				}
-				ws.onclose = (e) => {
-					// If closed without receiving a message, it failed
+				ws.onclose = () => {
 					clearTimeout(timeout)
+					resolve(false)
 				}
 			} catch {
 				resolve(false)
