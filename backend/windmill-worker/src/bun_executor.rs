@@ -21,10 +21,10 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR,
-    BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH,
-    NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
-    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry_with_workspace_override, BUNFIG_INSTALL_SCOPES,
+    BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH, DISABLE_NUSER, HOME_ENV,
+    NODE_BIN_PATH, NODE_PATH, NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_AVAILABLE, NSJAIL_PATH,
+    PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -357,7 +357,15 @@ async fn gen_bunfig(
     db: Option<&Connection>,
 ) -> Result<()> {
     let npmrc = if let Some(conn) = db {
-        read_ee_registry(NPMRC.read().await.clone(), "npmrc", job_id, w_id, conn).await
+        read_ee_registry_with_workspace_override(
+            NPMRC.read().await.clone(),
+            "npmrc",
+            "npmrc",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
     } else {
         NPMRC.read().await.clone()
     };
@@ -372,16 +380,18 @@ async fn gen_bunfig(
 
     let (registry, bunfig_install_scopes) = if let Some(conn) = db {
         (
-            read_ee_registry(
+            read_ee_registry_with_workspace_override(
                 NPM_CONFIG_REGISTRY.read().await.clone(),
+                "npm_config_registry",
                 "npm registry",
                 job_id,
                 w_id,
                 conn,
             )
             .await,
-            read_ee_registry(
+            read_ee_registry_with_workspace_override(
                 BUNFIG_INSTALL_SCOPES.read().await.clone(),
+                "bunfig_install_scopes",
                 "bunfig install scopes",
                 job_id,
                 w_id,
@@ -475,7 +485,15 @@ pub async fn install_bun_lockfile(
 
     let has_file = if npm_mode {
         let npmrc = if let Some(conn) = db {
-            read_ee_registry(NPMRC.read().await.clone(), "npmrc", job_id, w_id, conn).await
+            read_ee_registry_with_workspace_override(
+                NPMRC.read().await.clone(),
+                "npmrc",
+                "npmrc",
+                job_id,
+                w_id,
+                conn,
+            )
+            .await
         } else {
             NPMRC.read().await.clone()
         };
@@ -490,8 +508,9 @@ pub async fn install_bun_lockfile(
             }
         } else {
             let registry = if let Some(conn) = db {
-                read_ee_registry(
+                read_ee_registry_with_workspace_override(
                     NPM_CONFIG_REGISTRY.read().await.clone(),
+                    "npm_config_registry",
                     "npm registry",
                     job_id,
                     w_id,
@@ -992,6 +1011,8 @@ pub async fn compute_bundle_local_and_remote_path(
         }
     };
 
+    let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
+    input_src.push_str(&ws_suffix);
     let hash = windmill_common::utils::calculate_hash(&input_src);
     let local_path = format!("{}/{hash}", *BUN_BUNDLE_CACHE_DIR);
 

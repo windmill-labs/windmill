@@ -13,8 +13,8 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, DENO_CACHE_DIR, DENO_PATH, HOME_ENV, NPMRC,
-    NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry_with_workspace_override, DENO_CACHE_DIR, DENO_PATH,
+    HOME_ENV, NPMRC, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 use windmill_common::worker::TypeScriptAnnotations;
@@ -81,15 +81,24 @@ async fn get_common_deno_proc_envs(
     ]);
 
     let npmrc = if let Some(conn) = conn {
-        read_ee_registry(NPMRC.read().await.clone(), "npmrc", job_id, w_id, conn).await
+        read_ee_registry_with_workspace_override(
+            NPMRC.read().await.clone(),
+            "npmrc",
+            "npmrc",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
     } else {
         NPMRC.read().await.clone()
     };
 
     if npmrc.as_ref().map_or(true, |s| s.trim().is_empty()) {
         let registry = if let Some(conn) = conn {
-            read_ee_registry(
+            read_ee_registry_with_workspace_override(
                 NPM_CONFIG_REGISTRY.read().await.clone(),
+                "npm_config_registry",
                 "npm registry",
                 job_id,
                 w_id,
@@ -406,8 +415,9 @@ try {{
         common_deno_proc_envs.insert("HOME".to_string(), job_dir.to_string());
     }
 
-    let npmrc = read_ee_registry(
+    let npmrc = read_ee_registry_with_workspace_override(
         NPMRC.read().await.clone(),
+        "npmrc",
         "npmrc",
         &job.id,
         &job.workspace_id,

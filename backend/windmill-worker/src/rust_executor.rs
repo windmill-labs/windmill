@@ -28,8 +28,9 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, CARGO_REGISTRIES, DISABLE_NUSER, HOME_ENV,
-    NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry_with_workspace_override, CARGO_REGISTRIES,
+    DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR,
+    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 use windmill_common::scripts::ScriptLang;
@@ -246,8 +247,9 @@ async fn write_cargo_config(
     w_id: &str,
     conn: &Connection,
 ) -> anyhow::Result<()> {
-    if let Some(cargo_registries) = read_ee_registry(
+    if let Some(cargo_registries) = read_ee_registry_with_workspace_override(
         CARGO_REGISTRIES.read().await.clone(),
+        "cargo_registries",
         "cargo registries",
         job_id,
         w_id,
@@ -623,7 +625,9 @@ pub async fn handle_rust_job(
     ensure_rust_runtime_dirs();
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
-    let hash = compute_rust_hash(inner_content, requirements_o);
+    let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
+    let mut hash = compute_rust_hash(inner_content, requirements_o);
+    hash.push_str(&ws_suffix);
     let bin_path = format!("{}/{hash}", *RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
 
