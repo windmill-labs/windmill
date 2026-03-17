@@ -577,8 +577,17 @@ pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resu
     Ok("Sent stats".to_string())
 }
 
+#[derive(serde::Serialize)]
+struct StatsDownload {
+    signature: String,
+    data: String,
+}
+
 #[cfg(feature = "enterprise")]
-pub async fn get_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
+pub async fn get_stats(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::JsonResult<StatsDownload> {
     require_super_admin(&db, &authed.email).await?;
     let stats = windmill_common::stats_oss::get_stats_payload(
         &db,
@@ -586,12 +595,14 @@ pub async fn get_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resul
         false,
     )
     .await?;
-    let encrypted = windmill_common::stats_oss::encrypt_stats(&stats)?;
-    Ok(encrypted)
+    let json =
+        serde_json::to_string(&stats).map_err(|e| error::Error::InternalErr(e.to_string()))?;
+    let signature = windmill_common::stats_oss::sign_stats(&json);
+    Ok(axum::Json(StatsDownload { signature, data: json }))
 }
 
 #[cfg(not(feature = "enterprise"))]
-pub async fn get_stats() -> Result<String> {
+pub async fn get_stats() -> error::JsonResult<StatsDownload> {
     Err(error::Error::BadRequest(
         "Downloading telemetry is only available on enterprise edition".to_string(),
     ))
