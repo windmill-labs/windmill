@@ -3297,6 +3297,7 @@ pub async fn start_worker(
             w_id,
             script_path,
             LoaderMode::BrowserBundle,
+            &None,
         )
         .await?;
         generate_bun_bundle(
