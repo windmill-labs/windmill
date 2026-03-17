@@ -227,10 +227,10 @@ pub fn parse_assets_py(code: &str) -> String {
 
 /// Parse Python imports and return relative imports resolved to absolute Windmill paths.
 /// Throws JS error on parse failure.
-#[cfg(feature = "py-parser")]
+#[cfg(feature = "py-imports-parser")]
 #[wasm_bindgen]
 pub fn parse_py_relative_imports(code: &str, path: &str) -> Result<Vec<String>, String> {
-    windmill_parser_py::parse_relative_imports(code, path).map_err(|e| e.to_string())
+    windmill_parser_py_imports::parse_relative_imports(code, path).map_err(|e| e.to_string())
 }
 
 #[cfg(feature = "ansible-parser")]

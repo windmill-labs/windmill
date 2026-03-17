@@ -13,22 +13,19 @@ regex-lite.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 regex.workspace = true
-
-[dependencies]
-windmill-parser.workspace = true
-windmill-parser-py.workspace = true
 windmill-common.workspace = true
-rustpython-parser.workspace = true
-malachite.workspace = true
-malachite-bigint.workspace = true
-phf.workspace = true
-itertools.workspace = true
-serde_json.workspace = true
-anyhow.workspace = true
-lazy_static.workspace = true
 sqlx.workspace = true
 async-recursion.workspace = true
 toml.workspace = true
 serde.workspace = true
 pep440_rs.workspace = true
 tracing.workspace = true
+
+[dependencies]
+windmill-parser.workspace = true
+rustpython-parser.workspace = true
+phf.workspace = true
+itertools.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+lazy_static.workspace = true

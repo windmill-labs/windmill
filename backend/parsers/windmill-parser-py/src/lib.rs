@@ -21,11 +21,7 @@ use rustpython_parser::{
     Parse,
 };
 
-pub mod import_parser;
 pub mod pydantic_parser;
-
-pub use import_parser::{parse_code_for_imports, parse_relative_imports, PythonImport};
-
 
 const FUNCTION_CALL: &str = "<function call>";
 

@@ -16862,8 +16862,6 @@ version = "1.658.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
- "regex",
- "regex-lite",
  "rustpython-ast",
  "rustpython-parser",
  "serde_json",
@@ -16889,8 +16887,6 @@ dependencies = [
  "async-recursion",
  "itertools 0.14.0",
  "lazy_static",
- "malachite",
- "malachite-bigint",
  "pep440_rs",
  "phf 0.11.3",
  "regex",
@@ -16903,7 +16899,6 @@ dependencies = [
  "tracing",
  "windmill-common",
  "windmill-parser",
- "windmill-parser-py",
 ]
 
 [[package]]
