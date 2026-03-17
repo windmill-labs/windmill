@@ -1370,17 +1370,22 @@ paths:
 
   /settings/get_stats:
     get:
-      summary: get encrypted telemetry stats (EE only)
+      summary: get telemetry stats with HMAC signature (EE only)
       operationId: getStats
       tags:
         - setting
       responses:
         "200":
-          description: base64-encoded encrypted telemetry blob
+          description: telemetry stats JSON with signature
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                properties:
+                  signature:
+                    type: string
+                  data:
+                    type: string
 
   /settings/latest_key_renewal_attempt:
     get:
@@ -4455,6 +4460,37 @@ paths:
                 type: string
         "404":
           description: protection rule not found
+  /w/{workspace}/workspaces/log_chat:
+    post:
+      summary: log AI chat message
+      operationId: logAiChat
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - session_id
+                - provider
+                - model
+                - mode
+              properties:
+                session_id:
+                  type: string
+                provider:
+                  type: string
+                model:
+                  type: string
+                mode:
+                  type: string
+      responses:
+        "204":
+          description: logged
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
       summary: Set public app rate limit for this workspace

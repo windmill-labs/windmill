@@ -157,6 +157,7 @@ pub fn workspaced_service() -> Router {
             "/protection_rules/:rule_name",
             post(update_protection_rule).delete(delete_protection_rule),
         )
+        .route("/log_chat", post(log_ai_chat))
 }
 pub fn global_service() -> Router {
     Router::new()
@@ -5371,4 +5372,29 @@ async fn compare_two_folders(
         exists_in_source: source_folder.is_some(),
         exists_in_fork: target_folder.is_some(),
     });
+}
+
+#[derive(Deserialize)]
+struct LogAiChatPayload {
+    session_id: String,
+    provider: String,
+    model: String,
+    mode: String,
+}
+
+async fn log_ai_chat(
+    Extension(db): Extension<DB>,
+    Json(payload): Json<LogAiChatPayload>,
+) -> Result<StatusCode> {
+    sqlx::query!(
+        "INSERT INTO ai_chat_usage (session_id, provider, model, mode) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (session_id) DO UPDATE SET message_count = ai_chat_usage.message_count + 1",
+        &payload.session_id,
+        &payload.provider,
+        &payload.model,
+        &payload.mode
+    )
+    .execute(&db)
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
