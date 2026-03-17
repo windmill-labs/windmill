@@ -156,7 +156,7 @@ export async function replacePathScriptsWithLocal(
       const localScript = await scriptReader(scriptPath);
       if (localScript) {
         const pathScript = module.value;
-        (module as FlowModule).value = {
+        module.value = {
           type: "rawscript",
           content: localScript.content,
           language: localScript.language,

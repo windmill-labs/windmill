@@ -25,6 +25,7 @@ import {
 } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { generateFlowLockInternal } from "./flow_metadata.ts";
 import { exts } from "../script/script.ts";
+import type { SyncCodebase } from "../../utils/codebase.ts";
 import { listSyncCodebases } from "../../utils/codebase.ts";
 import {
   createPreviewLocalScriptReader,
@@ -52,7 +53,7 @@ async function findDivergedLocalPathScripts(
   opts: {
     exts: string[];
     defaultTs?: "bun" | "deno";
-    codebases: ReturnType<typeof listSyncCodebases>;
+    codebases: SyncCodebase[];
   }
 ): Promise<{ changed: string[]; missing: string[] }> {
   const changed: string[] = [];

@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import type { SyncCodebase } from "./codebase.ts";
 import { parseMetadataFileIfExists } from "./metadata.ts";
@@ -31,9 +31,15 @@ async function bundleSingleFileCodebaseScript(
   codebase: SyncCodebase
 ): Promise<string> {
   if (codebase.customBundler) {
-    return execSync(codebase.customBundler + " " + filePath, {
-      maxBuffer: 1024 * 1024 * 50,
-    }).toString();
+    // Pass the script path as a positional shell argument so existing shell-based
+    // custom bundlers still work without interpolating the path into the command.
+    return execFileSync(
+      "sh",
+      ["-lc", `${codebase.customBundler} "$1"`, "sh", filePath],
+      {
+        maxBuffer: 1024 * 1024 * 50,
+      }
+    ).toString();
   }
 
   const esbuild = await import("esbuild");
