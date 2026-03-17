@@ -1,5 +1,4 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 
 use quick_cache::sync::Cache;
@@ -32,6 +31,10 @@ lazy_static::lazy_static! {
     pub static ref WEBHOOK_CACHE: Cache<String, Option<String>> = Cache::new(100);
 
 }
+
+/// Whether a DB-configured instance events webhook URL exists.
+/// Updated by the notify_global_setting_change handler via `reload_instance_events_webhook_enabled`.
+pub static INSTANCE_EVENTS_WEBHOOK_DB_ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub enum WebhookPayload {
     WorkspaceEvent(String, WebhookMessage),
@@ -156,15 +159,11 @@ pub enum WebhookMessage {
 #[derive(Clone)]
 pub struct WebhookShared {
     pub channel: mpsc::UnboundedSender<WebhookPayload>,
-    instance_webhook_enabled: Arc<AtomicBool>,
 }
 
 impl WebhookShared {
     pub fn new(mut shutdown_rx: tokio::sync::broadcast::Receiver<()>, db: DB) -> Self {
         let (tx, mut rx) = mpsc::unbounded_channel::<WebhookPayload>();
-        // Start optimistic (true) so the first event triggers a DB read
-        let instance_webhook_enabled = Arc::new(AtomicBool::new(true));
-        let instance_webhook_enabled_clone = instance_webhook_enabled.clone();
         let _process = tokio::spawn(async move {
             let client = configure_client(
                 reqwest::Client::builder()
@@ -234,7 +233,7 @@ impl WebhookShared {
                                     .flatten()
                                     .and_then(|v| v.as_str().map(|s| s.to_string()))
                                     .filter(|s| !s.is_empty());
-                                    instance_webhook_enabled_clone.store(cached_instance_webhook.is_some(), Ordering::Relaxed);
+                                    INSTANCE_EVENTS_WEBHOOK_DB_ENABLED.store(cached_instance_webhook.is_some(), Ordering::Relaxed);
                                     cache_last_read = Some(std::time::Instant::now());
                                 }
                                 cached_instance_webhook.clone()
@@ -256,7 +255,7 @@ impl WebhookShared {
             }
         });
 
-        Self { channel: tx, instance_webhook_enabled }
+        Self { channel: tx }
     }
 
     pub fn send_message(&self, workspace_id: String, message: WebhookMessage) {
@@ -268,7 +267,7 @@ impl WebhookShared {
 
     pub fn send_instance_event(&self, event: InstanceEvent) {
         if INSTANCE_EVENTS_WEBHOOK.is_none()
-            && !self.instance_webhook_enabled.load(Ordering::Relaxed)
+            && !INSTANCE_EVENTS_WEBHOOK_DB_ENABLED.load(Ordering::Relaxed)
         {
             return;
         }
