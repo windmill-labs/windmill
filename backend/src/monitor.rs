@@ -945,7 +945,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
     let expired_tokens_r = sqlx::query_as!(
         TokenRow,
         "DELETE FROM token WHERE expiration <= now()
-        RETURNING substring(token for 10) as token_prefix, label, email, workspace_id",
+        RETURNING token_prefix, label, email, workspace_id",
     )
     .fetch_all(db)
     .await;
@@ -1164,15 +1164,17 @@ pub async fn delete_expired_items(db: &DB) -> () {
 }
 
 pub async fn check_expiring_tokens(db: &DB) {
-    // Find tokens expiring within 7 days that still have a pending notification row
+    // Find tokens expiring within 7 days that still have a pending notification row.
+    // The notification table stores token_hash (not plaintext) so the join works
+    // even after the hash migration makes token.token nullable.
     let expiring_tokens_r = sqlx::query_as!(
         TokenRow,
         "DELETE FROM token_expiry_notification n
          USING token t
-         WHERE n.token = t.token
+         WHERE n.token_hash = t.token_hash
            AND n.expiration > now()
            AND n.expiration <= now() + interval '7 days'
-         RETURNING substring(t.token for 10) as token_prefix, t.label, t.email, t.workspace_id",
+         RETURNING t.token_prefix, t.label, t.email, t.workspace_id",
     )
     .fetch_all(db)
     .await;
