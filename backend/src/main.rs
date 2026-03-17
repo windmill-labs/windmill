@@ -104,7 +104,7 @@ use crate::monitor::{
     reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
     reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
     reload_hub_api_secret_setting, reload_hub_base_url_setting,
-    reload_instance_events_webhook_enabled, reload_job_default_timeout_setting,
+    reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
     reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
     reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
     reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
@@ -1803,7 +1803,7 @@ async fn process_notify_event(
                     }
                 }
                 INSTANCE_EVENTS_WEBHOOK_SETTING => {
-                    reload_instance_events_webhook_enabled(db).await;
+                    reload_instance_events_webhook_setting(db).await;
                 }
                 "workspace_telemetry_enabled" => {
                     // Read the new value from the database and log it

@@ -1,15 +1,15 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use quick_cache::sync::Cache;
 use serde::Serialize;
+use tokio::sync::RwLock;
 use tokio::{select, sync::mpsc};
 
 #[cfg(feature = "prometheus")]
 use crate::METRICS_ENABLED;
 
 use crate::db::DB;
-use crate::global_settings::INSTANCE_EVENTS_WEBHOOK_SETTING;
 use crate::oauth2::InstanceEvent;
 use crate::utils::configure_client;
 
@@ -26,15 +26,12 @@ lazy_static::lazy_static! {
 
 lazy_static::lazy_static! {
 
-    pub static ref INSTANCE_EVENTS_WEBHOOK: Option<String> = std::env::var("INSTANCE_EVENTS_WEBHOOK").ok();
+    pub static ref INSTANCE_EVENTS_WEBHOOK: Arc<RwLock<Option<String>>> =
+        Arc::new(RwLock::new(std::env::var("INSTANCE_EVENTS_WEBHOOK").ok()));
 
     pub static ref WEBHOOK_CACHE: Cache<String, Option<String>> = Cache::new(100);
 
 }
-
-/// Whether a DB-configured instance events webhook URL exists.
-/// Updated by the notify_global_setting_change handler via `reload_instance_events_webhook_enabled`.
-pub static INSTANCE_EVENTS_WEBHOOK_DB_ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub enum WebhookPayload {
     WorkspaceEvent(String, WebhookMessage),
@@ -174,9 +171,6 @@ impl WebhookShared {
             .build()
             .unwrap();
 
-            let mut cached_instance_webhook: Option<String> = None;
-            let mut cache_last_read: Option<std::time::Instant> = None;
-
             loop {
                 select! {
                     biased;
@@ -217,27 +211,7 @@ impl WebhookShared {
                             }
                         },
                         Some(WebhookPayload::InstanceEvent(event)) => {
-                            // Resolve instance events webhook URL: env var takes precedence, then DB setting
-                            let url = if let Some(env_url) = INSTANCE_EVENTS_WEBHOOK.as_ref() {
-                                Some(env_url.clone())
-                            } else {
-                                // Re-read from DB every 60 seconds
-                                if cache_last_read.map_or(true, |t: std::time::Instant| t.elapsed() > Duration::from_secs(60)) {
-                                    cached_instance_webhook = sqlx::query_scalar!(
-                                        "SELECT value FROM global_settings WHERE name = $1",
-                                        INSTANCE_EVENTS_WEBHOOK_SETTING
-                                    )
-                                    .fetch_optional(&db)
-                                    .await
-                                    .ok()
-                                    .flatten()
-                                    .and_then(|v| v.as_str().map(|s| s.to_string()))
-                                    .filter(|s| !s.is_empty());
-                                    INSTANCE_EVENTS_WEBHOOK_DB_ENABLED.store(cached_instance_webhook.is_some(), Ordering::Relaxed);
-                                    cache_last_read = Some(std::time::Instant::now());
-                                }
-                                cached_instance_webhook.clone()
-                            };
+                            let url = INSTANCE_EVENTS_WEBHOOK.read().await.clone();
                             if let Some(url) = url {
                                 #[cfg(feature = "prometheus")]
                                 let timer = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
@@ -266,8 +240,9 @@ impl WebhookShared {
     }
 
     pub fn send_instance_event(&self, event: InstanceEvent) {
-        if INSTANCE_EVENTS_WEBHOOK.is_none()
-            && !INSTANCE_EVENTS_WEBHOOK_DB_ENABLED.load(Ordering::Relaxed)
+        if INSTANCE_EVENTS_WEBHOOK
+            .try_read()
+            .is_ok_and(|v| v.is_none())
         {
             return;
         }
