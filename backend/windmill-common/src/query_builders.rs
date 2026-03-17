@@ -2601,7 +2601,8 @@ fn make_foreign_keys_query(
         )),
         DbType::Snowflake => Ok(format!(
             "SHOW IMPORTED KEYS IN TABLE {}.{}",
-            schema_name, table_name
+            qi(schema_name, db_type),
+            qi(table_name, db_type)
         )),
         DbType::Bigquery => Ok(format!(
             "SELECT\n    tc.constraint_name as fk_constraint_name,\n    kcu.column_name as source_column,\n    ccu.table_name as target_table,\n    ccu.column_name as target_column,\n    'NO ACTION' as on_delete,\n    'NO ACTION' as on_update\nFROM\n    `{}.INFORMATION_SCHEMA.TABLE_CONSTRAINTS` tc\n    JOIN `{}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` kcu\n        ON tc.constraint_name = kcu.constraint_name\n    JOIN `{}.INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE` ccu\n        ON tc.constraint_name = ccu.constraint_name\nWHERE\n    tc.constraint_type = 'FOREIGN KEY'\n    AND tc.table_name = '{}'\nORDER BY\n    tc.constraint_name, kcu.ordinal_position;",
@@ -4343,7 +4344,7 @@ mod tests {
     fn test_expand_foreign_keys_snowflake() {
         let marker = r#"-- WM_INTERNAL_DB_FOREIGN_KEYS {"table":"orders","schema":"MY_SCHEMA"}"#;
         let sql = expand_code(marker, &ScriptLang::Snowflake);
-        assert!(sql.contains("SHOW IMPORTED KEYS IN TABLE MY_SCHEMA.orders"));
+        assert!(sql.contains("SHOW IMPORTED KEYS IN TABLE \"MY_SCHEMA\".\"orders\""));
     }
 
     #[test]
