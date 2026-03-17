@@ -277,6 +277,7 @@ pub async fn parse_python_imports(
     version_specifiers: &mut Vec<pep440_rs::VersionSpecifier>,
     locked_v: &mut Option<pep440_rs::Version>,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<(Vec<String>, Option<String>)> {
     let mut compile_error_hint: Option<String> = None;
     let mut imports = parse_python_imports_inner(
@@ -289,6 +290,7 @@ pub async fn parse_python_imports(
         &mut None,
         locked_v,
         raw_workspace_dependencies_o,
+        temp_script_refs,
     )
     .await?
     .into_values()
@@ -346,6 +348,7 @@ async fn parse_python_imports_inner(
     path_where_annotated_pyv: &mut Option<String>,
     locked_v: &mut Option<pep440_rs::Version>,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<HashMap<String, NImportResolved>> {
     tracing::debug!("Parsing python imports for path: {}", path);
     let PythonAnnotations { py310, py311, py312, py313, .. } = PythonAnnotations::parse(&code);
@@ -509,17 +512,37 @@ async fn parse_python_imports_inner(
     for n in nimports.into_iter() {
         let mut nested = match n {
             NImport::Relative(rpath) => {
-                let code = sqlx::query_scalar!(
-                    r#"
-                SELECT content FROM script WHERE path = $1 AND workspace_id = $2
-                AND archived = false ORDER BY created_at DESC LIMIT 1
-                "#,
-                    &rpath,
-                    w_id
-                )
-                .fetch_optional(db)
-                .await?
-                .unwrap_or_else(|| "".to_string());
+                // First try to get content from temp_script_refs cache if available
+                let code_from_cache = if let Some(hash) = temp_script_refs.as_ref().and_then(|dt| dt.get(&rpath)) {
+                    tracing::debug!("Found relative import '{}' in temp_script_refs with hash '{}'", rpath, hash);
+                    match windmill_common::cache::raw_script_temp::load(hash.clone(), db).await {
+                        Ok(content) => Some(content),
+                        Err(e) => {
+                            tracing::warn!("temp_script_refs hash '{}' not found in cache: {}, falling back to deployed script", hash, e);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+
+                // Use cached content if available, otherwise fall back to deployed script
+                let code = match code_from_cache {
+                    Some(content) => content,
+                    None => {
+                        sqlx::query_scalar!(
+                            r#"
+                        SELECT content FROM script WHERE path = $1 AND workspace_id = $2
+                        AND archived = false ORDER BY created_at DESC LIMIT 1
+                        "#,
+                            &rpath,
+                            w_id
+                        )
+                        .fetch_optional(db)
+                        .await?
+                        .unwrap_or_else(|| "".to_string())
+                    }
+                };
 
                 if already_visited.contains(&rpath) {
                     vec![]
@@ -537,6 +560,7 @@ async fn parse_python_imports_inner(
                         path_where_annotated_pyv,
                         locked_v,
                         raw_workspace_dependencies_o,
+                        temp_script_refs,
                     )
                     .await?
                     .into_values()
