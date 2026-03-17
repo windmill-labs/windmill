@@ -32,6 +32,7 @@
     "windmill-parser-wasm-nu": "*",
     "windmill-parser-wasm-php": "*",
     "windmill-parser-wasm-py": "*",
+    "windmill-parser-wasm-py-imports": "file:../backend/parsers/windmill-parser-wasm/pkg-py-imports",
     "windmill-parser-wasm-regex": "*",
     "windmill-parser-wasm-ruby": "*",
     "windmill-parser-wasm-rust": "*",

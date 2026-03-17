@@ -227,10 +227,14 @@ async function generateMetadata(
     if (folder.endsWith("/")) {
       folder = folder.substring(0, folder.length - 1);
     }
-    // Normalize item.folder for comparison (Windows file paths use backslashes)
+    // Strip file extension if user passed a specific file path (e.g. f/test/script.ts)
+    const folderNoExt = folder.replace(/\.[^/.]+$/, "");
+    // Normalize item.folder and item.path for comparison (Windows file paths use backslashes)
     filteredItems = staleItems.filter((item) => {
       const normalizedFolder = item.folder.replaceAll("\\", "/");
-      return normalizedFolder === folder || normalizedFolder.startsWith(folder + "/");
+      const normalizedPath = item.path.replaceAll("\\", "/");
+      return normalizedFolder === folder || normalizedFolder.startsWith(folder + "/")
+        || normalizedPath === folder || normalizedPath === folderNoExt;
     });
   }
 

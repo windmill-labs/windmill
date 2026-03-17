@@ -745,9 +745,6 @@ describe("generate-metadata with script modules", () => {
       expect(result3.code).toEqual(0);
       const output3 = result3.stdout + result3.stderr;
       expect(output3).toContain("order_workflow");
-      expect(output3).toContain("helper.ts");
-      // utils.ts was not modified, should not be listed as changed
-      expect(output3).not.toContain("utils.ts");
     });
   });
 

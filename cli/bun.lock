@@ -24,6 +24,7 @@
         "windmill-parser-wasm-nu": "*",
         "windmill-parser-wasm-php": "*",
         "windmill-parser-wasm-py": "*",
+        "windmill-parser-wasm-py-imports": "file:../backend/parsers/windmill-parser-wasm/pkg-py-imports",
         "windmill-parser-wasm-regex": "*",
         "windmill-parser-wasm-ruby": "*",
         "windmill-parser-wasm-rust": "*",
@@ -293,6 +294,8 @@
     "windmill-parser-wasm-php": ["windmill-parser-wasm-php@1.574.1", "", {}, "sha512-COyid6B1RYs+bpzUCInsA4HY/WZkpDLfkQ90+AqU/TVTpzYSbAC2JCbIwy0cRElBvlhI4bQ+9Wg6hSQKMpEkpA=="],
 
     "windmill-parser-wasm-py": ["windmill-parser-wasm-py@1.628.3", "", {}, "sha512-TlluqknZpg8cZ+A3m6JFLPseY2PpKtDsxdj26fAnCUzKPtse8TxQR+n0dwC80rfW5TwdWSulvNGRDgcNuf7CTw=="],
+
+    "windmill-parser-wasm-py-imports": ["windmill-parser-wasm-py-imports@file:../backend/parsers/windmill-parser-wasm/pkg-py-imports", {}],
 
     "windmill-parser-wasm-regex": ["windmill-parser-wasm-regex@1.639.0", "", {}, "sha512-qvYM4sYxB6M0xrqwBljS2fWqOMk6rp++60TRltJnzZDzVaWQrKjTGwNMmfepGAIWy1OGVKp0SCVERhe2P+O6tQ=="],
 

@@ -52,12 +52,14 @@ fn replace_full_import(x: &str) -> Option<String> {
     FULL_IMPORTS_MAP.get(x).map(|x| (*x).to_owned())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 lazy_static! {
-    #[cfg(not(target_arch = "wasm32"))]
     static ref RE: Regex = Regex::new(r"^\#\s?(\S+)\s*$").unwrap();
-    static ref PIN_RE: Regex = Regex::new(r"(?:\s*#\s*(pin|repin):\s*)(\S*)").unwrap();
-    #[cfg(not(target_arch = "wasm32"))]
     static ref PKG_RE: Regex = Regex::new(r"^([^!=<>]+)(?:[!=<>]|$)").unwrap();
+}
+
+lazy_static! {
+    static ref PIN_RE: Regex = Regex::new(r"(?:\s*#\s*(pin|repin):\s*)(\S*)").unwrap();
     // Regex to properly match main function definition at line start,
     // capturing both sync and async variants
     static ref DEF_MAIN_RE: Regex = Regex::new(r"(?m)^(async\s+)?def\s+main\s*\(").unwrap();

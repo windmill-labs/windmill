@@ -246,10 +246,10 @@ export async function generateScriptMetadataInternal(
     checkSubpath = SCRIPT_TOP_HASH;
   }
 
-  // Use checkHash (includes module hashes) so module changes are detected as stale
-  const isDirectlyStale = !(await checkifMetadataUptodate(remotePath, checkHash, undefined, checkSubpath));
-
   const conf = await readLockfile();
+
+  // Use checkHash (includes module hashes) so module changes are detected as stale
+  const isDirectlyStale = !(await checkifMetadataUptodate(remotePath, checkHash, conf, checkSubpath));
 
   // New behaviour: tree-based dependency tracking
   if (!legacyBehaviour && tree) {
