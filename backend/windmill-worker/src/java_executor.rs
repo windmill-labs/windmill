@@ -160,7 +160,7 @@ async fn get_java_home_with_ws_settings(
                 );
                 return job_dir.to_string();
             } else {
-                windmill_common::worker::append_logs(
+                append_logs(
                     job_id,
                     w_id,
                     "Private registry (maven settings.xml) configuration ignored: this feature requires Windmill Enterprise Edition\n".to_string(),
@@ -269,7 +269,7 @@ pub async fn resolve<'a>(
                 &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
             ]);
         }
-        let no_default = get_no_default(job_id, w_id, conn).await;
+        let no_default = get_no_default(*job_id, w_id, conn).await;
         cmd.args(&[
             "-jar",
             &CS_PATH,
@@ -365,7 +365,7 @@ async fn install<'a>(
     let java_home = get_java_home_with_ws_settings(&job.id, &job.workspace_id, job_dir, conn).await;
     let (repos, no_default, trust_store_metadata) = (
         get_repos(&job.id, &job.workspace_id, conn).await,
-        get_no_default(&job.id, &job.workspace_id, conn).await,
+        get_no_default(job.id, &job.workspace_id, conn).await,
         metadata(TRUST_STORE_PATH.clone()).await,
     );
     let job_dir = job_dir.to_owned();
@@ -876,26 +876,18 @@ async fn get_repos(job_id: &Uuid, w_id: &str, conn: &Connection) -> Vec<String> 
     .concat()
 }
 
-fn get_no_default(
-    job_id: &Uuid,
-    w_id: &str,
-    conn: &Connection,
-) -> impl std::future::Future<Output = String> + '_ {
-    let job_id = *job_id;
-    let w_id = w_id.to_string();
-    async move {
-        let global_value = NO_DEFAULT_MAVEN.load(std::sync::atomic::Ordering::Relaxed);
-        let value = read_ee_registry_bool_with_workspace_override(
-            global_value,
-            "no_default_maven",
-            "no default maven",
-            &job_id,
-            &w_id,
-            conn,
-        )
-        .await;
-        if value { "--no-default" } else { "-q" }.into()
-    }
+async fn get_no_default(job_id: Uuid, w_id: &str, conn: &Connection) -> String {
+    let global_value = NO_DEFAULT_MAVEN.load(std::sync::atomic::Ordering::Relaxed);
+    let value = read_ee_registry_bool_with_workspace_override(
+        global_value,
+        "no_default_maven",
+        "no default maven",
+        &job_id,
+        w_id,
+        conn,
+    )
+    .await;
+    if value { "--no-default" } else { "-q" }.into()
 }
 
 /// Wraps content script

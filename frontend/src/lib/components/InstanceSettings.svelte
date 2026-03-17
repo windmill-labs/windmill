@@ -470,6 +470,11 @@
 				const v = initialValues[s.key]
 				$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 			}
+			if (category === 'Registries') {
+				const v = initialValues['workspace_registries']
+				$values['workspace_registries'] =
+					v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+			}
 		}
 	}
 

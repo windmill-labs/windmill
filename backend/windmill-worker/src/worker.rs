@@ -603,7 +603,7 @@ lazy_static::lazy_static! {
     pub static ref RUBY_REPOS: Arc<RwLock<Option<Vec<url::Url>>>> = Arc::new(RwLock::new(None));
     pub static ref CARGO_REGISTRIES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
-    pub static ref WORKSPACE_REGISTRIES: Arc<RwLock<Option<std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>>>> = Arc::new(RwLock::new(None));
+    pub static ref WORKSPACE_REGISTRIES: Arc<RwLock<Option<WorkspaceRegistryMap>>> = Arc::new(RwLock::new(None));
 
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
@@ -657,6 +657,9 @@ pub fn sleep_queue() -> u64 {
         *SLEEP_QUEUE_BASE
     }
 }
+
+pub type WorkspaceRegistryMap =
+    std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>;
 
 type Envs = Vec<(String, String)>;
 
@@ -793,9 +796,9 @@ pub async fn read_ee_registry_url_list_with_workspace_override(
             .and_then(|v| match v {
                 serde_json::Value::String(s) => {
                     let urls: Vec<url::Url> = s
-                        .split(',')
-                        .filter(|s| !s.trim().is_empty())
-                        .filter_map(|s| url::Url::parse(s.trim()).ok())
+                        .split(|c: char| c == ',' || c.is_whitespace())
+                        .filter(|s| !s.is_empty())
+                        .filter_map(|s| url::Url::parse(s).ok())
                         .collect();
                     if urls.is_empty() {
                         None
