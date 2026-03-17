@@ -1012,7 +1012,8 @@ pub async fn compute_bundle_local_and_remote_path(
     };
 
     let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
-    let hash = windmill_common::utils::calculate_hash(&format!("{input_src}{ws_suffix}"));
+    input_src.push_str(&ws_suffix);
+    let hash = windmill_common::utils::calculate_hash(&input_src);
     let local_path = format!("{}/{hash}", *BUN_BUNDLE_CACHE_DIR);
 
     #[cfg(windows)]

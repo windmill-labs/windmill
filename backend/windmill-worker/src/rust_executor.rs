@@ -626,8 +626,8 @@ pub async fn handle_rust_job(
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
     let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
-    let base_hash = compute_rust_hash(inner_content, requirements_o);
-    let hash = format!("{base_hash}{ws_suffix}");
+    let mut hash = compute_rust_hash(inner_content, requirements_o);
+    hash.push_str(&ws_suffix);
     let bin_path = format!("{}/{hash}", *RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
 

@@ -522,10 +522,8 @@ async fn compile<'a>(
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
     let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
-    let hash = format!(
-        "{}{ws_suffix}",
-        compute_hash(inner_content, *requirements_o)
-    );
+    let mut hash = compute_hash(inner_content, *requirements_o);
+    hash.push_str(&ws_suffix);
     let bin_path = format!("{}/{hash}", *JAVA_CACHE_DIR);
     let remote_path = format!("java_jar/{hash}");
     let (cache, ..) = crate::global_cache::load_cache(&bin_path, &remote_path, true).await;

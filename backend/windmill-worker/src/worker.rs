@@ -813,14 +813,16 @@ pub async fn read_ee_registry_url_list_with_workspace_override(
 /// Returns a cache key suffix for workspace-specific registry overrides.
 /// If the workspace has any registry overrides, returns `":ws:<w_id>"` to namespace
 /// the resolution cache. Otherwise returns empty string.
+///
+/// Called on every job's cache lookup path. When no workspace overrides are
+/// configured (the common case), this returns `""` with zero allocation —
+/// the RwLock read is uncontended and costs only nanoseconds.
 pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
-    let has_overrides = {
-        let registries = WORKSPACE_REGISTRIES.read().await;
-        registries
-            .as_ref()
-            .and_then(|m| m.get(w_id))
-            .map_or(false, |ws| !ws.is_empty())
-    };
+    let registries = WORKSPACE_REGISTRIES.read().await;
+    let has_overrides = registries
+        .as_ref()
+        .and_then(|m| m.get(w_id))
+        .map_or(false, |ws| !ws.is_empty());
     if has_overrides {
         format!(":ws:{w_id}")
     } else {
