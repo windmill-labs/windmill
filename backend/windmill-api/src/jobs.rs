@@ -44,7 +44,7 @@ use windmill_common::runnable_settings::{
 };
 #[cfg(feature = "run_inline")]
 use windmill_common::runtime_assets::{register_runtime_asset, InsertRuntimeAssetParams};
-use windmill_common::scripts::ScriptRunnableSettingsInline;
+use windmill_common::scripts::{ScriptModule, ScriptRunnableSettingsInline};
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, WINDMILL_DIR};
@@ -2948,6 +2948,7 @@ struct Preview {
     lock: Option<String>,
     format: Option<String>,
     flow_path: Option<String>,
+    modules: Option<HashMap<String, ScriptModule>>,
 }
 
 #[cfg(feature = "run_inline")]
@@ -3608,6 +3609,7 @@ pub async fn run_workflow_as_code(
                 dedicated_worker: None,
                 // TODO(debouncing): enable for this mode
                 debouncing_settings: DebouncingSettings::default(),
+                modules: None,
             }),
             Some(job.tag.clone()),
             None,
@@ -4615,12 +4617,15 @@ async fn run_preview_script(
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
     let preview_args = preview.args.unwrap_or_default();
-    let flow_path_extra = preview.flow_path.map(|fp| {
-        let mut extra = HashMap::new();
-        extra.insert("_FLOW_PATH".to_string(), to_raw_value(&fp));
-        extra
-    });
-    let push_args = PushArgs { extra: flow_path_extra, args: &preview_args };
+    let mut extra = HashMap::new();
+    if let Some(fp) = &preview.flow_path {
+        extra.insert("_FLOW_PATH".to_string(), to_raw_value(fp));
+    }
+    if let Some(ref modules) = preview.modules {
+        extra.insert("_MODULES".to_string(), to_raw_value(modules));
+    }
+    let extra = if extra.is_empty() { None } else { Some(extra) };
+    let push_args = PushArgs { extra, args: &preview_args };
 
     let (uuid, tx) = push(
         &db,
@@ -4643,6 +4648,7 @@ async fn run_preview_script(
                 cache_ttl: None,
                 cache_ignore_s3_path: None,
                 dedicated_worker: preview.dedicated_worker,
+                modules: preview.modules,
             }),
         },
         push_args,
@@ -4984,6 +4990,7 @@ async fn run_bundle_preview_script(
                     dedicated_worker: preview.dedicated_worker,
                     concurrency_settings: ConcurrencySettingsWithCustom::default(),
                     debouncing_settings: DebouncingSettings::default(),
+                    modules: None,
                 }),
                 PushArgs::from(&args),
                 authed.display_username(),
@@ -5789,6 +5796,7 @@ async fn run_dynamic_select(
             dedicated_worker: None,
             concurrency_settings: ConcurrencySettings::default().into(),
             debouncing_settings: DebouncingSettings::default(),
+            modules: None,
         }),
         PushArgs::from(&request.args.unwrap_or_default()),
         authed.display_username(),

@@ -140,7 +140,7 @@ export function main(test1?: string, test2: string = \"burkina\",
                     oidx: None
                 }
             ],
-            no_main_func: Some(false),
+            auto_kind: None,
             has_preprocessor: Some(false)
         }
     );
@@ -219,7 +219,7 @@ export function main(test2 = \"burkina\",
                     oidx: None
                 }
             ],
-            no_main_func: Some(false),
+            auto_kind: None,
             has_preprocessor: Some(false)
         }
     );
@@ -270,7 +270,7 @@ export function main(foo: FooBar, {a, b}: FooBar, {c, d}: FooBar = {a: \"foo\", 
                     oidx: None
                 }
             ],
-            no_main_func: Some(false),
+            auto_kind: None,
             has_preprocessor: Some(false)
         }
     );
@@ -302,7 +302,7 @@ export function main(foo: (\"foo\" | \"bar\")[]) {
                 has_default: false,
                 oidx: None
             }],
-            no_main_func: Some(false),
+            auto_kind: None,
             has_preprocessor: Some(false)
         }
     );
@@ -446,7 +446,7 @@ Write-Output 'Testing...'
                     oidx: None
                 }
             ],
-            no_main_func: None,
+            auto_kind: None,
             has_preprocessor: None
         }
     );

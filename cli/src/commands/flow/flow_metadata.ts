@@ -29,7 +29,7 @@ import { FlowFile } from "./flow.ts";
 import { FlowValue } from "../../../gen/types.gen.ts";
 import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { workspaceDependenciesLanguages } from "../../utils/script_common.ts";
-import { extractNameFromFolder, getFolderSuffix } from "../../utils/resource_folders.ts";
+import { extractNameFromFolder, getFolderSuffix, getNonDottedPaths } from "../../utils/resource_folders.ts";
 import { extractRelativeImports } from "../../utils/relative_imports.ts";
 import { DoubleLinkedDependencyTree } from "../../utils/dependency_tree.ts";
 
@@ -53,6 +53,14 @@ async function generateFlowHash(
   }
   return { ...hashes, [TOP_HASH]: await generateHash(JSON.stringify(hashes)) };
 }
+/**
+ * Result of generating flow locks, including which scripts were updated
+ */
+export interface FlowLocksResult {
+  path: string;
+  updatedScripts: string[];
+}
+
 export async function generateFlowLockInternal(
   folder: string,
   dryRun: boolean,
@@ -64,7 +72,7 @@ export async function generateFlowLockInternal(
   noStaleMessage?: boolean,
   legacyBehaviour?: boolean,
   tree?: DoubleLinkedDependencyTree
-): Promise<string | void> {
+): Promise<string | FlowLocksResult | void> {
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
   }
@@ -151,8 +159,9 @@ export async function generateFlowLockInternal(
   }
 
 
+  let changedScripts: string[] = [];
+
   if (!justUpdateMetadataLock) {
-    const changedScripts = [];
     //find hashes that do not correspond to previous hashes
     for (const [path, hash] of Object.entries(hashes)) {
       if (path == TOP_HASH) {
@@ -190,7 +199,9 @@ export async function generateFlowLockInternal(
       filteredDeps
     );
 
-    const lockAssigner = newPathAssigner(opts.defaultTs ?? "bun");
+    const lockAssigner = newPathAssigner(opts.defaultTs ?? "bun", {
+      skipInlineScriptSuffix: getNonDottedPaths(),
+    });
     const inlineScripts = extractInlineScriptsForFlows(
       flowValue.value.modules,
       {},
@@ -227,6 +238,13 @@ export async function generateFlowLockInternal(
   if (!noStaleMessage) {
     log.info(colors.green(`Flow ${remote_path} lockfiles updated`));
   }
+
+  // Return the list of updated scripts (extract just the filename from the path)
+  const updatedScripts = changedScripts.map(p => {
+    const parts = p.split(SEP);
+    return parts[parts.length - 1].replace(/\.[^.]+$/, ""); // Remove extension
+  });
+  return { path: remote_path, updatedScripts };
 }
 
 /**

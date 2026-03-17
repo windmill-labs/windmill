@@ -42,24 +42,73 @@ pub fn disable_oom_group() -> Result<(), CgroupError> {
     let oom_group_file = cgroup_path.join("memory.oom.group");
 
     if !oom_group_file.exists() {
+        tracing::warn!(
+            "memory.oom.group not found at {:?} — cgroups v2 memory controller may not be enabled. \
+            OOM killer may kill the entire pod instead of individual jobs",
+            oom_group_file
+        );
         return Err(CgroupError::NotSupported);
     }
 
     let current = fs::read_to_string(&oom_group_file)?;
     if current.trim() == "0" {
-        tracing::info!("memory.oom.group already disabled");
+        tracing::info!("memory.oom.group already disabled at {:?}", cgroup_path);
         return Ok(());
     }
 
+    tracing::info!(
+        "memory.oom.group is currently '{}' at {:?}, attempting to disable",
+        current.trim(),
+        cgroup_path
+    );
+
     match fs::write(&oom_group_file, "0") {
         Ok(_) => {
-            tracing::info!("Disabled memory.oom.group at {:?}", cgroup_path);
+            // Verify the write took effect
+            match fs::read_to_string(&oom_group_file) {
+                Ok(val) if val.trim() == "0" => {
+                    tracing::info!("Disabled memory.oom.group at {:?}", cgroup_path);
+                }
+                Ok(val) => {
+                    tracing::error!(
+                        "Wrote 0 to memory.oom.group but read back '{}' at {:?}. \
+                        OOM killer may kill the entire pod instead of individual jobs",
+                        val.trim(),
+                        cgroup_path
+                    );
+                    return Err(CgroupError::Io(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!(
+                            "memory.oom.group write did not take effect, read back '{}'",
+                            val.trim()
+                        ),
+                    )));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Wrote 0 to memory.oom.group but could not verify at {:?}: {e}",
+                        cgroup_path
+                    );
+                }
+            }
             Ok(())
         }
         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-            tracing::error!("Failed to disable memory.oom.group (need privileged mode)");
+            tracing::error!(
+                "Failed to disable memory.oom.group at {:?} (permission denied). \
+                The container needs SYS_RESOURCE capability or privileged mode. \
+                OOM killer WILL kill the entire pod instead of individual jobs",
+                oom_group_file
+            );
             Err(CgroupError::PermissionDenied)
         }
-        Err(e) => Err(CgroupError::Io(e)),
+        Err(e) => {
+            tracing::error!(
+                "Failed to disable memory.oom.group at {:?}: {e}. \
+                OOM killer may kill the entire pod instead of individual jobs",
+                oom_group_file
+            );
+            Err(CgroupError::Io(e))
+        }
     }
 }

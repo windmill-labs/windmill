@@ -12,7 +12,7 @@ use crate::{
     error,
     flows::{FlowNodeId, FlowValue},
     schema::SchemaValidator,
-    scripts::{ScriptHash, ScriptLang},
+    scripts::{ScriptHash, ScriptLang, ScriptModule},
 };
 use anyhow::anyhow;
 use serde_json::value::to_raw_value;
@@ -335,6 +335,7 @@ impl FlowData {
 pub struct ScriptData {
     pub lock: Option<String>,
     pub code: String,
+    pub modules: Option<std::collections::HashMap<String, ScriptModule>>,
 }
 
 #[derive(Debug, Clone)]
@@ -357,6 +358,7 @@ pub struct RawScript {
     pub content: String,
     pub lock: Option<String>,
     pub meta: Option<ScriptMetadata>,
+    pub modules: Option<std::collections::HashMap<String, ScriptModule>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -364,17 +366,28 @@ pub struct RawScriptApi {
     pub content: String,
     pub lock: Option<String>,
     pub meta: Option<ScriptMetadata>,
+    pub modules: Option<std::collections::HashMap<String, ScriptModule>>,
 }
 
 impl From<RawScript> for RawScriptApi {
     fn from(value: RawScript) -> Self {
-        RawScriptApi { content: value.content, lock: value.lock, meta: value.meta }
+        RawScriptApi {
+            content: value.content,
+            lock: value.lock,
+            meta: value.meta,
+            modules: value.modules,
+        }
     }
 }
 
 impl From<RawScriptApi> for RawScript {
     fn from(value: RawScriptApi) -> Self {
-        RawScript { content: value.content, lock: value.lock, meta: value.meta }
+        RawScript {
+            content: value.content,
+            lock: value.lock,
+            meta: value.meta,
+            modules: value.modules,
+        }
     }
 }
 
@@ -632,7 +645,8 @@ pub mod script {
                 schema AS \"schema: String\", \
                 schema_validation AS \"schema_validation: bool\", \
                 codebase LIKE '%.tar' as use_tar, \
-                codebase LIKE '%.esm%' as is_esm \
+                codebase LIKE '%.esm%' as is_esm, \
+                modules AS \"modules: serde_json::Value\" \
             FROM script WHERE hash = $1 LIMIT 1",
             hash.0
         )
@@ -644,6 +658,7 @@ pub mod script {
             Ok(RawScript {
                 content: r.content,
                 lock: r.lock,
+                modules: r.modules.and_then(|v| serde_json::from_value(v).ok()),
                 meta: Some(ScriptMetadata {
                     language: r.language,
                     envs: r.envs,
@@ -822,6 +837,7 @@ pub mod job {
                 _ => Ok(RawData::Script(Arc::new(ScriptData {
                     code: code.unwrap_or_default(),
                     lock,
+                    modules: None,
                 }))),
             })
         };
@@ -1031,7 +1047,7 @@ const _: () = {
             let content = src.get_utf8("code.txt")?;
             let lock = src.get_utf8("lock.txt").ok();
             let meta = src.get_json("info.json").ok();
-            Ok(Self { content, lock, meta })
+            Ok(Self { content, lock, meta, modules: None })
         }
     }
 
@@ -1039,7 +1055,7 @@ const _: () = {
         type Untrusted = RawScript;
 
         fn resolve(src: Self::Untrusted) -> error::Result<Self> {
-            Ok(ScriptData { code: src.content, lock: src.lock })
+            Ok(ScriptData { code: src.content, lock: src.lock, modules: src.modules })
         }
 
         fn export(&self, dst: &impl Storage) -> error::Result<()> {
@@ -1065,7 +1081,11 @@ const _: () = {
                 return Err(error::Error::internal_err("Invalid script src".to_string()));
             };
             Ok(ScriptFull {
-                data: Arc::new(ScriptData { code: src.content, lock: src.lock }),
+                data: Arc::new(ScriptData {
+                    code: src.content,
+                    lock: src.lock,
+                    modules: src.modules,
+                }),
                 meta: Arc::new(meta),
             })
         }
@@ -1095,7 +1115,11 @@ const _: () = {
                     FlowData::from_raw(flow).map(Arc::new).map(Self::Flow)
                 }
                 RawNode { raw_code: Some(code), raw_lock: lock, .. } => {
-                    Ok(Self::Script(Arc::new(ScriptData { code, lock })))
+                    Ok(Self::Script(Arc::new(ScriptData {
+                        code,
+                        lock,
+                        modules: None,
+                    })))
                 }
                 _ => Err(error::Error::internal_err(
                     "Invalid raw data src".to_string(),

@@ -128,7 +128,8 @@ use windmill_object_store::OBJECT_STORE_SETTINGS;
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
-        read_result, start_child_process, OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
+        read_result, resolve_nsjail_timeout, start_child_process, OccupancyMetrics, StreamNotifier,
+        DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -542,6 +543,32 @@ async fn postinstall(
     Ok(())
 }
 
+/// Compute the directory (relative to job_dir) where Python writes the main script.
+/// Module files must be placed in this same directory for relative imports to work.
+pub fn compute_python_module_dir(script_path: &str) -> String {
+    let script_path_splitted = script_path.split("/").map(|x| {
+        if x.starts_with(|x: char| x.is_ascii_digit()) {
+            format!("_{}", x)
+        } else {
+            x.to_string()
+        }
+    });
+    let dirs_full = script_path_splitted
+        .clone()
+        .take(script_path_splitted.clone().count() - 1)
+        .join("/")
+        .replace("-", "_")
+        .replace("@", ".");
+    if dirs_full.len() > 0 {
+        dirs_full
+            .strip_prefix("/")
+            .unwrap_or(&dirs_full)
+            .to_string()
+    } else {
+        "tmp".to_string()
+    }
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_python_job(
     requirements_o: Option<&String>,
@@ -562,6 +589,7 @@ pub async fn handle_python_job(
     occupancy_metrics: &mut OccupancyMetrics,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
+    modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
@@ -679,6 +707,7 @@ pub async fn handle_python_job(
     } else {
         String::new()
     };
+
     let main_override = main_name.unwrap_or_else(|| "main".to_string());
     let res_to_json_body = python_res_to_json_body(postprocessor);
     let wrapper_content: String = if is_wac_v2 {
@@ -696,8 +725,8 @@ from wmill.client import _run_workflow
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
-args = {{}}
 {transforms}
+args = kwargs
 
 with open("checkpoint.json") as f:
     checkpoint = json.load(f, strict=False)
@@ -721,6 +750,9 @@ for k, v in list(args.items()):
 
 try:
     output = _run_workflow(workflow_fn, checkpoint, args)
+    if isinstance(output, dict) and output.get("type") == "complete":
+        print("")
+        print("--- WAC: complete ---")
     output_json = json.dumps(output, separators=(',', ':'), default=str)
     with open(result_json, 'w') as f:
         f.write(output_json)
@@ -875,6 +907,8 @@ mount {{
                 )
             })
             .join("\n");
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -891,7 +925,8 @@ mount {{
                     additional_python_paths_folders.as_str(),
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
-                .replace("#{DEV}", DEV_CONF_NSJAIL),
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
     } else {
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
@@ -1010,7 +1045,10 @@ mount {{
     // WAC v2 post-execution: parse output and handle dispatch/suspend.
     // Box::pin to avoid bloating handle_python_job's async state machine (stack overflow).
     if is_wac_v2 {
-        return Box::pin(crate::bun_executor::handle_wac_v2_output(result, job, conn)).await;
+        return Box::pin(crate::bun_executor::handle_wac_v2_output(
+            result, job, conn, modules,
+        ))
+        .await;
     }
 
     Ok(result)
@@ -1065,6 +1103,7 @@ async fn prepare_wrapper(
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
+    let dirs = compute_python_module_dir(script_path);
     let script_path_splitted = script_path.split("/").map(|x| {
         if x.starts_with(|x: char| x.is_ascii_digit()) {
             format!("_{}", x)
@@ -1072,20 +1111,6 @@ async fn prepare_wrapper(
             x.to_string()
         }
     });
-    let dirs_full = script_path_splitted
-        .clone()
-        .take(script_path_splitted.clone().count() - 1)
-        .join("/")
-        .replace("-", "_")
-        .replace("@", ".");
-    let dirs = if dirs_full.len() > 0 {
-        dirs_full
-            .strip_prefix("/")
-            .unwrap_or(&dirs_full)
-            .to_string()
-    } else {
-        "tmp".to_string()
-    };
     let last = script_path_splitted
         .clone()
         .last()
@@ -2618,4 +2643,57 @@ for line in sys.stdin:
         client,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_python_module_dir_nested_path() {
+        assert_eq!(
+            compute_python_module_dir("f/my_folder/my_script"),
+            "f/my_folder"
+        );
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_deep_path() {
+        assert_eq!(compute_python_module_dir("f/a/b/c/script"), "f/a/b/c");
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_root_level() {
+        // Root-level script (no parent dirs) should fall back to "tmp"
+        assert_eq!(compute_python_module_dir("my_script"), "tmp");
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_single_folder() {
+        assert_eq!(compute_python_module_dir("f/script"), "f");
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_digit_prefix() {
+        // Dirs starting with digits get underscore-prefixed
+        assert_eq!(
+            compute_python_module_dir("1st_folder/script"),
+            "_1st_folder"
+        );
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_hyphens_replaced() {
+        // Hyphens are replaced with underscores
+        assert_eq!(
+            compute_python_module_dir("my-folder/sub-dir/script"),
+            "my_folder/sub_dir"
+        );
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_at_replaced() {
+        // @ is replaced with .
+        assert_eq!(compute_python_module_dir("u/@admin/script"), "u/.admin");
+    }
 }

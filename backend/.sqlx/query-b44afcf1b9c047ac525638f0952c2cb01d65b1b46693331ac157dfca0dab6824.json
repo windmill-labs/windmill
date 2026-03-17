@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT content AS \"content!: String\",\n                lock AS \"lock: String\", language AS \"language: Option<ScriptLang>\", envs AS \"envs: Vec<String>\", schema AS \"schema: String\", schema_validation AS \"schema_validation: bool\", codebase LIKE '%.tar' as use_tar, codebase LIKE '%.esm%' as is_esm, modules AS \"modules: serde_json::Value\" FROM script WHERE hash = $1 LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "content!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "lock: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "language: Option<ScriptLang>",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "envs: Vec<String>",
+        "type_info": "VarcharArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "schema: String",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 5,
+        "name": "schema_validation: bool",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "use_tar",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_esm",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "modules: serde_json::Value",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "b44afcf1b9c047ac525638f0952c2cb01d65b1b46693331ac157dfca0dab6824"
+}

@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - "cli/**"
+      - "backend/migrations/**"
       - ".github/workflows/cli-tests.yml"
   pull_request:
     branches: [main]
     paths:
       - "cli/**"
+      - "backend/migrations/**"
       - ".github/workflows/cli-tests.yml"
 
 env:

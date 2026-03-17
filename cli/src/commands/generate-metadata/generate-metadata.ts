@@ -13,15 +13,15 @@ import {
   readLockfile,
   checkifMetadataUptodate,
 } from "../../utils/metadata.ts";
-import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
-import { generateAppLocksInternal, getAppFolders } from "../app/app_metadata.ts";
+import { generateFlowLockInternal, FlowLocksResult } from "../flow/flow_metadata.ts";
+import { generateAppLocksInternal, getAppFolders, AppLocksResult } from "../app/app_metadata.ts";
 import {
   elementsToMap,
   FSFSElement,
   ignoreF,
 } from "../sync/sync.ts";
 import { exts } from "../script/script.ts";
-import { isFlowPath, isAppPath } from "../../utils/resource_folders.ts";
+import { isFlowPath, isAppPath, isRawAppPath, isScriptModulePath, isModuleEntryPoint } from "../../utils/resource_folders.ts";
 import { listSyncCodebases } from "../../utils/codebase.ts";
 import {
   DoubleLinkedDependencyTree,
@@ -90,7 +90,9 @@ async function generateMetadata(
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||
           ignore(p, isD) ||
           isFlowPath(p) ||
-          isAppPath(p)
+          isAppPath(p) ||
+          isRawAppPath(p) ||
+          (isScriptModulePath(p) && !isModuleEntryPoint(p))
         );
       },
       false,
@@ -219,13 +221,17 @@ async function generateMetadata(
   // === Filter by folder if specified ===
   let filteredItems = staleItems;
   if (folder) {
-    if (folder.endsWith(SEP)) {
+    // Normalize to forward slashes (Windows users may use backslashes)
+    folder = folder.replaceAll("\\", "/");
+    // Strip trailing slash to match deprecated flow/app handler behavior
+    if (folder.endsWith("/")) {
       folder = folder.substring(0, folder.length - 1);
     }
-    const normalizedFolder = folder.replaceAll(SEP, "/");
-    filteredItems = staleItems.filter((item) =>
-      item.folder === normalizedFolder || item.folder.startsWith(normalizedFolder + "/")
-    );
+    // Normalize item.folder for comparison (Windows file paths use backslashes)
+    filteredItems = staleItems.filter((item) => {
+      const normalizedFolder = item.folder.replaceAll("\\", "/");
+      return normalizedFolder === folder || normalizedFolder.startsWith(folder + "/");
+    });
   }
 
   // === Show stale items and confirm ===
@@ -310,8 +316,7 @@ async function generateMetadata(
   // Process flows
   for (const item of flows) {
     current++;
-    log.info(`${formatProgress(current)} flow   ${colors.cyan(item.path)}`);
-    await generateFlowLockInternal(
+    const result = await generateFlowLockInternal(
       item.folder.replaceAll("/", SEP),
       false, // dryRun
       workspace,
@@ -320,14 +325,17 @@ async function generateMetadata(
       true, // noStaleMessage
       false, // legacyBehaviour
       tree
-    );
+    ) as FlowLocksResult | void;
+    const scriptsInfo = result?.updatedScripts?.length
+      ? `: ${colors.gray(result.updatedScripts.join(", "))}`
+      : "";
+    log.info(`${formatProgress(current)} flow   ${colors.cyan(item.path)}${scriptsInfo}`);
   }
 
   // Process apps
   for (const item of apps) {
     current++;
-    log.info(`${formatProgress(current)} app    ${colors.cyan(item.path)}`);
-    await generateAppLocksInternal(
+    const result = await generateAppLocksInternal(
       item.folder.replaceAll("/", SEP),
       item.isRawApp!, // rawApp
       false, // dryRun
@@ -337,7 +345,11 @@ async function generateMetadata(
       true, // noStaleMessage
       false, // legacyBehaviour
       tree
-    );
+    ) as AppLocksResult | void;
+    const scriptsInfo = result?.updatedScripts?.length
+      ? `: ${colors.gray(result.updatedScripts.join(", "))}`
+      : "";
+    log.info(`${formatProgress(current)} app    ${colors.cyan(item.path)}${scriptsInfo}`);
   }
 
   log.info("");

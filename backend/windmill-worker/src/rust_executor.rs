@@ -23,8 +23,8 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, start_child_process, OccupancyMetrics,
-        DEV_CONF_NSJAIL,
+        get_reserved_variables, read_result, resolve_nsjail_timeout, start_child_process,
+        OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -682,6 +682,8 @@ pub async fn handle_rust_job(
     append_logs(&job.id, &job.workspace_id, logs2, conn).await;
 
     let child = if is_sandboxing_enabled() {
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -692,7 +694,8 @@ pub async fn handle_rust_job(
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd

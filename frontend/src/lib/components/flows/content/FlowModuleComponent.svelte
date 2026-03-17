@@ -110,6 +110,7 @@
 		forceTestTab?: boolean
 		highlightArg?: string
 		isAgentTool?: boolean
+		siblingToolNames?: string[]
 	}
 
 	let {
@@ -125,7 +126,8 @@
 		savedModule = undefined,
 		forceTestTab = false,
 		highlightArg = undefined,
-		isAgentTool = false
+		isAgentTool = false,
+		siblingToolNames = undefined
 	}: Props = $props()
 
 	let workspaceScriptTag: string | undefined = $state(undefined)
@@ -237,7 +239,9 @@
 	}
 
 	let forceReload = $state(0)
-	let editorPanelSize = $state(untrack(() => noEditor) ? 0 : flowModule.value.type == 'script' ? 30 : 50)
+	let editorPanelSize = $state(
+		untrack(() => noEditor) ? 0 : flowModule.value.type == 'script' ? 30 : 50
+	)
 	let editorSettingsPanelSize = $state(100 - untrack(() => editorPanelSize))
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
@@ -726,6 +730,7 @@
 			}}
 			bind:summary={flowModule.summary}
 			{isAgentTool}
+			{siblingToolNames}
 		>
 			{#snippet header()}
 				<FlowModuleHeader
@@ -1062,8 +1067,8 @@
 														{enableAi}
 														{isAgentTool}
 														allowedAiTransforms={isAgentTool && flowModule.value.type === 'aiagent'
-														? ['user_message']
-														: undefined}
+															? ['user_message']
+															: undefined}
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 													/>
@@ -1106,8 +1111,8 @@
 											<Tabs bind:selected={advancedSelected} wrapperClass="shrink-0">
 												<Tab
 													value="retries"
-													active={flowModule.retry !== undefined}
-													label="Retries"
+													active={flowModule.retry !== undefined || flowModule.continue_on_error}
+													label="Error handling"
 												/>
 												{#if !selectedId.includes('failure')}
 													<Tab value="runtime" label="Runtime" />
@@ -1147,6 +1152,22 @@
 											{/if}
 											<div class="flex-1 overflow-auto p-4">
 												{#if advancedSelected === 'retries'}
+													<Section label="Continue on error">
+														{#snippet header()}
+															<Tooltip>
+																When enabled, the flow will continue to the next step even if this step fails (after exhausting all retries, if any). This enables to process the error in a branch one for instance.
+															</Tooltip>
+														{/snippet}
+														<Toggle
+															size="xs"
+															bind:checked={flowModule.continue_on_error}
+															options={{
+																left: 'Stop on error and propagate error up',
+																right: "Continue on error with error as step's return"
+															}}
+														/>
+													</Section>
+													<div class="mt-4"></div>
 													<Section label="Retries">
 														{#snippet header()}
 															<Tooltip
@@ -1156,19 +1177,6 @@
 																maximum number of attempts as defined below.
 															</Tooltip>
 														{/snippet}
-														<Label label="After all retries attempts have been exhausted:">
-															<Toggle
-																size="xs"
-																bind:checked={flowModule.continue_on_error}
-																options={{
-																	left: 'Stop on error and propagate error up',
-																	right: "Continue on error with error as step's return",
-																	rightTooltip:
-																		'When enabled, the flow will continue to the next step after going through all the retries (if any) even if this step fails. This enables to process the error in a branch one for instance.'
-																}}
-															/>
-														</Label>
-														<div class="my-8"></div>
 														<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule />
 													</Section>
 												{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'concurrency'}

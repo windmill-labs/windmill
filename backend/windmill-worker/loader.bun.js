@@ -80,6 +80,18 @@ const p = {
       if (args.importer?.startsWith(cdirNodeModules)) {
         return undefined;
       }
+
+      // Check if the import resolves to a local module file (written by write_module_files).
+      // Only check relative paths — absolute/bare specifiers should fall through to the
+      // remote resolver, matching the Windows loader pattern.
+      if (args.path.startsWith(".")) {
+        const localPath = resolve(cdir, args.path);
+        try {
+          readFileSync(localPath);
+          return { path: localPath };
+        } catch {}
+      }
+
       const file_path =
         args.importer == "./main.ts" || args.importer == resolve("./main.ts")
           ? current_path
