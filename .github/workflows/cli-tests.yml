@@ -3,8 +3,6 @@ name: CLI Tests
 on:
   push:
     branches: [main]
-    tags:
-      - "v*"
     paths:
       - "cli/**"
       - "backend/migrations/**"

@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - "ci-windows-tests"
+    tags:
+      - "v*"
 
 env:
   CARGO_INCREMENTAL: 0
