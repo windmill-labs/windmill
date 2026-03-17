@@ -23,7 +23,6 @@
 	let expandedWorkspaces = new SvelteSet<string>()
 	let showAddWorkspace = $state(false)
 	let newWorkspaceId = $state('')
-	/** Tracks which workspace is showing the "add field" selector */
 	let addingFieldFor: string | null = $state(null)
 	let selectedField = $state('')
 
@@ -131,145 +130,155 @@
 	ee_only=""
 	description="Override global registry settings for specific workspaces. Workspace overrides fully replace the global value for each configured key."
 >
-	{#if workspaceIds.length === 0}
+	{#if workspaceIds.length === 0 && !showAddWorkspace}
 		<p class="text-secondary text-xs">No workspace overrides configured.</p>
 	{/if}
 
-	{#each workspaceIds as wsId (wsId)}
-		{@const wsName = workspaces.find((w) => w.id === wsId)?.name}
-		{@const isExpanded = expandedWorkspaces.has(wsId)}
-		{@const wsSettings = registries[wsId] ?? {}}
-		{@const activeKeys = Object.keys(wsSettings)}
-		{@const activeSettings = WORKSPACE_REGISTRY_SETTINGS.filter((s) => activeKeys.includes(s.key))}
-		<div class="border border-border rounded-md mb-2">
-			<button
-				class="w-full flex items-center justify-between p-3 hover:bg-surface-hover text-left"
-				onclick={() => toggleExpand(wsId)}
-			>
-				<div class="flex items-center gap-2">
-					{#if isExpanded}
-						<ChevronDown size={16} />
-					{:else}
-						<ChevronRight size={16} />
-					{/if}
-					<span class="font-semibold text-sm text-primary">{wsId}</span>
-					{#if wsName}
-						<span class="text-secondary text-xs">({wsName})</span>
-					{/if}
-					{#if activeKeys.length > 0}
-						<span class="text-tertiary text-xs"
-							>{activeKeys.length} override{activeKeys.length !== 1 ? 's' : ''}</span
-						>
-					{/if}
-				</div>
-				<Button
-					startIcon={{ icon: Trash2 }}
-					iconOnly
-					variant="subtle"
-					unifiedSize="sm"
-					onclick={(e) => {
-						e.stopPropagation()
-						removeWorkspace(wsId)
-					}}
-				/>
-			</button>
+	<div class="flex flex-col gap-2">
+		{#each workspaceIds as wsId (wsId)}
+			{@const wsName = workspaces.find((w) => w.id === wsId)?.name}
+			{@const isExpanded = expandedWorkspaces.has(wsId)}
+			{@const wsSettings = registries[wsId] ?? {}}
+			{@const activeKeys = Object.keys(wsSettings)}
+			{@const activeSettings = WORKSPACE_REGISTRY_SETTINGS.filter((s) =>
+				activeKeys.includes(s.key)
+			)}
+			<div class="bg-surface-tertiary border rounded-md">
+				<button
+					class="w-full flex items-center justify-between px-3 py-2.5 hover:bg-surface-hover rounded-md text-left"
+					onclick={() => toggleExpand(wsId)}
+				>
+					<div class="flex items-center gap-2">
+						{#if isExpanded}
+							<ChevronDown size={14} class="text-secondary" />
+						{:else}
+							<ChevronRight size={14} class="text-secondary" />
+						{/if}
+						<span class="font-semibold text-xs text-primary">{wsId}</span>
+						{#if wsName}
+							<span class="text-secondary text-xs">({wsName})</span>
+						{/if}
+						{#if activeKeys.length > 0}
+							<span class="text-tertiary text-2xs"
+								>{activeKeys.length} override{activeKeys.length !== 1 ? 's' : ''}</span
+							>
+						{/if}
+					</div>
+					<Button
+						startIcon={{ icon: Trash2 }}
+						iconOnly
+						variant="subtle"
+						size="xs"
+						destructive
+						onclick={(e) => {
+							e.stopPropagation()
+							removeWorkspace(wsId)
+						}}
+					/>
+				</button>
 
-			{#if isExpanded}
-				<div class="px-3 pb-3 flex flex-col gap-3 border-t border-border pt-3">
-					{#each activeSettings as setting (setting.key)}
-						{@const currentValue = wsSettings[setting.key]}
-						<div class="flex flex-col gap-1">
-							<div class="flex items-center justify-between">
-								<span class="text-xs font-medium text-emphasis">{setting.label}</span>
-								<button
-									class="text-tertiary hover:text-primary p-0.5"
-									onclick={() => removeField(wsId, setting.key)}
-									title="Remove override"
-								>
-									<X size={14} />
-								</button>
+				{#if isExpanded}
+					<div class="px-3 pb-3 flex flex-col gap-3 border-t border-border pt-3">
+						{#each activeSettings as setting (setting.key)}
+							{@const currentValue = wsSettings[setting.key]}
+							<div class="flex flex-col gap-1">
+								<div class="flex items-center justify-between">
+									<span class="text-xs font-medium text-emphasis">{setting.label}</span>
+									<Button
+										startIcon={{ icon: X }}
+										iconOnly
+										variant="subtle"
+										size="xs"
+										destructive
+										onclick={() => removeField(wsId, setting.key)}
+										title="Remove override"
+									/>
+								</div>
+								{#if setting.fieldType === 'boolean'}
+									<Toggle
+										bind:checked={
+											() => currentValue ?? false, (v) => updateSetting(wsId, setting.key, v, true)
+										}
+									/>
+								{:else if setting.fieldType === 'codearea'}
+									<SimpleEditor
+										lang={setting.codeAreaLang ?? 'text'}
+										bind:code={() => currentValue ?? '', (v) => updateSetting(wsId, setting.key, v)}
+										autoHeight
+										fixedOverflowWidgets={false}
+									/>
+								{:else if setting.fieldType === 'password'}
+									<Password
+										bind:password={
+											() => currentValue ?? '', (v) => updateSetting(wsId, setting.key, v)
+										}
+										placeholder={setting.placeholder}
+									/>
+								{:else}
+									<input
+										type="text"
+										class="input-base text-sm"
+										value={currentValue ?? ''}
+										placeholder={setting.placeholder}
+										oninput={(e) => updateSetting(wsId, setting.key, e.currentTarget.value)}
+									/>
+								{/if}
 							</div>
-							{#if setting.fieldType === 'boolean'}
-								<Toggle
-									bind:checked={
-										() => currentValue ?? false, (v) => updateSetting(wsId, setting.key, v, true)
-									}
-								/>
-							{:else if setting.fieldType === 'codearea'}
-								<SimpleEditor
-									lang={setting.codeAreaLang ?? 'text'}
-									bind:code={() => currentValue ?? '', (v) => updateSetting(wsId, setting.key, v)}
-									autoHeight
-									fixedOverflowWidgets={false}
-								/>
-							{:else if setting.fieldType === 'password'}
-								<Password
-									bind:password={
-										() => currentValue ?? '', (v) => updateSetting(wsId, setting.key, v)
-									}
-									placeholder={setting.placeholder}
-								/>
-							{:else}
-								<input
-									type="text"
-									class="input-base text-sm"
-									value={currentValue ?? ''}
-									placeholder={setting.placeholder}
-									oninput={(e) => updateSetting(wsId, setting.key, e.currentTarget.value)}
-								/>
-							{/if}
-						</div>
-					{/each}
+						{/each}
 
-					{#if addingFieldFor === wsId}
-						<div class="flex items-center gap-2">
-							<select class="input-base text-sm flex-1" bind:value={selectedField}>
-								<option value="">Select a setting...</option>
-								{#each getAvailableFields(wsId) as s (s.key)}
-									<option value={s.key}>{s.label}</option>
-								{/each}
-							</select>
-							<Button
-								variant="default"
-								unifiedSize="sm"
-								disabled={!selectedField}
-								onclick={() => addField(wsId, selectedField)}
-							>
-								Add
-							</Button>
-							<Button
-								variant="subtle"
-								unifiedSize="sm"
-								onclick={() => {
-									addingFieldFor = null
-									selectedField = ''
-								}}
-							>
-								Cancel
-							</Button>
-						</div>
-					{:else if getAvailableFields(wsId).length > 0}
-						<Button
-							startIcon={{ icon: Plus }}
-							variant="subtle"
-							unifiedSize="sm"
-							onclick={() => {
-								addingFieldFor = wsId
-								selectedField = ''
-							}}
-						>
-							Add override
-						</Button>
-					{/if}
-				</div>
-			{/if}
-		</div>
-	{/each}
+						{#if addingFieldFor === wsId}
+							<div class="flex items-center gap-2">
+								<select class="input-base text-xs flex-1" bind:value={selectedField}>
+									<option value="">Select a setting to override...</option>
+									{#each getAvailableFields(wsId) as s (s.key)}
+										<option value={s.key}>{s.label}</option>
+									{/each}
+								</select>
+								<Button
+									variant="default"
+									size="xs"
+									disabled={!selectedField}
+									onclick={() => addField(wsId, selectedField)}
+								>
+									Add
+								</Button>
+								<Button
+									variant="subtle"
+									size="xs"
+									onclick={() => {
+										addingFieldFor = null
+										selectedField = ''
+									}}
+								>
+									Cancel
+								</Button>
+							</div>
+						{:else if getAvailableFields(wsId).length > 0}
+							<div class="flex justify-start">
+								<Button
+									variant="default"
+									size="xs"
+									onclick={() => {
+										addingFieldFor = wsId
+										selectedField = ''
+									}}
+									btnClasses="text-xs flex items-center gap-2"
+								>
+									<Plus size={14} />
+									Add override
+								</Button>
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		{/each}
+	</div>
 
 	{#if showAddWorkspace}
 		<div class="flex items-center gap-2 mt-2">
 			{#if availableWorkspaces.length > 0}
-				<select class="input-base text-sm" bind:value={newWorkspaceId}>
+				<select class="input-base text-xs flex-1" bind:value={newWorkspaceId}>
 					<option value="">Select a workspace...</option>
 					{#each availableWorkspaces as ws (ws.id)}
 						<option value={ws.id}>{ws.id} ({ws.name})</option>
@@ -278,14 +287,14 @@
 			{:else}
 				<input
 					type="text"
-					class="input-base text-sm"
+					class="input-base text-xs"
 					placeholder="Workspace ID"
 					bind:value={newWorkspaceId}
 				/>
 			{/if}
 			<Button
 				variant="default"
-				unifiedSize="sm"
+				size="xs"
 				disabled={!newWorkspaceId}
 				onclick={() => addWorkspace(newWorkspaceId)}
 			>
@@ -293,7 +302,7 @@
 			</Button>
 			<Button
 				variant="subtle"
-				unifiedSize="sm"
+				size="xs"
 				onclick={() => {
 					showAddWorkspace = false
 					newWorkspaceId = ''
@@ -303,14 +312,16 @@
 			</Button>
 		</div>
 	{:else}
-		<Button
-			startIcon={{ icon: Plus }}
-			variant="default"
-			unifiedSize="sm"
-			onclick={() => (showAddWorkspace = true)}
-			class="mt-2"
-		>
-			Add workspace override
-		</Button>
+		<div class="flex justify-start mt-1">
+			<Button
+				variant="default"
+				size="xs"
+				onclick={() => (showAddWorkspace = true)}
+				btnClasses="text-xs flex items-center gap-2"
+			>
+				<Plus size={14} />
+				Add workspace override
+			</Button>
+		</div>
 	{/if}
 </SettingCard>
