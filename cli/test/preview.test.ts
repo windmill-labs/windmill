@@ -360,6 +360,116 @@ schema:
 });
 
 // =============================================================================
+// SCRIPT WITH MODULES PREVIEW TESTS
+// =============================================================================
+
+test("script preview: script with modules (taskScript pattern)", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, { defaultTs: "bun" });
+
+    // Create the main script that uses taskScript to call a module
+    await createScript(
+      tempDir,
+      "f/test/wac_script.ts",
+      `import { task, taskScript, workflow } from "windmill-client";
+
+const helper = taskScript("./helper.ts");
+
+const process = task(async (x: string): Promise<string> => {
+  return \`processed: \${x}\`;
+});
+
+export const main = workflow(async (x: string = "test") => {
+  const a = await process(x);
+  const b = await helper({ a });
+  return { processed: a, helper_result: b };
+});`
+    );
+
+    // Create the module file in __mod/ folder
+    const modDir = `${tempDir}/f/test/wac_script__mod`;
+    await mkdir(modDir, { recursive: true });
+    await writeFile(
+      `${modDir}/helper.ts`,
+      `export function main(a: string): string {
+  return \`helper got: \${a}\`;
+}`,
+      "utf-8"
+    );
+
+    const result = await backend.runCLICommand(
+      ["script", "preview", "f/test/wac_script.ts"],
+      tempDir
+    );
+
+    expect(result.code).toEqual(0);
+    const output = result.stdout + result.stderr;
+    expect(output).toContain("processed: test");
+    expect(output).toContain("helper got:");
+  });
+});
+
+test("script preview: script with modules (folder layout)", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, { defaultTs: "bun" });
+
+    // Create folder layout: my_script__mod/script.ts + my_script__mod/helper.ts
+    const modDir = `${tempDir}/f/test/folder_wac__mod`;
+    await mkdir(modDir, { recursive: true });
+
+    // Entry point script
+    await writeFile(
+      `${modDir}/script.ts`,
+      `import { task, taskScript, workflow } from "windmill-client";
+
+const helper = taskScript("./helper.ts");
+
+export const main = workflow(async (name: string = "World") => {
+  const result = await helper({ name });
+  return { greeting: result };
+});`,
+      "utf-8"
+    );
+
+    // Module file
+    await writeFile(
+      `${modDir}/helper.ts`,
+      `export function main(name: string): string {
+  return \`Hello from module, \${name}!\`;
+}`,
+      "utf-8"
+    );
+
+    // Script metadata
+    await writeFile(
+      `${modDir}/script.yaml`,
+      `summary: "Folder layout WAC script"
+description: "Test"
+lock: ""
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties:
+    name:
+      type: string
+      default: "World"
+  required: []
+`,
+      "utf-8"
+    );
+
+    const result = await backend.runCLICommand(
+      ["script", "preview", `f/test/folder_wac__mod/script.ts`],
+      tempDir
+    );
+
+    expect(result.code).toEqual(0);
+    const output = result.stdout + result.stderr;
+    expect(output).toContain("Hello from module, World!");
+  });
+});
+
+// =============================================================================
 // FLOW PREVIEW TESTS
 // =============================================================================
 

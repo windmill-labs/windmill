@@ -11,7 +11,7 @@ import time
 import warnings
 import json
 from json import JSONDecodeError
-from typing import Dict, Any, Union, Literal, Optional
+from typing import Callable, Dict, Any, Union, Literal, Optional
 import re
 
 import httpx
@@ -2431,6 +2431,7 @@ class WorkflowCtx:
             else:
                 return self._never_resolve()
 
+        print(f"\n--- WAC: {key} ---")
         info = {"name": name or key, "script": script or key, "args": kwargs, "key": key, "dispatch_type": dispatch_type}
         if _task_options:
             for opt_key in ("timeout", "tag", "cache_ttl", "priority", "concurrent_limit", "concurrency_key", "concurrency_time_window_s"):
@@ -2472,6 +2473,7 @@ class WorkflowCtx:
         if self._executing_key is not None:
             await _asyncio.Future()
 
+        print(f"\n--- WAC: wait_for_approval({key}) ---")
         raise _StepSuspend({
             "mode": "approval",
             "key": key,
@@ -2489,6 +2491,7 @@ class WorkflowCtx:
         if self._executing_key is not None:
             await _asyncio.Future()
 
+        print(f"\n--- WAC: sleep({key}, {seconds}s) ---")
         raise _StepSuspend({
             "mode": "sleep",
             "key": key,
@@ -2497,6 +2500,10 @@ class WorkflowCtx:
         })
 
     async def _run_inline_step(self, name: str, fn):
+        import json as _json_mod
+        import time as _time_mod
+        from datetime import datetime as _dt, timezone as _tz
+
         key = self._alloc_key(name or "step")
 
         if key in self._completed:
@@ -2513,15 +2520,22 @@ class WorkflowCtx:
         if self._executing_key is not None:
             await _asyncio.Future()
 
+        print(f"\n--- WAC: {key} ---")
+        started_at = _dt.now(_tz.utc).isoformat()
+        print(f"WM_WAC_STEP: {_json_mod.dumps({'key': key, 'started_at': started_at})}")
+        t0 = _time_mod.monotonic()
         result = fn()
         if _asyncio.iscoroutine(result):
             result = await result
+        duration_ms = int((_time_mod.monotonic() - t0) * 1000)
 
         raise _StepSuspend({
             "mode": "inline_checkpoint",
             "steps": [],
             "key": key,
             "result": result,
+            "started_at": started_at,
+            "duration_ms": duration_ms,
         })
 
 
@@ -2568,7 +2582,7 @@ def task(
     # Remove None values
     _task_opts = {k: v for k, v in _task_opts.items() if v is not None} or None
 
-    def decorator(func):
+    def decorator(func) -> Callable[..., Any]:
         task_path = path
         task_name = func.__name__
 
@@ -2585,7 +2599,6 @@ def task(
                     merged[f"arg{i}"] = arg
             return merged
 
-        @functools.wraps(func)
         def wrapper(*args, **kwargs):
             # WAC v2: inside a @workflow context
             ctx = _workflow_ctx.get(None)
@@ -2815,11 +2828,16 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
         if mode == "step_complete":
             return {"type": "complete", "result": info.get("result")}
         if mode == "inline_checkpoint":
-            return {
+            out = {
                 "type": "inline_checkpoint",
                 "key": info["key"],
                 "result": info.get("result"),
             }
+            if "started_at" in info:
+                out["started_at"] = info["started_at"]
+            if "duration_ms" in info:
+                out["duration_ms"] = info["duration_ms"]
+            return out
         if mode == "approval":
             return {
                 "type": "approval",

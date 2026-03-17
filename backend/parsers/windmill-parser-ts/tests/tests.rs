@@ -45,7 +45,7 @@ mod tests {
                 star_args: false,
                 star_kwargs: false,
                 args: vec![],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -103,7 +103,7 @@ mod tests {
                         oidx: None,
                     },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -152,7 +152,7 @@ mod tests {
                         oidx: None,
                     },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -201,7 +201,7 @@ mod tests {
                         oidx: None,
                     },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -232,7 +232,7 @@ mod tests {
                     has_default: false,
                     oidx: None,
                 },],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -263,7 +263,7 @@ mod tests {
                     has_default: false,
                     oidx: None,
                 },],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -303,7 +303,7 @@ mod tests {
                     has_default: false,
                     oidx: None,
                 }],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -341,7 +341,7 @@ mod tests {
                     has_default: false,
                     oidx: None,
                 }],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -399,7 +399,7 @@ mod tests {
                     has_default: false,
                     oidx: None,
                 }],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -457,7 +457,7 @@ mod tests {
                         oidx: None,
                     },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -506,7 +506,7 @@ mod tests {
                         oidx: None,
                     },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -555,7 +555,7 @@ mod tests {
                 star_args: false,
                 star_kwargs: false,
                 args: vec![],
-                no_main_func: Some(true),
+                auto_kind: Some("lib".to_string()),
                 has_preprocessor: Some(false),
             }
         );
@@ -582,7 +582,7 @@ mod tests {
                     has_default: false,
                     oidx: None,
                 }],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -611,7 +611,7 @@ mod tests {
                     has_default: false,
                     oidx: None,
                 }],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -640,7 +640,7 @@ mod tests {
                     has_default: false,
                     oidx: None,
                 }],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -689,7 +689,7 @@ mod tests {
                         oidx: None,
                     },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(false),
             }
         );
@@ -729,7 +729,7 @@ mod tests {
                     has_default: false,
                     oidx: None,
                 }],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(true),
             }
         );
@@ -759,7 +759,7 @@ mod tests {
                     has_default: false,
                     oidx: None,
                 }],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: Some(true),
             }
         );
