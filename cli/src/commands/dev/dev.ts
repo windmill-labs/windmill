@@ -94,10 +94,33 @@ async function dev(opts: GlobalOptions & SyncOptions) {
           SEP,
           undefined,
         );
+        if (localFlow.value.failure_module) {
+          await replaceInlineScripts(
+            [localFlow.value.failure_module],
+            async (path: string) => await readFile(localPath + path, "utf-8"),
+            log,
+            localPath,
+            SEP,
+            undefined,
+          );
+        }
+        if (localFlow.value.preprocessor_module) {
+          await replaceInlineScripts(
+            [localFlow.value.preprocessor_module],
+            async (path: string) => await readFile(localPath + path, "utf-8"),
+            log,
+            localPath,
+            SEP,
+            undefined,
+          );
+        }
         currentLastEdit = {
           type: "flow",
           flow: localFlow,
           uriPath: localPath,
+          path: localPath
+            .substring(0, localPath.indexOf(".flow"))
+            .replaceAll(SEP, "/"),
         };
         log.info("Updated " + localPath);
         broadcastChanges(currentLastEdit);
@@ -141,6 +164,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
     type: "flow";
     flow: OpenFlow;
     uriPath: string;
+    path: string;
   };
 
   const connectedClients: Set<WebSocket> = new Set();
@@ -164,11 +188,13 @@ async function dev(opts: GlobalOptions & SyncOptions) {
       connectedClients.add(ws);
       console.log("New client connected");
 
-      ws.on("open", () => {
-        if (currentLastEdit) {
-          broadcastChanges(currentLastEdit);
-        }
-      });
+      if (currentLastEdit) {
+        setTimeout(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(currentLastEdit));
+          }
+        }, 50);
+      }
 
       ws.on("close", () => {
         connectedClients.delete(ws);
