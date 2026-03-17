@@ -478,7 +478,7 @@
 									<Toggle
 										size="xs"
 										bind:checked={includeWithoutMain}
-										options={{ right: 'Include without main function' }}
+										options={{ right: 'Include library scripts' }}
 									/>
 								{/if}
 							</div>

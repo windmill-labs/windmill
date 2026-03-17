@@ -867,6 +867,7 @@ func main(derp string) (string, error) {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("derp", json!("world"))
     .run_until_complete(&db, false, port)
@@ -905,6 +906,7 @@ fn main(world: String) -> Result<String, String> {
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         cache_ttl: None,
         dedicated_worker: None,
+        modules: None,
     }))
     .arg("world", json!("Hyrule"))
     .run_until_complete(&db, false, port)
@@ -949,6 +951,7 @@ class Script
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("world", json!("Arakis"))
     .arg("b", json!(3))
@@ -985,6 +988,7 @@ echo "hello $msg"
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("msg", json!("world"))
     .run_until_complete(&db, false, port)
@@ -1022,6 +1026,7 @@ echo "$result"
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .run_until_complete(&db, false, port)
     .await;
@@ -1056,6 +1061,7 @@ echo "$result"
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .run_until_complete(&db, false, port)
     .await;
@@ -1093,6 +1099,7 @@ def main [ msg: string ] {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("msg", json!("world"))
     .run_until_complete(&db, false, port)
@@ -1147,6 +1154,7 @@ def main [
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("a", json!("3"))
     .arg("b", json!("null"))
@@ -1210,6 +1218,7 @@ public class Main {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("a", json!(3))
     .arg("b", json!(3.0))
@@ -1247,6 +1256,7 @@ export async function main(name: string): Promise<string> {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("name", json!("world"))
     .run_until_complete(&db, false, port)
@@ -1284,6 +1294,7 @@ export async function main(a: number, b: number): Promise<number> {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("a", json!(3))
     .arg("b", json!(7))
@@ -1322,6 +1333,7 @@ export async function main(items: string[]): Promise<{ count: number; items: str
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("items", json!(["a", "b", "c"]))
     .run_until_complete(&db, false, port)
@@ -1360,6 +1372,7 @@ export async function main(a: Date) {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("a", json!("2024-09-24T10:00:00.000Z"))
     .run_until_complete(&db, false, port)
@@ -1395,6 +1408,7 @@ SELECT 'hello ' || $1::text AS result;
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("name", json!("world"))
     .arg(
@@ -1435,6 +1449,7 @@ SELECT ? AS result;
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("name", json!("world"))
     .arg(
@@ -1475,6 +1490,7 @@ export async function main(name: string): Promise<string> {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("name", json!("world"))
     .run_until_complete(&db, false, port)
@@ -1510,6 +1526,7 @@ Write-Output "hello $msg"
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("msg", json!("world"))
     .run_until_complete(&db, false, port)
@@ -1546,6 +1563,7 @@ Write-Output "$Name-$Count"
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("Name", json!("test"))
     .arg("Count", json!(7))
@@ -1580,6 +1598,7 @@ throw "intentional error"
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("x", json!(1))
     .run_until_complete(&db, false, port)
@@ -1632,6 +1651,7 @@ function main(string $name): string {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("name", json!("world"))
     .run_until_complete(&db, false, port)
@@ -1669,6 +1689,7 @@ end
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("name", json!("world"))
     .run_until_complete(&db, false, port)
@@ -1705,6 +1726,7 @@ export async function main(a: Date) {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("a", json!("2024-09-24T10:00:00.000Z"))
     .run_until_complete(&db, false, port)
@@ -1741,6 +1763,7 @@ export async function main(a: Date) {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("a", json!("2024-09-24T10:00:00.000Z"))
     .run_until_complete(&db, false, port)
@@ -1793,6 +1816,7 @@ export function main(name: string) {
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
+        modules: None,
     }))
     .arg("name", json!("World"))
     .run_until_complete(&db, false, port)
@@ -1838,6 +1862,7 @@ def main(a: datetime, b: bytes):
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("a", json!("2024-09-24T10:00:00.000Z"))
     .arg("b", json!("dGVzdA=="))

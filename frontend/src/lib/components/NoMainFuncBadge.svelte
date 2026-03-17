@@ -5,7 +5,7 @@
 
 <Popover notClickable>
 	{#snippet text()}
-		The script has no main function exported
+		Library script (no exported main function)
 	{/snippet}
-	<Badge small color="yellow" baseClass="border border-indigo-200">No main</Badge>
+	<Badge small color="yellow" baseClass="border border-indigo-200">Library</Badge>
 </Popover>

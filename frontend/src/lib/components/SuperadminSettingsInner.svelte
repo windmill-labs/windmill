@@ -343,7 +343,7 @@
 									</Head>
 									<tbody>
 										{#if filteredUsers && users}
-											{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only }, i (email)}
+											{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, role_source }, i (email)}
 												<tr class={i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
 													<Cell first class="max-w-[200px]"
 														><a href="mailto:{email}" title={email} class="truncate block"
@@ -387,65 +387,96 @@
 														</Cell>
 													{/if}
 													<Cell>
-														<ToggleButtonGroup
-															selected={super_admin ? 'super_admin' : devops ? 'devops' : 'user'}
-															on:selected={async (e) => {
-																if (email == $userStore?.email) {
-																	sendUserToast('You cannot demote yourself', true)
-																	listUsers(activeOnly)
-																	return
-																}
+														<div class="flex flex-col items-start">
+															{#key `${super_admin}_${devops}_${role_source}`}
+																<ToggleButtonGroup
+																	selected={super_admin
+																		? 'super_admin'
+																		: devops
+																			? 'devops'
+																			: 'user'}
+																	on:selected={async (e) => {
+																		if (email == $userStore?.email) {
+																			sendUserToast('You cannot demote yourself', true)
+																			listUsers(activeOnly)
+																			return
+																		}
 
-																let role = e.detail
+																		let role = e.detail
 
-																if (role === 'super_admin') {
-																	await UserService.globalUserUpdate({
-																		email,
-																		requestBody: {
-																			is_super_admin: true,
-																			is_devops: false
+																		if (role === 'super_admin') {
+																			await UserService.globalUserUpdate({
+																				email,
+																				requestBody: {
+																					is_super_admin: true,
+																					is_devops: false
+																				}
+																			})
 																		}
-																	})
-																}
-																if (role === 'devops') {
-																	await UserService.globalUserUpdate({
-																		email,
-																		requestBody: {
-																			is_super_admin: false,
-																			is_devops: true
+																		if (role === 'devops') {
+																			await UserService.globalUserUpdate({
+																				email,
+																				requestBody: {
+																					is_super_admin: false,
+																					is_devops: true
+																				}
+																			})
 																		}
-																	})
-																}
-																if (role === 'user') {
-																	await UserService.globalUserUpdate({
-																		email,
-																		requestBody: {
-																			is_super_admin: false,
-																			is_devops: false
+																		if (role === 'user') {
+																			await UserService.globalUserUpdate({
+																				email,
+																				requestBody: {
+																					is_super_admin: false,
+																					is_devops: false
+																				}
+																			})
 																		}
-																	})
-																}
-																sendUserToast('User updated')
-																listUsers(activeOnly)
-															}}
-														>
-															{#snippet children({ item })}
-																<ToggleButton value={'user'} small label="User" {item} />
-																<ToggleButton
-																	value={'devops'}
-																	small
-																	label="Devops"
-																	tooltip="Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"
-																	{item}
-																/>
-																<ToggleButton
-																	value={'super_admin'}
-																	small
-																	label="Superadmin"
-																	{item}
-																/>
-															{/snippet}
-														</ToggleButtonGroup>
+																		sendUserToast('User updated')
+																		listUsers(activeOnly)
+																	}}
+																>
+																	{#snippet children({ item })}
+																		<ToggleButton
+																			value={'user'}
+																			small
+																			label="User"
+																			disabled={role_source === 'instance_group' &&
+																				(super_admin || devops)}
+																			tooltip={role_source === 'instance_group' &&
+																			(super_admin || devops)
+																				? 'Role is set by an instance group. Remove the user from the group to demote to "User".'
+																				: undefined}
+																			showTooltipIcon={role_source === 'instance_group' &&
+																				(super_admin || devops)}
+																			{item}
+																		/>
+																		<ToggleButton
+																			value={'devops'}
+																			small
+																			label="Devops"
+																			tooltip="Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"
+																			{item}
+																		/>
+																		<ToggleButton
+																			value={'super_admin'}
+																			small
+																			label="Superadmin"
+																			{item}
+																		/>
+																	{/snippet}
+																</ToggleButtonGroup>
+															{/key}
+															{#if role_source === 'instance_group' && (super_admin || devops)}
+																<a
+																	href="{base}/groups"
+																	class="text-2xs text-tertiary mt-0.5 ml-1 hover:underline"
+																	title="Role set by instance group. You can upgrade to a higher role manually, but demoting to &quot;User&quot; requires removing them from the group."
+																	onclick={() => closeDrawer?.()}
+																>
+																	Set by instance group
+																</a>
+															{/if}
+														</div>
 													</Cell>
 													<Cell last>
 														<div class="flex items-center justify-end">

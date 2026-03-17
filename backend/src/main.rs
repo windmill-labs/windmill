@@ -13,8 +13,8 @@ use monitor::{
     reload_maven_settings_xml_setting, reload_no_default_maven_setting,
     reload_nuget_config_setting, reload_powershell_repo_pat_setting,
     reload_powershell_repo_url_setting, reload_ruby_repos_setting,
-    reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
-    send_logs_to_object_store, WORKERS_NAMES,
+    reload_timeout_wait_result_setting, reload_workspace_registries_setting,
+    send_current_log_file_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::{Pool, Postgres};
@@ -44,15 +44,16 @@ use windmill_common::{
         DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING,
-        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
-        MAVEN_SETTINGS_XML_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
+        INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
         OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
         POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING, WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -102,7 +103,8 @@ use crate::monitor::{
     reload_base_url_setting, reload_bunfig_install_scopes_setting,
     reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
     reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
-    reload_hub_api_secret_setting, reload_hub_base_url_setting, reload_job_default_timeout_setting,
+    reload_hub_api_secret_setting, reload_hub_base_url_setting,
+    reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
     reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
     reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
     reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
@@ -292,6 +294,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                     envs.clone(),
                     false,
                     &mut None,
+                    false,
                 )
                 .await?;
 
@@ -870,7 +873,55 @@ async fn windmill_main() -> anyhow::Result<()> {
     if worker_mode {
         #[cfg(any(target_os = "linux"))]
         if let Err(e) = disable_oom_group() {
-            tracing::warn!("failed to disable oom group: {:?}", e);
+            tracing::warn!(
+                "Failed to disable cgroup OOM group kill: {e:?}. \
+                When a job exceeds memory, the OOM killer will kill the entire pod \
+                instead of just the offending job process"
+            );
+        }
+
+        // Lower the worker's oom_score_adj so the OOM killer strongly prefers killing
+        // job subprocesses (oom_score_adj=1000) over the worker itself.
+        // Kubernetes sets it high for burstable QoS (e.g. 937), leaving a tiny gap vs jobs.
+        // Requires CAP_SYS_RESOURCE to lower it; if missing, we just warn.
+        #[cfg(any(target_os = "linux"))]
+        match std::fs::read_to_string("/proc/self/oom_score_adj") {
+            Ok(current) => {
+                let current = current.trim().to_string();
+                let current_val = match current.parse::<i32>() {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::warn!("Could not parse oom_score_adj '{current}': {e}");
+                        0
+                    }
+                };
+                if current_val > 0 {
+                    match std::fs::write("/proc/self/oom_score_adj", "0") {
+                        Ok(_) => {
+                            tracing::info!(
+                                "Lowered worker oom_score_adj from {current} to 0 \
+                                (jobs get 1000, gap=1000)"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Could not lower worker oom_score_adj from {current} to 0: {e}. \
+                                Gap to jobs is only {} — OOM killer may target the worker instead. \
+                                Add CAP_SYS_RESOURCE to the container to fix this",
+                                1000 - current_val
+                            );
+                        }
+                    }
+                } else {
+                    tracing::info!(
+                        "Worker oom_score_adj={current} (jobs get 1000, gap={})",
+                        1000 - current_val
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Could not read worker oom_score_adj: {e}");
+            }
         }
     }
 
@@ -1638,7 +1689,7 @@ async fn process_notify_event(
         }
         "notify_token_invalidation" => {
             tracing::info!(
-                "Token invalidation detected for token: {}...",
+                "Token invalidation detected for prefix: {}...",
                 payload.get(..8).unwrap_or(payload)
             );
             windmill_api::auth::invalidate_token_from_cache(payload);
@@ -1719,6 +1770,7 @@ async fn process_notify_event(
                 MAVEN_SETTINGS_XML_SETTING => reload_maven_settings_xml_setting(conn).await,
                 NO_DEFAULT_MAVEN_SETTING => reload_no_default_maven_setting(conn).await,
                 RUBY_REPOS_SETTING => reload_ruby_repos_setting(conn).await,
+                WORKSPACE_REGISTRIES_SETTING => reload_workspace_registries_setting(conn).await,
                 HUB_API_SECRET_SETTING => reload_hub_api_secret_setting(conn).await,
                 KEEP_JOB_DIR_SETTING => {
                     load_keep_job_dir(conn).await;
@@ -1799,6 +1851,9 @@ async fn process_notify_event(
                     if let Err(e) = reload_critical_alerts_on_token_expiry_setting(conn).await {
                         tracing::error!(error = %e, "Could not reload critical alerts on token expiry setting");
                     }
+                }
+                INSTANCE_EVENTS_WEBHOOK_SETTING => {
+                    reload_instance_events_webhook_setting(db).await;
                 }
                 "workspace_telemetry_enabled" => {
                     // Read the new value from the database and log it

@@ -14,6 +14,7 @@ import {
   createLocalFlow,
   createLocalApp,
   createLocalRawApp,
+  createLocalScriptWithModules,
 } from "./test_fixtures.ts";
 
 /**
@@ -609,6 +610,170 @@ describe("generate-metadata folder argument", () => {
 
       expect(result.code).toEqual(0);
       expect(result.stdout).toContain("up-to-date");
+    });
+  });
+});
+
+// =============================================================================
+// Scripts with modules
+// =============================================================================
+
+describe("generate-metadata with script modules", () => {
+  test("script with modules is detected as a single stale item", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "module_script_test");
+
+      // Create a script with module files
+      await createLocalScriptWithModules(tempDir, "f/test", "order_workflow", "bun", [
+        { path: "helper.ts", content: 'export function validate() { return true; }\n' },
+        { path: "utils.ts", content: 'export const VERSION = "1.0";\n' },
+      ]);
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "module_script_test"
+      );
+
+      expect(result.code).toEqual(0);
+      const output = result.stdout + result.stderr;
+      // The main script should be listed as stale
+      expect(output).toContain("order_workflow");
+      // Module files should NOT appear as separate stale scripts (only within [changed modules: ...])
+      const lines = output.split("\n");
+      const staleLines = lines.filter((l: string) => l.includes("f/test/"));
+      expect(staleLines.length).toBe(1);
+      expect(staleLines[0]).toContain("order_workflow");
+    });
+  });
+
+  test("module files are not treated as standalone scripts", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "module_not_standalone_test");
+
+      // Create a script with modules plus a regular script
+      await createLocalScriptWithModules(tempDir, "f/test", "my_script", "bun", [
+        { path: "helper.ts", content: 'export function greet() { return "hi"; }\n' },
+      ]);
+      await createLocalScript(tempDir, "f/test", "standalone_script");
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "module_not_standalone_test"
+      );
+
+      expect(result.code).toEqual(0);
+      const output = result.stdout + result.stderr;
+      // Should list both the main script and standalone script
+      expect(output).toContain("my_script");
+      expect(output).toContain("standalone_script");
+      // Should NOT list module helper as a separate entry
+      // Count occurrences of "Scripts" header — there should be exactly one
+      expect(output).toContain("Scripts");
+    });
+  });
+
+  test("script with modules generates metadata and becomes up-to-date", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "module_uptodate_test");
+
+      await createLocalScriptWithModules(tempDir, "f/test", "my_script", "bun", [
+        { path: "helper.ts", content: 'export function greet() { return "hi"; }\n' },
+      ]);
+
+      // First run — should find stale items and generate metadata
+      const result1 = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "module_uptodate_test"
+      );
+      expect(result1.code).toEqual(0);
+      expect(result1.stdout).toContain("Done");
+
+      // Second run — should be up-to-date
+      const result2 = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "module_uptodate_test"
+      );
+      expect(result2.code).toEqual(0);
+      expect(result2.stdout).toContain("up-to-date");
+    });
+  });
+
+  test("modifying a module re-triggers stale detection", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "module_modify_test");
+
+      await createLocalScriptWithModules(tempDir, "f/test", "order_workflow", "bun", [
+        { path: "helper.ts", content: 'export function greet() { return "hi"; }\n' },
+        { path: "utils.ts", content: 'export const VERSION = "1.0";\n' },
+      ]);
+
+      // First run — generate metadata
+      const result1 = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "module_modify_test"
+      );
+      expect(result1.code).toEqual(0);
+
+      // Second run — should be up-to-date
+      const result2 = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "module_modify_test"
+      );
+      expect(result2.code).toEqual(0);
+      const output2 = result2.stdout + result2.stderr;
+      expect(output2).not.toContain("order_workflow");
+
+      // Modify one module
+      await writeFile(
+        `${tempDir}/f/test/order_workflow__mod/helper.ts`,
+        'export function greet() { return "hello world"; }\n',
+        "utf-8"
+      );
+
+      // Third run — should detect the script as stale with the changed module
+      const result3 = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "module_modify_test"
+      );
+      expect(result3.code).toEqual(0);
+      const output3 = result3.stdout + result3.stderr;
+      expect(output3).toContain("order_workflow");
+      expect(output3).toContain("helper.ts");
+      // utils.ts was not modified, should not be listed as changed
+      expect(output3).not.toContain("utils.ts");
+    });
+  });
+
+  test("script with modules and lock files does not crash", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "module_with_locks_test");
+
+      // Create a script with modules that have lock files
+      await createLocalScriptWithModules(tempDir, "f/test", "my_script", "bun", [
+        {
+          path: "helper.ts",
+          content: 'import lodash from "lodash";\nexport const x = lodash.identity(1);\n',
+          lock: "lodash@4.17.21\n",
+        },
+      ]);
+
+      // Should not crash on lock files inside __mod/
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "module_with_locks_test"
+      );
+
+      expect(result.code).toEqual(0);
+      // Should find the main script as stale, not crash on .lock files
+      expect(result.stdout).toContain("my_script");
     });
   });
 });

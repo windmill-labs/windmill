@@ -90,11 +90,12 @@ use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
-    OtelTracingProxySettings, SameWorkerSender, BUNFIG_INSTALL_SCOPES, CARGO_REGISTRIES,
-    INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR,
-    MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY,
+    OtelTracingProxySettings, SameWorkerSender, WorkspaceRegistryMap, BUNFIG_INSTALL_SCOPES,
+    CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION,
+    KEEP_JOB_DIR, MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY,
     NSJAIL_AVAILABLE, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL,
     PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UV_INDEX_STRATEGY,
+    WORKSPACE_REGISTRIES,
 };
 
 #[cfg(feature = "parquet")]
@@ -234,6 +235,7 @@ pub async fn initial_load(
                 )
             }
             windmill_common::min_version::store_min_keep_alive_version(db).await;
+            reload_instance_events_webhook_setting(db).await;
         }
     }
 
@@ -352,6 +354,7 @@ pub async fn initial_load(
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
         reload_cargo_registries_setting(&conn).await;
+        reload_workspace_registries_setting(&conn).await;
     }
 }
 
@@ -945,7 +948,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
     let expired_tokens_r = sqlx::query_as!(
         TokenRow,
         "DELETE FROM token WHERE expiration <= now()
-        RETURNING substring(token for 10) as token_prefix, label, email, workspace_id",
+        RETURNING token_prefix, label, email, workspace_id",
     )
     .fetch_all(db)
     .await;
@@ -1164,15 +1167,17 @@ pub async fn delete_expired_items(db: &DB) -> () {
 }
 
 pub async fn check_expiring_tokens(db: &DB) {
-    // Find tokens expiring within 7 days that still have a pending notification row
+    // Find tokens expiring within 7 days that still have a pending notification row.
+    // The notification table stores token_hash (not plaintext) so the join works
+    // even after the hash migration makes token.token nullable.
     let expiring_tokens_r = sqlx::query_as!(
         TokenRow,
         "DELETE FROM token_expiry_notification n
          USING token t
-         WHERE n.token = t.token
+         WHERE n.token_hash = t.token_hash
            AND n.expiration > now()
            AND n.expiration <= now() + interval '7 days'
-         RETURNING substring(t.token for 10) as token_prefix, t.label, t.email, t.workspace_id",
+         RETURNING t.token_prefix, t.label, t.email, t.workspace_id",
     )
     .fetch_all(db)
     .await;
@@ -1354,6 +1359,26 @@ async fn delete_log_files_from_disk_and_store(
     }
 
     let _: Vec<_> = delete_futures.collect().await;
+}
+
+pub async fn reload_instance_events_webhook_setting(db: &DB) {
+    use windmill_common::global_settings::INSTANCE_EVENTS_WEBHOOK_SETTING;
+    use windmill_common::webhook::INSTANCE_EVENTS_WEBHOOK;
+
+    let value = load_value_from_global_settings(db, INSTANCE_EVENTS_WEBHOOK_SETTING).await;
+    match value {
+        Ok(Some(serde_json::Value::String(s))) if !s.is_empty() => {
+            *INSTANCE_EVENTS_WEBHOOK.write().await = Some(s);
+        }
+        Ok(None) | Ok(Some(serde_json::Value::Null)) | Ok(Some(serde_json::Value::String(_))) => {
+            // Fall back to env var if DB has no value
+            *INSTANCE_EVENTS_WEBHOOK.write().await = std::env::var("INSTANCE_EVENTS_WEBHOOK").ok();
+        }
+        Err(e) => {
+            tracing::error!("Error loading instance_events_webhook setting: {e:#}");
+        }
+        _ => (),
+    };
 }
 
 pub async fn reload_scim_token_setting(conn: &Connection) {
@@ -1552,6 +1577,35 @@ pub async fn reload_cargo_registries_setting(conn: &Connection) {
         CARGO_REGISTRIES.clone(),
     )
     .await;
+}
+
+pub async fn reload_workspace_registries_setting(conn: &Connection) {
+    let value = load_value_from_global_settings_with_conn(
+        conn,
+        windmill_common::global_settings::WORKSPACE_REGISTRIES_SETTING,
+        true,
+    )
+    .await;
+    match value {
+        Ok(Some(v)) => match serde_json::from_value::<WorkspaceRegistryMap>(v) {
+            Ok(parsed) => {
+                tracing::info!(
+                    "Loaded workspace registries for {} workspaces",
+                    parsed.len()
+                );
+                *WORKSPACE_REGISTRIES.write().await = Some(parsed);
+            }
+            Err(e) => {
+                tracing::error!("Error parsing workspace_registries setting: {e:#}");
+            }
+        },
+        Ok(None) => {
+            *WORKSPACE_REGISTRIES.write().await = None;
+        }
+        Err(e) => {
+            tracing::error!("Error loading workspace_registries setting: {e:#}");
+        }
+    }
 }
 
 pub async fn reload_hub_api_secret_setting(conn: &Connection) {
@@ -2595,6 +2649,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                     AND running = true
                     AND kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow')
                     AND same_worker = false
+                    AND q.suspend_until IS NULL
                     AND (zjc.counter IS NULL OR zjc.counter <= $2)
                 FOR UPDATE of q SKIP LOCKED
             ),
@@ -2707,7 +2762,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
     let same_worker_timeout_jobs = {
         let long_same_worker_jobs = sqlx::query!(
             "SELECT worker, array_agg(v2_job_queue.id) as ids FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id LEFT JOIN v2_job_runtime ON v2_job_queue.id = v2_job_runtime.id WHERE v2_job_queue.created_at < now() - ('60 seconds')::interval
-    AND running = true AND (ping IS NULL OR ping < now() - ('60 seconds')::interval) AND same_worker = true AND worker IS NOT NULL GROUP BY worker",
+    AND running = true AND (ping IS NULL OR ping < now() - ('60 seconds')::interval) AND same_worker = true AND worker IS NOT NULL AND v2_job_queue.suspend_until IS NULL GROUP BY worker",
         )
         .fetch_all(db)
         .await
@@ -2762,7 +2817,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
         sqlx::query_scalar!("SELECT j.id
              FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
              WHERE r.ping < now() - ($1 || ' seconds')::interval
-             AND q.running = true AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') AND j.same_worker = false",
+             AND q.running = true AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') AND j.same_worker = false AND q.suspend_until IS NULL",
              ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
         .await

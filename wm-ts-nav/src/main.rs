@@ -94,6 +94,13 @@ enum Command {
     },
 }
 
+/// Get absolute path without resolving symlinks (canonicalize the parent, keep the filename).
+fn absolute_no_symlink(p: &std::path::Path) -> Result<PathBuf> {
+    let parent = p.parent().unwrap_or(std::path::Path::new("."));
+    let parent = std::fs::canonicalize(parent)?;
+    Ok(parent.join(p.file_name().unwrap_or_default()))
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let root = cli
@@ -114,7 +121,7 @@ fn main() -> Result<()> {
             );
         }
         Command::Outline { file } => {
-            let file = std::fs::canonicalize(&file)?;
+            let file = absolute_no_symlink(&file)?;
             let symbols = db.file_symbols(&file.to_string_lossy())?;
             if symbols.is_empty() {
                 println!("No symbols found");

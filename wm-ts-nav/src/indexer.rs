@@ -2,7 +2,7 @@ use anyhow::Result;
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::db::{self, Db};
 use crate::parser::{self, Lang};
@@ -14,20 +14,56 @@ pub struct IndexStats {
     pub files_unchanged: usize,
 }
 
+/// Find gitignored *_ee files (EE symlinks from windmill-ee-private).
+fn find_ee_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name_str = name.to_str().unwrap_or("");
+        // path.is_dir() follows symlinks
+        if path.is_dir() {
+            if !matches!(name_str, "target" | "node_modules" | ".git") {
+                find_ee_files(&path, out);
+            }
+        } else if Lang::from_path(&path).is_some()
+            && (name_str.ends_with("_ee.rs")
+                || name_str.ends_with("_ee.ts")
+                || name_str.ends_with("_ee.svelte"))
+            && path.exists() // follows symlink, checks target exists
+        {
+            out.push(path);
+        }
+    }
+}
+
 /// Incrementally update the index for the given root directory.
 /// Only re-parses files whose mtime has changed since last index.
 pub fn update_index(db: &Db, root: &Path) -> Result<IndexStats> {
     // Collect all supported files using `ignore` crate (respects .gitignore)
-    let files: Vec<_> = WalkBuilder::new(root)
+    let mut files: Vec<_> = WalkBuilder::new(root)
         .hidden(true)
         .git_ignore(true)
         .git_global(false)
+        .follow_links(true)
         .build()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
         .filter(|e| Lang::from_path(e.path()).is_some())
         .map(|e| e.into_path())
         .collect();
+
+    // Also include gitignored *_ee files (EE symlinks from windmill-ee-private)
+    let file_set: HashSet<_> = files.iter().cloned().collect();
+    let mut ee_files = Vec::new();
+    find_ee_files(root, &mut ee_files);
+    for f in ee_files {
+        if !file_set.contains(&f) {
+            files.push(f);
+        }
+    }
 
     let disk_paths: HashSet<String> = files
         .iter()

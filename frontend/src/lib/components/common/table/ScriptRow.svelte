@@ -35,11 +35,14 @@
 		Share,
 		Trash,
 		History,
-		Globe2
+		Globe2,
+		FileText
 	} from 'lucide-svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
+	import WacExportDrawer from '$lib/components/scripts/WacExportDrawer.svelte'
 	import { Drawer, DrawerContent } from '..'
 	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { scriptToHubUrl } from '$lib/hub'
@@ -106,6 +109,7 @@
 
 	const dlt: 'delete' = 'delete'
 	let versionsDrawerOpen: boolean = $state(false)
+	let wacExportDrawer: WacExportDrawer | undefined = $state(undefined)
 </script>
 
 {#if menuOpen}
@@ -115,7 +119,7 @@
 <Row
 	aiId={`script-run-button-${script.path}`}
 	aiDescription={`Button to access the form to run the script ${script.summary ?? script.path}`}
-	href={script.draft_only || (script.no_main_func && script.kind !== 'preprocessor')
+	href={script.draft_only || (script.auto_kind === 'lib' && script.kind !== 'preprocessor')
 		? `${base}/scripts/edit/${script.path}`
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
@@ -136,8 +140,16 @@
 			<Badge color="red" baseClass="border">Archived</Badge>
 		{/if}
 
-		{#if script.no_main_func && script.kind !== 'preprocessor'}
+		{#if script.auto_kind === 'lib' && script.kind !== 'preprocessor'}
 			<NoMainFuncBadge />
+		{/if}
+		{#if script.auto_kind === 'wac'}
+			<Popover notClickable>
+				{#snippet text()}
+					Workflow-as-Code
+				{/snippet}
+				<Badge small color="indigo" baseClass="border border-indigo-200">wac</Badge>
+			</Popover>
 		{/if}
 		{#if script.kind !== 'script'}
 			<Badge color="blue" baseClass="border"
@@ -234,6 +246,21 @@
 							showCode(script.path, script.summary)
 						}
 					},
+					...(script.auto_kind === 'wac'
+						? [
+								{
+									displayName: 'View JSON/YAML',
+									icon: FileText,
+									action: async () => {
+										const fullScript = await ScriptService.getScriptByPath({
+											workspace: $workspaceStore!,
+											path: script.path
+										})
+										wacExportDrawer?.open(fullScript)
+									}
+								}
+							]
+						: []),
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
@@ -412,3 +439,5 @@
 		</DrawerContent>
 	</Drawer>
 {/if}
+
+<WacExportDrawer bind:this={wacExportDrawer} />

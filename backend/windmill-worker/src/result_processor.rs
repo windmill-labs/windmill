@@ -16,6 +16,10 @@ use windmill_common::otel_oss::FutureExt;
 
 use uuid::Uuid;
 
+/// Set by the result processor when a WAC child completion makes suspend reach 0,
+/// signaling the worker main loop to check for suspended jobs immediately.
+pub static WAC_SUSPEND_READY: AtomicBool = AtomicBool::new(false);
+
 use windmill_common::{
     add_time,
     error::{self, Error},
@@ -1014,6 +1018,7 @@ pub(crate) async fn handle_wac_child_completion(
             parent_job = %parent_job_id,
             "WAC v2 all child jobs completed, unsuspending parent"
         );
+        WAC_SUSPEND_READY.store(true, Ordering::Relaxed);
     }
 
     Ok(Some(()))

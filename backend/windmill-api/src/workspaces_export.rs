@@ -89,14 +89,20 @@ struct ScriptMetadata {
     pub restart_unless_cancelled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visible_to_runner_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub no_main_func: Option<bool>,
+    // auto_kind is intentionally excluded from export — it is auto-detected by the
+    // parser at deploy time from the script content (workflow/task patterns for "wac",
+    // no main function for "lib").
+    #[serde(skip_serializing)]
+    #[allow(dead_code)]
+    pub auto_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codebase: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modules: Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
     #[serde(flatten)]
     pub concurrency_settings: ConcurrencySettings,
     #[serde(flatten)]
@@ -503,10 +509,11 @@ pub(crate) async fn tarball_workspace(
                 delete_after_use: script.delete_after_use,
                 restart_unless_cancelled: script.restart_unless_cancelled,
                 visible_to_runner_only: script.visible_to_runner_only,
-                no_main_func: script.no_main_func,
+                auto_kind: script.auto_kind,
                 codebase: script.codebase,
                 has_preprocessor: script.has_preprocessor,
                 on_behalf_of_email: script.on_behalf_of_email,
+                modules: script.modules,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive
@@ -834,7 +841,7 @@ pub(crate) async fn tarball_workspace(
                     let trigger_str = &to_string_without_metadata(
                         &trigger,
                         false,
-                        Some(vec!["webhook_token_prefix"]),
+                        Some(vec!["webhook_token_hash"]),
                     )
                     .unwrap();
                     archive

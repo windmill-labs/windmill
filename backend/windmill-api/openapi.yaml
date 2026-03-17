@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.657.2
+  version: 1.658.0
   title: Windmill API
 
   contact:
@@ -14164,7 +14164,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/InstanceGroup"
+                $ref: "#/components/schemas/InstanceGroupWithWorkspaces"
 
   /groups/create:
     post:
@@ -14212,6 +14212,10 @@ paths:
               properties:
                 new_summary:
                   type: string
+                instance_role:
+                  type: string
+                  nullable: true
+                  description: "Instance-level role for group members. 'superadmin', 'devops', 'user' or empty to clear."
               required:
                 - new_summary
       responses:
@@ -18775,14 +18779,20 @@ components:
           type: boolean
         visible_to_runner_only:
           type: boolean
-        no_main_func:
-          type: boolean
+        auto_kind:
+          type: string
         codebase:
           type: string
         has_preprocessor:
           type: boolean
         on_behalf_of_email:
           type: string
+        modules:
+          type: object
+          nullable: true
+          description: "Additional script modules keyed by relative file path"
+          additionalProperties:
+            $ref: "#/components/schemas/ScriptModule"
 
       required:
         - hash
@@ -18799,7 +18809,6 @@ components:
         - language
         - kind
         - starred
-        - no_main_func
         - has_preprocessor
 
     NewScript:
@@ -18872,8 +18881,8 @@ components:
           type: integer
         visible_to_runner_only:
           type: boolean
-        no_main_func:
-          type: boolean
+        auto_kind:
+          type: string
         codebase:
           type: string
         has_preprocessor:
@@ -18901,6 +18910,12 @@ components:
               alt_access_type:
                 type: string
                 enum: [r, w, rw]
+        modules:
+          type: object
+          nullable: true
+          description: "Additional script modules keyed by relative file path"
+          additionalProperties:
+            $ref: "#/components/schemas/ScriptModule"
 
       required:
         - path
@@ -20050,8 +20065,8 @@ components:
             required:
               - name
               - typ
-        no_main_func:
-          type: boolean
+        auto_kind:
+          type: string
           nullable: true
         has_preprocessor:
           type: boolean
@@ -20062,7 +20077,7 @@ components:
         - args
         - type
         - error
-        - no_main_func
+        - auto_kind
         - has_preprocessor
 
     ScriptLang:
@@ -20094,6 +20109,23 @@ components:
           # for related places search: ADD_NEW_LANG
         ]
 
+    ScriptModule:
+      type: object
+      description: "An additional module file associated with a script"
+      properties:
+        content:
+          type: string
+          description: "The source code content of this module"
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        lock:
+          type: string
+          nullable: true
+          description: "Lock file content for this module's dependencies"
+      required:
+        - content
+        - language
+
     Preview:
       type: object
       properties:
@@ -20121,6 +20153,12 @@ components:
           type: string
         flow_path:
           type: string
+        modules:
+          type: object
+          nullable: true
+          description: "Additional script modules keyed by relative file path"
+          additionalProperties:
+            $ref: "#/components/schemas/ScriptModule"
       required:
         - args
 
@@ -22629,6 +22667,12 @@ components:
           type: array
           items:
             type: string
+        instance_role:
+          type: string
+          nullable: true
+          enum:
+            - superadmin
+            - devops
 
     InstanceGroupWithWorkspaces:
       type: object
@@ -22643,6 +22687,12 @@ components:
           type: array
           items:
             type: string
+        instance_role:
+          type: string
+          nullable: true
+          enum:
+            - superadmin
+            - devops
         workspaces:
           type: array
           items:
@@ -22926,6 +22976,9 @@ components:
           type: boolean
         first_time_user:
           type: boolean
+        role_source:
+          type: string
+          enum: ["manual", "instance_group"]
 
       required:
         - email
@@ -22933,6 +22986,7 @@ components:
         - super_admin
         - verified
         - first_time_user
+        - role_source
 
     Flow:
       allOf:
@@ -23802,6 +23856,12 @@ components:
           type: string
         external_id:
           type: string
+        instance_role:
+          type: string
+          nullable: true
+          enum:
+            - superadmin
+            - devops
       required:
         - name
 

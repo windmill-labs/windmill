@@ -54,7 +54,7 @@ mod test {
                         oidx: None
                     }
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: None,
             },
             sig
@@ -81,7 +81,7 @@ mod test {
                     has_default: true,
                     oidx: None
                 },],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: None,
             },
             sig
@@ -118,7 +118,7 @@ mod test {
                         oidx: None
                     },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: None,
             },
             sig
@@ -230,7 +230,7 @@ mod test {
                         oidx: None
                     },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: None,
             },
             sig
@@ -277,7 +277,7 @@ mod test {
                         oidx: None
                     },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: None,
             },
             sig
@@ -341,7 +341,7 @@ mod test {
     //                 has_default: false,
     //                 oidx: None
     //             },],
-    //             no_main_func: Some(false),
+    //             auto_kind: None,
     //             has_preprocessor: None,
     //         },
     //         sig
@@ -371,7 +371,7 @@ mod test {
                     has_default: false,
                     oidx: None
                 },],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: None,
             },
             sig
@@ -418,7 +418,7 @@ mod test {
                         oidx: None
                     },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: None,
             },
             sig
@@ -446,7 +446,7 @@ mod test {
                     has_default: false,
                     oidx: None
                 },],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: None,
             },
             sig
@@ -478,7 +478,7 @@ mod test {
     //                 has_default: false,
     //                 oidx: None
     //             },],
-    //             no_main_func: Some(false),
+    //             auto_kind: None,
     //             has_preprocessor: None,
     //         },
     //         sig
@@ -540,7 +540,7 @@ mod test {
                         oidx: None
                     }
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: None,
             },
             sig
@@ -633,7 +633,7 @@ mod test {
     //                     oidx: None
     //                 },
     //             ],
-    //             no_main_func: Some(false),
+    //             auto_kind: None,
     //             has_preprocessor: None,
     //         },
     //         sig
