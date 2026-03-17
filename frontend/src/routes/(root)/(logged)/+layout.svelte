@@ -26,6 +26,7 @@
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
+		wsBaseUrlStore,
 		disableHubStore,
 		usedTriggerKinds,
 		devopsRole,
@@ -158,6 +159,7 @@
 		loadUsage()
 		syncTutorialsTodos()
 		loadHubBaseUrl()
+		loadWsBaseUrl()
 		loadDisableHub()
 		loadUsedTriggerKinds()
 	}
@@ -176,6 +178,13 @@
 			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
 			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
 			DEFAULT_HUB_BASE_URL
+	}
+
+	async function loadWsBaseUrl() {
+		const val = (await SettingService.getGlobal({ key: 'ws_base_url' })) as string
+		if (val) {
+			$wsBaseUrlStore = val
+		}
 	}
 
 	async function loadDisableHub() {

@@ -17,10 +17,7 @@ pub struct Client {
 impl Client {
     /// Create a new client with an existing reqwest::Client
     pub fn new_with_client(baseurl: &str, client: reqwest::Client) -> Self {
-        Self {
-            baseurl: baseurl.to_string(),
-            client,
-        }
+        Self { baseurl: baseurl.to_string(), client }
     }
 
     /// Get the base URL
@@ -49,7 +46,10 @@ impl Client {
         if response.status().is_success() {
             Ok(response.text().await?)
         } else {
-            Err(Error::UnexpectedResponse(response.status().as_u16(), response.text().await.unwrap_or_default()))
+            Err(Error::UnexpectedResponse(
+                response.status().as_u16(),
+                response.text().await.unwrap_or_default(),
+            ))
         }
     }
 
@@ -69,7 +69,10 @@ impl Client {
         if response.status().is_success() {
             Ok(response.text().await?)
         } else {
-            Err(Error::UnexpectedResponse(response.status().as_u16(), response.text().await.unwrap_or_default()))
+            Err(Error::UnexpectedResponse(
+                response.status().as_u16(),
+                response.text().await.unwrap_or_default(),
+            ))
         }
     }
 
@@ -97,7 +100,10 @@ impl Client {
         if response.status().is_success() {
             Ok(response.json().await?)
         } else {
-            Err(Error::UnexpectedResponse(response.status().as_u16(), response.text().await.unwrap_or_default()))
+            Err(Error::UnexpectedResponse(
+                response.status().as_u16(),
+                response.text().await.unwrap_or_default(),
+            ))
         }
     }
 
@@ -117,7 +123,10 @@ impl Client {
         if response.status().is_success() {
             Ok(response.text().await?)
         } else {
-            Err(Error::UnexpectedResponse(response.status().as_u16(), response.text().await.unwrap_or_default()))
+            Err(Error::UnexpectedResponse(
+                response.status().as_u16(),
+                response.text().await.unwrap_or_default(),
+            ))
         }
     }
 
@@ -139,7 +148,10 @@ impl Client {
         if response.status().is_success() {
             Ok(response.text().await?)
         } else {
-            Err(Error::UnexpectedResponse(response.status().as_u16(), response.text().await.unwrap_or_default()))
+            Err(Error::UnexpectedResponse(
+                response.status().as_u16(),
+                response.text().await.unwrap_or_default(),
+            ))
         }
     }
 
@@ -151,7 +163,10 @@ impl Client {
         if response.status().is_success() {
             Ok(response.json().await?)
         } else {
-            Err(Error::UnexpectedResponse(response.status().as_u16(), response.text().await.unwrap_or_default()))
+            Err(Error::UnexpectedResponse(
+                response.status().as_u16(),
+                response.text().await.unwrap_or_default(),
+            ))
         }
     }
 }
@@ -367,7 +382,7 @@ pub mod types {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub lock: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub no_main_func: Option<bool>,
+        pub auto_kind: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub on_behalf_of_email: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -388,6 +403,8 @@ pub mod types {
         pub visible_to_runner_only: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub ws_error_handler_muted: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub modules: Option<HashMap<String, serde_json::Value>>,
     }
 
     /// Script arguments (used in schedules)
@@ -555,12 +572,12 @@ pub mod types {
         Static {
             #[serde(rename = "type")]
             type_: String,
-            value: serde_json::Value
+            value: serde_json::Value,
         },
         Javascript {
             #[serde(rename = "type")]
             type_: String,
-            expr: String
+            expr: String,
         },
     }
 

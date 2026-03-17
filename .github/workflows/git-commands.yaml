@@ -106,6 +106,19 @@ jobs:
           git config --local user.name "windmill-internal-app[bot]"
           git config pull.rebase true
           git pull origin $BRANCH_NAME
+
+          # Checkout the correct windmill-ee-private commit from ee-repo-ref.txt
+          if [ -f backend/ee-repo-ref.txt ]; then
+            EE_REF=$(cat backend/ee-repo-ref.txt | tr -d '[:space:]')
+            echo "Checking out windmill-ee-private at commit: $EE_REF"
+            cd windmill-ee-private
+            git fetch origin $EE_REF
+            git checkout $EE_REF
+            cd ..
+          else
+            echo "Warning: ee-repo-ref.txt not found, using default branch"
+          fi
+
           mkdir -p frontend/build
           cd backend
           cargo install sqlx-cli --version 0.8.5

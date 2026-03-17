@@ -33,10 +33,10 @@ export const FLOW_BASE = `# Windmill Flow Building Guide
 
 ## CLI Commands
 
-Create a folder ending with \`.flow\` and add a YAML file with the flow definition.
-For rawscript modules, use \`!inline path/to/script.ts\` for the content key.
+Create a folder ending with \`__flow\` and add a \`flow.yaml\` file with the flow definition.
+For rawscript modules, use \`!inline path/to/script.ts\` for the content key. Inline script files should NOT include \`.inline_script.\` in their names (e.g. use \`a.ts\`, not \`a.inline_script.ts\`).
 After writing, tell the user they can run:
-- \`wmill flow generate-locks <path_to_flow_folder> --yes\` - Generate lock files for the specific flow you modified (e.g. \`wmill flow generate-locks f/my_folder/my_flow.flow --yes\`)
+- \`wmill flow generate-locks <path_to_flow_folder> --yes\` - Generate lock files for the specific flow you modified (e.g. \`wmill flow generate-locks f/my_folder/my_flow__flow --yes\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -1492,6 +1492,23 @@ folder related commands
 - \`folder push <name:string>\` - push a local folder to the remote by name. This overrides any remote versions.
 - \`folder add-missing\` - create default folder.meta.yaml for all subdirectories of f/ that are missing one
   - \`-y, --yes\` - skip confirmation prompt
+
+### generate-metadata
+
+Generate metadata (locks, schemas) for all scripts, flows, and apps
+
+**Arguments:** \`[folder:string]\`
+
+**Options:**
+- \`--yes\` - Skip confirmation prompt
+- \`--dry-run\` - Show what would be updated without making changes
+- \`--lock-only\` - Re-generate only the lock files
+- \`--schema-only\` - Re-generate only script schemas (skips flows and apps)
+- \`--skip-scripts\` - Skip processing scripts
+- \`--skip-flows\` - Skip processing flows
+- \`--skip-apps\` - Skip processing apps
+- \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
+- \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
 
 ### gitsync-settings
 

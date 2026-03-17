@@ -3,6 +3,7 @@ name: "bash run script"
 mode: ONCE
 hostname: "bash"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 disable_rl: true
 

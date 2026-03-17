@@ -3,6 +3,7 @@ name: "ansible run script"
 mode: ONCE
 hostname: "ansible"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 rlimit_as: 4096
 rlimit_cpu: 1000
