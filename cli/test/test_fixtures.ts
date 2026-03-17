@@ -28,6 +28,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 import {
   getFolderSuffix,
   getMetadataFileName,
+  getModuleFolderSuffix,
 } from "../src/utils/resource_folders.ts";
 
 // =============================================================================
@@ -460,6 +461,65 @@ export async function createLocalRawApp(
     const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
     await mkdir(dir, { recursive: true });
     await writeFile(fullPath, file.content, "utf-8");
+  }
+}
+
+// =============================================================================
+// Script with Modules Fixtures
+// =============================================================================
+
+export interface ModuleFile {
+  path: string;
+  content: string;
+  lock?: string;
+}
+
+/**
+ * Creates a script with module files on the local filesystem.
+ *
+ * Creates the main script, its metadata, and module files in a __mod/ folder.
+ * Optionally includes lock files for modules.
+ *
+ * @param tempDir - Base directory for the test workspace
+ * @param dir - Relative path within the workspace (e.g., "f/test")
+ * @param name - Script name (without extension)
+ * @param language - Script language (default: "bun")
+ * @param modules - Module files to create
+ *
+ * @example
+ * await createLocalScriptWithModules(tempDir, "f/test", "my_script", "bun", [
+ *   { path: "helper.ts", content: "export const x = 1;" },
+ *   { path: "utils/math.ts", content: "export function add(a, b) { return a + b; }", lock: "lodash@4.0.0\n" },
+ * ]);
+ */
+export async function createLocalScriptWithModules(
+  tempDir: string,
+  dir: string,
+  name: string,
+  language: "python3" | "deno" | "bun" | "bash" | "go" | "postgresql" = "bun",
+  modules: ModuleFile[]
+): Promise<void> {
+  // Create the main script
+  await createLocalScript(tempDir, dir, name, language);
+
+  // Create module files in __mod/ folder
+  const modSuffix = getModuleFolderSuffix();
+  const modDir = `${tempDir}/${dir}/${name}${modSuffix}`;
+
+  for (const mod of modules) {
+    const fullPath = `${modDir}/${mod.path}`;
+    const parentDir = fullPath.substring(0, fullPath.lastIndexOf("/"));
+    await mkdir(parentDir, { recursive: true });
+    await writeFile(fullPath, mod.content, "utf-8");
+
+    // Write lock file if provided
+    if (mod.lock) {
+      const baseName = mod.path.substring(0, mod.path.indexOf("."));
+      const lockPath = `${modDir}/${baseName}.lock`;
+      const lockDir = lockPath.substring(0, lockPath.lastIndexOf("/"));
+      await mkdir(lockDir, { recursive: true });
+      await writeFile(lockPath, mod.lock, "utf-8");
+    }
   }
 }
 

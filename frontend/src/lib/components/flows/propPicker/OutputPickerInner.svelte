@@ -204,7 +204,8 @@
 	}
 
 	function updateLastJob() {
-		if (testJob) {
+		// Prefer testJob only when actively running/streaming (individual step test in progress)
+		if (testJob && (testJob.result_stream || testJob.type === 'QueuedJob')) {
 			return testJob
 		}
 		if (
@@ -214,6 +215,8 @@
 		) {
 			return
 		}
+		// Use flowStateStore as source of truth — it's updated by both individual step tests
+		// (ModuleTest.jobDone) and flow tests (FlowStatusViewerInner.onJobsLoadedInner)
 		return {
 			id: flowStateStore.val[moduleId]?.previewJobId ?? '',
 			result: flowStateStore.val[moduleId]?.previewResult,

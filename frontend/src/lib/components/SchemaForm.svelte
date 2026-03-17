@@ -34,7 +34,7 @@
 		defaultValues?: Record<string, any>
 		shouldHideNoInputs?: boolean
 		compact?: boolean
-		linkedSecret?: string | undefined
+		linkedSecrets?: string[]
 		linkedSecretCandidates?: string[] | undefined
 		noVariablePicker?: boolean
 		flexWrap?: boolean
@@ -86,7 +86,7 @@
 		defaultValues = {},
 		shouldHideNoInputs = false,
 		compact = false,
-		linkedSecret = $bindable(undefined),
+		linkedSecrets = $bindable([]),
 		linkedSecretCandidates = undefined,
 		noVariablePicker = false,
 		flexWrap = false,
@@ -333,7 +333,7 @@
 								{variableEditor}
 								{itemPicker}
 								{pickForField}
-								password={linkedSecret == argName}
+								password={linkedSecrets.includes(argName)}
 								extra={formerProperty}
 								{showSchemaExplorer}
 								simpleTooltip={schemaFieldTooltip[argName]}
@@ -398,22 +398,24 @@
 									customErrorMessage={prop?.customErrorMessage}
 									bind:properties={
 										() => prop?.properties,
-										(v) => { if (prop) prop.properties = v }
+										(v) => {
+											if (prop) prop.properties = v
+										}
 									}
 									bind:order={
 										() => prop?.order,
-										(v) => { if (prop) prop.order = v }
+										(v) => {
+											if (prop) prop.order = v
+										}
 									}
 									nestedRequired={prop?.required}
 									itemsType={prop?.items}
-									disabled={disabledArgs.includes(argName) ||
-										disabled ||
-										prop?.disabled}
+									disabled={disabledArgs.includes(argName) || disabled || prop?.disabled}
 									{compact}
 									{variableEditor}
 									{itemPicker}
 									bind:pickForField
-									password={linkedSecret == argName}
+									password={linkedSecrets.includes(argName)}
 									extra={prop}
 									{showSchemaExplorer}
 									simpleTooltip={schemaFieldTooltip[argName]}
@@ -440,12 +442,14 @@
 										{#if linkedSecretCandidates?.includes(argName)}
 											<div class="relative">
 												<ToggleButtonGroup
-													selected={linkedSecret == argName ? 'secret' : 'inlined'}
+													selected={linkedSecrets.includes(argName) ? 'secret' : 'inlined'}
 													on:selected={(e) => {
 														if (e.detail === 'secret') {
-															linkedSecret = argName
-														} else if (linkedSecret == argName) {
-															linkedSecret = undefined
+															if (!linkedSecrets.includes(argName)) {
+																linkedSecrets = [...linkedSecrets, argName]
+															}
+														} else {
+															linkedSecrets = linkedSecrets.filter((s) => s !== argName)
 														}
 													}}
 												>

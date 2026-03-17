@@ -1361,7 +1361,7 @@ pub async fn fetch_raw_script_from_app_query(
     .await
     .map_err(Into::into)
     .and_then(unwrap_or_error(&loc, "Application script", id))
-    .map(|r| RawScript { content: r.code, lock: r.lock, meta: None })
+    .map(|r| RawScript { content: r.code, lock: r.lock, meta: None, modules: None })
 }
 
 pub async fn insert_ping_query(

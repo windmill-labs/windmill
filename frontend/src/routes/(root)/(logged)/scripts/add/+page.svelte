@@ -14,6 +14,8 @@
 	import { get } from 'svelte/store'
 	import { untrack } from 'svelte'
 	import ScriptEditorSkeleton from '$lib/components/ScriptEditorSkeleton.svelte'
+	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
+	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 
 	type Script = NewScript & {
 		draft_triggers?: Trigger[]
@@ -29,6 +31,8 @@
 	const showMeta = /true|1/i.test(page.url.searchParams.get('show_meta') ?? '0')
 	const urlArgs = page.url.searchParams.get('initial_args')
 	const collabLang = page.url.searchParams.get('lang') as ScriptLang | null
+	const wacParam = page.url.searchParams.get('wac')
+	const importParam = page.url.searchParams.get('import')
 
 	let initialArgs = urlArgs ? decodeState(urlArgs) : (get(initialArgsStore) ?? {})
 	if (get(initialArgsStore)) $initialArgsStore = undefined
@@ -59,7 +63,7 @@
 			schema: schema,
 			is_template: false,
 			extra_perms: {},
-			language: collabLang ?? ($defaultScripts?.order?.filter(
+			language: (wacParam === 'python' ? 'python3' : wacParam === 'typescript' ? 'bun' : null) ?? collabLang ?? ($defaultScripts?.order?.filter(
 				(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x)
 			)?.[0] ?? 'bun') as ScriptLang,
 			kind: 'script'
@@ -122,6 +126,27 @@
 
 	loadHub()
 
+	let importedWacTemplate: 'wac_python' | 'wac_typescript' | undefined = undefined
+	if (importParam && $importScriptStore) {
+		const imported = $importScriptStore
+		$importScriptStore = undefined
+		const isWac = isWorkflowAsCode(imported.content ?? '', imported.language ?? '')
+		script = {
+			...defaultScript(),
+			...imported,
+			path: path ?? '',
+			hash: '',
+			extra_perms: {}
+		}
+		if (isWac) {
+			importedWacTemplate =
+				imported.language === 'python3' ? 'wac_python' : 'wac_typescript'
+			sendUserToast('WAC script loaded from YAML/JSON')
+		} else {
+			sendUserToast('Script loaded from YAML/JSON')
+		}
+	}
+
 	$effect(() => {
 		if ($workspaceStore) {
 			untrack(() => loadTemplate())
@@ -134,6 +159,7 @@
 		{initialArgs}
 		bind:this={scriptBuilder}
 		lockedLanguage={templatePath != null || hubPath != null}
+		template={importedWacTemplate ?? (wacParam === 'python' ? 'wac_python' : wacParam === 'typescript' ? 'wac_typescript' : 'script')}
 		onDeploy={(e) => {
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}

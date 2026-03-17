@@ -24,6 +24,7 @@ use windmill_common::runtime_assets::init_runtime_asset_loop;
 use windmill_common::runtime_assets::register_runtime_asset;
 use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
+use windmill_common::scripts::ScriptModule;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
 use windmill_common::worker::error_to_value;
@@ -602,6 +603,8 @@ lazy_static::lazy_static! {
     pub static ref RUBY_REPOS: Arc<RwLock<Option<Vec<url::Url>>>> = Arc::new(RwLock::new(None));
     pub static ref CARGO_REGISTRIES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
+    pub static ref WORKSPACE_REGISTRIES: Arc<RwLock<Option<WorkspaceRegistryMap>>> = Arc::new(RwLock::new(None));
+
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref UV_INDEX_STRATEGY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
@@ -654,6 +657,9 @@ pub fn sleep_queue() -> u64 {
         *SLEEP_QUEUE_BASE
     }
 }
+
+pub type WorkspaceRegistryMap =
+    std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>;
 
 type Envs = Vec<(String, String)>;
 
@@ -714,6 +720,117 @@ pub async fn read_ee_registry<T>(
         return None;
     }
     value
+}
+
+/// Like `read_ee_registry`, but first checks for a workspace-specific override.
+/// If the workspace has an override for `setting_key`, that value is used instead of `global_value`.
+pub async fn read_ee_registry_with_workspace_override(
+    global_value: Option<String>,
+    setting_key: &str,
+    display_name: &str,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> Option<String> {
+    let ws_value = {
+        let registries = WORKSPACE_REGISTRIES.read().await;
+        registries
+            .as_ref()
+            .and_then(|m| m.get(w_id))
+            .and_then(|ws| ws.get(setting_key))
+            .and_then(|v| match v {
+                serde_json::Value::String(s) => Some(s.clone()),
+                _ => None,
+            })
+    };
+    let value = ws_value.or(global_value);
+    read_ee_registry(value, display_name, job_id, w_id, conn).await
+}
+
+/// Like `read_ee_registry_with_workspace_override`, but for `bool` values.
+pub async fn read_ee_registry_bool_with_workspace_override(
+    global_value: bool,
+    setting_key: &str,
+    display_name: &str,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> bool {
+    let ws_value = {
+        let registries = WORKSPACE_REGISTRIES.read().await;
+        registries
+            .as_ref()
+            .and_then(|m| m.get(w_id))
+            .and_then(|ws| ws.get(setting_key))
+            .and_then(|v| v.as_bool())
+    };
+    let value = ws_value.unwrap_or(global_value);
+    if !cfg!(feature = "enterprise") && value {
+        append_logs(
+            job_id,
+            w_id,
+            format!("Private registry ({display_name}) configuration ignored: this feature requires Windmill Enterprise Edition\n"),
+            conn,
+        )
+        .await;
+        return false;
+    }
+    value
+}
+
+/// Like `read_ee_registry_with_workspace_override`, but for `Vec<url::Url>` values (e.g. ruby_repos).
+pub async fn read_ee_registry_url_list_with_workspace_override(
+    global_value: Option<Vec<url::Url>>,
+    setting_key: &str,
+    display_name: &str,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> Option<Vec<url::Url>> {
+    let ws_value = {
+        let registries = WORKSPACE_REGISTRIES.read().await;
+        registries
+            .as_ref()
+            .and_then(|m| m.get(w_id))
+            .and_then(|ws| ws.get(setting_key))
+            .and_then(|v| match v {
+                serde_json::Value::String(s) => {
+                    let urls: Vec<url::Url> = s
+                        .split(|c: char| c == ',' || c.is_whitespace())
+                        .filter(|s| !s.is_empty())
+                        .filter_map(|s| url::Url::parse(s).ok())
+                        .collect();
+                    if urls.is_empty() {
+                        None
+                    } else {
+                        Some(urls)
+                    }
+                }
+                _ => None,
+            })
+    };
+    let value = ws_value.or(global_value);
+    read_ee_registry(value, display_name, job_id, w_id, conn).await
+}
+
+/// Returns a cache key suffix for workspace-specific registry overrides.
+/// If the workspace has any registry overrides, returns `":ws:<w_id>"` to namespace
+/// the resolution cache. Otherwise returns empty string.
+///
+/// Called on every job's cache lookup path. When no workspace overrides are
+/// configured (the common case), this returns `""` with zero allocation —
+/// the RwLock read is uncontended and costs only nanoseconds.
+pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
+    let registries = WORKSPACE_REGISTRIES.read().await;
+    let has_overrides = registries
+        .as_ref()
+        .and_then(|m| m.get(w_id))
+        .map_or(false, |ws| !ws.is_empty());
+    if has_overrides {
+        format!(":ws:{w_id}")
+    } else {
+        String::new()
+    }
 }
 
 pub fn is_sandboxing_enabled() -> bool {
@@ -2063,6 +2180,7 @@ pub async fn run_worker(
             }
         }
 
+        let mut was_suspended_job = false;
         let next_job = {
             // println!("2: {:?}",  instant.elapsed());
             #[cfg(feature = "benchmark")]
@@ -2146,7 +2264,9 @@ pub async fn run_worker(
 
                         let suspend_first = suspend_first_success
                             || rand::random::<f64>() < likelihood_of_suspend
-                            || last_suspend_first.elapsed().as_secs_f64() > 5.0;
+                            || last_suspend_first.elapsed().as_secs_f64() > 5.0
+                            || crate::result_processor::WAC_SUSPEND_READY
+                                .swap(false, Ordering::Relaxed);
 
                         if suspend_first {
                             last_suspend_first = Instant::now();
@@ -2219,6 +2339,7 @@ pub async fn run_worker(
                             }
                         }
 
+                        was_suspended_job = job.as_ref().is_ok_and(|j| j.suspended);
                         if let Ok(j) = job.as_ref() {
                             let suspend_success = j.suspended;
                             if suspend_first {
@@ -2436,7 +2557,9 @@ pub async fn run_worker(
                         .expect("send job completed END");
                     add_time!(bench, "sent job completed");
                 } else {
-                    add_outstanding_wait_time(&conn, &job, *OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
+                    if !was_suspended_job {
+                        add_outstanding_wait_time(&conn, &job, *OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
+                    }
 
                     #[cfg(feature = "prometheus")]
                     register_metric(
@@ -3306,10 +3429,22 @@ pub async fn handle_queued_job(
             "none"
         };
 
-        logs.push_str(&format!(
-            "job={} {}={} worker={} hostname={} isolation={}\n",
-            &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname, isolation_label
-        ));
+        // Skip verbose job header for WAC v2 replays (checkpoint has completed steps)
+        let is_wac_replay = if let Connection::Sql(db) = conn {
+            crate::wac_executor::load_checkpoint(db, &job.id)
+                .await
+                .map(|c| !c.completed_steps.is_empty())
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        if !is_wac_replay {
+            logs.push_str(&format!(
+                "job={} {}={} worker={} hostname={} isolation={}\n",
+                &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname, isolation_label
+            ));
+        }
 
         if *NO_LOGS_AT_ALL {
             logs.push_str("Logs are fully disabled for this worker\n");
@@ -3616,6 +3751,7 @@ pub struct ContentReqLangEnvs {
     pub envs: Option<Vec<String>>,
     pub codebase: Option<String>,
     pub schema: Option<String>,
+    pub modules: Option<std::collections::HashMap<String, ScriptModule>>,
 }
 
 pub async fn get_hub_script_content_and_requirements(
@@ -3635,6 +3771,7 @@ pub async fn get_hub_script_content_and_requirements(
         envs: None,
         codebase: None,
         schema: Some(script.schema.get().to_string()),
+        modules: None,
     })
 }
 
@@ -3655,6 +3792,7 @@ pub async fn get_script_content_by_hash(
             Some(_) => Some(script_hash.to_string()),
         },
         schema: None,
+        modules: data.modules.clone(),
     })
 }
 
@@ -3784,7 +3922,7 @@ async fn handle_code_execution_job(
 
     // Box::pin the script fetching match to prevent large enum on stack
     let (
-        ScriptData { code, lock },
+        ScriptData { code, lock, modules: modules_from_data },
         ScriptMetadata { language, envs, codebase, schema_validator, schema },
     ) = match job.kind {
         JobKind::Preview => {
@@ -3809,14 +3947,14 @@ async fn handle_code_execution_job(
             }
         }
         JobKind::Script_Hub => {
-            let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
+            let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema, .. } =
                 Box::pin(get_hub_script_content_and_requirements(
                     job.runnable_path.as_ref(),
                     conn.as_sql(),
                 ))
                 .await?;
 
-            data = ScriptData { code: content, lock: lockfile };
+            data = ScriptData { code: content, lock: lockfile, modules: None };
             metadata = ScriptMetadata { language, envs, codebase, schema, schema_validator: None };
             (&data, &metadata)
         }
@@ -3861,13 +3999,20 @@ async fn handle_code_execution_job(
                     .as_ref()
                     .ok_or_else(|| Error::internal_err("expected script path".to_string()))?;
                 if script_path.starts_with("hub/") {
-                    let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
-                        Box::pin(get_hub_script_content_and_requirements(
-                            Some(script_path),
-                            conn.as_sql(),
-                        ))
-                        .await?;
-                    data = ScriptData { code: content, lock: lockfile };
+                    let ContentReqLangEnvs {
+                        content,
+                        lockfile,
+                        language,
+                        envs,
+                        codebase,
+                        schema,
+                        ..
+                    } = Box::pin(get_hub_script_content_and_requirements(
+                        Some(script_path),
+                        conn.as_sql(),
+                    ))
+                    .await?;
+                    data = ScriptData { code: content, lock: lockfile, modules: None };
                     metadata =
                         ScriptMetadata { language, envs, codebase, schema, schema_validator: None };
                     (&data, &metadata)
@@ -3897,6 +4042,16 @@ async fn handle_code_execution_job(
             "handle_code_execution_job should never be reachable with a non-code execution job"
         ),
     };
+
+    // For preview jobs, extract modules from args._MODULES if not already set
+    let modules = modules_from_data.clone().or_else(|| {
+        job.args.as_ref().and_then(|args| {
+            args.get("_MODULES").and_then(|raw| {
+                serde_json::from_str::<std::collections::HashMap<String, ScriptModule>>(raw.get())
+                    .ok()
+            })
+        })
+    });
 
     try_validate_schema(
         job,
@@ -3931,9 +4086,48 @@ async fn handle_code_execution_job(
         envs,
         codebase,
         lock,
+        &modules,
         false,
     )
     .await
+}
+
+pub async fn write_module_files(
+    job_dir: &str,
+    modules: &std::collections::HashMap<String, ScriptModule>,
+    base_dir: Option<&str>,
+) -> error::Result<()> {
+    for (relpath, module) in modules {
+        // Reject path traversal attempts in module paths
+        if relpath.contains("..") {
+            tracing::warn!("Skipping module with path traversal: {relpath}");
+            continue;
+        }
+        let full_path = match base_dir {
+            Some(dir) => format!("{}/{}/{}", job_dir, dir, relpath),
+            None => format!("{}/{}", job_dir, relpath),
+        };
+        if let Some(parent) = std::path::Path::new(&full_path).parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        // For Python modules, create __init__.py in each intermediate directory
+        // between base_dir and the module's parent so that relative imports work.
+        if let Some(dir) = base_dir {
+            let rel = std::path::Path::new(relpath);
+            let base = std::path::Path::new(job_dir).join(dir);
+            let mut current = base.clone();
+            for component in rel.parent().into_iter().flat_map(|p| p.components()) {
+                current = current.join(component);
+                let init_py = current.join("__init__.py");
+                if !init_py.exists() {
+                    tokio::fs::write(&init_py, "").await?;
+                }
+            }
+        }
+        tracing::debug!("Writing module file: {full_path}");
+        tokio::fs::write(&full_path, &module.content).await?;
+    }
+    Ok(())
 }
 
 pub async fn run_language_executor(
@@ -3958,8 +4152,24 @@ pub async fn run_language_executor(
     envs: &Option<Vec<String>>,
     codebase: &Option<String>,
     lock: &Option<String>,
+    modules: &Option<std::collections::HashMap<String, ScriptModule>>,
     run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
+    if let Some(modules) = modules {
+        #[cfg(feature = "python")]
+        let base_dir = if language == Some(ScriptLang::Python3) {
+            let script_path = crate::common::use_flow_root_path(job.runnable_path());
+            Some(crate::python_executor::compute_python_module_dir(
+                &script_path,
+            ))
+        } else {
+            None
+        };
+        #[cfg(not(feature = "python"))]
+        let base_dir: Option<String> = None;
+        write_module_files(job_dir, modules, base_dir.as_deref()).await?;
+    }
+
     if language == Some(ScriptLang::Postgresql) {
         return Box::pin(do_postgresql(
             job,
@@ -4433,6 +4643,7 @@ mount {{
                     occupancy_metrics,
                     precomputed_agent_info,
                     has_stream,
+                    modules,
                 ))
                 .await
             }
@@ -4496,6 +4707,7 @@ mount {{
                 occupancy_metrics,
                 precomputed_agent_info,
                 has_stream,
+                modules,
             ))
             .await
         }
@@ -4562,7 +4774,17 @@ mount {{
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
+            let maybe_lock = resolve_maybe_lock(
+                &lock,
+                &code,
+                language,
+                &job.workspace_id,
+                job.runnable_path(),
+                conn.clone(),
+            )
+            .await?;
             Box::pin(handle_powershell_job(
+                maybe_lock,
                 mem_peak,
                 canceled_by,
                 job,
@@ -4998,6 +5220,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &None,
                     &None,
                     &None,
+                    &None,
                     true,
                 )
                 .await
@@ -5078,6 +5301,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &content_info.envs,
                     &content_info.codebase,
                     &content_info.lockfile,
+                    &content_info.modules,
                     true,
                 )
                 .await

@@ -3,6 +3,8 @@ import { type Script } from './gen'
 import type { SupportedLanguage } from './common'
 
 import CLAUDE_SANDBOX_INIT_CODE from './templates/claude_sandbox.ts.template?raw'
+import WAC_PYTHON_INIT_CODE from './templates/wac_python.py.template?raw'
+import WAC_TYPESCRIPT_INIT_CODE from './templates/wac_typescript.ts.template?raw'
 
 const PYTHON_FAILURE_MODULE_CODE = `import os
 
@@ -1378,6 +1380,12 @@ export const INITIAL_CODE = {
 	},
 	claudesandbox: {
 		script: CLAUDE_SANDBOX_INIT_CODE
+	},
+	wac_python: {
+		script: WAC_PYTHON_INIT_CODE
+	},
+	wac_typescript: {
+		script: WAC_TYPESCRIPT_INIT_CODE
 	}
 	// for related places search: ADD_NEW_LANG
 }
@@ -1406,6 +1414,8 @@ export function initialCode(
 		| 'powershell'
 		| 'bunnative'
 		| 'claudesandbox'
+		| 'wac_python'
+		| 'wac_typescript'
 		| undefined,
 	templateScript?: boolean
 ): string {
@@ -1436,6 +1446,10 @@ export function initialCode(
 		} else {
 			return INITIAL_CODE.deno.script
 		}
+	} else if (subkind === 'wac_python') {
+		return INITIAL_CODE.wac_python.script
+	} else if (subkind === 'wac_typescript') {
+		return INITIAL_CODE.wac_typescript.script
 	} else if (language === 'python3') {
 		if (kind === 'trigger') {
 			return INITIAL_CODE.python3.trigger
@@ -1538,6 +1552,8 @@ export function getResetCode(
 		| 'powershell'
 		| 'bunnative'
 		| 'claudesandbox'
+		| 'wac_python'
+		| 'wac_typescript'
 		| undefined
 ) {
 	if (language === 'deno') {

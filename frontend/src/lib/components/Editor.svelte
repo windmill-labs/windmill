@@ -7,6 +7,7 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
+	import { buildWsUrl } from '$lib/wsUrl'
 	import { sendUserToast } from '$lib/toast'
 
 	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
@@ -995,7 +996,6 @@
 			}
 		}
 
-		const wsProtocol = BROWSER && window.location.protocol == 'https:' ? 'wss' : 'ws'
 		const hostname = getHostname()
 
 		let encodedImportMap = ''
@@ -1023,7 +1023,7 @@
 				}
 				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
 				await connectToLanguageServer(
-					`${wsProtocol}://${window.location.host}/ws/deno`,
+					buildWsUrl('/ws/deno'),
 					'deno',
 					{
 						certificateStores: null,
@@ -1065,7 +1065,7 @@
 				)
 			} else if (lang === 'python') {
 				await connectToLanguageServer(
-					`${wsProtocol}://${window.location.host}/ws/pyright`,
+					buildWsUrl('/ws/pyright'),
 					'pyright',
 					{},
 					(params, token, next) => {
@@ -1095,15 +1095,10 @@
 					}
 				)
 
-				connectToLanguageServer(
-					`${wsProtocol}://${window.location.host}/ws/ruff`,
-					'ruff',
-					{},
-					undefined
-				)
+				connectToLanguageServer(buildWsUrl('/ws/ruff'), 'ruff', {}, undefined)
 			} else if (lang === 'go') {
 				connectToLanguageServer(
-					`${wsProtocol}://${window.location.host}/ws/go`,
+					buildWsUrl('/ws/go'),
 					'go',
 					{
 						'build.allowImplicitNetworkAccess': true
@@ -1112,7 +1107,7 @@
 				)
 			} else if (lang === 'shell') {
 				connectToLanguageServer(
-					`${wsProtocol}://${window.location.host}/ws/diagnostic`,
+					buildWsUrl('/ws/diagnostic'),
 					'shellcheck',
 					{
 						linters: {
@@ -1912,15 +1907,12 @@
 		})
 	})
 
-	let isTsWorkerInitialized = resource(
-		[() => lang, () => initialized],
-		async () => {
-			if (lang !== 'typescript' || !initialized) return false
-			// Use the stable model URI (computed once at mount), not filePath which changes on rename
-			await waitForWorkerInitialization(uri)
-			return true
-		}
-	)
+	let isTsWorkerInitialized = resource([() => lang, () => initialized], async () => {
+		if (lang !== 'typescript' || !initialized) return false
+		// Use the stable model URI (computed once at mount), not filePath which changes on rename
+		await waitForWorkerInitialization(uri)
+		return true
+	})
 
 	// Update SQL query type information in the TypeScript worker
 	// This enables TypeScript to show proper types for SQL template literals
@@ -1939,16 +1931,9 @@
 		updateSqlQueriesInWorker(uri, $state.snapshot(preparedAssetsSqlQueries))
 	}, 250)
 
-	watch(
-		[
-			() => preparedAssetsSqlQueries,
-			() => lang,
-			() => isTsWorkerInitialized.current
-		],
-		() => {
-			handleSqlTypingInTs()
-		}
-	)
+	watch([() => preparedAssetsSqlQueries, () => lang, () => isTsWorkerInitialized.current], () => {
+		handleSqlTypingInTs()
+	})
 
 	watch([() => customTsTypesData.current], setTypescriptCustomTypes)
 </script>

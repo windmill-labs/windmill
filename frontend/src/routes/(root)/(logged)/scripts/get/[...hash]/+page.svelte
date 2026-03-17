@@ -62,11 +62,14 @@
 		Trash,
 		Play,
 		ClipboardCopy,
-		LayoutDashboard
+		LayoutDashboard,
+		ChevronDown,
+		ChevronRight
 	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
 	import { createAppFromScript } from '$lib/components/details/createAppFromScript'
 	import { importStore } from '$lib/components/apps/store'
@@ -95,6 +98,8 @@
 	let can_write = $state(false)
 	let isHubScript = $state(false)
 	let deploymentInProgress = $state(false)
+	let expandedModuleLocks: Record<string, boolean> = $state({})
+	let expandedModuleCode: Record<string, boolean> = $state({})
 	let deploymentJobId: string | undefined = $state(undefined)
 	let intervalId: number
 	let shareModal: ShareModal | undefined = $state()
@@ -208,7 +213,7 @@
 					kind: 'script',
 					starred: false,
 					schema: hubScript.schema as Script['schema'],
-					no_main_func: false,
+					auto_kind: undefined,
 					has_preprocessor: false
 				}
 				can_write = false
@@ -352,7 +357,12 @@
 			})
 		}
 
-		if (script && !$userStore?.operator && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
+		if (
+			script &&
+			!$userStore?.operator &&
+			!isCloudHosted() &&
+			!isRuleActive('DisableWorkspaceForking')
+		) {
 			buttons.push({
 				label: 'Edit in fork',
 				buttonProps: {
@@ -680,6 +690,14 @@
 				{#if $workspaceStore && script}
 					<Star kind="script" path={script.path} summary={script.summary} />
 				{/if}
+				{#if script?.auto_kind === 'wac'}
+					<Popover notClickable>
+						{#snippet text()}
+							Workflow-as-Code
+						{/snippet}
+						<Badge small color="indigo" baseClass="border border-indigo-200">wac</Badge>
+					</Popover>
+				{/if}
 				{#if script?.codebase}
 					<Badge
 						>bundle<Tooltip
@@ -918,6 +936,33 @@
 										className="whitespace-pre-wrap"
 									/>
 								</div>
+								{#if script?.modules}
+									{#each Object.entries(script.modules) as [modulePath, mod]}
+										<div class="mt-2 border rounded mx-2">
+											<button
+												class="flex items-center gap-1 w-full px-3 py-2 text-sm font-medium text-secondary hover:bg-surface-hover"
+												onclick={() =>
+													(expandedModuleCode[modulePath] = !expandedModuleCode[modulePath])}
+											>
+												{#if expandedModuleCode[modulePath]}
+													<ChevronDown size={14} />
+												{:else}
+													<ChevronRight size={14} />
+												{/if}
+												{modulePath}
+											</button>
+											{#if expandedModuleCode[modulePath]}
+												<div class="p-2 w-full">
+													<HighlightCode
+														language={mod.language}
+														code={mod.content}
+														className="whitespace-pre-wrap"
+													/>
+												</div>
+											{/if}
+										</div>
+									{/each}
+								{/if}
 							</TabContent>
 							<TabContent value="dependencies">
 								<div>
@@ -941,6 +986,45 @@
 										<p class="bg-surface-secondary text-sm p-2">
 											There is no lock file for this script
 										</p>
+									{/if}
+									{#if script?.modules}
+										{@const moduleEntries = Object.entries(script.modules).filter(
+											([_, m]) => m.lock
+										)}
+										{#each moduleEntries as [modulePath, mod]}
+											<div class="mt-2 border rounded">
+												<button
+													class="flex items-center gap-1 w-full px-3 py-2 text-sm font-medium text-secondary hover:bg-surface-hover"
+													onclick={() =>
+														(expandedModuleLocks[modulePath] = !expandedModuleLocks[modulePath])}
+												>
+													{#if expandedModuleLocks[modulePath]}
+														<ChevronDown size={14} />
+													{:else}
+														<ChevronRight size={14} />
+													{/if}
+													{modulePath}
+												</button>
+												{#if expandedModuleLocks[modulePath]}
+													<div class="relative overflow-x-auto w-full">
+														<Button
+															wrapperClasses="absolute top-2 right-2 z-20"
+															on:click={() => copyToClipboard(mod.lock ?? '')}
+															color="light"
+															size="xs2"
+															startIcon={{
+																icon: ClipboardCopy
+															}}
+															iconOnly
+														/>
+														<pre
+															class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full"
+															>{mod.lock}</pre
+														>
+													</div>
+												{/if}
+											</div>
+										{/each}
 									{/if}
 								</div>
 							</TabContent>

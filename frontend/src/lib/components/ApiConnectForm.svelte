@@ -21,7 +21,7 @@
 		resourceType: string
 		resourceTypeInfo: ResourceType | undefined
 		args?: Record<string, any> | any
-		linkedSecret?: string | undefined
+		linkedSecrets?: string[]
 		isValid?: boolean
 		linkedSecretCandidates?: string[] | undefined
 		description?: string | undefined
@@ -31,7 +31,7 @@
 		resourceType,
 		resourceTypeInfo,
 		args = $bindable({}),
-		linkedSecret = $bindable(undefined),
+		linkedSecrets = $bindable([]),
 		isValid = $bindable(true),
 		linkedSecretCandidates = undefined,
 		description = $bindable(undefined)
@@ -152,7 +152,7 @@
 		/>
 		<ResourceGen
 			bind:args
-			resourceType={resourceType}
+			{resourceType}
 			resourceSchema={notFound ? undefined : schema}
 			isFileset={resourceTypeInfo?.is_fileset ?? false}
 		/>
@@ -246,9 +246,7 @@
 		{/await}
 	</div>
 {:else if resourceTypeInfo?.is_fileset}
-	<h5 class="mt-1 inline-flex items-center gap-4">
-		Fileset
-	</h5>
+	<h5 class="mt-1 inline-flex items-center gap-4"> Fileset </h5>
 	<FilesetEditor bind:args />
 {:else if resourceTypeInfo?.format_extension}
 	<h5 class="mt-4 inline-flex items-center gap-4">
@@ -273,7 +271,7 @@
 		onlyMaskPassword
 		noDelete
 		{linkedSecretCandidates}
-		bind:linkedSecret
+		bind:linkedSecrets
 		isValid
 		{schema}
 		bind:args

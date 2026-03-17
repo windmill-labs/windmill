@@ -41,11 +41,12 @@ mod dependency_map {
             deployment_message: None,
             concurrency_key: None,
             visible_to_runner_only: None,
-            no_main_func: None,
+            auto_kind: None,
             codebase: None,
             has_preprocessor: None,
             on_behalf_of_email: None,
             assets: vec![],
+            modules: None,
         }
     }
     async fn init(db: Pool<Postgres>) -> (windmill_api_client::Client, u16, ApiServer) {

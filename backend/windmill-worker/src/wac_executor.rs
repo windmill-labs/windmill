@@ -47,7 +47,14 @@ pub enum WacOutput {
     /// An inline step executed in the parent process — persist result to
     /// checkpoint and re-run immediately (no child job, no suspend).
     #[serde(rename = "inline_checkpoint")]
-    InlineCheckpoint { key: String, result: Value },
+    InlineCheckpoint {
+        key: String,
+        result: Value,
+        #[serde(default)]
+        started_at: Option<String>,
+        #[serde(default)]
+        duration_ms: Option<u64>,
+    },
     /// Suspend the workflow waiting for an external approval event.
     /// No child job is dispatched — the parent suspends directly and resumes
     /// when a user hits the resume/cancel endpoint.
@@ -285,16 +292,20 @@ pub async fn prepare_checkpoint_for_resume(
 
 /// Detect WAC v2 patterns in TypeScript/Bun code.
 /// Checks for `import ... from "windmill-client"` containing workflow/task,
-/// skipping comment lines.
+/// skipping comment lines. Handles both single-line and multi-line imports.
 pub fn is_wac_v2_ts(code: &str) -> bool {
     let mut has_wac_import = false;
     let mut has_workflow = false;
     let mut has_task = false;
+    let mut in_import_block = false;
+    let mut import_block_has_workflow = false;
+    let mut import_block_has_task = false;
     for line in code.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("//") {
             continue;
         }
+        // Single-line import: import { workflow, task } from "windmill-client"
         if trimmed.contains("windmill-client")
             && (trimmed.starts_with("import") || trimmed.starts_with("from"))
         {
@@ -304,6 +315,37 @@ pub fn is_wac_v2_ts(code: &str) -> bool {
             }
             if trimmed.contains("task") {
                 has_task = true;
+            }
+            in_import_block = false;
+        }
+        // Start of multi-line import: import {
+        else if trimmed.starts_with("import") && trimmed.contains("{") && !trimmed.contains("}") {
+            in_import_block = true;
+            import_block_has_workflow = trimmed.contains("workflow");
+            import_block_has_task = trimmed.contains("task");
+        }
+        // Inside multi-line import block
+        else if in_import_block {
+            if trimmed.contains("workflow") {
+                import_block_has_workflow = true;
+            }
+            if trimmed.contains("task") {
+                import_block_has_task = true;
+            }
+            // End of multi-line import: } from "windmill-client"
+            if trimmed.contains("windmill-client") {
+                has_wac_import = true;
+                if import_block_has_workflow {
+                    has_workflow = true;
+                }
+                if import_block_has_task {
+                    has_task = true;
+                }
+                in_import_block = false;
+            }
+            // End of import block but not windmill-client
+            if trimmed.contains("}") {
+                in_import_block = false;
             }
         }
         if trimmed.contains("export") && trimmed.contains("workflow(") {
