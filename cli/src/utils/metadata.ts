@@ -29,7 +29,7 @@ import { DoubleLinkedDependencyTree } from "./dependency_tree.ts";
 const _require = createRequire(import.meta.url);
 const _parserCache = new Map<string, Promise<any>>();
 
-function loadParser(pkgName: string): Promise<any> {
+export function loadParser(pkgName: string): Promise<any> {
   let p = _parserCache.get(pkgName);
   if (!p) {
     p = (async () => {

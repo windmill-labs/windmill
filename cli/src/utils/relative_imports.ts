@@ -5,6 +5,7 @@
  */
 
 import { ScriptLanguage } from "./script_common.ts";
+import { loadParser } from "./metadata.ts";
 
 /**
  * Extract relative imports from script content based on language.
@@ -20,15 +21,11 @@ export async function extractRelativeImports(
       case "bun":
       case "nativets":
       case "deno": {
-        const { parse_ts_relative_imports } = await import(
-          "../../wasm/ts/windmill_parser_wasm.js"
-        );
+        const { parse_ts_relative_imports } = await loadParser("windmill-parser-wasm-ts");
         return parse_ts_relative_imports(code, scriptPath);
       }
       case "python3": {
-        const { parse_py_relative_imports } = await import(
-          "../../wasm/py/windmill_parser_wasm.js"
-        );
+        const { parse_py_relative_imports } = await loadParser("windmill-parser-wasm-py");
         return parse_py_relative_imports(code, scriptPath);
       }
       default:
