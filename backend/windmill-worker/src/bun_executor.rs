@@ -2678,6 +2678,33 @@ pub async fn handle_wac_v2_output(
                 error::Error::internal_err(format!("Failed to save approval meta: {e}"))
             })?;
 
+            // Write timeline entry for the approval step
+            {
+                let now_str = chrono::Utc::now().to_rfc3339();
+                let timeline_val = serde_json::json!({
+                    "scheduled_for": &now_str,
+                    "started_at": &now_str,
+                    "name": key,
+                    "approval": true,
+                });
+                let step_timeline_key = format!("_step/{}", key);
+                sqlx::query(
+                    "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+                        COALESCE(workflow_as_code_status, '{}'::jsonb),
+                        ARRAY[$2],
+                        $3
+                    ) WHERE id = $1",
+                )
+                .bind(&job.id)
+                .bind(&step_timeline_key)
+                .bind(&timeline_val)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error::Error::internal_err(format!("Failed to write approval timeline: {e}"))
+                })?;
+            }
+
             // Suspend parent with suspend=1 (waiting for 1 approval event)
             sqlx::query!(
                 "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
@@ -2742,6 +2769,34 @@ pub async fn handle_wac_v2_output(
             .execute(&mut *tx)
             .await
             .map_err(|e| error::Error::internal_err(format!("Failed to save checkpoint: {e}")))?;
+
+            // Write a "sleep" marker in the timeline.  Unlike real steps it
+            // carries no execution bar — the frontend renders it as a
+            // minimal label row (e.g. "sleep (2s)").
+            {
+                let now_str = chrono::Utc::now().to_rfc3339();
+                let timeline_val = serde_json::json!({
+                    "scheduled_for": &now_str,
+                    "name": key,
+                    "sleep_duration_s": seconds,
+                });
+                let step_timeline_key = format!("_step/{}", key);
+                sqlx::query(
+                    "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+                        COALESCE(workflow_as_code_status, '{}'::jsonb),
+                        ARRAY[$2],
+                        $3
+                    ) WHERE id = $1",
+                )
+                .bind(&job.id)
+                .bind(&step_timeline_key)
+                .bind(&timeline_val)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error::Error::internal_err(format!("Failed to write sleep timeline: {e}"))
+                })?;
+            }
 
             // Suspend parent — it will auto-resume when suspend_until passes.
             // Use suspend=1 (not 0) so the suspended pull query only picks it up
@@ -2828,8 +2883,12 @@ pub async fn handle_wac_v2_output(
                     error::Error::internal_err(format!("Failed to save WAC checkpoint: {e}"))
                 })?;
 
-                // Write timeline entry for the inline step (keyed as _step/<key>)
-                if let Some(ref sa) = started_at {
+                // Write timeline entry for the inline step (keyed as _step/<key>).
+                // Fall back to now() when the client doesn't provide started_at
+                // (older windmill-client versions omit it).
+                {
+                    let now_str = chrono::Utc::now().to_rfc3339();
+                    let sa = started_at.as_deref().unwrap_or(&now_str);
                     let mut timeline_val = serde_json::json!({
                         "scheduled_for": sa,
                         "started_at": sa,
