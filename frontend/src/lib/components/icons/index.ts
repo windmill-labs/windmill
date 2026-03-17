@@ -198,6 +198,17 @@ import RunPodIcon from './RunPodIcon.svelte'
 import SigNozIcon from './SigNozIcon.svelte'
 import ReadwiseIcon from './ReadwiseIcon.svelte'
 import LumaAiIcon from './LumaAiIcon.svelte'
+import BrexIcon from './BrexIcon.svelte'
+import CloseIcon from './CloseIcon.svelte'
+import RocketChatIcon from './RocketChatIcon.svelte'
+import ApolloIcon from './ApolloIcon.svelte'
+import BubbleIcon from './BubbleIcon.svelte'
+import JoomlaIcon from './JoomlaIcon.svelte'
+import MauticIcon from './MauticIcon.svelte'
+import ZeroTierIcon from './ZeroTierIcon.svelte'
+import SplitwiseIcon from './SplitwiseIcon.svelte'
+import TelnyxIcon from './TelnyxIcon.svelte'
+import MandrillIcon from './MandrillIcon.svelte'
 import type { Component } from 'svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -403,7 +414,19 @@ export const APP_TO_ICON_COMPONENT = {
 	runpod: RunPodIcon,
 	signoz: SigNozIcon,
 	readwise: ReadwiseIcon,
-	lumaai: LumaAiIcon
+	lumaai: LumaAiIcon,
+	git: GitIcon,
+	brex: BrexIcon,
+	close: CloseIcon,
+	rocketchat: RocketChatIcon,
+	apollo: ApolloIcon,
+	bubble: BubbleIcon,
+	joomla: JoomlaIcon,
+	mautic: MauticIcon,
+	zerotier: ZeroTierIcon,
+	splitwise: SplitwiseIcon,
+	telnyx: TelnyxIcon,
+	mandrill: MandrillIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
 export {
@@ -598,5 +621,16 @@ export {
 	RunPodIcon,
 	SigNozIcon,
 	ReadwiseIcon,
-	LumaAiIcon
+	LumaAiIcon,
+	BrexIcon,
+	CloseIcon,
+	RocketChatIcon,
+	ApolloIcon,
+	BubbleIcon,
+	JoomlaIcon,
+	MauticIcon,
+	ZeroTierIcon,
+	SplitwiseIcon,
+	TelnyxIcon,
+	MandrillIcon
 }
