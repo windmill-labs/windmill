@@ -58,38 +58,10 @@ Parameters:
       - false
     Description: Enable Windmill Enterprise features (requires license key)
 
-Mappings:
-  RegionMap:
-    us-east-1:
-      AMI: ami-0cff7528ff583bf9a
-    us-east-2:
-      AMI: ami-0cd3c7f72edd5b06d
-    us-west-1:
-      AMI: ami-0d9858aa3c6322f73
-    us-west-2:
-      AMI: ami-098e42ae54c764c35
-    ca-central-1:
-      AMI: ami-00f881f027a6d74a0
-    eu-west-1:
-      AMI: ami-04dd4500af104442f
-    eu-west-2:
-      AMI: ami-0eb260c4d5475b901
-    eu-west-3:
-      AMI: ami-05e8e20cef0eaa9d0
-    eu-central-1:
-      AMI: ami-0bad4a5e987bdebde
-    ap-northeast-1:
-      AMI: ami-0b7546e839d7ace12
-    ap-northeast-2:
-      AMI: ami-0fd0765afb77bcca7
-    ap-southeast-1:
-      AMI: ami-0c802847a7dd848c0
-    ap-southeast-2:
-      AMI: ami-07620139298af599e
-    ap-south-1:
-      AMI: ami-0851b76e8b1bce90b
-    sa-east-1:
-      AMI: ami-054a31f1b3bf90920
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+    Description: Latest Amazon Linux 2023 AMI (automatically resolved via SSM)
 
 Resources:
   VPC:
@@ -345,7 +317,7 @@ Resources:
       - EKSNodeGroup
       - WindmillDB
     Properties:
-      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMI]
+      ImageId: !Ref LatestAmiId
       InstanceType: t3.micro
       IamInstanceProfile: !Ref WindmillInstallerInstanceProfile
       SubnetId: !Ref PublicSubnet1
@@ -358,7 +330,13 @@ Resources:
 
           # Install required tools
           yum update -y
-          yum install -y aws-cli jq postgresql15 aws-cfn-bootstrap
+          yum install -y jq postgresql15 aws-cfn-bootstrap unzip
+
+          # Install AWS CLI v2 (yum aws-cli package is v1 and outdated)
+          curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -q awscliv2.zip
+          ./aws/install
+          rm -rf aws awscliv2.zip
 
           # Set up logging directory with correct permissions
           mkdir -p /var/log/windmill-installer
@@ -602,6 +580,8 @@ Resources:
         ZipFile: |
           const { ElasticLoadBalancingClient, DescribeLoadBalancersCommand,
                   DeleteLoadBalancerCommand } = require('@aws-sdk/client-elastic-load-balancing');
+          const { EC2Client, DescribeSecurityGroupsCommand,
+                  DeleteSecurityGroupCommand } = require('@aws-sdk/client-ec2');
           const response = require('cfn-response');
 
           exports.handler = async (event, context) => {
@@ -611,6 +591,7 @@ Resources:
 
             try {
               const elb = new ElasticLoadBalancingClient();
+              const ec2 = new EC2Client();
               const vpcId = event.ResourceProperties.VpcId;
 
               // Find and delete Classic Load Balancers in the VPC
@@ -628,14 +609,29 @@ Resources:
               }
 
               if (deleted) {
-                // Wait for deletion to complete
                 console.log('Waiting 30 seconds for load balancer deletion to complete...');
                 await new Promise(r => setTimeout(r, 30000));
               }
 
+              // Delete Kubernetes-created security groups (e.g. k8s-elb-*)
+              const sgResponse = await ec2.send(new DescribeSecurityGroupsCommand({
+                Filters: [{ Name: 'vpc-id', Values: [vpcId] }]
+              }));
+
+              for (const sg of sgResponse.SecurityGroups || []) {
+                if (sg.GroupName !== 'default') {
+                  console.log(`Deleting security group: ${sg.GroupId} (${sg.GroupName})`);
+                  try {
+                    await ec2.send(new DeleteSecurityGroupCommand({ GroupId: sg.GroupId }));
+                  } catch (e) {
+                    console.log(`Could not delete ${sg.GroupId}: ${e.message}`);
+                  }
+                }
+              }
+
               return response.send(event, context, response.SUCCESS);
             } catch (error) {
-              console.error('Error deleting load balancers:', error);
+              console.error('Error during VPC cleanup:', error);
               return response.send(event, context, response.FAILED, {error: error.message});
             }
           };
@@ -662,6 +658,8 @@ Resources:
                   - ec2:DescribeAddresses
                   - ec2:DisassociateAddress
                   - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DeleteSecurityGroup
                   - elasticloadbalancing:DescribeLoadBalancers
                   - elasticloadbalancing:DeleteLoadBalancer
                   - elasticloadbalancingv2:DescribeLoadBalancers
