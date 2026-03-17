@@ -1038,13 +1038,29 @@ pub async fn run_agent(
                 if tool_calls.is_empty() {
                     break;
                 } else if i == max_iterations - 1 {
-                    let partial_result = serde_json::to_string(&serde_json::json!({
-                        "messages": messages,
-                    })).unwrap_or_default();
-                    return Err(Error::internal_err(format!(
-                        "AI agent reached max iterations ({}), you can either increase max_iterations or enable the \"continue on error\" option from the advanced options of the step. Partial result:\n{}",
-                        max_iterations, partial_result
-                    )));
+                    #[derive(serde::Serialize)]
+                    struct MaxIterError<'a> {
+                        message: String,
+                        name: &'static str,
+                        #[serde(skip_serializing_if = "Option::is_none")]
+                        step_id: Option<&'a str>,
+                        result: MaxIterPartialResult<'a>,
+                    }
+                    #[derive(serde::Serialize)]
+                    struct MaxIterPartialResult<'a> {
+                        messages: &'a [OpenAIMessage],
+                    }
+                    return Err(Error::ExecutionRawError(
+                        serde_json::value::to_raw_value(&MaxIterError {
+                            message: format!(
+                                "AI agent reached max iterations ({}), you can either increase max_iterations or enable the \"continue on error\" option from the advanced options of the step.",
+                                max_iterations
+                            ),
+                            name: "ExecutionErr",
+                            step_id: effective_flow_step_id,
+                            result: MaxIterPartialResult { messages: &messages },
+                        })?,
+                    ));
                 }
 
                 messages.push(OpenAIMessage {
