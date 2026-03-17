@@ -76,6 +76,13 @@ pub fn disable_oom_group() -> Result<(), CgroupError> {
                         val.trim(),
                         cgroup_path
                     );
+                    return Err(CgroupError::Io(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!(
+                            "memory.oom.group write did not take effect, read back '{}'",
+                            val.trim()
+                        ),
+                    )));
                 }
                 Err(e) => {
                     tracing::warn!(

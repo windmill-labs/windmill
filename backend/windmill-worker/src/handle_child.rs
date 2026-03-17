@@ -135,7 +135,7 @@ pub async fn handle_child(
                     tracing::error!("Failed to write oom_score_adj for pid {pid}: {e:#}");
                 }
                 if let Err(e) = file.sync_all().await {
-                    tracing::error!("Failed to sync oom_score_adj for pid {pid}: {e:#}");
+                    tracing::warn!("Failed to sync oom_score_adj for pid {pid}: {e:#}");
                 }
             }
             Err(e) => {

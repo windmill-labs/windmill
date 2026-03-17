@@ -885,7 +885,13 @@ async fn windmill_main() -> anyhow::Result<()> {
         match std::fs::read_to_string("/proc/self/oom_score_adj") {
             Ok(current) => {
                 let current = current.trim().to_string();
-                let current_val = current.parse::<i32>().unwrap_or(0);
+                let current_val = match current.parse::<i32>() {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::warn!("Could not parse oom_score_adj '{current}': {e}");
+                        0
+                    }
+                };
                 if current_val > 0 {
                     match std::fs::write("/proc/self/oom_score_adj", "0") {
                         Ok(_) => {
