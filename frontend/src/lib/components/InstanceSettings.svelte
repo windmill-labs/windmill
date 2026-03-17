@@ -929,7 +929,6 @@
 			{#if !$enterpriseLicense}
 				<Alert type="info" title="Private registries configuration is an EE feature" class="mb-2" />
 			{/if}
-			<WorkspaceRegistries {values} {loading} />
 		{:else if category == 'Alerts'}
 			<SettingsPageHeader
 				title="Alerts"
@@ -1122,6 +1121,10 @@
 				{/each}
 			{/if}
 		</div>
+
+		{#if category === 'Registries'}
+			<WorkspaceRegistries {values} {loading} />
+		{/if}
 
 		{#if !loading && !quickSetup && !hideTabs}
 			<SettingsFooter
