@@ -74,7 +74,9 @@
 	async function applyFilter(
 		filter: string,
 		filterKind: typeof kind,
-		appFilter: string | undefined
+		appFilter: string | undefined,
+		summaryFilter: string | undefined,
+		pathFilter: string | undefined
 	) {
 		if ($disableHubStore) return
 		try {
@@ -84,10 +86,11 @@
 			startTs = ts
 			await new Promise((r) => setTimeout(r, 100))
 			if (ts < startTs) return
+			const queryText = [filter, summaryFilter, pathFilter].filter(Boolean).join(' ')
 			const scripts =
-				filter.length > 0
+				queryText.length > 0
 					? await ScriptService.queryHubScripts({
-							text: `${filter}`,
+							text: queryText,
 							limit: 20,
 							kind: filterKind,
 							app: appFilter
@@ -138,23 +141,9 @@
 		dispatch('pick', item)
 	}
 
-	// Apply summary/path post-filters
-	let displayItems = $derived.by(() => {
-		let result = items
-		if (summaryFilter) {
-			const s = summaryFilter.toLowerCase()
-			result = result.filter((x) => (x.summary ?? '').toLowerCase().includes(s))
-		}
-		if (pathFilter) {
-			const p = pathFilter.toLowerCase()
-			result = result.filter((x) => (x.path ?? '').toLowerCase().includes(p))
-		}
-		return result
-	})
-
 	$effect(() => {
-		;[filter, kind, appFilter]
-		untrack(() => applyFilter(filter, kind, appFilter))
+		;[filter, kind, appFilter, summaryFilter, pathFilter]
+		untrack(() => applyFilter(filter, kind, appFilter, summaryFilter, pathFilter))
 	})
 	$effect(() => {
 		kind
@@ -193,11 +182,11 @@
 		{#if !hideSearchbar}
 			<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 		{/if}
-		{#if displayItems.length == 0}
+		{#if items.length == 0}
 			<NoItemFound />
 		{:else}
 			<ul class="divide-y border rounded-md bg-surface-tertiary">
-				{#each displayItems as item (item.path)}
+				{#each items as item (item.path)}
 					<li class="flex flex-row w-full">
 						<button
 							class="p-4 gap-4 flex flex-row grow hover:bg-surface-hover transition-all items-center"
@@ -228,7 +217,7 @@
 				{/each}
 			</ul>
 		{/if}
-		{#if displayItems.length == 20}
+		{#if items.length == 20}
 			<div class="text-primary text-xs font-normal py-4">
 				There are more items than being displayed. Refine your search.
 			</div>
