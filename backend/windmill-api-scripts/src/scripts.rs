@@ -1678,10 +1678,13 @@ async fn raw_script_by_path_internal(
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
 
-    // If temp_script_hash is provided, load from temp storage instead of deployed script.
+    // If temp_script_hash is provided, try loading from temp storage first.
     // This is used by CLI lock generation to resolve imports from not-yet-deployed scripts.
+    // Falls back to the normal deployed script lookup if not found in temp storage.
     if let Some(hash) = query.temp_script_hash {
-        return windmill_common::cache::raw_script_temp::load(hash, &db).await;
+        if let Ok(content) = windmill_common::cache::raw_script_temp::load(hash, &db).await {
+            return Ok(content);
+        }
     }
 
     let cache_path = query
