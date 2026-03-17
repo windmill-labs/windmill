@@ -512,11 +512,16 @@ pub async fn handle_csharp_job(
 ) -> Result<Box<RawValue>, Error> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
-    let hash = calculate_hash(&format!(
+    let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
+    let hash = format!(
         "{}{}",
-        inner_content,
-        requirements_o.unwrap_or(&String::new())
-    ));
+        calculate_hash(&format!(
+            "{}{}",
+            inner_content,
+            requirements_o.unwrap_or(&String::new())
+        )),
+        ws_suffix
+    );
     let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
     let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
 
