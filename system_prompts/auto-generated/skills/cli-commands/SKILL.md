@@ -94,6 +94,7 @@ flow related commands
 - `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files.
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
+  - `--local` - Resolve PathScript steps from local files instead of remote workspace scripts.
 - `flow generate-locks [flow:file]` - re-generate the lock files of all inline scripts of all updated flows
   - `--yes` - Skip confirmation prompt
   - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
