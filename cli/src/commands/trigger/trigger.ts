@@ -230,6 +230,7 @@ export async function pushNativeTrigger(
       script_path: result.script_path,
       is_flow: result.is_flow,
       service_config: result.service_config,
+      summary: result.summary,
       error: result.error,
     };
     log.debug(`Native trigger ${serviceName}/${externalId} exists on remote`);
@@ -243,6 +244,7 @@ export async function pushNativeTrigger(
     script_path: localTrigger.script_path,
     is_flow: localTrigger.is_flow,
     service_config: localTrigger.service_config,
+    summary: localTrigger.summary || undefined,
   };
 
   if (remoteTrigger) {
@@ -251,11 +253,13 @@ export async function pushNativeTrigger(
       script_path: localTrigger.script_path,
       is_flow: localTrigger.is_flow,
       service_config: localTrigger.service_config,
+      summary: localTrigger.summary,
     };
     const remoteCompare = {
       script_path: remoteTrigger.script_path,
       is_flow: remoteTrigger.is_flow,
       service_config: remoteTrigger.service_config,
+      summary: remoteTrigger.summary,
     };
 
     if (isSuperset(localCompare, remoteCompare)) {

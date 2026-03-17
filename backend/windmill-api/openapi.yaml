@@ -24326,6 +24326,10 @@ components:
           type: object
           description: Configuration for the trigger including event_type and service_config
           additionalProperties: true
+        summary:
+          type: string
+          nullable: true
+          description: Short summary describing the purpose of this trigger
         error:
           type: string
           nullable: true
@@ -24360,6 +24364,10 @@ components:
           type: object
           description: Configuration for the trigger including event_type and service_config
           additionalProperties: true
+        summary:
+          type: string
+          nullable: true
+          description: Short summary describing the purpose of this trigger
         error:
           type: string
           nullable: true
@@ -24456,6 +24464,10 @@ components:
           type: object
           description: Service-specific configuration (e.g., event types, filters)
           additionalProperties: true
+        summary:
+          type: string
+          nullable: true
+          description: Short summary describing the purpose of this trigger
       required:
         - script_path
         - is_flow

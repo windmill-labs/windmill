@@ -16,6 +16,7 @@
 	import { Loader2, Save } from 'lucide-svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Section from '$lib/components/Section.svelte'
+	import Label from '$lib/components/Label.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import NextcloudTriggerForm from './services/nextcloud/NextcloudTriggerForm.svelte'
 	import GoogleTriggerForm from './services/google/GoogleTriggerForm.svelte'
@@ -96,6 +97,7 @@
 	let isFlow = $state(false)
 	let externalId = $state<string | null>(null)
 	let can_write = $state(true)
+	let summary = $state('')
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 
@@ -121,6 +123,7 @@
 		loadingConfig = false
 		loadingForm = false
 		can_write = true
+		summary = ''
 		originalConfig = undefined
 		initialConfig = undefined
 	}
@@ -144,6 +147,7 @@
 		loadingConfig = false
 		loadingForm = false
 		can_write = true
+		summary = nativeTrigger.summary ?? ''
 		originalConfig = undefined
 		initialConfig = undefined
 	}
@@ -182,6 +186,7 @@
 			scriptPath = fullTrigger.script_path
 			initialScriptPath = fullTrigger.script_path
 			can_write = canWrite(fullTrigger.script_path, {}, $userStore)
+			summary = fullTrigger.summary ?? ''
 			externalData = fullTrigger.external_data
 
 			// Apply default values if provided (for draft triggers)
@@ -203,7 +208,8 @@
 		return {
 			script_path: scriptPath,
 			is_flow: isFlow,
-			service_config: serviceConfig
+			service_config: serviceConfig,
+			summary: summary || undefined
 		}
 	}
 
@@ -421,6 +427,18 @@
 					{/if}
 				</Section>
 			{/if}
+
+			<Section label="Metadata">
+				<Label label="Summary">
+					<input
+						type="text"
+						placeholder="Short summary to be displayed when listed"
+						class="text-sm w-full"
+						bind:value={summary}
+						disabled={!can_write}
+					/>
+				</Label>
+			</Section>
 
 			{#if loadingConfig}
 				<Section label="{serviceInfo?.serviceDisplayName} configuration">

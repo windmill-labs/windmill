@@ -192,6 +192,7 @@ pub struct NativeTrigger {
     pub is_flow: bool,
     pub webhook_token_prefix: String,
     pub service_config: Option<serde_json::Value>,
+    pub summary: Option<String>,
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -209,6 +210,7 @@ pub struct NativeTriggerData<C> {
     pub script_path: String,
     pub is_flow: bool,
     pub service_config: C,
+    pub summary: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -777,6 +779,7 @@ pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>
     external_id: &str,
     config: &NativeTriggerConfig,
     service_config: C,
+    summary: Option<&str>,
 ) -> Result<()> {
     // Store only the first 10 characters of the webhook token as a prefix
     let webhook_token_prefix: String = config.webhook_token.chars().take(10).collect();
@@ -790,12 +793,13 @@ pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>
             script_path,
             is_flow,
             webhook_token_prefix,
-            service_config
+            service_config,
+            summary
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7
+            $1, $2, $3, $4, $5, $6, $7, $8
         )
         ON CONFLICT (external_id, workspace_id, service_name)
-        DO UPDATE SET script_path = $4, is_flow = $5, webhook_token_prefix = $6, service_config = $7, error = NULL, updated_at = NOW()
+        DO UPDATE SET script_path = $4, is_flow = $5, webhook_token_prefix = $6, service_config = $7, summary = $8, error = NULL, updated_at = NOW()
         "#,
         external_id,
         workspace_id,
@@ -804,6 +808,7 @@ pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>
         config.is_flow,
         webhook_token_prefix,
         sqlx::types::Json(service_config) as _,
+        summary,
     )
     .execute(db)
     .await?;
@@ -818,6 +823,7 @@ pub async fn update_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres
     external_id: &str,
     config: &NativeTriggerConfig,
     service_config: Option<&RawValue>,
+    summary: Option<&str>,
 ) -> Result<()> {
     // Store only the first 10 characters of the webhook token as a prefix
     let webhook_token_prefix: String = config.webhook_token.chars().take(10).collect();
@@ -825,7 +831,7 @@ pub async fn update_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres
     sqlx::query!(
         r#"
         UPDATE native_trigger
-        SET script_path = $1, is_flow = $2, webhook_token_prefix = $3, service_config = $4, error = NULL, updated_at = NOW()
+        SET script_path = $1, is_flow = $2, webhook_token_prefix = $3, service_config = $4, summary = $8, error = NULL, updated_at = NOW()
         WHERE
             workspace_id = $5
             AND service_name = $6
@@ -838,6 +844,7 @@ pub async fn update_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres
         workspace_id,
         service_name as ServiceName,
         external_id,
+        summary,
     )
     .execute(db)
     .await?;
@@ -886,6 +893,7 @@ pub async fn get_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>>(
             is_flow,
             webhook_token_prefix,
             service_config,
+            summary,
             error,
             created_at,
             updated_at
@@ -924,6 +932,7 @@ pub async fn get_native_trigger_by_script<'c, E: sqlx::Executor<'c, Database = P
             is_flow,
             webhook_token_prefix,
             service_config,
+            summary,
             error,
             created_at,
             updated_at
@@ -970,6 +979,7 @@ pub async fn list_native_triggers<'c, E: sqlx::Executor<'c, Database = Postgres>
             nt.is_flow,
             nt.webhook_token_prefix,
             nt.service_config,
+            nt.summary,
             nt.error,
             nt.created_at,
             nt.updated_at
