@@ -236,7 +236,11 @@ pub async fn uv_pip_compile(
     #[cfg(feature = "enterprise")]
     let requirements = replace_pip_secret(conn, w_id, &requirements, worker_name, job_id).await?;
 
-    let req_hash = format!("py-{}-{uv_index_strategy}", calculate_hash(&requirements));
+    let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
+    let req_hash = format!(
+        "py-{}-{uv_index_strategy}{ws_suffix}",
+        calculate_hash(&requirements)
+    );
 
     if !no_cache {
         if let Some(db) = conn.as_sql() {

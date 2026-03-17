@@ -310,7 +310,8 @@ Your Gemfile syntax will continue to work as-is."
     let mut file = File::create(job_dir.to_owned() + "/Gemfile").await?;
     file.write_all(&gemfile.as_bytes()).await?;
 
-    let req_hash = format!("ruby-{}", calculate_hash(&gemfile));
+    let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
+    let req_hash = format!("ruby-{}{ws_suffix}", calculate_hash(&gemfile));
     if let Some(db) = conn.as_sql() {
         if let Some(cached) = sqlx::query_scalar!(
             "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",

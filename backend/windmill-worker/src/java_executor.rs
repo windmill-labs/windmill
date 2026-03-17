@@ -208,7 +208,8 @@ pub async fn resolve<'a>(
         deps.join("\n")
     };
 
-    let req_hash = format!("java-{}", calculate_hash(&deps));
+    let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
+    let req_hash = format!("java-{}{ws_suffix}", calculate_hash(&deps));
     if let Connection::Sql(db) = conn {
         if let Some(cached) = sqlx::query_scalar!(
             "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",

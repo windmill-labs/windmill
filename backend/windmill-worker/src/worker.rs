@@ -810,6 +810,24 @@ pub async fn read_ee_registry_url_list_with_workspace_override(
     read_ee_registry(value, display_name, job_id, w_id, conn).await
 }
 
+/// Returns a cache key suffix for workspace-specific registry overrides.
+/// If the workspace has any registry overrides, returns `":ws:<w_id>"` to namespace
+/// the resolution cache. Otherwise returns empty string.
+pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
+    let has_overrides = {
+        let registries = WORKSPACE_REGISTRIES.read().await;
+        registries
+            .as_ref()
+            .and_then(|m| m.get(w_id))
+            .map_or(false, |ws| !ws.is_empty())
+    };
+    if has_overrides {
+        format!(":ws:{w_id}")
+    } else {
+        String::new()
+    }
+}
+
 pub fn is_sandboxing_enabled() -> bool {
     if !*DISABLE_NSJAIL {
         return true;
