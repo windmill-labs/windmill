@@ -104,6 +104,116 @@ import McpIcon from './McpIcon.svelte'
 import SageIcon from './SageIcon.svelte'
 import ZohoIcon from './ZohoIcon.svelte'
 import PocketIdIcon from './PocketIdIcon.svelte'
+import DuckDbIcon from './DuckDbIcon.svelte'
+import ActiveCampaignIcon from './ActiveCampaignIcon.svelte'
+import AlgoliaIcon from './AlgoliaIcon.svelte'
+import BambooHrIcon from './BambooHrIcon.svelte'
+import BaremetricsIcon from './BaremetricsIcon.svelte'
+import BitlyIcon from './BitlyIcon.svelte'
+import BloggerIcon from './BloggerIcon.svelte'
+import BlueskyIcon from './BlueskyIcon.svelte'
+import BoxIcon from './BoxIcon.svelte'
+import BrevoIcon from './BrevoIcon.svelte'
+import BuildkiteIcon from './BuildkiteIcon.svelte'
+import CalendlyIcon from './CalendlyIcon.svelte'
+import CircleCiIcon from './CircleCiIcon.svelte'
+import CiscoIcon from './CiscoIcon.svelte'
+import ClerkIcon from './ClerkIcon.svelte'
+import CloudinaryIcon from './CloudinaryIcon.svelte'
+import CockroachDbIcon from './CockroachDbIcon.svelte'
+import CodaIcon from './CodaIcon.svelte'
+import CoinbaseIcon from './CoinbaseIcon.svelte'
+import CoinMarketCapIcon from './CoinMarketCapIcon.svelte'
+import ConfluenceIcon from './ConfluenceIcon.svelte'
+import ContentfulIcon from './ContentfulIcon.svelte'
+import DatoCmsIcon from './DatoCmsIcon.svelte'
+import DeepLIcon from './DeepLIcon.svelte'
+import DigitalOceanIcon from './DigitalOceanIcon.svelte'
+import DiscourseIcon from './DiscourseIcon.svelte'
+import DocusignIcon from './DocusignIcon.svelte'
+import DropboxIcon from './DropboxIcon.svelte'
+import EventbriteIcon from './EventbriteIcon.svelte'
+import FigmaIcon from './FigmaIcon.svelte'
+import FlyIcon from './FlyIcon.svelte'
+import FreshdeskIcon from './FreshdeskIcon.svelte'
+import FrontAppIcon from './FrontAppIcon.svelte'
+import GhostCmsIcon from './GhostCmsIcon.svelte'
+import GiphyIcon from './GiphyIcon.svelte'
+import GitBookIcon from './GitBookIcon.svelte'
+import HoneybadgerIcon from './HoneybadgerIcon.svelte'
+import IftttIcon from './IftttIcon.svelte'
+import IntercomIcon from './IntercomIcon.svelte'
+import LineIcon from './LineIcon.svelte'
+import LinearIcon from './LinearIcon.svelte'
+import LinodeIcon from './LinodeIcon.svelte'
+import MediumIcon from './MediumIcon.svelte'
+import MiroIcon from './MiroIcon.svelte'
+import MistralIcon from './MistralIcon.svelte'
+import MixpanelIcon from './MixpanelIcon.svelte'
+import MondayIcon from './MondayIcon.svelte'
+import NeonDbIcon from './NeonDbIcon.svelte'
+import NetlifyIcon from './NetlifyIcon.svelte'
+import OneSignalIcon from './OneSignalIcon.svelte'
+import PagerDutyIcon from './PagerDutyIcon.svelte'
+import PandaDocIcon from './PandaDocIcon.svelte'
+import PaypalIcon from './PaypalIcon.svelte'
+import PersonioIcon from './PersonioIcon.svelte'
+import PinterestIcon from './PinterestIcon.svelte'
+import PipedriveIcon from './PipedriveIcon.svelte'
+import PlanetScaleIcon from './PlanetScaleIcon.svelte'
+import PostmarkIcon from './PostmarkIcon.svelte'
+import PusherIcon from './PusherIcon.svelte'
+import RenderIcon from './RenderIcon.svelte'
+import ReplicateIcon from './ReplicateIcon.svelte'
+import RingCentralIcon from './RingCentralIcon.svelte'
+import SalesforceIcon from './SalesforceIcon.svelte'
+import SegmentIcon from './SegmentIcon.svelte'
+import SentryIcon from './SentryIcon.svelte'
+import ServiceNowIcon from './ServiceNowIcon.svelte'
+import ShortcutIcon from './ShortcutIcon.svelte'
+import SmartsheetIcon from './SmartsheetIcon.svelte'
+import StravaIcon from './StravaIcon.svelte'
+import ThreadsIcon from './ThreadsIcon.svelte'
+import TodoistIcon from './TodoistIcon.svelte'
+import TursoIcon from './TursoIcon.svelte'
+import TwitchIcon from './TwitchIcon.svelte'
+import TwitterIcon from './TwitterIcon.svelte'
+import VercelIcon from './VercelIcon.svelte'
+import WebflowIcon from './WebflowIcon.svelte'
+import WooCommerceIcon from './WooCommerceIcon.svelte'
+import WordpressIcon from './WordpressIcon.svelte'
+import XataIcon from './XataIcon.svelte'
+import YelpIcon from './YelpIcon.svelte'
+import YoutubeIcon from './YoutubeIcon.svelte'
+import ZoomIcon from './ZoomIcon.svelte'
+import CohereIcon from './CohereIcon.svelte'
+import TallyIcon from './TallyIcon.svelte'
+import ClearbitIcon from './ClearbitIcon.svelte'
+import RaindropIcon from './RaindropIcon.svelte'
+import MagentoIcon from './MagentoIcon.svelte'
+import DeelIcon from './DeelIcon.svelte'
+import GroqIcon from './GroqIcon.svelte'
+import TogetherAiIcon from './TogetherAiIcon.svelte'
+import RunPodIcon from './RunPodIcon.svelte'
+import SigNozIcon from './SigNozIcon.svelte'
+import ReadwiseIcon from './ReadwiseIcon.svelte'
+import LumaAiIcon from './LumaAiIcon.svelte'
+import BrexIcon from './BrexIcon.svelte'
+import CloseIcon from './CloseIcon.svelte'
+import RocketChatIcon from './RocketChatIcon.svelte'
+import ApolloIcon from './ApolloIcon.svelte'
+import BubbleIcon from './BubbleIcon.svelte'
+import JoomlaIcon from './JoomlaIcon.svelte'
+import MauticIcon from './MauticIcon.svelte'
+import ZeroTierIcon from './ZeroTierIcon.svelte'
+import SplitwiseIcon from './SplitwiseIcon.svelte'
+import TelnyxIcon from './TelnyxIcon.svelte'
+import MandrillIcon from './MandrillIcon.svelte'
+import OpenWeatherIcon from './OpenWeatherIcon.svelte'
+import YnabIcon from './YnabIcon.svelte'
+import SpeechifyIcon from './SpeechifyIcon.svelte'
+import ConvertKitIcon from './ConvertKitIcon.svelte'
+import BrowserlessIcon from './BrowserlessIcon.svelte'
 import type { Component } from 'svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -194,6 +304,7 @@ export const APP_TO_ICON_COMPONENT = {
 	pushover: PushoverIcon,
 	quickbooks: QuickbooksIcon,
 	ms_teams_webhook: MsTeamsIcon,
+	teams: MsTeamsIcon,
 	mailgun: MailgunIcon,
 	ipinfo: IpinfoIcon,
 	gworkspace: GoogleIcon,
@@ -213,7 +324,119 @@ export const APP_TO_ICON_COMPONENT = {
 	apify: ApifyIcon,
 	mcp: McpIcon,
 	zoho: ZohoIcon,
-	pocketid: PocketIdIcon
+	pocketid: PocketIdIcon,
+	duckdb: DuckDbIcon,
+	activecampaign: ActiveCampaignIcon,
+	algolia: AlgoliaIcon,
+	bamboo_hr: BambooHrIcon,
+	baremetrics: BaremetricsIcon,
+	bitly: BitlyIcon,
+	blogger: BloggerIcon,
+	bluesky: BlueskyIcon,
+	box: BoxIcon,
+	brevo: BrevoIcon,
+	sendinblue: BrevoIcon,
+	buildkite: BuildkiteIcon,
+	calendly: CalendlyIcon,
+	circleci: CircleCiIcon,
+	cisco: CiscoIcon,
+	clerk: ClerkIcon,
+	cloudinary: CloudinaryIcon,
+	cockroachdb: CockroachDbIcon,
+	coda: CodaIcon,
+	coinbase: CoinbaseIcon,
+	coinmarketcap: CoinMarketCapIcon,
+	confluence: ConfluenceIcon,
+	contentful: ContentfulIcon,
+	datocms: DatoCmsIcon,
+	deepl: DeepLIcon,
+	digitalocean: DigitalOceanIcon,
+	discourse: DiscourseIcon,
+	docusign: DocusignIcon,
+	dropbox: DropboxIcon,
+	eventbrite: EventbriteIcon,
+	figma: FigmaIcon,
+	fly: FlyIcon,
+	freshdesk: FreshdeskIcon,
+	frontapp: FrontAppIcon,
+	ghostcms: GhostCmsIcon,
+	giphy: GiphyIcon,
+	gitbook: GitBookIcon,
+	honeybadger: HoneybadgerIcon,
+	ifttt: IftttIcon,
+	intercom: IntercomIcon,
+	line: LineIcon,
+	linear: LinearIcon,
+	linode: LinodeIcon,
+	medium: MediumIcon,
+	miro: MiroIcon,
+	mistral: MistralIcon,
+	mixpanel: MixpanelIcon,
+	monday: MondayIcon,
+	neondb: NeonDbIcon,
+	netlify: NetlifyIcon,
+	onesignal: OneSignalIcon,
+	pagerduty: PagerDutyIcon,
+	pandadoc: PandaDocIcon,
+	paypal: PaypalIcon,
+	personio: PersonioIcon,
+	pinterest: PinterestIcon,
+	pipedrive: PipedriveIcon,
+	planetscale: PlanetScaleIcon,
+	postmark: PostmarkIcon,
+	pusher: PusherIcon,
+	render: RenderIcon,
+	replicate: ReplicateIcon,
+	ringcentral: RingCentralIcon,
+	salesforce: SalesforceIcon,
+	segment: SegmentIcon,
+	sentry: SentryIcon,
+	servicenow: ServiceNowIcon,
+	shortcut: ShortcutIcon,
+	smartsheet: SmartsheetIcon,
+	strava: StravaIcon,
+	threads: ThreadsIcon,
+	todoist: TodoistIcon,
+	turso: TursoIcon,
+	twitch: TwitchIcon,
+	twitter: TwitterIcon,
+	vercel: VercelIcon,
+	webflow: WebflowIcon,
+	woocommerce: WooCommerceIcon,
+	wordpress: WordpressIcon,
+	xata: XataIcon,
+	yelp: YelpIcon,
+	youtube: YoutubeIcon,
+	zoom: ZoomIcon,
+	cohere: CohereIcon,
+	tally: TallyIcon,
+	clearbit: ClearbitIcon,
+	raindrop: RaindropIcon,
+	magento: MagentoIcon,
+	deel: DeelIcon,
+	groqai: GroqIcon,
+	togetherai: TogetherAiIcon,
+	runpod: RunPodIcon,
+	signoz: SigNozIcon,
+	readwise: ReadwiseIcon,
+	lumaai: LumaAiIcon,
+	git: GitIcon,
+	brex: BrexIcon,
+	close: CloseIcon,
+	rocketchat: RocketChatIcon,
+	apollo: ApolloIcon,
+	bubble: BubbleIcon,
+	joomla: JoomlaIcon,
+	mautic: MauticIcon,
+	zerotier: ZeroTierIcon,
+	splitwise: SplitwiseIcon,
+	telnyx: TelnyxIcon,
+	mandrill: MandrillIcon,
+	openweather: OpenWeatherIcon,
+	ynab: YnabIcon,
+	speechify: SpeechifyIcon,
+	convertkit: ConvertKitIcon,
+	browserless: BrowserlessIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
 export {
@@ -314,5 +537,115 @@ export {
 	MqttIcon,
 	ApifyIcon,
 	McpIcon,
-	ZohoIcon
+	ZohoIcon,
+	DuckDbIcon,
+	ActiveCampaignIcon,
+	AlgoliaIcon,
+	BambooHrIcon,
+	BaremetricsIcon,
+	BitlyIcon,
+	BloggerIcon,
+	BlueskyIcon,
+	BoxIcon,
+	BrevoIcon,
+	BuildkiteIcon,
+	CalendlyIcon,
+	CircleCiIcon,
+	CiscoIcon,
+	ClerkIcon,
+	CloudinaryIcon,
+	CockroachDbIcon,
+	CodaIcon,
+	CoinbaseIcon,
+	CoinMarketCapIcon,
+	ConfluenceIcon,
+	ContentfulIcon,
+	DatoCmsIcon,
+	DeepLIcon,
+	DigitalOceanIcon,
+	DiscourseIcon,
+	DocusignIcon,
+	DropboxIcon,
+	EventbriteIcon,
+	FigmaIcon,
+	FlyIcon,
+	FreshdeskIcon,
+	FrontAppIcon,
+	GhostCmsIcon,
+	GiphyIcon,
+	GitBookIcon,
+	HoneybadgerIcon,
+	IftttIcon,
+	IntercomIcon,
+	LineIcon,
+	LinearIcon,
+	LinodeIcon,
+	MediumIcon,
+	MiroIcon,
+	MistralIcon,
+	MixpanelIcon,
+	MondayIcon,
+	NeonDbIcon,
+	NetlifyIcon,
+	OneSignalIcon,
+	PagerDutyIcon,
+	PandaDocIcon,
+	PaypalIcon,
+	PersonioIcon,
+	PinterestIcon,
+	PipedriveIcon,
+	PlanetScaleIcon,
+	PostmarkIcon,
+	PusherIcon,
+	RenderIcon,
+	ReplicateIcon,
+	RingCentralIcon,
+	SalesforceIcon,
+	SegmentIcon,
+	SentryIcon,
+	ServiceNowIcon,
+	ShortcutIcon,
+	SmartsheetIcon,
+	StravaIcon,
+	ThreadsIcon,
+	TodoistIcon,
+	TursoIcon,
+	TwitchIcon,
+	TwitterIcon,
+	VercelIcon,
+	WebflowIcon,
+	WooCommerceIcon,
+	WordpressIcon,
+	XataIcon,
+	YelpIcon,
+	YoutubeIcon,
+	ZoomIcon,
+	CohereIcon,
+	TallyIcon,
+	ClearbitIcon,
+	RaindropIcon,
+	MagentoIcon,
+	DeelIcon,
+	GroqIcon,
+	TogetherAiIcon,
+	RunPodIcon,
+	SigNozIcon,
+	ReadwiseIcon,
+	LumaAiIcon,
+	BrexIcon,
+	CloseIcon,
+	RocketChatIcon,
+	ApolloIcon,
+	BubbleIcon,
+	JoomlaIcon,
+	MauticIcon,
+	ZeroTierIcon,
+	SplitwiseIcon,
+	TelnyxIcon,
+	MandrillIcon,
+	OpenWeatherIcon,
+	YnabIcon,
+	SpeechifyIcon,
+	ConvertKitIcon,
+	BrowserlessIcon
 }

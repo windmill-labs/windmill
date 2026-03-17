@@ -499,9 +499,6 @@ def generate_cli_commands_markdown(cli_data: dict) -> str:
     md = "# Windmill CLI Commands\n\n"
     md += "The Windmill CLI (`wmill`) provides commands for managing scripts, flows, apps, and other resources.\n\n"
 
-    if cli_data.get('version'):
-        md += f"Current version: {cli_data['version']}\n\n"
-
     # Global options
     if cli_data.get('global_options'):
         md += "## Global Options\n\n"
@@ -763,9 +760,11 @@ def generate_skills(
     # CLI intro for script skills
     script_cli_intro = """## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - `wmill script generate-metadata` - Generate .script.yaml and .lock files
 - `wmill sync push` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use `wmill resource-type list --schema` to discover available resource types."""
 
@@ -920,7 +919,7 @@ def main():
     # Read SDK files
     ts_content = ''
     if TS_SDK_DIR.exists():
-        for ts_file in TS_SDK_DIR.glob('*.ts'):
+        for ts_file in sorted(TS_SDK_DIR.glob('*.ts')):
             if not ts_file.name.endswith('.d.ts'):
                 ts_content += ts_file.read_text() + '\n'
     py_content = PY_SDK_PATH.read_text() if PY_SDK_PATH.exists() else ''
@@ -958,7 +957,7 @@ def main():
 
     # Read language files
     languages = {}
-    for lang_file in languages_dir.glob("*.md"):
+    for lang_file in sorted(languages_dir.glob("*.md")):
         languages[lang_file.stem] = lang_file.read_text()
 
     # Extract and generate CLI commands documentation
@@ -1095,6 +1094,20 @@ export function getFlowPrompt(): string {
 
     # Generate skills TypeScript export for CLI
     skills_ts = generate_skills_ts_export(skills, schema_yaml_content)
+
+    # Replace hardcoded path conventions with placeholders for CLI runtime resolution.
+    # init.ts resolves these based on the nonDottedPaths setting in wmill.yaml.
+    # (Frontend auto-generated files keep the default non-dotted conventions.)
+    skills_ts = (skills_ts
+        .replace("\\`__flow\\`", "\\`{{FLOW_SUFFIX}}\\`")
+        .replace(
+            "Inline script files should NOT include \\`.inline_script.\\`"
+            " in their names (e.g. use \\`a.ts\\`, not \\`a.inline_script.ts\\`).",
+            "{{INLINE_SCRIPT_NAMING}}"
+        )
+        .replace("my_flow__flow", "my_flow{{FLOW_SUFFIX}}")
+        .replace("my_app__raw_app/", "my_app{{RAW_APP_SUFFIX}}/")
+    )
     (CLI_GUIDANCE_DIR / "skills.ts").write_text(skills_ts)
 
     print(f"\nGenerated files:")

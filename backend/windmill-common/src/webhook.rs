@@ -1,7 +1,9 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use quick_cache::sync::Cache;
 use serde::Serialize;
+use tokio::sync::RwLock;
 use tokio::{select, sync::mpsc};
 
 #[cfg(feature = "prometheus")]
@@ -24,7 +26,8 @@ lazy_static::lazy_static! {
 
 lazy_static::lazy_static! {
 
-    pub static ref INSTANCE_EVENTS_WEBHOOK: Option<String> = std::env::var("INSTANCE_EVENTS_WEBHOOK").ok();
+    pub static ref INSTANCE_EVENTS_WEBHOOK: Arc<RwLock<Option<String>>> =
+        Arc::new(RwLock::new(std::env::var("INSTANCE_EVENTS_WEBHOOK").ok()));
 
     pub static ref WEBHOOK_CACHE: Cache<String, Option<String>> = Cache::new(100);
 
@@ -208,11 +211,16 @@ impl WebhookShared {
                             }
                         },
                         Some(WebhookPayload::InstanceEvent(event)) => {
-                            #[cfg(feature = "prometheus")]
-                            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
-                            let r = client.post(INSTANCE_EVENTS_WEBHOOK.as_ref().unwrap()).json(&event).send().await;
-                            if let Err(e) = r {
-                                tracing::error!("Error sending instance event: {}", e);
+                            let url = INSTANCE_EVENTS_WEBHOOK.read().await.clone();
+                            if let Some(url) = url {
+                                #[cfg(feature = "prometheus")]
+                                let timer = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
+                                let r = client.post(&url).json(&event).send().await;
+                                if let Err(e) = r {
+                                    tracing::error!("Error sending instance event: {}", e);
+                                }
+                                #[cfg(feature = "prometheus")]
+                                timer.map(|x| x.stop_and_record());
                             }
                         },
                         None => break,
@@ -232,7 +240,10 @@ impl WebhookShared {
     }
 
     pub fn send_instance_event(&self, event: InstanceEvent) {
-        if INSTANCE_EVENTS_WEBHOOK.is_none() {
+        if INSTANCE_EVENTS_WEBHOOK
+            .try_read()
+            .is_ok_and(|v| v.is_none())
+        {
             return;
         }
         let _ = self.channel.send(WebhookPayload::InstanceEvent(event));

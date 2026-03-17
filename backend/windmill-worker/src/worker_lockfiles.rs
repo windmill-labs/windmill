@@ -182,13 +182,62 @@ pub async fn handle_dependency_job(
             let (deployment_message, parent_path) =
                 get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
+            // Generate lockfiles for module files (if any)
+            let updated_modules = if let Some(modules) = &script_data.modules {
+                let mut updated = modules.clone();
+                for (module_path, module) in updated.iter_mut() {
+                    if module.content.is_empty() {
+                        continue;
+                    }
+                    match capture_dependency_job(
+                        &job.id,
+                        &module.language,
+                        &module.content,
+                        mem_peak,
+                        canceled_by,
+                        job_dir,
+                        db,
+                        worker_name,
+                        &job.workspace_id,
+                        worker_dir,
+                        base_internal_url,
+                        token,
+                        script_path,
+                        occupancy_metrics,
+                        &raw_workspace_dependencies_o,
+                        module.lock.as_deref(),
+                        triggered_by_relative_import,
+                        script_path,
+                        None,
+                        "script",
+                    )
+                    .await
+                    {
+                        Ok(lock) => {
+                            module.lock = Some(lock);
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to generate lockfile for module {module_path}: {e}"
+                            );
+                        }
+                    }
+                }
+                Some(updated)
+            } else {
+                None
+            };
+
             // We do not create new row for this update
             // That means we can keep current hash and just update lock
             // Also store lockfile hash for dependency change detection
             let lockfile_hash = windmill_common::scripts::hash_script(&content);
+            let updated_modules_json = updated_modules
+                .as_ref()
+                .and_then(|m| serde_json::to_value(m).ok());
             sqlx::query!(
                 "WITH update_lock AS (
-                    UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3
+                    UPDATE script SET lock = $1, modules = COALESCE($6, modules) WHERE hash = $2 AND workspace_id = $3
                 )
                 INSERT INTO lock_hash (workspace_id, path, lockfile_hash)
                 VALUES ($3, $4, $5)
@@ -197,7 +246,8 @@ pub async fn handle_dependency_job(
                 &current_hash.0,
                 w_id,
                 script_path,
-                &lockfile_hash
+                &lockfile_hash,
+                updated_modules_json
             )
             .execute(db)
             .await?;
@@ -2535,6 +2585,7 @@ async fn capture_dependency_job(
                 &workspace_dependencies,
                 windmill_common::worker::TypeScriptAnnotations::parse(job_raw_code).npm,
                 &mut Some(occupancy_metrics),
+                false,
             )
             .await?
             {

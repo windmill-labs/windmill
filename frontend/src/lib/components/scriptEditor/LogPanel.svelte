@@ -96,12 +96,18 @@
 		if (!x || typeof x !== 'object') return {}
 		const result: Record<string, WorkflowStatus> = {}
 		for (const [k, v] of Object.entries(x)) {
-			if (!k.startsWith('_')) result[k] = v as WorkflowStatus
+			if (!k.startsWith('_') || k.startsWith('_step/')) result[k] = v as WorkflowStatus
 		}
 		return result
 	}
 
+	function getStepResults(x: any): Record<string, any> {
+		return x?._checkpoint?.completed_steps ?? {}
+	}
+
 	let forceJson = $state(false)
+	let isWac = $derived(!!previewJob?.workflow_as_code_status)
+	let wacDone = $derived(previewJob?.type == 'CompletedJob')
 </script>
 
 <Drawer bind:open={drawerOpen} size="800px">
@@ -141,16 +147,20 @@
 		{#snippet content()}
 			<div class="grow min-h-0">
 				{#if selectedTab === 'logs'}
+					{#if isWac}
+						<div class="h-full overflow-auto">
+							<WorkflowTimeline
+								flow_status={asWorkflowStatus(previewJob?.workflow_as_code_status)}
+								flowDone={wacDone}
+								stepResults={getStepResults(previewJob?.workflow_as_code_status)}
+								result={previewJob?.result}
+								success={previewJob?.success !== false}
+								autoExpandResult
+							/>
+						</div>
+					{:else}
 					<SplitPanesWrapper>
 						<Splitpanes horizontal>
-							{#if previewJob?.workflow_as_code_status}
-								<Pane class="relative">
-									<WorkflowTimeline
-										flow_status={asWorkflowStatus(previewJob.workflow_as_code_status)}
-										flowDone={previewJob.type == 'CompletedJob'}
-									/>
-								</Pane>
-							{/if}
 							<Pane class="relative">
 								<LogViewer
 									jobId={previewJob?.id}
@@ -210,6 +220,7 @@
 							</Pane>
 						</Splitpanes>
 					</SplitPanesWrapper>
+					{/if}
 				{/if}
 				{#if selectedTab === 'history'}
 					<div>

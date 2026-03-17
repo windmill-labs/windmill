@@ -122,9 +122,12 @@ const setupWSConnection = (conn, req, docName) => {
 }
 
 const server = http.createServer((req, res) => {
-  if (req.url === '/' || req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'text/plain' })
-    res.end('okay')
+  if (req.url === '/' || req.url === '/health' || req.url === '/ws_mp/health') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    })
+    res.end(JSON.stringify({ status: 'ok', service: 'multiplayer' }))
   } else {
     res.writeHead(404)
     res.end('not found')
@@ -134,7 +137,20 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server })
 
 wss.on('connection', (ws, req) => {
-  const docName = req.url?.slice(1).split('?')[0] || 'unknown'
+  let docName = req.url?.slice(1).split('?')[0] || 'unknown'
+
+  // Strip ws_mp/ prefix if present (when accessed without reverse proxy path stripping)
+  if (docName.startsWith('ws_mp/')) {
+    docName = docName.slice('ws_mp/'.length)
+  }
+
+  // Handle ping test — respond and close immediately
+  if (docName === '__ping__') {
+    ws.send(JSON.stringify({ type: 'pong', service: 'multiplayer' }))
+    ws.close()
+    return
+  }
+
   const clientIp = req.socket.remoteAddress
 
   console.log(`[${new Date().toISOString()}] CONNECT: doc="${docName}" from=${clientIp}`)

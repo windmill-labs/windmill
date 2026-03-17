@@ -3,6 +3,7 @@ name: "python run script"
 mode: ONCE
 hostname: "python"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 rlimit_as: 4096
 rlimit_cpu: 1000

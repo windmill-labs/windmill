@@ -275,6 +275,9 @@ const command = new Command()
     "Default TypeScript runtime (bun or deno)"
   )
   .action(async (opts: any, appFolder: string | undefined) => {
+    log.warn(
+      colors.yellow('This command is deprecated. Use "wmill generate-metadata" instead.')
+    );
     const { generateLocksCommand } = await import("./app_metadata.ts");
     await generateLocksCommand(opts, appFolder);
   });

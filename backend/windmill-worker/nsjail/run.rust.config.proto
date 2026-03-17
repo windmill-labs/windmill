@@ -3,6 +3,7 @@ name: "rust run script"
 mode: ONCE
 hostname: "rust"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 disable_rl: true
 
