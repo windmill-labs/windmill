@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { withTestBackend } from "./test_backend.ts";
+import { shouldSkipOnCI } from "./cargo_backend.ts";
 
 // =============================================================================
 // PREVIEW COMMAND INTEGRATION TESTS
@@ -470,7 +471,7 @@ test("flow preview: uses remote PathScript by default and local PathScript with 
   });
 });
 
-test("flow preview --local: respects defaultTs when resolving local PathScripts", async () => {
+test.skipIf(shouldSkipOnCI())("flow preview --local: respects defaultTs when resolving local PathScripts", async () => {
   await withTestBackend(async (backend, tempDir) => {
     await createWmillConfig(tempDir, { defaultTs: "deno" });
 
