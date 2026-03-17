@@ -42,6 +42,10 @@ function normalizeOptionalString(value: string | null | undefined): string | und
   return typeof value === "string" && value.trim() === "" ? undefined : value ?? undefined;
 }
 
+function normalizeComparableContent(value: string | undefined): string | undefined {
+  return value?.replaceAll("\r\n", "\n").replace(/\n$/, "");
+}
+
 async function findDivergedLocalPathScripts(
   workspaceId: string,
   scriptPaths: string[],
@@ -71,10 +75,14 @@ async function findDivergedLocalPathScripts(
       continue;
     }
 
+    const remoteLock = normalizeOptionalString(remoteScript.lock);
     const diverged =
-      localScript.content !== remoteScript.content ||
+      normalizeComparableContent(localScript.content) !==
+        normalizeComparableContent(remoteScript.content) ||
       localScript.language !== remoteScript.language ||
-      localScript.lock !== normalizeOptionalString(remoteScript.lock) ||
+      (localScript.lock !== undefined &&
+        normalizeComparableContent(localScript.lock) !==
+          normalizeComparableContent(remoteLock)) ||
       localScript.tag !== normalizeOptionalString(remoteScript.tag) ||
       localScript.codebaseDigest !== normalizeOptionalString(remoteScript.codebase);
 
