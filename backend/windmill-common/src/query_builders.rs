@@ -19,6 +19,22 @@ where
     }
 }
 
+fn deserialize_option_bool_from_int<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let v = serde_json::Value::deserialize(deserializer)?;
+    match v {
+        serde_json::Value::Bool(b) => Ok(Some(b)),
+        serde_json::Value::Number(n) => Ok(Some(n.as_i64().unwrap_or(0) != 0)),
+        serde_json::Value::Null => Ok(None),
+        _ => Err(serde::de::Error::custom(format!(
+            "expected bool or integer, got {}",
+            v
+        ))),
+    }
+}
+
 fn deserialize_string_from_null<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: Deserializer<'de>,
@@ -1538,10 +1554,15 @@ struct DropSchemaPayload {
 struct TableEditorColumn {
     name: String,
     datatype: String,
-    #[serde(rename = "primaryKey")]
+    #[serde(
+        rename = "primaryKey",
+        default,
+        deserialize_with = "deserialize_option_bool_from_int"
+    )]
     primary_key: Option<bool>,
     #[serde(rename = "defaultValue")]
     default_value: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_option_bool_from_int")]
     nullable: Option<bool>,
     datatype_length: Option<i64>,
     #[serde(rename = "initialName")]
@@ -2001,15 +2022,31 @@ fn make_alter_table_queries(p: &AlterTablePayload, db_type: DbType) -> Result<Ve
                 }
             }
             AlterTableOperation::RenameTable { to } => {
-                let new_ref = if db_type == DbType::Snowflake {
-                    match p.schema.as_deref().filter(|s| !s.is_empty()) {
-                        Some(s) => format!("{}.{}", qi(s.trim(), db_type), qi(to, db_type)),
-                        None => qi(to, db_type),
-                    }
+                if db_type == DbType::MsSqlServer {
+                    let old_name = match p.schema.as_deref().filter(|s| !s.is_empty()) {
+                        Some(s) => format!(
+                            "{}.{}",
+                            escape_sql_literal(s.trim()),
+                            escape_sql_literal(&p.name)
+                        ),
+                        None => escape_sql_literal(&p.name),
+                    };
+                    queries.push(format!(
+                        "EXEC sp_rename '{}', '{}';",
+                        old_name,
+                        escape_sql_literal(to)
+                    ));
                 } else {
-                    qi(to, db_type)
-                };
-                queries.push(format!("ALTER TABLE {} RENAME TO {};", tref, new_ref));
+                    let new_ref = if db_type == DbType::Snowflake {
+                        match p.schema.as_deref().filter(|s| !s.is_empty()) {
+                            Some(s) => format!("{}.{}", qi(s.trim(), db_type), qi(to, db_type)),
+                            None => qi(to, db_type),
+                        }
+                    } else {
+                        qi(to, db_type)
+                    };
+                    queries.push(format!("ALTER TABLE {} RENAME TO {};", tref, new_ref));
+                }
             }
             AlterTableOperation::AddPrimaryKey { columns } => {
                 let quoted_cols: Vec<String> = columns.iter().map(|c| qi(c, db_type)).collect();
@@ -3874,6 +3911,24 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"old","operations":[{"kind":"renameTable","to":"new"}],"schema":"MY_SCHEMA"}"#;
         let sql = expand_code(marker, &ScriptLang::Snowflake);
         assert!(sql.contains("ALTER TABLE \"MY_SCHEMA\".\"old\" RENAME TO \"MY_SCHEMA\".\"new\";"));
+    }
+
+    #[test]
+    fn test_expand_alter_table_rename_table_mssql() {
+        let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"old_name","operations":[{"kind":"renameTable","to":"new_name"}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Mssql);
+        assert!(sql.contains("EXEC sp_rename 'old_name', 'new_name';"));
+    }
+
+    #[test]
+    fn test_expand_alter_table_rename_table_mssql_with_schema() {
+        let marker = r#"-- WM_INTERNAL_DB_ALTER_TABLE {"name":"old","operations":[{"kind":"renameTable","to":"new"}],"schema":"dbo"}"#;
+        let sql = expand_code(marker, &ScriptLang::Mssql);
+        assert!(
+            sql.contains("EXEC sp_rename 'dbo.old', 'new';"),
+            "actual sql: {}",
+            sql
+        );
     }
 
     #[test]
