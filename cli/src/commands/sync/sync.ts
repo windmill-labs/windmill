@@ -3244,8 +3244,8 @@ const command = new Command()
     "Use promotionOverrides from the specified branch instead of regular overrides",
   )
   .option(
-    "--branch <branch:string>",
-    "Override the current git branch (works even outside a git repository)",
+    "--branch, --env <branch:string>",
+    "Override the current git branch/environment (works even outside a git repository)",
   )
   .action(pull as any)
   .command("push")
@@ -3300,8 +3300,8 @@ const command = new Command()
     "Specify repository path (e.g., u/user/repo) when multiple repositories exist",
   )
   .option(
-    "--branch <branch:string>",
-    "Override the current git branch (works even outside a git repository)",
+    "--branch, --env <branch:string>",
+    "Override the current git branch/environment (works even outside a git repository)",
   )
   .option("--lint", "Run lint validation before pushing")
   .option(
