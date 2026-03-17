@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT progress::bigint as progress, skipped_all FROM tutorial_progress WHERE email = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "progress",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "skipped_all",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      false
+    ]
+  },
+  "hash": "f3b7ea04830022f918f9302b4d40f57c9c9c48192bc2293986c8abb54ae94446"
+}

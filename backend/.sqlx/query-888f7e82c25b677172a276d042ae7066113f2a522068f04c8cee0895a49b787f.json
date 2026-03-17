@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE\n                http_trigger\n            SET\n                wrap_body = $1,\n                raw_string = $2,\n                authentication_resource_path = $3,\n                script_path = $4,\n                path = $5,\n                is_flow = $6,\n                mode = $7,\n                http_method = $8,\n                static_asset_config = $9,\n                edited_by = $10,\n                email = $11,\n                request_type = $12,\n                authentication_method = $13,\n                summary = $14,\n                description = $15,\n                edited_at = now(),\n                is_static_website = $16,\n                error_handler_path = $17,\n                error_handler_args = $18,\n                retry = $19\n            WHERE\n                workspace_id = $20 AND\n                path = $21\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        {
+          "Custom": {
+            "name": "trigger_mode",
+            "kind": {
+              "Enum": [
+                "enabled",
+                "disabled",
+                "suspended"
+              ]
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "http_method",
+            "kind": {
+              "Enum": [
+                "get",
+                "post",
+                "put",
+                "delete",
+                "patch"
+              ]
+            }
+          }
+        },
+        "Jsonb",
+        "Varchar",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "request_type",
+            "kind": {
+              "Enum": [
+                "sync",
+                "async",
+                "sync_sse"
+              ]
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "authentication_method",
+            "kind": {
+              "Enum": [
+                "none",
+                "windmill",
+                "api_key",
+                "basic_http",
+                "custom_script",
+                "signature"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Text",
+        "Bool",
+        "Varchar",
+        "Jsonb",
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "888f7e82c25b677172a276d042ae7066113f2a522068f04c8cee0895a49b787f"
+}
