@@ -227,7 +227,6 @@ export async function generateScriptMetadataInternal(
   const hasModules = existsSync(moduleFolderPath) && statSync(moduleFolderPath).isDirectory();
 
   let hash = await generateScriptHash(filteredRawWorkspaceDependencies, scriptContent, metadataContent);
-  const isDirectlyStale = !(await checkifMetadataUptodate(remotePath, hash, undefined));
 
   // Compute per-module hashes for stale detection (like flow inline scripts)
   let moduleHashes: Record<string, string> = {};
@@ -246,6 +245,9 @@ export async function generateScriptMetadataInternal(
     checkHash = await generateHash(hash + JSON.stringify(sortedEntries));
     checkSubpath = SCRIPT_TOP_HASH;
   }
+
+  // Use checkHash (includes module hashes) so module changes are detected as stale
+  const isDirectlyStale = !(await checkifMetadataUptodate(remotePath, checkHash, undefined, checkSubpath));
 
   const conf = await readLockfile();
 

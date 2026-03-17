@@ -25,7 +25,7 @@ export async function extractRelativeImports(
         return parse_ts_relative_imports(code, scriptPath);
       }
       case "python3": {
-        const { parse_py_relative_imports } = await loadParser("windmill-parser-wasm-py");
+        const { parse_py_relative_imports } = await loadParser("windmill-parser-wasm-py-imports");
         return parse_py_relative_imports(code, scriptPath);
       }
       default:
