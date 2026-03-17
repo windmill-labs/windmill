@@ -13,8 +13,8 @@ use monitor::{
     reload_maven_settings_xml_setting, reload_no_default_maven_setting,
     reload_nuget_config_setting, reload_powershell_repo_pat_setting,
     reload_powershell_repo_url_setting, reload_ruby_repos_setting,
-    reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
-    send_logs_to_object_store, WORKERS_NAMES,
+    reload_timeout_wait_result_setting, reload_workspace_registries_setting,
+    send_current_log_file_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::{Pool, Postgres};
@@ -52,7 +52,7 @@ use windmill_common::{
         POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING, WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -1768,6 +1768,7 @@ async fn process_notify_event(
                 MAVEN_SETTINGS_XML_SETTING => reload_maven_settings_xml_setting(conn).await,
                 NO_DEFAULT_MAVEN_SETTING => reload_no_default_maven_setting(conn).await,
                 RUBY_REPOS_SETTING => reload_ruby_repos_setting(conn).await,
+                WORKSPACE_REGISTRIES_SETTING => reload_workspace_registries_setting(conn).await,
                 HUB_API_SECRET_SETTING => reload_hub_api_secret_setting(conn).await,
                 KEEP_JOB_DIR_SETTING => {
                     load_keep_job_dir(conn).await;
