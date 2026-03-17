@@ -333,9 +333,11 @@ Resources:
           yum install -y jq postgresql15 aws-cfn-bootstrap unzip
 
           # Install AWS CLI v2 (yum aws-cli package is v1 and outdated)
-          curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip -q awscliv2.zip
-          ./aws/install
+          echo "Installing AWS CLI v2..."
+          if ! (curl -sf "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && unzip -q awscliv2.zip && ./aws/install); then
+            echo "ERROR: Failed to install AWS CLI v2"
+            exit 1
+          fi
           rm -rf aws awscliv2.zip
 
           # Set up logging directory with correct permissions
@@ -619,7 +621,7 @@ Resources:
               }));
 
               for (const sg of sgResponse.SecurityGroups || []) {
-                if (sg.GroupName !== 'default') {
+                if (sg.GroupName !== 'default' && (sg.GroupName.startsWith('k8s-') || (sg.Tags || []).some(t => t.Key.startsWith('kubernetes.io/')))) {
                   console.log(`Deleting security group: ${sg.GroupId} (${sg.GroupName})`);
                   try {
                     await ec2.send(new DeleteSecurityGroupCommand({ GroupId: sg.GroupId }));
