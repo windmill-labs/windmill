@@ -44,7 +44,6 @@
 		displayCreateToken = true
 	}: Props = $props()
 
-
 	let newToken = $state<string | undefined>(undefined)
 	let newMcpToken = $state<string | undefined>(undefined)
 	let newTokenExpiration = $state<number | undefined>(undefined)
@@ -464,11 +463,10 @@
 
 				<div>
 					<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
-					<select bind:value={newTokenWorkspace} disabled={workspaces.length === 1} class="w-full">
-						{#each workspaces as workspace}
-							<option value={workspace.id}>{workspace.name}</option>
-						{/each}
-					</select>
+					<Select
+						bind:value={newTokenWorkspace}
+						items={workspaces.map((w) => ({ label: w.name, value: w.id, subtitle: w.id }))}
+					/>
 				</div>
 			{/if}
 
