@@ -90,6 +90,10 @@
 
 	let hubFilterValue: Record<string, any> = $state({})
 	let hubFreeText = $derived((hubFilterValue._default_ as string) ?? '')
+	// Merge _default_ free text into summary filter for hub components
+	let hubSummaryFilter = $derived(
+		[hubFilterValue.summary, hubFreeText].filter(Boolean).join(' ') || undefined
+	)
 	let hubAppFilter: string | undefined = $state(undefined)
 
 	// Sync hub kind filter ↔ subtab
@@ -427,27 +431,24 @@
 
 					{#if subtab == 'script'}
 						<PickHubScript
-							filter={hubFreeText}
 							appFilter={hubAppFilter}
-							summaryFilter={hubFilterValue.summary}
+							summaryFilter={hubSummaryFilter}
 							pathFilter={hubFilterValue.path}
 							hideSearchbar
 							on:pick={(e) => viewCode(e.detail)}
 						/>
 					{:else if subtab == 'flow'}
 						<PickHubFlow
-							filter={hubFreeText}
 							appFilter={hubAppFilter}
-							summaryFilter={hubFilterValue.summary}
+							summaryFilter={hubSummaryFilter}
 							pathFilter={hubFilterValue.path}
 							hideSearchbar
 							on:pick={(e) => viewFlow(e.detail)}
 						/>
 					{:else if subtab == 'app'}
 						<PickHubApp
-							filter={hubFreeText}
 							appFilter={hubAppFilter}
-							summaryFilter={hubFilterValue.summary}
+							summaryFilter={hubSummaryFilter}
 							pathFilter={hubFilterValue.path}
 							hideSearchbar
 							on:pick={(e) => viewApp(e.detail)}
