@@ -235,6 +235,7 @@ pub async fn initial_load(
                 )
             }
             windmill_common::min_version::store_min_keep_alive_version(db).await;
+            reload_instance_events_webhook_setting(db).await;
         }
     }
 
@@ -1358,6 +1359,26 @@ async fn delete_log_files_from_disk_and_store(
     }
 
     let _: Vec<_> = delete_futures.collect().await;
+}
+
+pub async fn reload_instance_events_webhook_setting(db: &DB) {
+    use windmill_common::global_settings::INSTANCE_EVENTS_WEBHOOK_SETTING;
+    use windmill_common::webhook::INSTANCE_EVENTS_WEBHOOK;
+
+    let value = load_value_from_global_settings(db, INSTANCE_EVENTS_WEBHOOK_SETTING).await;
+    match value {
+        Ok(Some(serde_json::Value::String(s))) if !s.is_empty() => {
+            *INSTANCE_EVENTS_WEBHOOK.write().await = Some(s);
+        }
+        Ok(None) | Ok(Some(serde_json::Value::Null)) | Ok(Some(serde_json::Value::String(_))) => {
+            // Fall back to env var if DB has no value
+            *INSTANCE_EVENTS_WEBHOOK.write().await = std::env::var("INSTANCE_EVENTS_WEBHOOK").ok();
+        }
+        Err(e) => {
+            tracing::error!("Error loading instance_events_webhook setting: {e:#}");
+        }
+        _ => (),
+    };
 }
 
 pub async fn reload_scim_token_setting(conn: &Connection) {
