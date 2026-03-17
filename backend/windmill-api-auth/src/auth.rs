@@ -27,7 +27,7 @@ use windmill_common::DB;
 
 use windmill_common::{
     auth::{
-        get_folders_for_user, get_groups_for_user, hash_token, JWTAuthClaims, TOKEN_PREFIX_LEN,
+        get_folders_for_user, get_groups_for_user, hash_token, safe_token_prefix, JWTAuthClaims,
     },
     error::{Error, JsonResult},
     jwt,
@@ -281,7 +281,7 @@ impl AuthCache {
                                             scopes: None,
                                             username_override,
                                             token_prefix: Some(
-                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                                safe_token_prefix(token),
                                             ),
                                         })
                                     } else {
@@ -305,7 +305,7 @@ impl AuthCache {
                                             scopes: None,
                                             username_override,
                                             token_prefix: Some(
-                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                                safe_token_prefix(token),
                                             ),
                                         })
                                     }
@@ -321,7 +321,7 @@ impl AuthCache {
                                         folders,
                                         scopes: None,
                                         username_override,
-                                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                                        token_prefix: Some(safe_token_prefix(token)),
                                     })
                                 }
                             }
@@ -370,7 +370,7 @@ impl AuthCache {
                                                 scopes,
                                                 username_override,
                                                 token_prefix: Some(
-                                                    token[0..TOKEN_PREFIX_LEN].to_string(),
+                                                    safe_token_prefix(token),
                                                 ),
                                             })
                                         }
@@ -384,7 +384,7 @@ impl AuthCache {
                                             scopes,
                                             username_override,
                                             token_prefix: Some(
-                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                                safe_token_prefix(token),
                                             ),
                                         }),
                                         None => None,
@@ -399,7 +399,7 @@ impl AuthCache {
                                         folders: Vec::new(),
                                         scopes,
                                         username_override,
-                                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                                        token_prefix: Some(safe_token_prefix(token)),
                                     })
                                 }
                             }
@@ -433,7 +433,7 @@ impl AuthCache {
                         folders: Vec::new(),
                         scopes: None,
                         username_override: None,
-                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                        token_prefix: Some(safe_token_prefix(token)),
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {

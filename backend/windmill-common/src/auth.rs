@@ -32,6 +32,15 @@ pub struct IdToken {
 
 pub const TOKEN_PREFIX_LEN: usize = 10;
 
+/// Safely extract the token prefix (first TOKEN_PREFIX_LEN chars).
+/// Returns the full token if it's shorter than TOKEN_PREFIX_LEN, preventing panics.
+pub fn safe_token_prefix(token: &str) -> String {
+    token
+        .get(..TOKEN_PREFIX_LEN)
+        .unwrap_or(token)
+        .to_string()
+}
+
 lazy_static::lazy_static! {
     // Cache for script hash permissions - (ApiAuthed hash, script_hash) -> permission result
     pub static ref HASH_PERMS_CACHE: PermsCache = PermsCache::new();

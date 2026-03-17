@@ -42,7 +42,7 @@ use tracing::Instrument;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
-use windmill_common::auth::TOKEN_PREFIX_LEN;
+use windmill_common::auth::{safe_token_prefix, TOKEN_PREFIX_LEN};
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::users::truncate_token;
@@ -528,7 +528,7 @@ async fn logout(
     cookies.remove(cookie);
     let mut tx = db.begin().await?;
     let t_hash = windmill_common::auth::hash_token(&token);
-    let t_prefix = &token[..TOKEN_PREFIX_LEN];
+    let t_prefix = token.get(..TOKEN_PREFIX_LEN).unwrap_or(&token);
 
     let email = if *INVALIDATE_ALL_SESSIONS_ON_LOGOUT {
         sqlx::query_scalar!(
@@ -1648,7 +1648,7 @@ async fn login(
                 email: email.clone(),
                 username: email.clone(),
                 username_override: None,
-                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                token_prefix: Some(safe_token_prefix(&token)),
             };
 
             audit_log(
@@ -1750,7 +1750,7 @@ pub async fn create_session_token<'c>(
 
     let token = rd_string(32);
     let t_hash = windmill_common::auth::hash_token(&token);
-    let t_prefix = &token[..TOKEN_PREFIX_LEN];
+    let t_prefix = token.get(..TOKEN_PREFIX_LEN).unwrap_or(&token);
     let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
         None
     } else {
@@ -1838,7 +1838,7 @@ async fn impersonate(
 
     let token = rd_string(32);
     let t_hash = windmill_common::auth::hash_token(&token);
-    let t_prefix = &token[..TOKEN_PREFIX_LEN];
+    let t_prefix = token.get(..TOKEN_PREFIX_LEN).unwrap_or(&token);
     let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
         None
     } else {

@@ -764,7 +764,7 @@ pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<Optio
 
     let new_token = rd_string(32);
     let new_hash = hash_token(&new_token);
-    let new_prefix = &new_token[..TOKEN_PREFIX_LEN];
+    let new_prefix = new_token.get(..TOKEN_PREFIX_LEN).unwrap_or(&new_token);
     let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
         None
     } else {

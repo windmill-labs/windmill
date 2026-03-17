@@ -520,7 +520,7 @@ pub async fn create_token_internal(
 
     let token = rd_string(32);
     let t_hash = hash_token(&token);
-    let t_prefix = &token[..TOKEN_PREFIX_LEN];
+    let t_prefix = token.get(..TOKEN_PREFIX_LEN).unwrap_or(&token);
 
     // Write plaintext token column until all workers support hash-based lookup
     let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
