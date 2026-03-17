@@ -66,6 +66,8 @@ export {
 	getDebugFileExtension
 } from './debugUtils'
 
+import { buildWsUrl } from '$lib/wsUrl'
+
 /**
  * Language to debug endpoint path mapping.
  * Uses the unified DAP Debug Service with path-based routing.
@@ -92,12 +94,7 @@ export type DebugLanguage = keyof typeof DAP_ENDPOINT_PATHS
  */
 export function getDebugServerUrl(language: DebugLanguage): string {
 	const path = DAP_ENDPOINT_PATHS[language] || DAP_ENDPOINT_PATHS.python3
-	if (typeof window === 'undefined') {
-		// SSR fallback
-		return `ws://localhost:3003${path}`
-	}
-	const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-	return `${wsProtocol}://${window.location.host}/ws_debug${path}`
+	return buildWsUrl(`/ws_debug${path}`)
 }
 
 /**

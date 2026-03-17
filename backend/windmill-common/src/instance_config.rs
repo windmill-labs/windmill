@@ -245,6 +245,8 @@ pub struct GlobalSettings {
 
     // String settings
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub email_domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hub_base_url: Option<String>,

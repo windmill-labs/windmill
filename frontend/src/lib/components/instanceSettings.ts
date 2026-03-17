@@ -143,6 +143,23 @@ export const settings: Record<string, Setting[]> = {
 					!value?.endsWith(' '))
 		},
 		{
+			label: 'WebSocket base url',
+			description:
+				'Override the base URL for WebSocket connections (LSP, debugger, multiplayer). If not set, derived from the browser URL. Example: wss://ws.example.com',
+			key: 'ws_base_url',
+			fieldType: 'text',
+			placeholder: 'wss://ws.example.com',
+			storage: 'setting',
+			error: 'Must start with ws:// or wss:// and not end with / or a space',
+			isValid: (value: string | undefined) =>
+				!value ||
+				(value.startsWith('ws') &&
+					value.includes('://') &&
+					!value.endsWith('/') &&
+					!value.endsWith(' ')),
+			requiresReloadOnChange: true
+		},
+		{
 			label: 'Email domain',
 			description: 'Domain to display in webhooks for email triggers (should match the MX record)',
 			key: 'email_domain',
