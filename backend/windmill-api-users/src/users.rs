@@ -156,6 +156,7 @@ pub struct GlobalUserInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_only: Option<bool>,
     first_time_user: bool,
+    role_source: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -395,7 +396,7 @@ async fn list_users_as_super_admin(
             GlobalUserInfo,
             "WITH active_users AS (SELECT distinct username as email FROM (SELECT username, timestamp, operation FROM audit_partitioned UNION ALL SELECT username, timestamp, operation FROM audit) AS a WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
-            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username, first_time_user
+            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username, first_time_user, role_source
             FROM password
             WHERE email IN (SELECT email FROM active_users)
             ORDER BY super_admin DESC, devops DESC
@@ -408,7 +409,7 @@ async fn list_users_as_super_admin(
     } else {
         sqlx::query_as!(
             GlobalUserInfo,
-            "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only, first_time_user FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT \
+            "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only, first_time_user, role_source FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT \
             $1 OFFSET $2",
             per_page as i32,
             offset as i32
@@ -624,7 +625,7 @@ async fn global_whoami(
 ) -> JsonResult<GlobalUserInfo> {
     let user = sqlx::query_as!(
         GlobalUserInfo,
-        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only, first_time_user FROM password WHERE \
+        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only, first_time_user, role_source FROM password WHERE \
          email = $1",
         email
     )
@@ -646,6 +647,7 @@ async fn global_whoami(
             username: None,
             operator_only: None,
             first_time_user: false,
+            role_source: "manual".to_string(),
         }))
     } else {
         Err(user.unwrap_err())
@@ -1281,7 +1283,7 @@ async fn update_user(
     let mut new_super_admin: Option<bool> = None;
     if let Some(sa) = eu.is_super_admin {
         sqlx::query_scalar!(
-            "UPDATE password SET super_admin = $1 WHERE email = $2",
+            "UPDATE password SET super_admin = $1, role_source = 'manual' WHERE email = $2",
             sa,
             &email_to_update
         )
@@ -1292,7 +1294,7 @@ async fn update_user(
 
     if let Some(dv) = eu.is_devops {
         sqlx::query_scalar!(
-            "UPDATE password SET devops = $1 WHERE email = $2",
+            "UPDATE password SET devops = $1, role_source = 'manual' WHERE email = $2",
             dv,
             &email_to_update
         )
@@ -1325,6 +1327,74 @@ async fn update_user(
         )
         .execute(&mut *tx)
         .await?;
+    }
+
+    // If the result is "user" (no elevation), recompute from instance groups.
+    // Setting to "user" means "clear manual override, fall back to group role".
+    // Manual elevated roles (devops/superadmin) are never overridden by groups.
+    if eu.is_super_admin.is_some() || eu.is_devops.is_some() {
+        let current = sqlx::query!(
+            "SELECT super_admin, devops FROM password WHERE email = $1",
+            &email_to_update
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(c) = current {
+            if !c.super_admin && !c.devops {
+                // Compute effective role from all instance groups
+                let roles = sqlx::query_scalar!(
+                    "SELECT ig.instance_role FROM email_to_igroup eig
+                     JOIN instance_group ig ON ig.name = eig.igroup
+                     WHERE eig.email = $1 AND ig.instance_role IS NOT NULL",
+                    &email_to_update
+                )
+                .fetch_all(&mut *tx)
+                .await?;
+
+                let mut effective: Option<&str> = None;
+                for role in roles.iter().flatten() {
+                    match role.as_str() {
+                        "superadmin" => {
+                            effective = Some("superadmin");
+                            break;
+                        }
+                        "devops" if effective.is_none() => {
+                            effective = Some("devops");
+                        }
+                        _ => {}
+                    }
+                }
+
+                if let Some(role) = effective {
+                    let (sa, dv) = match role {
+                        "superadmin" => (true, false),
+                        _ => (false, true),
+                    };
+                    sqlx::query!(
+                        "UPDATE password SET super_admin = $1, devops = $2, role_source = 'instance_group' WHERE email = $3",
+                        sa, dv, &email_to_update
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+
+                    // Re-invalidate tokens with the group role
+                    sqlx::query!(
+                        "DELETE FROM token WHERE email = $1 AND label = 'session'",
+                        &email_to_update
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                    sqlx::query!(
+                        "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'",
+                        sa,
+                        &email_to_update
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                }
+            }
+        }
     }
 
     if let Some(n) = eu.name {

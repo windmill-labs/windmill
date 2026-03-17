@@ -14164,7 +14164,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/InstanceGroup"
+                $ref: "#/components/schemas/InstanceGroupWithWorkspaces"
 
   /groups/create:
     post:
@@ -14212,6 +14212,10 @@ paths:
               properties:
                 new_summary:
                   type: string
+                instance_role:
+                  type: string
+                  nullable: true
+                  description: "Instance-level role for group members. 'superadmin', 'devops', 'user' or empty to clear."
               required:
                 - new_summary
       responses:
@@ -22629,6 +22633,12 @@ components:
           type: array
           items:
             type: string
+        instance_role:
+          type: string
+          nullable: true
+          enum:
+            - superadmin
+            - devops
 
     InstanceGroupWithWorkspaces:
       type: object
@@ -22643,6 +22653,12 @@ components:
           type: array
           items:
             type: string
+        instance_role:
+          type: string
+          nullable: true
+          enum:
+            - superadmin
+            - devops
         workspaces:
           type: array
           items:
@@ -22926,6 +22942,9 @@ components:
           type: boolean
         first_time_user:
           type: boolean
+        role_source:
+          type: string
+          enum: ["manual", "instance_group"]
 
       required:
         - email
@@ -22933,6 +22952,7 @@ components:
         - super_admin
         - verified
         - first_time_user
+        - role_source
 
     Flow:
       allOf:
@@ -23802,6 +23822,12 @@ components:
           type: string
         external_id:
           type: string
+        instance_role:
+          type: string
+          nullable: true
+          enum:
+            - superadmin
+            - devops
       required:
         - name
 

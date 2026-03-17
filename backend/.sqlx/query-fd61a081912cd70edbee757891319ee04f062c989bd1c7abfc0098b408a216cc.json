@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, id, scim_display_name, external_id FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name",
+  "query": "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, id, scim_display_name, external_id, instance_role FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name",
   "describe": {
     "columns": [
       {
@@ -32,6 +32,11 @@
         "ordinal": 5,
         "name": "external_id",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "instance_role",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -43,8 +48,9 @@
       null,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "9cd6e964ba933de247ba7ddce0acef0b70b784c2410f3a5f51288aaea6904b8f"
+  "hash": "fd61a081912cd70edbee757891319ee04f062c989bd1c7abfc0098b408a216cc"
 }

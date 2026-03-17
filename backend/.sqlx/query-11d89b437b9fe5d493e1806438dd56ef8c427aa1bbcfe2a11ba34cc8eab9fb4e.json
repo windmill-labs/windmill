@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE password SET devops = $1 WHERE email = $2",
+  "query": "UPDATE password SET super_admin = $1, role_source = 'manual' WHERE email = $2",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "411788111afccd826ce78b266153600939c65c75be8894322b90d9da18dcb824"
+  "hash": "11d89b437b9fe5d493e1806438dd56ef8c427aa1bbcfe2a11ba34cc8eab9fb4e"
 }
