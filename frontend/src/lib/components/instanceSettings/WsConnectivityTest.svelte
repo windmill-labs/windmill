@@ -50,8 +50,16 @@
 			const httpUrl = wsToHttp(wsUrl)
 			const response = await fetch(httpUrl, { signal: AbortSignal.timeout(5000) })
 			if (!response.ok) return false
-			const data = await response.json()
-			return data.status === 'ok'
+			const text = await response.text()
+			// Accept plain text "ok"/"okay" (old services) or JSON {"status": "ok"} (new services)
+			if (text === 'ok' || text === 'okay') return true
+			try {
+				const data = JSON.parse(text)
+				return data.status === 'ok'
+			} catch {
+				// Non-JSON, non-"ok" response (e.g. HTML from SPA fallback)
+				return false
+			}
 		} catch {
 			return false
 		}
@@ -65,16 +73,12 @@
 					ws.close()
 					resolve(false)
 				}, 5000)
-				ws.onmessage = (e) => {
+				ws.onopen = () => {
+					// Connection established — service is reachable
+					// If a pong arrives via onmessage, great; otherwise onclose resolves
 					clearTimeout(timeout)
-					try {
-						const data = JSON.parse(e.data)
-						ws.close()
-						resolve(data.type === 'pong')
-					} catch {
-						ws.close()
-						resolve(false)
-					}
+					ws.close()
+					resolve(true)
 				}
 				ws.onerror = () => {
 					clearTimeout(timeout)
