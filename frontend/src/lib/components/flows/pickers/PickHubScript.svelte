@@ -84,21 +84,40 @@
 			startTs = ts
 			await new Promise((r) => setTimeout(r, 100))
 			if (ts < startTs) return
-			const scripts =
-				filter.length > 0
-					? await ScriptService.queryHubScripts({
-							text: `${filter}`,
-							limit: 20,
-							kind: filterKind,
-							app: appFilter
-						})
-					: ((
+			let scripts: any[]
+			if (filter.length > 0) {
+				try {
+					scripts = await ScriptService.queryHubScripts({
+						text: `${filter}`,
+						limit: 20,
+						kind: filterKind,
+						app: appFilter
+					})
+				} catch {
+					// Fallback: load top scripts and filter client-side
+					const top =
+						(
 							await ScriptService.getTopHubScripts({
-								limit: 20,
+								limit: 40,
 								app: appFilter,
 								kind: filterKind
 							})
-						).asks ?? [])
+						).asks ?? []
+					const lc = filter.toLowerCase()
+					scripts = top.filter(
+						(x: any) => x.summary?.toLowerCase().includes(lc) || x.app?.toLowerCase().includes(lc)
+					)
+				}
+			} else {
+				scripts =
+					(
+						await ScriptService.getTopHubScripts({
+							limit: 20,
+							app: appFilter,
+							kind: filterKind
+						})
+					).asks ?? []
+			}
 			if (ts === startTs) {
 				loading = false
 			}
@@ -112,7 +131,7 @@
 					kind: HubScriptKind
 				}) => ({
 					...x,
-					path: `hub/${x.version_id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+					path: `hub/${x.version_id}/${x.app}/${(x.summary ?? '').toLowerCase().replaceAll(/\s+/g, '_')}`,
 					summary: `${x.summary} (${x.app})`
 				})
 			)
