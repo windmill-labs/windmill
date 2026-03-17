@@ -9,11 +9,13 @@
 		type FlowModuleValue,
 		type FlowModule,
 		ResourceService,
-		type CompletedJob
+		type CompletedJob,
+		type WorkflowStatus
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import FlowJobResult from './FlowJobResult.svelte'
+	import WorkflowTimeline from './WorkflowTimeline.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 
 	import { getContext, setContext, tick, untrack } from 'svelte'
@@ -236,6 +238,19 @@
 	let jobResults: any[] = $state(
 		untrack(() => flowJobIds)?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
 	)
+
+	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
+		if (!x || typeof x !== 'object') return {}
+		const result: Record<string, WorkflowStatus> = {}
+		for (const [k, v] of Object.entries(x)) {
+			if (!k.startsWith('_') || k.startsWith('_step/')) result[k] = v as WorkflowStatus
+		}
+		return result
+	}
+
+	function getStepResults(x: any): Record<string, any> {
+		return x?._checkpoint?.completed_steps ?? {}
+	}
 
 	let retry_selected = $state('')
 	let timeout: number | undefined = undefined
@@ -879,7 +894,8 @@
 						tag: job.tag,
 						started_at,
 						parent_module: mod['parent_module'],
-						script_hash: job.script_hash
+						script_hash: job.script_hash,
+						workflow_as_code_status: job['workflow_as_code_status']
 					},
 					force
 				)
@@ -917,8 +933,8 @@
 						retries: mod?.failed_retries?.length,
 						skipped: mod.skipped,
 						agent_actions: mod.agent_actions,
-						script_hash: job.script_hash
-						// retries: flowStateStore?.raw_flow
+						script_hash: job.script_hash,
+						workflow_as_code_status: job['workflow_as_code_status']
 					},
 					force
 				)
@@ -2050,6 +2066,18 @@
 																		id={isReplay ? undefined : node.job_id}
 																		workspace={isReplay ? undefined : (job.workspace_id ?? $workspaceStore ?? 'no_w')}
 																		args={node.args}
+																	/>
+																</div>
+															{/if}
+															{#if node.workflow_as_code_status}
+																<div>
+																	<div class="text-xs text-emphasis font-semibold mb-1">Workflow timeline</div>
+																	<WorkflowTimeline
+																		flow_status={asWorkflowStatus(node.workflow_as_code_status)}
+																		flowDone={node.type === 'Success' || node.type === 'Failure'}
+																		stepResults={getStepResults(node.workflow_as_code_status)}
+																		result={node.result}
+																		success={node.type === 'Success'}
 																	/>
 																</div>
 															{/if}

@@ -107,6 +107,22 @@
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
+	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
+	import Modal from './common/modal/Modal.svelte'
+
+	const WAC_ALPHA_ACK_KEY = 'windmill_wac_alpha_ack'
+	let wacAlphaModalOpen = $state(false)
+
+	function showWacAlphaModalIfNeeded() {
+		if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(WAC_ALPHA_ACK_KEY) !== 'true') {
+			wacAlphaModalOpen = true
+		}
+	}
+
+	function acknowledgeWacAlpha() {
+		sessionStorage.setItem(WAC_ALPHA_ACK_KEY, 'true')
+		wacAlphaModalOpen = false
+	}
 
 	let {
 		script = $bindable(),
@@ -182,6 +198,7 @@
 	let editor: Editor | undefined = $state(undefined)
 	let scriptEditor: ScriptEditor | undefined = $state(undefined)
 	let captureTable: CaptureTable | undefined = $state(undefined)
+	let wacExportDrawer: WacExportDrawer | undefined = $state(undefined)
 
 	// Draft triggers confirmation modal
 	let draftTriggersModalOpen = $state(false)
@@ -362,6 +379,13 @@
 	}
 
 	if (script.content == '') {
+		if (template === 'wac_python') {
+			script.modules = { 'helper.py': { content: 'def main(a: str) -> str:\n    return f"hello {a}"\n', language: 'python3' } }
+			showWacAlphaModalIfNeeded()
+		} else if (template === 'wac_typescript') {
+			script.modules = { 'helper.ts': { content: 'export function main(a: string): string {\n  return `hello ${a}`\n}\n', language: 'bun' } }
+			showWacAlphaModalIfNeeded()
+		}
 		initContent(script.language, script.kind, template)
 	}
 
@@ -388,7 +412,7 @@
 	async function initContent(
 		language: SupportedLanguage,
 		kind: Script['kind'] | undefined,
-		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox'
+		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox' | 'wac_python' | 'wac_typescript'
 	) {
 		scriptEditor?.disableCollaboration()
 		const templateScript = await isTemplateScript()
@@ -403,6 +427,7 @@
 	}
 
 	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void> {
+		scriptEditor?.flushModuleState()
 		// Fetch latest version and fetch entire script after if needed
 		let actual_parent_hash: string | undefined = undefined
 
@@ -510,10 +535,10 @@
 					script.kind === 'preprocessor' ? 'preprocessor' : undefined
 				)
 				if (script.kind === 'preprocessor') {
-					script.no_main_func = undefined
+					script.auto_kind = undefined
 					script.has_preprocessor = undefined
 				} else {
-					script.no_main_func = result?.no_main_func || undefined
+					script.auto_kind = result?.auto_kind || undefined
 					script.has_preprocessor = result?.has_preprocessor || undefined
 				}
 			} catch (error) {
@@ -554,12 +579,13 @@
 					timeout: script.timeout,
 					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key,
 					visible_to_runner_only: script.visible_to_runner_only,
-					no_main_func: script.no_main_func,
+					auto_kind: script.auto_kind,
 					has_preprocessor: script.has_preprocessor,
 					deployment_message: deploymentMsg || undefined,
 					on_behalf_of_email: script.on_behalf_of_email,
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
-					assets: script.assets
+					assets: script.assets,
+					modules: script.modules
 				}
 			})
 
@@ -592,7 +618,7 @@
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
-			if (stay || (script.no_main_func && script.kind !== 'preprocessor' && !isWorkflowAsCode(script.content, script.language))) {
+			if (stay || (script.auto_kind === 'lib' && script.kind !== 'preprocessor' && !isWorkflowAsCode(script.content, script.language))) {
 				script.parent_hash = newHash
 				sendUserToast('Deployed')
 			} else {
@@ -606,6 +632,7 @@
 	}
 
 	async function saveDraft(forceSave = false): Promise<void> {
+		scriptEditor?.flushModuleState()
 		if (initialPath != '' && !savedScript) {
 			return
 		}
@@ -643,10 +670,10 @@
 					script.kind === 'preprocessor' ? 'preprocessor' : undefined
 				)
 				if (script.kind === 'preprocessor') {
-					script.no_main_func = undefined
+					script.auto_kind = undefined
 					script.has_preprocessor = undefined
 				} else {
-					script.no_main_func = result?.no_main_func || undefined
+					script.auto_kind = result?.auto_kind || undefined
 					script.has_preprocessor = result?.has_preprocessor || undefined
 				}
 			} catch (error) {
@@ -707,10 +734,11 @@
 							? undefined
 							: script.concurrency_key,
 						visible_to_runner_only: script.visible_to_runner_only,
-						no_main_func: script.no_main_func,
+						auto_kind: script.auto_kind,
 						has_preprocessor: script.has_preprocessor,
 						on_behalf_of_email: script.on_behalf_of_email,
-						assets: script.assets
+						assets: script.assets,
+						modules: script.modules
 					}
 				})
 			}
@@ -816,7 +844,7 @@
 									}
 								]
 							: []),
-						...(!script.draft_only && script.kind === 'script' && !script.no_main_func
+						...(!script.draft_only && script.kind === 'script' && !script.auto_kind
 							? [
 									{
 										label: 'Exit & See details',
@@ -825,9 +853,33 @@
 										}
 									}
 								]
+							: []),
+						...(isWorkflowAsCode(script.content, script.language)
+							? [
+									{
+										label: 'Export as YAML/JSON',
+										onClick: () => {
+											wacExportDrawer?.open(script)
+										}
+									}
+								]
 							: [])
 					]
 				: []
+
+		if (
+			dropdownItems.length === 0 &&
+			isWorkflowAsCode(script.content, script.language)
+		) {
+			dropdownItems = [
+				{
+					label: 'Export as YAML/JSON',
+					onClick: () => {
+						wacExportDrawer?.open(script)
+					}
+				}
+			]
+		}
 
 		return dropdownItems.length > 0 ? dropdownItems : undefined
 	}
@@ -1201,7 +1253,7 @@
 											</div>
 										</Section>
 									{/if}
-									<div class="flex items-center gap-2 mt-2">
+									<div class="flex items-center gap-2 mt-2 flex-wrap">
 										<span class="text-2xs text-secondary">Template</span>
 										<Button
 											size="xs2"
@@ -1219,6 +1271,46 @@
 										>
 											Claude Sandbox
 										</Button>
+										<span title="Workflow-as-Code">
+											<Button
+												size="xs2"
+												variant="border"
+												color="light"
+												startIcon={{
+													icon: LanguageIcon,
+													props: { lang: 'bun', width: 16, height: 16 }
+												} as ButtonType.Icon}
+												on:click={() => {
+													template = 'wac_typescript'
+													script.language = 'bun'
+													script.modules = { 'helper.ts': { content: 'export function main(a: string): string {\n  return `hello ${a}`\n}\n', language: 'bun' } }
+													initContent('bun', script.kind, template)
+													showWacAlphaModalIfNeeded()
+												}}
+											>
+												WAC TypeScript
+											</Button>
+										</span>
+										<span title="Workflow-as-Code">
+											<Button
+												size="xs2"
+												variant="border"
+												color="light"
+												startIcon={{
+													icon: LanguageIcon,
+													props: { lang: 'python3', width: 16, height: 16 }
+												} as ButtonType.Icon}
+												on:click={() => {
+													template = 'wac_python'
+													script.language = 'python3'
+													script.modules = { 'helper.py': { content: 'def main(a: str) -> str:\n    return f"hello {a}"\n', language: 'python3' } }
+													initContent('python3', script.kind, template)
+													showWacAlphaModalIfNeeded()
+												}}
+											>
+												WAC Python
+											</Button>
+										</span>
 									</div>
 									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true}
 										<Section label="Script kind">
@@ -1948,9 +2040,23 @@
 			bind:hasPreprocessor
 			bind:captureTable
 			bind:assets={script.assets}
+			bind:modules={script.modules}
 			enablePreprocessorSnippet
 		/>
 	</div>
 {:else}
 	Script Builder not available to operators
 {/if}
+
+<WacExportDrawer bind:this={wacExportDrawer} />
+
+<Modal bind:open={wacAlphaModalOpen} title="Workflow-as-Code (Alpha)" kind="X">
+	<div class="flex flex-col gap-4 pr-4">
+		<p class="text-sm text-secondary">
+			Workflow-as-Code is in <strong>alpha</strong> — use in production at your own risk. It is an alternative to the Flow editor for advanced users. Feedback welcome on <a href="https://github.com/windmill-labs/windmill/issues" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline">GitHub</a> or <a href="https://discord.com/invite/V7PM2YHsPB" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline">Discord</a>.
+		</p>
+		<div class="flex justify-end">
+			<Button size="sm" on:click={acknowledgeWacAlpha}>Acknowledge</Button>
+		</div>
+	</div>
+</Modal>

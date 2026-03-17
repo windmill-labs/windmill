@@ -240,6 +240,7 @@ pub fn parse_deno_signature(
 
     let mut has_preprocessor = false;
     let mut entrypoint_params = None;
+    let mut is_wac = false;
 
     let ast = parser
         .parse_module()
@@ -277,6 +278,16 @@ pub fn parse_deno_signature(
             }
         }
 
+        // export default workflow(async (...) => { ... })
+        if entrypoint_params.is_none() {
+            if let ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(export_default)) = &item {
+                if let Some(params) = extract_workflow_params(&export_default.expr) {
+                    entrypoint_params = Some(params);
+                    is_wac = true;
+                }
+            }
+        }
+
         if let ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl { decl, .. }))
         | ModuleItem::Stmt(Stmt::Decl(decl)) = item
         {
@@ -308,6 +319,20 @@ pub fn parse_deno_signature(
                         entrypoint_params = Some(fn_decl.function.params.clone());
                     }
                 }
+                Decl::Var(var_decl) if entrypoint_params.is_none() => {
+                    for decl in &var_decl.decls {
+                        if let Some(name) = &decl.name.as_ident() {
+                            if name.sym.as_ref() == entrypoint_function {
+                                if let Some(init) = &decl.init {
+                                    if let Some(params) = extract_workflow_params(init) {
+                                        entrypoint_params = Some(params);
+                                        is_wac = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -315,11 +340,18 @@ pub fn parse_deno_signature(
 
     let mut c: u16 = 0;
 
-    let is_wac_v2 = entrypoint_params.is_none()
-        && code.contains("workflow(")
-        && code.contains("task(")
-        && code.contains("windmill-client");
-    let no_main_func = entrypoint_params.is_none() && !is_wac_v2;
+    let auto_kind = if is_wac {
+        Some("wac".to_string())
+    } else if entrypoint_params.is_none() {
+        if code.contains("workflow(") && code.contains("task(") && code.contains("windmill-client")
+        {
+            Some("wac".to_string())
+        } else {
+            Some("lib".to_string())
+        }
+    } else {
+        None
+    };
     let mut type_resolver = HashMap::new();
     let r = MainArgSignature {
         star_args: false,
@@ -346,10 +378,63 @@ pub fn parse_deno_signature(
                 .transpose()?
                 .unwrap_or_else(|| vec![])
         },
-        no_main_func: Some(no_main_func),
+        auto_kind,
         has_preprocessor: Some(has_preprocessor),
     };
     Ok(r)
+}
+
+/// Extract params from `workflow(async (...) => { ... })` or `workflow(async function(...) { ... })`
+fn extract_workflow_params(expr: &Expr) -> Option<Vec<Param>> {
+    if let Expr::Call(call) = expr {
+        if let swc_ecma_ast::Callee::Expr(callee) = &call.callee {
+            if let Expr::Ident(ident) = callee.as_ref() {
+                if ident.sym.as_ref() == "workflow" {
+                    if let Some(first_arg) = call.args.first() {
+                        match first_arg.expr.as_ref() {
+                            Expr::Arrow(arrow) if arrow.is_async => {
+                                return Some(
+                                    arrow
+                                        .params
+                                        .iter()
+                                        .map(|pat| Param {
+                                            span: pat.span(),
+                                            decorators: vec![],
+                                            pat: pat.clone(),
+                                        })
+                                        .collect(),
+                                );
+                            }
+                            Expr::Fn(fn_expr) if fn_expr.function.is_async => {
+                                return Some(fn_expr.function.params.clone());
+                            }
+                            Expr::Paren(p) => {
+                                return extract_workflow_params_from_inner(&p.expr);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Helper for parenthesized expressions inside workflow()
+fn extract_workflow_params_from_inner(expr: &Expr) -> Option<Vec<Param>> {
+    match expr {
+        Expr::Arrow(arrow) if arrow.is_async => Some(
+            arrow
+                .params
+                .iter()
+                .map(|pat| Param { span: pat.span(), decorators: vec![], pat: pat.clone() })
+                .collect(),
+        ),
+        Expr::Fn(fn_expr) if fn_expr.function.is_async => Some(fn_expr.function.params.clone()),
+        Expr::Paren(p) => extract_workflow_params_from_inner(&p.expr),
+        _ => None,
+    }
 }
 
 fn parse_param(

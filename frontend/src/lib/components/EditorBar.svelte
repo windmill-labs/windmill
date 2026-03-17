@@ -79,7 +79,7 @@
 		iconOnly?: boolean
 		validCode?: boolean
 		kind?: 'script' | 'trigger' | 'approval'
-		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox'
+		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox' | 'wac_python' | 'wac_typescript'
 		collabMode?: boolean
 		collabLive?: boolean
 		collabUsers?: { name: string }[]

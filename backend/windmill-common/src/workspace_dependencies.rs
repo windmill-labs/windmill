@@ -548,6 +548,23 @@ impl WorkspaceDependenciesPrefetched {
         })
     }
 
+    pub fn get_powershell(&self) -> error::Result<Option<String>> {
+        use WorkspaceDependenciesPrefetchedInternal::*;
+        self.internal.assert_no_extra_mode().map_err(map_err)?;
+        Ok(match &self.internal {
+            Explicit(wdar @ WorkspaceDependenciesAnnotatedRefs { external, .. }) => {
+                wdar.assert_no_inline().map_err(map_err)?;
+                wdar.assert_external_less_than(2).map_err(map_err)?;
+                external
+                    .get(0)
+                    .map(|wd| wd.content.clone())
+                    .or(Some(r#"{"modules": {}}"#.to_owned()))
+            }
+            Implicit { workspace_dependencies, .. } => Some(workspace_dependencies.content.clone()),
+            None => Option::None,
+        })
+    }
+
     /// Is the runnable permitted to have external references
     pub fn is_external_references_permitted(runnable_path: &str) -> bool {
         !BLACKLIST.contains(runnable_path) && !runnable_path.starts_with("hub/")
@@ -588,7 +605,9 @@ impl WorkspaceDependenciesPrefetched {
         use WorkspaceDependenciesPrefetchedInternal::*;
         match (self.language, &self.internal) {
             // These languages except for python had none of this functionality
-            (Php | Bun | Bunnative | Go, wdp) => wdp.assert_no_workspace_dependencies()?,
+            (Php | Bun | Bunnative | Go | Powershell, wdp) => {
+                wdp.assert_no_workspace_dependencies()?
+            }
 
             // Python, had #(extra_)requirements:
             // but it had no external requirements.
@@ -1261,6 +1280,130 @@ def main():
         assert!(result.external.is_empty());
         assert!(result.inline.is_none());
     }
+    #[test]
+    fn test_parse_annotation_powershell_modules_json_manual_mode() {
+        let code = r#"
+# modules_json: default
+param()
+Write-Host "Hello"
+"#;
+
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "modules_json",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
+        assert!(matches!(result.mode, Mode::manual));
+        assert_eq!(result.external, vec!["default".to_owned()]);
+        assert!(result.inline.is_none());
+    }
+
+    #[test]
+    fn test_parse_annotation_powershell_modules_json_extra_mode() {
+        let code = r#"
+# extra_modules_json: my_deps
+param()
+Write-Host "Hello"
+"#;
+
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "modules_json",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
+        assert!(matches!(result.mode, Mode::extra));
+        assert_eq!(result.external, vec!["my_deps".to_owned()]);
+        assert!(result.inline.is_none());
+    }
+
+    #[test]
+    fn test_parse_annotation_powershell_modules_json_extra_hyphen() {
+        let code = r#"
+# extra-modules_json: my_deps
+param()
+Write-Host "Hello"
+"#;
+
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "modules_json",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
+        assert!(matches!(result.mode, Mode::extra));
+        assert_eq!(result.external, vec!["my_deps".to_owned()]);
+    }
+
+    #[test]
+    fn test_parse_annotation_powershell_modules_json_multiple_refs() {
+        let code = r#"
+# modules_json: default, extra_modules
+param()
+"#;
+
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "modules_json",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
+        assert!(matches!(result.mode, Mode::manual));
+        assert_eq!(
+            result.external,
+            vec!["default".to_owned(), "extra_modules".to_owned()]
+        );
+    }
+
+    #[test]
+    fn test_parse_annotation_powershell_no_match() {
+        let code = r#"
+param()
+Import-Module PSWriteColor
+Write-Host "Hello"
+"#;
+
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "modules_json",
+            code,
+            None,
+            "",
+        );
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_parse_annotation_powershell_modules_json_with_inline() {
+        let code = r#"
+# modules_json: default
+#{ "modules": { "Extra": "1.0" } }
+param()
+"#;
+
+        let result = WorkspaceDependenciesAnnotatedRefs::<String>::parse(
+            "#",
+            "modules_json",
+            code,
+            None,
+            "",
+        )
+        .unwrap();
+        assert!(matches!(result.mode, Mode::manual));
+        assert_eq!(result.external, vec!["default".to_owned()]);
+        assert!(result.inline.is_some());
+        assert!(result.inline.as_ref().unwrap().contains("Extra"));
+    }
+
     #[test]
     fn test_parse_annotation_blacklisted() {
         let code = r#"

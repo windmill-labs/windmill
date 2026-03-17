@@ -5063,6 +5063,7 @@ pub fn raw_script_to_payload(
             concurrency_settings,
             // TODO: Should this have debouncing?
             debouncing_settings: DebouncingSettings::default(),
+            modules: None,
         }),
         tag,
         delete_after_use,

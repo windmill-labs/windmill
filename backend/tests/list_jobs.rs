@@ -67,6 +67,7 @@ async fn test_list_jobs_without_include_args(db: Pool<Postgres>) -> anyhow::Resu
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("x", json!(42))
     .push(&db)
@@ -123,6 +124,7 @@ async fn test_list_jobs_with_include_args(db: Pool<Postgres>) -> anyhow::Result<
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("x", json!(42))
     .push(&db)
@@ -193,6 +195,7 @@ async fn test_list_jobs_completed_with_include_args(db: Pool<Postgres>) -> anyho
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("x", json!(42))
     .run_until_complete(&db, false, port)
@@ -265,6 +268,7 @@ async fn test_list_jobs_mixed_queue_and_completed(db: Pool<Postgres>) -> anyhow:
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("completed_arg", json!("completed_value"))
     .run_until_complete(&db, false, port)
@@ -285,6 +289,7 @@ async fn test_list_jobs_mixed_queue_and_completed(db: Pool<Postgres>) -> anyhow:
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("queued_arg", json!("queued_value"))
     .push(&db)
@@ -367,6 +372,7 @@ async fn test_list_jobs_multiple_queued_with_include_args(db: Pool<Postgres>) ->
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("x", json!(1))
     .push(&db)
@@ -384,6 +390,7 @@ async fn test_list_jobs_multiple_queued_with_include_args(db: Pool<Postgres>) ->
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("y", json!(2))
     .push(&db)
@@ -457,6 +464,7 @@ async fn test_queue_list_without_include_args(db: Pool<Postgres>) -> anyhow::Res
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("x", json!(42))
     .push(&db)
@@ -519,6 +527,7 @@ async fn test_queue_list_with_include_args(db: Pool<Postgres>) -> anyhow::Result
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("x", json!(42))
     .push(&db)
@@ -588,6 +597,7 @@ async fn test_queue_list_multiple_jobs_with_include_args(db: Pool<Postgres>) -> 
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("a", json!("value_a"))
     .push(&db)
@@ -605,6 +615,7 @@ async fn test_queue_list_multiple_jobs_with_include_args(db: Pool<Postgres>) -> 
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("b", json!("value_b"))
     .push(&db)
@@ -686,6 +697,7 @@ async fn test_completed_list_without_include_args(db: Pool<Postgres>) -> anyhow:
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("x", json!(42))
     .run_until_complete(&db, false, port)
@@ -751,6 +763,7 @@ async fn test_completed_list_with_include_args(db: Pool<Postgres>) -> anyhow::Re
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("x", json!(42))
     .run_until_complete(&db, false, port)
@@ -825,6 +838,7 @@ async fn test_completed_list_multiple_jobs_with_include_args(
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("a", json!("completed_a"))
     .run_until_complete(&db, false, port)
@@ -845,6 +859,7 @@ async fn test_completed_list_multiple_jobs_with_include_args(
         concurrency_settings:
             windmill_common::runnable_settings::ConcurrencySettings::default().into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("b", json!("completed_b"))
     .run_until_complete(&db, false, port)

@@ -1,0 +1,48 @@
+import {
+  task,
+  taskScript,
+  step,
+  sleep,
+  waitForApproval,
+  getResumeUrls,
+  workflow,
+} from "windmill-client";
+
+// IMPORTANT: All computation must happen inside task(), taskScript(), or step().
+// Code outside these wrappers is NOT checkpointed and WILL be re-executed
+// on every resume or retry. Never put API calls, database writes, or
+// non-deterministic logic (e.g. Date.now()) in the top-level workflow body.
+
+// taskScript() references a module file (see the helper.ts tab)
+const helper = taskScript("./helper.ts");
+
+// task() wraps a function as a workflow step that runs as a separate job.
+// The result is checkpointed — on retry, completed tasks are skipped.
+const process = task(async (x: string): Promise<string> => {
+  return `processed: ${x}`;
+});
+
+export const main = workflow(async (x: string) => {
+  const a = await process(x);
+
+  // taskScript() calls a module file as a separate job (also checkpointed)
+  const b = await helper({ a });
+
+  // step() runs inline code and checkpoints the result (no child job).
+  // Use it for lightweight operations you don't want as a separate script.
+  const urls = await step("get_urls", () => getResumeUrls());
+
+  // sleep() suspends the workflow server-side without holding a worker
+  await sleep(1);
+
+  // waitForApproval() suspends until an external event resumes it.
+  // Like sleep(), it does not hold a worker. Approve/reject URLs are
+  // available in the timeline step's details in the UI.
+  const approval = await waitForApproval({ timeout: 3600 });
+
+  return {
+    processed: a,
+    helper_result: b,
+    approval,
+  };
+});

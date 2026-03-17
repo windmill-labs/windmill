@@ -19,7 +19,7 @@ import {
   ignoreF,
 } from "../sync/sync.ts";
 import { exts } from "../script/script.ts";
-import { isFlowPath, isAppPath, isRawAppPath } from "../../utils/resource_folders.ts";
+import { isFlowPath, isAppPath, isRawAppPath, isScriptModulePath, isModuleEntryPoint } from "../../utils/resource_folders.ts";
 import { listSyncCodebases } from "../../utils/codebase.ts";
 
 interface StaleItem {
@@ -83,7 +83,8 @@ async function generateMetadata(
           ignore(p, isD) ||
           isFlowPath(p) ||
           isAppPath(p) ||
-          isRawAppPath(p)
+          isRawAppPath(p) ||
+          (isScriptModulePath(p) && !isModuleEntryPoint(p))
         );
       },
       false,
