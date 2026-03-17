@@ -20,7 +20,7 @@ pub fn parse_bash_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             star_args: false,
             star_kwargs: false,
             args,
-            no_main_func: None,
+            auto_kind: None,
             has_preprocessor: None,
         })
     } else {
@@ -36,7 +36,7 @@ pub fn parse_powershell_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             star_args: false,
             star_kwargs: false,
             args,
-            no_main_func: None,
+            auto_kind: None,
             has_preprocessor: None,
         })
     } else {
@@ -721,7 +721,7 @@ non_required="${5:-}"
                         oidx: None
                     }
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -819,7 +819,7 @@ non_required="${5:-}"
                         oidx: None
                     }
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -1391,7 +1391,7 @@ param(
                         oidx: None
                     }
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );

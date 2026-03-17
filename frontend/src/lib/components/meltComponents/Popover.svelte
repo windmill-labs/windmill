@@ -121,7 +121,6 @@
 		escapeBehavior: untrack(() => escapeBehavior),
 		openFocus: untrack(() => openFocus),
 		onOpenChange: ({ curr, next }) => {
-			console.log('Popover open state changed:', { curr, next })
 			if (curr != next) {
 				dispatch('openChange', next)
 				if (!next) {

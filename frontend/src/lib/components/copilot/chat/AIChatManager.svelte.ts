@@ -1,4 +1,5 @@
 import type { AIProviderModel, ScriptLang } from '$lib/gen/types.gen'
+import { WorkspaceService } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import {
 	flowTools,
@@ -42,7 +43,8 @@ import { getStringError } from './utils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import { type DBSchemas } from '$lib/stores'
+import { get } from 'svelte/store'
+import { workspaceStore, type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import type {
@@ -659,6 +661,19 @@ class AIChatManager {
 			this.loading = true
 			this.#automaticScroll = true
 			this.abortController = new AbortController()
+
+			const model = tryGetCurrentModel()
+			if (model) {
+				WorkspaceService.logAiChat({
+					workspace: get(workspaceStore) ?? '',
+					requestBody: {
+						session_id: this.historyManager.getCurrentChatId(),
+						provider: model.provider,
+						model: model.model,
+						mode: this.mode
+					}
+				}).catch(() => {})
+			}
 
 			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
 				throw new Error('No flow helpers found')

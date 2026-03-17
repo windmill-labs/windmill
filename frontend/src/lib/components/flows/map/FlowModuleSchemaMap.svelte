@@ -271,6 +271,8 @@
 	let sidebarMode: 'list' | 'graph' = 'graph'
 
 	let minHeight = $state(0)
+	let flowPaneWidth = $state(0)
+	let compactTopbar = $derived(flowPaneWidth < 700)
 
 	export function selectNextId(id: any) {
 		if (flowStore.val.value.modules) {
@@ -505,11 +507,12 @@
 		{/each}
 	</ConfirmationModal>
 </Portal>
-<div class="flex flex-col h-full relative -pt-1">
+<div class="flex flex-col h-full relative -pt-1" bind:clientWidth={flowPaneWidth}>
 	<div
 		class={`z-50 absolute inline-flex flex-col gap-2 top-3 left-1/2 -translate-x-1/2 flex-initial  items-center transition-colors duration-[400ms] ease-linear bg-surface-100`}
 	>
 		<FlowStickyNode
+			compact={compactTopbar}
 			{disableAi}
 			{showFlowAiButton}
 			{disableSettings}

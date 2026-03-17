@@ -652,6 +652,13 @@
 					onDone={async ({ job: completedJob }) => {
 						isRunning = false
 						$executionCount = $executionCount + 1
+						// Reset 'initial' flags for modules that were part of this flow test,
+						// so OutputPicker no longer shows "Run loaded from history"
+						for (const mod of completedJob.flow_status?.modules ?? []) {
+							if (mod.id) {
+								stepHistoryLoader?.resetInitial(mod.id)
+							}
+						}
 						if (flowRecording.active) {
 							lastRecording = flowRecording.stop()
 							setActiveRecording(undefined)

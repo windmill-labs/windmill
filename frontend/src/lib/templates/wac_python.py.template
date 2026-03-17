@@ -1,0 +1,42 @@
+from wmill import task, task_script, step, sleep, wait_for_approval, get_resume_urls, workflow
+
+# IMPORTANT: All computation must happen inside @task(), task_script(), or step().
+# Code outside these wrappers is NOT checkpointed and WILL be re-executed
+# on every resume or retry. Never put API calls, database writes, or
+# non-deterministic logic (e.g. datetime.now()) in the top-level workflow body.
+
+# task_script() references a module file (see the helper.py tab)
+helper = task_script("./helper.py")
+
+
+# @task() wraps a function as a workflow step that runs as a separate job.
+# The result is checkpointed — on retry, completed tasks are skipped.
+@task()
+async def process(x: str) -> str:
+    return f"processed: {x}"
+
+
+@workflow
+async def main(x: str):
+    a = await process(x)
+
+    # task_script() calls a module file as a separate job (also checkpointed)
+    b = await helper(a=a)
+
+    # step() runs inline code and checkpoints the result (no child job).
+    # Use it for lightweight operations you don't want as a separate script.
+    urls = await step("get_urls", lambda: get_resume_urls())
+
+    # sleep() suspends the workflow server-side without holding a worker
+    await sleep(1)
+
+    # wait_for_approval() suspends until an external event resumes it.
+    # Like sleep(), it does not hold a worker. Approve/reject URLs are
+    # available in the timeline step's details in the UI.
+    approval = await wait_for_approval(timeout=3600)
+
+    return {
+        "processed": a,
+        "helper_result": b,
+        "approval": approval,
+    }

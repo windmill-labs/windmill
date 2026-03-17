@@ -50,7 +50,7 @@
 				dedicated_worker?: boolean
 				visible_to_runner_only?: boolean
 				on_behalf_of_email?: string
-				no_main_func?: boolean
+				auto_kind?: string
 				has_preprocessor?: boolean
 		  }
 		| undefined = $state(undefined)
@@ -71,7 +71,7 @@
 				dedicated_worker?: boolean
 				visible_to_runner_only?: boolean
 				on_behalf_of_email?: string
-				no_main_func?: boolean
+				auto_kind?: string
 				has_preprocessor?: boolean
 		  }
 		| undefined = $state(undefined)
@@ -82,7 +82,7 @@
 				script.schema = script.schema ?? emptySchema()
 				try {
 					const result = await inferArgs(script.language, script.content, script.schema)
-					script.no_main_func = result?.no_main_func || undefined
+					script.auto_kind = result?.auto_kind || undefined
 					script.has_preprocessor = result?.has_preprocessor || undefined
 				} catch (error) {
 					sendUserToast(`Could not parse code, are you sure it is valid?`, true)

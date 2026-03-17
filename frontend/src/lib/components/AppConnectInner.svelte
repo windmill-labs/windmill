@@ -84,14 +84,22 @@
 				)
 	}
 
-	let linkedSecret: string | undefined = $state(undefined)
+	let linkedSecrets: string[] = $state([])
 	let linkedSecretCandidates: string[] | undefined = $state(undefined)
-	function computeLinkedSecret(resourceType: string, argsKeys: string[], passwords: string[]) {
+	function computeDefaultLinkedSecrets(
+		resourceType: string,
+		argsKeys: string[],
+		passwords: string[]
+	): string[] {
 		linkedSecretCandidates = computeCandidates(resourceType, argsKeys, passwords)
-		return (
-			forceSecretValue(resourceType) ??
-			linkedSecretCandidates?.sort((ua, ub) => linkedSecretValue(ub) - linkedSecretValue(ua))?.[0]
-		)
+		const forced = forceSecretValue(resourceType)
+		if (forced) {
+			return [forced]
+		}
+		const best = linkedSecretCandidates?.sort(
+			(ua, ub) => linkedSecretValue(ub) - linkedSecretValue(ua)
+		)?.[0]
+		return best ? [best] : []
 	}
 
 	let scopes: string[] = $state([])
@@ -194,7 +202,7 @@
 						args['password'] == '' &&
 						args['api_key'] == '' &&
 						args['key'] == '' &&
-						linkedSecret != undefined
+						linkedSecrets.length > 0
 					: false)) ||
 			step == 3 ||
 			(step == 4 && pathError != '') ||
@@ -317,13 +325,13 @@
 		const passwords = newArgsKeys.filter((x) => {
 			return props?.[x]?.password
 		})
-		if (!linkedSecret) {
-			linkedSecret = computeLinkedSecret(resourceType, newArgsKeys, passwords)
+		if (linkedSecrets.length === 0) {
+			linkedSecrets = computeDefaultLinkedSecrets(resourceType, newArgsKeys, passwords)
 		}
 	}
 	export async function next() {
 		if (step == 1) {
-			linkedSecret = undefined
+			linkedSecrets = []
 			if (manual) {
 				getResourceTypeInfo()
 				args = {}
@@ -408,14 +416,30 @@
 				if (step == 2) return
 				throw Error('Path is not set')
 			}
-			let exists = await VariableService.existsVariable({
-				workspace: $workspaceStore!,
-				path
-			})
-			if (exists) {
-				throw Error(`Variable at path ${path} already exists. Delete it or pick another path`)
+			// Check if variable paths already exist
+			if (!manual || linkedSecrets.length <= 1) {
+				const exists = await VariableService.existsVariable({
+					workspace: $workspaceStore!,
+					path
+				})
+				if (exists) {
+					throw Error(`Variable at path ${path} already exists. Delete it or pick another path`)
+				}
+			} else {
+				for (const secretField of linkedSecrets) {
+					const varPath = `${path}_${secretField}`
+					const exists = await VariableService.existsVariable({
+						workspace: $workspaceStore!,
+						path: varPath
+					})
+					if (exists) {
+						throw Error(
+							`Variable at path ${varPath} already exists. Delete it or pick another path`
+						)
+					}
+				}
 			}
-			exists = await ResourceService.existsResource({
+			let exists = await ResourceService.existsResource({
 				workspace: $workspaceStore!,
 				path
 			})
@@ -462,25 +486,65 @@
 
 			const resourceValue = args
 
-			let saveVariable = false
-			if (!manual || linkedSecret != undefined) {
-				let v = manual ? args[linkedSecret ?? ''] : value
+			let savedVariableCount = 0
+			if (!manual) {
+				// OAuth flow: single secret variable for the token
+				if (typeof value == 'string' && value != '' && !value.startsWith('$var:')) {
+					savedVariableCount++
+					await VariableService.createVariable({
+						workspace: $workspaceStore!,
+						requestBody: {
+							path,
+							value: value,
+							is_secret: true,
+							description: emptyString(description)
+								? `OAuth token for ${resourceType}`
+								: description,
+							is_oauth: true,
+							account: account
+						}
+					})
+					resourceValue['token'] = `$var:${path}`
+				}
+			} else if (linkedSecrets.length === 1) {
+				// Single secret: use the resource path as variable name (original behavior)
+				const secretField = linkedSecrets[0]
+				const v = args[secretField]
 				if (typeof v == 'string' && v != '' && !v.startsWith('$var:')) {
-					saveVariable = true
+					savedVariableCount++
 					await VariableService.createVariable({
 						workspace: $workspaceStore!,
 						requestBody: {
 							path,
 							value: v,
 							is_secret: true,
-							description: emptyString(description)
-								? `${manual ? 'Token' : 'OAuth token'} for ${resourceType}`
-								: description,
-							is_oauth: !manual,
-							account: account
+							description: emptyString(description) ? `Token for ${resourceType}` : description,
+							is_oauth: false
 						}
 					})
-					resourceValue[linkedSecret ?? 'token'] = `$var:${path}`
+					resourceValue[secretField] = `$var:${path}`
+				}
+			} else if (linkedSecrets.length > 1) {
+				// Multiple secrets: append _field_name to each variable path
+				for (const secretField of linkedSecrets) {
+					const v = args[secretField]
+					if (typeof v == 'string' && v != '' && !v.startsWith('$var:')) {
+						const varPath = `${path}_${secretField}`
+						savedVariableCount++
+						await VariableService.createVariable({
+							workspace: $workspaceStore!,
+							requestBody: {
+								path: varPath,
+								value: v,
+								is_secret: true,
+								description: emptyString(description)
+									? `${secretField} for ${resourceType}`
+									: description,
+								is_oauth: false
+							}
+						})
+						resourceValue[secretField] = `$var:${varPath}`
+					}
 				}
 			}
 
@@ -495,7 +559,9 @@
 			})
 			dispatch('refresh', path)
 			dispatch('close')
-			sendUserToast(`Saved resource${saveVariable ? ' and variable' : ''} path: ${path}`)
+			sendUserToast(
+				`Saved resource${savedVariableCount > 0 ? ` and ${savedVariableCount} variable${savedVariableCount > 1 ? 's' : ''}` : ''} path: ${path}`
+			)
 			step = 1
 			resourceType = ''
 		}
@@ -738,7 +804,7 @@
 
 			{#key resourceTypeInfo}
 				<ApiConnectForm
-					bind:linkedSecret
+					bind:linkedSecrets
 					bind:description
 					{linkedSecretCandidates}
 					{resourceType}

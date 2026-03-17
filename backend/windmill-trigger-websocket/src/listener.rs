@@ -322,7 +322,7 @@ impl Listener for WebsocketTrigger {
         db: &DB,
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
         payload: Self::Payload,
-        trigger_info: HashMap<String, Box<RawValue>>,
+        mut trigger_info: HashMap<String, Box<RawValue>>,
         extra: Option<Self::Extra>,
     ) -> Result<()> {
         let ListeningTrigger {
@@ -338,6 +338,7 @@ impl Listener for WebsocketTrigger {
 
         let WebsocketConfig { url, .. } = trigger_config;
 
+        trigger_info.insert("trigger_path".to_string(), to_raw_value(path));
         let args = WebsocketTrigger::build_job_args(
             &script_path,
             *is_flow,

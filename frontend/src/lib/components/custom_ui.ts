@@ -41,6 +41,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 	tagSelectNoLabel?: boolean
 	tagLabel?: string
 	aiAgent?: boolean
+	aiSandbox?: boolean
 }
 
 export type DisplayResultUi = {
@@ -81,6 +82,8 @@ export type EditorBarUi = {
 	ducklake?: boolean
 	dataTable?: boolean
 	debug?: boolean
+	history?: boolean
+	saveToWorkspace?: boolean
 }
 
 export type EditableSchemaFormUi = {
