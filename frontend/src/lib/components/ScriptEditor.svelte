@@ -252,7 +252,7 @@
 	let renameModuleError = $state('')
 	let renameModuleInputEl: HTMLInputElement | undefined = $state(undefined)
 
-	const SUPPORTED_MODULE_EXTENSIONS: Record<string, ScriptModule['language']> = {
+	const ALL_MODULE_EXTENSIONS: Record<string, ScriptModule['language']> = {
 		'.ts': 'bun',
 		'.py': 'python3',
 		'.go': 'go',
@@ -269,8 +269,41 @@
 		'.rb': 'ruby'
 	}
 
+	/** Map main script language to allowed module file extensions. */
+	const LANG_MODULE_EXTENSIONS: Partial<Record<Preview['language'] & string, string[]>> = {
+		python3: ['.py'],
+		bun: ['.ts'],
+		deno: ['.ts'],
+		nativets: ['.ts'],
+		go: ['.go'],
+		bash: ['.sh'],
+		powershell: ['.ps1'],
+		postgresql: ['.sql'],
+		mysql: ['.sql'],
+		bigquery: ['.sql'],
+		snowflake: ['.sql'],
+		mssql: ['.sql'],
+		oracledb: ['.sql'],
+		duckdb: ['.sql'],
+		graphql: ['.gql'],
+		php: ['.php'],
+		rust: ['.rs'],
+		ansible: ['.yml'],
+		csharp: ['.cs'],
+		nu: ['.nu'],
+		java: ['.java'],
+		ruby: ['.rb'],
+		bunnative: ['.ts']
+	}
+
+	let allowedModuleExtensions = $derived(
+		lang
+			? (LANG_MODULE_EXTENSIONS[lang] ?? Object.keys(ALL_MODULE_EXTENSIONS))
+			: Object.keys(ALL_MODULE_EXTENSIONS)
+	)
+
 	function inferModuleLang(filePath: string): ScriptModule['language'] | undefined {
-		for (const [ext, moduleLang] of Object.entries(SUPPORTED_MODULE_EXTENSIONS)) {
+		for (const [ext, moduleLang] of Object.entries(ALL_MODULE_EXTENSIONS)) {
 			if (filePath.endsWith(ext)) return moduleLang
 		}
 		return undefined
@@ -313,8 +346,13 @@
 		if (!path.trim()) return ''
 		const moduleLang = inferModuleLang(path)
 		if (!moduleLang) {
-			const exts = Object.keys(SUPPORTED_MODULE_EXTENSIONS).join(', ')
+			const exts = allowedModuleExtensions.join(', ')
 			return `File must end with a supported extension: ${exts}`
+		}
+		const matchedExt = allowedModuleExtensions.find((ext) => path.endsWith(ext))
+		if (!matchedExt) {
+			const exts = allowedModuleExtensions.join(', ')
+			return `File must end with a supported extension for this language: ${exts}`
 		}
 		if (modules?.[path.trim()]) {
 			return `Module ${path.trim()} already exists`
@@ -356,8 +394,13 @@
 		if (!newPath.trim()) return ''
 		const moduleLang = inferModuleLang(newPath)
 		if (!moduleLang) {
-			const exts = Object.keys(SUPPORTED_MODULE_EXTENSIONS).join(', ')
+			const exts = allowedModuleExtensions.join(', ')
 			return `File must end with a supported extension: ${exts}`
+		}
+		const matchedExt = allowedModuleExtensions.find((ext) => newPath.endsWith(ext))
+		if (!matchedExt) {
+			const exts = allowedModuleExtensions.join(', ')
+			return `File must end with a supported extension for this language: ${exts}`
 		}
 		if (newPath.trim() !== oldPath && modules?.[newPath.trim()]) {
 			return `Module ${newPath.trim()} already exists`
@@ -388,9 +431,17 @@
 		renameModuleError = ''
 	}
 
-	export function flushModuleState() {
+	/** Save the active module tab's editor content back into the modules map (no UI side-effects). */
+	function flushModuleContent() {
 		if (activeModuleTab !== null && modules) {
 			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
+		}
+	}
+
+	/** Flush module content and reset the editor back to the main script tab. */
+	export function flushModuleState() {
+		if (activeModuleTab !== null && modules) {
+			flushModuleContent()
 			activeModuleTab = null
 			editorCode = code
 		}
@@ -563,9 +614,7 @@
 		// Not defined if JobProgressBar not loaded
 		jobProgressBar?.reset()
 		// Flush module edits back to modules map before running preview
-		if (activeModuleTab !== null && modules) {
-			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
-		}
+		flushModuleContent()
 		//@ts-ignore
 		let job = await jobLoader.runPreview(
 			path,
@@ -1563,7 +1612,7 @@
 			class="border rounded px-2 py-1.5 text-sm bg-surface"
 			bind:this={modulePathInputEl}
 			bind:value={modulePathInput}
-			placeholder={lang === 'python3' ? 'helper.py' : 'helper.ts'}
+			placeholder={'helper' + (allowedModuleExtensions[0] ?? '.ts')}
 			oninput={() => {
 				modulePathError = validateModulePath(modulePathInput)
 			}}
@@ -1577,7 +1626,7 @@
 		{/if}
 		<p class="text-tertiary text-2xs"
 			>Supports subfolders, e.g. <code class="text-2xs"
-				>utils/math.{lang === 'python3' ? 'py' : 'ts'}</code
+				>utils/math{allowedModuleExtensions[0] ?? '.ts'}</code
 			></p
 		>
 		<div class="flex justify-end gap-2">
@@ -1878,8 +1927,8 @@
 					code = editorCode
 					lastSyncedCode = code
 					inferSchema(e.detail)
-				} else if (modules && activeModuleTab) {
-					modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
+				} else {
+					flushModuleContent()
 				}
 				// Refresh breakpoint positions when code changes (decorations track their lines)
 				if (debugMode && breakpointDecorations.length > 0) {
