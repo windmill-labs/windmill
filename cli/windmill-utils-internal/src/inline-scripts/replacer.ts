@@ -226,35 +226,3 @@ export async function replaceAllPathScriptsWithLocal(
     await replacePathScriptsWithLocal([flowValue.preprocessor_module], scriptReader, logger);
   }
 }
-
-/**
- * Creates a scriptReader callback that resolves script paths to local file content.
- */
-export function createLocalScriptReader(
-  exts: string[],
-  inferLanguage: (filePath: string) => RawScript["language"],
-  readFile: (path: string) => Promise<string>,
-  stat: (path: string) => Promise<{ isFile(): boolean }>,
-): (scriptPath: string) => Promise<LocalScriptInfo | undefined> {
-  return async (scriptPath) => {
-    for (const ext of exts) {
-      const filePath = scriptPath + ext;
-      try {
-        const fileStat = await stat(filePath);
-        if (!fileStat.isFile()) continue;
-        const content = await readFile(filePath);
-        const language = inferLanguage(filePath);
-        let lock: string | undefined;
-        try {
-          lock = await readFile(scriptPath + ".script.lock");
-        } catch {
-          // no lock file
-        }
-        return { content, language, lock };
-      } catch {
-        // file doesn't exist with this extension
-      }
-    }
-    return undefined;
-  };
-}

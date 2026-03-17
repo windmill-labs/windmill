@@ -246,7 +246,7 @@ async function preview(
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
-  const codebases = useLocalPathScripts ? await listSyncCodebases(opts) : [];
+  const codebases = useLocalPathScripts ? listSyncCodebases(opts) : [];
 
   // Normalize path - ensure it's a directory path to a .flow folder
   if (!flowPath.endsWith(".flow") && !flowPath.endsWith(".flow" + SEP)) {
