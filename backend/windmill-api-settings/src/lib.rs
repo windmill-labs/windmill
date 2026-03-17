@@ -578,9 +578,9 @@ pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resu
 }
 
 #[derive(serde::Serialize)]
-struct StatsDownload {
-    signature: String,
-    data: String,
+pub struct StatsDownload {
+    pub signature: String,
+    pub data: String,
 }
 
 #[cfg(feature = "enterprise")]
