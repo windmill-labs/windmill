@@ -3080,6 +3080,16 @@ impl PulledJobResult {
                     .execute(db)
                     .await?;
                 }
+
+                // Clean up the debounce batch entries now that we've accumulated the arguments
+                sqlx::query!(
+                    "DELETE FROM v2_job_debounce_batch WHERE debounce_batch = (
+                        SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1
+                    )",
+                    j_id,
+                )
+                .execute(db)
+                .await?;
             }
 
             // Handle dependency job debouncing cleanup when a job is pulled for execution
