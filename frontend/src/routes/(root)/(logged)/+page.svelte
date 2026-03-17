@@ -401,6 +401,19 @@
 							bind:value={hubFilterValue}
 							placeholder="Search hub..."
 							class="grow"
+							presets={[
+								{ name: 'Slack', value: 'tag:slack' },
+								{ name: 'Gmail', value: 'tag:gmail' },
+								{ name: 'GitHub', value: 'tag:github' },
+								{ name: 'Notion', value: 'tag:notion' },
+								{ name: 'Stripe', value: 'tag:stripe' },
+								{ name: 'OpenAI', value: 'tag:openai' },
+								{ name: 'HubSpot', value: 'tag:hubspot' },
+								{ name: 'PostgreSQL', value: 'tag:postgresql' },
+								{ name: 'Google Sheets', value: 'tag:gsheets' },
+								{ name: 'Shopify', value: 'tag:shopify' },
+								{ name: 'Other...', value: 'tag:' }
+							]}
 						/>
 						<Button
 							startIcon={{ icon: ExternalLink }}
