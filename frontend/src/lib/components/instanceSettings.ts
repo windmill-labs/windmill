@@ -52,6 +52,7 @@ export interface Setting {
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
 		| 'github_enterprise_app'
+		| 'ws_connectivity'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -141,23 +142,6 @@ export const settings: Record<string, Setting[]> = {
 					value.includes('://') &&
 					!value?.endsWith('/') &&
 					!value?.endsWith(' '))
-		},
-		{
-			label: 'WebSocket base url',
-			description:
-				'Override the base URL for WebSocket connections (LSP, debugger, multiplayer). If not set, derived from the browser URL. Example: wss://ws.example.com',
-			key: 'ws_base_url',
-			fieldType: 'text',
-			placeholder: 'wss://ws.example.com',
-			storage: 'setting',
-			error: 'Must start with ws:// or wss:// and not end with / or a space',
-			isValid: (value: string | undefined) =>
-				!value ||
-				(value.startsWith('ws') &&
-					value.includes('://') &&
-					!value.endsWith('/') &&
-					!value.endsWith(' ')),
-			requiresReloadOnChange: true
 		},
 		{
 			label: 'Email domain',
@@ -700,6 +684,23 @@ export const settings: Record<string, Setting[]> = {
 				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.private_key)
 			}
 		}
+	],
+	WebSocket: [
+		{
+			label: 'WebSocket connectivity',
+			description:
+				'Test connectivity to multiplayer, LSP, and debugger WebSocket services. Enable custom URL override for deployments where WebSocket traffic routes to a different host.',
+			key: 'ws_base_url',
+			fieldType: 'ws_connectivity',
+			storage: 'setting',
+			requiresReloadOnChange: true,
+			isValid: (value: string | undefined) =>
+				!value ||
+				(value.startsWith('ws') &&
+					value.includes('://') &&
+					!value.endsWith('/') &&
+					!value.endsWith(' '))
+		}
 	]
 }
 
@@ -832,6 +833,12 @@ export const instanceSettingsNavigationGroups = [
 				label: 'Secret Storage',
 				aiId: 'instance-settings-secret-storage',
 				aiDescription: 'Instance secret storage settings'
+			},
+			{
+				id: 'websocket',
+				label: 'WebSocket',
+				aiId: 'instance-settings-websocket',
+				aiDescription: 'WebSocket connectivity test and URL override'
 			}
 		]
 	}
@@ -852,7 +859,8 @@ export const tabToCategoryMap: Record<string, string> = {
 	object_storage: 'Object Storage',
 	jobs: 'Jobs',
 	private_hub: 'Private Hub',
-	github_enterprise_app: 'GitHub Enterprise App'
+	github_enterprise_app: 'GitHub Enterprise App',
+	websocket: 'WebSocket'
 }
 
 export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
@@ -882,7 +890,8 @@ export const categoryToTabMap: Record<string, string> = {
 	'Object Storage': 'object_storage',
 	Jobs: 'jobs',
 	'Private Hub': 'private_hub',
-	'GitHub Enterprise App': 'github_enterprise_app'
+	'GitHub Enterprise App': 'github_enterprise_app',
+	WebSocket: 'websocket'
 }
 
 export interface SearchableSettingItem {
