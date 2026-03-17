@@ -3,13 +3,17 @@ name: CLI Tests
 on:
   push:
     branches: [main]
+    tags:
+      - "v*"
     paths:
       - "cli/**"
+      - "backend/migrations/**"
       - ".github/workflows/cli-tests.yml"
   pull_request:
     branches: [main]
     paths:
       - "cli/**"
+      - "backend/migrations/**"
       - ".github/workflows/cli-tests.yml"
 
 env:
