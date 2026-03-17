@@ -187,6 +187,7 @@
 							}}
 						/>
 					{/if}
+					{#if customUi?.aiSandbox != false}
 					<TopLevelNode
 						label="AI Sandbox"
 						selected={selectedKind === 'aisandbox'}
@@ -194,6 +195,7 @@
 							selectedKind = 'aisandbox'
 						}}
 					/>
+				{/if}
 				{/if}
 			</div>
 		{/if}

@@ -24,6 +24,7 @@ use windmill_common::runtime_assets::init_runtime_asset_loop;
 use windmill_common::runtime_assets::register_runtime_asset;
 use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
+use windmill_common::scripts::ScriptModule;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
 use windmill_common::worker::error_to_value;
@@ -303,7 +304,7 @@ pub struct PowershellRepo {
 
 lazy_static::lazy_static! {
 
-    pub static ref SLEEP_QUEUE: u64 = std::env::var("SLEEP_QUEUE")
+    static ref SLEEP_QUEUE_BASE: u64 = std::env::var("SLEEP_QUEUE")
     .ok()
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or_else(|| {
@@ -647,6 +648,14 @@ lazy_static::lazy_static! {
     pub static ref FLOW_RUNNER_RUNNING: Mutex<bool> = Mutex::new(false);
 }
 
+pub fn sleep_queue() -> u64 {
+    if NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed) {
+        300
+    } else {
+        *SLEEP_QUEUE_BASE
+    }
+}
+
 type Envs = Vec<(String, String)>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -887,6 +896,19 @@ impl JobCompletedSender {
     pub fn is_sql(&self) -> bool {
         matches!(self, Self::Sql(_))
     }
+
+    pub fn set_worker_killpill(&mut self, killpill_tx: KillpillSender) {
+        if let Self::Sql(sql) = self {
+            sql.worker_killpill_tx = Some(killpill_tx);
+        }
+    }
+
+    pub fn send_worker_killpill(&self) {
+        if let Self::Sql(SqlJobCompletedSender { worker_killpill_tx: Some(killpill_tx), .. }) = self
+        {
+            killpill_tx.send();
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -894,6 +916,7 @@ pub struct SqlJobCompletedSender {
     sender: flume::Sender<SendResult>,
     unbounded_sender: flume::Sender<SendResult>,
     killpill_tx: broadcast::Sender<()>,
+    worker_killpill_tx: Option<KillpillSender>,
 }
 
 pub struct JobCompletedReceiver {
@@ -918,7 +941,12 @@ impl JobCompletedSender {
         let (unbounded_sender, unbounded_rx) = flume::unbounded::<SendResult>();
         let (killpill_tx, killpill_rx) = broadcast::channel::<()>(10);
         (
-            Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, killpill_tx }),
+            Self::Sql(SqlJobCompletedSender {
+                sender,
+                unbounded_sender,
+                killpill_tx,
+                worker_killpill_tx: None,
+            }),
             JobCompletedReceiver { bounded_rx: receiver, killpill_rx, unbounded_rx },
         )
     }
@@ -1373,7 +1401,7 @@ fn start_interactive_worker_shell(
                         {
                             Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION)
                         }
-                        _ => Duration::from_millis(*SLEEP_QUEUE * 10),
+                        _ => Duration::from_millis(sleep_queue() * 10),
                     };
                     tokio::select! {
                         _ = tokio::time::sleep(nap_time) => {
@@ -1386,7 +1414,7 @@ fn start_interactive_worker_shell(
 
                 Err(err) => {
                     tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
-                    tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 20)).await;
+                    tokio::time::sleep(Duration::from_millis(sleep_queue() * 20)).await;
                 }
             };
         }
@@ -1714,7 +1742,8 @@ pub async fn run_worker(
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<SameWorkerPayload>(5);
 
-    let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
+    let (mut job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
+    job_completed_tx.set_worker_killpill(killpill_tx.clone());
 
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
@@ -2035,6 +2064,7 @@ pub async fn run_worker(
             }
         }
 
+        let mut was_suspended_job = false;
         let next_job = {
             // println!("2: {:?}",  instant.elapsed());
             #[cfg(feature = "benchmark")]
@@ -2118,7 +2148,9 @@ pub async fn run_worker(
 
                         let suspend_first = suspend_first_success
                             || rand::random::<f64>() < likelihood_of_suspend
-                            || last_suspend_first.elapsed().as_secs_f64() > 5.0;
+                            || last_suspend_first.elapsed().as_secs_f64() > 5.0
+                            || crate::result_processor::WAC_SUSPEND_READY
+                                .swap(false, Ordering::Relaxed);
 
                         if suspend_first {
                             last_suspend_first = Instant::now();
@@ -2191,6 +2223,7 @@ pub async fn run_worker(
                             }
                         }
 
+                        was_suspended_job = job.as_ref().is_ok_and(|j| j.suspended);
                         if let Ok(j) = job.as_ref() {
                             let suspend_success = j.suspended;
                             if suspend_first {
@@ -2408,7 +2441,9 @@ pub async fn run_worker(
                         .expect("send job completed END");
                     add_time!(bench, "sent job completed");
                 } else {
-                    add_outstanding_wait_time(&conn, &job, *OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
+                    if !was_suspended_job {
+                        add_outstanding_wait_time(&conn, &job, *OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
+                    }
 
                     #[cfg(feature = "prometheus")]
                     register_metric(
@@ -2699,7 +2734,7 @@ pub async fn run_worker(
                     None
                 };
 
-                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
+                tokio::time::sleep(Duration::from_millis(sleep_queue())).await;
 
                 #[cfg(feature = "benchmark")]
                 {
@@ -2720,7 +2755,7 @@ pub async fn run_worker(
             }
             Err(err) => {
                 tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
-                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 5)).await;
+                tokio::time::sleep(Duration::from_millis(sleep_queue() * 5)).await;
             }
         };
     }
@@ -3278,10 +3313,22 @@ pub async fn handle_queued_job(
             "none"
         };
 
-        logs.push_str(&format!(
-            "job={} {}={} worker={} hostname={} isolation={}\n",
-            &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname, isolation_label
-        ));
+        // Skip verbose job header for WAC v2 replays (checkpoint has completed steps)
+        let is_wac_replay = if let Connection::Sql(db) = conn {
+            crate::wac_executor::load_checkpoint(db, &job.id)
+                .await
+                .map(|c| !c.completed_steps.is_empty())
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        if !is_wac_replay {
+            logs.push_str(&format!(
+                "job={} {}={} worker={} hostname={} isolation={}\n",
+                &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname, isolation_label
+            ));
+        }
 
         if *NO_LOGS_AT_ALL {
             logs.push_str("Logs are fully disabled for this worker\n");
@@ -3588,6 +3635,7 @@ pub struct ContentReqLangEnvs {
     pub envs: Option<Vec<String>>,
     pub codebase: Option<String>,
     pub schema: Option<String>,
+    pub modules: Option<std::collections::HashMap<String, ScriptModule>>,
 }
 
 pub async fn get_hub_script_content_and_requirements(
@@ -3607,6 +3655,7 @@ pub async fn get_hub_script_content_and_requirements(
         envs: None,
         codebase: None,
         schema: Some(script.schema.get().to_string()),
+        modules: None,
     })
 }
 
@@ -3627,6 +3676,7 @@ pub async fn get_script_content_by_hash(
             Some(_) => Some(script_hash.to_string()),
         },
         schema: None,
+        modules: data.modules.clone(),
     })
 }
 
@@ -3756,7 +3806,7 @@ async fn handle_code_execution_job(
 
     // Box::pin the script fetching match to prevent large enum on stack
     let (
-        ScriptData { code, lock },
+        ScriptData { code, lock, modules: modules_from_data },
         ScriptMetadata { language, envs, codebase, schema_validator, schema },
     ) = match job.kind {
         JobKind::Preview => {
@@ -3781,14 +3831,14 @@ async fn handle_code_execution_job(
             }
         }
         JobKind::Script_Hub => {
-            let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
+            let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema, .. } =
                 Box::pin(get_hub_script_content_and_requirements(
                     job.runnable_path.as_ref(),
                     conn.as_sql(),
                 ))
                 .await?;
 
-            data = ScriptData { code: content, lock: lockfile };
+            data = ScriptData { code: content, lock: lockfile, modules: None };
             metadata = ScriptMetadata { language, envs, codebase, schema, schema_validator: None };
             (&data, &metadata)
         }
@@ -3833,13 +3883,20 @@ async fn handle_code_execution_job(
                     .as_ref()
                     .ok_or_else(|| Error::internal_err("expected script path".to_string()))?;
                 if script_path.starts_with("hub/") {
-                    let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
-                        Box::pin(get_hub_script_content_and_requirements(
-                            Some(script_path),
-                            conn.as_sql(),
-                        ))
-                        .await?;
-                    data = ScriptData { code: content, lock: lockfile };
+                    let ContentReqLangEnvs {
+                        content,
+                        lockfile,
+                        language,
+                        envs,
+                        codebase,
+                        schema,
+                        ..
+                    } = Box::pin(get_hub_script_content_and_requirements(
+                        Some(script_path),
+                        conn.as_sql(),
+                    ))
+                    .await?;
+                    data = ScriptData { code: content, lock: lockfile, modules: None };
                     metadata =
                         ScriptMetadata { language, envs, codebase, schema, schema_validator: None };
                     (&data, &metadata)
@@ -3869,6 +3926,16 @@ async fn handle_code_execution_job(
             "handle_code_execution_job should never be reachable with a non-code execution job"
         ),
     };
+
+    // For preview jobs, extract modules from args._MODULES if not already set
+    let modules = modules_from_data.clone().or_else(|| {
+        job.args.as_ref().and_then(|args| {
+            args.get("_MODULES").and_then(|raw| {
+                serde_json::from_str::<std::collections::HashMap<String, ScriptModule>>(raw.get())
+                    .ok()
+            })
+        })
+    });
 
     try_validate_schema(
         job,
@@ -3903,9 +3970,48 @@ async fn handle_code_execution_job(
         envs,
         codebase,
         lock,
+        &modules,
         false,
     )
     .await
+}
+
+pub async fn write_module_files(
+    job_dir: &str,
+    modules: &std::collections::HashMap<String, ScriptModule>,
+    base_dir: Option<&str>,
+) -> error::Result<()> {
+    for (relpath, module) in modules {
+        // Reject path traversal attempts in module paths
+        if relpath.contains("..") {
+            tracing::warn!("Skipping module with path traversal: {relpath}");
+            continue;
+        }
+        let full_path = match base_dir {
+            Some(dir) => format!("{}/{}/{}", job_dir, dir, relpath),
+            None => format!("{}/{}", job_dir, relpath),
+        };
+        if let Some(parent) = std::path::Path::new(&full_path).parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        // For Python modules, create __init__.py in each intermediate directory
+        // between base_dir and the module's parent so that relative imports work.
+        if let Some(dir) = base_dir {
+            let rel = std::path::Path::new(relpath);
+            let base = std::path::Path::new(job_dir).join(dir);
+            let mut current = base.clone();
+            for component in rel.parent().into_iter().flat_map(|p| p.components()) {
+                current = current.join(component);
+                let init_py = current.join("__init__.py");
+                if !init_py.exists() {
+                    tokio::fs::write(&init_py, "").await?;
+                }
+            }
+        }
+        tracing::debug!("Writing module file: {full_path}");
+        tokio::fs::write(&full_path, &module.content).await?;
+    }
+    Ok(())
 }
 
 pub async fn run_language_executor(
@@ -3930,8 +4036,24 @@ pub async fn run_language_executor(
     envs: &Option<Vec<String>>,
     codebase: &Option<String>,
     lock: &Option<String>,
+    modules: &Option<std::collections::HashMap<String, ScriptModule>>,
     run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
+    if let Some(modules) = modules {
+        #[cfg(feature = "python")]
+        let base_dir = if language == Some(ScriptLang::Python3) {
+            let script_path = crate::common::use_flow_root_path(job.runnable_path());
+            Some(crate::python_executor::compute_python_module_dir(
+                &script_path,
+            ))
+        } else {
+            None
+        };
+        #[cfg(not(feature = "python"))]
+        let base_dir: Option<String> = None;
+        write_module_files(job_dir, modules, base_dir.as_deref()).await?;
+    }
+
     if language == Some(ScriptLang::Postgresql) {
         return Box::pin(do_postgresql(
             job,
@@ -4405,6 +4527,7 @@ mount {{
                     occupancy_metrics,
                     precomputed_agent_info,
                     has_stream,
+                    modules,
                 ))
                 .await
             }
@@ -4468,6 +4591,7 @@ mount {{
                 occupancy_metrics,
                 precomputed_agent_info,
                 has_stream,
+                modules,
             ))
             .await
         }
@@ -4534,7 +4658,17 @@ mount {{
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
+            let maybe_lock = resolve_maybe_lock(
+                &lock,
+                &code,
+                language,
+                &job.workspace_id,
+                job.runnable_path(),
+                conn.clone(),
+            )
+            .await?;
             Box::pin(handle_powershell_job(
+                maybe_lock,
                 mem_peak,
                 canceled_by,
                 job,
@@ -4970,6 +5104,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &None,
                     &None,
                     &None,
+                    &None,
                     true,
                 )
                 .await
@@ -5050,6 +5185,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &content_info.envs,
                     &content_info.codebase,
                     &content_info.lockfile,
+                    &content_info.modules,
                     true,
                 )
                 .await

@@ -121,11 +121,7 @@ pub unsafe extern "C" fn strncmp(ptr1: *const c_void, ptr2: *const c_void, n: us
 pub type size_t = usize;
 use std::slice;
 #[no_mangle]
-pub unsafe extern "C" fn memchr(
-    haystack: *const c_void,
-    needle: c_int,
-    len: usize,
-) -> *mut c_void {
+pub unsafe extern "C" fn memchr(haystack: *const c_void, needle: c_int, len: usize) -> *mut c_void {
     if haystack.is_null() || len == 0 {
         return ptr::null_mut(); // Return null if the input pointer is null or length is zero
     }
@@ -165,7 +161,7 @@ pub unsafe extern "C" fn strchr(mut s: *const c_char, c: c_int) -> *mut c_char {
 
     std::ptr::null_mut() // Return null if the character was not found
 }
-// End of AI implemetation 
+// End of AI implemetation
 /* -------------------------------- wctype.h -------------------------------- */
 
 #[no_mangle]
@@ -202,7 +198,8 @@ pub extern "C" fn iswupper(wc: wint_t) -> c_int {
 #[no_mangle]
 pub extern "C" fn iswalpha(wc: wint_t) -> c_int {
     // Check if the character is an alphabetic character ('A' to 'Z' or 'a' to 'z')
-    if (wc >= 'A' as wint_t && wc <= 'Z' as wint_t) || (wc >= 'a' as wint_t && wc <= 'z' as wint_t) {
+    if (wc >= 'A' as wint_t && wc <= 'Z' as wint_t) || (wc >= 'a' as wint_t && wc <= 'z' as wint_t)
+    {
         return 1; // Return true (1)
     }
     0 // Return false (0)
@@ -216,8 +213,7 @@ pub extern "C" fn iswlower(wc: wint_t) -> c_int {
     }
     0 // Return false (0)
 }
-// End of AI implemetation 
-
+// End of AI implemetation
 
 /* --------------------------------- time.h --------------------------------- */
 

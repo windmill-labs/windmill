@@ -1,6 +1,6 @@
 use crate::{
-    decrypt_oauth_data, delete_native_trigger, delete_token_by_prefix, get_native_trigger,
-    get_token_by_prefix, list_native_triggers, store_native_trigger, update_native_trigger_error,
+    decrypt_oauth_data, delete_native_trigger, delete_token_by_hash, get_native_trigger,
+    list_native_triggers, rotate_webhook_token, store_native_trigger, update_native_trigger_error,
     External, NativeTrigger, NativeTriggerConfig, NativeTriggerData, ServiceName,
 };
 use axum::{
@@ -234,31 +234,48 @@ async fn update_native_trigger_handler<T: External>(
     let runnable_changed =
         existing.script_path != data.script_path || existing.is_flow != data.is_flow;
 
-    let webhook_token = match get_token_by_prefix(&db, &existing.webhook_token_prefix).await? {
-        Some(token) if !runnable_changed => token,
-        existing_token => {
-            if let Some(_) = existing_token {
-                delete_token_by_prefix(&db, &existing.webhook_token_prefix).await?;
-            } else {
-                tracing::warn!(
-                    "Webhook token not found for trigger {} (prefix: {}), recreating token",
-                    external_id,
-                    existing.webhook_token_prefix
-                );
+    // Track old token hash so we can clean it up after everything succeeds
+    let mut old_token_hash_to_delete: Option<String> = None;
+
+    let webhook_token = if runnable_changed {
+        // Scopes change when the runnable changes — delete old, create fresh token
+        old_token_hash_to_delete = Some(existing.webhook_token_hash.clone());
+        let token = new_webhook_token(
+            &mut *tx,
+            &db,
+            &authed,
+            &data.script_path,
+            data.is_flow,
+            &workspace_id,
+            service_name,
+        )
+        .await?;
+        tx.commit().await?;
+        tx = user_db.begin(&authed).await?;
+        token
+    } else {
+        // Same runnable — rotate the token keeping the same label
+        match rotate_webhook_token(&db, &existing.webhook_token_hash).await? {
+            Some(rotated) => {
+                old_token_hash_to_delete = Some(rotated.old_token_hash);
+                rotated.new_token
             }
-            let token = new_webhook_token(
-                &mut *tx,
-                &db,
-                &authed,
-                &data.script_path,
-                data.is_flow,
-                &workspace_id,
-                service_name,
-            )
-            .await?;
-            tx.commit().await?;
-            tx = user_db.begin(&authed).await?;
-            token
+            None => {
+                // Old token gone — create a fresh one
+                let token = new_webhook_token(
+                    &mut *tx,
+                    &db,
+                    &authed,
+                    &data.script_path,
+                    data.is_flow,
+                    &workspace_id,
+                    service_name,
+                )
+                .await?;
+                tx.commit().await?;
+                tx = user_db.begin(&authed).await?;
+                token
+            }
         }
     };
 
@@ -302,6 +319,16 @@ async fn update_native_trigger_handler<T: External>(
     .await?;
 
     tx.commit().await?;
+
+    // Everything succeeded — clean up old token (best-effort)
+    if let Some(old_hash) = old_token_hash_to_delete {
+        if let Err(e) = delete_token_by_hash(&db, &old_hash).await {
+            tracing::warn!(
+                "Failed to delete old webhook token after trigger update: {}",
+                e
+            );
+        }
+    }
 
     Ok(format!("Native trigger updated"))
 }
@@ -428,12 +455,12 @@ async fn delete_native_trigger_handler<T: External>(
         return Err(Error::NotFound(format!("Native trigger not found")));
     }
 
-    // Delete the webhook token using its prefix
-    if !delete_token_by_prefix(&db, &existing.webhook_token_prefix).await? {
+    // Delete the webhook token using its hash
+    if !delete_token_by_hash(&db, &existing.webhook_token_hash).await? {
         tracing::warn!(
-            "Webhook token not found when deleting trigger {} (prefix: {})",
+            "Webhook token not found when deleting trigger {} (hash: {})",
             external_id,
-            existing.webhook_token_prefix
+            existing.webhook_token_hash
         );
     }
 

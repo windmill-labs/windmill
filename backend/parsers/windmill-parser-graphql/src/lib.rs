@@ -19,7 +19,7 @@ pub fn parse_graphql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             star_args: false,
             star_kwargs: false,
             args,
-            no_main_func: None,
+            auto_kind: None,
             has_preprocessor: None,
         })
     } else {
@@ -125,7 +125,7 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                         oidx: None
                     }
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );

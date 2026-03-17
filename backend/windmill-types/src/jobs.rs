@@ -10,7 +10,7 @@ use crate::{
     flow_status::{FlowStatus, RestartedFrom},
     flows::{FlowNodeId, FlowValue, Retry},
     runnable_settings::{ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings},
-    scripts::{ScriptHash, ScriptLang},
+    scripts::{ScriptHash, ScriptLang, ScriptModule},
 };
 
 #[derive(Debug, Deserialize, Clone)]
@@ -469,6 +469,7 @@ pub struct RawCode {
     pub concurrency_settings: ConcurrencySettingsWithCustom,
     #[serde(flatten)]
     pub debouncing_settings: DebouncingSettings,
+    pub modules: Option<HashMap<String, ScriptModule>>,
 }
 
 impl JobPayload {

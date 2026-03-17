@@ -153,8 +153,8 @@ export function computeS3FileViewerPolicy(config: RichConfigurations) {
 	} else if (
 		config.source.type === 'static' &&
 		typeof config.source.value === 'string' &&
-		((config.sourceKind.type === 'static' &&
-			config.sourceKind.value === 's3 (workspace storage)') ||
+		((config.sourceKind?.type === 'static' &&
+			config.sourceKind?.value === 's3 (workspace storage)') ||
 			config.source.value.startsWith('s3://'))
 	) {
 		return {

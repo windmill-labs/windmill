@@ -3,36 +3,6 @@
 Import: import * as wmill from 'windmill-client'
 
 /**
- * Create a SQL template function for PostgreSQL/datatable queries
- * @param name - Database/datatable name (default: "main")
- * @returns SQL template function for building parameterized queries
- * @example
- * let sql = wmill.datatable()
- * let name = 'Robin'
- * let age = 21
- * await sql`
- *   SELECT * FROM friends
- *     WHERE name = ${name} AND age = ${age}::int
- * `.fetch()
- */
-datatable(name: string = "main"): DatatableSqlTemplateFunction
-
-/**
- * Create a SQL template function for DuckDB/ducklake queries
- * @param name - DuckDB database name (default: "main")
- * @returns SQL template function for building parameterized queries
- * @example
- * let sql = wmill.ducklake()
- * let name = 'Robin'
- * let age = 21
- * await sql`
- *   SELECT * FROM friends
- *     WHERE name = ${name} AND age = ${age}
- * `.fetch()
- */
-ducklake(name: string = "main"): SqlTemplateFunction
-
-/**
  * Initialize the Windmill client with authentication token and base URL
  * @param token - Authentication token (defaults to WM_TOKEN env variable)
  * @param baseUrl - API base URL (defaults to BASE_INTERNAL_URL or BASE_URL env variable)
@@ -524,3 +494,42 @@ waitForApproval(options?: { timeout?: number; form?: object; }): PromiseLike<{ v
  * const results = await parallel(items, process, { concurrency: 5 });
  */
 async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: { concurrency?: number },): Promise<R[]>
+
+/**
+ * Commit Kafka offsets for a trigger with auto_commit disabled.
+ * @param triggerPath - Path to the Kafka trigger (from event.wm_trigger.trigger_path)
+ * @param topic - Kafka topic name (from event.topic)
+ * @param partition - Partition number (from event.partition)
+ * @param offset - Message offset to commit (from event.offset)
+ */
+async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, offset: number,): Promise<void>
+
+/**
+ * Create a SQL template function for PostgreSQL/datatable queries
+ * @param name - Database/datatable name (default: "main")
+ * @returns SQL template function for building parameterized queries
+ * @example
+ * let sql = wmill.datatable()
+ * let name = 'Robin'
+ * let age = 21
+ * await sql`
+ *   SELECT * FROM friends
+ *     WHERE name = ${name} AND age = ${age}::int
+ * `.fetch()
+ */
+datatable(name: string = "main"): DatatableSqlTemplateFunction
+
+/**
+ * Create a SQL template function for DuckDB/ducklake queries
+ * @param name - DuckDB database name (default: "main")
+ * @returns SQL template function for building parameterized queries
+ * @example
+ * let sql = wmill.ducklake()
+ * let name = 'Robin'
+ * let age = 21
+ * await sql`
+ *   SELECT * FROM friends
+ *     WHERE name = ${name} AND age = ${age}
+ * `.fetch()
+ */
+ducklake(name: string = "main"): SqlTemplateFunction

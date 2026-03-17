@@ -8,6 +8,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import GroupEditor from '$lib/components/GroupEditor.svelte'
+	import InstanceGroupEditor from '$lib/components/InstanceGroupEditor.svelte'
 	import GroupInfo from '$lib/components/GroupInfo.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -69,11 +70,22 @@
 	})
 
 	let editGroupName: string = $state('')
+	let instanceGroupDrawer: Drawer | undefined = $state()
+	let editInstanceGroupName: string = $state('')
 </script>
 
 <Drawer bind:this={groupDrawer}>
 	<DrawerContent title="Group {editGroupName}" on:close={groupDrawer.closeDrawer}>
 		<GroupEditor on:update={loadGroups} name={editGroupName} />
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:this={instanceGroupDrawer}>
+	<DrawerContent
+		title="Instance Group {editInstanceGroupName}"
+		on:close={instanceGroupDrawer?.closeDrawer}
+	>
+		<InstanceGroupEditor on:update={loadInstanceGroups} name={editInstanceGroupName} />
 	</DrawerContent>
 </Drawer>
 
@@ -217,25 +229,27 @@
 						<tr>
 							<Cell head first>Name</Cell>
 							<Cell head>Members</Cell>
+							<Cell head>Instance Role</Cell>
 							<Cell head last>Workspaces</Cell>
 						</tr>
 					</Head>
 					<tbody class="divide-y">
-						{#each instanceGroups ?? [] as { name, emails, workspaces }}
+						{#each instanceGroups ?? [] as { name, emails, instance_role, workspaces }}
 							<Row>
 								<Cell first>
 									<a
 										href="#{name}"
 										onclick={() => {
 											if (name) {
-												editGroupName = name
-												groupDrawer?.openDrawer()
+												editInstanceGroupName = name
+												instanceGroupDrawer?.openDrawer()
 											}
 										}}
 										>{name}
 									</a>
 								</Cell>
 								<Cell>{emails?.length ?? 0} members</Cell>
+								<Cell>{instance_role ?? '-'}</Cell>
 								<Cell last>
 									{#if workspaces && workspaces.length > 0}
 										{#each workspaces as workspace, index}

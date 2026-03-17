@@ -1,0 +1,37 @@
+name: Check system prompts freshness
+
+on:
+  push:
+    paths:
+      - "system_prompts/**"
+      - "typescript-client/**"
+      - "python-client/wmill/wmill/client.py"
+      - "openflow.openapi.yaml"
+      - "backend/windmill-api/openapi.yaml"
+      - "cli/src/main.ts"
+      - "cli/src/commands/**"
+  pull_request:
+    paths:
+      - "system_prompts/**"
+      - "typescript-client/**"
+      - "python-client/wmill/wmill/client.py"
+      - "openflow.openapi.yaml"
+      - "backend/windmill-api/openapi.yaml"
+      - "cli/src/main.ts"
+      - "cli/src/commands/**"
+
+jobs:
+  check-freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Check auto-generated files are up-to-date
+        run: bash system_prompts/check-freshness.sh

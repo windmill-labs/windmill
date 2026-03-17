@@ -112,17 +112,20 @@ pub async fn create_args_and_out_file(
     conn: &Connection,
 ) -> Result<(), Error> {
     if let Some(args) = job.args.as_ref() {
-        if let Some(x) = transform_json(client, &job.workspace_id, &args.0, job, conn).await? {
+        if let Some(mut x) = transform_json(client, &job.workspace_id, &args.0, job, conn).await? {
+            x.remove("_MODULES");
             write_file(
                 job_dir,
                 "args.json",
                 &serde_json::to_string(&x).unwrap_or_else(|_| "{}".to_string()),
             )?;
         } else {
+            let mut filtered = args.0.clone();
+            filtered.remove("_MODULES");
             write_file(
                 job_dir,
                 "args.json",
-                &serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string()),
+                &serde_json::to_string(&filtered).unwrap_or_else(|_| "{}".to_string()),
             )?;
         }
     } else {
@@ -803,6 +806,17 @@ pub async fn resolve_job_timeout(
             (default_timeout, warn_msg, false)
         }
     }
+}
+
+/// Compute the nsjail timeout (in seconds) with a 15s buffer so handle_child fires first.
+pub async fn resolve_nsjail_timeout(
+    conn: &Connection,
+    w_id: &str,
+    job_id: Uuid,
+    custom_timeout: Option<i32>,
+) -> String {
+    let (duration, _, _) = resolve_job_timeout(conn, w_id, job_id, custom_timeout).await;
+    (duration.as_secs() + 15).to_string()
 }
 
 async fn hash_args(

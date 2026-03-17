@@ -21,6 +21,7 @@ use windmill_common::{
     jobs::JobTriggerKind,
     triggers::{TriggerKind, TriggerMetadata},
     utils::report_critical_error,
+    worker::to_raw_value,
     DB, INSTANCE_NAME,
 };
 
@@ -467,9 +468,13 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         db: &DB,
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
         payload: Self::Payload,
-        trigger_info: HashMap<String, Box<RawValue>>,
+        mut trigger_info: HashMap<String, Box<RawValue>>,
         _extra: Option<Self::Extra>,
     ) -> Result<()> {
+        trigger_info.insert(
+            "trigger_path".to_string(),
+            to_raw_value(&listening_trigger.path),
+        );
         let args = Self::build_job_args(
             &listening_trigger.script_path,
             listening_trigger.is_flow,
@@ -552,6 +557,11 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             return Ok(());
         }
 
+        let mut trigger_info = trigger_info;
+        trigger_info.insert(
+            "trigger_path".to_string(),
+            to_raw_value(&listening_trigger.path),
+        );
         let (main_args, preprocessor_args) = Self::build_capture_payloads(&payload, trigger_info);
         if let Err(err) = insert_capture_payload(
             db,

@@ -243,7 +243,14 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     create_dir_all(&*HUB_CACHE_DIR)?;
     create_dir_all(&*BUN_BUNDLE_CACHE_DIR)?;
 
-    for path in paths.values() {
+    // Ensure the latest git sync script is always cached, regardless of hubPaths.json contents
+    let mut all_paths: Vec<String> = paths.into_values().collect();
+    let latest_git_sync = windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH.to_string();
+    if !all_paths.contains(&latest_git_sync) {
+        all_paths.push(latest_git_sync);
+    }
+
+    for path in &all_paths {
         tracing::info!("Caching hub script at {path}");
         let res = get_hub_script_content_and_requirements(Some(path), None).await?;
         if res
@@ -285,6 +292,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                     envs.clone(),
                     false,
                     &mut None,
+                    false,
                 )
                 .await?;
 
@@ -694,6 +702,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer || mode == Mode::MCP {
         0
     } else if is_native_mode_from_env() {
+        NATIVE_MODE_RESOLVED.store(true, std::sync::atomic::Ordering::Relaxed);
         println!("Native mode enabled: forcing NUM_WORKERS=8");
         8
     } else {
@@ -862,7 +871,79 @@ async fn windmill_main() -> anyhow::Result<()> {
     if worker_mode {
         #[cfg(any(target_os = "linux"))]
         if let Err(e) = disable_oom_group() {
-            tracing::warn!("failed to disable oom group: {:?}", e);
+            tracing::warn!(
+                "Failed to disable cgroup OOM group kill: {e:?}. \
+                When a job exceeds memory, the OOM killer will kill the entire pod \
+                instead of just the offending job process"
+            );
+        }
+
+        // Lower the worker's oom_score_adj so the OOM killer strongly prefers killing
+        // job subprocesses (oom_score_adj=1000) over the worker itself.
+        // Kubernetes sets it high for burstable QoS (e.g. 937), leaving a tiny gap vs jobs.
+        // Requires CAP_SYS_RESOURCE to lower it; if missing, we just warn.
+        #[cfg(any(target_os = "linux"))]
+        match std::fs::read_to_string("/proc/self/oom_score_adj") {
+            Ok(current) => {
+                let current = current.trim().to_string();
+                let current_val = match current.parse::<i32>() {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::warn!("Could not parse oom_score_adj '{current}': {e}");
+                        0
+                    }
+                };
+                if current_val > 0 {
+                    match std::fs::write("/proc/self/oom_score_adj", "0") {
+                        Ok(_) => {
+                            tracing::info!(
+                                "Lowered worker oom_score_adj from {current} to 0 \
+                                (jobs get 1000, gap=1000)"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Could not lower worker oom_score_adj from {current} to 0: {e}. \
+                                Gap to jobs is only {} — OOM killer may target the worker instead. \
+                                Add CAP_SYS_RESOURCE to the container to fix this",
+                                1000 - current_val
+                            );
+                        }
+                    }
+                } else {
+                    tracing::info!(
+                        "Worker oom_score_adj={current} (jobs get 1000, gap={})",
+                        1000 - current_val
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Could not read worker oom_score_adj: {e}");
+            }
+        }
+    }
+
+    // Resolve native mode early (before connect_db) so connection pool size accounts for it.
+    // native_mode can come from env OR from the DB worker group config.
+    if worker_mode && !is_native_mode_from_env() {
+        if let Some(db) = conn.as_sql() {
+            let native_from_db: bool = sqlx::query_scalar!(
+                "SELECT (config->>'native_mode')::boolean FROM config WHERE name = $1",
+                format!("worker__{}", *windmill_common::worker::WORKER_GROUP)
+            )
+            .fetch_optional(db)
+            .await
+            .ok()
+            .flatten()
+            .flatten()
+            .unwrap_or(false);
+            if native_from_db {
+                NATIVE_MODE_RESOLVED.store(true, std::sync::atomic::Ordering::Relaxed);
+                num_workers = 8;
+                tracing::info!(
+                    "Native mode detected from worker config (early): forcing NUM_WORKERS=8"
+                );
+            }
         }
     }
 
@@ -878,6 +959,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             server_mode,
             indexer_mode,
             worker_mode,
+            num_workers,
             #[cfg(feature = "private")]
             killpill_rx.resubscribe(),
         )
@@ -981,16 +1063,6 @@ Windmill Community Edition {GIT_VERSION}
             disable_s3_store,
         )
         .await;
-
-        // native_mode may also be set via DB worker group config (not just env).
-        // NATIVE_MODE_RESOLVED is updated by load_worker_config during initial_load.
-        if worker_mode
-            && !is_native_mode_from_env()
-            && NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed)
-        {
-            num_workers = 8;
-            tracing::info!("Native mode detected from worker config: forcing NUM_WORKERS=8");
-        }
 
         monitor_db(
             &conn,
@@ -1615,7 +1687,7 @@ async fn process_notify_event(
         }
         "notify_token_invalidation" => {
             tracing::info!(
-                "Token invalidation detected for token: {}...",
+                "Token invalidation detected for prefix: {}...",
                 payload.get(..8).unwrap_or(payload)
             );
             windmill_api::auth::invalidate_token_from_cache(payload);
@@ -1884,7 +1956,7 @@ pub async fn run_workers(
 
     tracing::info!(
         "Starting {num_workers} workers and SLEEP_QUEUE={}ms",
-        *windmill_worker::SLEEP_QUEUE
+        windmill_worker::sleep_queue()
     );
 
     for i in 1..(num_workers + 1) {

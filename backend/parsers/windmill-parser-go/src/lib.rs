@@ -41,7 +41,7 @@ pub fn parse_go_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             star_args: false,
             star_kwargs: false,
             args,
-            no_main_func: Some(false),
+            auto_kind: None,
             has_preprocessor: None,
         })
     } else {
@@ -49,7 +49,7 @@ pub fn parse_go_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             star_args: false,
             star_kwargs: false,
             args: vec![],
-            no_main_func: Some(true),
+            auto_kind: Some("lib".to_string()),
             has_preprocessor: None,
         })
     }
@@ -243,7 +243,7 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                         oidx: None
                     },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
