@@ -47,11 +47,11 @@
 		let result = filteredItems
 		if (summaryFilter) {
 			const s = summaryFilter.toLowerCase()
-			result = result.filter((x) => x.summary.toLowerCase().includes(s))
+			result = result.filter((x) => (x.summary ?? '').toLowerCase().includes(s))
 		}
 		if (pathFilter) {
 			const p = pathFilter.toLowerCase()
-			result = result.filter((x) => x.path.toLowerCase().includes(p))
+			result = result.filter((x) => (x.path ?? '').toLowerCase().includes(p))
 		}
 		return result
 	})
@@ -74,68 +74,69 @@
 {#if $disableHubStore}
 	<!-- Hub disabled, show nothing -->
 {:else}
-<SearchItems
-	{filter}
-	items={prefilteredItems}
-	bind:filteredItems
-	f={(x) => x.summary + ' (' + x.apps.join(', ') + ')'}
-/>
-{#if !hideSearchbar}
-<div class="w-full flex items-center gap-2">
-	{@render children?.()}
-	<TextInput
-		inputProps={{
-			placeholder: 'Search Hub Apps'
-		}}
-		bind:value={filter}
-		class="grow !pr-9"
-		{size}
+	<SearchItems
+		{filter}
+		items={prefilteredItems}
+		bind:filteredItems
+		f={(x) => x.summary + ' (' + x.apps.join(', ') + ')'}
 	/>
-</div>
-{/if}
-<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
+	{#if !hideSearchbar}
+		<div class="w-full flex items-center gap-2">
+			{@render children?.()}
+			<TextInput
+				inputProps={{
+					placeholder: 'Search Hub Apps'
+				}}
+				bind:value={filter}
+				class="grow !pr-9"
+				{size}
+			/>
+		</div>
+	{/if}
+	<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 
-{#if hubNotAvailable}
-	<Alert type="warning" title="Hub not available">
-		Could not connect to the Windmill Hub. If you are in a closed environment, you can disable the Hub in the <a href="/#superadmin-settings?tab=private_hub">instance settings</a>.
-	</Alert>
-{:else if hubApps}
-	{#if displayItems.length == 0}
-		<NoItemFound />
-	{:else}
-		<ul class="divide-y border rounded-md bg-surface-tertiary">
-			{#each displayItems as item (item)}
-				<li class="flex flex-row w-full">
-					<button
-						class="p-4 gap-4 flex flex-row grow justify-between hover:bg-surface-hover transition-all items-center"
-						onclick={() => dispatch('pick', item)}
-					>
-						<div class="flex items-center gap-4">
-							<RowIcon kind="app" />
+	{#if hubNotAvailable}
+		<Alert type="warning" title="Hub not available">
+			Could not connect to the Windmill Hub. If you are in a closed environment, you can disable the
+			Hub in the <a href="/#superadmin-settings?tab=private_hub">instance settings</a>.
+		</Alert>
+	{:else if hubApps}
+		{#if displayItems.length == 0}
+			<NoItemFound />
+		{:else}
+			<ul class="divide-y border rounded-md bg-surface-tertiary">
+				{#each displayItems as item (item)}
+					<li class="flex flex-row w-full">
+						<button
+							class="p-4 gap-4 flex flex-row grow justify-between hover:bg-surface-hover transition-all items-center"
+							onclick={() => dispatch('pick', item)}
+						>
+							<div class="flex items-center gap-4">
+								<RowIcon kind="app" />
 
-							<div class="w-full text-left">
-								<div class="text-emphasis flex-wrap text-xs font-semibold">
-									{#if item.marked}
-										{@html item.marked ?? ''}
-									{:else}
-										{item.summary ?? ''}
-									{/if}
+								<div class="w-full text-left">
+									<div class="text-emphasis flex-wrap text-xs font-semibold">
+										{#if item.marked}
+											{@html item.marked ?? ''}
+										{:else}
+											{item.summary ?? ''}
+										{/if}
+									</div>
 								</div>
 							</div>
-						</div>
-						<div class="min-w-1/3 gap-2 flex flex-wrap justify-end">
-							{#each item.apps as app}
-								<Badge color="gray" baseClass="border">{app}</Badge>
-							{/each}
-						</div>
-					</button>
-				</li>
-			{/each}
-		</ul>
+							<div class="min-w-1/3 gap-2 flex flex-wrap justify-end">
+								{#each item.apps as app}
+									<Badge color="gray" baseClass="border">{app}</Badge>
+								{/each}
+							</div>
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	{:else}
+		{#each Array(10).fill(0) as _}
+			<Skeleton layout={[[4], 0.5]} />
+		{/each}
 	{/if}
-{:else}
-	{#each Array(10).fill(0) as _}
-		<Skeleton layout={[[4], 0.5]} />
-	{/each}
-{/if}
 {/if}
