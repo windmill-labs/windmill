@@ -23,8 +23,6 @@
 	let expandedWorkspaces = new SvelteSet<string>()
 	let showAddWorkspace = $state(false)
 	let newWorkspaceId = $state('')
-	let addingFieldFor: string | null = $state(null)
-	let selectedField = $state('')
 
 	const registries = $derived(
 		($values['workspace_registries'] ?? {}) as Record<string, Record<string, any>>
@@ -101,10 +99,19 @@
 	function addField(wsId: string, key: string) {
 		const setting = WORKSPACE_REGISTRY_SETTINGS.find((s) => s.key === key)
 		if (!setting) return
-		const defaultValue = setting.fieldType === 'boolean' ? false : ''
-		updateSetting(wsId, key, defaultValue, setting.fieldType === 'boolean')
-		addingFieldFor = null
-		selectedField = ''
+		if (!$values['workspace_registries']) {
+			$values['workspace_registries'] = {}
+		}
+		if (!$values['workspace_registries'][wsId]) {
+			$values['workspace_registries'][wsId] = {}
+		}
+		// Initialize with proper default — bypass updateSetting to avoid empty-string deletion
+		const ws = { ...$values['workspace_registries'][wsId] }
+		ws[key] = setting.fieldType === 'boolean' ? false : ''
+		$values['workspace_registries'] = {
+			...$values['workspace_registries'],
+			[wsId]: ws
+		}
 	}
 
 	function removeField(wsId: string, key: string) {
@@ -226,48 +233,23 @@
 							</div>
 						{/each}
 
-						{#if addingFieldFor === wsId}
-							<div class="flex items-center gap-2">
-								<select class="input-base text-xs flex-1" bind:value={selectedField}>
-									<option value="">Select a setting to override...</option>
-									{#each getAvailableFields(wsId) as s (s.key)}
-										<option value={s.key}>{s.label}</option>
-									{/each}
-								</select>
-								<Button
-									variant="default"
-									size="xs"
-									disabled={!selectedField}
-									onclick={() => addField(wsId, selectedField)}
-								>
-									Add
-								</Button>
-								<Button
-									variant="subtle"
-									size="xs"
-									onclick={() => {
-										addingFieldFor = null
-										selectedField = ''
-									}}
-								>
-									Cancel
-								</Button>
-							</div>
-						{:else if getAvailableFields(wsId).length > 0}
-							<div class="flex justify-start">
-								<Button
-									variant="default"
-									size="xs"
-									onclick={() => {
-										addingFieldFor = wsId
-										selectedField = ''
-									}}
-									btnClasses="text-xs flex items-center gap-2"
-								>
-									<Plus size={14} />
-									Add override
-								</Button>
-							</div>
+						{#if getAvailableFields(wsId).length > 0}
+							<select
+								class="input-base text-xs"
+								value=""
+								onchange={(e) => {
+									const key = e.currentTarget.value
+									if (key) {
+										addField(wsId, key)
+										e.currentTarget.value = ''
+									}
+								}}
+							>
+								<option value="">+ Add a registry override...</option>
+								{#each getAvailableFields(wsId) as s (s.key)}
+									<option value={s.key}>{s.label}</option>
+								{/each}
+							</select>
 						{/if}
 					</div>
 				{/if}
