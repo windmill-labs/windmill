@@ -209,6 +209,11 @@ import ZeroTierIcon from './ZeroTierIcon.svelte'
 import SplitwiseIcon from './SplitwiseIcon.svelte'
 import TelnyxIcon from './TelnyxIcon.svelte'
 import MandrillIcon from './MandrillIcon.svelte'
+import OpenWeatherIcon from './OpenWeatherIcon.svelte'
+import YnabIcon from './YnabIcon.svelte'
+import SpeechifyIcon from './SpeechifyIcon.svelte'
+import ConvertKitIcon from './ConvertKitIcon.svelte'
+import BrowserlessIcon from './BrowserlessIcon.svelte'
 import type { Component } from 'svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -426,7 +431,12 @@ export const APP_TO_ICON_COMPONENT = {
 	zerotier: ZeroTierIcon,
 	splitwise: SplitwiseIcon,
 	telnyx: TelnyxIcon,
-	mandrill: MandrillIcon
+	mandrill: MandrillIcon,
+	openweather: OpenWeatherIcon,
+	ynab: YnabIcon,
+	speechify: SpeechifyIcon,
+	convertkit: ConvertKitIcon,
+	browserless: BrowserlessIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
 export {
@@ -632,5 +642,10 @@ export {
 	ZeroTierIcon,
 	SplitwiseIcon,
 	TelnyxIcon,
-	MandrillIcon
+	MandrillIcon,
+	OpenWeatherIcon,
+	YnabIcon,
+	SpeechifyIcon,
+	ConvertKitIcon,
+	BrowserlessIcon
 }
