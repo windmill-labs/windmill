@@ -5,7 +5,18 @@ fn deserialize_bool_from_null<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: Deserializer<'de>,
 {
-    Option::<bool>::deserialize(deserializer).map(|v| v.unwrap_or(false))
+    // MySQL returns integers (0/1) for CASE expressions instead of booleans,
+    // so we need to accept both types.
+    let v = serde_json::Value::deserialize(deserializer)?;
+    match v {
+        serde_json::Value::Bool(b) => Ok(b),
+        serde_json::Value::Number(n) => Ok(n.as_i64().unwrap_or(0) != 0),
+        serde_json::Value::Null => Ok(false),
+        _ => Err(serde::de::Error::custom(format!(
+            "expected bool or integer, got {}",
+            v
+        ))),
+    }
 }
 
 fn deserialize_string_from_null<'de, D>(deserializer: D) -> Result<String, D::Error>
