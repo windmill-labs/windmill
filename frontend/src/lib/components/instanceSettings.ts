@@ -948,3 +948,8 @@ export function buildSearchableSettingItems(
 
 	return items
 }
+
+/** Registry settings that support per-workspace overrides. Excludes instance_python_version and uv_index_strategy which are instance-wide only. */
+export const WORKSPACE_REGISTRY_SETTINGS: Setting[] = settings['Registries'].filter(
+	(s) => s.key !== 'instance_python_version' && s.key !== 'uv_index_strategy'
+)

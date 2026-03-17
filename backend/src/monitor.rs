@@ -95,6 +95,7 @@ use windmill_worker::{
     MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY,
     NSJAIL_AVAILABLE, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL,
     PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UV_INDEX_STRATEGY,
+    WORKSPACE_REGISTRIES,
 };
 
 #[cfg(feature = "parquet")]
@@ -352,6 +353,7 @@ pub async fn initial_load(
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
         reload_cargo_registries_setting(&conn).await;
+        reload_workspace_registries_setting(&conn).await;
     }
 }
 
@@ -1554,6 +1556,43 @@ pub async fn reload_cargo_registries_setting(conn: &Connection) {
         CARGO_REGISTRIES.clone(),
     )
     .await;
+}
+
+pub async fn reload_workspace_registries_setting(conn: &Connection) {
+    let value = load_value_from_global_settings_with_conn(
+        conn,
+        windmill_common::global_settings::WORKSPACE_REGISTRIES_SETTING,
+        true,
+    )
+    .await;
+    match value {
+        Ok(Some(v)) => {
+            match serde_json::from_value::<
+                std::collections::HashMap<
+                    String,
+                    std::collections::HashMap<String, serde_json::Value>,
+                >,
+            >(v)
+            {
+                Ok(parsed) => {
+                    tracing::info!(
+                        "Loaded workspace registries for {} workspaces",
+                        parsed.len()
+                    );
+                    *WORKSPACE_REGISTRIES.write().await = Some(parsed);
+                }
+                Err(e) => {
+                    tracing::error!("Error parsing workspace_registries setting: {e:#}");
+                }
+            }
+        }
+        Ok(None) => {
+            *WORKSPACE_REGISTRIES.write().await = None;
+        }
+        Err(e) => {
+            tracing::error!("Error loading workspace_registries setting: {e:#}");
+        }
+    }
 }
 
 pub async fn reload_hub_api_secret_setting(conn: &Connection) {

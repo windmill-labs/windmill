@@ -28,7 +28,7 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::{self},
-    is_sandboxing_enabled, read_ee_registry,
+    is_sandboxing_enabled, read_ee_registry_url_list_with_workspace_override,
     universal_pkg_installer::{par_install_language_dependencies_seq, RequiredDependency},
     DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
     TRACING_PROXY_CA_CERT_PATH,
@@ -361,8 +361,9 @@ Your Gemfile syntax will continue to work as-is."
             ])
             .envs(RUBY_PROXY_ENVS.clone());
 
-        for repo in read_ee_registry(
+        for repo in read_ee_registry_url_list_with_workspace_override(
             RUBY_REPOS.read().await.clone(),
+            "ruby_repos",
             "ruby repos",
             job_id,
             w_id,
@@ -601,8 +602,9 @@ async fn install<'a>(
     let job_dir = job_dir.to_owned();
     let jailed = !cfg!(windows) && is_sandboxing_enabled();
     let RubyAnnotations { verbose } = RubyAnnotations::parse(&inner_content);
-    let repos = read_ee_registry(
+    let repos = read_ee_registry_url_list_with_workspace_override(
         RUBY_REPOS.read().await.clone(),
+        "ruby_repos",
         "ruby repos",
         &job.id,
         &job.workspace_id,

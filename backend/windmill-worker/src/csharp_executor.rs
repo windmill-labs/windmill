@@ -32,8 +32,9 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, CSHARP_CACHE_DIR, DISABLE_NUSER, DOTNET_PATH,
-    HOME_ENV, NSJAIL_PATH, NUGET_CONFIG, PATH_ENV, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry_with_workspace_override, CSHARP_CACHE_DIR,
+    DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH, NUGET_CONFIG, PATH_ENV,
+    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 #[cfg(feature = "csharp")]
 use windmill_common::scripts::ScriptLang;
@@ -82,8 +83,9 @@ pub async fn generate_nuget_lockfile(
 ) -> error::Result<String> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
-    if let Some(nuget_config) = read_ee_registry(
+    if let Some(nuget_config) = read_ee_registry_with_workspace_override(
         NUGET_CONFIG.read().await.clone(),
+        "nuget_config",
         "nuget config",
         job_id,
         w_id,
@@ -344,8 +346,9 @@ async fn build_cs_proj(
     hash: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
-    if let Some(nuget_config) = read_ee_registry(
+    if let Some(nuget_config) = read_ee_registry_with_workspace_override(
         NUGET_CONFIG.read().await.clone(),
+        "nuget_config",
         "nuget config",
         job_id,
         w_id,

@@ -28,9 +28,9 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, PROXY_ENVS,
-    TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry_with_workspace_override, DISABLE_NUSER, HOME_ENV,
+    NSJAIL_PATH, PATH_ENV, POWERSHELL_CACHE_DIR, POWERSHELL_PATH, POWERSHELL_REPO_PAT,
+    POWERSHELL_REPO_URL, PROXY_ENVS, TZ_ENV,
 };
 
 fn val_to_pwsh_param(v: serde_json::Value) -> String {
@@ -452,16 +452,18 @@ pub async fn handle_powershell_job(
     }
 
     if !modules_to_install.is_empty() {
-        let powershell_repo_url = read_ee_registry(
+        let powershell_repo_url = read_ee_registry_with_workspace_override(
             POWERSHELL_REPO_URL.read().await.clone(),
+            "powershell_repo_url",
             "powershell repo url",
             &job.id,
             &job.workspace_id,
             db,
         )
         .await;
-        let powershell_repo_pat = read_ee_registry(
+        let powershell_repo_pat = read_ee_registry_with_workspace_override(
             POWERSHELL_REPO_PAT.read().await.clone(),
+            "powershell_repo_pat",
             "powershell repo pat",
             &job.id,
             &job.workspace_id,

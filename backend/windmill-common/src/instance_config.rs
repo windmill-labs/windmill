@@ -337,6 +337,16 @@ pub struct GlobalSettings {
     )]
     pub teams: Option<serde_json::Value>,
 
+    // Workspace-specific registry overrides
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
+    pub workspace_registries: Option<
+        std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+    >,
+
     /// Catch-all for settings not yet covered by typed fields.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
@@ -865,6 +875,7 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "maven_repos",
     "ruby_repos",
     "powershell_repo_pat",
+    "workspace_registries",
 ];
 
 /// Object-valued settings that contain sensitive sub-fields.
