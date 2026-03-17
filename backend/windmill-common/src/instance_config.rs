@@ -245,6 +245,8 @@ pub struct GlobalSettings {
 
     // String settings
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub email_domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hub_base_url: Option<String>,
@@ -336,6 +338,16 @@ pub struct GlobalSettings {
         schemars(schema_with = "opaque_json_schema")
     )]
     pub teams: Option<serde_json::Value>,
+
+    // Workspace-specific registry overrides
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
+    pub workspace_registries: Option<
+        std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+    >,
 
     /// Catch-all for settings not yet covered by typed fields.
     #[serde(flatten)]
@@ -865,6 +877,7 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "maven_repos",
     "ruby_repos",
     "powershell_repo_pat",
+    "workspace_registries",
 ];
 
 /// Object-valued settings that contain sensitive sub-fields.

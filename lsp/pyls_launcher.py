@@ -90,6 +90,26 @@ class MainHandler(web.RequestHandler):
     def get(self):
         self.write("ok")
 
+class HealthHandler(web.RequestHandler):
+    def set_default_headers(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Content-Type", "application/json")
+
+    def get(self):
+        self.write(json.dumps({"status": "ok", "service": "lsp"}))
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
+class PingHandler(websocket.WebSocketHandler):
+    def open(self):
+        self.write_message(json.dumps({"type": "pong", "service": "lsp"}))
+        self.close()
+
+    def check_origin(self, origin):
+        return True
+
 if __name__ == "__main__":
     monaco_path = "/tmp/monaco"
     os.makedirs(monaco_path, exist_ok=True)
@@ -107,8 +127,10 @@ if __name__ == "__main__":
             (r"/ws/ruff", RuffLS),
             (r"/ws/deno", DenoLS),
             (r"/ws/go", GoLS),
+            (r"/ws/ping", PingHandler),
+            (r"/ws/health", HealthHandler),
             (r"/", MainHandler),
-            (r"/health", MainHandler),
+            (r"/health", HealthHandler),
         ]
     )
     app.listen(port, address="0.0.0.0")

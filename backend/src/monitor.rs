@@ -90,11 +90,12 @@ use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
-    OtelTracingProxySettings, SameWorkerSender, BUNFIG_INSTALL_SCOPES, CARGO_REGISTRIES,
-    INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR,
-    MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY,
+    OtelTracingProxySettings, SameWorkerSender, WorkspaceRegistryMap, BUNFIG_INSTALL_SCOPES,
+    CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION,
+    KEEP_JOB_DIR, MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY,
     NSJAIL_AVAILABLE, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL,
     PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UV_INDEX_STRATEGY,
+    WORKSPACE_REGISTRIES,
 };
 
 #[cfg(feature = "parquet")]
@@ -352,6 +353,7 @@ pub async fn initial_load(
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
         reload_cargo_registries_setting(&conn).await;
+        reload_workspace_registries_setting(&conn).await;
     }
 }
 
@@ -1554,6 +1556,35 @@ pub async fn reload_cargo_registries_setting(conn: &Connection) {
         CARGO_REGISTRIES.clone(),
     )
     .await;
+}
+
+pub async fn reload_workspace_registries_setting(conn: &Connection) {
+    let value = load_value_from_global_settings_with_conn(
+        conn,
+        windmill_common::global_settings::WORKSPACE_REGISTRIES_SETTING,
+        true,
+    )
+    .await;
+    match value {
+        Ok(Some(v)) => match serde_json::from_value::<WorkspaceRegistryMap>(v) {
+            Ok(parsed) => {
+                tracing::info!(
+                    "Loaded workspace registries for {} workspaces",
+                    parsed.len()
+                );
+                *WORKSPACE_REGISTRIES.write().await = Some(parsed);
+            }
+            Err(e) => {
+                tracing::error!("Error parsing workspace_registries setting: {e:#}");
+            }
+        },
+        Ok(None) => {
+            *WORKSPACE_REGISTRIES.write().await = None;
+        }
+        Err(e) => {
+            tracing::error!("Error loading workspace_registries setting: {e:#}");
+        }
+    }
 }
 
 pub async fn reload_hub_api_secret_setting(conn: &Connection) {
