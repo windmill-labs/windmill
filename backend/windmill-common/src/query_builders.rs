@@ -48,7 +48,17 @@ fn deserialize_column_identity_from_null<'de, D>(
 where
     D: Deserializer<'de>,
 {
-    Option::<ColumnIdentity>::deserialize(deserializer).map(|v| v.unwrap_or_default())
+    // MySQL returns uppercase "YES"/"NO" while the enum expects title case.
+    let v = Option::<String>::deserialize(deserializer)?;
+    match v.as_deref() {
+        None => Ok(ColumnIdentity::default()),
+        Some(s) => match s.to_lowercase().as_str() {
+            "no" => Ok(ColumnIdentity::No),
+            "yes" | "always" => Ok(ColumnIdentity::Always),
+            "by default" => Ok(ColumnIdentity::ByDefault),
+            _ => Ok(ColumnIdentity::No),
+        },
+    }
 }
 
 const WM_INTERNAL_PREFIX: &str = "-- WM_INTERNAL_DB_";
