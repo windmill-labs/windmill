@@ -408,6 +408,30 @@ fn cols_to_simple(cols: &[ColumnDef]) -> Vec<SimpleColumn> {
         .collect()
 }
 
+/// MSSQL `text`, `ntext`, and `image` types cannot be used with the `=` operator.
+/// This function wraps the column/param in CAST(...) when needed.
+fn mssql_needs_cast_for_eq(datatype: &str) -> bool {
+    let dt = datatype.to_lowercase();
+    let base = dt.split('(').next().unwrap_or(&dt).trim();
+    matches!(base, "text" | "ntext" | "image")
+}
+
+fn mssql_eq_condition(quoted_field: &str, param: &str, datatype: &str) -> String {
+    if mssql_needs_cast_for_eq(datatype) {
+        format!(
+            "({p} IS NULL AND {f} IS NULL OR CAST({f} AS NVARCHAR(MAX)) = {p})",
+            f = quoted_field,
+            p = param
+        )
+    } else {
+        format!(
+            "({p} IS NULL AND {f} IS NULL OR {f} = {p})",
+            f = quoted_field,
+            p = param
+        )
+    }
+}
+
 pub fn render_db_quoted_identifier(identifier: &str, db_type: DbType) -> String {
     match db_type {
         DbType::Postgresql | DbType::Snowflake | DbType::Duckdb => {
@@ -1157,13 +1181,8 @@ pub fn make_delete_query(table: &str, columns: &[ColumnDef], db_type: DbType) ->
                 .enumerate()
                 .map(|(i, c)| {
                     let qf = qi(&c.field, db_type);
-                    format!(
-                        "(@p{} IS NULL AND {} IS NULL OR {} = @p{})",
-                        i + 1,
-                        qf,
-                        qf,
-                        i + 1
-                    )
+                    let param = format!("@p{}", i + 1);
+                    mssql_eq_condition(&qf, &param, &c.datatype)
                 })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
@@ -1466,13 +1485,8 @@ pub fn make_update_query(
                 .enumerate()
                 .map(|(i, c)| {
                     let qf = qi(&c.field, db_type);
-                    format!(
-                        "(@p{} IS NULL AND {} IS NULL OR {} = @p{})",
-                        i + 2,
-                        qf,
-                        qf,
-                        i + 2
-                    )
+                    let param = format!("@p{}", i + 2);
+                    mssql_eq_condition(&qf, &param, &c.datatype)
                 })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
