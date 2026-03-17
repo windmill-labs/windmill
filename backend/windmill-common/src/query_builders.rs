@@ -996,7 +996,7 @@ pub fn make_count_query(
             if !filtered_columns.is_empty() {
                 quicksearch_condition.push_str(&format!(
                     "(@p1 = '' OR CONCAT({}) LIKE '%' + @p1 + '%')",
-                    filtered_columns.join(", +")
+                    filtered_columns.join(", ")
                 ));
             } else {
                 quicksearch_condition.push_str("(@p1 = '' OR 1 = 1)");
@@ -3057,7 +3057,7 @@ mod tests {
         let result = make_count_query(DbType::MsSqlServer, "my_table", None, &cols).unwrap();
 
         assert!(result.contains("SELECT COUNT(*) as count FROM [my_table]"));
-        assert!(result.contains("(@p1 = '' OR CONCAT([id], +[name]) LIKE '%' + @p1 + '%')"));
+        assert!(result.contains("(@p1 = '' OR CONCAT([id], [name]) LIKE '%' + @p1 + '%')"));
     }
 
     // -----------------------------------------------------------------------
