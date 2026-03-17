@@ -783,13 +783,17 @@ except BaseException as e:
             r#"
 import os
 import json
+import importlib
 {import_loader}
 {import_base64}
 {import_datetime}
 import traceback
 import sys
 {os_main_override}
-from {module_dir_dot} import {last} as inner_script
+
+# Dynamic import to handle module names that are Python keywords
+inner_script = importlib.import_module("{module_dir_dot}.{last}")
+
 import re
 
 with open("args.json") as f:
@@ -2531,12 +2535,16 @@ pub async fn start_worker(
         let wrapper_content: String = format!(
             r#"
 import json
+import importlib
 {import_loader}
 {import_base64}
 {import_datetime}
 import traceback
 import sys
-from {module_dir_dot} import {last} as inner_script
+
+# Dynamic import to handle module names that are Python keywords
+inner_script = importlib.import_module("{module_dir_dot}.{last}")
+
 import re
 
 
