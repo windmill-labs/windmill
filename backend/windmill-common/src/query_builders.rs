@@ -2479,9 +2479,10 @@ WHERE table_schema = current_schema()",
             }
             let dataset = parts[0];
             let tname = parts[1];
+            let qd = qi(dataset, DbType::Bigquery);
             Ok(format!(
                 "SELECT \n    c.COLUMN_NAME as field,\n    DATA_TYPE as DataType,\n    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,\n    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,\n    'No' as IsIdentity,\n    IS_NULLABLE as IsNullable,\n    false as IsEnum\nFROM\n    {}.INFORMATION_SCHEMA.COLUMNS c\n    LEFT JOIN\n    {}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p\n    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME\nWHERE   \n    c.TABLE_NAME = '{}'\norder by c.ORDINAL_POSITION;",
-                dataset, dataset, escape_sql_literal(tname)
+                qd, qd, escape_sql_literal(tname)
             ))
         }
     }
@@ -4257,7 +4258,7 @@ mod tests {
     fn test_expand_load_table_metadata_bigquery_single_table() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"dataset.my_table"}"#;
         let sql = expand_code(marker, &ScriptLang::Bigquery);
-        assert!(sql.contains("dataset.INFORMATION_SCHEMA.COLUMNS"));
+        assert!(sql.contains("`dataset`.INFORMATION_SCHEMA.COLUMNS"));
         assert!(sql.contains("TABLE_NAME = 'my_table'"));
     }
 
