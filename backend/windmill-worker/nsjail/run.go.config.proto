@@ -3,6 +3,7 @@ name: "go run script"
 mode: ONCE
 hostname: "go"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 disable_rl: true
 

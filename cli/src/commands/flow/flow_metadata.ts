@@ -19,6 +19,7 @@ import {
 } from "../../utils/metadata.ts";
 import { ScriptLanguage } from "../../utils/script_common.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { newPathAssigner } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
 import { exts } from "../script/script.ts";
@@ -28,7 +29,10 @@ import { FlowFile } from "./flow.ts";
 import { FlowValue } from "../../../gen/types.gen.ts";
 import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { workspaceDependenciesLanguages } from "../../utils/script_common.ts";
-import { extractNameFromFolder, getFolderSuffix } from "../../utils/resource_folders.ts";
+import {
+  extractNameFromFolder,
+  getNonDottedPaths,
+} from "../../utils/resource_folders.ts";
 
 const TOP_HASH = "__flow_hash";
 async function generateFlowHash(
@@ -50,6 +54,14 @@ async function generateFlowHash(
   }
   return { ...hashes, [TOP_HASH]: await generateHash(JSON.stringify(hashes)) };
 }
+/**
+ * Result of generating flow locks, including which scripts were updated
+ */
+export interface FlowLocksResult {
+  path: string;
+  updatedScripts: string[];
+}
+
 export async function generateFlowLockInternal(
   folder: string,
   dryRun: boolean,
@@ -59,7 +71,7 @@ export async function generateFlowLockInternal(
   },
   justUpdateMetadataLock?: boolean,
   noStaleMessage?: boolean
-): Promise<string | void> {
+): Promise<string | FlowLocksResult | void> {
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
   }
@@ -97,7 +109,7 @@ export async function generateFlowLockInternal(
     return remote_path;
   }
 
-  if (Object.keys(filteredDeps).length > 0) {
+  if (Object.keys(filteredDeps).length > 0 && !noStaleMessage) {
     log.info(
       (await blueColor())(
         `Found workspace dependencies (${workspaceDependenciesLanguages
@@ -108,8 +120,9 @@ export async function generateFlowLockInternal(
   }
 
 
+  let changedScripts: string[] = [];
+
   if (!justUpdateMetadataLock) {
-    const changedScripts = [];
     //find hashes that do not correspond to previous hashes
     for (const [path, hash] of Object.entries(hashes)) {
       if (path == TOP_HASH) {
@@ -120,15 +133,24 @@ export async function generateFlowLockInternal(
       }
     }
 
-    log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
+    if (!noStaleMessage) {
+      log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
+    }
+    const fileReader = async (path: string) => await readFile(folder + SEP + path, "utf-8");
     await replaceInlineScripts(
       flowValue.value.modules,
-      async (path: string) => await readFile(folder + SEP + path, "utf-8"),
+      fileReader,
       log,
       folder + SEP!,
       SEP,
       changedScripts
     );
+    if (flowValue.value.failure_module) {
+      await replaceInlineScripts([flowValue.value.failure_module], fileReader, log, folder + SEP!, SEP, changedScripts);
+    }
+    if (flowValue.value.preprocessor_module) {
+      await replaceInlineScripts([flowValue.value.preprocessor_module], fileReader, log, folder + SEP!, SEP, changedScripts);
+    }
 
     //removeChangedLocks
     flowValue.value = await updateFlow(
@@ -138,12 +160,22 @@ export async function generateFlowLockInternal(
       filteredDeps
     );
 
+    const lockAssigner = newPathAssigner(opts.defaultTs ?? "bun", {
+      skipInlineScriptSuffix: getNonDottedPaths(),
+    });
     const inlineScripts = extractInlineScriptsForFlows(
       flowValue.value.modules,
       {},
       SEP,
-      opts.defaultTs
+      opts.defaultTs,
+      lockAssigner
     );
+    if (flowValue.value.failure_module) {
+      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.failure_module], {}, SEP, opts.defaultTs, lockAssigner));
+    }
+    if (flowValue.value.preprocessor_module) {
+      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.preprocessor_module], {}, SEP, opts.defaultTs, lockAssigner));
+    }
     inlineScripts.forEach((s) => {
       writeIfChanged(process.cwd() + SEP + folder + SEP + s.path, s.content);
     });
@@ -164,7 +196,16 @@ export async function generateFlowLockInternal(
   for (const [path, hash] of Object.entries(hashes)) {
     await updateMetadataGlobalLock(folder, hash, path);
   }
-  log.info(colors.green(`Flow ${remote_path} lockfiles updated`));
+  if (!noStaleMessage) {
+    log.info(colors.green(`Flow ${remote_path} lockfiles updated`));
+  }
+
+  // Return the list of updated scripts (extract just the filename from the path)
+  const updatedScripts = changedScripts.map(p => {
+    const parts = p.split(SEP);
+    return parts[parts.length - 1].replace(/\.[^.]+$/, ""); // Remove extension
+  });
+  return { path: remote_path, updatedScripts };
 }
 
 /**
@@ -176,7 +217,15 @@ async function filterWorkspaceDependenciesForFlow(
   rawWorkspaceDependencies: Record<string, string>,
   folder: string
 ): Promise<Record<string, string>> {
-  const inlineScripts = extractInlineScriptsForFlows(structuredClone(flowValue.modules), {}, SEP, undefined);
+  const clonedValue = structuredClone(flowValue);
+  const depAssigner = newPathAssigner("bun");
+  const inlineScripts = extractInlineScriptsForFlows(clonedValue.modules, {}, SEP, undefined, depAssigner);
+  if (clonedValue.failure_module) {
+    inlineScripts.push(...extractInlineScriptsForFlows([clonedValue.failure_module], {}, SEP, undefined, depAssigner));
+  }
+  if (clonedValue.preprocessor_module) {
+    inlineScripts.push(...extractInlineScriptsForFlows([clonedValue.preprocessor_module], {}, SEP, undefined, depAssigner));
+  }
 
   // Filter out lock files and map to common interface
   const scripts = inlineScripts

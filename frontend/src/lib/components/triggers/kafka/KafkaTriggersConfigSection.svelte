@@ -3,8 +3,6 @@
 	import Section from '$lib/components/Section.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import SchemaForm from '../../SchemaForm.svelte'
-	import Select from '$lib/components/select/Select.svelte'
-	import Label from '$lib/components/Label.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import TestingBadge from '../testingBadge.svelte'
@@ -15,7 +13,6 @@
 		kafkaCfgValid?: boolean
 		kafkaResourcePath?: string
 		kafkaCfg?: Record<string, any>
-		autoOffsetReset?: string
 		can_write?: boolean
 		showTestingBadge?: boolean
 	}
@@ -25,15 +22,9 @@
 		kafkaCfgValid = $bindable(false),
 		kafkaResourcePath = $bindable(''),
 		kafkaCfg = $bindable({}),
-		autoOffsetReset = $bindable('latest'),
 		can_write = true,
 		showTestingBadge = false
 	}: Props = $props()
-
-	const offsetResetOptions = [
-		{ label: 'Latest (new messages only)', value: 'latest' },
-		{ label: 'Earliest (from beginning)', value: 'earliest' }
-	]
 
 	const kafkaConfigSchema = {
 		$schema: 'http://json-schema.org/draft-07/schema#',
@@ -109,20 +100,6 @@
 				</Subsection>
 			</div>
 
-			<div class="block grow w-full">
-				<Label label="Initial offset">
-					{#snippet header()}
-						<span class="text-2xs text-tertiary ml-2">
-							Only applies when no committed offset exists
-						</span>
-					{/snippet}
-					<Select
-						items={offsetResetOptions}
-						bind:value={autoOffsetReset}
-						disabled={!can_write}
-					/>
-				</Label>
-			</div>
 		</div>
 	</Section>
 </div>

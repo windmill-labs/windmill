@@ -34,7 +34,11 @@ pub fn parse_java_sig_meta(code: &str) -> anyhow::Result<JavaMainSigMeta> {
 
     // Traverse the AST to find the Main method signature
     let main_sig = find_main_signature(root_node, code);
-    let no_main_func = Some(main_sig.is_none());
+    let auto_kind = if main_sig.is_none() {
+        Some("lib".to_string())
+    } else {
+        None
+    };
     let mut is_public = false;
     let mut returns_void = false;
     let mut class_name = None;
@@ -76,7 +80,7 @@ pub fn parse_java_sig_meta(code: &str) -> anyhow::Result<JavaMainSigMeta> {
         star_kwargs: false,
         args,
         has_preprocessor: None,
-        no_main_func,
+        auto_kind,
     };
 
     Ok(JavaMainSigMeta { returns_void, class_name, main_sig, is_public })

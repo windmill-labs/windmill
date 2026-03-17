@@ -251,9 +251,8 @@ pub async fn initial_load(
                     .map(|x| x.tags.clone())
                     .unwrap_or_default();
                 // we only check from env as native_mode is not stored in the token
+                // NATIVE_MODE_RESOLVED is already set in main.rs during startup
                 let native_mode = windmill_common::worker::is_native_mode_from_env();
-                windmill_common::worker::NATIVE_MODE_RESOLVED
-                    .store(native_mode, std::sync::atomic::Ordering::Relaxed);
                 *config = WorkerConfig {
                     worker_tags,
                     env_vars: load_env_vars(
@@ -946,7 +945,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
     let expired_tokens_r = sqlx::query_as!(
         TokenRow,
         "DELETE FROM token WHERE expiration <= now()
-        RETURNING substring(token for 10) as token_prefix, label, email, workspace_id",
+        RETURNING token_prefix, label, email, workspace_id",
     )
     .fetch_all(db)
     .await;
@@ -1165,15 +1164,17 @@ pub async fn delete_expired_items(db: &DB) -> () {
 }
 
 pub async fn check_expiring_tokens(db: &DB) {
-    // Find tokens expiring within 7 days that still have a pending notification row
+    // Find tokens expiring within 7 days that still have a pending notification row.
+    // The notification table stores token_hash (not plaintext) so the join works
+    // even after the hash migration makes token.token nullable.
     let expiring_tokens_r = sqlx::query_as!(
         TokenRow,
         "DELETE FROM token_expiry_notification n
          USING token t
-         WHERE n.token = t.token
+         WHERE n.token_hash = t.token_hash
            AND n.expiration > now()
            AND n.expiration <= now() + interval '7 days'
-         RETURNING substring(t.token for 10) as token_prefix, t.label, t.email, t.workspace_id",
+         RETURNING t.token_prefix, t.label, t.email, t.workspace_id",
     )
     .fetch_all(db)
     .await;
@@ -2596,6 +2597,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                     AND running = true
                     AND kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow')
                     AND same_worker = false
+                    AND q.suspend_until IS NULL
                     AND (zjc.counter IS NULL OR zjc.counter <= $2)
                 FOR UPDATE of q SKIP LOCKED
             ),
@@ -2708,7 +2710,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
     let same_worker_timeout_jobs = {
         let long_same_worker_jobs = sqlx::query!(
             "SELECT worker, array_agg(v2_job_queue.id) as ids FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id LEFT JOIN v2_job_runtime ON v2_job_queue.id = v2_job_runtime.id WHERE v2_job_queue.created_at < now() - ('60 seconds')::interval
-    AND running = true AND (ping IS NULL OR ping < now() - ('60 seconds')::interval) AND same_worker = true AND worker IS NOT NULL GROUP BY worker",
+    AND running = true AND (ping IS NULL OR ping < now() - ('60 seconds')::interval) AND same_worker = true AND worker IS NOT NULL AND v2_job_queue.suspend_until IS NULL GROUP BY worker",
         )
         .fetch_all(db)
         .await
@@ -2763,7 +2765,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
         sqlx::query_scalar!("SELECT j.id
              FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
              WHERE r.ping < now() - ($1 || ' seconds')::interval
-             AND q.running = true AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') AND j.same_worker = false",
+             AND q.running = true AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') AND j.same_worker = false AND q.suspend_until IS NULL",
              ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
         .await

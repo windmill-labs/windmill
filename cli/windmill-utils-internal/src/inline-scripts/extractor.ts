@@ -150,8 +150,17 @@ export function extractInlineScripts(
  */
 export function extractCurrentMapping(
   modules: FlowModule[] | undefined,
-  mapping: Record<string, string> = {}
+  mapping: Record<string, string> = {},
+  failureModule?: FlowModule,
+  preprocessorModule?: FlowModule,
 ): Record<string, string> {
+  if (failureModule) {
+    extractCurrentMapping([failureModule], mapping);
+  }
+  if (preprocessorModule) {
+    extractCurrentMapping([preprocessorModule], mapping);
+  }
+
   if (!modules || !Array.isArray(modules)) {
     return mapping;
   }

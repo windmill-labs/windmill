@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token SET last_used_at = now() WHERE\n                        token_hash = $1\n                        AND (expiration > NOW() OR expiration IS NULL)\n                        AND (workspace_id IS NULL OR workspace_id = $2)\n                    RETURNING owner, email, super_admin, scopes, label",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owner",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "super_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "scopes",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "label",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "93aa569329a85799594606a4f77fe955820f7b2761df6b38a6a6615b518188f9"
+}

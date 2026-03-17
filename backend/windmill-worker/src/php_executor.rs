@@ -19,7 +19,8 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, start_child_process, MaybeLock, OccupancyMetrics,
+        get_reserved_variables, read_result, resolve_nsjail_timeout, start_child_process,
+        MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
     is_sandboxing_enabled, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
@@ -294,13 +295,16 @@ try {{
     let (reserved_variables, _) = tokio::try_join!(reserved_variables_args_out_f, write_wrapper_f)?;
 
     let child = if is_sandboxing_enabled() {
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_PHP_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());

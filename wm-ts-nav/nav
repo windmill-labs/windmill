@@ -1,0 +1,10 @@
+#!/bin/sh
+# Auto-rebuilding wrapper for wm-ts-nav
+DIR="$(cd "$(dirname "$0")" && pwd)"
+BIN="$DIR/target/release/wm-ts-nav"
+
+if [ ! -f "$BIN" ] || [ -n "$(find "$DIR/src" "$DIR/Cargo.toml" -newer "$BIN" 2>/dev/null | head -1)" ]; then
+    cargo build --release --manifest-path "$DIR/Cargo.toml" >&2 || exit 1
+fi
+
+exec "$BIN" "$@"

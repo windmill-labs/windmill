@@ -106,6 +106,14 @@ const p = {
       if (importerFwd.startsWith(cdirNodeModules)) {
         return undefined;
       }
+      // Check if the import resolves to a local module file (written by write_module_files)
+      if (args.path.startsWith(".")) {
+        const cwdPath = resolve(cdir, args.path);
+        try {
+          readFileSync(cwdPath);
+          return { path: cwdPath };
+        } catch {}
+      }
       const isMainTs =
         args.importer == "./main.ts" || importerFwd.endsWith("/main.ts");
       const file_path = isMainTs

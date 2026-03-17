@@ -33,9 +33,9 @@ INSERT INTO usr(workspace_id, email, username, is_admin, role) VALUES
 INSERT INTO usr(workspace_id, email, username, is_admin, role) VALUES
 	('test-workspace', 'test3@windmill.dev', 'test-user-3', false, 'User');
 
-insert INTO token(token, email, label, super_admin) VALUES ('SECRET_TOKEN', 'test@windmill.dev', 'test token', true);
-insert INTO token(token, email, label, super_admin) VALUES ('SECRET_TOKEN_2', 'test2@windmill.dev', 'test token 2', false);
-insert INTO token(token, email, label, super_admin) VALUES ('SECRET_TOKEN_3', 'test3@windmill.dev', 'test token 3', false);
+insert INTO token(token_hash, token_prefix, token, email, label, super_admin) VALUES (encode(sha256('SECRET_TOKEN'::bytea), 'hex'), 'SECRET_TOK', 'SECRET_TOKEN', 'test@windmill.dev', 'test token', true);
+insert INTO token(token_hash, token_prefix, token, email, label, super_admin) VALUES (encode(sha256('SECRET_TOKEN_2'::bytea), 'hex'), 'SECRET_TOK', 'SECRET_TOKEN_2', 'test2@windmill.dev', 'test token 2', false);
+insert INTO token(token_hash, token_prefix, token, email, label, super_admin) VALUES (encode(sha256('SECRET_TOKEN_3'::bytea), 'hex'), 'SECRET_TOK', 'SECRET_TOKEN_3', 'test3@windmill.dev', 'test token 3', false);
 
 GRANT ALL PRIVILEGES ON TABLE workspace_key TO windmill_admin;
 GRANT ALL PRIVILEGES ON TABLE workspace_key TO windmill_user;
