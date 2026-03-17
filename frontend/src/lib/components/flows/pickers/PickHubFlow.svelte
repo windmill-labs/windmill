@@ -92,8 +92,8 @@
 				class="grow !pr-9"
 			/>
 		</div>
+		<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 	{/if}
-	<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 
 	{#if hubNotAvailable}
 		<Alert type="warning" title="Hub not available">

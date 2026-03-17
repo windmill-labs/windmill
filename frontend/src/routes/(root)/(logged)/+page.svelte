@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
+	import { AppService, FlowService, IntegrationService, type OpenFlow, type Script } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -29,9 +29,7 @@
 	import { base } from '$lib/base'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
-	import FilterSearchbar, {
-		type FilterSchemaRec
-	} from '$lib/components/FilterSearchbar.svelte'
+	import FilterSearchbar, { type FilterSchemaRec } from '$lib/components/FilterSearchbar.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
 	import { writable } from 'svelte/store'
@@ -57,14 +55,19 @@
 
 	let subtab: 'flow' | 'script' | 'app' = $state('script')
 
-	// Hub filter schema and state
-	const hubFilterSchema: FilterSchemaRec = {
+	// Hub filter: load integration names for tag suggestions
+	let hubIntegrations: string[] = $state([])
+
+	// Hub filter schema (tag options update when integrations load)
+	let hubFilterSchema: FilterSchemaRec = $derived({
 		_default_: { type: 'string', hidden: true },
 		tag: {
-			type: 'string',
+			type: 'oneof',
 			label: 'Tag',
 			description: 'Filter by integration/app tag',
-			icon: Tag
+			icon: Tag,
+			allowCustomValue: true,
+			options: hubIntegrations.map((name) => ({ value: name, label: name }))
 		},
 		summary: {
 			type: 'string',
@@ -83,7 +86,7 @@
 				{ value: 'app', label: 'App' }
 			]
 		}
-	}
+	})
 
 	let hubFilterValue: Record<string, any> = $state({})
 	let hubFreeText = $derived((hubFilterValue._default_ as string) ?? '')
@@ -97,24 +100,10 @@
 		}
 	})
 
-	// Sync hub tag filter → hubAppFilter
+	// Sync hub tag filter → hubAppFilter (for PickHub* API calls)
 	$effect(() => {
 		const tag = hubFilterValue.tag as string | undefined
-		if (tag !== hubAppFilter) {
-			hubAppFilter = tag ?? undefined
-		}
-	})
-
-	// Sync hubAppFilter → hub tag filter (when ListFilters badge is clicked)
-	$effect(() => {
-		const currentTag = hubFilterValue.tag as string | undefined
-		if (hubAppFilter !== currentTag) {
-			if (hubAppFilter) {
-				hubFilterValue.tag = hubAppFilter
-			} else {
-				delete hubFilterValue.tag
-			}
-		}
+		hubAppFilter = tag ?? undefined
 	})
 
 	let flowViewer: Drawer | undefined = $state(undefined)
@@ -172,7 +161,16 @@
 
 	let showCreateButtons = $state(false)
 
-	onMount(() => {
+	onMount(async () => {
+		// Load hub integrations for tag suggestions
+		try {
+			hubIntegrations = (await IntegrationService.listHubIntegrations({ kind: 'script' })).map(
+				(x) => x.name
+			)
+		} catch {
+			hubIntegrations = []
+		}
+
 		// Check if there's a tutorial parameter in the URL
 		const tutorialParam = page.url.searchParams.get('tutorial')
 		if (tutorialParam === 'workspace-onboarding') {
@@ -180,7 +178,8 @@
 			setTimeout(() => {
 				workspaceTutorials?.runTutorialById('workspace-onboarding')
 			}, 500)
-		} else if (tutorialParam === 'workspace-onboarding-operator') { // Small delay to ensure page is fully loaded
+		} else if (tutorialParam === 'workspace-onboarding-operator') {
+			// Small delay to ensure page is fully loaded
 			setTimeout(() => {
 				workspaceTutorials?.runTutorialById('workspace-onboarding-operator')
 			}, 500)
@@ -356,7 +355,7 @@
 
 		<TutorialBanner />
 
-		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => showCreateButtons = v}/>
+		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
 		{#if !$userStore?.operator}
 			<div class="w-full overflow-auto scrollbar-hidden pb-2">
@@ -415,9 +414,8 @@
 
 					{#if subtab == 'script'}
 						<PickHubScript
-							syncQuery
 							filter={hubFreeText}
-							bind:appFilter={hubAppFilter}
+							appFilter={hubAppFilter}
 							summaryFilter={hubFilterValue.summary}
 							pathFilter={hubFilterValue.path}
 							hideSearchbar
@@ -425,9 +423,8 @@
 						/>
 					{:else if subtab == 'flow'}
 						<PickHubFlow
-							syncQuery
 							filter={hubFreeText}
-							bind:appFilter={hubAppFilter}
+							appFilter={hubAppFilter}
 							summaryFilter={hubFilterValue.summary}
 							pathFilter={hubFilterValue.path}
 							hideSearchbar
@@ -435,9 +432,8 @@
 						/>
 					{:else if subtab == 'app'}
 						<PickHubApp
-							syncQuery
 							filter={hubFreeText}
-							bind:appFilter={hubAppFilter}
+							appFilter={hubAppFilter}
 							summaryFilter={hubFilterValue.summary}
 							pathFilter={hubFilterValue.path}
 							hideSearchbar

@@ -190,7 +190,9 @@
 			Hub in the <a href="/#superadmin-settings?tab=private_hub">instance settings</a>.
 		</Alert>
 	{:else if (items.length > 0 && apps.length > 0) || !loading}
-		<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
+		{#if !hideSearchbar}
+			<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
+		{/if}
 		{#if displayItems.length == 0}
 			<NoItemFound />
 		{:else}
