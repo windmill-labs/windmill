@@ -415,7 +415,7 @@ test("flow preview: simple flow", async () => {
   });
 });
 
-test("flow preview: uses remote PathScript by default and local PathScript with --local", async () => {
+test("flow preview: uses local PathScript by default and remote PathScript with --remote", async () => {
   await withTestBackend(async (backend, tempDir) => {
     await createWmillConfig(tempDir, { defaultTs: "bun" });
 
@@ -446,8 +446,24 @@ test("flow preview: uses remote PathScript by default and local PathScript with 
 `,
     });
 
-    const remoteResult = await backend.runCLICommand(
+    const localResult = await backend.runCLICommand(
       ["flow", "preview", "f/test/path_flow.flow"],
+      tempDir
+    );
+
+    expect(localResult.code).toEqual(0);
+    expect(localResult.stdout + localResult.stderr).toContain(
+      "Local script says: PathTest!"
+    );
+    expect(localResult.stdout + localResult.stderr).toContain(
+      "Using local PathScript files for flow preview."
+    );
+    expect(localResult.stdout + localResult.stderr).toContain(
+      "These workspace scripts differ from the deployed version:\n- f/test/helper_script"
+    );
+
+    const remoteResult = await backend.runCLICommand(
+      ["flow", "preview", "--remote", "f/test/path_flow.flow"],
       tempDir
     );
 
@@ -456,22 +472,12 @@ test("flow preview: uses remote PathScript by default and local PathScript with 
       "Remote script says: PathTest!"
     );
     expect(remoteResult.stdout + remoteResult.stderr).not.toContain(
-      "Local script says: PathTest!"
-    );
-
-    const localResult = await backend.runCLICommand(
-      ["flow", "preview", "--local", "f/test/path_flow.flow"],
-      tempDir
-    );
-
-    expect(localResult.code).toEqual(0);
-    expect(localResult.stdout + localResult.stderr).toContain(
-      "Local script says: PathTest!"
+      "Using local PathScript files for flow preview."
     );
   });
 });
 
-test.skipIf(shouldSkipOnCI())("flow preview --local: respects defaultTs when resolving local PathScripts", async () => {
+test.skipIf(shouldSkipOnCI())("flow preview: respects defaultTs when resolving local PathScripts", async () => {
   await withTestBackend(async (backend, tempDir) => {
     await createWmillConfig(tempDir, { defaultTs: "deno" });
 
@@ -487,7 +493,7 @@ test.skipIf(shouldSkipOnCI())("flow preview --local: respects defaultTs when res
     });
 
     const result = await backend.runCLICommand(
-      ["flow", "preview", "--local", "f/test/deno_path_flow.flow"],
+      ["flow", "preview", "f/test/deno_path_flow.flow"],
       tempDir
     );
 
@@ -496,7 +502,7 @@ test.skipIf(shouldSkipOnCI())("flow preview --local: respects defaultTs when res
   });
 });
 
-test("flow preview --local: bundles local PathScripts with local imports", async () => {
+test("flow preview: bundles local PathScripts with local imports", async () => {
   await withTestBackend(async (backend, tempDir) => {
     await createWmillConfig(tempDir, {
       defaultTs: "bun",
@@ -532,7 +538,7 @@ export function main(name: string = "World") {
     });
 
     const result = await backend.runCLICommand(
-      ["flow", "preview", "--local", "f/test/importing_path_flow.flow"],
+      ["flow", "preview", "f/test/importing_path_flow.flow"],
       tempDir
     );
 
@@ -543,7 +549,69 @@ export function main(name: string = "World") {
   });
 });
 
-test("flow preview --local: fails loudly for asset-backed codebase scripts", async () => {
+test("flow preview: warns when local PathScript is not deployed remotely", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, { defaultTs: "bun" });
+
+    await createScript(
+      tempDir,
+      "f/test/undeployed_helper.ts",
+      `export function main() { return "Local only script"; }`
+    );
+
+    await createPathScriptFlow(tempDir, "f/test/undeployed_path_flow.flow", {
+      summary: "Flow with undeployed PathScript",
+      scriptPath: "f/test/undeployed_helper",
+    });
+
+    const result = await backend.runCLICommand(
+      ["flow", "preview", "f/test/undeployed_path_flow.flow"],
+      tempDir
+    );
+
+    expect(result.code).toEqual(0);
+    expect(result.stdout + result.stderr).toContain("Local only script");
+    expect(result.stdout + result.stderr).toContain(
+      "These scripts do not exist in the workspace yet:\n- f/test/undeployed_helper"
+    );
+  });
+});
+
+test("flow preview: does not warn when local and deployed PathScripts match", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, { defaultTs: "bun" });
+
+    await createScript(
+      tempDir,
+      "f/test/matching_helper.ts",
+      `export function main() { return "Matching script"; }`
+    );
+
+    const pushResult = await backend.runCLICommand(
+      ["script", "push", "f/test/matching_helper.ts"],
+      tempDir
+    );
+    expect(pushResult.code).toEqual(0);
+
+    await createPathScriptFlow(tempDir, "f/test/matching_path_flow.flow", {
+      summary: "Flow with matching PathScript",
+      scriptPath: "f/test/matching_helper",
+    });
+
+    const result = await backend.runCLICommand(
+      ["flow", "preview", "f/test/matching_path_flow.flow"],
+      tempDir
+    );
+
+    expect(result.code).toEqual(0);
+    expect(result.stdout + result.stderr).toContain("Matching script");
+    expect(result.stdout + result.stderr).not.toContain(
+      "Using local PathScript files for flow preview."
+    );
+  });
+});
+
+test("flow preview: fails loudly for asset-backed codebase scripts", async () => {
   await withTestBackend(async (backend, tempDir) => {
     await createWmillConfig(tempDir, {
       defaultTs: "bun",
@@ -578,7 +646,7 @@ export function main() {
     });
 
     const localResult = await backend.runCLICommand(
-      ["flow", "preview", "--local", "f/test/assets_path_flow.flow"],
+      ["flow", "preview", "f/test/assets_path_flow.flow"],
       tempDir
     );
 

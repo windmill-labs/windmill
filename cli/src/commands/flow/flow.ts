@@ -18,17 +18,100 @@ import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
 import { Flow } from "../../../gen/types.gen.ts";
-import { replaceInlineScripts, replaceAllPathScriptsWithLocal } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
+import {
+  collectPathScriptPaths,
+  replaceInlineScripts,
+  replaceAllPathScriptsWithLocal,
+} from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { generateFlowLockInternal } from "./flow_metadata.ts";
 import { exts } from "../script/script.ts";
 import { listSyncCodebases } from "../../utils/codebase.ts";
-import { createPreviewLocalScriptReader } from "../../utils/local_path_scripts.ts";
+import {
+  createPreviewLocalScriptReader,
+  resolvePreviewLocalScriptState,
+} from "../../utils/local_path_scripts.ts";
 
 export interface FlowFile {
   summary: string;
   description?: string;
   value: any;
   schema?: any;
+}
+
+function normalizeOptionalString(value: string | null | undefined): string | undefined {
+  return typeof value === "string" && value.trim() === "" ? undefined : value ?? undefined;
+}
+
+async function findDivergedLocalPathScripts(
+  workspaceId: string,
+  scriptPaths: string[],
+  opts: {
+    exts: string[];
+    defaultTs?: "bun" | "deno";
+    codebases: ReturnType<typeof listSyncCodebases>;
+  }
+): Promise<{ changed: string[]; missing: string[] }> {
+  const changed: string[] = [];
+  const missing: string[] = [];
+
+  for (const scriptPath of scriptPaths) {
+    const localScript = await resolvePreviewLocalScriptState(scriptPath, opts);
+    if (!localScript) {
+      continue;
+    }
+
+    let remoteScript;
+    try {
+      remoteScript = await wmill.getScriptByPath({
+        workspace: workspaceId,
+        path: scriptPath,
+      });
+    } catch {
+      missing.push(scriptPath);
+      continue;
+    }
+
+    const diverged =
+      localScript.content !== remoteScript.content ||
+      localScript.language !== remoteScript.language ||
+      localScript.lock !== normalizeOptionalString(remoteScript.lock) ||
+      localScript.tag !== normalizeOptionalString(remoteScript.tag) ||
+      localScript.codebaseDigest !== normalizeOptionalString(remoteScript.codebase);
+
+    if (diverged) {
+      changed.push(scriptPath);
+    }
+  }
+
+  return { changed, missing };
+}
+
+function warnAboutLocalPathScriptDivergence(
+  divergence: { changed: string[]; missing: string[] }
+): void {
+  if (divergence.changed.length === 0 && divergence.missing.length === 0) {
+    return;
+  }
+
+  const details: string[] = [];
+  if (divergence.changed.length > 0) {
+    details.push(
+      `These workspace scripts differ from the deployed version:\n${divergence.changed
+        .map((path) => `- ${path}`)
+        .join("\n")}`
+    );
+  }
+  if (divergence.missing.length > 0) {
+    details.push(
+      `These scripts do not exist in the workspace yet:\n${divergence.missing
+        .map((path) => `- ${path}`)
+        .join("\n")}`
+    );
+  }
+
+  log.warn(
+    `Using local PathScript files for flow preview.\n${details.join("\n")}\nUse --remote to preview deployed workspace scripts instead.`
+  );
 }
 
 const alreadySynced: string[] = [];
@@ -236,11 +319,11 @@ async function preview(
   opts: GlobalOptions & {
     data?: string;
     silent: boolean;
-    local?: boolean;
+    remote?: boolean;
   } & SyncOptions,
   flowPath: string
 ) {
-  const useLocalPathScripts = !!opts.local;
+  const useLocalPathScripts = !opts.remote;
   if (useLocalPathScripts) {
     opts = await mergeConfigWithConfigFile(opts);
   }
@@ -284,8 +367,22 @@ async function preview(
   }
 
   if (useLocalPathScripts) {
-    // Opt-in local rewrite for PathScript modules. By default preview keeps the
-    // historical behavior and lets the backend resolve workspace scripts remotely.
+    const scriptPaths = collectPathScriptPaths(localFlow.value);
+    if (scriptPaths.length > 0) {
+      const divergence = await findDivergedLocalPathScripts(
+        workspace.workspaceId,
+        scriptPaths,
+        {
+          exts,
+          defaultTs: opts.defaultTs,
+          codebases,
+        }
+      );
+      if (!opts.silent) {
+        warnAboutLocalPathScriptDivergence(divergence);
+      }
+    }
+
     const localScriptReader = createPreviewLocalScriptReader({
       exts,
       defaultTs: opts.defaultTs,
@@ -464,7 +561,7 @@ const command = new Command()
   .action(run as any)
   .command(
     "preview",
-    "preview a local flow without deploying it. Runs the flow definition from local files."
+    "preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default."
   )
   .arguments("<flow_path:string>")
   .option(
@@ -476,8 +573,8 @@ const command = new Command()
     "Do not output anything other then the final output. Useful for scripting."
   )
   .option(
-    "--local",
-    "Resolve PathScript steps from local files instead of remote workspace scripts."
+    "--remote",
+    "Use deployed workspace scripts for PathScript steps instead of local files."
   )
   .action(preview as any)
   .command(

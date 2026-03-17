@@ -155,7 +155,6 @@ export async function replacePathScriptsWithLocal(
       const scriptPath = module.value.path;
       const localScript = await scriptReader(scriptPath);
       if (localScript) {
-        logger.info(`Using local script for ${scriptPath}`);
         const pathScript = module.value;
         (module as FlowModule).value = {
           type: "rawscript",
@@ -186,7 +185,6 @@ export async function replacePathScriptsWithLocal(
         }
         const localScript = await scriptReader(toolValue.path);
         if (localScript) {
-          logger.info(`Using local script for AI agent tool ${tool.id}: ${toolValue.path}`);
           (tool as AiAgent["tools"][number]).value = {
             tool_type: "flowmodule",
             type: "rawscript",
@@ -201,6 +199,46 @@ export async function replacePathScriptsWithLocal(
       }));
     }
   }));
+}
+
+function collectPathScriptPathsFromModules(
+  modules: FlowModule[],
+  paths: Set<string>
+): void {
+  for (const module of modules) {
+    if (!module.value) {
+      continue;
+    }
+
+    if (module.value.type === "script") {
+      paths.add(module.value.path);
+    } else if (
+      module.value.type === "forloopflow" ||
+      module.value.type === "whileloopflow"
+    ) {
+      collectPathScriptPathsFromModules(module.value.modules, paths);
+    } else if (module.value.type === "branchall") {
+      for (const branch of module.value.branches) {
+        collectPathScriptPathsFromModules(branch.modules, paths);
+      }
+    } else if (module.value.type === "branchone") {
+      for (const branch of module.value.branches) {
+        collectPathScriptPathsFromModules(branch.modules, paths);
+      }
+      collectPathScriptPathsFromModules(module.value.default, paths);
+    } else if (module.value.type === "aiagent") {
+      for (const tool of module.value.tools ?? []) {
+        const toolValue = tool.value;
+        if (
+          toolValue &&
+          toolValue.tool_type === "flowmodule" &&
+          toolValue.type === "script"
+        ) {
+          paths.add(toolValue.path);
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -225,4 +263,16 @@ export async function replaceAllPathScriptsWithLocal(
   if (flowValue.preprocessor_module) {
     await replacePathScriptsWithLocal([flowValue.preprocessor_module], scriptReader, logger);
   }
+}
+
+export function collectPathScriptPaths(flowValue: FlowValue): string[] {
+  const paths = new Set<string>();
+  collectPathScriptPathsFromModules(flowValue.modules, paths);
+  if (flowValue.failure_module) {
+    collectPathScriptPathsFromModules([flowValue.failure_module], paths);
+  }
+  if (flowValue.preprocessor_module) {
+    collectPathScriptPathsFromModules([flowValue.preprocessor_module], paths);
+  }
+  return [...paths];
 }

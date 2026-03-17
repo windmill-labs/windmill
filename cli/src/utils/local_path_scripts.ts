@@ -5,6 +5,7 @@ import { parseMetadataFileIfExists } from "./metadata.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { findCodebase } from "../commands/sync/sync.ts";
 import type { LocalScriptInfo } from "../../windmill-utils-internal/src/inline-scripts/replacer.ts";
+import type { RawScript } from "../../../gen/types.gen.ts";
 
 export class UnsupportedLocalPathScriptPreviewError extends Error {
   constructor(message: string) {
@@ -19,6 +20,10 @@ async function readOptionalLock(scriptPath: string): Promise<string | undefined>
   } catch {
     return undefined;
   }
+}
+
+function normalizeOptionalLock(lock: string | undefined): string | undefined {
+  return typeof lock === "string" && lock.trim() === "" ? undefined : lock;
 }
 
 async function bundleSingleFileCodebaseScript(
@@ -73,35 +78,72 @@ export function createPreviewLocalScriptReader(opts: {
   codebases: SyncCodebase[];
 }): (scriptPath: string) => Promise<LocalScriptInfo | undefined> {
   return async (scriptPath) => {
-    for (const ext of opts.exts) {
-      const filePath = scriptPath + ext;
-      let fileStat;
-      try {
-        fileStat = await stat(filePath);
-      } catch (error) {
-        continue;
-      }
-      if (!fileStat.isFile()) continue;
-
-      const language = inferContentTypeFromFilePath(filePath, opts.defaultTs);
-      const metadata = await parseMetadataFileIfExists(scriptPath);
-      const rawLock = metadata?.payload?.lock ?? (await readOptionalLock(scriptPath));
-      const codebase =
-        language === "bun" ? findCodebase(filePath, opts.codebases) : undefined;
-      const content = codebase
-        ? await bundleSingleFileCodebaseScript(filePath, codebase)
-        : await readFile(filePath, "utf-8");
-      const lock =
-        typeof rawLock === "string" && rawLock.trim() === "" ? undefined : rawLock;
-
-      return {
-        content,
-        language,
-        lock,
-        tag: metadata?.payload?.tag,
-      };
+    const localScript = await resolvePreviewLocalScriptState(scriptPath, opts);
+    if (!localScript) {
+      return undefined;
     }
 
-    return undefined;
+    const content = localScript.codebase
+      ? await bundleSingleFileCodebaseScript(localScript.filePath, localScript.codebase)
+      : localScript.content;
+
+    return {
+      content,
+      language: localScript.language,
+      lock: localScript.lock,
+      tag: localScript.tag,
+    };
   };
+}
+
+export type PreviewLocalScriptState = {
+  filePath: string;
+  content: string;
+  language: RawScript["language"];
+  lock?: string;
+  tag?: string;
+  codebase?: SyncCodebase;
+  codebaseDigest?: string;
+};
+
+export async function resolvePreviewLocalScriptState(
+  scriptPath: string,
+  opts: {
+    exts: string[];
+    defaultTs?: "bun" | "deno";
+    codebases: SyncCodebase[];
+  }
+): Promise<PreviewLocalScriptState | undefined> {
+  for (const ext of opts.exts) {
+    const filePath = scriptPath + ext;
+    let fileStat;
+    try {
+      fileStat = await stat(filePath);
+    } catch {
+      continue;
+    }
+    if (!fileStat.isFile()) continue;
+
+    const language = inferContentTypeFromFilePath(filePath, opts.defaultTs);
+    const metadata = await parseMetadataFileIfExists(scriptPath);
+    const rawLock = metadata?.payload?.lock ?? (await readOptionalLock(scriptPath));
+    const codebase =
+      language === "bun" ? findCodebase(filePath, opts.codebases) : undefined;
+
+    return {
+      filePath,
+      content: await readFile(filePath, "utf-8"),
+      language,
+      lock: normalizeOptionalLock(rawLock),
+      tag: metadata?.payload?.tag,
+      codebase,
+      codebaseDigest: codebase
+        ? await codebase.getDigest(
+            Array.isArray(codebase.assets) && codebase.assets.length > 0
+          )
+        : undefined,
+    };
+  }
+
+  return undefined;
 }
