@@ -5592,6 +5592,20 @@ async fn compare_workspace_settings(
     for key in all_dt_keys {
         let in_source = source_datatables.contains_key(key);
         let in_fork = fork_datatables.contains_key(key);
+        // Skip if either side is tagged as nonDiffable
+        let source_non_diffable = source_datatables
+            .get(key)
+            .and_then(|v| v.get("nonDiffable"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let fork_non_diffable = fork_datatables
+            .get(key)
+            .and_then(|v| v.get("nonDiffable"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if source_non_diffable || fork_non_diffable {
+            continue;
+        }
         let has_changes = match (source_datatables.get(key), fork_datatables.get(key)) {
             (Some(a), Some(b)) => a != b,
             _ => true,
@@ -5830,7 +5844,7 @@ async fn compare_two_resources(
 ) -> Result<ItemComparison> {
     // Get resource from each workspace
     let source_resource = sqlx::query!(
-        "SELECT value, description, resource_type
+        "SELECT value, description, resource_type, non_diffable
          FROM resource
          WHERE workspace_id = $1 AND path = $2",
         source_workspace_id,
@@ -5840,7 +5854,7 @@ async fn compare_two_resources(
     .await?;
 
     let target_resource = sqlx::query!(
-        "SELECT value, description, resource_type
+        "SELECT value, description, resource_type, non_diffable
          FROM resource
          WHERE workspace_id = $1 AND path = $2",
         fork_workspace_id,
@@ -5848,6 +5862,17 @@ async fn compare_two_resources(
     )
     .fetch_optional(db)
     .await?;
+
+    // If either side is non_diffable, consider unchanged
+    let source_non_diffable = source_resource.as_ref().map_or(false, |r| r.non_diffable);
+    let target_non_diffable = target_resource.as_ref().map_or(false, |r| r.non_diffable);
+    if source_non_diffable || target_non_diffable {
+        return Ok(ItemComparison {
+            has_changes: false,
+            exists_in_source: source_resource.is_some(),
+            exists_in_fork: target_resource.is_some(),
+        });
+    }
 
     let mut has_changes = false;
 
