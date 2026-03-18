@@ -5157,6 +5157,8 @@ pub struct CompareSummary {
     pub variables_changed: usize,
     pub resource_types_changed: usize,
     pub folders_changed: usize,
+    pub datatables_changed: usize,
+    pub ducklakes_changed: usize,
     pub conflicts: usize, // Items that are both ahead and behind
 }
 
@@ -5331,6 +5333,11 @@ async fn compare_workspaces(
         }
     }
 
+    // Compare workspace settings (datatables, ducklakes) entry by entry
+    let settings_diffs =
+        compare_workspace_settings(&db, &source_workspace_id, &fork_workspace_id).await?;
+    confirmed_diffs.extend(settings_diffs);
+
     let visible_diffs = filter_visible_diffs(
         &confirmed_diffs,
         &source_workspace_id,
@@ -5365,6 +5372,14 @@ async fn compare_workspaces(
             .filter(|s| s.kind == "resource_type")
             .count(),
         folders_changed: visible_diffs.iter().filter(|s| s.kind == "folder").count(),
+        datatables_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "datatable")
+            .count(),
+        ducklakes_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "ducklake")
+            .count(),
         conflicts: visible_diffs
             .iter()
             .filter(|s| s.ahead > 0 && s.behind > 0)
@@ -5533,6 +5548,120 @@ struct ItemComparison {
     has_changes: bool,
     exists_in_source: bool,
     exists_in_fork: bool,
+}
+
+/// Compare datatable and ducklake workspace settings between source and fork,
+/// returning individual diff rows per entry.
+async fn compare_workspace_settings(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+) -> Result<Vec<WorkspaceDiffRow>> {
+    let settings = sqlx::query!(
+        "SELECT workspace_id, datatable, ducklake FROM workspace_settings WHERE workspace_id = ANY($1)",
+        &[source_workspace_id.to_string(), fork_workspace_id.to_string()]
+    )
+    .fetch_all(db)
+    .await?;
+
+    let source_settings = settings
+        .iter()
+        .find(|s| s.workspace_id == source_workspace_id);
+    let fork_settings = settings
+        .iter()
+        .find(|s| s.workspace_id == fork_workspace_id);
+
+    let mut diffs = vec![];
+
+    // Compare datatables
+    let source_datatables: HashMap<String, serde_json::Value> = source_settings
+        .and_then(|s| s.datatable.as_ref())
+        .and_then(|v| v.get("datatables"))
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    let fork_datatables: HashMap<String, serde_json::Value> = fork_settings
+        .and_then(|s| s.datatable.as_ref())
+        .and_then(|v| v.get("datatables"))
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+
+    let all_dt_keys: std::collections::HashSet<&String> = source_datatables
+        .keys()
+        .chain(fork_datatables.keys())
+        .collect();
+    for key in all_dt_keys {
+        let in_source = source_datatables.contains_key(key);
+        let in_fork = fork_datatables.contains_key(key);
+        let has_changes = match (source_datatables.get(key), fork_datatables.get(key)) {
+            (Some(a), Some(b)) => a != b,
+            _ => true,
+        };
+        if has_changes {
+            diffs.push(WorkspaceDiffRow {
+                kind: "datatable".to_string(),
+                path: key.clone(),
+                ahead: if in_source && (!in_fork || has_changes) {
+                    1
+                } else {
+                    0
+                },
+                behind: if in_fork && (!in_source || has_changes) {
+                    1
+                } else {
+                    0
+                },
+                has_changes: Some(true),
+                exists_in_source: Some(in_source),
+                exists_in_fork: Some(in_fork),
+            });
+        }
+    }
+
+    // Compare ducklakes
+    let source_ducklakes: HashMap<String, serde_json::Value> = source_settings
+        .and_then(|s| s.ducklake.as_ref())
+        .and_then(|v| v.get("ducklakes"))
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    let fork_ducklakes: HashMap<String, serde_json::Value> = fork_settings
+        .and_then(|s| s.ducklake.as_ref())
+        .and_then(|v| v.get("ducklakes"))
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+
+    let all_dl_keys: std::collections::HashSet<&String> = source_ducklakes
+        .keys()
+        .chain(fork_ducklakes.keys())
+        .collect();
+    for key in all_dl_keys {
+        let in_source = source_ducklakes.contains_key(key);
+        let in_fork = fork_ducklakes.contains_key(key);
+        let has_changes = match (source_ducklakes.get(key), fork_ducklakes.get(key)) {
+            (Some(a), Some(b)) => a != b,
+            _ => true,
+        };
+        if has_changes {
+            diffs.push(WorkspaceDiffRow {
+                kind: "ducklake".to_string(),
+                path: key.clone(),
+                ahead: if in_source && (!in_fork || has_changes) {
+                    1
+                } else {
+                    0
+                },
+                behind: if in_fork && (!in_source || has_changes) {
+                    1
+                } else {
+                    0
+                },
+                has_changes: Some(true),
+                exists_in_source: Some(in_source),
+                exists_in_fork: Some(in_fork),
+            });
+        }
+    }
+
+    Ok(diffs)
 }
 
 async fn compare_two_scripts(
