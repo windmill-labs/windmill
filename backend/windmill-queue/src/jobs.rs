@@ -1832,9 +1832,21 @@ pub async fn try_schedule_next_job<'c>(
         &job.workspace_id
     );
 
+    let permissioned_as = if schedule.permissioned_as.is_empty() {
+        windmill_common::users::username_to_permissioned_as(&schedule.edited_by)
+    } else {
+        schedule.permissioned_as.clone()
+    };
+    let email = windmill_common::users::get_email_from_permissioned_as(
+        &permissioned_as,
+        &job.workspace_id,
+        db,
+    )
+    .await
+    .unwrap_or_else(|_| schedule.email.clone());
     let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
-        &windmill_common::users::username_to_permissioned_as(&schedule.edited_by),
-        &schedule.email,
+        &permissioned_as,
+        &email,
         &job.workspace_id,
         &mut *tx,
     )

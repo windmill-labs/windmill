@@ -123,7 +123,7 @@ fn new_http_trigger(
     path: &str,
     script_path: &str,
     route_path: &str,
-    email: Option<&str>,
+    permissioned_as: Option<&str>,
     preserve: bool,
 ) -> serde_json::Value {
     let mut trigger = json!({
@@ -139,11 +139,11 @@ fn new_http_trigger(
         "wrap_body": false,
         "raw_string": false
     });
-    if let Some(e) = email {
-        trigger["email"] = json!(e);
+    if let Some(e) = permissioned_as {
+        trigger["permissioned_as"] = json!(e);
     }
     if preserve {
-        trigger["preserve_email"] = json!(true);
+        trigger["preserve_permissioned_as"] = json!(true);
     }
     trigger
 }
@@ -156,7 +156,7 @@ fn new_http_trigger(
 fn new_websocket_trigger(
     path: &str,
     script_path: &str,
-    email: Option<&str>,
+    permissioned_as: Option<&str>,
     preserve: bool,
 ) -> serde_json::Value {
     let mut trigger = json!({
@@ -168,11 +168,11 @@ fn new_websocket_trigger(
         "can_return_message": false,
         "can_return_error_result": false
     });
-    if let Some(e) = email {
-        trigger["email"] = json!(e);
+    if let Some(e) = permissioned_as {
+        trigger["permissioned_as"] = json!(e);
     }
     if preserve {
-        trigger["preserve_email"] = json!(true);
+        trigger["preserve_permissioned_as"] = json!(true);
     }
     trigger
 }
@@ -558,8 +558,8 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         "script_path": "u/test-user/scheduled_script",
         "is_flow": false,
         "enabled": false,
-        "email": "original-user",
-        "preserve_email": true
+        "permissioned_as": "u/original-user",
+        "preserve_permissioned_as": true
     }))
     .send()
     .await?;
@@ -571,7 +571,7 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let schedule = sqlx::query!(
-        "SELECT email, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
         "u/test-user/schedule_admin_preserve",
         "test-workspace"
     )
@@ -580,6 +580,10 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(
         schedule.email, "original@windmill.dev",
         "Admin should preserve schedule email"
+    );
+    assert_eq!(
+        schedule.permissioned_as, "u/original-user",
+        "Admin should preserve schedule permissioned_as"
     );
     assert_eq!(
         schedule.edited_by, "original-user",
@@ -620,8 +624,8 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         "script_path": "u/deployer-user/scheduled_script",
         "is_flow": false,
         "enabled": false,
-        "email": "original-user",
-        "preserve_email": true
+        "permissioned_as": "u/original-user",
+        "preserve_permissioned_as": true
     }))
     .send()
     .await?;
@@ -633,7 +637,7 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let schedule = sqlx::query!(
-        "SELECT email, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
         "u/deployer-user/schedule_deployer_preserve",
         "test-workspace"
     )
@@ -642,6 +646,10 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(
         schedule.email, "original@windmill.dev",
         "Deployer should preserve schedule email"
+    );
+    assert_eq!(
+        schedule.permissioned_as, "u/original-user",
+        "Deployer should preserve schedule permissioned_as"
     );
     assert_eq!(
         schedule.edited_by, "original-user",
@@ -682,8 +690,8 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         "script_path": "u/test-user-2/scheduled_script",
         "is_flow": false,
         "enabled": false,
-        "email": "original-user",
-        "preserve_email": true
+        "permissioned_as": "u/original-user",
+        "preserve_permissioned_as": true
     }))
     .send()
     .await?;
@@ -695,7 +703,7 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let schedule = sqlx::query!(
-        "SELECT email, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
         "u/test-user-2/schedule_no_preserve",
         "test-workspace"
     )
@@ -704,6 +712,10 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(
         schedule.email, "test2@windmill.dev",
         "Non-admin should have their own email"
+    );
+    assert_eq!(
+        schedule.permissioned_as, "u/test-user-2",
+        "Non-admin should have their own permissioned_as"
     );
     assert_eq!(
         schedule.edited_by, "test-user-2",
@@ -1419,13 +1431,14 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
 
     // Verify initial state
     let schedule = sqlx::query!(
-        "SELECT email, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
         "u/original-user/schedule_to_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(schedule.email, "original@windmill.dev");
+    assert_eq!(schedule.permissioned_as, "u/original-user");
     assert_eq!(schedule.edited_by, "original-user");
 
     // Admin updates with preserve flag
@@ -1438,8 +1451,8 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     .json(&json!({
         "schedule": "0 0 */12 * * *",
         "timezone": "UTC",
-        "email": "original-user",
-        "preserve_email": true
+        "permissioned_as": "u/original-user",
+        "preserve_permissioned_as": true
     }))
     .send()
     .await?;
@@ -1451,7 +1464,7 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     );
 
     let schedule = sqlx::query!(
-        "SELECT email, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
         "u/original-user/schedule_to_update",
         "test-workspace"
     )
@@ -1460,6 +1473,10 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     assert_eq!(
         schedule.email, "original@windmill.dev",
         "Admin update should preserve schedule email"
+    );
+    assert_eq!(
+        schedule.permissioned_as, "u/original-user",
+        "Admin update should preserve schedule permissioned_as"
     );
     assert_eq!(
         schedule.edited_by, "original-user",
@@ -1501,8 +1518,8 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
         "script_path": "u/deployer-user/sched_deploy_script",
         "is_flow": false,
         "enabled": false,
-        "email": "original-user",
-        "preserve_email": true
+        "permissioned_as": "u/original-user",
+        "preserve_permissioned_as": true
     }))
     .send()
     .await?;
@@ -1523,8 +1540,8 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     .json(&json!({
         "schedule": "0 0 */8 * * *",
         "timezone": "UTC",
-        "email": "original-user",
-        "preserve_email": true
+        "permissioned_as": "u/original-user",
+        "preserve_permissioned_as": true
     }))
     .send()
     .await?;
@@ -1536,7 +1553,7 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     );
 
     let schedule = sqlx::query!(
-        "SELECT email, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
         "u/deployer-user/schedule_deploy_update",
         "test-workspace"
     )
@@ -1545,6 +1562,10 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     assert_eq!(
         schedule.email, "original@windmill.dev",
         "Deployer update should preserve schedule email"
+    );
+    assert_eq!(
+        schedule.permissioned_as, "u/original-user",
+        "Deployer update should preserve schedule permissioned_as"
     );
     assert_eq!(
         schedule.edited_by, "original-user",
@@ -1586,8 +1607,8 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
         "script_path": "u/test-user-2/sched_nonadmin_script",
         "is_flow": false,
         "enabled": false,
-        "email": "original-user",
-        "preserve_email": true
+        "permissioned_as": "u/original-user",
+        "preserve_permissioned_as": true
     }))
     .send()
     .await?;
@@ -1608,8 +1629,8 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     .json(&json!({
         "schedule": "0 0 */4 * * *",
         "timezone": "UTC",
-        "email": "original-user",
-        "preserve_email": true
+        "permissioned_as": "u/original-user",
+        "preserve_permissioned_as": true
     }))
     .send()
     .await?;
@@ -1621,16 +1642,20 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     );
 
     let schedule = sqlx::query!(
-        "SELECT email, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
         "u/test-user-2/schedule_nonadmin_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
-    // When preserve is denied, resolve_email returns the authed user's email
+    // When preserve is denied, resolve_email/resolve_permissioned_as uses the authed user's values
     assert_eq!(
         schedule.email, "test2@windmill.dev",
         "Non-admin update should overwrite schedule email with their own"
+    );
+    assert_eq!(
+        schedule.permissioned_as, "u/test-user-2",
+        "Non-admin update should overwrite schedule permissioned_as with their own"
     );
 
     Ok(())
@@ -1685,7 +1710,7 @@ async fn test_http_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Result<
         "u/test-user/http_admin_preserve",
         "u/test-user/trigger_script",
         "admin-preserve",
-        Some("original-user"),
+        Some("u/original-user"),
         true,
     ))
     .send()
@@ -1698,14 +1723,14 @@ async fn test_http_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Result<
     );
 
     let trigger = sqlx::query!(
-        "SELECT email, edited_by FROM http_trigger WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM http_trigger WHERE path = $1 AND workspace_id = $2",
         "u/test-user/http_admin_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        trigger.email, "original@windmill.dev",
+        trigger.permissioned_as, "u/original-user",
         "Admin should preserve http trigger email"
     );
     assert_eq!(
@@ -1725,7 +1750,7 @@ async fn test_http_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Result<
         "u/test-user/http_no_flag",
         "u/test-user/trigger_script",
         "no-flag",
-        Some("original-user"),
+        Some("u/original-user"),
         false,
     ))
     .send()
@@ -1738,14 +1763,14 @@ async fn test_http_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Result<
     );
 
     let trigger = sqlx::query!(
-        "SELECT email, edited_by FROM http_trigger WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM http_trigger WHERE path = $1 AND workspace_id = $2",
         "u/test-user/http_no_flag",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        trigger.email, "test@windmill.dev",
+        trigger.permissioned_as, "u/test-user",
         "Without preserve flag, admin's own email should be used"
     );
     assert_eq!(
@@ -1794,7 +1819,7 @@ async fn test_http_trigger_update_preserves_email(db: Pool<Postgres>) -> anyhow:
         "u/test-user/http_to_update",
         "u/test-user/http_update_script",
         "to-update",
-        Some("original-user"),
+        Some("u/original-user"),
         true,
     ))
     .send()
@@ -1808,13 +1833,13 @@ async fn test_http_trigger_update_preserves_email(db: Pool<Postgres>) -> anyhow:
 
     // Verify initial state
     let trigger = sqlx::query!(
-        "SELECT email, edited_by FROM http_trigger WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM http_trigger WHERE path = $1 AND workspace_id = $2",
         "u/test-user/http_to_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(trigger.email, "original@windmill.dev");
+    assert_eq!(trigger.permissioned_as, "u/original-user");
     assert_eq!(trigger.edited_by, "original-user");
 
     // Admin updates with preserve flag
@@ -1828,7 +1853,7 @@ async fn test_http_trigger_update_preserves_email(db: Pool<Postgres>) -> anyhow:
         "u/test-user/http_to_update",
         "u/test-user/http_update_script",
         "to-update",
-        Some("original-user"),
+        Some("u/original-user"),
         true,
     ))
     .send()
@@ -1841,14 +1866,14 @@ async fn test_http_trigger_update_preserves_email(db: Pool<Postgres>) -> anyhow:
     );
 
     let trigger = sqlx::query!(
-        "SELECT email, edited_by FROM http_trigger WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM http_trigger WHERE path = $1 AND workspace_id = $2",
         "u/test-user/http_to_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        trigger.email, "original@windmill.dev",
+        trigger.permissioned_as, "u/original-user",
         "Admin update should preserve http trigger email"
     );
     assert_eq!(
@@ -1902,7 +1927,7 @@ async fn test_websocket_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Re
     .json(&new_websocket_trigger(
         "u/test-user/ws_admin_preserve",
         "u/test-user/ws_script",
-        Some("original-user"),
+        Some("u/original-user"),
         true,
     ))
     .send()
@@ -1915,14 +1940,14 @@ async fn test_websocket_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Re
     );
 
     let trigger = sqlx::query!(
-        "SELECT email, edited_by FROM websocket_trigger WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM websocket_trigger WHERE path = $1 AND workspace_id = $2",
         "u/test-user/ws_admin_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        trigger.email, "original@windmill.dev",
+        trigger.permissioned_as, "u/original-user",
         "Admin should preserve websocket trigger email"
     );
     assert_eq!(
@@ -1941,7 +1966,7 @@ async fn test_websocket_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Re
     .json(&new_websocket_trigger(
         "u/deployer-user/ws_deployer_preserve",
         "u/deployer-user/ws_script",
-        Some("original-user"),
+        Some("u/original-user"),
         true,
     ))
     .send()
@@ -1954,14 +1979,14 @@ async fn test_websocket_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Re
     );
 
     let trigger = sqlx::query!(
-        "SELECT email, edited_by FROM websocket_trigger WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM websocket_trigger WHERE path = $1 AND workspace_id = $2",
         "u/deployer-user/ws_deployer_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        trigger.email, "original@windmill.dev",
+        trigger.permissioned_as, "u/original-user",
         "Deployer should preserve websocket trigger email"
     );
     assert_eq!(
@@ -1980,7 +2005,7 @@ async fn test_websocket_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Re
     .json(&new_websocket_trigger(
         "u/test-user-2/ws_no_preserve",
         "u/test-user-2/ws_script",
-        Some("original-user"),
+        Some("u/original-user"),
         true,
     ))
     .send()
@@ -1993,14 +2018,14 @@ async fn test_websocket_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Re
     );
 
     let trigger = sqlx::query!(
-        "SELECT email, edited_by FROM websocket_trigger WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM websocket_trigger WHERE path = $1 AND workspace_id = $2",
         "u/test-user-2/ws_no_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        trigger.email, "test2@windmill.dev",
+        trigger.permissioned_as, "u/test-user-2",
         "Non-admin should have their own email"
     );
     assert_eq!(
@@ -2062,13 +2087,13 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
 
     // Verify initial state
     let trigger = sqlx::query!(
-        "SELECT email, edited_by FROM websocket_trigger WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM websocket_trigger WHERE path = $1 AND workspace_id = $2",
         "u/original-user/ws_to_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(trigger.email, "original@windmill.dev");
+    assert_eq!(trigger.permissioned_as, "u/original-user");
     assert_eq!(trigger.edited_by, "original-user");
 
     // Admin updates with preserve flag
@@ -2081,7 +2106,7 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
     .json(&new_websocket_trigger(
         "u/original-user/ws_to_update",
         "u/original-user/ws_script",
-        Some("original-user"),
+        Some("u/original-user"),
         true,
     ))
     .send()
@@ -2094,14 +2119,14 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
     );
 
     let trigger = sqlx::query!(
-        "SELECT email, edited_by FROM websocket_trigger WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM websocket_trigger WHERE path = $1 AND workspace_id = $2",
         "u/original-user/ws_to_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        trigger.email, "original@windmill.dev",
+        trigger.permissioned_as, "u/original-user",
         "Admin update should preserve websocket trigger email"
     );
     assert_eq!(
@@ -2140,7 +2165,7 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
     .json(&new_websocket_trigger(
         "u/deployer-user/ws_deploy_update",
         "u/deployer-user/ws_deploy_script",
-        Some("original-user"),
+        Some("u/original-user"),
         true,
     ))
     .send()
@@ -2162,7 +2187,7 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
     .json(&new_websocket_trigger(
         "u/deployer-user/ws_deploy_update",
         "u/deployer-user/ws_deploy_script",
-        Some("original-user"),
+        Some("u/original-user"),
         true,
     ))
     .send()
@@ -2175,14 +2200,14 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
     );
 
     let trigger = sqlx::query!(
-        "SELECT email, edited_by FROM websocket_trigger WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM websocket_trigger WHERE path = $1 AND workspace_id = $2",
         "u/deployer-user/ws_deploy_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        trigger.email, "original@windmill.dev",
+        trigger.permissioned_as, "u/original-user",
         "Deployer update should preserve websocket trigger email"
     );
     assert_eq!(
@@ -2221,7 +2246,7 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
     .json(&new_websocket_trigger(
         "u/test-user-2/ws_nonadmin_update",
         "u/test-user-2/ws_nonadmin_script",
-        Some("original-user"),
+        Some("u/original-user"),
         true,
     ))
     .send()
@@ -2243,7 +2268,7 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
     .json(&new_websocket_trigger(
         "u/test-user-2/ws_nonadmin_update",
         "u/test-user-2/ws_nonadmin_script",
-        Some("original-user"),
+        Some("u/original-user"),
         true,
     ))
     .send()
@@ -2256,14 +2281,14 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
     );
 
     let trigger = sqlx::query!(
-        "SELECT email, edited_by FROM websocket_trigger WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM websocket_trigger WHERE path = $1 AND workspace_id = $2",
         "u/test-user-2/ws_nonadmin_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        trigger.email, "test2@windmill.dev",
+        trigger.permissioned_as, "u/test-user-2",
         "Non-admin update should overwrite websocket trigger email with their own"
     );
     assert_eq!(

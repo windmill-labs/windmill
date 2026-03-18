@@ -98,7 +98,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 workspace_id: trigger.base.workspace_id,
                 is_flow: trigger.base.is_flow,
                 username: trigger.base.edited_by,
-                email: trigger.base.email,
+                permissioned_as: trigger.base.permissioned_as,
                 script_path: trigger.base.script_path,
                 trigger_config: trigger.config,
                 error_handling: Some(trigger.error_handling),
@@ -143,17 +143,21 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
 
         let captures = captures
             .into_iter()
-            .map(|capture| ListeningTrigger {
-                username: capture.username,
-                path: capture.path,
-                workspace_id: capture.workspace_id,
-                script_path: "".to_string(),
-                email: capture.email,
-                trigger_config: capture.trigger_config,
-                trigger_mode: false,
-                is_flow: capture.is_flow,
-                error_handling: None,
-                suspended_mode: false,
+            .map(|capture| {
+                let permissioned_as =
+                    windmill_common::users::username_to_permissioned_as(&capture.username);
+                ListeningTrigger {
+                    username: capture.username,
+                    path: capture.path,
+                    workspace_id: capture.workspace_id,
+                    script_path: "".to_string(),
+                    permissioned_as,
+                    trigger_config: capture.trigger_config,
+                    trigger_mode: false,
+                    is_flow: capture.is_flow,
+                    error_handling: None,
+                    suspended_mode: false,
+                }
             })
             .collect_vec();
 
@@ -812,7 +816,7 @@ pub struct ListeningTrigger<T> {
     pub is_flow: bool,
     pub workspace_id: String,
     pub username: String,
-    pub email: String,
+    pub permissioned_as: String,
     pub trigger_config: T,
     pub script_path: String,
     pub trigger_mode: bool,
@@ -822,9 +826,15 @@ pub struct ListeningTrigger<T> {
 
 impl<T> ListeningTrigger<T> {
     pub async fn authed(&self, db: &DB, username: &str) -> Result<ApiAuthed> {
+        let email = windmill_common::users::get_email_from_permissioned_as(
+            &self.permissioned_as,
+            &self.workspace_id,
+            db,
+        )
+        .await?;
         fetch_api_authed(
             self.username.clone(),
-            self.email.clone(),
+            email,
             &self.workspace_id,
             db,
             Some(format!("{}-{}", username, self.path)),

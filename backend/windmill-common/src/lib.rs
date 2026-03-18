@@ -155,6 +155,26 @@ pub fn resolve_on_behalf_of_email<'a>(
     }
 }
 
+/// Determines the on_behalf_of permissioned_as value to use.
+/// - If `on_behalf_of_permissioned_as` is None, returns None
+/// - If `preserve` is true and the user is admin or in the deployers group, returns the original value
+/// - Otherwise, returns the authenticated user's permissioned_as
+pub fn resolve_on_behalf_of_permissioned_as(
+    on_behalf_of_permissioned_as: Option<&str>,
+    preserve: bool,
+    authed: &impl db::Authable,
+) -> Option<String> {
+    if on_behalf_of_permissioned_as.is_some() {
+        if preserve && can_preserve_on_behalf_of(authed) {
+            on_behalf_of_permissioned_as.map(|s| s.to_string())
+        } else {
+            Some(users::username_to_permissioned_as(authed.username()))
+        }
+    } else {
+        None
+    }
+}
+
 #[macro_export]
 macro_rules! add_time {
     ($bench:expr, $name:expr) => {

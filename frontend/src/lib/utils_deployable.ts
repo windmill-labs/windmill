@@ -94,16 +94,16 @@ export async function existsTrigger(
 }
 
 /**
- * Get trigger deployment data with optional email preservation.
- * @param onBehalfOfEmail - If set, the trigger will be deployed with this email and preserve_email=true.
+ * Get trigger deployment data with optional permissioned_as preservation.
+ * @param onBehalfOfPermissionedAs - If set, the trigger will be deployed with this permissioned_as and preserve_permissioned_as=true.
  */
 export async function getTriggersDeployData(
 	kind: TriggerKind,
 	path: string,
 	workspace: string,
-	onBehalfOfEmail?: string
+	onBehalfOfPermissionedAs?: string
 ) {
-	const preserveEmail = onBehalfOfEmail !== undefined
+	const preservePermissionedAs = onBehalfOfPermissionedAs !== undefined
 
 	if (kind === 'sqs') {
 		const sqsTrigger = await SqsTriggerService.getSqsTrigger({
@@ -112,7 +112,11 @@ export async function getTriggersDeployData(
 		})
 
 		return {
-			data: { ...sqsTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
+			data: {
+				...sqsTrigger,
+				permissioned_as: onBehalfOfPermissionedAs,
+				preserve_permissioned_as: preservePermissionedAs
+			},
 			createFn: SqsTriggerService.createSqsTrigger,
 			updateFn: SqsTriggerService.updateSqsTrigger
 		}
@@ -123,7 +127,11 @@ export async function getTriggersDeployData(
 		})
 
 		return {
-			data: { ...kafkaTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
+			data: {
+				...kafkaTrigger,
+				permissioned_as: onBehalfOfPermissionedAs,
+				preserve_permissioned_as: preservePermissionedAs
+			},
 			createFn: KafkaTriggerService.createKafkaTrigger,
 			updateFn: KafkaTriggerService.updateKafkaTrigger
 		}
@@ -134,7 +142,11 @@ export async function getTriggersDeployData(
 		})
 
 		return {
-			data: { ...mqttTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
+			data: {
+				...mqttTrigger,
+				permissioned_as: onBehalfOfPermissionedAs,
+				preserve_permissioned_as: preservePermissionedAs
+			},
 			createFn: MqttTriggerService.createMqttTrigger,
 			updateFn: MqttTriggerService.updateMqttTrigger
 		}
@@ -145,7 +157,11 @@ export async function getTriggersDeployData(
 		})
 
 		return {
-			data: { ...natsTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
+			data: {
+				...natsTrigger,
+				permissioned_as: onBehalfOfPermissionedAs,
+				preserve_permissioned_as: preservePermissionedAs
+			},
 			createFn: NatsTriggerService.createNatsTrigger,
 			updateFn: NatsTriggerService.updateNatsTrigger
 		}
@@ -167,8 +183,8 @@ export async function getTriggersDeployData(
 			delivery_config: gcpTrigger.delivery_config ?? undefined,
 			base_endpoint:
 				gcpTrigger.delivery_type === 'push' ? `${window.location.origin}${base}` : undefined,
-			email: onBehalfOfEmail,
-			preserve_email: preserveEmail
+			permissioned_as: onBehalfOfPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs
 		}
 
 		return {
@@ -183,7 +199,11 @@ export async function getTriggersDeployData(
 		})
 
 		return {
-			data: { ...postgresTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
+			data: {
+				...postgresTrigger,
+				permissioned_as: onBehalfOfPermissionedAs,
+				preserve_permissioned_as: preservePermissionedAs
+			},
 			createFn: PostgresTriggerService.createPostgresTrigger,
 			updateFn: PostgresTriggerService.updatePostgresTrigger
 		}
@@ -194,7 +214,11 @@ export async function getTriggersDeployData(
 		})
 
 		return {
-			data: { ...websocketTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
+			data: {
+				...websocketTrigger,
+				permissioned_as: onBehalfOfPermissionedAs,
+				preserve_permissioned_as: preservePermissionedAs
+			},
 			createFn: WebsocketTriggerService.createWebsocketTrigger,
 			updateFn: WebsocketTriggerService.updateWebsocketTrigger
 		}
@@ -205,7 +229,11 @@ export async function getTriggersDeployData(
 		})
 
 		return {
-			data: { ...httpTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
+			data: {
+				...httpTrigger,
+				permissioned_as: onBehalfOfPermissionedAs,
+				preserve_permissioned_as: preservePermissionedAs
+			},
 			createFn: HttpTriggerService.createHttpTrigger,
 			updateFn: HttpTriggerService.updateHttpTrigger
 		}
@@ -215,7 +243,11 @@ export async function getTriggersDeployData(
 			path: path
 		})
 		return {
-			data: { ...schedulesTrigger, email: onBehalfOfEmail, preserve_email: preserveEmail },
+			data: {
+				...schedulesTrigger,
+				permissioned_as: onBehalfOfPermissionedAs,
+				preserve_permissioned_as: preservePermissionedAs
+			},
 			createFn: ScheduleService.createSchedule,
 			updateFn: ScheduleService.updateSchedule
 		}
@@ -449,9 +481,9 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 }
 
 /**
- * Get the email for a trigger (used for on_behalf_of during deployment).
+ * Get the permissioned_as for a trigger (used for on_behalf_of during deployment).
  */
-export async function getTriggerEmail(
+export async function getTriggerPermissionedAs(
 	kind: TriggerKind,
 	path: string,
 	workspace: string
@@ -459,31 +491,31 @@ export async function getTriggerEmail(
 	try {
 		if (kind === 'sqs') {
 			const trigger = await SqsTriggerService.getSqsTrigger({ workspace, path })
-			return trigger.edited_by
+			return trigger.permissioned_as
 		} else if (kind === 'kafka') {
 			const trigger = await KafkaTriggerService.getKafkaTrigger({ workspace, path })
-			return trigger.edited_by
+			return trigger.permissioned_as
 		} else if (kind === 'mqtt') {
 			const trigger = await MqttTriggerService.getMqttTrigger({ workspace, path })
-			return trigger.edited_by
+			return trigger.permissioned_as
 		} else if (kind === 'nats') {
 			const trigger = await NatsTriggerService.getNatsTrigger({ workspace, path })
-			return trigger.edited_by
+			return trigger.permissioned_as
 		} else if (kind === 'gcp') {
 			const trigger = await GcpTriggerService.getGcpTrigger({ workspace, path })
-			return trigger.edited_by
+			return trigger.permissioned_as
 		} else if (kind === 'postgres') {
 			const trigger = await PostgresTriggerService.getPostgresTrigger({ workspace, path })
-			return trigger.edited_by
+			return trigger.permissioned_as
 		} else if (kind === 'websockets') {
 			const trigger = await WebsocketTriggerService.getWebsocketTrigger({ workspace, path })
-			return trigger.edited_by
+			return trigger.permissioned_as
 		} else if (kind === 'routes') {
 			const trigger = await HttpTriggerService.getHttpTrigger({ workspace, path })
-			return trigger.edited_by
+			return trigger.permissioned_as
 		} else if (kind === 'schedules') {
 			const trigger = await ScheduleService.getSchedule({ workspace, path })
-			return trigger.edited_by
+			return trigger.permissioned_as
 		}
 	} catch {
 		// Trigger may not exist in the workspace

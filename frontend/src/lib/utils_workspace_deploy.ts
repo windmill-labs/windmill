@@ -11,7 +11,7 @@ import { getAllModules } from './components/flows/flowExplorer'
 import {
 	existsTrigger,
 	getTriggersDeployData,
-	getTriggerEmail,
+	getTriggerPermissionedAs,
 	getTriggerValue,
 	type AdditionalInformation,
 	type Kind
@@ -25,7 +25,7 @@ export interface DeployItemParams {
 	workspaceTo: string
 	additionalInformation?: AdditionalInformation
 	/** The email to use for on_behalf_of. If set, preserve_on_behalf_of will be true. If undefined, deploying user's email is used. */
-	onBehalfOfEmail?: string
+	onBehalfOfPermissionedAs?: string
 }
 
 export interface DeployResult {
@@ -38,9 +38,16 @@ export interface DeployResult {
  * Handles all item kinds: flow, script, app, variable, resource, resource_type, folder, trigger.
  */
 export async function deployItem(params: DeployItemParams): Promise<DeployResult> {
-	const { kind, path, workspaceFrom, workspaceTo, additionalInformation, onBehalfOfEmail } = params
-	// When onBehalfOfEmail is set, we preserve the on_behalf_of setting with the specified email
-	const preserveOnBehalfOf = onBehalfOfEmail !== undefined
+	const {
+		kind,
+		path,
+		workspaceFrom,
+		workspaceTo,
+		additionalInformation,
+		onBehalfOfPermissionedAs
+	} = params
+	// When onBehalfOfPermissionedAs is set, we preserve the on_behalf_of setting with the specified email
+	const preserveOnBehalfOf = onBehalfOfPermissionedAs !== undefined
 
 	try {
 		const alreadyExists = await checkItemExists(kind, path, workspaceTo, additionalInformation)
@@ -62,7 +69,7 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 					requestBody: {
 						...flow,
 						preserve_on_behalf_of: preserveOnBehalfOf,
-						on_behalf_of_email: onBehalfOfEmail
+						on_behalf_of_email: onBehalfOfPermissionedAs
 					}
 				})
 			} else {
@@ -71,7 +78,7 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 					requestBody: {
 						...flow,
 						preserve_on_behalf_of: preserveOnBehalfOf,
-						on_behalf_of_email: onBehalfOfEmail
+						on_behalf_of_email: onBehalfOfPermissionedAs
 					}
 				})
 			}
@@ -94,7 +101,7 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 							).hash
 						: undefined,
 					preserve_on_behalf_of: preserveOnBehalfOf,
-					on_behalf_of_email: onBehalfOfEmail
+					on_behalf_of_email: onBehalfOfPermissionedAs
 				}
 			})
 		} else if (kind === 'app') {
@@ -259,7 +266,7 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 					additionalInformation.triggers.kind,
 					path,
 					workspaceFrom,
-					onBehalfOfEmail
+					onBehalfOfPermissionedAs
 				)
 				if (alreadyExists) {
 					await updateFn({
@@ -467,7 +474,7 @@ export async function getOnBehalfOfEmail(
 			const app = await AppService.getAppByPath({ workspace, path })
 			return app.policy.on_behalf_of_email
 		} else if (kind === 'trigger' && additionalInformation?.triggers) {
-			return await getTriggerEmail(additionalInformation.triggers.kind, path, workspace)
+			return await getTriggerPermissionedAs(additionalInformation.triggers.kind, path, workspace)
 		}
 	} catch {
 		// Item may not exist in the workspace

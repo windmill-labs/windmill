@@ -229,7 +229,7 @@
 	)
 
 	// Get the email to use for deployment based on user's choice
-	function getOnBehalfOfEmailForDeploy(itemKey: string): string | undefined {
+	function getOnBehalfOfPermissionedAsForDeploy(itemKey: string): string | undefined {
 		const choice = onBehalfOfChoice[itemKey]
 		if (choice === 'target') return getTargetEmail(itemKey)
 		if (choice === 'custom') return customOnBehalfOfEmails[itemKey]
@@ -301,7 +301,7 @@
 			path,
 			workspaceFrom,
 			workspaceTo: workspaceToDeployTo,
-			onBehalfOfEmail: getOnBehalfOfEmailForDeploy(statusPath)
+			onBehalfOfPermissionedAs: getOnBehalfOfPermissionedAsForDeploy(statusPath)
 		})
 
 		if (result.success) {

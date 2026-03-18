@@ -8,7 +8,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{types::Json as SqlxJson, FromRow, Pool, Postgres};
+use sqlx::{types::Json as SqlxJson, FromRow};
 use std::{collections::HashMap, fmt::Debug};
 use windmill_common::{db::Authable, error::Result, jobs::JobTriggerKind};
 
@@ -36,7 +36,7 @@ pub struct BaseTrigger {
     pub mode: TriggerMode,
     pub is_flow: bool,
     pub edited_by: String,
-    pub email: String,
+    pub permissioned_as: String,
     pub edited_at: DateTime<Utc>,
     pub extra_perms: Option<serde_json::Value>,
 }
@@ -103,12 +103,12 @@ pub struct BaseTriggerData {
     #[deprecated(note = "Use mode instead")]
     enabled: Option<bool>, // Kept for backwards compatibility, use mode instead
     mode: Option<TriggerMode>,
-    /// Optional email for deployment - when set, the trigger will run jobs as this user
+    /// Optional permissioned_as for deployment - when set, the trigger will run jobs as this user
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub email: Option<String>,
-    /// If true and user is admin/wm_deployers, preserve the provided email instead of using deploying user's email
+    pub permissioned_as: Option<String>,
+    /// If true and user is admin/wm_deployers, preserve the provided permissioned_as instead of using deploying user's
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub preserve_email: Option<bool>,
+    pub preserve_permissioned_as: Option<bool>,
 }
 
 impl BaseTriggerData {
@@ -123,37 +123,27 @@ impl BaseTriggerData {
         )
     }
 
-    pub async fn resolve_email(
-        &self,
-        authed: &impl Authable,
-        db: &Pool<Postgres>,
-        w_id: &str,
-    ) -> Result<String> {
-        if let Some(ref username) = self.email {
-            if self.preserve_email.unwrap_or(false)
+    pub fn resolve_permissioned_as(&self, authed: &impl Authable) -> String {
+        if let Some(ref permissioned_as) = self.permissioned_as {
+            if self.preserve_permissioned_as.unwrap_or(false)
                 && windmill_common::can_preserve_on_behalf_of(authed)
             {
-                let email = sqlx::query_scalar!(
-                    "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
-                    username,
-                    w_id
-                )
-                .fetch_optional(db)
-                .await?;
-                if let Some(email) = email {
-                    return Ok(email);
-                }
+                return permissioned_as.clone();
             }
         }
-        Ok(authed.email().to_string())
+        windmill_common::users::username_to_permissioned_as(authed.username())
     }
 
     pub fn resolve_edited_by(&self, authed: &impl Authable) -> String {
-        if let Some(ref username) = self.email {
-            if self.preserve_email.unwrap_or(false)
+        if let Some(ref permissioned_as) = self.permissioned_as {
+            if self.preserve_permissioned_as.unwrap_or(false)
                 && windmill_common::can_preserve_on_behalf_of(authed)
             {
-                return username.clone();
+                // Extract username from permissioned_as (e.g. "u/foo" -> "foo")
+                if let Some(username) = permissioned_as.strip_prefix("u/") {
+                    return username.to_string();
+                }
+                return permissioned_as.clone();
             }
         }
         authed.username().to_string()

@@ -20,6 +20,47 @@ pub fn username_to_permissioned_as(user: &str) -> String {
     }
 }
 
+lazy_static::lazy_static! {
+    static ref EMAIL_CACHE: quick_cache::sync::Cache<(String, String), (String, std::time::Instant)> =
+        quick_cache::sync::Cache::new(500);
+}
+
+const EMAIL_CACHE_TTL_SECS: u64 = 60;
+
+/// Get email from permissioned_as string.
+/// - "u/{username}" → lookup email from usr table (cached)
+/// - "g/{group}" → "group-{group}@windmill.dev"
+/// - raw email → return as-is
+pub async fn get_email_from_permissioned_as(
+    permissioned_as: &str,
+    workspace_id: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+) -> crate::error::Result<String> {
+    if let Some(username) = permissioned_as.strip_prefix("u/") {
+        let key = (workspace_id.to_string(), username.to_string());
+        if let Some((email, cached_at)) = EMAIL_CACHE.get(&key) {
+            if cached_at.elapsed().as_secs() < EMAIL_CACHE_TTL_SECS {
+                return Ok(email);
+            }
+        }
+        let email = sqlx::query_scalar!(
+            "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+            username,
+            workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .unwrap_or_else(|| format!("{}@windmill.dev", username));
+        EMAIL_CACHE.insert(key, (email.clone(), std::time::Instant::now()));
+        Ok(email)
+    } else if let Some(group) = permissioned_as.strip_prefix("g/") {
+        Ok(format!("group-{}@windmill.dev", group))
+    } else {
+        // raw email
+        Ok(permissioned_as.to_string())
+    }
+}
+
 pub fn truncate_token(token: &str) -> String {
     if token.len() > 10 {
         let mut s = token[..10].to_owned();

@@ -1,0 +1,39 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO kafka_trigger (\n                workspace_id,\n                path,\n                kafka_resource_path,\n                group_id,\n                topics,\n                filters,\n                auto_offset_reset,\n                script_path,\n                is_flow,\n                mode,\n                edited_by,\n                permissioned_as,\n                edited_at,\n                error_handler_path,\n                error_handler_args,\n                retry\n            ) VALUES (\n                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "VarcharArray",
+        "JsonbArray",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        {
+          "Custom": {
+            "name": "trigger_mode",
+            "kind": {
+              "Enum": [
+                "enabled",
+                "disabled",
+                "suspended"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e231bc9d3de235ad8fa8d74bdf11dc08672269869d8c7a40e23a288c7b107c31"
+}

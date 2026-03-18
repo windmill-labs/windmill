@@ -86,7 +86,7 @@
 	}
 
 	// Get the email to use for deployment based on user's choice
-	function getOnBehalfOfEmailForDeploy(statusPath: string): string | undefined {
+	function getOnBehalfOfPermissionedAsForDeploy(statusPath: string): string | undefined {
 		const choice = onBehalfOfChoice[statusPath]
 		if (choice === 'target') return targetOnBehalfOfInfo[statusPath]
 		if (choice === 'custom') return customOnBehalfOfEmails[statusPath]
@@ -297,7 +297,7 @@
 			workspaceFrom: $workspaceStore!,
 			workspaceTo: workspaceToDeployTo!,
 			additionalInformation,
-			onBehalfOfEmail: getOnBehalfOfEmailForDeploy(statusPath)
+			onBehalfOfPermissionedAs: getOnBehalfOfPermissionedAsForDeploy(statusPath)
 		})
 
 		if (result.success) {

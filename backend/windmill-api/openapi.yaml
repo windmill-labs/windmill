@@ -20254,6 +20254,9 @@ components:
         email:
           type: string
           description: Email of the user who owns this schedule, used for permissioned_as
+        permissioned_as:
+          type: string
+          description: The user or group this schedule runs as (e.g., 'u/admin' or 'g/mygroup')
         error:
           type: string
           nullable: true
@@ -20457,12 +20460,12 @@ components:
           type: string
           nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who the scheduled jobs run as. Used during deployment to preserve the original schedule owner.
-        preserve_email:
+          description: The user or group this schedule runs as. Used during deployment to preserve the original schedule owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - schedule
@@ -20550,12 +20553,12 @@ components:
           type: string
           nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who the scheduled jobs run as. Used during deployment to preserve the original schedule owner.
-        preserve_email:
+          description: The user or group this schedule runs as. Used during deployment to preserve the original schedule owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - schedule
         - timezone
@@ -20596,9 +20599,9 @@ components:
         script_path:
           type: string
           description: Path to the script or flow to execute when triggered
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who owns this trigger, used for permissioned_as
+          description: The user or group this trigger runs as (permissioned_as)
         extra_perms:
           type: object
           description: Additional permissions for this trigger
@@ -20912,12 +20915,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
 
       required:
         - path
@@ -21004,12 +21007,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -21172,12 +21175,12 @@ components:
         retry:
           description: Retry configuration for failed executions
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
 
       required:
         - path
@@ -21240,12 +21243,12 @@ components:
         retry:
           description: Retry configuration for failed executions
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
 
       required:
         - path
@@ -21415,12 +21418,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -21475,12 +21478,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -21617,12 +21620,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: "Retry configuration for failed executions."
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -21785,12 +21788,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - queue_url
         - aws_resource_path
@@ -21837,12 +21840,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - queue_url
         - aws_resource_path
@@ -22001,12 +22004,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -22049,12 +22052,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -22176,12 +22179,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
 
       required:
         - path
@@ -22242,12 +22245,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
 
       required:
         - path
@@ -22349,12 +22352,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
 
       required:
         - path
@@ -22404,12 +22407,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -22458,12 +22461,12 @@ components:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         mode:
           $ref: "#/components/schemas/TriggerMode"
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
 
       required:
         - path
@@ -22490,12 +22493,12 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path

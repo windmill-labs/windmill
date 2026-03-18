@@ -214,9 +214,15 @@ async fn get_http_route_trigger(
         None
     };
 
+    let email = windmill_common::users::get_email_from_permissioned_as(
+        &trigger.permissioned_as,
+        &trigger.workspace_id,
+        &db,
+    )
+    .await?;
     let authed = fetch_api_authed(
         trigger.edited_by.clone(),
-        trigger.email.clone(),
+        email,
         &trigger.workspace_id,
         &db,
         Some(username_override.unwrap_or(format!("HTTP-{}", trigger.path))),
