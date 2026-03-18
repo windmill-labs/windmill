@@ -28,6 +28,25 @@ use std::sync::Arc;
 // Re-export from http crate for extracting request parts
 use http::request::Parts as HttpParts;
 
+/// Maximum size in bytes for tool result text content.
+/// Anthropic enforces a 25,000 token limit per tool result.
+/// At ~3.5 bytes/token, 87,500 bytes is a safe upper bound.
+const MAX_TOOL_RESULT_BYTES: usize = 87_500;
+
+fn truncate_tool_result(text: String) -> String {
+    if text.len() <= MAX_TOOL_RESULT_BYTES {
+        return text;
+    }
+    // Truncate at a char boundary
+    let mut end = MAX_TOOL_RESULT_BYTES;
+    while !text.is_char_boundary(end) && end > 0 {
+        end -= 1;
+    }
+    let mut truncated = text[..end].to_string();
+    truncated.push_str("\n\n[truncated — result exceeded 25,000 token limit]");
+    truncated
+}
+
 /// MCP Server Runner - generic over the backend implementation
 ///
 /// This struct implements the MCP ServerHandler trait and uses a McpBackend
@@ -268,29 +287,26 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
                     .map_err(|e| ErrorData::internal_error(e.message, None))?;
 
                 return Ok(CallToolResult::success(vec![Content::text(
-                    serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()),
+                    truncate_tool_result(
+                        serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()),
+                    ),
                 )]));
             }
         }
 
         // Resolve the tool name to (type, path, is_hub)
-        let (type_str, is_hub, is_hashed) =
-            parse_tool_prefix(&request.name).map_err(|e| {
-                ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
-            })?;
+        let (type_str, is_hub, is_hashed) = parse_tool_prefix(&request.name).map_err(|e| {
+            ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
+        })?;
 
         let (tool_type, path, is_hub) = if !is_hashed {
             reverse_transform(&request.name).map_err(|e| {
                 ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
             })?
         } else if is_hub {
-            let version_id =
-                extract_hub_version_id_from_hashed(&request.name).map_err(|e| {
-                    ErrorData::internal_error(
-                        format!("Failed to extract hub version_id: {}", e),
-                        None,
-                    )
-                })?;
+            let version_id = extract_hub_version_id_from_hashed(&request.name).map_err(|e| {
+                ErrorData::internal_error(format!("Failed to extract hub version_id: {}", e), None)
+            })?;
             (type_str, version_id, true)
         } else {
             let path_prefix = extract_path_prefix_from_hashed(&request.name);
@@ -385,7 +401,9 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 
         match result {
             Ok(value) => Ok(CallToolResult::success(vec![Content::text(
-                serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
+                truncate_tool_result(
+                    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
+                ),
             )])),
             Err(e) => Err(ErrorData::internal_error(
                 format!("Failed to run {}: {}", tool_type, e.message),
