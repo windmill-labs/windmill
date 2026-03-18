@@ -745,6 +745,96 @@ where
     Ok(rows)
 }
 
+/// Outcome of [`run_future_with_polling_update_job_poller_graceful`].
+pub enum GracefulPollOutcome<T> {
+    /// The future completed normally.
+    Ok(T),
+    /// The job timed out.
+    Timeout(u64),
+    /// The job was cancelled and the future finished within the grace period.
+    Cancelled { canceled_by: Option<CanceledBy> },
+    /// The job was cancelled but the future did NOT finish within the grace period.
+    CancelledTimeout { canceled_by: Option<CanceledBy> },
+    /// The job was already moved to v2_job_completed externally.
+    AlreadyCompleted,
+}
+
+/// Like [`run_future_with_polling_update_job_poller`] but on cancellation, signals
+/// `cancel_tx` and waits up to `grace_period` for the future to finish instead of
+/// dropping it immediately. This lets in-flight work (e.g. AI tool calls) complete
+/// and clean up properly.
+pub async fn run_future_with_polling_update_job_poller_graceful<Fut, T, S>(
+    job_id: Uuid,
+    timeout: Option<i32>,
+    conn: &Connection,
+    mem_peak: &mut i32,
+    canceled_by_ref: &mut Option<CanceledBy>,
+    result_f: Fut,
+    worker_name: &str,
+    w_id: &str,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    get_mem: S,
+    cancel_tx: watch::Sender<bool>,
+    grace_period: std::time::Duration,
+) -> error::Result<GracefulPollOutcome<T>>
+where
+    Fut: Future<Output = error::Result<T>>,
+    S: stream::Stream<Item = i32> + Unpin,
+{
+    let (tx, rx) = broadcast::channel::<()>(3);
+
+    let mut update_job = Box::pin(update_job_poller(
+        job_id,
+        conn,
+        mem_peak,
+        canceled_by_ref,
+        get_mem,
+        worker_name,
+        w_id,
+        rx,
+        occupancy_metrics,
+    ));
+
+    let timeout_ms = u64::try_from(
+        resolve_job_timeout(conn, w_id, job_id, timeout)
+            .await
+            .0
+            .as_millis(),
+    )
+    .unwrap_or(200_000);
+
+    let mut result_f = Box::pin(result_f);
+
+    let outcome = tokio::select! {
+        biased;
+        result = tokio::time::timeout(
+            std::time::Duration::from_millis(timeout_ms),
+            &mut result_f,
+        ) => {
+            match result {
+                Ok(Ok(v)) => GracefulPollOutcome::Ok(v),
+                Ok(Err(e)) => return Err(e),
+                Err(_) => GracefulPollOutcome::Timeout(timeout_ms),
+            }
+        }
+        ex = &mut update_job, if job_id != Uuid::nil() => {
+            match ex {
+                UpdateJobPollingExit::Done(cb) => {
+                    let _ = cancel_tx.send(true);
+                    match tokio::time::timeout(grace_period, &mut result_f).await {
+                        Ok(_) => GracefulPollOutcome::Cancelled { canceled_by: cb },
+                        Err(_) => GracefulPollOutcome::CancelledTimeout { canceled_by: cb },
+                    }
+                }
+                UpdateJobPollingExit::AlreadyCompleted => GracefulPollOutcome::AlreadyCompleted,
+            }
+        }
+    };
+
+    drop(tx);
+    Ok(outcome)
+}
+
 pub enum UpdateJobPollingExit {
     Done(Option<CanceledBy>),
     AlreadyCompleted,
