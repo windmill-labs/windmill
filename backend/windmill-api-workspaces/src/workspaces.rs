@@ -1553,7 +1553,7 @@ async fn fork_datatable(
     let (client, connection) = new_pg_creds.connect().await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
-    client
+    if let Err(e) = client
         .batch_execute(&format!(
             "GRANT CONNECT ON DATABASE \"{new_dbname}\" TO custom_instance_user;
              GRANT USAGE ON SCHEMA public TO custom_instance_user;
@@ -1565,12 +1565,12 @@ async fn fork_datatable(
              ALTER ROLE custom_instance_user REPLICATION;"
         ))
         .await
-        .map_err(|e| {
-            Error::internal_err(format!(
-                "Failed to grant permissions to custom_instance_user: {}",
-                e
-            ))
-        })?;
+    {
+        tracing::warn!(
+            "Failed to grant permissions to custom_instance_user on '{}': {}. Continuing with fork.",
+            new_dbname, e
+        );
+    }
 
     drop(client);
     join_handle
