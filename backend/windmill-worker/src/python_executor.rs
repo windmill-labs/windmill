@@ -1087,6 +1087,63 @@ fn python_preprocessor_spread(sig: windmill_parser::MainArgSignature, indent: &s
 /// Generate the unified multi-script wrapper for Python.
 /// Used by both dedicated workers (single script) and runner groups (multiple scripts).
 /// Protocol:
+/// Compute arg metadata JSON for a Python script.
+/// Returns a JSON string with arg names, datetime/date/bytes args, and preprocessor info.
+pub fn compute_py_meta_json(content: &str) -> String {
+    use windmill_parser::Typ;
+
+    let sig = windmill_parser_py::parse_python_signature(content, None, false).unwrap_or_default();
+    let args: Vec<&str> = sig.args.iter().map(|a| a.name.as_str()).collect();
+    let dates: Vec<&str> = sig
+        .args
+        .iter()
+        .filter(|a| matches!(a.typ, Typ::Datetime))
+        .map(|a| a.name.as_str())
+        .collect();
+    let date_only: Vec<&str> = sig
+        .args
+        .iter()
+        .filter(|a| matches!(a.typ, Typ::Date))
+        .map(|a| a.name.as_str())
+        .collect();
+    let bytes_args: Vec<&str> = sig
+        .args
+        .iter()
+        .filter(|a| matches!(a.typ, Typ::Bytes))
+        .map(|a| a.name.as_str())
+        .collect();
+
+    let pre_sig = windmill_parser_py::parse_python_signature(
+        content,
+        Some("preprocessor".to_string()),
+        false,
+    )
+    .ok()
+    .filter(|s| !s.args.is_empty());
+
+    let mut meta = serde_json::json!({
+        "args": args,
+        "dates": dates,
+        "date_only": date_only,
+        "bytes_args": bytes_args,
+        "star_kwargs": sig.star_kwargs,
+    });
+
+    if let Some(pre) = pre_sig {
+        let pre_args: Vec<&str> = pre.args.iter().map(|a| a.name.as_str()).collect();
+        let pre_dates: Vec<&str> = pre
+            .args
+            .iter()
+            .filter(|a| matches!(a.typ, Typ::Datetime))
+            .map(|a| a.name.as_str())
+            .collect();
+        meta["preprocessor_args"] = serde_json::json!(pre_args);
+        meta["preprocessor_dates"] = serde_json::json!(pre_dates);
+    }
+
+    meta.to_string()
+}
+
 ///   load:<path>:<hash>              -> wm_res[loaded]:<path>
 ///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
 ///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
@@ -1102,11 +1159,12 @@ import importlib.util
 import traceback
 import re
 import inspect
+import base64
+from datetime import datetime, date
 
-scripts = {{}}  # path -> module
+scripts = {{}}  # path -> {{ 'mod': module, 'meta': dict }}
 
 def to_b_64(v: bytes):
-    import base64
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
@@ -1122,6 +1180,25 @@ def run_maybe_async(fn, kwargs):
         res = asyncio.get_event_loop().run_until_complete(res)
     return res
 
+def apply_transforms(kwargs, meta):
+    for name in meta.get('dates', []):
+        if name in kwargs and kwargs[name] is not None:
+            kwargs[name] = datetime.fromisoformat(kwargs[name])
+    for name in meta.get('date_only', []):
+        if name in kwargs and kwargs[name] is not None:
+            try:
+                kwargs[name] = date.fromisoformat(kwargs[name])
+            except ValueError:
+                for _fmt in ("%d-%m-%Y", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"):
+                    try:
+                        kwargs[name] = datetime.strptime(kwargs[name], _fmt).date()
+                        break
+                    except ValueError:
+                        continue
+    for name in meta.get('bytes_args', []):
+        if name in kwargs and kwargs[name] is not None:
+            kwargs[name] = base64.b64decode(kwargs[name])
+
 sys.stdout.write('start\n')
 sys.stdout.flush()
 
@@ -1131,10 +1208,18 @@ for line in sys.stdin:
         break
 
     if line.startswith('load:'):
+        # Format: load:<script_path>:<hash>:<meta_json>
         rest = line[len('load:'):]
-        colon_idx = rest.index(':')
-        script_path = rest[:colon_idx]
-        hash_val = rest[colon_idx + 1:]
+        first_colon = rest.index(':')
+        script_path = rest[:first_colon]
+        after_path = rest[first_colon + 1:]
+        second_colon = after_path.find(':')
+        if second_colon >= 0:
+            hash_val = after_path[:second_colon]
+            meta_str = after_path[second_colon + 1:]
+        else:
+            hash_val = after_path
+            meta_str = ""
         try:
             mod_name = "scripts." + script_path.replace("/", ".")
             file_path = "./scripts/" + script_path + "/main.py"
@@ -1144,7 +1229,8 @@ for line in sys.stdin:
                 del sys.modules[mod_name]
             sys.modules[mod_name] = mod
             spec.loader.exec_module(mod)
-            scripts[script_path] = mod
+            meta = json.loads(meta_str) if meta_str else {{}}
+            scripts[script_path] = {{ 'mod': mod, 'meta': meta }}
             sys.stdout.write("wm_res[loaded]:" + script_path + "\n")
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -1160,13 +1246,15 @@ for line in sys.stdin:
         script_path = rest[:colon_idx]
         args_json = rest[colon_idx + 1:]
 
-        mod = scripts.get(script_path)
-        if not mod:
+        entry = scripts.get(script_path)
+        if not entry:
             err_json = json.dumps({{ "message": "Script not loaded: " + script_path, "name": "Error" }}, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
             sys.stdout.flush()
             continue
 
+        mod = entry['mod']
+        meta = entry['meta']
         try:
             if not hasattr(mod, 'preprocessor') or not callable(mod.preprocessor):
                 err_json = json.dumps({{"message": "preprocessor function is missing", "name": "Error"}}, separators=(',', ':'), default=str).replace('\n', '')
@@ -1174,10 +1262,13 @@ for line in sys.stdin:
                 sys.stdout.flush()
                 continue
             kwargs = json.loads(args_json, strict=False)
+            apply_transforms(kwargs, meta)
             preprocessed = run_maybe_async(mod.preprocessor, kwargs)
             preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
-            res = run_maybe_async(mod.main, preprocessed if preprocessed else {{}})
+            main_kwargs = preprocessed if preprocessed else {{}}
+            apply_transforms(main_kwargs, meta)
+            res = run_maybe_async(mod.main, main_kwargs)
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -1195,15 +1286,18 @@ for line in sys.stdin:
         script_path = rest[:colon_idx]
         args_json = rest[colon_idx + 1:]
 
-        mod = scripts.get(script_path)
-        if not mod:
+        entry = scripts.get(script_path)
+        if not entry:
             err_json = json.dumps({{ "message": "Script not loaded: " + script_path, "name": "Error" }}, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
             sys.stdout.flush()
             continue
 
+        mod = entry['mod']
+        meta = entry['meta']
         try:
             kwargs = json.loads(args_json, strict=False)
+            apply_transforms(kwargs, meta)
             res = run_maybe_async(mod.main, kwargs)
             typ = type(res)
             res_json = res_to_json(res, typ)
@@ -2659,6 +2753,13 @@ pub async fn start_worker(
             &mut None,
         )
         .await?;
+
+    let meta_json = compute_py_meta_json(inner_content);
+    let script_map = HashMap::from([(
+        script_path.to_string(),
+        (safe_script_name.clone(), script_hash.clone(), meta_json),
+    )]);
+
     handle_dedicated_process(
         &python_path,
         job_dir,
@@ -2676,8 +2777,7 @@ pub async fn start_worker(
         script_path,
         "python",
         client,
-        &safe_script_name,
-        &script_hash,
+        &script_map,
     )
     .await
 }
@@ -2732,5 +2832,72 @@ mod tests {
     fn test_compute_python_module_dir_at_replaced() {
         // @ is replaced with .
         assert_eq!(compute_python_module_dir("u/@admin/script"), "u/.admin");
+    }
+
+    #[test]
+    fn test_compute_py_meta_json_basic_args() {
+        let code = "def main(x: str, y: int):\n    return x\n";
+        let meta: serde_json::Value = serde_json::from_str(&compute_py_meta_json(code)).unwrap();
+        assert_eq!(meta["args"], serde_json::json!(["x", "y"]));
+        assert_eq!(meta["dates"], serde_json::json!([]));
+        assert_eq!(meta["bytes_args"], serde_json::json!([]));
+        assert_eq!(meta["star_kwargs"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn test_compute_py_meta_json_with_datetime_and_bytes() {
+        let code = "import datetime\n\ndef main(name: str, created_at: datetime.datetime, birth_date: datetime.date, file: bytes):\n    return name\n";
+        let meta: serde_json::Value = serde_json::from_str(&compute_py_meta_json(code)).unwrap();
+        assert_eq!(
+            meta["args"],
+            serde_json::json!(["name", "created_at", "birth_date", "file"])
+        );
+        assert_eq!(meta["dates"], serde_json::json!(["created_at"]));
+        assert_eq!(meta["date_only"], serde_json::json!(["birth_date"]));
+        assert_eq!(meta["bytes_args"], serde_json::json!(["file"]));
+    }
+
+    #[test]
+    fn test_compute_py_meta_json_with_star_kwargs() {
+        let code = "def main(**kwargs):\n    return kwargs\n";
+        let meta: serde_json::Value = serde_json::from_str(&compute_py_meta_json(code)).unwrap();
+        assert_eq!(meta["star_kwargs"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn test_compute_py_meta_json_with_preprocessor() {
+        let code = "import datetime\n\ndef main(x: str, ts: datetime.datetime):\n    return x\n\ndef preprocessor(input: str, when: datetime.datetime):\n    return {\"x\": input, \"ts\": when}\n";
+        let meta: serde_json::Value = serde_json::from_str(&compute_py_meta_json(code)).unwrap();
+        assert_eq!(meta["args"], serde_json::json!(["x", "ts"]));
+        assert_eq!(meta["dates"], serde_json::json!(["ts"]));
+        assert_eq!(
+            meta["preprocessor_args"],
+            serde_json::json!(["input", "when"])
+        );
+        assert_eq!(meta["preprocessor_dates"], serde_json::json!(["when"]));
+    }
+
+    #[test]
+    fn test_compute_py_meta_json_no_args() {
+        let code = "def main():\n    return 42\n";
+        let meta: serde_json::Value = serde_json::from_str(&compute_py_meta_json(code)).unwrap();
+        assert_eq!(meta["args"], serde_json::json!([]));
+        assert_eq!(meta["dates"], serde_json::json!([]));
+        assert_eq!(meta["bytes_args"], serde_json::json!([]));
+        assert!(meta.get("preprocessor_args").is_none());
+    }
+
+    #[test]
+    fn test_python_wrapper_parses_inline_meta() {
+        let wrapper = generate_multi_script_wrapper();
+        // Verify the wrapper parses meta from the load: protocol (not from files)
+        assert!(wrapper.contains("second_colon"));
+        assert!(wrapper.contains("meta_str"));
+        assert!(wrapper.contains("apply_transforms"));
+        assert!(wrapper.contains("datetime.fromisoformat"));
+        assert!(wrapper.contains("date.fromisoformat"));
+        assert!(wrapper.contains("base64.b64decode"));
+        // Should NOT contain file-based meta reading
+        assert!(!wrapper.contains("os.path.exists(meta_path)"));
     }
 }

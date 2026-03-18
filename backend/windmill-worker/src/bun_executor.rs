@@ -188,7 +188,7 @@ BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
 
-// Map of script_path -> {{ module, argNames, preArgNames }}
+// Map of script_path -> {{ module, argNames, dateArgs, preArgNames, preDateArgs }}
 const scripts = new Map();
 
 function extractArgNames(fn) {{
@@ -207,6 +207,14 @@ function resolveMainFile(scriptDir) {{
     return scriptDir + '/main.ts';
 }}
 
+function convertDates(parsedArgs, dateArgs) {{
+    for (const d of dateArgs) {{
+        if (parsedArgs[d] != null) {{
+            parsedArgs[d] = new Date(parsedArgs[d]);
+        }}
+    }}
+}}
+
 console.log('start');
 
 for await (const line of Readline.createInterface({{ input: process.stdin }})) {{
@@ -217,18 +225,32 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
     }}
 
     if (line.startsWith("load:")) {{
+        // Format: load:<scriptPath>:<hash>:<metaJson>
         const rest = line.slice("load:".length);
-        const colonIdx = rest.indexOf(":");
-        const scriptPath = rest.slice(0, colonIdx);
-        const hash = rest.slice(colonIdx + 1);
+        const firstColon = rest.indexOf(":");
+        const scriptPath = rest.slice(0, firstColon);
+        const afterPath = rest.slice(firstColon + 1);
+        const secondColon = afterPath.indexOf(":");
+        const hash = secondColon >= 0 ? afterPath.slice(0, secondColon) : afterPath;
+        const metaStr = secondColon >= 0 ? afterPath.slice(secondColon + 1) : "";
         try {{
             const mainFile = resolveMainFile("./scripts/" + scriptPath);
             const mod = await import(mainFile + "?v=" + hash);
-            const argNames = extractArgNames(mod.main);
-            const preArgNames = (mod.preprocessor && typeof mod.preprocessor === 'function')
-                ? extractArgNames(mod.preprocessor)
-                : null;
-            scripts.set(scriptPath, {{ module: mod, argNames, preArgNames }});
+
+            let argNames, dateArgs = [], preArgNames = null, preDateArgs = [];
+            if (metaStr) {{
+                const meta = JSON.parse(metaStr);
+                argNames = meta.args || extractArgNames(mod.main);
+                dateArgs = meta.dates || [];
+                preArgNames = meta.preprocessor_args || null;
+                preDateArgs = meta.preprocessor_dates || [];
+            }} else {{
+                argNames = extractArgNames(mod.main);
+                preArgNames = (mod.preprocessor && typeof mod.preprocessor === 'function')
+                    ? extractArgNames(mod.preprocessor)
+                    : null;
+            }}
+            scripts.set(scriptPath, {{ module: mod, argNames, dateArgs, preArgNames, preDateArgs }});
             console.log("wm_res[loaded]:" + scriptPath);
         }} catch (e) {{
             console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
@@ -254,11 +276,14 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
                 continue;
             }}
             const parsedArgs = JSON.parse(argsJson);
+            convertDates(parsedArgs, entry.preDateArgs);
             const preArgs = entry.preArgNames.map(name => parsedArgs[name]);
             const preprocessedArgs = await entry.module.preprocessor(...preArgs);
             console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value));
             // Now call main with preprocessed args
-            const mainArgs = entry.argNames.map(name => (preprocessedArgs ?? {{}})[name]);
+            const mainParsed = preprocessedArgs ?? {{}};
+            convertDates(mainParsed, entry.dateArgs);
+            const mainArgs = entry.argNames.map(name => mainParsed[name]);
             const res = await entry.module.main(...mainArgs);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
         }} catch (e) {{
@@ -281,6 +306,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
 
         try {{
             const parsedArgs = JSON.parse(argsJson);
+            convertDates(parsedArgs, entry.dateArgs);
             const args = entry.argNames.map(name => parsedArgs[name]);
             const res = await entry.module.main(...args);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
@@ -292,6 +318,48 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
 }}
 "#
     )
+}
+
+/// Compute arg metadata JSON for a TypeScript/Bun/Deno script.
+/// Returns a JSON string with arg names, datetime args, and preprocessor info.
+pub fn compute_ts_meta_json(content: &str) -> String {
+    let sig =
+        windmill_parser_ts::parse_deno_signature(content, true, false, None).unwrap_or_default();
+    let args: Vec<&str> = sig.args.iter().map(|a| a.name.as_str()).collect();
+    let dates: Vec<&str> = sig
+        .args
+        .iter()
+        .filter(|a| matches!(a.typ, Typ::Datetime))
+        .map(|a| a.name.as_str())
+        .collect();
+
+    let pre_sig = windmill_parser_ts::parse_deno_signature(
+        content,
+        true,
+        false,
+        Some("preprocessor".to_string()),
+    )
+    .ok()
+    .filter(|s| !s.args.is_empty());
+
+    let mut meta = serde_json::json!({
+        "args": args,
+        "dates": dates,
+    });
+
+    if let Some(pre) = pre_sig {
+        let pre_args: Vec<&str> = pre.args.iter().map(|a| a.name.as_str()).collect();
+        let pre_dates: Vec<&str> = pre
+            .args
+            .iter()
+            .filter(|a| matches!(a.typ, Typ::Datetime))
+            .map(|a| a.name.as_str())
+            .collect();
+        meta["preprocessor_args"] = serde_json::json!(pre_args);
+        meta["preprocessor_dates"] = serde_json::json!(pre_dates);
+    }
+
+    meta.to_string()
 }
 
 /// Returns (package.json, bun.lock(b), is_empty, is_binary)
@@ -3554,12 +3622,9 @@ pub async fn start_worker(
     }
 
     let main_code = remove_pinned_imports(inner_content)?;
-    tokio::fs::create_dir_all(format!("{job_dir}/scripts/{safe_script_name}")).await?;
-    let _ = write_file(
-        &format!("{job_dir}/scripts/{safe_script_name}"),
-        "main.ts",
-        &main_code,
-    )?;
+    let script_dir = format!("{job_dir}/scripts/{safe_script_name}");
+    tokio::fs::create_dir_all(&script_dir).await?;
+    let _ = write_file(&script_dir, "main.ts", &main_code)?;
 
     {
         let wrapper_content = generate_multi_script_wrapper();
@@ -3602,6 +3667,12 @@ pub async fn start_worker(
         .await?;
     }
 
+    let meta_json = compute_ts_meta_json(inner_content);
+    let script_map = HashMap::from([(
+        script_path.to_string(),
+        (safe_script_name.clone(), script_hash.clone(), meta_json),
+    )]);
+
     if annotation.nodejs {
         let script_path = format!("{job_dir}/wrapper.mjs");
 
@@ -3622,8 +3693,7 @@ pub async fn start_worker(
             &script_path,
             "nodejs",
             client,
-            &safe_script_name,
-            &script_hash,
+            &script_map,
         )
         .await
     } else {
@@ -3651,8 +3721,7 @@ pub async fn start_worker(
             script_path,
             "bun",
             client,
-            &safe_script_name,
-            &script_hash,
+            &script_map,
         )
         .await
     }
@@ -3763,5 +3832,62 @@ lockfile-content"#;
         assert_eq!(lock, Some("lockfile-content"));
         assert!(!is_empty);
         assert!(!is_binary);
+    }
+
+    #[test]
+    fn test_compute_ts_meta_json_basic_args() {
+        let code = r#"export function main(x: string, y: number) { return x; }"#;
+        let meta: serde_json::Value = serde_json::from_str(&compute_ts_meta_json(code)).unwrap();
+        assert_eq!(meta["args"], serde_json::json!(["x", "y"]));
+        assert_eq!(meta["dates"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn test_compute_ts_meta_json_with_datetime() {
+        let code = r#"export function main(name: string, created_at: Date, count: number) { return name; }"#;
+        let meta: serde_json::Value = serde_json::from_str(&compute_ts_meta_json(code)).unwrap();
+        assert_eq!(
+            meta["args"],
+            serde_json::json!(["name", "created_at", "count"])
+        );
+        assert_eq!(meta["dates"], serde_json::json!(["created_at"]));
+    }
+
+    #[test]
+    fn test_compute_ts_meta_json_with_preprocessor() {
+        let code = r#"
+export function main(x: string, ts: Date) { return x; }
+export function preprocessor(input: string, when: Date) { return { x: input, ts: when }; }
+"#;
+        let meta: serde_json::Value = serde_json::from_str(&compute_ts_meta_json(code)).unwrap();
+        assert_eq!(meta["args"], serde_json::json!(["x", "ts"]));
+        assert_eq!(meta["dates"], serde_json::json!(["ts"]));
+        assert_eq!(
+            meta["preprocessor_args"],
+            serde_json::json!(["input", "when"])
+        );
+        assert_eq!(meta["preprocessor_dates"], serde_json::json!(["when"]));
+    }
+
+    #[test]
+    fn test_compute_ts_meta_json_no_args() {
+        let code = r#"export function main() { return 42; }"#;
+        let meta: serde_json::Value = serde_json::from_str(&compute_ts_meta_json(code)).unwrap();
+        assert_eq!(meta["args"], serde_json::json!([]));
+        assert_eq!(meta["dates"], serde_json::json!([]));
+        assert!(meta.get("preprocessor_args").is_none());
+    }
+
+    #[test]
+    fn test_bun_wrapper_parses_inline_meta() {
+        let wrapper = generate_multi_script_wrapper();
+        // Verify the wrapper parses meta from the load: protocol (not from files)
+        assert!(wrapper.contains("secondColon"));
+        assert!(wrapper.contains("metaStr"));
+        assert!(wrapper.contains("convertDates"));
+        assert!(wrapper.contains("dateArgs"));
+        assert!(wrapper.contains("preDateArgs"));
+        // Should NOT contain file-based meta reading
+        assert!(!wrapper.contains("readFileSync(metaPath"));
     }
 }

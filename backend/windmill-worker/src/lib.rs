@@ -28,9 +28,6 @@ mod csharp_executor;
 mod dedicated_worker_ee;
 mod dedicated_worker_oss;
 mod deno_executor;
-#[cfg(feature = "private")]
-mod runner_group_ee;
-mod runner_group_oss;
 #[cfg(feature = "duckdb")]
 mod duckdb_executor;
 mod global_cache;

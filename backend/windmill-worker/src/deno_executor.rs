@@ -611,7 +611,7 @@ pub fn generate_multi_script_wrapper() -> String {
         r#"
 import {{ readLines }} from "https://deno.land/std/io/mod.ts";
 
-// Map of script_path -> {{ module, argNames, preArgNames }}
+// Map of script_path -> {{ module, argNames, dateArgs, preArgNames, preDateArgs }}
 const scripts = new Map();
 
 function extractArgNames(fn) {{
@@ -620,6 +620,14 @@ function extractArgNames(fn) {{
     return m
         ? m[1].split(',').map(s => s.trim().split(/[=:]/).at(0).trim()).filter(Boolean)
         : [];
+}}
+
+function convertDates(parsedArgs, dateArgs) {{
+    for (const d of dateArgs) {{
+        if (parsedArgs[d] != null) {{
+            parsedArgs[d] = new Date(parsedArgs[d]);
+        }}
+    }}
 }}
 
 console.log('start');
@@ -632,17 +640,31 @@ for await (const line of readLines(Deno.stdin)) {{
     }}
 
     if (line.startsWith("load:")) {{
+        // Format: load:<scriptPath>:<hash>:<metaJson>
         const rest = line.slice("load:".length);
-        const colonIdx = rest.indexOf(":");
-        const scriptPath = rest.slice(0, colonIdx);
-        const hash = rest.slice(colonIdx + 1);
+        const firstColon = rest.indexOf(":");
+        const scriptPath = rest.slice(0, firstColon);
+        const afterPath = rest.slice(firstColon + 1);
+        const secondColon = afterPath.indexOf(":");
+        const hash = secondColon >= 0 ? afterPath.slice(0, secondColon) : afterPath;
+        const metaStr = secondColon >= 0 ? afterPath.slice(secondColon + 1) : "";
         try {{
             const mod = await import("./scripts/" + scriptPath + "/main.ts?v=" + hash);
-            const argNames = extractArgNames(mod.main);
-            const preArgNames = (mod.preprocessor && typeof mod.preprocessor === 'function')
-                ? extractArgNames(mod.preprocessor)
-                : null;
-            scripts.set(scriptPath, {{ module: mod, argNames, preArgNames }});
+
+            let argNames, dateArgs = [], preArgNames = null, preDateArgs = [];
+            if (metaStr) {{
+                const meta = JSON.parse(metaStr);
+                argNames = meta.args || extractArgNames(mod.main);
+                dateArgs = meta.dates || [];
+                preArgNames = meta.preprocessor_args || null;
+                preDateArgs = meta.preprocessor_dates || [];
+            }} else {{
+                argNames = extractArgNames(mod.main);
+                preArgNames = (mod.preprocessor && typeof mod.preprocessor === 'function')
+                    ? extractArgNames(mod.preprocessor)
+                    : null;
+            }}
+            scripts.set(scriptPath, {{ module: mod, argNames, dateArgs, preArgNames, preDateArgs }});
             console.log("wm_res[loaded]:" + scriptPath);
         }} catch (e) {{
             console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
@@ -668,10 +690,13 @@ for await (const line of readLines(Deno.stdin)) {{
                 continue;
             }}
             const parsedArgs = JSON.parse(argsJson);
+            convertDates(parsedArgs, entry.preDateArgs);
             const preArgs = entry.preArgNames.map(name => parsedArgs[name]);
             const preprocessedArgs = await entry.module.preprocessor(...preArgs);
             console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value));
-            const mainArgs = entry.argNames.map(name => (preprocessedArgs ?? {{}})[name]);
+            const mainParsed = preprocessedArgs ?? {{}};
+            convertDates(mainParsed, entry.dateArgs);
+            const mainArgs = entry.argNames.map(name => mainParsed[name]);
             const res = await entry.module.main(...mainArgs);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
         }} catch (e) {{
@@ -694,6 +719,7 @@ for await (const line of readLines(Deno.stdin)) {{
 
         try {{
             const parsedArgs = JSON.parse(argsJson);
+            convertDates(parsedArgs, entry.dateArgs);
             const args = entry.argNames.map(name => parsedArgs[name]);
             const res = await entry.module.main(...args);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
@@ -734,12 +760,9 @@ pub async fn start_worker(
 
     let safe_script_name = script_path.replace('/', "__");
     let script_hash = format!("{}", windmill_common::utils::calculate_hash(inner_content));
-    tokio::fs::create_dir_all(format!("{job_dir}/scripts/{safe_script_name}")).await?;
-    let _ = write_file(
-        &format!("{job_dir}/scripts/{safe_script_name}"),
-        "main.ts",
-        inner_content,
-    )?;
+    let script_dir = format!("{job_dir}/scripts/{safe_script_name}");
+    tokio::fs::create_dir_all(&script_dir).await?;
+    let _ = write_file(&script_dir, "main.ts", inner_content)?;
     let common_deno_proc_envs = get_common_deno_proc_envs(
         &token,
         base_internal_url,
@@ -779,6 +802,12 @@ pub async fn start_worker(
 
     build_import_map(w_id, script_path, base_internal_url, job_dir).await?;
 
+    let meta_json = crate::bun_executor::compute_ts_meta_json(inner_content);
+    let script_map = HashMap::from([(
+        script_path.to_string(),
+        (safe_script_name.clone(), script_hash.clone(), meta_json),
+    )]);
+
     handle_dedicated_process(
         &*DENO_PATH,
         job_dir,
@@ -811,8 +840,25 @@ pub async fn start_worker(
         script_path,
         "deno",
         client,
-        &safe_script_name,
-        &script_hash,
+        &script_map,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deno_wrapper_parses_inline_meta() {
+        let wrapper = generate_multi_script_wrapper();
+        // Verify the wrapper parses meta from the load: protocol (not from files)
+        assert!(wrapper.contains("secondColon"));
+        assert!(wrapper.contains("metaStr"));
+        assert!(wrapper.contains("convertDates"));
+        assert!(wrapper.contains("dateArgs"));
+        assert!(wrapper.contains("preDateArgs"));
+        // Should NOT contain file-based meta reading
+        assert!(!wrapper.contains("readTextFileSync"));
+    }
 }

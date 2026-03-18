@@ -182,8 +182,6 @@ use crate::oracledb_executor::do_oracledb;
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use crate::dedicated_worker_oss::create_dedicated_worker_map;
 
-use crate::runner_group_oss::create_runner_group_map;
-
 #[cfg(feature = "enterprise")]
 use crate::snowflake_executor::do_snowflake;
 
@@ -1977,25 +1975,6 @@ pub async fn run_worker(
         Vec<JoinHandle<()>>,
     ) = (HashMap::new(), HashSet::new(), vec![]);
 
-    // Create runner group map — scripts in runner groups share a subprocess
-    let (runner_group_workers, runner_group_handles): (
-        HashMap<String, Sender<DedicatedWorkerJob>>,
-        Vec<JoinHandle<()>>,
-    ) = match conn {
-        Connection::Sql(pool) => {
-            create_runner_group_map(
-                &killpill_rx,
-                pool,
-                &worker_dir,
-                base_internal_url,
-                &worker_name,
-                &job_completed_tx,
-            )
-            .await
-        }
-        Connection::Http(_) => (HashMap::new(), vec![]),
-    };
-
     if i_worker == 1 {
         // Initialize runtime asset inserter for batched database inserts
         if let Connection::Sql(db) = conn {
@@ -2442,25 +2421,6 @@ pub async fn run_worker(
                     job.kind,
                     JobKind::Script | JobKind::Preview | JobKind::FlowScript
                 ) {
-                    // Check runner group workers first
-                    if !runner_group_workers.is_empty() {
-                        let rg_tx = job
-                            .runnable_path
-                            .as_ref()
-                            .and_then(|path| runner_group_workers.get(path));
-                        if let Some(rg_tx) = rg_tx {
-                            let rg_job = DedicatedWorkerJob {
-                                job: Arc::new(job.job()),
-                                flow_runners: None,
-                                done_tx: None,
-                            };
-                            if let Err(e) = rg_tx.send(rg_job).await {
-                                tracing::info!("failed to send job to runner group: {e:?}");
-                            }
-                            continue;
-                        }
-                    }
-
                     if !dedicated_workers.is_empty() {
                         // Try flow path + step_id combinations for flow jobs, otherwise use runnable_path
                         let dedicated_worker_tx = if let Some(step_id) = job.flow_step_id.as_ref() {
@@ -2929,7 +2889,6 @@ pub async fn run_worker(
     }
 
     drop(dedicated_workers);
-    drop(runner_group_workers);
 
     let has_dedicated_workers = !dedicated_handles.is_empty();
     if has_dedicated_workers {
@@ -2939,16 +2898,6 @@ pub async fn run_worker(
             }
         }
         tracing::info!(worker = %worker_name, hostname = %hostname, "all dedicated workers have exited");
-    }
-
-    let has_runner_groups = !runner_group_handles.is_empty();
-    if has_runner_groups {
-        for handle in runner_group_handles {
-            if let Err(e) = handle.await {
-                tracing::error!(worker = %worker_name, hostname = %hostname, "error in runner group waiting for it to end: {:?}", e)
-            }
-        }
-        tracing::info!(worker = %worker_name, hostname = %hostname, "all runner groups have exited");
     }
 
     drop(job_completed_tx);
