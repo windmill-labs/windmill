@@ -189,10 +189,10 @@
 				return
 			}
 
-			// Build datatable behaviors map, defaulting to schema_only
+			// Build datatable behaviors map, defaulting to keep_original
 			const behaviors: Record<string, 'schema_only' | 'schema_and_data' | 'keep_original'> = {}
 			for (const dt of allDatatables.current ?? []) {
-				behaviors[dt] = datatableBehaviors[dt] ?? 'schema_only'
+				behaviors[dt] = datatableBehaviors[dt] ?? 'keep_original'
 			}
 
 			try {
@@ -498,7 +498,7 @@
 								<Select
 									dropdownClass="max-w-96"
 									bind:value={
-										() => datatableBehaviors[dt] ?? 'schema_only',
+										() => datatableBehaviors[dt] ?? 'keep_original',
 										(v) => (datatableBehaviors[dt] = v)
 									}
 									items={[

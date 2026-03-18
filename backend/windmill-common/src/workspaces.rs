@@ -399,7 +399,7 @@ pub enum DataTableForkBehavior {
 
 impl Default for DataTableForkBehavior {
     fn default() -> Self {
-        DataTableForkBehavior::SchemaOnly
+        DataTableForkBehavior::KeepOriginal
     }
 }
 

@@ -1744,7 +1744,7 @@ async fn fork_resource_datatable(
 }
 
 /// Fork all datatables from a source workspace into a target workspace.
-/// Uses per-datatable behaviors from the provided map, defaulting to SchemaOnly.
+/// Uses per-datatable behaviors from the provided map, defaulting to KeepOriginal.
 async fn fork_all_datatables(
     db: &DB,
     source_workspace_id: &str,
@@ -1776,7 +1776,7 @@ async fn fork_all_datatables(
         let behavior = datatable_behaviors
             .as_ref()
             .and_then(|m| m.get(name).copied())
-            .unwrap_or(DataTableForkBehavior::SchemaOnly);
+            .unwrap_or(DataTableForkBehavior::KeepOriginal);
 
         if behavior == DataTableForkBehavior::KeepOriginal {
             continue;
