@@ -1,0 +1,23 @@
+<script lang="ts">
+	import { NODE } from '../../util'
+	import NodeWrapper from './NodeWrapper.svelte'
+	import GroupHeaderBlock from '../../GroupHeaderBlock.svelte'
+	import type { GroupHeadN } from '../../graphBuilder.svelte'
+
+	let { data }: { data: GroupHeadN['data'] } = $props()
+</script>
+
+<NodeWrapper enableSourceHandle enableTargetHandle>
+	<div style="width: {NODE.width}px;">
+		<GroupHeaderBlock
+			groupId={data.groupId}
+			summary={data.summary}
+			note={data.note}
+			color={data.color}
+			collapsed={false}
+			collapsedByDefault={data.collapsed_by_default ?? false}
+			editMode={data.editMode}
+			showNotes={data.showNotes}
+		/>
+	</div>
+</NodeWrapper>

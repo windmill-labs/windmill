@@ -10,7 +10,11 @@
 		isOpen?: boolean
 	}
 
-	let { selectedColor, onColorChange, isOpen = $bindable(false) }: Props = $props()
+	let {
+		selectedColor,
+		onColorChange,
+		isOpen = $bindable(false)
+	}: Props = $props()
 </script>
 
 <Popover

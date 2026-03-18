@@ -1,0 +1,69 @@
+<script lang="ts">
+	import GroupHeader from './GroupHeader.svelte'
+	import GroupNoteArea from './GroupNoteArea.svelte'
+	import GroupActionBar from './GroupActionBar.svelte'
+	import { getGroupEditorContext } from './groupEditor.svelte'
+
+	interface Props {
+		groupId: string
+		summary?: string
+		note?: string | null
+		color?: string
+		collapsed: boolean
+		collapsedByDefault: boolean
+		editMode: boolean
+		showNotes: boolean
+	}
+
+	let { groupId, summary, note, color, collapsed, collapsedByDefault, editMode, showNotes }: Props = $props()
+
+	const groupEditorContext = getGroupEditorContext()
+
+	let hovered = $state(false)
+	let menuOpen = $state(false)
+	let actionBarHovered = $state(false)
+
+	let visible = $derived(hovered || menuOpen || actionBarHovered)
+</script>
+
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+	class="nodrag"
+	onmouseenter={() => (hovered = true)}
+	onmouseleave={() => (hovered = false)}
+>
+	<GroupHeader
+		{summary}
+		{color}
+		{collapsed}
+		{editMode}
+		onToggleCollapse={() => groupEditorContext?.groupEditor.toggleRuntimeCollapse(groupId)}
+		onSummaryUpdate={(text) => groupEditorContext?.groupEditor.updateSummary(groupId, text)}
+	/>
+	{#if showNotes && note != null}
+		<GroupNoteArea
+			note={note ?? ''}
+			{color}
+			{collapsed}
+			{editMode}
+			onHeightChange={(h) => groupEditorContext?.groupEditor.setNoteHeight(groupId, h)}
+			onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(groupId, text)}
+		/>
+	{/if}
+	{#if editMode}
+		<GroupActionBar
+			{note}
+			{color}
+			{collapsedByDefault}
+			{visible}
+			{menuOpen}
+			onMenuOpenChange={(open) => (menuOpen = open)}
+			onAddNote={() => groupEditorContext?.groupEditor.addNote(groupId)}
+			onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(groupId)}
+			onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(groupId, c)}
+			onUpdateCollapsedDefault={(v) =>
+				groupEditorContext?.groupEditor.updateCollapsedDefault(groupId, v)}
+			onDeleteGroup={() => groupEditorContext?.groupEditor.deleteGroup(groupId)}
+		/>
+	{/if}
+</div>

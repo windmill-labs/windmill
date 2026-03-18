@@ -1,8 +1,10 @@
 <script lang="ts">
 	import ContextMenu, { type ContextMenuItem } from '../common/contextmenu/ContextMenu.svelte'
-	import { StickyNote } from 'lucide-svelte'
+	import { StickyNote, Group } from 'lucide-svelte'
 	import type { Snippet } from 'svelte'
 	import { getNoteEditorContext } from './noteEditor.svelte'
+	import { getGroupEditorContext } from './groupEditor.svelte'
+	import { canFormValidGroup } from './groupDetectionUtils'
 	import { getGraphContext } from './graphContext'
 	import { tick } from 'svelte'
 
@@ -15,10 +17,35 @@
 
 	// Get NoteEditor context for group note creation
 	const noteEditorContext = getNoteEditorContext()
+	// Get GroupEditor context for group creation
+	const groupEditorContext = getGroupEditorContext()
 	// Get Graph context for clearFlowSelection function
 	const graphContext = getGraphContext()
 
+	let canCreateGroup = $derived.by(() => {
+		if (selectedNodeIds.length < 1 || !groupEditorContext?.groupEditor || !graphContext) return false
+		const flowNodes = graphContext.getFlowNodes?.() ?? []
+		return canFormValidGroup(selectedNodeIds, flowNodes).valid
+	})
+
 	const menuItems: ContextMenuItem[] = $derived([
+		{
+			id: 'create-group',
+			label: `Create group (${selectedNodeIds.length} node${selectedNodeIds.length !== 1 ? 's' : ''})`,
+			icon: Group,
+			disabled: selectedNodeIds.length === 0 || !groupEditorContext?.groupEditor || !canCreateGroup,
+			onClick: () => {
+				if (selectedNodeIds.length > 0 && groupEditorContext?.groupEditor && graphContext) {
+					const flowNodes = graphContext.getFlowNodes?.() ?? []
+					groupEditorContext.groupEditor.createGroup(selectedNodeIds, flowNodes)
+
+					tick().then(() => {
+						graphContext?.clearFlowSelection?.()
+						graphContext?.selectionManager.selectId(selectedNodeIds[0])
+					})
+				}
+			}
+		},
 		{
 			id: 'create-group-note',
 			label: `Create group note (${selectedNodeIds.length} nodes)`,
@@ -26,10 +53,8 @@
 			disabled: selectedNodeIds.length === 0 || !noteEditorContext?.noteEditor,
 			onClick: () => {
 				if (selectedNodeIds.length > 0 && noteEditorContext?.noteEditor && graphContext) {
-					// Create the group note first
 					noteEditorContext.noteEditor.createGroupNote(selectedNodeIds)
 
-					// Wait for next tick to ensure DOM updates
 					tick().then(() => {
 						graphContext?.clearFlowSelection?.()
 						graphContext?.selectionManager.selectId(selectedNodeIds[0])
@@ -40,7 +65,7 @@
 	])
 </script>
 
-{#if noteEditorContext?.noteEditor && selectedNodeIds.length > 1}
+{#if (noteEditorContext?.noteEditor || groupEditorContext?.groupEditor) && selectedNodeIds.length > 1}
 	<ContextMenu items={menuItems}>
 		{@render children()}
 	</ContextMenu>
