@@ -323,6 +323,10 @@
 		const id = currentId
 		if (id) {
 			lastCallbacks?.cancel?.({ id })
+			clearCurrentId()
+			// Clean up SSE connection
+			currentEventSource?.close()
+			currentEventSource = undefined
 			try {
 				await JobService.cancelQueuedJob({
 					workspace: $workspaceStore ?? '',
