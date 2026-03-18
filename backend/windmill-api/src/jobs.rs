@@ -2574,57 +2574,56 @@ async fn get_suspended_flow_info<'c>(
     job_id: Uuid,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<(FlowInfo, Uuid, bool)> {
-    let row = sqlx::query!(
-        r#"
-            SELECT j.id AS "id!", s.flow_status, s.workflow_as_code_status,
-                   q.suspend AS "suspend!", j.runnable_path as script_path,
-                   j.permissioned_as_email as email
+    let flow = sqlx::query_as!(
+            FlowInfo,
+            r#"
+            SELECT j.id AS "id!", COALESCE(s.flow_status, s.workflow_as_code_status) as flow_status, q.suspend AS "suspend!", j.runnable_path as script_path, j.permissioned_as_email as email
             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_status s USING (id)
             WHERE j.id = $1
             "#,
-        job_id,
-    )
-    .fetch_optional(&mut **tx)
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
+            job_id,
+        )
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
 
-    let is_wac = row.workflow_as_code_status.is_some()
-        && row
-            .flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
-            .is_none();
+    // Try to extract step job_id from FlowStatus modules (classic flow path)
+    let step_job_id = flow
+        .flow_status
+        .as_ref()
+        .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+        .and_then(|s| match s.modules.get(s.step as usize) {
+            Some(FlowStatusModule::WaitingForEvents { job, .. }) => Some(job.to_owned()),
+            _ => None,
+        });
 
-    let flow = FlowInfo {
-        id: row.id,
-        flow_status: row.flow_status,
-        suspend: row.suspend,
-        script_path: row.script_path,
-        email: Some(row.email),
-    };
+    if let Some(step_job_id) = step_job_id {
+        // Classic flow
+        Ok((flow, step_job_id, false))
+    } else if flow.suspend > 0 {
+        // WAC approval: no FlowStatus modules, but the job is suspended
+        // The flow_status here comes from COALESCE(flow_status, workflow_as_code_status),
+        // so for WAC it may contain approval_conditions from flow_status column
+        // or the WAC checkpoint from workflow_as_code_status column.
+        // We need the approval_conditions which are in flow_status column.
+        // Re-fetch just flow_status (without COALESCE fallback) for the auth check.
+        let flow_status_only: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT flow_status FROM v2_job_status WHERE id = $1")
+                .bind(&job_id)
+                .fetch_optional(&mut **tx)
+                .await?
+                .flatten();
 
-    if is_wac {
-        // WAC: the suspended job IS the flow job itself — no step to extract
-        if flow.suspend > 0 {
-            Ok((flow, job_id, true))
-        } else {
-            Err(anyhow::anyhow!("the WAC job is not in a suspended state anymore").into())
-        }
+        let flow = FlowInfo {
+            id: flow.id,
+            flow_status: flow_status_only,
+            suspend: flow.suspend,
+            script_path: flow.script_path,
+            email: flow.email,
+        };
+        Ok((flow, job_id, true))
     } else {
-        let step_job_id = flow
-            .flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
-            .and_then(|s| match s.modules.get(s.step as usize) {
-                Some(FlowStatusModule::WaitingForEvents { job, .. }) => Some(job.to_owned()),
-                _ => None,
-            });
-
-        if let Some(step_job_id) = step_job_id {
-            Ok((flow, step_job_id, false))
-        } else {
-            Err(anyhow::anyhow!("the flow is not in a suspended state anymore").into())
-        }
+        Err(anyhow::anyhow!("the flow is not in a suspended state anymore").into())
     }
 }
 
