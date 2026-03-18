@@ -3,6 +3,7 @@
 	import GroupNoteArea from './GroupNoteArea.svelte'
 	import GroupActionBar from './GroupActionBar.svelte'
 	import { getGroupEditorContext } from './groupEditor.svelte'
+	import { getGraphContext } from './graphContext'
 
 	interface Props {
 		groupId: string
@@ -15,9 +16,11 @@
 		showNotes: boolean
 	}
 
-	let { groupId, summary, note, color, collapsed, collapsedByDefault, editMode, showNotes }: Props = $props()
+	let { groupId, summary, note, color, collapsed, collapsedByDefault, editMode, showNotes }: Props =
+		$props()
 
 	const groupEditorContext = getGroupEditorContext()
+	const graphContext = getGraphContext()
 
 	let hovered = $state(false)
 	let menuOpen = $state(false)
@@ -27,17 +30,13 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-	class="nodrag"
-	onmouseenter={() => (hovered = true)}
-	onmouseleave={() => (hovered = false)}
->
+<div class="nodrag" onmouseenter={() => (hovered = true)} onmouseleave={() => (hovered = false)}>
 	<GroupHeader
 		{summary}
 		{color}
 		{collapsed}
 		{editMode}
-		onToggleCollapse={() => groupEditorContext?.groupEditor.toggleRuntimeCollapse(groupId)}
+		onToggleCollapse={() => graphContext?.groupDisplayState?.toggleRuntimeCollapse(groupId)}
 		onSummaryUpdate={(text) => groupEditorContext?.groupEditor.updateSummary(groupId, text)}
 	/>
 	{#if showNotes && note != null}
@@ -46,7 +45,7 @@
 			{color}
 			{collapsed}
 			{editMode}
-			onHeightChange={(h) => groupEditorContext?.groupEditor.setNoteHeight(groupId, h)}
+			onHeightChange={(h) => graphContext?.groupDisplayState?.setNoteHeight(groupId, h)}
 			onNoteUpdate={(text) => groupEditorContext?.groupEditor.updateNote(groupId, text)}
 		/>
 	{/if}
@@ -59,7 +58,10 @@
 			{menuOpen}
 			onMenuOpenChange={(open) => (menuOpen = open)}
 			onAddNote={() => groupEditorContext?.groupEditor.addNote(groupId)}
-			onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(groupId)}
+			onRemoveNote={() => {
+				graphContext?.groupDisplayState?.setNoteHeight(groupId, 0)
+				groupEditorContext?.groupEditor.removeNote(groupId)
+			}}
 			onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(groupId, c)}
 			onUpdateCollapsedDefault={(v) =>
 				groupEditorContext?.groupEditor.updateCollapsedDefault(groupId, v)}

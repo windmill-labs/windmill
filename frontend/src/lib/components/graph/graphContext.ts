@@ -5,6 +5,7 @@ import type { MoveManager } from './moveManager.svelte'
 import type { Writable } from 'svelte/store'
 import type { FlowDiffManager } from '../flows/flowDiffManager.svelte'
 import type { GroupMembership } from './groupDetectionUtils'
+import type { GroupDisplayState } from './groupEditor.svelte'
 
 export type GraphContext = {
 	selectionManager: SelectionManager
@@ -19,6 +20,7 @@ export type GraphContext = {
 	getFlowNodes?: () => { id: string; parentIds?: string[] }[]
 	/** Current group memberships (set by FlowGraphV2) */
 	getGroupMemberships?: () => Map<string, GroupMembership>
+	groupDisplayState?: GroupDisplayState
 }
 
 const graphContextKey = 'FlowGraphContext'

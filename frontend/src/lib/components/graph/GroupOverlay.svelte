@@ -2,6 +2,7 @@
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
 	import { calculateNodesBoundsWithOffset } from './util'
 	import { getGroupEditorContext, GROUP_HEADER_HEIGHT } from './groupEditor.svelte'
+	import { getGraphContext } from './graphContext'
 	import type { GroupMembership } from './groupDetectionUtils'
 	import { NoteColor, NOTE_COLORS } from './noteColors'
 	import type { CollapsedSubflowN, GroupHeadN } from './graphBuilder.svelte'
@@ -15,12 +16,13 @@
 	let { allNodes, showNotes, groupMemberships }: Props = $props()
 
 	const groupEditorContext = getGroupEditorContext()
+	const graphContext = getGraphContext()
 
 	// All groups for always-visible overlays
 	let allGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
 
-	// Note heights tracked by the group editor
-	let noteHeights = $derived(groupEditorContext?.groupEditor.getNoteHeights() ?? {})
+	// Note heights tracked by the group display state
+	let noteHeights = $derived(graphContext?.groupDisplayState?.getNoteHeights() ?? {})
 
 	function getGroupNoteHeight(groupId: string): number {
 		return showNotes ? (noteHeights[groupId] ?? 0) : 0
@@ -33,7 +35,7 @@
 			{ x: number; y: number; width: number; height: number; headerY: number } | null
 		> = {}
 		for (const group of allGroups) {
-			if (groupEditorContext?.groupEditor.isRuntimeCollapsed(group.id)) {
+			if (graphContext?.groupDisplayState?.isRuntimeCollapsed(group.id)) {
 				continue
 			}
 			const headId = `group:${group.id}`
