@@ -1236,7 +1236,7 @@
 					/>
 				{/if}
 
-				<GroupOverlay allNodes={nodesWithOffset as (Node & { type: string })[]} {showNotes} />
+				<GroupOverlay allNodes={nodesWithOffset as (Node & { type: string })[]} />
 
 				<!-- SelectionTool for handling selection changes and filtering -->
 				<SelectionTool {selectionManager} clearGraphSelection={clearFlowSelection} />

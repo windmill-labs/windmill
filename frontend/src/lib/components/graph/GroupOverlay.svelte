@@ -8,10 +8,9 @@
 
 	interface Props {
 		allNodes: (Node & { type: string })[]
-		showNotes: boolean
 	}
 
-	let { allNodes, showNotes }: Props = $props()
+	let { allNodes }: Props = $props()
 
 	const groupEditorContext = getGroupEditorContext()
 	const graphContext = getGraphContext()
@@ -19,19 +18,9 @@
 	// All groups for always-visible overlays
 	let allGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
 
-	// Note heights tracked by the group display state
-	let noteHeights = $derived(graphContext?.groupDisplayState?.getNoteHeights() ?? {})
-
-	function getGroupNoteHeight(groupId: string): number {
-		return showNotes ? (noteHeights[groupId] ?? 0) : 0
-	}
-
 	// Pre-compute bounds for all groups reactively (tracks allNodes measured changes)
 	let groupBoundsMap = $derived.by(() => {
-		const map: Record<
-			string,
-			{ x: number; y: number; width: number; height: number; headerY: number } | null
-		> = {}
+		const map: Record<string, { x: number; y: number; width: number; height: number } | null> = {}
 		for (const group of allGroups) {
 			if (graphContext?.groupDisplayState?.isRuntimeCollapsed(group.id)) {
 				continue
@@ -46,14 +35,12 @@
 				const headCenterX = headNode.position.x + (headNode.measured?.width ?? 275) / 2
 				const wrapperWidth = d.wrapperWidth ?? 275
 				const headHeight = headNode.measured?.height ?? GROUP_HEADER_HEIGHT
-				const noteHeight = getGroupNoteHeight(group.id)
 				const topY = headNode.position.y + headHeight / 2
 				map[group.id] = {
 					x: headCenterX - wrapperWidth / 2,
 					y: topY,
 					width: wrapperWidth,
-					height: endNode.position.y - topY,
-					headerY: headNode.position.y - noteHeight
+					height: endNode.position.y - topY
 				}
 			} else {
 				map[group.id] = null
