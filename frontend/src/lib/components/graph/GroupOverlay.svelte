@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
-	import { calculateNodesBoundsWithOffset } from './util'
 	import { getGroupEditorContext, GROUP_HEADER_HEIGHT } from './groupEditor.svelte'
 	import { getGraphContext } from './graphContext'
 	import { NoteColor, NOTE_COLORS } from './noteColors'
-	import type { CollapsedSubflowN, GroupHeadN } from './graphBuilder.svelte'
+	import type { GroupHeadN } from './graphBuilder.svelte'
 
 	interface Props {
 		allNodes: (Node & { type: string })[]
@@ -86,31 +85,6 @@
 			NOTE_COLORS[NoteColor.BLUE].backgroundLight
 		)
 	}
-
-	// Expanded subflows — derive from allNodes
-	let expandedSubflowNodes = $derived(
-		allNodes.filter(
-			(n) =>
-				n.type === 'collapsedSubflow' &&
-				(n.data as CollapsedSubflowN['data']).expanded &&
-				(n.data as CollapsedSubflowN['data']).innerNodeIds?.length
-		)
-	)
-
-	function computeSubflowBounds(node: Node) {
-		const data = node.data as CollapsedSubflowN['data']
-		const innerIds = data.innerNodeIds ?? []
-		if (innerIds.length === 0) return null
-		const allIds = [node.id, ...innerIds]
-		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(allIds, allNodes)
-		const padding = 16
-		return {
-			x: minX - padding,
-			y: minY - padding,
-			width: maxX - minX + 2 * padding,
-			height: maxY - minY + 2 * padding
-		}
-	}
 </script>
 
 {#each allGroups as group (group.id)}
@@ -125,21 +99,6 @@
 				style:width="{bounds.width}px"
 				style:height="{bounds.height}px"
 				style:z-index={-10 + (groupDepths[group.id] ?? 0)}
-			></div>
-		</ViewportPortal>
-	{/if}
-{/each}
-
-{#each expandedSubflowNodes as node (node.id)}
-	{@const bounds = computeSubflowBounds(node)}
-	{#if bounds}
-		<ViewportPortal target="back">
-			<div
-				class="absolute rounded-lg outline outline-1 pointer-events-none outline-blue-400/60 dark:outline-blue-600/60"
-				style:transform="translate({bounds.x}px, {bounds.y}px)"
-				style:width="{bounds.width}px"
-				style:height="{bounds.height}px"
-				style:z-index="-5"
 			></div>
 		</ViewportPortal>
 	{/if}

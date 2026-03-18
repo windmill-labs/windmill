@@ -269,7 +269,6 @@ export type CollapsedSubflowN = {
 		selected: boolean
 		expanded: boolean
 		module: FlowModule
-		innerNodeIds?: string[]
 	}
 }
 
@@ -1132,7 +1131,6 @@ export function graphBuilder(
 
 							nodes.push(endNode)
 
-							const innerStartIdx = nodes.length
 							processModules(
 								expandedMods,
 								undefined,
@@ -1142,8 +1140,6 @@ export function graphBuilder(
 								buildPrefix(prefix, module['oid'] ?? module.id),
 								localDisableMoveIds
 							)
-							const innerNodeIds = nodes.slice(innerStartIdx).map((n) => n.id)
-							;(startNode.data as any).innerNodeIds = innerNodeIds
 
 							previousId = endNode.id
 						} else if (module.value.type === 'flow') {
