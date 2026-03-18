@@ -1084,10 +1084,14 @@ fn python_preprocessor_spread(sig: windmill_parser::MainArgSignature, indent: &s
     }
 }
 
-/// Generate the multi-script runner group wrapper for Python.
-/// This wrapper can dynamically load multiple scripts and execute them
-/// via the load/exec/end protocol over stdin/stdout.
-pub fn generate_runner_group_wrapper() -> String {
+/// Generate the unified multi-script wrapper for Python.
+/// Used by both dedicated workers (single script) and runner groups (multiple scripts).
+/// Protocol:
+///   load:<path>:<hash>              -> wm_res[loaded]:<path>
+///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
+///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
+///   end                             -> exit
+pub fn generate_multi_script_wrapper() -> String {
     let postprocessor = get_result_postprocessor(false);
     let res_to_json_body = python_res_to_json_body(postprocessor);
     format!(
@@ -1111,6 +1115,13 @@ replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\u0000|Infinity|\-Infinity)')
 def res_to_json(res, typ):
 {res_to_json_body}
 
+def run_maybe_async(fn, kwargs):
+    res = fn(**kwargs)
+    if inspect.isawaitable(res):
+        import asyncio
+        res = asyncio.get_event_loop().run_until_complete(res)
+    return res
+
 sys.stdout.write('start\n')
 sys.stdout.flush()
 
@@ -1120,7 +1131,6 @@ for line in sys.stdin:
         break
 
     if line.startswith('load:'):
-        # Protocol: load:<script_path>:<hash>
         rest = line[len('load:'):]
         colon_idx = rest.index(':')
         script_path = rest[:colon_idx]
@@ -1130,7 +1140,6 @@ for line in sys.stdin:
             file_path = "./scripts/" + script_path + "/main.py"
             spec = importlib.util.spec_from_file_location(mod_name, file_path)
             mod = importlib.util.module_from_spec(spec)
-            # Remove from sys.modules to force reload on hash change
             if mod_name in sys.modules:
                 del sys.modules[mod_name]
             sys.modules[mod_name] = mod
@@ -1145,8 +1154,42 @@ for line in sys.stdin:
         sys.stdout.flush()
         continue
 
+    if line.startswith('exec_preprocess:'):
+        rest = line[len('exec_preprocess:'):]
+        colon_idx = rest.index(':')
+        script_path = rest[:colon_idx]
+        args_json = rest[colon_idx + 1:]
+
+        mod = scripts.get(script_path)
+        if not mod:
+            err_json = json.dumps({{ "message": "Script not loaded: " + script_path, "name": "Error" }}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+            sys.stdout.flush()
+            continue
+
+        try:
+            if not hasattr(mod, 'preprocessor') or not callable(mod.preprocessor):
+                err_json = json.dumps({{"message": "preprocessor function is missing", "name": "Error"}}, separators=(',', ':'), default=str).replace('\n', '')
+                sys.stdout.write("wm_res[error]:" + err_json + "\n")
+                sys.stdout.flush()
+                continue
+            kwargs = json.loads(args_json, strict=False)
+            preprocessed = run_maybe_async(mod.preprocessor, kwargs)
+            preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
+            res = run_maybe_async(mod.main, preprocessed if preprocessed else {{}})
+            typ = type(res)
+            res_json = res_to_json(res, typ)
+            sys.stdout.write("wm_res[success]:" + res_json + "\n")
+        except BaseException as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            tb = traceback.format_tb(exc_traceback)
+            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+        sys.stdout.flush()
+        continue
+
     if line.startswith('exec:'):
-        # Protocol: exec:<script_path>:<json_args>
         rest = line[len('exec:'):]
         colon_idx = rest.index(':')
         script_path = rest[:colon_idx]
@@ -1161,10 +1204,7 @@ for line in sys.stdin:
 
         try:
             kwargs = json.loads(args_json, strict=False)
-            res = mod.main(**kwargs)
-            if inspect.isawaitable(res):
-                import asyncio
-                res = asyncio.get_event_loop().run_until_complete(res)
+            res = run_maybe_async(mod.main, kwargs)
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -2513,6 +2553,14 @@ pub async fn start_worker(
     use crate::PyV;
     tracing::info!("script path: {}", script_path);
 
+    let safe_script_name = script_path.replace('/', "__");
+    let script_hash = format!("{}", windmill_common::utils::calculate_hash(inner_content));
+
+    // Write script to scripts/<safe_name>/main.py for the unified multi-script wrapper
+    let scripts_dir = format!("{job_dir}/scripts/{safe_script_name}");
+    tokio::fs::create_dir_all(&scripts_dir).await?;
+    write_file(&scripts_dir, "main.py", inner_content)?;
+
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
     let context = variables::get_reserved_variables(
@@ -2557,123 +2605,8 @@ pub async fn start_worker(
     )
     .await?;
 
-    let (
-        import_loader,
-        import_base64,
-        import_datetime,
-        module_dir_dot,
-        _dirs,
-        last,
-        transforms,
-        spread,
-        _,
-        _,
-    ) = prepare_wrapper(job_dir, None, None, None, inner_content, script_path).await?;
-
-    // Parse preprocessor signature if the script has one
-    let pre_spread = windmill_parser_py::parse_python_signature(
-        inner_content,
-        Some("preprocessor".to_string()),
-        false,
-    )
-    .ok()
-    .filter(|sig| !sig.args.is_empty())
-    .map(|sig| python_preprocessor_spread(sig, "            "));
-
     {
-        let postprocessor = get_result_postprocessor(annotations.skip_result_postprocessing);
-        let indented_transforms = transforms
-            .lines()
-            .map(|x| format!("    {}", x))
-            .collect::<Vec<String>>()
-            .join("\n");
-
-        let preprocessor_logic = if let Some(ref pre_spread) = pre_spread {
-            format!(
-                r#"
-    if line.startswith('preprocess:'):
-        pre_input = line[len('preprocess:'):]
-        kwargs = json.loads(pre_input, strict=False)
-        if not hasattr(inner_script, 'preprocessor') or not callable(inner_script.preprocessor):
-            err_json = json.dumps({{"message": "preprocessor function is missing", "name": "Error"}}, separators=(',', ':'), default=str).replace('\n', '')
-            sys.stdout.write("wm_res[error]:" + err_json + "\n")
-            sys.stdout.flush()
-            continue
-        try:
-            pre_args = {{}}
-            {pre_spread}
-            for k, v in list(pre_args.items()):
-                if v == '<function call>':
-                    del pre_args[k]
-            preprocessed_kwargs = inner_script.preprocessor(**pre_args)
-            preprocessed_json = json.dumps(preprocessed_kwargs, separators=(',', ':'), default=str).replace('\n', '')
-            sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
-            transform_and_run(preprocessed_kwargs)
-        except BaseException as e:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', '')
-            sys.stdout.write("wm_res[error]:" + err_json + "\n")
-        sys.stdout.flush()
-        continue
-"#
-            )
-        } else {
-            String::new()
-        };
-
-        let res_to_json_body = python_res_to_json_body(postprocessor);
-        let wrapper_content: String = format!(
-            r#"
-import json
-{import_loader}
-{import_base64}
-{import_datetime}
-import traceback
-import sys
-from {module_dir_dot} import {last} as inner_script
-import re
-
-
-def to_b_64(v: bytes):
-    import base64
-    b64 = base64.b64encode(v)
-    return b64.decode('ascii')
-
-def res_to_json(res, typ):
-{res_to_json_body}
-
-def transform_and_run(kwargs):
-    args = {{}}
-{indented_transforms}
-    {spread}
-    for k, v in list(args.items()):
-        if v == '<function call>':
-            del args[k]
-    res = inner_script.main(**args)
-    typ = type(res)
-    res_json = res_to_json(res, typ)
-    sys.stdout.write("wm_res[success]:" + res_json + "\n")
-
-replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\u0000|Infinity|\-Infinity)')
-sys.stdout.write('start\n')
-
-for line in sys.stdin:
-    if line == 'end\n':
-        break
-    line = line.strip()
-    {preprocessor_logic}
-    kwargs = json.loads(line, strict=False)
-    try:
-        transform_and_run(kwargs)
-    except BaseException as e:
-        exc_type, exc_value, exc_traceback = sys.exc_info()
-        tb = traceback.format_tb(exc_traceback)
-        err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', '')
-        sys.stdout.write("wm_res[error]:" + err_json + "\n")
-    sys.stdout.flush()
-"#,
-        );
+        let wrapper_content = generate_multi_script_wrapper();
         write_file(job_dir, "wrapper.py", &wrapper_content)?;
     }
 
@@ -2743,6 +2676,8 @@ for line in sys.stdin:
         script_path,
         "python",
         client,
+        &safe_script_name,
+        &script_hash,
     )
     .await
 }

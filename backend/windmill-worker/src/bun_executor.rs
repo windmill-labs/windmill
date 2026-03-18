@@ -164,10 +164,14 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
     )
 }
 
-/// Generate the multi-script runner group wrapper for Bun.
-/// This wrapper can dynamically load multiple scripts and execute them
-/// via the load/exec/end protocol over stdin/stdout.
-pub fn generate_runner_group_wrapper() -> String {
+/// Generate the unified multi-script wrapper for Bun/Node.
+/// Used by both dedicated workers (single script) and runner groups (multiple scripts).
+/// Protocol:
+///   load:<path>:<hash>              -> wm_res[loaded]:<path>
+///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
+///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
+///   end                             -> exit
+pub fn generate_multi_script_wrapper() -> String {
     let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
     let print_lines = if is_debug {
         r#"console.log("[debug] " + line);"#
@@ -178,13 +182,30 @@ pub fn generate_runner_group_wrapper() -> String {
     format!(
         r#"
 import * as Readline from "node:readline"
+import * as fs from "node:fs"
 
 BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
 
-// Map of script_path -> {{ module, argNames }}
+// Map of script_path -> {{ module, argNames, preArgNames }}
 const scripts = new Map();
+
+function extractArgNames(fn) {{
+    const s = fn.toString();
+    const m = s.match(/^(?:async\s+)?function[^(]*\(([^)]*)\)/);
+    return m
+        ? m[1].split(',').map(s => s.trim().split(/[=:]/).at(0).trim()).filter(Boolean)
+        : [];
+}}
+
+function resolveMainFile(scriptDir) {{
+    for (const ext of ['ts', 'js', 'mjs']) {{
+        const p = scriptDir + '/main.' + ext;
+        if (fs.existsSync(p)) return p;
+    }}
+    return scriptDir + '/main.ts';
+}}
 
 console.log('start');
 
@@ -196,20 +217,18 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
     }}
 
     if (line.startsWith("load:")) {{
-        // Protocol: load:<script_path>:<hash>
         const rest = line.slice("load:".length);
         const colonIdx = rest.indexOf(":");
         const scriptPath = rest.slice(0, colonIdx);
         const hash = rest.slice(colonIdx + 1);
         try {{
-            const mod = await import("./scripts/" + scriptPath + "/main.ts?v=" + hash);
-            // Extract param names from main function signature
-            const mainStr = mod.main.toString();
-            const match = mainStr.match(/^(?:async\s+)?function[^(]*\(([^)]*)\)/);
-            const argNames = match
-                ? match[1].split(',').map(s => s.trim().split(/[=:]/).at(0).trim()).filter(Boolean)
-                : [];
-            scripts.set(scriptPath, {{ module: mod, argNames }});
+            const mainFile = resolveMainFile("./scripts/" + scriptPath);
+            const mod = await import(mainFile + "?v=" + hash);
+            const argNames = extractArgNames(mod.main);
+            const preArgNames = (mod.preprocessor && typeof mod.preprocessor === 'function')
+                ? extractArgNames(mod.preprocessor)
+                : null;
+            scripts.set(scriptPath, {{ module: mod, argNames, preArgNames }});
             console.log("wm_res[loaded]:" + scriptPath);
         }} catch (e) {{
             console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
@@ -217,8 +236,38 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
         continue;
     }}
 
+    if (line.startsWith("exec_preprocess:")) {{
+        const rest = line.slice("exec_preprocess:".length);
+        const colonIdx = rest.indexOf(":");
+        const scriptPath = rest.slice(0, colonIdx);
+        const argsJson = rest.slice(colonIdx + 1);
+
+        const entry = scripts.get(scriptPath);
+        if (!entry) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not loaded: " + scriptPath, name: "Error" }}));
+            continue;
+        }}
+
+        try {{
+            if (!entry.preArgNames) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}));
+                continue;
+            }}
+            const parsedArgs = JSON.parse(argsJson);
+            const preArgs = entry.preArgNames.map(name => parsedArgs[name]);
+            const preprocessedArgs = await entry.module.preprocessor(...preArgs);
+            console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value));
+            // Now call main with preprocessed args
+            const mainArgs = entry.argNames.map(name => (preprocessedArgs ?? {{}})[name]);
+            const res = await entry.module.main(...mainArgs);
+            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
+        }} catch (e) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+        }}
+        continue;
+    }}
+
     if (line.startsWith("exec:")) {{
-        // Protocol: exec:<script_path>:<json_args>
         const rest = line.slice("exec:".length);
         const colonIdx = rest.indexOf(":");
         const scriptPath = rest.slice(0, colonIdx);
@@ -3308,8 +3357,15 @@ pub async fn start_worker(
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
     tracing::info!("Starting worker {w_id};{script_path} (codebase: {codebase:?}");
+    let safe_script_name = script_path.replace('/', "__");
+    let script_hash = format!("{}", windmill_common::utils::calculate_hash(inner_content));
     if !codebase.is_some() {
-        let _ = write_file(job_dir, "main.ts", inner_content)?;
+        tokio::fs::create_dir_all(format!("{job_dir}/scripts/{safe_script_name}")).await?;
+        let _ = write_file(
+            &format!("{job_dir}/scripts/{safe_script_name}"),
+            "main.ts",
+            inner_content,
+        )?;
     }
 
     let common_bun_proc_envs: HashMap<String, String> =
@@ -3498,55 +3554,15 @@ pub async fn start_worker(
     }
 
     let main_code = remove_pinned_imports(inner_content)?;
-    let _ = write_file(job_dir, "main.ts", &main_code)?;
+    tokio::fs::create_dir_all(format!("{job_dir}/scripts/{safe_script_name}")).await?;
+    let _ = write_file(
+        &format!("{job_dir}/scripts/{safe_script_name}"),
+        "main.ts",
+        &main_code,
+    )?;
 
     {
-        // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(inner_content, true, false, None)?.args;
-        let dates = args
-            .iter()
-            .filter_map(|x| {
-                if matches!(x.typ, Typ::Datetime) {
-                    Some(x.name.clone())
-                } else {
-                    None
-                }
-            })
-            .map(|x| return format!("{x} = {x} ? new Date({x}) : undefined"))
-            .join("\n");
-
-        let arg_names: Vec<&str> = args.iter().map(|x| x.name.as_str()).collect();
-
-        // Parse preprocessor signature if it exists
-        let pre_spread = windmill_parser_ts::parse_deno_signature(
-            inner_content,
-            true,
-            false,
-            Some("preprocessor".to_string()),
-        )
-        .ok()
-        .filter(|sig| !sig.args.is_empty())
-        .map(|sig| sig.args.into_iter().map(|x| x.name).join(","));
-
-        // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
-        // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
-
-        let main_import = if codebase.is_some() {
-            "./main.js"
-        } else {
-            "./main.ts"
-        };
-        let dates_opt = if dates.is_empty() {
-            None
-        } else {
-            Some(dates.as_str())
-        };
-        let wrapper_content = generate_dedicated_worker_wrapper(
-            &arg_names,
-            main_import,
-            dates_opt,
-            pre_spread.as_deref(),
-        );
+        let wrapper_content = generate_multi_script_wrapper();
         write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
     }
 
@@ -3606,6 +3622,8 @@ pub async fn start_worker(
             &script_path,
             "nodejs",
             client,
+            &safe_script_name,
+            &script_hash,
         )
         .await
     } else {
@@ -3633,6 +3651,8 @@ pub async fn start_worker(
             script_path,
             "bun",
             client,
+            &safe_script_name,
+            &script_hash,
         )
         .await
     }
