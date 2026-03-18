@@ -212,9 +212,13 @@ schema:
  *
  * @keywords app fixture, create app, local app
  */
-export function createAppFixture(name: string): AppFixture {
+export function createAppFixture(name: string, inlineScriptContent?: string): AppFixture {
   const appSuffix = getFolderSuffix("app");
   const metadataFile = getMetadataFileName("app", "yaml");
+
+  const scriptContent = inlineScriptContent ??
+    `export async function main() {\n  return "hello from app";\n}`;
+  const indented = scriptContent.split("\n").join("\n                ");
 
   return {
     metadata: {
@@ -232,9 +236,7 @@ value:
             type: runnableByName
             inlineScript:
               content: |
-                export async function main() {
-                  return "hello from app";
-                }
+                ${indented}
               language: bun
   hiddenInlineScripts: []
   css: {}
@@ -271,9 +273,12 @@ policy:
  *
  * @keywords raw app fixture, create raw app, local raw app, react app
  */
-export function createRawAppFixture(name: string): RawAppFixture {
+export function createRawAppFixture(name: string, inlineScriptContent?: string): RawAppFixture {
   const rawAppSuffix = getFolderSuffix("raw_app");
   const metadataFile = getMetadataFileName("raw_app", "yaml");
+
+  const scriptContent = inlineScriptContent ??
+    `export async function main(x: string) {\n  return x\n}`;
 
   return {
     metadata: {
@@ -419,9 +424,10 @@ export async function createLocalFlow(
 export async function createLocalApp(
   tempDir: string,
   path: string,
-  name: string
+  name: string,
+  inlineScriptContent?: string
 ): Promise<void> {
-  const fixture = createAppFixture(name);
+  const fixture = createAppFixture(name, inlineScriptContent);
   const appDir = `${tempDir}/${path}/${name}${getFolderSuffix("app")}`;
   await mkdir(appDir, { recursive: true });
 
