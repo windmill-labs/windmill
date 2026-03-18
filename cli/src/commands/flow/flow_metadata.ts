@@ -179,27 +179,35 @@ export async function generateFlowLockInternal(
       log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
     }
     const fileReader = async (path: string) => await readFile(folder + SEP + path, "utf-8");
+    // In tree mode, the tree already verified this flow is stale (possibly via dependency change).
+    // Per-script hashes only detect content changes, not transitive dependency changes,
+    // so we must remove all locks to force the backend to regenerate them.
+    const locksToRemove = (tree && !legacyBehaviour)
+      ? Object.keys(hashes).filter(k => k !== TOP_HASH)
+      : changedScripts;
     await replaceInlineScripts(
       flowValue.value.modules,
       fileReader,
       log,
       folder + SEP!,
       SEP,
-      changedScripts
+      locksToRemove
     );
     if (flowValue.value.failure_module) {
-      await replaceInlineScripts([flowValue.value.failure_module], fileReader, log, folder + SEP!, SEP, changedScripts);
+      await replaceInlineScripts([flowValue.value.failure_module], fileReader, log, folder + SEP!, SEP, locksToRemove);
     }
     if (flowValue.value.preprocessor_module) {
-      await replaceInlineScripts([flowValue.value.preprocessor_module], fileReader, log, folder + SEP!, SEP, changedScripts);
+      await replaceInlineScripts([flowValue.value.preprocessor_module], fileReader, log, folder + SEP!, SEP, locksToRemove);
     }
 
     //removeChangedLocks
+    const tempScriptRefs = tree?.flatten(folderNormalized);
     flowValue.value = await updateFlow(
       workspace,
       flowValue.value,
       remote_path,
-      filteredDeps
+      filteredDeps,
+      tempScriptRefs
     );
 
     const lockAssigner = newPathAssigner(opts.defaultTs ?? "bun", {
@@ -243,7 +251,11 @@ export async function generateFlowLockInternal(
   }
 
   // Return the list of updated scripts (extract just the filename from the path)
-  const updatedScripts = changedScripts.map(p => {
+  // In tree mode, all scripts are relocked (not just content-changed ones)
+  const relocked = (tree && !legacyBehaviour)
+    ? Object.keys(hashes).filter(k => k !== TOP_HASH)
+    : changedScripts;
+  const updatedScripts = relocked.map(p => {
     const parts = p.split(SEP);
     return parts[parts.length - 1].replace(/\.[^.]+$/, ""); // Remove extension
   });
@@ -281,7 +293,8 @@ export async function updateFlow(
   workspace: Workspace,
   flow_value: FlowValue,
   remotePath: string,
-  rawWorkspaceDependencies: Record<string, string>
+  rawWorkspaceDependencies: Record<string, string>,
+  tempScriptRefs?: Record<string, string>
 ): Promise<FlowValue | undefined> {
   let rawResponse;
 
@@ -306,6 +319,9 @@ export async function updateFlow(
           path: remotePath,
           use_local_lockfiles: true,
           raw_workspace_dependencies: rawWorkspaceDependencies,
+          ...(tempScriptRefs && Object.keys(tempScriptRefs).length > 0
+            ? { temp_script_refs: tempScriptRefs }
+            : {}),
         }),
       }
     );
@@ -324,6 +340,9 @@ export async function updateFlow(
         body: JSON.stringify({
           flow_value,
           path: remotePath,
+          ...(tempScriptRefs && Object.keys(tempScriptRefs).length > 0
+            ? { temp_script_refs: tempScriptRefs }
+            : {}),
         }),
       }
     );

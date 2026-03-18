@@ -318,14 +318,15 @@ root.render(<App/>)
 }`,
     },
     inlineScript: {
-      path: `${name}${rawAppSuffix}/inline_scripts/a.inline_script.ts`,
-      content: `export async function main(x: string) {
-  return x
-}
-`,
+      path: `${name}${rawAppSuffix}/backend/a.ts`,
+      content: scriptContent + "\n",
+    },
+    inlineScriptMeta: {
+      path: `${name}${rawAppSuffix}/backend/a.yaml`,
+      content: `type: inline\n`,
     },
     inlineScriptLock: {
-      path: `${name}${rawAppSuffix}/inline_scripts/a.inline_script.lock`,
+      path: `${name}${rawAppSuffix}/backend/a.lock`,
       content: ``,
     },
   };
@@ -456,12 +457,13 @@ export async function createLocalApp(
 export async function createLocalRawApp(
   tempDir: string,
   path: string,
-  name: string
+  name: string,
+  inlineScriptContent?: string
 ): Promise<void> {
-  const fixture = createRawAppFixture(name);
+  const fixture = createRawAppFixture(name, inlineScriptContent);
   const rawAppSuffix = getFolderSuffix("raw_app");
   const appDir = `${tempDir}/${path}/${name}${rawAppSuffix}`;
-  await mkdir(`${appDir}/inline_scripts`, { recursive: true });
+  await mkdir(`${appDir}/backend`, { recursive: true });
 
   for (const file of Object.values(fixture)) {
     const fullPath = `${tempDir}/${path}/${file.path}`;

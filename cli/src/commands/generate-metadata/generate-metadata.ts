@@ -205,12 +205,14 @@ async function generateMetadata(
   const seenFolders = new Set<string>();
 
   for (const p of tree.allPaths()) {
+    const staleReason = tree.getStaleReason(p);
+    if (!staleReason) continue;
+
     const itemType = tree.getItemType(p)!;
     const itemFolder = tree.getFolder(p)!;
 
     // Scripts: one entry per script (use originalPath for handler)
     // Flows/Apps: one entry per folder (dedupe multiple inline scripts)
-    const staleReason = tree.getStaleReason(p);
     if (itemType === "script") {
       const originalPath = tree.getOriginalPath(p)!;
       staleItems.push({ type: itemType, path: originalPath, folder: itemFolder, staleReason });

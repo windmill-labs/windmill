@@ -241,6 +241,7 @@ pub fn workspaced_service() -> Router {
         )
         // Temporary raw script storage for CLI lock generation
         .route("/raw_temp/store", post(store_raw_script_temp))
+        .route("/raw_temp/diff", post(diff_raw_scripts_with_deployed))
 }
 
 #[derive(Serialize, FromRow)]
@@ -2514,4 +2515,49 @@ async fn store_raw_script_temp(
     .await?;
 
     Ok(Json(hash))
+}
+
+/// Compare local script content hashes with deployed versions.
+/// Receives a map of path → SHA256(content), returns paths where the hash
+/// differs from the deployed script (or the script doesn't exist on remote).
+/// Hash comparison is done entirely in Postgres to avoid transferring content.
+async fn diff_raw_scripts_with_deployed(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(local_hashes): Json<std::collections::HashMap<String, String>>,
+) -> Result<Json<Vec<String>>> {
+    check_scopes(&authed, || "scripts:read".to_string())?;
+
+    if local_hashes.is_empty() {
+        return Ok(Json(vec![]));
+    }
+
+    let paths: Vec<String> = local_hashes.keys().cloned().collect();
+    let hashes: Vec<String> = paths.iter().map(|p| local_hashes[p].clone()).collect();
+
+    // Find paths where local hash matches deployed content hash — these are up-to-date
+    let matching: Vec<String> = sqlx::query_scalar(
+        "SELECT local.path FROM \
+         unnest($1::text[], $2::text[]) AS local(path, hash) \
+         INNER JOIN LATERAL ( \
+           SELECT encode(sha256(convert_to(s.content, 'UTF8')), 'hex') AS deployed_hash \
+           FROM script s \
+           WHERE s.path = local.path AND s.workspace_id = $3 AND s.archived = false \
+           ORDER BY s.created_at DESC LIMIT 1 \
+         ) deployed ON deployed.deployed_hash = local.hash"
+    )
+    .bind(&paths)
+    .bind(&hashes)
+    .bind(&w_id)
+    .fetch_all(&db)
+    .await?;
+
+    let matching_set: std::collections::HashSet<String> = matching.into_iter().collect();
+    let mismatched: Vec<String> = paths
+        .into_iter()
+        .filter(|p| !matching_set.contains(p))
+        .collect();
+
+    Ok(Json(mismatched))
 }

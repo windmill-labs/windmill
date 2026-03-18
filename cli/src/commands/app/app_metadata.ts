@@ -165,9 +165,19 @@ export async function generateAppLocksInternal(
   // New behaviour: tree-based dependency tracking
   if (!legacyBehaviour && tree) {
     if (dryRun) {
+      // For raw apps in new format, runnables are in separate files under backend/
+      let treeAppValue = structuredClone(appValue);
+      if (rawApp) {
+        const runnablesPath = path.join(appFolder, APP_BACKEND_FOLDER);
+        const runnablesFromFiles = await loadRunnablesFromBackend(runnablesPath);
+        if (Object.keys(runnablesFromFiles).length > 0) {
+          treeAppValue = runnablesFromFiles;
+        }
+      }
+
       // First pass: collect all relative imports from inline scripts, add app as single tree node
       const allImports: string[] = [];
-      await traverseAndProcessInlineScripts(structuredClone(appValue), async (inlineScript, context) => {
+      await traverseAndProcessInlineScripts(treeAppValue, async (inlineScript, context) => {
         if (!inlineScript.content || !inlineScript.language) {
           return inlineScript;
         }
@@ -233,7 +243,13 @@ export async function generateAppLocksInternal(
       }
     }
 
-    if (changedScripts.length > 0) {
+    // Get temp_script_refs from tree for relative import resolution
+    const tempScriptRefs = tree?.flatten(folderNormalized);
+
+    // In tree mode, the tree already verified this app is stale (possibly via dependency change).
+    // Per-script hashes only detect content changes, not transitive dependency changes,
+    // so we must regenerate locks for all inline scripts regardless.
+    if (changedScripts.length > 0 || (tree && !legacyBehaviour)) {
       if (!noStaleMessage) {
         log.info(
           `Recomputing locks of ${changedScripts.join(", ")} in ${appFolder}`
@@ -262,7 +278,8 @@ export async function generateAppLocksInternal(
           appFolder,
           filteredDeps,
           opts.defaultTs,
-          noStaleMessage
+          noStaleMessage,
+          tempScriptRefs
         );
         // Note: updateRawAppRunnables now writes each runnable to its own file
       } else {
@@ -279,7 +296,8 @@ export async function generateAppLocksInternal(
           appFolder,
           filteredDeps,
           opts.defaultTs,
-          noStaleMessage
+          noStaleMessage,
+          tempScriptRefs
         );
         normalAppFile.value = result.value;
         updatedScripts = result.updatedScripts;
@@ -409,7 +427,8 @@ async function updateRawAppRunnables(
   appFolder: string,
   rawDeps?: Record<string, string>,
   defaultTs: "bun" | "deno" = "bun",
-  noStaleMessage?: boolean
+  noStaleMessage?: boolean,
+  tempScriptRefs?: Record<string, string>
 ): Promise<string[]> {
   const updatedRunnables: string[] = [];
   const runnablesFolder = path.join(appFolder, APP_BACKEND_FOLDER);
@@ -489,7 +508,8 @@ async function updateRawAppRunnables(
         content,
         language,
         `${remotePath}/${runnableId}`,
-        rawDeps
+        rawDeps,
+        tempScriptRefs
       );
 
       // Determine file extension for this language
@@ -556,7 +576,8 @@ async function updateAppInlineScripts(
   appFolder: string,
   rawDeps?: Record<string, string>,
   defaultTs: "bun" | "deno" = "bun",
-  noStaleMessage?: boolean
+  noStaleMessage?: boolean,
+  tempScriptRefs?: Record<string, string>
 ): Promise<{ value: any; updatedScripts: string[] }> {
   const pathAssigner = newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() });
   const updatedScripts: string[] = [];
@@ -604,7 +625,8 @@ async function updateAppInlineScripts(
           content,
           language,
           scriptPath,
-          rawDeps
+          rawDeps,
+          tempScriptRefs
         );
       }
       // Determine file extension for this language (following extractInlineScriptsForApps pattern)
@@ -669,7 +691,8 @@ async function generateInlineScriptLock(
   content: string,
   language: string,
   scriptPath: string,
-  rawWorkspaceDependencies: Record<string, string> | undefined
+  rawWorkspaceDependencies: Record<string, string> | undefined,
+  tempScriptRefs?: Record<string, string>
 ): Promise<string> {
   // Filter workspace dependencies to only include those matching this script's language and annotations
   const filteredDeps = rawWorkspaceDependencies
@@ -700,6 +723,9 @@ async function generateInlineScriptLock(
             ? filteredDeps
             : null,
         entrypoint: scriptPath,
+        ...(tempScriptRefs && Object.keys(tempScriptRefs).length > 0
+          ? { temp_script_refs: tempScriptRefs }
+          : {}),
       }),
     }
   );

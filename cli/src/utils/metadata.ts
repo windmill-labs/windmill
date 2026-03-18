@@ -567,7 +567,7 @@ async function fetchScriptLock(
     ? await computeLockCacheKey(scriptContent, language, rawWorkspaceDependencies, tempScriptRefs)
     : undefined;
   if (cacheKey && lockCache.has(cacheKey)) {
-    log.info(`Using cached lockfile for ${remotePath}`);
+    log.debug(`Using cached lockfile for ${remotePath}`);
     return lockCache.get(cacheKey)!;
   }
 
@@ -652,7 +652,7 @@ async function updateScriptLock(
 
   if (Object.keys(rawWorkspaceDependencies).length > 0) {
     const dependencyPaths = Object.keys(rawWorkspaceDependencies).join(', ');
-    log.info(`Generating script lock for ${remotePath} with raw workspace dependencies: ${dependencyPaths}`);
+    log.debug(`Generating script lock for ${remotePath} with raw workspace dependencies: ${dependencyPaths}`);
   }
 
   const lock = await fetchScriptLock(
@@ -724,7 +724,7 @@ async function updateModuleLocks(
       const moduleContent = readFileSync(fullPath, "utf-8");
       const moduleRemotePath = scriptRemotePath + "/" + relPath;
 
-      log.info(colors.gray(`Generating lock for module ${relPath}`));
+      log.debug(`Generating lock for module ${relPath}`);
 
       try {
         const lock = await fetchScriptLock(

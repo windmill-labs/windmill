@@ -7011,6 +7011,33 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/scripts/raw_temp/diff:
+    post:
+      summary: diff local script hashes against deployed versions
+      operationId: diffRawScriptsWithDeployed
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: map of script path to SHA256 content hash
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        "200":
+          description: list of paths that differ from deployed versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/jobs/list_selected_job_groups:
     # We use post because sending a huge array as a query param can produce
     # URLs that may be too long

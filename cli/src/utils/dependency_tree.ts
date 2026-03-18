@@ -6,16 +6,36 @@ import { Workspace } from "../commands/workspace/workspace.ts";
 import * as wmill from "../../gen/services.gen.ts";
 import { ScriptLanguage } from "./script_common.ts";
 import { filterWorkspaceDependencies, generateScriptHash } from "./metadata.ts";
+import { generateHash } from "./utils.ts";
 
 /**
- * Upload all scripts in the tree to temp storage.
- * Populates contentHash on each node from the backend response.
+ * Diff local scripts against deployed versions, upload only those that differ.
+ * Only uploaded (mismatched) scripts get contentHash set, so flatten() returns
+ * temp_script_refs only for scripts the backend can't resolve from deployed versions.
  */
 export async function uploadScripts(
   tree: DoubleLinkedDependencyTree,
   workspace: Workspace
 ): Promise<void> {
+  // Compute SHA256(content) for all scripts with content
+  const localHashes: Record<string, string> = {};
   for (const path of tree.allPaths()) {
+    const content = tree.getContent(path);
+    if (content) {
+      localHashes[path] = await generateHash(content);
+    }
+  }
+
+  if (Object.keys(localHashes).length === 0) return;
+
+  // Single batch query: find which scripts differ from deployed versions
+  const mismatched = await wmill.diffRawScriptsWithDeployed({
+    workspace: workspace.workspaceId,
+    requestBody: localHashes,
+  });
+
+  // Upload only mismatched scripts to temp storage
+  for (const path of mismatched) {
     const content = tree.getContent(path);
     if (content) {
       const hash = await wmill.storeRawScriptTemp({
@@ -32,7 +52,7 @@ export type ItemType = "script" | "flow" | "app";
 interface DependencyNode {
   content: string;
   stalenessHash: string;  // Hash for staleness detection (includes deps, content, metadata)
-  contentHash?: string;   // Hash returned from temp storage upload (content only)
+  contentHash?: string;   // Hash for temp storage lookup (content only)
   language: ScriptLanguage;
   metadata: string;
   imports: Set<string>;
@@ -149,6 +169,13 @@ export class DoubleLinkedDependencyTree {
   }
 
   /**
+   * Returns true if this node has been marked stale (directly or transitively).
+   */
+  isStale(path: string): boolean {
+    return this.nodes.get(path)?.staleReason !== undefined;
+  }
+
+  /**
    * Mutates the tree by removing all nodes that are not stale.
    * Uses BFS on reverse graph (importedBy) to find all stale scripts.
    * Starts from nodes with isDirectlyStale=true.
@@ -186,11 +213,6 @@ export class DoubleLinkedDependencyTree {
       }
     }
 
-    for (const path of [...this.nodes.keys()]) {
-      if (!allStale.has(path)) {
-        this.nodes.delete(path);
-      }
-    }
   }
 
   /**
@@ -224,6 +246,17 @@ export class DoubleLinkedDependencyTree {
 
   allPaths(): IterableIterator<string> {
     return this.nodes.keys();
+  }
+
+  /**
+   * Returns paths of all stale nodes (those with a staleReason).
+   */
+  *stalePaths(): IterableIterator<string> {
+    for (const [path, node] of this.nodes.entries()) {
+      if (node.staleReason) {
+        yield path;
+      }
+    }
   }
 
   has(path: string): boolean {
