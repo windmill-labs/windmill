@@ -37,17 +37,16 @@
 	{limitPayloadSize}
 >
 	{#snippet start()}
-		<div class="center-center">
+		<div class="center-center relative">
+			<div
+				class="rounded-full w-2 h-2 {job.success ? 'bg-green-400' : 'bg-red-400'}"
+				title={job.success ? 'Success' : 'Failed'}
+			></div>
 			{#if isPreview}
 				<span
-					class="text-2xs font-medium px-1 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300"
+					class="absolute -top-1.5 right-0.5 text-[8px] font-bold leading-none text-tertiary"
 					title="Preview run">P</span
 				>
-			{:else}
-				<div
-					class="rounded-full w-2 h-2 {job.success ? 'bg-green-400' : 'bg-red-400'}"
-					title={job.success ? 'Success' : 'Failed'}
-				></div>
 			{/if}
 		</div>
 	{/snippet}
