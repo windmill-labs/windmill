@@ -32,6 +32,13 @@
 		return {}
 	}
 
+	/** Flatten GroupedModule[] to FlowModule[], skipping group wrappers */
+	function flattenModules(items: any[]): FlowModule[] {
+		return items.flatMap((m) =>
+			m.type === 'group' ? flattenModules(m.modules) : [m as FlowModule]
+		)
+	}
+
 	function isSelectedDescendant(
 		module: FlowModule,
 		selectedId: string
@@ -39,14 +46,15 @@
 		if (!selectedId) return 'none'
 		// Check direct children
 		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
-			if (module.value.modules.some((m) => m.id === selectedId)) {
+			const children = flattenModules(module.value.modules as any[])
+			if (children.some((m) => m.id === selectedId)) {
 				return 'child'
 			}
 			// Check grandchildren
-			return module.value.modules.some(
+			return children.some(
 				(m) =>
 					(m.value.type === 'forloopflow' || m.value.type === 'whileloopflow') &&
-					m.value.modules.some((gm) => gm.id === selectedId)
+					m.value.modules.some((gm: FlowModule) => gm.id === selectedId)
 			)
 				? 'grandchild'
 				: 'none'

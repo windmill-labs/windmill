@@ -8,6 +8,13 @@ import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 import type { ModulesTestStates, ModuleTestState } from '../modulesTest.svelte'
 import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
+import { type GroupedModule } from './groupEditor.svelte'
+import { findInsertIndex, isGroupItem } from './groupedModulesProxy.svelte'
+
+/** Recursively collect FlowModules from nested groups (unwraps group wrappers only). */
+function collectLeafModules(items: GroupedModule[]): FlowModule[] {
+	return items.flatMap((m) => (isGroupItem(m) ? collectLeafModules(m.modules) : [m as FlowModule]))
+}
 
 export type InsertKind =
 	| 'script'
@@ -62,6 +69,9 @@ export type GraphEventHandlers = {
 	simplifyFlow: (b: boolean) => void
 	expandSubflow: (id: string, path: string) => void
 	minimizeSubflow: (id: string) => void
+	expandGroup: (groupId: string) => void
+	expandContainer: (moduleId: string) => void
+	collapseContainer: (moduleId: string) => void
 	updateMock: (detail: { mock: FlowModule['mock']; id: string }) => void
 	testUpTo: (id: string) => void
 	editInput: (moduleId: string, key: string) => void
@@ -104,13 +114,16 @@ export type FlowNode =
 	| WhileLoopEndN
 	| BranchOneStartN
 	| BranchOneEndN
-	| SubflowBoundN
+	| CollapsedSubflowN
 	| NoBranchN
 	| TriggerN
 	| AssetN
 	| AssetsOverflowedN
 	| AiToolN
 	| NewAiToolN
+	| CollapsedGroupN
+	| GroupHeadN
+	| GroupEndN
 
 export type InputN = {
 	type: 'input2'
@@ -148,6 +161,8 @@ export type ModuleN = {
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
 		moduleAction: ModuleActionInfo | undefined
+		isCollapsedContainer?: boolean
+		containerModules?: FlowModule[]
 	}
 }
 
@@ -243,8 +258,8 @@ export type BranchOneEndN = {
 	}
 }
 
-export type SubflowBoundN = {
-	type: 'subflowBound'
+export type CollapsedSubflowN = {
+	type: 'collapsedSubflow'
 	data: {
 		id: string
 		eventHandlers: GraphEventHandlers
@@ -252,6 +267,9 @@ export type SubflowBoundN = {
 		preLabel: string | undefined
 		subflowId: string
 		selected: boolean
+		expanded: boolean
+		module: FlowModule
+		innerNodeIds?: string[]
 	}
 }
 
@@ -316,6 +334,44 @@ export type NewAiToolN = {
 	}
 }
 
+export type CollapsedGroupN = {
+	type: 'collapsedGroup'
+	data: {
+		groupId: string
+		summary: string | undefined
+		note: string | undefined
+		color: string | undefined
+		collapsed_by_default: boolean | undefined
+		stepCount: number
+		modules: FlowModule[]
+		showNotes: boolean
+		editMode: boolean
+		eventHandlers: GraphEventHandlers
+	}
+}
+
+export type GroupHeadN = {
+	type: 'groupHead'
+	data: {
+		groupId: string
+		summary: string | undefined
+		note: string | undefined
+		color: string | undefined
+		collapsed_by_default: boolean | undefined
+		editMode: boolean
+		showNotes: boolean
+		eventHandlers: GraphEventHandlers
+		wrapperWidth?: number
+	}
+}
+
+export type GroupEndN = {
+	type: 'groupEnd'
+	data: {
+		groupId: string
+	}
+}
+
 export function topologicalSort(
 	nodes: { id: string; parentIds?: string[] }[]
 ): { id: string; parentIds?: string[] }[] {
@@ -336,22 +392,12 @@ export function topologicalSort(
 	return result.reverse()
 }
 
-// input2: InputNode,
-// module: ModuleNode,
-// branchAllStart: BranchAllStart,
-// branchAllEnd: BranchAllEndNode,
-// forLoopEnd: ForLoopEndNode,
-// forLoopStart: ForLoopStartNode,
-// result: ResultNode,
-// whileLoopStart: ForLoopStartNode,
-// whileLoopEnd: ForLoopEndNode,
-// branchOneStart: BranchOneStart,
-// branchOneEnd: BranchOneEndNode,
-// subflowBound: SubflowBound,
-// noBranch: NoBranchNode,
-// trigger: TriggersNode
+function getContainerModules(module: FlowModule): FlowModule[] {
+	return getAllModules([module]).filter((m) => m.id !== module.id)
+}
 
 export function graphBuilder(
+	groupedModules: GroupedModule[] | undefined,
 	modules: FlowModule[] | undefined,
 	extra: {
 		disableAi: boolean
@@ -383,11 +429,9 @@ export function graphBuilder(
 	selectedId: string | undefined,
 	simplifiableFlow: SimplifiableFlow | undefined,
 	flowPathForTriggerNode: string | undefined,
-	expandedSubflows: Record<string, FlowModule[]>
-	// triggerProps?: {
-	// 	path?: string
-	// 	flowIsSimplifiable?: boolean
-	// }
+	expandedSubflows: Record<string, FlowModule[]>,
+	collapsedContainers: Set<string>,
+	showNotes: boolean
 ): {
 	nodes: { [key: string]: NodeLayout }
 	edges: Edge[]
@@ -403,7 +447,7 @@ export function graphBuilder(
 		const nodes: NodeLayout[] = []
 		const edges: Edge[] = []
 
-		function addNode(module: FlowModule) {
+		function addNode(module: FlowModule, extraData?: Record<string, any>) {
 			const duplicated = nodes.find((n) => n.id === module.id)
 			if (duplicated) {
 				console.log('Duplicated node detected: ', module, duplicated)
@@ -424,9 +468,10 @@ export function graphBuilder(
 					isOwner: extra.isOwner,
 					flowJob: extra.flowJob,
 					assets: getFlowModuleAssets(module, extra.additionalAssetsMap),
-					moduleAction: extra.moduleActions?.[module.id]
+					moduleAction: extra.moduleActions?.[module.id],
+					...extraData
 				},
-				type: 'module',
+				type: extraData?.isCollapsedContainer ? 'module' : 'module',
 				selectable: true
 			})
 
@@ -483,14 +528,20 @@ export function graphBuilder(
 				customId?: string
 				type?: string
 				subModules?: FlowModule[]
+				currentItems?: GroupedModule[]
 				disableMoveIds?: string[]
 			}
 		) {
 			parents[targetId] = [...(parents[targetId] ?? []), sourceId]
 
-			const mods = options?.subModules ?? modules
-
-			let index = mods?.findIndex((m) => m.id === targetId) ?? -1
+			let index: number
+			if (options?.currentItems) {
+				index = findInsertIndex(options.currentItems, targetId)
+			} else {
+				const mods = options?.subModules ?? modules
+				const found = mods?.findIndex((m) => m.id === targetId) ?? -1
+				index = found >= 0 ? found : (mods?.length ?? 0)
+			}
 
 			const visited = new Set<string>()
 			const recStack = new Set<string>()
@@ -514,8 +565,7 @@ export function graphBuilder(
 					simplifiedTriggerView: simplifiableFlow?.simplifiedFlow,
 					disableMoveIds: options?.disableMoveIds,
 					enableTrigger: sourceId === 'Input',
-					// If the index is -1, it means that the target module is not in the modules array, so we set it to the length of the array
-					index: index >= 0 ? index : (mods?.length ?? 0),
+					index,
 					...extra,
 					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
 					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId)
@@ -591,7 +641,7 @@ export function graphBuilder(
 		}
 
 		function processModules(
-			modules: FlowModule[],
+			items: GroupedModule[],
 			branch: { rootId: string; branch: number } | undefined,
 			beforeNode: NodeLayout,
 			nextNode: NodeLayout | undefined,
@@ -600,8 +650,11 @@ export function graphBuilder(
 			disableMoveIds: string[] = [],
 			parentIndex?: string
 		) {
+			// For subflow prefix rewriting, collect the FlowModule items
 			if (prefix != undefined) {
-				modules.forEach((m) => {
+				items.forEach((item) => {
+					if (isGroupItem(item)) return
+					const m = item as FlowModule
 					if (!m['oid']) {
 						m['oid'] = m.id
 					}
@@ -610,26 +663,151 @@ export function graphBuilder(
 			}
 			let previousId: string | undefined = undefined
 
-			if (modules.length === 0) {
+			if (items.length === 0) {
 				if (nextNode) {
 					addEdge(beforeNode.id, nextNode.id, branch, prefix, {
-						subModules: modules,
+						currentItems: items,
 						disableMoveIds
 					})
 				}
 			} else {
-				modules.forEach((module, index) => {
+				items.forEach((item, index) => {
+					// --- Group items ---
+					if (isGroupItem(item)) {
+						const g = item.group
+
+						if (item.collapsed) {
+							// Collapsed group: single node
+							const nodeId = `collapsed-group:${g.id}`
+							nodes.push({
+								id: nodeId,
+								data: {
+									groupId: g.id,
+									summary: g.summary,
+									note: g.note,
+									color: g.color,
+									collapsed_by_default: g.collapsed_by_default,
+									stepCount: item.moduleIds.length,
+									modules: collectLeafModules(item.modules),
+									showNotes,
+									editMode: extra.editMode,
+									eventHandlers
+								},
+								type: 'collapsedGroup',
+								selectable: false
+							})
+
+							// Wire: previous → collapsedGroup
+							if (index > 0 && previousId) {
+								addEdge(previousId, nodeId, branch, prefix, {
+									currentItems: items,
+									disableMoveIds
+								})
+							}
+
+							previousId = nodeId
+						} else {
+							// Expanded group: head → recurse → end
+							const headId = `group:${g.id}`
+							const endId = `group:${g.id}-end`
+
+							const headNode: NodeLayout = {
+								id: headId,
+								data: {
+									groupId: g.id,
+									summary: g.summary,
+									note: g.note,
+									color: g.color,
+									collapsed_by_default: g.collapsed_by_default,
+									editMode: extra.editMode,
+									showNotes,
+									eventHandlers
+								},
+								type: 'groupHead',
+								selectable: false
+							}
+
+							const endNode: NodeLayout = {
+								id: endId,
+								data: {
+									groupId: g.id
+								},
+								type: 'groupEnd',
+								selectable: false
+							}
+
+							nodes.push(headNode)
+							nodes.push(endNode)
+
+							// Wire: previous → headNode
+							if (index > 0 && previousId) {
+								addEdge(previousId, headId, branch, prefix, {
+									currentItems: items,
+									disableMoveIds
+								})
+							}
+
+							// Recurse inner modules
+							processModules(
+								item.modules,
+								{ rootId: headId, branch: 0 },
+								headNode,
+								endNode,
+								simplifiedTriggerView,
+								prefix,
+								disableMoveIds,
+								parentIndex
+							)
+
+							previousId = endId
+						}
+
+						// Shared first/last edge wiring for groups
+						if (index === 0) {
+							const entryId = item.collapsed ? `collapsed-group:${g.id}` : `group:${g.id}`
+							addEdge(beforeNode.id, entryId, undefined, prefix, {
+								currentItems: items,
+								disableMoveIds,
+								disableInsert: simplifiedTriggerView
+							})
+						}
+
+						if (index === items.length - 1 && previousId && nextNode) {
+							addEdge(previousId, nextNode.id, branch, prefix, {
+								currentItems: items,
+								disableMoveIds
+							})
+						}
+
+						return
+					}
+
+					// --- Regular FlowModule items ---
+					const module = item as FlowModule
 					const localDisableMoveIds = [...disableMoveIds, module.id]
 
-					// Add the edge between the previous node and the current one
+					// Inter-module edge: connect previous → current (expanded subflows handle their own)
 					if (index > 0 && previousId && expandedSubflows[module.id] == undefined) {
 						addEdge(previousId, module.id, branch, prefix, {
-							subModules: modules,
+							currentItems: items,
 							disableMoveIds
 						})
 					}
 
-					if (module.value.type === 'branchall') {
+					// Collapsed container check (before the type-based chain)
+					const isContainer =
+						module.value.type === 'branchall' ||
+						module.value.type === 'branchone' ||
+						module.value.type === 'forloopflow' ||
+						module.value.type === 'whileloopflow'
+
+					if (isContainer && collapsedContainers.has(module.id)) {
+						addNode(module, {
+							isCollapsedContainer: true,
+							containerModules: getContainerModules(module)
+						})
+						previousId = module.id
+					} else if (module.value.type === 'branchall') {
 						// Start
 						addNode(module)
 
@@ -825,21 +1003,6 @@ export function graphBuilder(
 						}
 						nodes.push(endNode)
 
-						// // Add default branch
-						// const defaultBranch: NodeLayout = {
-						// 	id: `${module.id}-default`,
-						// 	data: {
-						// 		offset: 0,
-						// 		label: 'Default',
-						// 		id: module.id,
-						// 		branchIndex: -1,
-						// 		eventHandlers: eventHandlers,
-						// 		branchOne: true,
-						// 		...extra
-						// 	},
-						// 	type: 'noBranch'
-						// }
-
 						const defaultBranch: NodeLayout = {
 							id: `${module.id}-branch-default`,
 							data: {
@@ -912,9 +1075,9 @@ export function graphBuilder(
 
 						previousId = endNode.id
 					} else {
-						let expanded = expandedSubflows[module.id]
-						if (expanded) {
-							expanded = $state.snapshot(expanded)
+						let expandedMods = expandedSubflows[module.id]
+						if (expandedMods) {
+							expandedMods = $state.snapshot(expandedMods)
 							const startId = `${module.id}`
 							const idWithoutPrefix = module.id.startsWith('subflow:')
 								? module.id.substring(8)
@@ -927,21 +1090,23 @@ export function graphBuilder(
 									subflowId: module.id,
 									eventHandlers: eventHandlers,
 									preLabel: '',
-									selected: false
+									selected: false,
+									expanded: true,
+									module: module
 								},
-								type: 'subflowBound'
+								type: 'collapsedSubflow'
 							}
 
 							nodes.push(startNode)
 
 							if (previousId) {
 								addEdge(previousId, startNode.id, branch, prefix, {
-									subModules: modules,
+									currentItems: items,
 									disableMoveIds
 								})
 							} else {
 								addEdge(beforeNode.id, startNode.id, undefined, prefix, {
-									subModules: modules,
+									currentItems: items,
 									disableMoveIds
 								})
 							}
@@ -955,15 +1120,17 @@ export function graphBuilder(
 									subflowId: module.id,
 									eventHandlers: eventHandlers,
 									preLabel: '',
-									selected: false
+									selected: false,
+									expanded: true,
+									module: module
 								},
-								type: 'subflowBound'
+								type: 'collapsedSubflow'
 							}
 
 							nodes.push(endNode)
 
 							processModules(
-								expanded,
+								expandedMods,
 								undefined,
 								startNode,
 								endNode,
@@ -973,6 +1140,24 @@ export function graphBuilder(
 							)
 
 							previousId = endNode.id
+						} else if (module.value.type === 'flow') {
+							// Non-expanded flow module — show as collapsedSubflow
+							nodes.push({
+								id: module.id,
+								data: {
+									id: module.id,
+									subflowId: module.id,
+									eventHandlers: eventHandlers,
+									label: module.summary || module.value['path'] || module.id,
+									preLabel: '',
+									selected: false,
+									expanded: false,
+									module: module
+								},
+								type: 'collapsedSubflow',
+								selectable: true
+							})
+							previousId = module.id
 						} else {
 							addNode(module)
 							previousId = module.id
@@ -981,15 +1166,15 @@ export function graphBuilder(
 
 					if (index === 0 && expandedSubflows[module.id] == undefined) {
 						addEdge(beforeNode.id, module.id, undefined, prefix, {
-							subModules: modules,
+							currentItems: items,
 							disableMoveIds,
 							disableInsert: simplifiedTriggerView
 						})
 					}
 
-					if (index === modules.length - 1 && previousId && nextNode) {
+					if (index === items.length - 1 && previousId && nextNode) {
 						addEdge(previousId, nextNode.id, branch, prefix, {
-							subModules: modules,
+							currentItems: items,
 							disableMoveIds
 						})
 					}
@@ -997,10 +1182,13 @@ export function graphBuilder(
 			}
 		}
 
+		// Use groupedModules if available, otherwise wrap plain modules
+		const topLevelItems: GroupedModule[] = groupedModules ?? modules
+
 		if (simplifiableFlow?.simplifiedFlow === true && triggerNode) {
-			processModules(modules, undefined, triggerNode, undefined, true, undefined)
+			processModules(topLevelItems, undefined, triggerNode, undefined, true, undefined)
 		} else {
-			processModules(modules, undefined, inputNode, resultNode, false, undefined)
+			processModules(topLevelItems, undefined, inputNode, resultNode, false, undefined)
 		}
 
 		if (failureModule) {

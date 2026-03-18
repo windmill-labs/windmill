@@ -23,7 +23,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
-	import { getDependentComponents } from '../flowExplorer'
+	import { getAllModules, getDependentComponents } from '../flowExplorer'
 	import { locateModules, groupByParent } from '../multiSelectUtils'
 	import { workspaceStore } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
@@ -54,6 +54,17 @@
 	} from '../agentToolUtils'
 	import { loadFlowModuleState } from '../flowStateUtils.svelte'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
+	import {
+		getGroupEditorContext,
+		type GroupedModule
+	} from '$lib/components/graph/groupEditor.svelte'
+	import {
+		GroupedModulesProxy,
+		dfsGrouped,
+		matchGroupedModuleForDfs,
+		isGroupItem,
+		type ExtendedOpenFlow
+	} from '$lib/components/graph/groupedModulesProxy.svelte'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -125,6 +136,14 @@
 
 	// Get NoteEditor context for note position updates
 	const noteEditorContext = getNoteEditorContext()
+	const groupEditorContext = getGroupEditorContext()
+
+	const proxy = groupEditorContext
+		? new GroupedModulesProxy(
+				flowStore as unknown as StateStore<ExtendedOpenFlow>,
+				groupEditorContext.groupEditor
+			)
+		: undefined
 
 	$effect(() => {
 		if (!moveManager.movingModuleId) return
@@ -139,16 +158,13 @@
 		return () => document.removeEventListener('keydown', onKeyDown, true)
 	})
 
-	export async function insertNewModuleAtIndex(
-		modules: FlowModule[] | AgentTool[],
-		index: number,
+	/** Create a new FlowModule without inserting it into any array */
+	async function createNewModule(
 		kind: InsertKind,
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
-		inlineScript?: InlineScript,
-		toolKind?: SpecialToolKind | 'flowmoduleTool'
-	): Promise<FlowModule[] | AgentTool[]> {
-		push(history, flowStore.val)
+		inlineScript?: InlineScript
+	): Promise<FlowModule> {
 		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
 		let state = emptyFlowModuleState()
 		flowStateStore.val[module.id] = state
@@ -196,31 +212,41 @@
 			module.stop_after_if = { skip_if_stopped: false, expr: 'true' }
 		}
 
+		return module
+	}
+
+	export async function insertNewModuleAtIndex(
+		modules: FlowModule[] | AgentTool[],
+		index: number,
+		kind: InsertKind,
+		wsScript?: { path: string; summary: string; hash: string | undefined },
+		wsFlow?: { path: string; summary: string },
+		inlineScript?: InlineScript,
+		toolKind?: SpecialToolKind | 'flowmoduleTool'
+	): Promise<FlowModule[] | AgentTool[]> {
+		push(history, flowStore.val)
+		const module = await createNewModule(kind, wsScript, wsFlow, inlineScript)
+
 		if (!modules) return [module]
 
 		if (toolKind === 'mcpTool') {
-			// Create MCP AgentTool
 			const mcpTool = createMcpTool(module.id)
 			;(modules as AgentTool[]).splice(index, 0, mcpTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'websearchTool') {
-			// Create Websearch AgentTool
 			const websearchTool = createWebsearchTool(module.id)
 			;(modules as AgentTool[]).splice(index, 0, websearchTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'aiAgentTool') {
-			// Create AI Agent tool (nested agent)
 			const aiAgentTool = createAiAgentTool(module.id)
 			flowStateStore.val[module.id] = await loadFlowModuleState(agentToolToFlowModule(aiAgentTool))
 			;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'flowmoduleTool') {
-			// Create AgentTool from FlowModule
 			const agentTool = flowModuleToAgentTool(module)
 			;(modules as AgentTool[]).splice(index, 0, agentTool)
 			return modules as AgentTool[]
 		} else {
-			// Standard FlowModule insertion (existing behavior)
 			modules.splice(index, 0, module)
 			return modules
 		}
@@ -329,6 +355,14 @@
 
 	let deleteCallback: (() => void) | undefined = $state(undefined)
 	let dependents: Record<string, string[]> = $state({})
+
+	/** Confirmation gate for actions that would empty groups */
+	let emptyGroupsPending: import('$lib/components/graph/groupEditor.svelte').FlowGroup[] = $state(
+		[]
+	)
+	let emptyGroupsAction: (() => void) | undefined = $state(undefined)
+	let emptyGroupsCancel: (() => void) | undefined = $state(undefined)
+	let emptyGroupsActionLabel: 'delete' | 'move' = $state('delete')
 
 	let graph: FlowGraphV2 | undefined = $state(undefined)
 	let noteMode = $state(false)
@@ -506,6 +540,40 @@
 			</div>
 		{/each}
 	</ConfirmationModal>
+
+	<ConfirmationModal
+		title={emptyGroupsPending.length === 1 ? 'Delete group?' : 'Delete groups?'}
+		confirmationText={emptyGroupsActionLabel === 'delete' ? 'Delete step' : 'Move step'}
+		open={emptyGroupsPending.length > 0}
+		on:confirmed={() => {
+			emptyGroupsAction?.()
+			emptyGroupsPending = []
+			emptyGroupsAction = undefined
+			emptyGroupsCancel = undefined
+		}}
+		on:canceled={() => {
+			emptyGroupsCancel?.()
+			emptyGroupsPending = []
+			emptyGroupsAction = undefined
+			emptyGroupsCancel = undefined
+		}}
+	>
+		{#if emptyGroupsPending.length === 1}
+			{@const group = emptyGroupsPending[0]}
+			<p
+				>The group{group.summary ? ` "${group.summary}"` : ''} will have no remaining steps and will
+				be deleted. Are you sure you want to {emptyGroupsActionLabel} the step?</p
+			>
+		{:else}
+			<p>The following groups will have no remaining steps and will be deleted:</p>
+			<ul class="list-disc pl-4 mt-1">
+				{#each emptyGroupsPending as group}
+					<li>{group.summary || group.id}</li>
+				{/each}
+			</ul>
+			<p class="mt-2">Are you sure you want to {emptyGroupsActionLabel} the step?</p>
+		{/if}
+	</ConfirmationModal>
 </Portal>
 <div class="flex flex-col h-full relative -pt-1" bind:clientWidth={flowPaneWidth}>
 	<div
@@ -542,6 +610,7 @@
 			{moveManager}
 			maxHeight={minHeight}
 			modules={flowStore.val.value.modules}
+			groupedModules={proxy?.items}
 			{noteMode}
 			notes={flowStore.val.value.notes}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
@@ -572,150 +641,227 @@
 						selectNextId(id)
 						removeAtId(flowStore.val.value.modules, id)
 					}
+					// Proxy syncs groups automatically on rebuild; for non-proxy fallback use removeNode
+					if (!proxy) {
+						const allMods = getAllModules(flowStore.val.value.modules)
+						groupEditorContext?.groupEditor.removeNode(id, allMods)
+					}
 					refreshStateStore(flowStore)
 					onDelete?.(id)
 					delete flowStateStore.val[id]
 				}
 
-				if (Object.keys(dependents).length > 0) {
-					deleteCallback = cb
+				const proceed = () => {
+					if (Object.keys(dependents).length > 0) {
+						deleteCallback = cb
+					} else {
+						cb()
+					}
+				}
+
+				const emptied = proxy
+					? proxy.getGroupsEmptiedBy([id])
+					: (groupEditorContext?.groupEditor.getGroupsEmptiedBy(
+							[id],
+							getAllModules(flowStore.val.value.modules)
+						) ?? [])
+				if (emptied.length > 0) {
+					emptyGroupsPending = emptied
+					emptyGroupsActionLabel = 'delete'
+					emptyGroupsAction = proceed
 				} else {
-					cb()
+					proceed()
 				}
 			}}
 			onInsert={async (detail) => {
-				{
-					let originalModules
-					let targetModules
-					if (
-						detail.sourceId == 'Input' ||
-						detail.targetId == 'Result' ||
-						detail.kind == 'trigger'
-					) {
-						targetModules = flowStore.val.value.modules
-					}
+				if (!flowStore.val.value.modules || !Array.isArray(flowStore.val.value.modules)) return
+				await tick()
 
-					dfs(flowStore.val.value.modules, (mod, modules, branches) => {
-						if (mod.id == moveManager.movingModuleId) {
-							originalModules = modules
-						}
-						if (detail.branch) {
-							if (mod.id == detail.branch.rootId) {
-								targetModules = branches[detail.branch.branch]
-							}
-						} else if (mod.id == detail.sourceId || mod.id == detail.targetId) {
-							targetModules = modules
-						} else if (mod.id == detail.agentId && mod.value.type === 'aiagent') {
-							targetModules = mod.value.tools
+				// --- MOVE ---
+				if (moveManager.movingModuleId) {
+					const movedIds = moveManager.movingIds ?? [moveManager.movingModuleId]
+					const movingId = moveManager.movingModuleId
+
+					let originalModules: any[] | undefined
+					let targetModules: any[] | undefined
+
+					const items = (proxy ? proxy.items : flowStore.val.value.modules) as GroupedModule[]
+
+					if (detail.sourceId == 'Input' || detail.targetId == 'Result') {
+						targetModules = items
+					}
+					dfsGrouped(items, (item, parentArray, branches) => {
+						if (matchGroupedModuleForDfs(item, movingId)) originalModules = parentArray
+						if (detail.branch && matchGroupedModuleForDfs(item, detail.branch.rootId)) {
+							targetModules = branches[detail.branch.branch]
+						} else if (
+							matchGroupedModuleForDfs(item, detail.sourceId ?? '') ||
+							matchGroupedModuleForDfs(item, detail.targetId ?? '')
+						) {
+							targetModules = parentArray
 						}
 					})
-					if (flowStore.val.value.modules && Array.isArray(flowStore.val.value.modules)) {
-						await tick()
-						if (moveManager.movingModuleId) {
-							push(history, flowStore.val)
-							if (!originalModules || !targetModules) {
-								moveManager.clearMoving()
-								return
-							}
-							if (moveManager.movingIds && moveManager.movingIds.length > 1) {
-								// Multi-move: splice out all moving modules from their parent, insert at target
-								const firstIndex = originalModules.findIndex(
-									(m) => m.id === moveManager.movingIds?.[0]
-								)
-								const removedModules = originalModules.splice(
-									firstIndex,
-									moveManager.movingIds.length
-								)
-								let insertIndex = detail.index
-								if (originalModules === targetModules && firstIndex < detail.index) {
-									insertIndex -= moveManager.movingIds.length
-								}
-								targetModules.splice(insertIndex, 0, ...removedModules)
-								selectionManager.selectByIds(removedModules.map((m) => m.id))
-							} else {
-								let indexToRemove = originalModules.findIndex((m) => moveManager.movingModuleId == m.id)
-								let [removedModule] = originalModules.splice(indexToRemove, 1)
-								// When moving within the same array, removal shifts subsequent indices down by 1
-								let insertIndex = detail.index
-								if (originalModules === targetModules && indexToRemove < detail.index) {
-									insertIndex -= 1
-								}
-								targetModules.splice(insertIndex, 0, removedModule)
-								selectionManager.selectId(removedModule.id)
-							}
-							moveManager.clearMoving()
-						} else {
-							if (detail.isPreprocessor) {
-								await insertNewPreprocessorModule(
-									flowStore,
-									flowStateStore,
-									detail.inlineScript,
-									detail.script
-								)
-								selectionManager.selectId('preprocessor')
 
-								if (detail.inlineScript?.instructions) {
-									dispatch('generateStep', {
-										moduleId: 'preprocessor',
-										lang: detail.inlineScript?.language,
-										instructions: detail.inlineScript?.instructions
-									})
-								}
-							} else {
-								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
-								const toolKind: SpecialToolKind | 'flowmoduleTool' | undefined = detail.agentId
-									? (SPECIAL_TOOL_KINDS as readonly string[]).includes(detail.kind)
-										? (detail.kind as SpecialToolKind)
-										: 'flowmoduleTool'
-									: undefined
-
-								await insertNewModuleAtIndex(
-									targetModules,
-									index,
-									detail.kind,
-									detail.script,
-									detail.flow,
-									detail.inlineScript,
-									toolKind
-								)
-								const id = targetModules[index].id
-								selectionManager.selectId(id)
-
-								if (detail.inlineScript?.instructions) {
-									dispatch('generateStep', {
-										moduleId: id,
-										lang: detail.inlineScript?.language,
-										instructions: detail.inlineScript?.instructions
-									})
-								}
-								if (detail.kind == 'trigger') {
-									await insertNewModuleAtIndex(
-										targetModules,
-										index + 1,
-										'forloop',
-										undefined,
-										undefined,
-										undefined
-									)
-									setExpr(targetModules[index + 1], `results.${id}`)
-									setScheduledPollSchedule(triggersState, triggersCount)
-								}
-
-								if (detail.flow?.path) {
-									loadLastJob(detail.flow.path, id)
-								} else if (detail.script?.path) {
-									loadLastJob(detail.script?.path, id)
-								}
-							}
-						}
-
-						if (['branchone', 'branchall'].includes(detail.kind)) {
-							await addBranch(targetModules[detail.index ?? 0].id)
-						}
-						refreshStateStore(flowStore)
-						dispatch('change')
+					if (!originalModules || !targetModules) {
+						moveManager.clearMoving()
+						return
 					}
+
+					const doMove = () => {
+						push(history, flowStore.val)
+						if (movedIds.length > 1) {
+							const firstIndex = originalModules!.findIndex((m: any) =>
+								matchGroupedModuleForDfs(m, movedIds[0])
+							)
+							const removedModules = originalModules!.splice(firstIndex, movedIds.length)
+							let insertIndex = detail.index
+							if (originalModules === targetModules && firstIndex < detail.index) {
+								insertIndex -= movedIds.length
+							}
+							targetModules!.splice(insertIndex, 0, ...removedModules)
+							selectionManager.selectByIds(movedIds)
+						} else {
+							const indexToRemove = originalModules!.findIndex((m: any) =>
+								matchGroupedModuleForDfs(m, movingId)
+							)
+							const [removed] = originalModules!.splice(indexToRemove, 1)
+							let insertIndex = detail.index
+							if (originalModules === targetModules && indexToRemove < detail.index)
+								insertIndex -= 1
+							targetModules!.splice(insertIndex, 0, removed)
+							selectionManager.selectId(movingId)
+						}
+						if (proxy) {
+							proxy.syncToStore()
+						}
+						moveManager.clearMoving()
+					}
+
+					const emptied = proxy
+						? proxy.getGroupsEmptiedBy(movedIds)
+						: (groupEditorContext?.groupEditor.getGroupsEmptiedBy(
+								movedIds,
+								getAllModules(flowStore.val.value.modules)
+							) ?? [])
+					if (emptied.length > 0) {
+						emptyGroupsPending = emptied
+						emptyGroupsActionLabel = 'move'
+						emptyGroupsAction = doMove
+						emptyGroupsCancel = () => moveManager.clearMoving()
+					} else {
+						doMove()
+					}
+					refreshStateStore(flowStore)
+					dispatch('change')
+					return
 				}
+
+				// --- INSERT ---
+				if (detail.isPreprocessor) {
+					await insertNewPreprocessorModule(
+						flowStore,
+						flowStateStore,
+						detail.inlineScript,
+						detail.script
+					)
+					selectionManager.selectId('preprocessor')
+					if (detail.inlineScript?.instructions) {
+						dispatch('generateStep', {
+							moduleId: 'preprocessor',
+							lang: detail.inlineScript?.language,
+							instructions: detail.inlineScript?.instructions
+						})
+					}
+					refreshStateStore(flowStore)
+					dispatch('change')
+					return
+				}
+
+				push(history, flowStore.val)
+
+				// Find target array for insertion
+				let targetModules: any[] | undefined
+				const items = (proxy ? proxy.items : flowStore.val.value.modules) as GroupedModule[]
+
+				if (detail.sourceId == 'Input' || detail.targetId == 'Result' || detail.kind == 'trigger') {
+					targetModules = items
+				}
+				dfsGrouped(items, (item, parentArray, branches) => {
+					if (detail.branch && matchGroupedModuleForDfs(item, detail.branch.rootId)) {
+						targetModules = branches[detail.branch.branch]
+					} else if (
+						matchGroupedModuleForDfs(item, detail.sourceId ?? '') ||
+						matchGroupedModuleForDfs(item, detail.targetId ?? '')
+					) {
+						targetModules = parentArray
+					} else if (
+						detail.agentId &&
+						!isGroupItem(item) &&
+						(item as FlowModule).id == detail.agentId
+					) {
+						targetModules = branches[0]
+					}
+				})
+
+				if (!targetModules) {
+					targetModules = items
+				}
+
+				const isAgentInsert = !!detail.agentId
+				const index = (isAgentInsert ? targetModules?.length : detail.index) ?? 0
+				const toolKind: SpecialToolKind | 'flowmoduleTool' | undefined = isAgentInsert
+					? (SPECIAL_TOOL_KINDS as readonly string[]).includes(detail.kind)
+						? (detail.kind as SpecialToolKind)
+						: 'flowmoduleTool'
+					: undefined
+
+				await insertNewModuleAtIndex(
+					targetModules,
+					index,
+					detail.kind as InsertKind,
+					detail.script,
+					detail.flow ? { path: detail.flow.path, summary: detail.flow.summary } : undefined,
+					detail.inlineScript,
+					toolKind
+				)
+				const id = (targetModules as any[])[index].id
+				selectionManager.selectId(id)
+
+				if (proxy && !isAgentInsert) {
+					proxy.syncToStore()
+				}
+
+				if (detail.inlineScript?.instructions) {
+					dispatch('generateStep', {
+						moduleId: id,
+						lang: detail.inlineScript?.language,
+						instructions: detail.inlineScript?.instructions
+					})
+				}
+				if (detail.kind == 'trigger') {
+					await insertNewModuleAtIndex(
+						targetModules,
+						index + 1,
+						'forloop',
+						undefined,
+						undefined,
+						undefined
+					)
+					setExpr((targetModules as FlowModule[])[index + 1], `results.${id}`)
+					if (proxy) proxy.syncToStore()
+					setScheduledPollSchedule(triggersState, triggersCount)
+				}
+				if (detail.flow?.path) {
+					loadLastJob(detail.flow.path, id)
+				} else if (detail.script?.path) {
+					loadLastJob(detail.script?.path, id)
+				}
+
+				if (['branchone', 'branchall'].includes(detail.kind)) {
+					await addBranch((targetModules as any[])[detail.index ?? 0].id)
+				}
+				refreshStateStore(flowStore)
+				dispatch('change')
 			}}
 			onNewBranch={async (id) => {
 				if (id) {

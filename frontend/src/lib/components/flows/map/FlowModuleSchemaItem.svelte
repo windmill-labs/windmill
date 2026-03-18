@@ -19,7 +19,8 @@
 		Loader2,
 		TriangleAlert,
 		Timer,
-		Maximize2
+		Maximize2,
+		Minimize2
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -91,6 +92,8 @@
 		enableTestRun?: boolean
 		maximizeSubflow?: () => void
 		menuItems?: Item[]
+		collapseContainer?: () => void
+		expandContainer?: () => void
 	}
 
 	let {
@@ -125,7 +128,9 @@
 		flowJob,
 		enableTestRun = false,
 		maximizeSubflow = undefined,
-		menuItems = undefined
+		menuItems = undefined,
+		collapseContainer = undefined,
+		expandContainer = undefined
 	}: Props = $props()
 
 	// AI action colors take priority over execution state
@@ -214,7 +219,7 @@
 		flowStore?.val?.value.failure_module
 	)}
 	<Drawer bind:open={editId}>
-		<DrawerContent title="Edit Step Id {id}" on:close={() => (editId = false)}>
+		<DrawerContent title="Edit step id {id}" on:close={() => (editId = false)}>
 			<div>
 				<IdEditorInput
 					buttonText="Edit Id "
@@ -285,7 +290,7 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class={classNames(
-			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-base',
+			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-sm',
 			colorClasses.bg
 		)}
 		style="width: 275px; height: 34px;"
@@ -434,11 +439,9 @@
 				{label}
 				{path}
 				{id}
-				{deletable}
 				{bold}
 				bind:editId
 				disableEditId={isMultiSelected}
-				{hover}
 				{colorClasses}
 			>
 				{#snippet icon()}
@@ -487,6 +490,12 @@
 		{#if deletable && !isDragging}
 			{#if maximizeSubflow !== undefined}
 				{@render buttonMaximizeSubflow?.()}
+			{/if}
+			{#if collapseContainer !== undefined}
+				{@render buttonCollapseContainer?.()}
+			{/if}
+			{#if expandContainer !== undefined}
+				{@render buttonExpandContainer?.()}
 			{/if}
 
 			{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
@@ -566,6 +575,10 @@
 			{/if}
 		{:else if maximizeSubflow !== undefined}
 			{@render buttonMaximizeSubflow?.()}
+		{:else if collapseContainer !== undefined}
+			{@render buttonCollapseContainer?.()}
+		{:else if expandContainer !== undefined}
+			{@render buttonExpandContainer?.()}
 		{/if}
 	</div>
 
@@ -640,6 +653,54 @@
 				e.stopPropagation()
 				e.preventDefault()
 				maximizeSubflow?.()
+			}}
+			onpointerdown={(e) => {
+				e.stopPropagation()
+				e.preventDefault()
+			}}
+		>
+			<Maximize2 size={12} />
+		</button>
+	</div>
+{/snippet}
+
+{#snippet buttonCollapseContainer()}
+	<div class="absolute -translate-y-[100%] top-2 right-10 h-7 p-1">
+		<button
+			title="Collapse"
+			class={twMerge(
+				'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1',
+				'shadow-md rounded-md',
+				hover || selected ? 'opacity-100' : 'opacity-50'
+			)}
+			onclick={(e) => {
+				e.stopPropagation()
+				e.preventDefault()
+				collapseContainer?.()
+			}}
+			onpointerdown={(e) => {
+				e.stopPropagation()
+				e.preventDefault()
+			}}
+		>
+			<Minimize2 size={12} />
+		</button>
+	</div>
+{/snippet}
+
+{#snippet buttonExpandContainer()}
+	<div class="absolute -translate-y-[100%] top-2 right-10 h-7 p-1">
+		<button
+			title="Expand"
+			class={twMerge(
+				'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1',
+				'shadow-md rounded-md',
+				hover || selected ? 'opacity-100' : 'opacity-50'
+			)}
+			onclick={(e) => {
+				e.stopPropagation()
+				e.preventDefault()
+				expandContainer?.()
 			}}
 			onpointerdown={(e) => {
 				e.stopPropagation()

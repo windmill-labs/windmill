@@ -6,6 +6,7 @@
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
 	import { isMac, type Item } from '$lib/utils'
+	import StepCountTab from '../../StepCountTab.svelte'
 
 	interface Props {
 		data: ModuleN['data']
@@ -41,10 +42,34 @@
 		return typ
 	})
 
+	let isContainer = $derived(
+		data.module.value.type === 'branchall' ||
+			data.module.value.type === 'branchone' ||
+			data.module.value.type === 'forloopflow' ||
+			data.module.value.type === 'whileloopflow'
+	)
+
+	function countFlowModules(items: any[]): number {
+		return items.reduce(
+			(n: number, m: any) => n + (m.type === 'group' ? countFlowModules(m.modules) : 1),
+			0
+		)
+	}
+
+	let containerStepCount = $derived.by(() => {
+		if (data.isCollapsedContainer) return data.containerModules?.length ?? 0
+		const v = data.module.value as any
+		if (v.type === 'branchall') return countFlowModules(v.branches.flatMap((b: any) => b.modules))
+		if (v.type === 'branchone')
+			return countFlowModules([...v.default, ...v.branches.flatMap((b: any) => b.modules)])
+		if (v.type === 'forloopflow' || v.type === 'whileloopflow') return countFlowModules(v.modules)
+		return 0
+	})
+
 	// Define context menu items
 	let noteDisabled = $derived(
 		!noteEditorContext?.noteEditor ||
-		(noteEditorContext?.noteEditor?.isNodeOnlyMemberOfGroupNote(data.id) ?? false)
+			(noteEditorContext?.noteEditor?.isNodeOnlyMemberOfGroupNote(data.id) ?? false)
 	)
 
 	let isPreprocessor = $derived(data.id === 'preprocessor')
@@ -91,63 +116,78 @@
 
 <NodeWrapper {menuItems}>
 	{#snippet children({ darkMode })}
-		<MapItem
-			moduleId={data.id}
-			mod={data.module}
-			insertable={data.insertable}
-			editMode={data.editMode}
-			moduleAction={data.moduleAction}
-			{menuItems}
-			annotation={flowJobs &&
-			(data.module?.value?.type === 'forloopflow' || data.module?.value?.type === 'whileloopflow')
-				? 'Iteration: ' +
-					((state?.selectedForloopIndex ?? 0) >= 0
-						? (state?.selectedForloopIndex ?? 0) + 1
-						: state?.flow_jobs?.length) +
-					'/' +
-					(state?.iteration_total ?? '?')
-				: ''}
-			nodeState={state?.skipped ? '_Skipped' : type}
-			duration_ms={state?.duration_ms}
-			retries={state?.retries}
-			{flowJobs}
-			on:delete={(e) => {
-				data.eventHandlers.delete(e.detail, '')
-			}}
-			on:changeId={(e) => {
-				data.eventHandlers.changeId(e.detail)
-			}}
-			on:move={(e) => {
-				data.eventHandlers.move({ id: data.id })
-			}}
-			on:newBranch={(e) => {
-				data.eventHandlers.newBranch(data.id)
-			}}
-			onSelect={(e) => {
-				setTimeout(() => e && data.eventHandlers.select(e))
-			}}
-			onSelectedIteration={(e) => {
-				data.eventHandlers.selectedIteration(e)
-			}}
-			onTestUpTo={data.eventHandlers.testUpTo}
-			onUpdateMock={(detail) => {
-				data.eventHandlers.updateMock(detail)
-			}}
-			onEditInput={data.eventHandlers.editInput}
-			flowJob={data.flowJob}
-			isOwner={data.isOwner}
-			maximizeSubflow={data.module?.value?.type == 'flow' && 'path' in data.module.value
-				? () => {
-						const path = data.module?.value && 'path' in data.module.value ? data.module.value['path'] as string : undefined
-						if (path) {
-							data.eventHandlers.expandSubflow(data.id, path)
-						}
-					}
-				: undefined}
-		/>
+		<div class="relative">
+			{#if isContainer}
+				<StepCountTab
+					stepCount={containerStepCount}
+					collapsed={!!data.isCollapsedContainer}
+					onExpand={data.isCollapsedContainer
+						? () => data.eventHandlers.expandContainer(data.id)
+						: () => data.eventHandlers.collapseContainer(data.id)}
+				/>
+			{/if}
 
-		<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">
-			{#if (data.module?.value?.type === 'branchall' || data.module?.value?.type === 'branchone') && data.insertable}
+			<MapItem
+				moduleId={data.id}
+				mod={data.module}
+				insertable={data.insertable}
+				editMode={data.editMode}
+				moduleAction={data.moduleAction}
+				{menuItems}
+				annotation={flowJobs &&
+				(data.module?.value?.type === 'forloopflow' || data.module?.value?.type === 'whileloopflow')
+					? 'Iteration: ' +
+						((state?.selectedForloopIndex ?? 0) >= 0
+							? (state?.selectedForloopIndex ?? 0) + 1
+							: state?.flow_jobs?.length) +
+						'/' +
+						(state?.iteration_total ?? '?')
+					: ''}
+				nodeState={state?.skipped ? '_Skipped' : type}
+				duration_ms={state?.duration_ms}
+				retries={state?.retries}
+				{flowJobs}
+				on:delete={(e) => {
+					data.eventHandlers.delete(e.detail, '')
+				}}
+				on:changeId={(e) => {
+					data.eventHandlers.changeId(e.detail)
+				}}
+				on:move={(e) => {
+					data.eventHandlers.move({ id: data.id })
+				}}
+				on:newBranch={(e) => {
+					data.eventHandlers.newBranch(data.id)
+				}}
+				onSelect={(e) => {
+					setTimeout(() => e && data.eventHandlers.select(e))
+				}}
+				onSelectedIteration={(e) => {
+					data.eventHandlers.selectedIteration(e)
+				}}
+				onTestUpTo={data.eventHandlers.testUpTo}
+				onUpdateMock={(detail) => {
+					data.eventHandlers.updateMock(detail)
+				}}
+				onEditInput={data.eventHandlers.editInput}
+				flowJob={data.flowJob}
+				isOwner={data.isOwner}
+				maximizeSubflow={data.module?.value?.type == 'flow' && 'path' in data.module.value
+					? () => {
+							const path =
+								data.module?.value && 'path' in data.module.value
+									? (data.module.value['path'] as string)
+									: undefined
+							if (path) {
+								data.eventHandlers.expandSubflow(data.id, path)
+							}
+						}
+					: undefined}
+			/>
+		</div>
+
+		{#if (data.module?.value?.type === 'branchall' || data.module?.value?.type === 'branchone') && data.insertable}
+			<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10 flex gap-1">
 				<button
 					title="Add branch"
 					class="rounded text-secondary border hover:bg-surface-hover bg-surface p-1"
@@ -157,7 +197,7 @@
 				>
 					<GitBranchPlus size={16} />
 				</button>
-			{/if}
-		</div>
+			</div>
+		{/if}
 	{/snippet}
 </NodeWrapper>

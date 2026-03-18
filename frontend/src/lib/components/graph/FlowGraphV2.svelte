@@ -49,7 +49,7 @@
 	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
 	import type { TriggerContext } from '../triggers'
 	import { workspaceStore } from '$lib/stores'
-	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
+	import CollapsedSubflowNode from './renderers/nodes/CollapsedSubflowNode.svelte'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import ViewportResizer from './ViewportResizer.svelte'
 	import ViewportSynchronizer from './ViewportSynchronizer.svelte'
@@ -59,8 +59,26 @@
 	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
 	import NoteNode from './renderers/nodes/NoteNode.svelte'
+	import CollapsedGroupNode from './renderers/nodes/CollapsedGroupNode.svelte'
+	import GroupHeadNode from './renderers/nodes/GroupHeadNode.svelte'
+	import GroupEndNode from './renderers/nodes/GroupEndNode.svelte'
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
+	import GroupOverlay from './GroupOverlay.svelte'
+	import {
+		buildGroupedModules,
+		getGroupEditorContext,
+		GROUP_HEADER_HEIGHT,
+		type FlowGroup,
+		type GroupedModule
+	} from './groupEditor.svelte'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+	import {
+		computeGroupNodeIds,
+		computeGroupModuleIds,
+		type GroupMembership
+	} from './groupDetectionUtils'
+	import { getAllModules } from '../flows/flowExplorer'
 	import SelectionTool from './SelectionTool.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
@@ -72,6 +90,18 @@
 	import { compoundLayout } from './compoundLayout'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
+	import {
+		assetDisplaysAsInputInFlowGraph,
+		assetDisplaysAsOutputInFlowGraph,
+		NODE_WITH_READ_ASSET_Y_OFFSET,
+		NODE_WITH_WRITE_ASSET_Y_OFFSET
+	} from './renderers/nodes/AssetNode.svelte'
+	import {
+		AI_TOOL_BASE_OFFSET,
+		AI_TOOL_ROW_OFFSET,
+		BELOW_ADDITIONAL_OFFSET
+	} from './renderers/nodes/AIToolNode.svelte'
+	import { topologicalSort } from './graphBuilder.svelte'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { setGraphContext } from './graphContext'
 	import { computeNoteNodes } from './noteUtils.svelte'
@@ -100,6 +130,7 @@
 	interface Props {
 		success?: boolean | undefined
 		modules?: FlowModule[] | undefined
+		groupedModules?: GroupedModule[]
 		failureModule?: FlowModule | undefined
 		preprocessorModule?: FlowModule | undefined
 		minHeight?: number
@@ -152,6 +183,7 @@
 			script?: { path: string; summary: string; hash: string | undefined }
 			flow?: { path: string; summary: string }
 			kind: InsertKind
+			expandGroup?: { groupId: string; position: 'top' | 'bottom' }
 		}) => Promise<void>
 		onNewBranch?: (id: string) => Promise<void>
 		onSelect?: (id: string | FlowModule) => void
@@ -193,6 +225,7 @@
 		onSelectedIteration = undefined,
 		success = undefined,
 		modules = [],
+		groupedModules: groupedModulesProp = undefined,
 		failureModule = undefined,
 		preprocessorModule = undefined,
 		minHeight = 0,
@@ -248,6 +281,9 @@
 		movingIds = undefined
 	}: Props = $props()
 
+	// Runtime state for collapsed containers (expanded by default)
+	let collapsedContainers = $state<Set<string>>(new Set())
+
 	// Initialize note manager with fine-grained reactivity
 	const noteManager = new NoteManager(
 		() => notes ?? [],
@@ -264,11 +300,19 @@
 	let paneContextMenu: PaneContextMenu | undefined = $state(undefined)
 	let flowContainer: HTMLDivElement | undefined = $state(undefined)
 
+	// Hover tracking for group overlay
+
 	// Selection manager - create one if not provided
 	let selectionManager = untrack(() => selectionManagerProp) || new SelectionManager()
 	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const noteEditorContext = getNoteEditorContext()
+	const groupEditorContext = getGroupEditorContext()
+
+	// Deep-read group note heights from GroupEditor for reactive layout
+	let groupNoteHeightsKey = $derived(
+		JSON.stringify(groupEditorContext?.groupEditor.getNoteHeights() ?? {})
+	)
 
 	// Function to calculate extra gap needed for notes below the lowest flow nodes
 	function calculateNoteGap(notes: FlowNote[] | undefined): number {
@@ -298,7 +342,9 @@
 		moveManager: untrack(() => moveManager),
 		clearFlowSelection,
 		yOffset,
-		diffManager
+		diffManager,
+		getFlowNodes: () => currentGraphNodeDeps,
+		getGroupMemberships: () => currentGroupMemberships
 	} as any)
 
 	if (triggerContext && untrack(() => allowSimplifiedPoll)) {
@@ -332,14 +378,180 @@
 	type NodeDep = {
 		id: string
 		parentIds?: string[]
-		data?: { assets?: AssetWithAltAccessType[] }
+		data?: { assets?: AssetWithAltAccessType[]; module?: any }
 	}
 	type NodePos = { position: { x: number; y: number } }
-	let lastNodes: [NodeDep[], (NodeDep & NodePos)[]] | undefined = undefined
+	let lastNodes:
+		| [NodeDep[], Map<string, { top: number; bottom: number }> | undefined, (NodeDep & NodePos)[]]
+		| undefined = undefined
+	let currentGraphNodeDeps: { id: string; parentIds?: string[] }[] = $state([])
 
-	function layoutNodes(nodes: NodeDep[]): (NodeDep & NodePos)[] {
-		let lastResult = lastNodes?.[1]
-		if (lastResult && deepEqual(nodes, lastNodes?.[0])) {
+	/** Compute group memberships from start_id/end_id for a given set of flow nodes.
+	 *  Collapsed groups preserve their previous membership (their member nodes
+	 *  aren't in the graph — they've been replaced by a placeholder). */
+	function computeAllGroupMemberships(
+		groups: FlowGroup[],
+		flowNodes: { id: string; parentIds?: string[] }[]
+	): Map<string, GroupMembership> {
+		const map = new Map<string, GroupMembership>()
+		for (const group of groups) {
+			if (groupEditorContext?.groupEditor.isRuntimeCollapsed(group.id)) {
+				const prev = currentGroupMemberships.get(group.id)
+				if (prev) map.set(group.id, prev)
+				continue
+			}
+			map.set(group.id, computeGroupNodeIds(group.start_id, group.end_id, flowNodes))
+		}
+		// Compute nesting depth: group B is nested inside group A if B's topoRange
+		// is strictly contained within A's topoRange. Depth = count of containing groups.
+		for (const [id, membership] of map) {
+			if (!membership.topoRange) continue
+			let depth = 0
+			for (const [otherId, other] of map) {
+				if (otherId === id || !other.topoRange) continue
+				const [oFirst, oLast] = other.topoRange
+				const [first, last] = membership.topoRange
+				if (oFirst <= first && oLast >= last && (oFirst < first || oLast > last)) {
+					depth++
+				}
+			}
+			membership.depth = depth
+		}
+		return map
+	}
+
+	// Current group memberships — recomputed when groups or nodes change
+	let currentGroupMemberships: Map<string, GroupMembership> = $state(new Map())
+
+	const MAX_TOOLS_PER_ROW = 2
+
+	/**
+	 * Pre-compute extra top/bottom space each node needs for decorations
+	 * (assets, AI tools, group headers, group notes).
+	 */
+	function computeNodeExtraSpace(
+		graphNodes: NodeDep[]
+	): Map<string, { top: number; bottom: number; left: number; right: number }> | undefined {
+		const extraSpace = new Map<
+			string,
+			{ top: number; bottom: number; left: number; right: number }
+		>()
+
+		// 1. Assets
+		if ($showAssets) {
+			for (const node of graphNodes) {
+				const assets = node.data?.assets ?? []
+				if (!assets.length) continue
+				const hasRead = assets.some(assetDisplaysAsInputInFlowGraph)
+				const hasWrite = assets.some(assetDisplaysAsOutputInFlowGraph)
+				if (hasRead || hasWrite) {
+					const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }
+					extraSpace.set(node.id, {
+						...prev,
+						top: prev.top + (hasRead ? NODE_WITH_READ_ASSET_Y_OFFSET : 0),
+						bottom: prev.bottom + (hasWrite ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)
+					})
+				}
+			}
+		}
+
+		// 2. AI tools
+		for (const node of graphNodes) {
+			const mod = node.data?.module
+			if (!mod || mod.value?.type !== 'aiagent') continue
+
+			const agentActions = !insertable && flowModuleStates?.[node.id]?.agent_actions
+
+			if (agentActions) {
+				// Execution mode: tools below
+				const totalRows = Math.ceil(agentActions.length / MAX_TOOLS_PER_ROW)
+				const space = AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET * totalRows + BELOW_ADDITIONAL_OFFSET
+				const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }
+				extraSpace.set(node.id, { ...prev, bottom: prev.bottom + space })
+			} else {
+				// Edit mode: tools above
+				const tools = mod.value.tools ?? []
+				const totalRows = Math.ceil(tools.length / MAX_TOOLS_PER_ROW) + (insertable ? 1 : 0)
+				const space = AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET * totalRows
+				const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }
+				extraSpace.set(node.id, { ...prev, top: prev.top + space })
+			}
+		}
+
+		// Topological sort (reversed: top-of-graph first) — shared by group notes and group headers
+		const sortedNodes = topologicalSort(graphNodes).reverse()
+
+		// 3. Group notes (text above topmost node in each group note)
+		if (showNotes) {
+			const groupNotes = (notes ?? []).filter((n) => n.type === 'group')
+			if (groupNotes.length > 0) {
+				for (const groupNote of groupNotes) {
+					if (!groupNote.contained_node_ids?.length) continue
+					const topmostNodeId = sortedNodes.find((node) =>
+						groupNote.contained_node_ids?.includes(node.id)
+					)?.id
+					if (topmostNodeId) {
+						const textHeight = noteTextHeights[groupNote.id] || 60
+						const spacing = textHeight + 16 // padding
+						const prev = extraSpace.get(topmostNodeId) ?? { top: 0, bottom: 0, left: 0, right: 0 }
+						extraSpace.set(topmostNodeId, {
+							...prev,
+							top: Math.max(prev.top, spacing + prev.top)
+						})
+					}
+				}
+			}
+		}
+
+		// 4. Collapsed group nodes are taller than regular nodes (header + module icons)
+		for (const node of graphNodes) {
+			if (node.id.startsWith('collapsed-group:')) {
+				const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }
+				extraSpace.set(node.id, {
+					...prev,
+					bottom: prev.bottom + GROUP_HEADER_HEIGHT
+				})
+			}
+		}
+
+		// 5. Group nodes (expanded heads and collapsed) with notes need extra height
+		if (showNotes) {
+			const noteHeights = groupEditorContext?.groupEditor.getNoteHeights() ?? {}
+			for (const node of graphNodes) {
+				let groupId: string | undefined
+				if (node.id.startsWith('group:') && !node.id.endsWith('-end')) {
+					groupId = node.id.slice('group:'.length)
+				} else if (node.id.startsWith('collapsed-group:')) {
+					groupId = node.id.slice('collapsed-group:'.length)
+				}
+				if (groupId) {
+					const noteHeight = noteHeights[groupId]
+					if (noteHeight && noteHeight > 0) {
+						const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }
+						extraSpace.set(node.id, {
+							...prev,
+							bottom: prev.bottom + noteHeight
+						})
+					}
+				}
+			}
+		}
+
+		return extraSpace.size > 0 ? extraSpace : undefined
+	}
+
+	let lastGroupDimensions: Map<string, { width: number; height: number }> | undefined = undefined
+
+	function layoutNodes(
+		nodes: NodeDep[],
+		nodeExtraSpace?: Map<string, { top: number; bottom: number; left: number; right: number }>
+	): (NodeDep & NodePos)[] {
+		let lastResult = lastNodes?.[2]
+		if (
+			lastResult &&
+			deepEqual(nodes, lastNodes?.[0]) &&
+			deepEqual(nodeExtraSpace, lastNodes?.[1])
+		) {
 			console.debug('layoutNodes', 'same nodes')
 			return lastResult
 		}
@@ -352,16 +564,23 @@
 			seenId.push(n.id)
 		}
 
-		// Run recursive compound layout
-		const { positions, bbox } = compoundLayout(nodes, {
-			nodeWidth: NODE.width,
-			nodeHeight: NODE.height,
-			gapH: NODE.gap.horizontal,
-			gapV: NODE.gap.vertical
-		})
+		// Run recursive compound layout with pre-computed extra space
+		const layoutResult = compoundLayout(
+			nodes,
+			{
+				nodeWidth: NODE.width,
+				nodeHeight: NODE.height,
+				gapH: NODE.gap.horizontal,
+				gapV: NODE.gap.vertical
+			},
+			nodeExtraSpace
+		)
+		const { positions, bbox } = layoutResult
+		lastGroupDimensions = layoutResult.groupDimensions
+
+		const xCenter = (fullSize ? fullWidth : width) / 2 - bbox.width / 2 - (width - fullWidth) / 2
 
 		// Center horizontally
-		const xCenter = (fullSize ? fullWidth : width) / 2 - bbox.width / 2 - (width - fullWidth) / 2
 		const newNodes = nodes.map((n) => ({
 			id: n.id,
 			position: {
@@ -370,7 +589,7 @@
 			}
 		}))
 
-		lastNodes = [nodes, newNodes]
+		lastNodes = [nodes, nodeExtraSpace, newNodes]
 		return newNodes
 	}
 
@@ -420,6 +639,15 @@
 		minimizeSubflow: (id: string) => {
 			delete expandedSubflows[id]
 			expandedSubflows = expandedSubflows
+		},
+		expandGroup: (groupId: string) => {
+			groupEditorContext?.groupEditor.expandGroup(groupId)
+		},
+		expandContainer: (moduleId: string) => {
+			collapsedContainers = new Set([...collapsedContainers].filter((id) => id !== moduleId))
+		},
+		collapseContainer: (moduleId: string) => {
+			collapsedContainers = new Set([...collapsedContainers, moduleId])
 		},
 		updateMock: (detail) => {
 			onUpdateMock?.(detail)
@@ -585,17 +813,35 @@
 			return
 		}
 
-		// console.log('compute')
+		const graphNodeDeps = Object.values(graph.nodes).map((n) => ({
+			id: n.id,
+			parentIds: n.parentIds,
+			data: { assets: (n.data as any).assets, module: (n.data as any).module }
+		}))
+		currentGraphNodeDeps = graphNodeDeps
 
-		let layoutedNodes = layoutNodes(
-			Object.values(graph.nodes).map((n) => ({
-				id: n.id,
-				parentIds: n.parentIds,
-				data: { assets: (n.data as any).assets }
-			}))
+		// Compute group memberships from start_id/end_id
+		currentGroupMemberships = computeAllGroupMemberships(
+			groupEditorContext?.groupEditor.getGroups() ?? [],
+			graphNodeDeps
 		)
-		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
 
+		// Pre-compute extra space per node for assets, AI tools, group notes, group headers
+		const nodeExtraSpace = computeNodeExtraSpace(graphNodeDeps)
+
+		// Layout with extra space baked into sugiyama
+		let layoutedNodes = layoutNodes(graphNodeDeps, nodeExtraSpace)
+		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => {
+			const merged = { ...n, ...graph.nodes[n.id] }
+			// Augment group head nodes with wrapper dimensions from compound layout
+			if (graph.nodes[n.id]?.type === 'groupHead' && lastGroupDimensions?.has(n.id)) {
+				const dims = lastGroupDimensions.get(n.id)!
+				merged.data = { ...merged.data, wrapperWidth: dims.width, wrapperHeight: dims.height }
+			}
+			return merged
+		})
+
+		// Compute asset visual nodes (no position remapping)
 		let assetNodesResult = $showAssets
 			? computeAssetNodes(
 					newNodes.map((n) => ({
@@ -605,25 +851,17 @@
 					}))
 				)
 			: undefined
-		if (assetNodesResult) {
-			newNodes = newNodes.map((n) => ({
-				...n,
-				position: assetNodesResult.newNodePositions[n.id]
-			}))
-		}
-		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
-		let nodesAfterAITools = newNodes.map((n) => ({
-			...n,
-			position: aiToolNodesResult.newNodePositions[n.id]
-		}))
 
-		let finalNodes = [
-			...nodesAfterAITools,
+		// Compute AI tool visual nodes (no position remapping)
+		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
+
+		let finalNodes: (Node & NodeLayout)[] = [
+			...newNodes,
 			...(assetNodesResult?.newAssetNodes ?? []),
 			...aiToolNodesResult.toolNodes
 		]
 
-		// Compute note nodes and positions
+		// Compute note nodes (no position remapping)
 		let noteNodesResult = showNotes
 			? computeNoteNodes(
 					finalNodes.map((n) => ({
@@ -643,14 +881,6 @@
 					noteEditorContext
 				)
 			: undefined
-
-		// Apply note positioning to nodes if notes are enabled
-		if (noteNodesResult) {
-			finalNodes = finalNodes.map((n) => ({
-				...n,
-				position: noteNodesResult.newNodePositions[n.id] || n.position
-			}))
-		}
 
 		// update nodes
 		nodes = [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])]
@@ -692,14 +922,17 @@
 		whileLoopEnd: ForLoopEndNode,
 		branchOneStart: BranchOneStart,
 		branchOneEnd: BranchOneEndNode,
-		subflowBound: SubflowBound,
+		collapsedSubflow: CollapsedSubflowNode,
 		noBranch: NoBranchNode,
 		trigger: TriggersNode,
 		asset: AssetNode,
 		assetsOverflowed: AssetsOverflowedNode,
 		aiTool: AiToolNode,
 		newAiTool: NewAiToolNode,
-		note: NoteNode
+		note: NoteNode,
+		collapsedGroup: CollapsedGroupNode,
+		groupHead: GroupHeadNode,
+		groupEnd: GroupEndNode
 	} as any
 
 	const edgeTypes = {
@@ -735,7 +968,30 @@
 	let graph = $derived.by(() => {
 		moduleTracker.counter
 		effectiveModuleActions
-		return graphBuilder(
+		currentGroups
+
+		// Use provided groupedModules (from proxy) or build locally (diff mode / read-only)
+		let gm: GroupedModule[] | undefined = groupedModulesProp
+		if (!gm) {
+			const allGroups = groupEditorContext?.groupEditor.getGroups() ?? []
+			const collapsedGroupIds = new Set(
+				(groupEditorContext?.groupEditor.getCollapsedGroups() ?? []).map((g) => g.id)
+			)
+			const graphGroups = allGroups.map((g) => ({
+				...g,
+				collapsed: collapsedGroupIds.has(g.id),
+				moduleIds: untrack(() =>
+					computeGroupModuleIds(g.start_id, g.end_id, getAllModules(effectiveModules ?? []))
+				)
+			}))
+			gm = buildGroupedModules(
+				stateSnapshot(untrack(() => effectiveModules) ?? []) as FlowModule[],
+				graphGroups
+			)
+		}
+
+		const result = graphBuilder(
+			gm,
 			untrack(() => effectiveModules),
 			{
 				disableAi,
@@ -767,16 +1023,33 @@
 			untrack(() => selectedId),
 			simplifiableFlow,
 			triggerNode ? path : undefined,
-			expandedSubflows
+			expandedSubflows,
+			collapsedContainers,
+			showNotes
 		)
+		return result
 	})
 	let hideAssetsToggle = $derived(
 		$showAssets && Object.values(nodes).every((n) => n.type !== 'asset')
 	)
-	let hideNotesToggle = $derived(!notes || notes.length === 0)
+	let hideNotesToggle = $derived(
+		(!notes || notes.length === 0) &&
+			!(groupEditorContext?.groupEditor.getGroups().some((g) => g.note != null) ?? false)
+	)
+
+	// Track groups for re-layout when groups change
+	let currentGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
 
 	$effect(() => {
-		;[graph, allowSimplifiedPoll, $showAssets, showNotes, noteManager.renderCount]
+		;[
+			graph,
+			allowSimplifiedPoll,
+			$showAssets,
+			showNotes,
+			noteManager.renderCount,
+			currentGroups,
+			groupNoteHeightsKey
+		]
 		untrack(async () => {
 			await updateStores()
 		})
@@ -909,7 +1182,7 @@
 	bind:this={flowContainer}
 >
 	{#if graph?.error}
-		<div class="center-center p-2">
+		<div class="center-center p-2 mt-20">
 			<Alert title="Error parsing the flow" type="error" class="max-w-1/2">
 				{graph.error}
 
@@ -1007,6 +1280,12 @@
 						{resolvedModuleIds}
 					/>
 				{/if}
+
+				<GroupOverlay
+					allNodes={nodesWithOffset as (Node & { type: string })[]}
+					{showNotes}
+					groupMemberships={currentGroupMemberships}
+				/>
 
 				<!-- SelectionTool for handling selection changes and filtering -->
 				<SelectionTool {selectionManager} clearGraphSelection={clearFlowSelection} />
