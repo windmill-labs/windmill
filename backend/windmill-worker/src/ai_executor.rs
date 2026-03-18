@@ -499,6 +499,16 @@ pub async fn handle_ai_agent_job(
     // Cleanup MCP clients
     cleanup_mcp_clients(mcp_clients).await;
 
+    let format_cancel_info = |cb: &Option<CanceledBy>| {
+        cb.as_ref()
+            .map_or(("unknown".to_string(), "unknown".to_string()), |x| {
+                (
+                    x.username.clone().unwrap_or_default(),
+                    x.reason.clone().unwrap_or_default(),
+                )
+            })
+    };
+
     match outcome {
         GracefulPollOutcome::Ok(result) => Ok(result),
         GracefulPollOutcome::Timeout(ms) => {
@@ -509,34 +519,20 @@ pub async fn handle_ai_agent_job(
             )))
         }
         GracefulPollOutcome::Cancelled { canceled_by: cb } => {
-            let (by, reason) =
-                cb.as_ref()
-                    .map_or(("unknown".to_string(), "unknown".to_string()), |x| {
-                        (
-                            x.username.clone().unwrap_or_default(),
-                            x.reason.clone().unwrap_or_default(),
-                        )
-                    });
+            let (by, reason) = format_cancel_info(&cb);
             Err(Error::ExecutionErr(format!(
                 "Job cancelled by {by} (reason: {reason})"
             )))
         }
         GracefulPollOutcome::CancelledTimeout { canceled_by: cb } => {
-            let (by, reason) =
-                cb.as_ref()
-                    .map_or(("unknown".to_string(), "unknown".to_string()), |x| {
-                        (
-                            x.username.clone().unwrap_or_default(),
-                            x.reason.clone().unwrap_or_default(),
-                        )
-                    });
+            let (by, reason) = format_cancel_info(&cb);
             // Abort any still-running spawned tool tasks
             // unwrap safe: lock is only held briefly for push/drain, no panic possible inside
             for handle in tool_abort_handles.lock().unwrap().drain(..) {
                 handle.abort();
             }
             // Hard timeout: clean up orphaned jobs still stuck in v2_job_queue
-            cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, canceled_by.clone()).await;
+            cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, cb).await;
             Err(Error::ExecutionErr(format!(
                 "Job cancelled by {by} (reason: {reason}, timed out waiting for tool calls)"
             )))
@@ -1466,7 +1462,8 @@ async fn cleanup_orphaned_tool_jobs(
                 }
             }
             Err(e) => {
-                tracing::error!("Failed to force-cancel orphaned tool job {}: {}", job_id, e);
+                // warn not error: job may have completed between fetch and cancel (expected race)
+                tracing::warn!("Failed to force-cancel orphaned tool job {}: {}", job_id, e);
             }
         }
     }
