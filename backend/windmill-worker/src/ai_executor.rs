@@ -1,6 +1,6 @@
 #[cfg(feature = "bedrock")]
 use crate::ai::providers::bedrock::check_env_credentials;
-use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
+use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
     filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
@@ -447,6 +447,7 @@ pub async fn handle_ai_agent_job(
 
     // Create cancellation signal for graceful shutdown
     let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+    let tool_abort_handles: ToolAbortHandles = Arc::new(std::sync::Mutex::new(Vec::new()));
 
     /// Grace period for in-flight tool calls to complete after cancellation.
     const CANCEL_GRACE_PERIOD: std::time::Duration = std::time::Duration::from_secs(30);
@@ -472,6 +473,7 @@ pub async fn handle_ai_agent_job(
             has_stream,
             has_websearch,
             cancel_rx,
+            tool_abort_handles.clone(),
         );
 
         let mut occupancy_opt = Some(occupancy_metrics);
@@ -528,6 +530,11 @@ pub async fn handle_ai_agent_job(
                             x.reason.clone().unwrap_or_default(),
                         )
                     });
+            // Abort any still-running spawned tool tasks
+            // unwrap safe: lock is only held briefly for push/drain, no panic possible inside
+            for handle in tool_abort_handles.lock().unwrap().drain(..) {
+                handle.abort();
+            }
             // Hard timeout: clean up orphaned jobs still stuck in v2_job_queue
             cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, canceled_by.clone()).await;
             Err(Error::ExecutionErr(format!(
@@ -568,6 +575,9 @@ pub async fn run_agent(
 
     // cancellation signal from parent
     cancel_rx: tokio::sync::watch::Receiver<bool>,
+
+    // abort handles for spawned tool tasks
+    tool_abort_handles: ToolAbortHandles,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
@@ -1148,6 +1158,7 @@ pub async fn run_agent(
                     flow_context: &mut flow_context,
                     previous_result: &previous_result,
                     id_context: &id_context,
+                    tool_abort_handles: tool_abort_handles.clone(),
                 };
 
                 let (tool_messages, tool_content, tool_used_structured_output) =
