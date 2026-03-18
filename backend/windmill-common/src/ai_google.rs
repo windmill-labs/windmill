@@ -9,7 +9,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ai_types::{ContentPart, ExtraContent, GoogleExtraContent, OpenAIContent, OpenAIMessage, ToolDef, UrlCitation};
+use crate::ai_types::{
+    ContentPart, ExtraContent, GoogleExtraContent, OpenAIContent, OpenAIMessage, ToolDef,
+    UrlCitation,
+};
 use crate::error::Error;
 
 // ============================================================================
@@ -87,7 +90,10 @@ pub struct GeminiTextRequest {
 /// Tool definition — function declarations and/or Google Search grounding.
 #[derive(Serialize)]
 pub struct GeminiTool {
-    #[serde(rename = "functionDeclarations", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "functionDeclarations",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub function_declarations: Option<Vec<GeminiFunctionDeclaration>>,
     #[serde(rename = "googleSearch", skip_serializing_if = "Option::is_none")]
     pub google_search: Option<serde_json::Value>,
@@ -115,7 +121,10 @@ pub struct GeminiToolConfig {
 #[derive(Serialize)]
 pub struct GeminiFunctionCallingConfig {
     pub mode: String,
-    #[serde(rename = "allowedFunctionNames", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "allowedFunctionNames",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub allowed_function_names: Option<Vec<String>>,
 }
 
@@ -341,10 +350,8 @@ pub fn convert_content_to_gemini_parts(content: &OpenAIContent) -> Vec<GeminiPar
                     Some(GeminiPart::Text { text: text.clone() })
                 }
                 ContentPart::ImageUrl { image_url } => {
-                    parse_data_url(&image_url.url).map(|(mime_type, data)| {
-                        GeminiPart::InlineData {
-                            inline_data: GeminiInlineData { mime_type, data },
-                        }
+                    parse_data_url(&image_url.url).map(|(mime_type, data)| GeminiPart::InlineData {
+                        inline_data: GeminiInlineData { mime_type, data },
                     })
                 }
                 // S3Objects are handled by the worker
@@ -372,15 +379,12 @@ pub fn openai_messages_to_gemini(
                 if let Some(content) = &msg.content {
                     let parts = convert_content_to_gemini_parts(content);
                     if !parts.is_empty() {
-                        system_instruction =
-                            Some(GeminiContentMessage { role: None, parts });
+                        system_instruction = Some(GeminiContentMessage { role: None, parts });
                     }
                 }
             }
             "tool" => {
-                if let (Some(tool_call_id), Some(content)) =
-                    (&msg.tool_call_id, &msg.content)
-                {
+                if let (Some(tool_call_id), Some(content)) = (&msg.tool_call_id, &msg.content) {
                     let func_name = find_gemini_function_name(messages, tool_call_id);
                     let response_text = match content {
                         OpenAIContent::Text(text) => text.clone(),
@@ -435,10 +439,8 @@ pub fn openai_messages_to_gemini(
                 }
 
                 if !parts.is_empty() {
-                    contents.push(GeminiContentMessage {
-                        role: Some(gemini_role.to_string()),
-                        parts,
-                    });
+                    contents
+                        .push(GeminiContentMessage { role: Some(gemini_role.to_string()), parts });
                 }
             }
         }
@@ -469,10 +471,8 @@ pub fn openai_tools_to_gemini(
         .collect();
 
     if !declarations.is_empty() {
-        gemini_tools.push(GeminiTool {
-            function_declarations: Some(declarations),
-            google_search: None,
-        });
+        gemini_tools
+            .push(GeminiTool { function_declarations: Some(declarations), google_search: None });
     }
 
     if has_websearch {

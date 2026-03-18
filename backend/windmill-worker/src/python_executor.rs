@@ -1084,6 +1084,101 @@ fn python_preprocessor_spread(sig: windmill_parser::MainArgSignature, indent: &s
     }
 }
 
+/// Generate the multi-script runner group wrapper for Python.
+/// This wrapper can dynamically load multiple scripts and execute them
+/// via the load/exec/end protocol over stdin/stdout.
+pub fn generate_runner_group_wrapper() -> String {
+    let postprocessor = get_result_postprocessor(false);
+    let res_to_json_body = python_res_to_json_body(postprocessor);
+    format!(
+        r#"
+import json
+import sys
+import importlib.util
+import traceback
+import re
+import inspect
+
+scripts = {{}}  # path -> module
+
+def to_b_64(v: bytes):
+    import base64
+    b64 = base64.b64encode(v)
+    return b64.decode('ascii')
+
+replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\u0000|Infinity|\-Infinity)')
+
+def res_to_json(res, typ):
+{res_to_json_body}
+
+sys.stdout.write('start\n')
+sys.stdout.flush()
+
+for line in sys.stdin:
+    line = line.strip()
+    if line == 'end':
+        break
+
+    if line.startswith('load:'):
+        # Protocol: load:<script_path>:<hash>
+        rest = line[len('load:'):]
+        colon_idx = rest.index(':')
+        script_path = rest[:colon_idx]
+        hash_val = rest[colon_idx + 1:]
+        try:
+            mod_name = "scripts." + script_path.replace("/", ".")
+            file_path = "./scripts/" + script_path + "/main.py"
+            spec = importlib.util.spec_from_file_location(mod_name, file_path)
+            mod = importlib.util.module_from_spec(spec)
+            # Remove from sys.modules to force reload on hash change
+            if mod_name in sys.modules:
+                del sys.modules[mod_name]
+            sys.modules[mod_name] = mod
+            spec.loader.exec_module(mod)
+            scripts[script_path] = mod
+            sys.stdout.write("wm_res[loaded]:" + script_path + "\n")
+        except BaseException as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            tb = traceback.format_tb(exc_traceback)
+            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb) }}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+        sys.stdout.flush()
+        continue
+
+    if line.startswith('exec:'):
+        # Protocol: exec:<script_path>:<json_args>
+        rest = line[len('exec:'):]
+        colon_idx = rest.index(':')
+        script_path = rest[:colon_idx]
+        args_json = rest[colon_idx + 1:]
+
+        mod = scripts.get(script_path)
+        if not mod:
+            err_json = json.dumps({{ "message": "Script not loaded: " + script_path, "name": "Error" }}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+            sys.stdout.flush()
+            continue
+
+        try:
+            kwargs = json.loads(args_json, strict=False)
+            res = mod.main(**kwargs)
+            if inspect.isawaitable(res):
+                import asyncio
+                res = asyncio.get_event_loop().run_until_complete(res)
+            typ = type(res)
+            res_json = res_to_json(res, typ)
+            sys.stdout.write("wm_res[success]:" + res_json + "\n")
+        except BaseException as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            tb = traceback.format_tb(exc_traceback)
+            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+        sys.stdout.flush()
+        continue
+"#
+    )
+}
+
 async fn prepare_wrapper(
     job_dir: &str,
     job_flow_step_id: Option<&str>,

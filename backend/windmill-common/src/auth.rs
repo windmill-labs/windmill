@@ -35,10 +35,7 @@ pub const TOKEN_PREFIX_LEN: usize = 10;
 /// Safely extract the token prefix (first TOKEN_PREFIX_LEN chars).
 /// Returns the full token if it's shorter than TOKEN_PREFIX_LEN, preventing panics.
 pub fn safe_token_prefix(token: &str) -> String {
-    token
-        .get(..TOKEN_PREFIX_LEN)
-        .unwrap_or(token)
-        .to_string()
+    token.get(..TOKEN_PREFIX_LEN).unwrap_or(token).to_string()
 }
 
 lazy_static::lazy_static! {

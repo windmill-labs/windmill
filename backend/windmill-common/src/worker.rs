@@ -229,6 +229,7 @@ lazy_static::lazy_static! {
         pip_local_dependencies: Default::default(),
         env_vars: Default::default(),
         native_mode: false,
+        runner_groups: Default::default(),
     }));
 
     pub static ref WORKER_PULL_QUERIES: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(vec![]));
@@ -1531,6 +1532,35 @@ pub fn dedicated_worker_tag(workspace_id: &str, path: &str) -> String {
     )
 }
 
+/// Configuration for a runner group — a single long-lived subprocess
+/// that can execute multiple scripts sharing the same workspace dependency.
+/// Scripts in a runner group still use the normal dedicated_worker_tag() for routing.
+/// The runner group config on the worker side determines how those scripts are grouped
+/// into shared subprocesses.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct RunnerGroupConfig {
+    pub workspace_id: String,
+    pub dep_name: String,
+    pub language: String,
+}
+
+impl RunnerGroupConfig {
+    /// Parse from string format "workspace_id:dep_name:language"
+    pub fn parse(s: &str) -> anyhow::Result<Self> {
+        let parts: Vec<&str> = s.splitn(3, ':').collect();
+        if parts.len() != 3 {
+            return Err(anyhow::anyhow!(
+                "Invalid runner_group format. Got {s}, expects <workspace_id>:<dep_name>:<language>"
+            ));
+        }
+        Ok(Self {
+            workspace_id: parts[0].to_string(),
+            dep_name: parts[1].to_string(),
+            language: parts[2].to_string(),
+        })
+    }
+}
+
 pub async fn load_worker_config(
     db: &DB,
     killpill_tx: KillpillSender,
@@ -1605,6 +1635,28 @@ pub async fn load_worker_config(
                 .collect::<Result<Vec<_>, _>>()
         })
         .transpose()?;
+    // Parse runner_groups
+    let runner_groups = config
+        .runner_groups
+        .as_ref()
+        .map(|rgs| {
+            rgs.iter()
+                .map(|s| RunnerGroupConfig::parse(s))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?;
+
+    if let Some(ref rgs) = runner_groups {
+        for rg in rgs {
+            tracing::info!(
+                "Runner group configured: workspace={}, dep={}, lang={}",
+                rg.workspace_id,
+                rg.dep_name,
+                rg.language,
+            );
+        }
+    }
+
     if *WORKER_GROUP == "default" && dedicated_worker.is_none() {
         let mut all_tags = config
             .worker_tags
@@ -1638,7 +1690,7 @@ pub async fn load_worker_config(
     let worker_tags = config
         .worker_tags
         .or_else(|| {
-            // Check for multiple dedicated workers first
+            // Check for multiple dedicated workers
             if let Some(ref dws) = dedicated_workers.as_ref() {
                 let mut dedi_tags: Vec<String> = dws
                     .iter()
@@ -1764,6 +1816,7 @@ pub async fn load_worker_config(
             .or_else(|| load_additional_python_paths_from_env()),
         env_vars: resolved_env_vars,
         native_mode,
+        runner_groups,
     })
 }
 
@@ -1853,6 +1906,9 @@ pub struct WorkerConfigOpt {
     pub env_vars_static: Option<HashMap<String, String>>,
     pub env_vars_allowlist: Option<Vec<String>>,
     pub native_mode: Option<bool>,
+    /// Runner groups: format "workspace_id:dep_name:language"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runner_groups: Option<Vec<String>>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -1871,6 +1927,7 @@ impl Default for WorkerConfigOpt {
             env_vars_static: Default::default(),
             env_vars_allowlist: Default::default(),
             native_mode: Default::default(),
+            runner_groups: Default::default(),
         }
     }
 }
@@ -1889,12 +1946,13 @@ pub struct WorkerConfig {
     pub pip_local_dependencies: Option<Vec<String>>,
     pub env_vars: HashMap<String, String>,
     pub native_mode: bool,
+    pub runner_groups: Option<Vec<RunnerGroupConfig>>,
 }
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode)
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?}, runner_groups: {:?} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode, self.runner_groups)
     }
 }
 

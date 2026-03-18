@@ -164,6 +164,87 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
     )
 }
 
+/// Generate the multi-script runner group wrapper for Bun.
+/// This wrapper can dynamically load multiple scripts and execute them
+/// via the load/exec/end protocol over stdin/stdout.
+pub fn generate_runner_group_wrapper() -> String {
+    let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
+    let print_lines = if is_debug {
+        r#"console.log("[debug] " + line);"#
+    } else {
+        ""
+    };
+
+    format!(
+        r#"
+import * as Readline from "node:readline"
+
+BigInt.prototype.toJSON = function () {{
+    return this.toString();
+}};
+
+// Map of script_path -> {{ module, argNames }}
+const scripts = new Map();
+
+console.log('start');
+
+for await (const line of Readline.createInterface({{ input: process.stdin }})) {{
+    {print_lines}
+
+    if (line === "end") {{
+        process.exit(0);
+    }}
+
+    if (line.startsWith("load:")) {{
+        // Protocol: load:<script_path>:<hash>
+        const rest = line.slice("load:".length);
+        const colonIdx = rest.indexOf(":");
+        const scriptPath = rest.slice(0, colonIdx);
+        const hash = rest.slice(colonIdx + 1);
+        try {{
+            const mod = await import("./scripts/" + scriptPath + "/main.ts?v=" + hash);
+            // Extract param names from main function signature
+            const mainStr = mod.main.toString();
+            const match = mainStr.match(/^(?:async\s+)?function[^(]*\(([^)]*)\)/);
+            const argNames = match
+                ? match[1].split(',').map(s => s.trim().split(/[=:]/).at(0).trim()).filter(Boolean)
+                : [];
+            scripts.set(scriptPath, {{ module: mod, argNames }});
+            console.log("wm_res[loaded]:" + scriptPath);
+        }} catch (e) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+        }}
+        continue;
+    }}
+
+    if (line.startsWith("exec:")) {{
+        // Protocol: exec:<script_path>:<json_args>
+        const rest = line.slice("exec:".length);
+        const colonIdx = rest.indexOf(":");
+        const scriptPath = rest.slice(0, colonIdx);
+        const argsJson = rest.slice(colonIdx + 1);
+
+        const entry = scripts.get(scriptPath);
+        if (!entry) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not loaded: " + scriptPath, name: "Error" }}));
+            continue;
+        }}
+
+        try {{
+            const parsedArgs = JSON.parse(argsJson);
+            const args = entry.argNames.map(name => parsedArgs[name]);
+            const res = await entry.module.main(...args);
+            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
+        }} catch (e) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+        }}
+        continue;
+    }}
+}}
+"#
+    )
+}
+
 /// Returns (package.json, bun.lock(b), is_empty, is_binary)
 fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool) {
     if let Some(index) = lockfile.find(BUN_LOCK_SPLIT) {
