@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.659.1](https://github.com/windmill-labs/windmill/compare/v1.659.0...v1.659.1) (2026-03-18)
+
+
+### Bug Fixes
+
+* add checkpoint.json mount to python nsjail config for WAC v2 ([#8421](https://github.com/windmill-labs/windmill/issues/8421)) ([4829f44](https://github.com/windmill-labs/windmill/commit/4829f447ed3df8489995c5e54955fbfe6b31e37d))
+* cleanup job debounce batch ([#8420](https://github.com/windmill-labs/windmill/issues/8420)) ([ad03a5d](https://github.com/windmill-labs/windmill/commit/ad03a5dbd7f93748115037791143249ba0ab6161))
+* **frontend:** fix output of resultnode + svelte5 nits ([#8424](https://github.com/windmill-labs/windmill/issues/8424)) ([f481ea4](https://github.com/windmill-labs/windmill/commit/f481ea4059b4e5cb01273cffeb53ff340e8bd5bd))
+* per-tab test panel in script editor for WAC v2 modules ([#8422](https://github.com/windmill-labs/windmill/issues/8422)) ([0f26169](https://github.com/windmill-labs/windmill/commit/0f261695a3cb2c3a95d16390e54aa7a6ac3e11e7))
+
 ## [1.659.0](https://github.com/windmill-labs/windmill/compare/v1.658.0...v1.659.0) (2026-03-17)
 
 
