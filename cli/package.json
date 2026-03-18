@@ -36,7 +36,7 @@
     "windmill-parser-wasm-regex": "*",
     "windmill-parser-wasm-ruby": "*",
     "windmill-parser-wasm-rust": "*",
-    "windmill-parser-wasm-ts": "*",
+    "windmill-parser-wasm-ts": "file:../backend/parsers/windmill-parser-wasm/pkg-ts",
     "windmill-parser-wasm-yaml": "*",
     "windmill-yaml-validator": "1.1.1",
     "ws": "8.18.0",

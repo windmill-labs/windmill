@@ -113,7 +113,8 @@ export async function generateFlowLockInternal(
   // New behaviour: tree-based dependency tracking
   if (!legacyBehaviour && tree) {
     if (dryRun) {
-      // First pass: populate tree with inline scripts and their imports
+      // First pass: collect all relative imports from inline scripts, add flow as single tree node
+      const allImports: string[] = [];
       for (const script of inlineScriptsForTree) {
         let content = script.content;
         // Resolve !inline references
@@ -129,8 +130,10 @@ export async function generateFlowLockInternal(
         const treePath = folderNormalized + "/" + path.basename(script.path, path.extname(script.path));
         const language = script.language as ScriptLanguage;
         const imports = await extractRelativeImports(content, treePath, language);
-        await tree.addScript(treePath, content, language, "", imports, rawWorkspaceDependencies, "flow", folderNormalized, folder, isDirectlyStale);
+        allImports.push(...imports);
       }
+
+      await tree.addScript(folderNormalized, "", "bun", "", allImports, rawWorkspaceDependencies, "flow", folderNormalized, folder, isDirectlyStale);
       return;
     }
     // Second pass: proceed to generate (caller verified this flow is stale via tree)

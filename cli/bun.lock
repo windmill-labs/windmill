@@ -28,7 +28,7 @@
         "windmill-parser-wasm-regex": "*",
         "windmill-parser-wasm-ruby": "*",
         "windmill-parser-wasm-rust": "*",
-        "windmill-parser-wasm-ts": "*",
+        "windmill-parser-wasm-ts": "file:../backend/parsers/windmill-parser-wasm/pkg-ts",
         "windmill-parser-wasm-yaml": "*",
         "windmill-yaml-validator": "1.1.1",
         "ws": "8.18.0",
@@ -303,7 +303,7 @@
 
     "windmill-parser-wasm-rust": ["windmill-parser-wasm-rust@1.558.1", "", {}, "sha512-21S7lm1KF8zO1187rbq14hzPHII2RdM2+D44MoAh1F6VoaScj+Puq0z5B1O/hwn/95R/a9jBlL2D8jbkXtlD1A=="],
 
-    "windmill-parser-wasm-ts": ["windmill-parser-wasm-ts@1.623.1", "", {}, "sha512-FBwi/zXxjhZcCvi04oFdNivazru1ynIqSbafHSArfaaBWesBO3nye9UO/WXUlWZm5a7BExbU+3R/eVJrGaornw=="],
+    "windmill-parser-wasm-ts": ["windmill-parser-wasm-ts@file:../backend/parsers/windmill-parser-wasm/pkg-ts", {}],
 
     "windmill-parser-wasm-yaml": ["windmill-parser-wasm-yaml@1.593.0", "", {}, "sha512-Gyx4aR2jsJYuDrD3mCNTmz7LWOQQXPw5yKNCC1xRgUOPfjsD/tINAFfsBLwVOSmlQQcFZO+wHm4KtDtXOcnGVw=="],
 

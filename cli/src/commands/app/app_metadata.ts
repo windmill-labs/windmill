@@ -165,7 +165,8 @@ export async function generateAppLocksInternal(
   // New behaviour: tree-based dependency tracking
   if (!legacyBehaviour && tree) {
     if (dryRun) {
-      // First pass: populate tree with inline scripts and their imports
+      // First pass: collect all relative imports from inline scripts, add app as single tree node
+      const allImports: string[] = [];
       await traverseAndProcessInlineScripts(structuredClone(appValue), async (inlineScript, context) => {
         if (!inlineScript.content || !inlineScript.language) {
           return inlineScript;
@@ -185,10 +186,12 @@ export async function generateAppLocksInternal(
         const treePath = folderNormalized + "/" + context.path.join("/");
         const language = inlineScript.language as ScriptLanguage;
         const imports = await extractRelativeImports(content, treePath, language);
-        await tree.addScript(treePath, content, language, "", imports, rawWorkspaceDependencies, "app", folderNormalized, appFolder, isDirectlyStale, rawApp);
+        allImports.push(...imports);
 
         return inlineScript;
       });
+
+      await tree.addScript(folderNormalized, "", "bun", "", allImports, rawWorkspaceDependencies, "app", folderNormalized, appFolder, isDirectlyStale, rawApp);
       return;
     }
     // Second pass: proceed to generate (caller verified this app is stale via tree)

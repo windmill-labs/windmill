@@ -21,7 +21,7 @@ import {
   ignoreF,
 } from "../sync/sync.ts";
 import { exts } from "../script/script.ts";
-import { isFlowPath, isAppPath, isRawAppPath, isScriptModulePath, isModuleEntryPoint } from "../../utils/resource_folders.ts";
+import { isFolderResourcePathAnyFormat, isScriptModulePath, isModuleEntryPoint } from "../../utils/resource_folders.ts";
 import { listSyncCodebases } from "../../utils/codebase.ts";
 import {
   DoubleLinkedDependencyTree,
@@ -34,6 +34,7 @@ interface StaleItem {
   path: string;
   folder: string;
   isRawApp?: boolean;
+  staleReason?: string;
 }
 
 async function generateMetadata(
@@ -75,7 +76,7 @@ async function generateMetadata(
     return;
   }
 
-  log.info(colors.gray(`Checking ${checking.join(", ")}...`));
+  log.info(`Checking ${checking.join(", ")}...`);
 
   // Build dependency tree for relative import tracking
   const tree = new DoubleLinkedDependencyTree();
@@ -89,9 +90,7 @@ async function generateMetadata(
         return (
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||
           ignore(p, isD) ||
-          isFlowPath(p) ||
-          isAppPath(p) ||
-          isRawAppPath(p) ||
+          isFolderResourcePathAnyFormat(p) ||
           (isScriptModulePath(p) && !isModuleEntryPoint(p))
         );
       },
@@ -198,6 +197,9 @@ async function generateMetadata(
   // === Propagate staleness through imports ===
   tree.propagateStaleness();
 
+  // Upload stale scripts to temp storage so the backend can resolve relative imports
+  await uploadScripts(tree, workspace);
+
   // === Populate staleItems from tree ===
   const staleItems: StaleItem[] = [];
   const seenFolders = new Set<string>();
@@ -208,13 +210,14 @@ async function generateMetadata(
 
     // Scripts: one entry per script (use originalPath for handler)
     // Flows/Apps: one entry per folder (dedupe multiple inline scripts)
+    const staleReason = tree.getStaleReason(p);
     if (itemType === "script") {
       const originalPath = tree.getOriginalPath(p)!;
-      staleItems.push({ type: itemType, path: originalPath, folder: itemFolder });
+      staleItems.push({ type: itemType, path: originalPath, folder: itemFolder, staleReason });
     } else if (!seenFolders.has(itemFolder)) {
       seenFolders.add(itemFolder);
       const originalPath = tree.getOriginalPath(p)!;
-      staleItems.push({ type: itemType, path: originalPath, folder: itemFolder, isRawApp: tree.getIsRawApp(p) });
+      staleItems.push({ type: itemType, path: originalPath, folder: itemFolder, isRawApp: tree.getIsRawApp(p), staleReason });
     }
   }
 
@@ -250,26 +253,20 @@ async function generateMetadata(
   const apps = filteredItems.filter((i) => i.type === "app");
 
   log.info("");
-  log.info(`Found ${filteredItems.length} item(s) with stale metadata:`);
+  log.info(`Found ${colors.bold(String(filteredItems.length))} item(s) with stale metadata:`);
 
-  if (scripts.length > 0) {
-    log.info(colors.gray(`  Scripts (${scripts.length}):`));
-    for (const item of scripts) {
-      log.info(colors.yellow(`    ${item.path}`));
+  const printItems = (label: string, items: StaleItem[]) => {
+    if (items.length === 0) return;
+    log.info(`  ${label} (${items.length}):`);
+    for (const item of items) {
+      const reason = item.staleReason ? colors.dim(colors.white(` — ${item.staleReason}`)) : "";
+      log.info(`    ~ ${item.path}` + reason);
     }
-  }
-  if (flows.length > 0) {
-    log.info(colors.gray(`  Flows (${flows.length}):`));
-    for (const item of flows) {
-      log.info(colors.yellow(`    ${item.path}`));
-    }
-  }
-  if (apps.length > 0) {
-    log.info(colors.gray(`  Apps (${apps.length}):`));
-    for (const item of apps) {
-      log.info(colors.yellow(`    ${item.path}`));
-    }
-  }
+  };
+
+  printItems("Scripts", scripts);
+  printItems("Flows", flows);
+  printItems("Apps", apps);
 
   if (opts.dryRun) {
     return;
@@ -295,14 +292,13 @@ async function generateMetadata(
   let current = 0;
 
   const formatProgress = (n: number) => {
-    const bracket = `[${n}/${total}]`;
-    return colors.gray(bracket.padEnd(maxWidth, " "));
+    return colors.dim(colors.white(`[${n}/${total}]`.padEnd(maxWidth, " ")));
   };
 
   // Process scripts
   for (const item of scripts) {
     current++;
-    log.info(`${formatProgress(current)} script ${colors.cyan(item.path)}`);
+    log.info(`${formatProgress(current)} script ${item.path}`);
     await generateScriptMetadataInternal(
       item.path, // originalPath with extension
       workspace,
@@ -331,9 +327,9 @@ async function generateMetadata(
       tree
     ) as FlowLocksResult | void;
     const scriptsInfo = result?.updatedScripts?.length
-      ? `: ${colors.gray(result.updatedScripts.join(", "))}`
+      ? colors.dim(colors.white(`: ${result.updatedScripts.join(", ")}`))
       : "";
-    log.info(`${formatProgress(current)} flow   ${colors.cyan(item.path)}${scriptsInfo}`);
+    log.info(`${formatProgress(current)} flow   ${item.path}${scriptsInfo}`);
   }
 
   // Process apps
@@ -351,13 +347,13 @@ async function generateMetadata(
       tree
     ) as AppLocksResult | void;
     const scriptsInfo = result?.updatedScripts?.length
-      ? `: ${colors.gray(result.updatedScripts.join(", "))}`
+      ? colors.dim(colors.white(`: ${result.updatedScripts.join(", ")}`))
       : "";
-    log.info(`${formatProgress(current)} app    ${colors.cyan(item.path)}${scriptsInfo}`);
+    log.info(`${formatProgress(current)} app    ${item.path}${scriptsInfo}`);
   }
 
   log.info("");
-  log.info(colors.green(`Done. Updated ${total} item(s).`));
+  log.info(`Done. Updated ${colors.bold(String(total))} item(s).`);
 }
 
 const command = new Command()
