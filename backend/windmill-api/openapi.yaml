@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.658.0
+  version: 1.659.1
   title: Windmill API
 
   contact:
@@ -1370,17 +1370,22 @@ paths:
 
   /settings/get_stats:
     get:
-      summary: get encrypted telemetry stats (EE only)
+      summary: get telemetry stats with HMAC signature (EE only)
       operationId: getStats
       tags:
         - setting
       responses:
         "200":
-          description: base64-encoded encrypted telemetry blob
+          description: telemetry stats JSON with signature
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                properties:
+                  signature:
+                    type: string
+                  data:
+                    type: string
 
   /settings/latest_key_renewal_attempt:
     get:
@@ -4455,6 +4460,107 @@ paths:
                 type: string
         "404":
           description: protection rule not found
+  /w/{workspace}/workspaces/log_chat:
+    post:
+      summary: log AI chat message
+      operationId: logAiChat
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - session_id
+                - provider
+                - model
+                - mode
+              properties:
+                session_id:
+                  type: string
+                provider:
+                  type: string
+                model:
+                  type: string
+                mode:
+                  type: string
+      responses:
+        "204":
+          description: logged
+
+  /w/{workspace}/workspaces/cloud_quotas:
+    get:
+      summary: get cloud quota usage and limits for workspace
+      operationId: getCloudQuotas
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: cloud quota usage and limits
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scripts:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  flows:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  apps:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  variables:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  resources:
+                    $ref: "#/components/schemas/QuotaInfo"
+                required:
+                  - scripts
+                  - flows
+                  - apps
+                  - variables
+                  - resources
+
+  /w/{workspace}/workspaces/prune_versions:
+    post:
+      summary: prune old versions of scripts, flows, or apps
+      operationId: pruneVersions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resource_type:
+                  type: string
+                  enum:
+                    - scripts
+                    - flows
+                    - apps
+              required:
+                - resource_type
+      responses:
+        "200":
+          description: number of pruned versions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pruned:
+                    type: integer
+                required:
+                  - pruned
+
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
       summary: Set public app rate limit for this workspace
@@ -24381,6 +24487,19 @@ components:
       description: Users that can bypass this ruleset
       items:
         type: string
+    QuotaInfo:
+      type: object
+      properties:
+        used:
+          type: integer
+        limit:
+          type: integer
+        prunable:
+          type: integer
+      required:
+        - used
+        - limit
+        - prunable
     NativeServiceName:
       type: string
       enum:

@@ -1,16 +1,14 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import { enterpriseLicense, userStore, workspaceStore, awarenessStore } from '$lib/stores'
-	import { BROWSER } from 'esm-env'
 
 	import { WebsocketProvider } from 'y-websocket'
 	import * as Y from 'yjs'
 	import type { Awareness } from 'y-protocols/awareness'
 	import { page } from '$app/stores'
 	import { slide } from 'svelte/transition'
-
-	const wsProtocol = BROWSER && window.location.protocol == 'https:' ? 'wss' : 'ws'
+	import { buildWsUrl } from '$lib/wsUrl'
 
 	let awareness: Awareness | undefined = $state(undefined)
 	let wsProvider: WebsocketProvider | undefined = undefined
@@ -18,11 +16,7 @@
 	let connected = $state(false)
 	function connectWorkspace(workspace: string) {
 		const ydoc = new Y.Doc()
-		wsProvider = new WebsocketProvider(
-			`${wsProtocol}://${window.location.host}/ws_mp/`,
-			workspace,
-			ydoc
-		)
+		wsProvider = new WebsocketProvider(buildWsUrl('/ws_mp/'), workspace, ydoc)
 		wsProvider.on('sync', (isSynced: boolean) => {
 			connected = true
 		})
@@ -52,10 +46,10 @@
 			name: $userStore?.username,
 			url: $page.url.pathname
 		})
-	});
+	})
 	run(() => {
 		$enterpriseLicense && $workspaceStore && connectWorkspace($workspaceStore)
-	});
+	})
 
 	function showActivity(url: string) {
 		if (url.startsWith('/scripts/add')) {

@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_api_auth::{require_super_admin, ApiAuthed};
+use windmill_api_auth::{require_devops_role, require_super_admin, ApiAuthed};
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
@@ -157,6 +157,9 @@ pub fn workspaced_service() -> Router {
             "/protection_rules/:rule_name",
             post(update_protection_rule).delete(delete_protection_rule),
         )
+        .route("/log_chat", post(log_ai_chat))
+        .route("/cloud_quotas", get(get_cloud_quotas))
+        .route("/prune_versions", post(prune_versions))
 }
 pub fn global_service() -> Router {
     Router::new()
@@ -2586,7 +2589,7 @@ async fn list_workspaces_as_super_admin(
     Query(pagination): Query<Pagination>,
     ApiAuthed { email, .. }: ApiAuthed,
 ) -> JsonResult<Vec<Workspace>> {
-    require_super_admin(&db, &email).await?;
+    require_devops_role(&db, &email).await?;
     let (per_page, offset) = paginate(pagination);
 
     let mut tx = user_db.begin(&authed).await?;
@@ -5371,4 +5374,225 @@ async fn compare_two_folders(
         exists_in_source: source_folder.is_some(),
         exists_in_fork: target_folder.is_some(),
     });
+}
+
+#[derive(Deserialize)]
+struct LogAiChatPayload {
+    session_id: String,
+    provider: String,
+    model: String,
+    mode: String,
+}
+
+async fn log_ai_chat(
+    Extension(db): Extension<DB>,
+    Json(payload): Json<LogAiChatPayload>,
+) -> Result<StatusCode> {
+    sqlx::query!(
+        "INSERT INTO ai_chat_usage (session_id, provider, model, mode) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (session_id) DO UPDATE SET message_count = ai_chat_usage.message_count + 1",
+        &payload.session_id,
+        &payload.provider,
+        &payload.model,
+        &payload.mode
+    )
+    .execute(&db)
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize)]
+struct QuotaInfo {
+    used: i64,
+    limit: i64,
+    prunable: i64,
+}
+
+#[derive(Serialize)]
+struct CloudQuotas {
+    scripts: QuotaInfo,
+    flows: QuotaInfo,
+    apps: QuotaInfo,
+    variables: QuotaInfo,
+    resources: QuotaInfo,
+}
+
+async fn get_cloud_quotas(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<CloudQuotas> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    if !*CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "Cloud quotas are only available on cloud-hosted instances".to_string(),
+        ));
+    }
+
+    let scripts_used =
+        sqlx::query_scalar!("SELECT COUNT(*) FROM script WHERE workspace_id = $1", &w_id)
+            .fetch_one(&db)
+            .await?
+            .unwrap_or(0);
+
+    let scripts_prunable = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM script s WHERE s.workspace_id = $1 AND s.hash NOT IN (
+            SELECT DISTINCT ON (path) hash FROM script
+            WHERE workspace_id = $1 AND deleted = false AND draft_only IS NOT TRUE
+            ORDER BY path, created_at DESC
+        )",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    let flows_used =
+        sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
+            .fetch_one(&db)
+            .await?
+            .unwrap_or(0);
+
+    let flows_prunable = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM flow_version fv
+        JOIN flow f ON f.workspace_id = fv.workspace_id AND f.path = fv.path
+        WHERE fv.workspace_id = $1 AND fv.id != f.versions[array_upper(f.versions, 1)]",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    let apps_used = sqlx::query_scalar!("SELECT COUNT(*) FROM app WHERE workspace_id = $1", &w_id)
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(0);
+
+    let apps_prunable = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM app_version av
+        JOIN app a ON a.id = av.app_id
+        WHERE a.workspace_id = $1 AND av.id != a.versions[array_upper(a.versions, 1)]",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    let variables_used = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM variable WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    let resources_used = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM resource WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    Ok(Json(CloudQuotas {
+        scripts: QuotaInfo { used: scripts_used, limit: 5000, prunable: scripts_prunable },
+        flows: QuotaInfo { used: flows_used, limit: 1000, prunable: flows_prunable },
+        apps: QuotaInfo { used: apps_used, limit: 1000, prunable: apps_prunable },
+        variables: QuotaInfo { used: variables_used, limit: 10000, prunable: 0 },
+        resources: QuotaInfo { used: resources_used, limit: 10000, prunable: 0 },
+    }))
+}
+
+#[derive(Deserialize)]
+struct PruneVersionsRequest {
+    resource_type: String,
+}
+
+#[derive(Serialize)]
+struct PruneVersionsResponse {
+    pruned: u64,
+}
+
+async fn prune_versions(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<PruneVersionsRequest>,
+) -> JsonResult<PruneVersionsResponse> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    if !*CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "Version pruning is only available on cloud-hosted instances".to_string(),
+        ));
+    }
+
+    let pruned = match req.resource_type.as_str() {
+        "scripts" => {
+            let result = sqlx::query(
+                "DELETE FROM script
+                WHERE workspace_id = $1 AND hash NOT IN (
+                    SELECT DISTINCT ON (path) hash FROM script
+                    WHERE workspace_id = $1 AND deleted = false AND draft_only IS NOT TRUE
+                    ORDER BY path, created_at DESC
+                )",
+            )
+            .bind(&w_id)
+            .execute(&db)
+            .await?;
+            result.rows_affected()
+        }
+        "flows" => {
+            let deleted = sqlx::query(
+                "DELETE FROM flow_version fv
+                USING flow f
+                WHERE fv.workspace_id = f.workspace_id AND fv.path = f.path
+                AND fv.workspace_id = $1
+                AND fv.id != f.versions[array_upper(f.versions, 1)]",
+            )
+            .bind(&w_id)
+            .execute(&db)
+            .await?;
+
+            sqlx::query(
+                "UPDATE flow SET versions = ARRAY[versions[array_upper(versions, 1)]]
+                WHERE workspace_id = $1 AND array_length(versions, 1) > 1",
+            )
+            .bind(&w_id)
+            .execute(&db)
+            .await?;
+
+            deleted.rows_affected()
+        }
+        "apps" => {
+            let deleted = sqlx::query(
+                "DELETE FROM app_version av
+                USING app a
+                WHERE av.app_id = a.id AND a.workspace_id = $1
+                AND av.id != a.versions[array_upper(a.versions, 1)]",
+            )
+            .bind(&w_id)
+            .execute(&db)
+            .await?;
+
+            sqlx::query(
+                "UPDATE app SET versions = ARRAY[versions[array_upper(versions, 1)]]
+                WHERE workspace_id = $1 AND array_length(versions, 1) > 1",
+            )
+            .bind(&w_id)
+            .execute(&db)
+            .await?;
+
+            deleted.rows_affected()
+        }
+        _ => {
+            return Err(Error::BadRequest(format!(
+                "Invalid resource type '{}'. Must be 'scripts', 'flows', or 'apps'",
+                req.resource_type
+            )));
+        }
+    };
+
+    Ok(Json(PruneVersionsResponse { pruned }))
 }

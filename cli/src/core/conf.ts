@@ -75,6 +75,8 @@ export interface SyncOptions {
       };
     };
   };
+  // Alias for gitBranches - for users who prefer environment-based terminology
+  environments?: SyncOptions["gitBranches"];
   // Legacy field - deprecated, use gitBranches instead
   git_branches?: {
     commonSpecificItems?: {
@@ -229,6 +231,18 @@ export async function readConfigFile(): Promise<SyncOptions> {
           "ℹ️  Removing empty 'overrides: {}' from wmill.yaml (migrated to gitBranches format)"
         );
       }
+    }
+
+    // Handle environments -> gitBranches alias (permanent alias, not a deprecation)
+    if (conf && "environments" in conf) {
+      if (!conf.gitBranches) {
+        conf.gitBranches = conf.environments as any;
+      } else {
+        log.warn(
+          "⚠️  Both 'environments' and 'gitBranches' found in wmill.yaml. Using 'gitBranches' and ignoring 'environments'."
+        );
+      }
+      delete (conf as any).environments;
     }
 
     // Handle git_branches to gitBranches migration

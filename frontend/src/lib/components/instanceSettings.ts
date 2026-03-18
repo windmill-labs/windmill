@@ -52,6 +52,7 @@ export interface Setting {
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
 		| 'github_enterprise_app'
+		| 'ws_connectivity'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -610,6 +611,17 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		}
 	],
+	Webhooks: [
+		{
+			label: 'Instance Events Webhook',
+			description:
+				'URL to receive POST requests for instance events (user added, OAuth signup, user invited/added/joined workspace).',
+			key: 'instance_events_webhook',
+			fieldType: 'text',
+			placeholder: 'https://example.com/webhook',
+			storage: 'setting'
+		}
+	],
 	'OTEL/Prom': [
 		{
 			label: 'OpenTelemetry',
@@ -682,6 +694,23 @@ export const settings: Record<string, Setting[]> = {
 				if (!v?.self_managed) return true
 				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.private_key)
 			}
+		}
+	],
+	WebSocket: [
+		{
+			label: 'WebSocket connectivity',
+			description:
+				'Test connectivity to multiplayer, LSP, and debugger WebSocket services. Enable custom URL override for deployments where WebSocket traffic routes to a different host.',
+			key: 'ws_base_url',
+			fieldType: 'ws_connectivity',
+			storage: 'setting',
+			requiresReloadOnChange: true,
+			isValid: (value: string | undefined) =>
+				!value ||
+				(value.startsWith('ws') &&
+					value.includes('://') &&
+					!value.endsWith('/') &&
+					!value.endsWith(' '))
 		}
 	]
 }
@@ -772,6 +801,12 @@ export const instanceSettingsNavigationGroups = [
 				isEE: true
 			},
 			{
+				id: 'webhooks',
+				label: 'Webhooks',
+				aiId: 'instance-settings-webhooks',
+				aiDescription: 'Instance events webhook settings'
+			},
+			{
 				id: 'otel_prom',
 				label: 'OTEL/Prometheus',
 				aiId: 'instance-settings-otel-prom',
@@ -815,6 +850,12 @@ export const instanceSettingsNavigationGroups = [
 				label: 'Secret Storage',
 				aiId: 'instance-settings-secret-storage',
 				aiDescription: 'Instance secret storage settings'
+			},
+			{
+				id: 'websocket',
+				label: 'WebSocket',
+				aiId: 'instance-settings-websocket',
+				aiDescription: 'WebSocket connectivity test and URL override'
 			}
 		]
 	}
@@ -828,6 +869,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	smtp: 'SMTP',
 	registries: 'Registries',
 	alerts: 'Alerts',
+	webhooks: 'Webhooks',
 	otel_prom: 'OTEL/Prom',
 	indexer: 'Indexer',
 	telemetry: 'Telemetry',
@@ -835,7 +877,8 @@ export const tabToCategoryMap: Record<string, string> = {
 	object_storage: 'Object Storage',
 	jobs: 'Jobs',
 	private_hub: 'Private Hub',
-	github_enterprise_app: 'GitHub Enterprise App'
+	github_enterprise_app: 'GitHub Enterprise App',
+	websocket: 'WebSocket'
 }
 
 export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
@@ -858,6 +901,7 @@ export const categoryToTabMap: Record<string, string> = {
 	'Auth/OAuth/SAML': 'sso',
 	Registries: 'registries',
 	Alerts: 'alerts',
+	Webhooks: 'webhooks',
 	'OTEL/Prom': 'otel_prom',
 	Indexer: 'indexer',
 	Telemetry: 'telemetry',
@@ -865,7 +909,8 @@ export const categoryToTabMap: Record<string, string> = {
 	'Object Storage': 'object_storage',
 	Jobs: 'jobs',
 	'Private Hub': 'private_hub',
-	'GitHub Enterprise App': 'github_enterprise_app'
+	'GitHub Enterprise App': 'github_enterprise_app',
+	WebSocket: 'websocket'
 }
 
 export interface SearchableSettingItem {
@@ -948,3 +993,8 @@ export function buildSearchableSettingItems(
 
 	return items
 }
+
+/** Registry settings that support per-workspace overrides. Excludes instance_python_version and uv_index_strategy which are instance-wide only. */
+export const WORKSPACE_REGISTRY_SETTINGS: Setting[] = settings['Registries'].filter(
+	(s) => s.key !== 'instance_python_version' && s.key !== 'uv_index_strategy'
+)
