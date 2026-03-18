@@ -768,7 +768,7 @@ async fn create_resource(
         .await?;
         if nb_resources.unwrap_or(0) >= 10000 {
             return Err(Error::BadRequest(
-                    "You have reached the maximum number of resources (10000) on cloud. Contact support@windmill.dev to increase the limit"
+                    "You have reached the maximum number of resources (10000) on cloud. Check your usage in Workspace Settings > General > Cloud Quotas. Contact support@windmill.dev to increase the limit"
                         .to_string(),
                 ));
         }
@@ -884,13 +884,12 @@ async fn delete_resource(
     let mut tx = user_db.begin(&authed).await?;
 
     // Fetch the resource value before deleting, so we can find linked $var: references
-    let resource_value: Option<Option<serde_json::Value>> = sqlx::query_scalar(
-        "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
-    )
-    .bind(path)
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let resource_value: Option<Option<serde_json::Value>> =
+        sqlx::query_scalar("SELECT value FROM resource WHERE path = $1 AND workspace_id = $2")
+            .bind(path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
 
     let deleted_path = sqlx::query_scalar!(
         "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
@@ -976,10 +975,7 @@ async fn delete_resource(
 
         webhook.send_message(
             w_id.clone(),
-            WebhookMessage::DeleteVariable {
-                workspace: w_id.clone(),
-                path: var_path.clone(),
-            },
+            WebhookMessage::DeleteVariable { workspace: w_id.clone(), path: var_path.clone() },
         );
     }
 

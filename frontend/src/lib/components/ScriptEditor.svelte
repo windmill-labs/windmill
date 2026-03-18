@@ -187,6 +187,10 @@
 
 	// Module tab state
 	let activeModuleTab: string | null = $state(null)
+	// Per-module test panel state (args + schema), persisted across tab switches
+	let moduleTestState: Record<string, { args: Record<string, any>; schema: Schema }> = $state({})
+	let testPanelArgs: Record<string, any> = $state({})
+	let testPanelSchema: Schema = $state(emptySchema())
 	// editorCode is what the editor shows; code always holds the main script content
 	let editorCode: string = $state(code)
 	// Sync editorCode when code changes externally (template reset, copilot, etc.)
@@ -200,20 +204,31 @@
 
 	function switchToModule(modulePath: string) {
 		if (activeModuleTab !== null && modules && activeModuleTab !== modulePath) {
-			// Switching from another module: save its content
+			// Switching from another module: save its content and test state
 			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
+			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
 		}
 		if (modules && modules[modulePath]) {
 			activeModuleTab = modulePath
 			editorCode = modules[modulePath].content
 			editor?.setCode(editorCode)
+			// Restore or initialize test state for the new module
+			if (moduleTestState[modulePath]) {
+				testPanelArgs = moduleTestState[modulePath].args
+				testPanelSchema = moduleTestState[modulePath].schema
+			} else {
+				testPanelArgs = {}
+				testPanelSchema = emptySchema()
+				inferModuleSchema()
+			}
 		}
 	}
 
 	function switchToMain() {
 		if (activeModuleTab !== null && modules) {
-			// Save current module content
+			// Save current module content and test state
 			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
+			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
 		}
 		activeModuleTab = null
 		editorCode = code
@@ -386,6 +401,7 @@
 			switchToMain()
 		}
 		delete modules[modulePath]
+		delete moduleTestState[modulePath]
 		modules = { ...modules }
 	}
 
@@ -423,6 +439,10 @@
 		delete modules[oldPath]
 		modules[newPath] = { ...mod, language: newLang ?? mod.language }
 		modules = { ...modules }
+		if (moduleTestState[oldPath]) {
+			moduleTestState[newPath] = moduleTestState[oldPath]
+			delete moduleTestState[oldPath]
+		}
 		if (activeModuleTab === oldPath) {
 			activeModuleTab = newPath
 		}
@@ -441,6 +461,7 @@
 	export function flushModuleState() {
 		if (activeModuleTab !== null && modules) {
 			flushModuleContent()
+			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
 			activeModuleTab = null
 			editorCode = code
 		}
@@ -614,14 +635,22 @@
 		jobProgressBar?.reset()
 		// Flush module edits back to modules map before running preview
 		flushModuleContent()
+
+		const testCode = activeModuleTab !== null ? editorCode : code
+		const testLang = activeModuleTab !== null ? effectiveLang : lang
+		const testArgs =
+			activeModuleTab !== null
+				? testPanelArgs
+				: selectedTab === 'preprocessor' || kind === 'preprocessor'
+					? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
+					: (args ?? {})
+
 		//@ts-ignore
 		let job = await jobLoader.runPreview(
 			path,
-			code,
-			lang,
-			selectedTab === 'preprocessor' || kind === 'preprocessor'
-				? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
-				: (args ?? {}),
+			testCode,
+			testLang,
+			testArgs,
 			tag,
 			undefined,
 			undefined,
@@ -642,7 +671,7 @@
 				}
 			},
 			undefined,
-			modules
+			activeModuleTab !== null ? undefined : modules
 		)
 		logPanel?.setFocusToLogs()
 		return job
@@ -715,6 +744,17 @@
 			schema = nschema
 		} catch (e) {
 			validCode = false
+		}
+	}
+
+	async function inferModuleSchema() {
+		if (activeModuleTab === null) return
+		try {
+			await inferArgs(effectiveLang, editorCode, testPanelSchema)
+			testPanelSchema = testPanelSchema
+			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
+		} catch (e) {
+			// Module code may be in-progress; silently ignore
 		}
 	}
 
@@ -1505,7 +1545,11 @@
 								<JsonInputs
 									on:select={(e) => {
 										if (e.detail) {
-											args = e.detail
+											if (activeModuleTab !== null) {
+												testPanelArgs = e.detail
+											} else {
+												args = e.detail
+											}
 										}
 									}}
 									updateOnBlur={false}
@@ -1516,20 +1560,37 @@
 							<div class="px-4">
 								<div class="break-words relative font-sans" bind:clientHeight={schemaHeight}>
 									{#key argsRender}
-										<SchemaForm
-											helperScript={{
-												source: 'inline',
-												code,
-												//@ts-ignore
-												lang
-											}}
-											compact
-											{schema}
-											bind:args
-											bind:isValid
-											noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
-											showSchemaExplorer
-										/>
+										{#if activeModuleTab !== null}
+											<SchemaForm
+												helperScript={{
+													source: 'inline',
+													code: editorCode,
+													//@ts-ignore
+													lang: effectiveLang
+												}}
+												compact
+												schema={testPanelSchema}
+												bind:args={testPanelArgs}
+												bind:isValid
+												noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
+												showSchemaExplorer
+											/>
+										{:else}
+											<SchemaForm
+												helperScript={{
+													source: 'inline',
+													code,
+													//@ts-ignore
+													lang
+												}}
+												compact
+												{schema}
+												bind:args
+												bind:isValid
+												noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
+												showSchemaExplorer
+											/>
+										{/if}
 									{/key}
 								</div>
 							</div>
@@ -1554,7 +1615,7 @@
 								: testIsLoading}
 							{editor}
 							{diffEditor}
-							{args}
+							args={activeModuleTab !== null ? testPanelArgs : args}
 							{showCaptures}
 							customUi={customUi?.previewPanel}
 							showCustomResultPanel={showDebugPanel}
@@ -1926,6 +1987,7 @@
 					inferSchema(e.detail)
 				} else {
 					flushModuleContent()
+					inferModuleSchema()
 				}
 				// Refresh breakpoint positions when code changes (decorations track their lines)
 				if (debugMode && breakpointDecorations.length > 0) {
@@ -1937,6 +1999,8 @@
 			cmdEnterAction={async () => {
 				if (activeModuleTab === null) {
 					await inferSchema(editorCode)
+				} else {
+					await inferModuleSchema()
 				}
 				runTest()
 			}}

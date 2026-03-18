@@ -414,7 +414,7 @@ async fn create_variable(
         .await?;
         if nb_variables.unwrap_or(0) >= 10000 {
             return Err(Error::BadRequest(
-                    "You have reached the maximum number of variables (10000) on cloud. Contact support@windmill.dev to increase the limit"
+                    "You have reached the maximum number of variables (10000) on cloud. Check your usage in Workspace Settings > General > Cloud Quotas. Contact support@windmill.dev to increase the limit"
                         .to_string(),
                 ));
         }

@@ -268,12 +268,13 @@
 	async function downloadStats() {
 		try {
 			downloadingStats = true
-			const encryptedData = await SettingService.getStats()
-			const blob = new Blob([encryptedData], { type: 'application/octet-stream' })
+			const result = await SettingService.getStats()
+			const blob = new Blob([result.data ?? ''], { type: 'application/json' })
 			const url = URL.createObjectURL(blob)
 			const a = document.createElement('a')
 			a.href = url
-			a.download = `windmill-telemetry-${new Date().toISOString().split('T')[0]}.enc`
+			const date = new Date().toISOString().split('T')[0]
+			a.download = `windmill-telemetry-${date}-${result.signature}.json`
 			document.body.appendChild(a)
 			a.click()
 			document.body.removeChild(a)
@@ -977,6 +978,10 @@
 					<br />When minimal telemetry is disabled, the following is also collected:
 					<ul class="list-disc list-inside pl-2">
 						<li>job usage (language, total duration, count)</li>
+						<li>git sync repo count (sync vs promotion mode)</li>
+						<li
+							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+						>
 					</ul>
 					<br />For air-gapped instances, you can download the telemetry data and send it manually.
 				</div>
@@ -1012,6 +1017,9 @@
 						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
 						<li>user usage (author count, operator count)</li>
 						<li>development instance status</li>
+						<li
+							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+						>
 					</ul>
 				</div>
 			{/if}

@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.659.1](https://github.com/windmill-labs/windmill/compare/v1.659.0...v1.659.1) (2026-03-18)
+
+
+### Bug Fixes
+
+* add checkpoint.json mount to python nsjail config for WAC v2 ([#8421](https://github.com/windmill-labs/windmill/issues/8421)) ([4829f44](https://github.com/windmill-labs/windmill/commit/4829f447ed3df8489995c5e54955fbfe6b31e37d))
+* cleanup job debounce batch ([#8420](https://github.com/windmill-labs/windmill/issues/8420)) ([ad03a5d](https://github.com/windmill-labs/windmill/commit/ad03a5dbd7f93748115037791143249ba0ab6161))
+* **frontend:** fix output of resultnode + svelte5 nits ([#8424](https://github.com/windmill-labs/windmill/issues/8424)) ([f481ea4](https://github.com/windmill-labs/windmill/commit/f481ea4059b4e5cb01273cffeb53ff340e8bd5bd))
+* per-tab test panel in script editor for WAC v2 modules ([#8422](https://github.com/windmill-labs/windmill/issues/8422)) ([0f26169](https://github.com/windmill-labs/windmill/commit/0f261695a3cb2c3a95d16390e54aa7a6ac3e11e7))
+
+## [1.659.0](https://github.com/windmill-labs/windmill/compare/v1.658.0...v1.659.0) (2026-03-17)
+
+
+### Features
+
+* add end_user_email claim to OIDC ID tokens ([#8401](https://github.com/windmill-labs/windmill/issues/8401)) ([de5b13b](https://github.com/windmill-labs/windmill/commit/de5b13b840f90e23df1871f80317fdcc2b98174d))
+* add ws_base_url instance setting for WebSocket URL override ([#8405](https://github.com/windmill-labs/windmill/issues/8405)) ([372023e](https://github.com/windmill-labs/windmill/commit/372023e99560885a76e8da3487ae705fd2f861d4))
+* **cli:** add --env alias for --branch and environments config alias ([#8415](https://github.com/windmill-labs/windmill/issues/8415)) ([fe051aa](https://github.com/windmill-labs/windmill/commit/fe051aa22b59cc1c450b14af9c5f203448bb3dd5))
+* DB-backed instance events webhook with superadmin UI ([#8402](https://github.com/windmill-labs/windmill/issues/8402)) ([7d9fb57](https://github.com/windmill-labs/windmill/commit/7d9fb57368ad3b2c719523ef649c9bd5fddf17a5))
+* instance groups instance-level role support ([#8404](https://github.com/windmill-labs/windmill/issues/8404)) ([18b3528](https://github.com/windmill-labs/windmill/commit/18b3528ba4188721d918fd47f0f86a6b41209453))
+* script module mode with CLI sync, preview, and WAC UI improvements ([#8380](https://github.com/windmill-labs/windmill/issues/8380)) ([31d6660](https://github.com/windmill-labs/windmill/commit/31d6660d56cd23d9269133d430b0607d58314229))
+* store hashed tokens instead of plaintext ([#8217](https://github.com/windmill-labs/windmill/issues/8217)) ([f2be625](https://github.com/windmill-labs/windmill/commit/f2be625348ef308e9768d487e110abbd44d27855))
+* workspace-specific registry overrides ([#8406](https://github.com/windmill-labs/windmill/issues/8406)) ([73fe45b](https://github.com/windmill-labs/windmill/commit/73fe45b6cb97ce50d029240c6bd63917b301abe1))
+
+
+### Bug Fixes
+
+* devops getting logged out on workers page ([#8416](https://github.com/windmill-labs/windmill/issues/8416)) ([920a7f9](https://github.com/windmill-labs/windmill/commit/920a7f9fa4719015885947b9de0c35e5e618fcc8))
+* Folders as presets in FilterSearchbar ([#8409](https://github.com/windmill-labs/windmill/issues/8409)) ([ebf9347](https://github.com/windmill-labs/windmill/commit/ebf9347d3fd876689dba58bc24399e9036ef5b67))
+* improve OOM killer observability for debugging pod-level kills ([#8398](https://github.com/windmill-labs/windmill/issues/8398)) ([fd41cd1](https://github.com/windmill-labs/windmill/commit/fd41cd12b444fb2439214fcd25536280e5baacb2))
+
 ## [1.658.0](https://github.com/windmill-labs/windmill/compare/v1.657.2...v1.658.0) (2026-03-16)
 
 

@@ -3,7 +3,7 @@
 	import { displayDate, msToSec } from '$lib/utils'
 	import { onDestroy } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
-	import { ChevronDown, ChevronRight, Loader2 } from 'lucide-svelte'
+	import { ChevronDown, ChevronRight, Loader2, Moon, ShieldCheck } from 'lucide-svelte'
 	import TimelineBar from './TimelineBar.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
@@ -20,7 +20,14 @@
 		autoExpandResult?: boolean
 	}
 
-	let { flow_status, flowDone = false, stepResults = {}, result = undefined, success = true, autoExpandResult = false }: Props = $props()
+	let {
+		flow_status,
+		flowDone = false,
+		stepResults = {},
+		result = undefined,
+		success = true,
+		autoExpandResult = false
+	}: Props = $props()
 
 	let resultExpanded = $state(false)
 
@@ -52,14 +59,13 @@
 	)
 	let max = $derived(
 		flowDone
-			? Object.values(flow_status).reduce(
-					(a, b) =>
-						Math.max(
-							a,
-							b.started_at ? new Date(b.started_at).getTime() + (b.duration_ms ?? 0) : 0
-						),
-					0
-				)
+			? Object.values(flow_status).reduce((a, b) => {
+					if (!b.started_at) return a
+					const startedAt = new Date(b.started_at).getTime()
+					// For cancelled steps without duration_ms, use `now` as end time
+					const endAt = b.duration_ms != undefined ? startedAt + b.duration_ms : now
+					return Math.max(a, endAt)
+				}, 0)
 			: undefined
 	)
 	let total = $derived(flowDone && max ? max - min : Math.max(now - min, 2000))
@@ -102,7 +108,7 @@
 	let pollInterval = setInterval(() => {
 		for (const [id, v] of Object.entries(flow_status)) {
 			if (isStep(id)) continue
-			const isRunning = v.duration_ms == undefined && v.started_at != undefined
+			const isRunning = !flowDone && v.duration_ms == undefined && v.started_at != undefined
 			if (expandedRows[id] && isRunning) {
 				fetchChildJob(id)
 			}
@@ -148,145 +154,172 @@
 			return ta - tb
 		}) as [k, v] (k)}
 			{@const isInlineStep = isStep(k)}
-			{@const isRunning = v.duration_ms == undefined && v.started_at != undefined}
-			{@const isDone = v.duration_ms != undefined}
+			{@const isSleep = (v as any).sleep_duration_s != undefined}
+			{@const isApproval = (v as any).approval === true}
+			{@const isRunning = !flowDone && v.duration_ms == undefined && v.started_at != undefined}
+			{@const isDone = v.duration_ms != undefined || flowDone}
 			{@const isExpanded = expandedRows[k] ?? false}
 			<div class="border-b last:border-b-0">
-				<button
-					class="w-full px-2 py-2 text-xs hover:bg-surface-hover cursor-pointer flex items-center gap-2"
-					onclick={() => toggleRow(k)}
-				>
-					<div class="inline-flex gap-1 items-center flex-shrink-0">
-						<div class="w-3 flex-shrink-0">
-							{#if isExpanded}
-								<ChevronDown size={12} />
-							{:else}
-								<ChevronRight size={12} />
-							{/if}
-						</div>
-						{#if isInlineStep}
-							<span class="whitespace-nowrap text-secondary italic">
-								{v.name ?? stepKey(k)}
+				{#if isSleep}
+					<div class="w-full px-2 py-1.5 text-xs flex items-center gap-2 text-tertiary">
+						<div class="w-3 flex-shrink-0"></div>
+						<Moon size={12} class="flex-shrink-0" />
+						<span class="italic">sleep ({(v as any).sleep_duration_s}s)</span>
+					</div>
+				{:else if isApproval}
+					<div class="w-full px-2 py-1.5 text-xs flex items-center gap-2">
+						<div class="w-3 flex-shrink-0"></div>
+						<ShieldCheck
+							size={12}
+							class="flex-shrink-0 {isDone ? 'text-green-600' : 'text-yellow-500'}"
+						/>
+						<span class="italic text-secondary">
+							{v.name ?? stepKey(k)}
+						</span>
+						{#if !isDone}
+							<span class="text-tertiary flex items-center gap-1">
+								<Loader2 size={12} class="animate-spin" />
+								waiting
 							</span>
 						{:else}
-							<a
-								target="_blank"
-								class="inline-flex gap-2 items-baseline hover:underline whitespace-nowrap"
-								href="{base}/run/{k}"
-								onclick={(e) => e.stopPropagation()}
-							>
-								{v.name ?? k}
-							</a>
+							<span class="text-tertiary">{msToSec(v.duration_ms ?? 0)}s</span>
 						{/if}
 					</div>
-					<div class="flex items-center pt-1 min-h-6 w-full min-w-0">
-						{#if min && total}
-							{@const scheduledFor = v?.scheduled_for
-								? new Date(v?.scheduled_for).getTime()
-								: undefined}
-							{@const startedAt = v?.started_at
-								? new Date(v?.started_at).getTime()
-								: undefined}
-							{@const waitingLen = scheduledFor
-								? startedAt
-									? startedAt - scheduledFor
-									: now - scheduledFor
-								: 0}
-
-							<div class="flex w-full">
-								{#if isInlineStep}
-									<!-- Inline steps have no waiting phase -->
-									{#if startedAt}
-										<TimelineBar
-											position="center"
-											id={k}
-											{total}
-											{min}
-											started_at={startedAt}
-											len={v.duration_ms ?? now - startedAt}
-											running={v.duration_ms == undefined}
-										/>
-									{/if}
+				{:else}
+					<button
+						class="w-full px-2 py-2 text-xs hover:bg-surface-hover cursor-pointer flex items-center gap-2"
+						onclick={() => toggleRow(k)}
+					>
+						<div class="inline-flex gap-1 items-center flex-shrink-0">
+							<div class="w-3 flex-shrink-0">
+								{#if isExpanded}
+									<ChevronDown size={12} />
 								{:else}
-									<TimelineBar
-										position="left"
-										id={k}
-										{total}
-										{min}
-										gray
-										started_at={scheduledFor}
-										len={waitingLen < 100 ? 0 : waitingLen - 100}
-										running={startedAt == undefined}
-									/>
-									{#if startedAt}
-										<TimelineBar
-											position={waitingLen < 100 ? 'center' : 'right'}
-											id={k}
-											{total}
-											{min}
-											concat
-											started_at={startedAt}
-											len={v.duration_ms ?? now - startedAt}
-											running={v.duration_ms == undefined}
-										/>
-									{/if}
+									<ChevronRight size={12} />
 								{/if}
 							</div>
-						{/if}
-					</div>
-				</button>
-
-				{#if isExpanded}
-					<div class="border-t bg-surface-secondary px-4 py-2">
-						{#if isInlineStep}
-							<!-- Inline step: show result from checkpoint -->
-							{@const result = stepResults[stepKey(k)]}
-							{#if isDone && result !== undefined}
-								<div>
-									<div class="text-2xs text-secondary font-semibold mb-1">Result</div>
-									<div class="max-h-40 overflow-auto">
-										<ObjectViewer json={result} pureViewer />
-									</div>
-								</div>
+							{#if isInlineStep}
+								<span class="whitespace-nowrap text-secondary italic">
+									{v.name ?? stepKey(k)}
+								</span>
 							{:else}
-								<div class="text-xs text-secondary py-1">Step completed (no result)</div>
+								<a
+									target="_blank"
+									class="inline-flex gap-2 items-baseline hover:underline whitespace-nowrap"
+									href="{base}/run/{k}"
+									onclick={(e) => e.stopPropagation()}
+								>
+									{v.name ?? k}
+								</a>
 							{/if}
-						{:else if loadingJobs[k] && !childJobs[k]}
-							<div class="flex items-center gap-2 text-xs text-secondary py-1">
-								<Loader2 size={12} class="animate-spin" />
-								Loading...
-							</div>
-						{:else if childJobs[k]}
-							{@const job = childJobs[k]}
-							<!-- Logs -->
-							{#if job.logs || isRunning}
-								<div class="mb-2">
-									<div class="text-2xs text-secondary font-semibold mb-1">Logs</div>
-									<LogViewer
-										content={job.logs ?? ''}
-										jobId={k}
-										isLoading={isRunning}
-										small
-										tag={job.tag}
-										download={false}
-										noMaxH={false}
-									/>
-								</div>
-							{/if}
+						</div>
+						<div class="flex items-center pt-1 min-h-6 w-full min-w-0">
+							{#if min && total}
+								{@const scheduledFor = v?.scheduled_for
+									? new Date(v?.scheduled_for).getTime()
+									: undefined}
+								{@const startedAt = v?.started_at ? new Date(v?.started_at).getTime() : undefined}
+								{@const waitingLen = scheduledFor
+									? startedAt
+										? startedAt - scheduledFor
+										: now - scheduledFor
+									: 0}
 
-							<!-- Result -->
-							{#if isDone && job.result !== undefined}
-								<div>
-									<div class="text-2xs text-secondary font-semibold mb-1">Result</div>
-									<div class="max-h-40 overflow-auto">
-										<ObjectViewer json={job.result} pureViewer />
-									</div>
+								<div class="flex w-full">
+									{#if isInlineStep}
+										<!-- Inline steps have no waiting phase -->
+										{#if startedAt}
+											<TimelineBar
+												position="center"
+												id={k}
+												{total}
+												{min}
+												started_at={startedAt}
+												len={v.duration_ms ?? now - startedAt}
+												running={!flowDone && v.duration_ms == undefined}
+											/>
+										{/if}
+									{:else}
+										<TimelineBar
+											position="left"
+											id={k}
+											{total}
+											{min}
+											gray
+											started_at={scheduledFor}
+											len={waitingLen < 100 ? 0 : waitingLen - 100}
+											running={!flowDone && startedAt == undefined}
+										/>
+										{#if startedAt}
+											<TimelineBar
+												position={waitingLen < 100 ? 'center' : 'right'}
+												id={k}
+												{total}
+												{min}
+												concat
+												started_at={startedAt}
+												len={v.duration_ms ?? now - startedAt}
+												running={!flowDone && v.duration_ms == undefined}
+											/>
+										{/if}
+									{/if}
 								</div>
 							{/if}
-						{:else}
-							<div class="text-xs text-secondary py-1">No data available</div>
-						{/if}
-					</div>
+						</div>
+					</button>
+
+					{#if isExpanded}
+						<div class="border-t bg-surface-secondary px-4 py-2">
+							{#if isInlineStep}
+								<!-- Inline step: show result from checkpoint -->
+								{@const result = stepResults[stepKey(k)]}
+								{#if isDone && result !== undefined}
+									<div>
+										<div class="text-2xs text-secondary font-semibold mb-1">Result</div>
+										<div class="max-h-40 overflow-auto">
+											<ObjectViewer json={result} pureViewer />
+										</div>
+									</div>
+								{:else}
+									<div class="text-xs text-secondary py-1">Step completed (no result)</div>
+								{/if}
+							{:else if loadingJobs[k] && !childJobs[k]}
+								<div class="flex items-center gap-2 text-xs text-secondary py-1">
+									<Loader2 size={12} class="animate-spin" />
+									Loading...
+								</div>
+							{:else if childJobs[k]}
+								{@const job = childJobs[k]}
+								<!-- Logs -->
+								{#if job.logs || isRunning}
+									<div class="mb-2">
+										<div class="text-2xs text-secondary font-semibold mb-1">Logs</div>
+										<LogViewer
+											content={job.logs ?? ''}
+											jobId={k}
+											isLoading={isRunning}
+											small
+											tag={job.tag}
+											download={false}
+											noMaxH={false}
+										/>
+									</div>
+								{/if}
+
+								<!-- Result -->
+								{#if isDone && job.result !== undefined}
+									<div>
+										<div class="text-2xs text-secondary font-semibold mb-1">Result</div>
+										<div class="max-h-40 overflow-auto">
+											<ObjectViewer json={job.result} pureViewer />
+										</div>
+									</div>
+								{/if}
+							{:else}
+								<div class="text-xs text-secondary py-1">No data available</div>
+							{/if}
+						</div>
+					{/if}
 				{/if}
 			</div>
 		{/each}
