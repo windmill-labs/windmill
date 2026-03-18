@@ -1504,7 +1504,7 @@ async function run() {{
                 return {{ type: "inline_checkpoint", key: dispatch.key, result: dispatch.result ?? null, started_at: dispatch.started_at, duration_ms: dispatch.duration_ms }};
             }}
             if (dispatch.mode === "approval") {{
-                return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form }};
+                return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form, self_approval_disabled: dispatch.self_approval_disabled }};
             }}
             if (dispatch.mode === "sleep") {{
                 return {{ type: "sleep", key: dispatch.key, seconds: dispatch.seconds }};
@@ -2634,7 +2634,7 @@ pub async fn handle_wac_v2_output(
                 job.id, num_steps
             )))
         }
-        WacOutput::Approval { key, timeout, form } => {
+        WacOutput::Approval { key, timeout, form, self_approval_disabled } => {
             let db = match conn {
                 Connection::Sql(db) => db,
                 _ => {
@@ -2676,11 +2676,37 @@ pub async fn handle_wac_v2_output(
             .await
             .map_err(|e| error::Error::internal_err(format!("Failed to save checkpoint: {e}")))?;
 
+            // Store approval_conditions in flow_status for resume endpoint auth checks
+            let sad = self_approval_disabled.unwrap_or(false);
+            if sad {
+                use windmill_common::flow_status::ApprovalConditions;
+                let approval_conditions = ApprovalConditions {
+                    user_auth_required: true,
+                    user_groups_required: vec![],
+                    self_approval_disabled: true,
+                };
+                sqlx::query(
+                    "UPDATE v2_job_status SET flow_status = JSONB_SET(
+                        COALESCE(flow_status, '{}'::jsonb),
+                        '{approval_conditions}',
+                        $2::jsonb
+                    ) WHERE id = $1",
+                )
+                .bind(&job.id)
+                .bind(&serde_json::json!(approval_conditions))
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error::Error::internal_err(format!("Failed to save approval conditions: {e}"))
+                })?;
+            }
+
             // Store approval form metadata for the approval page endpoint
             let approval_meta = serde_json::json!({
                 "key": key,
                 "form": form,
                 "timeout": timeout_secs as u32,
+                "self_approval_disabled": sad,
             });
             sqlx::query(
                 "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
@@ -2705,6 +2731,8 @@ pub async fn handle_wac_v2_output(
                     "started_at": &now_str,
                     "name": key,
                     "approval": true,
+                    "self_approval_disabled": sad,
+                    "form": form,
                 });
                 let step_timeline_key = format!("_step/{}", key);
                 sqlx::query(

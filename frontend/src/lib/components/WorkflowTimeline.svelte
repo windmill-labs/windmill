@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { base } from '$lib/base'
-	import { displayDate, msToSec } from '$lib/utils'
+	import { displayDate, msToSec, emptyString } from '$lib/utils'
 	import { onDestroy } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
 	import { ChevronDown, ChevronRight, Loader2, Moon, ShieldCheck } from 'lucide-svelte'
@@ -9,7 +9,11 @@
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import { CheckCircle2, XCircle } from 'lucide-svelte'
 	import { JobService, type Job, type WorkflowStatus } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { Button } from '$lib/components/common'
+	import { Alert } from '$lib/components/common'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		flow_status: Record<string, WorkflowStatus>
@@ -18,6 +22,7 @@
 		result?: any
 		success?: boolean
 		autoExpandResult?: boolean
+		jobId?: string
 	}
 
 	let {
@@ -26,7 +31,8 @@
 		stepResults = {},
 		result = undefined,
 		success = true,
-		autoExpandResult = false
+		autoExpandResult = false,
+		jobId = undefined
 	}: Props = $props()
 
 	let resultExpanded = $state(false)
@@ -114,6 +120,45 @@
 			}
 		}
 	}, 2000)
+
+	// Approval action state
+	let approvalLoading: Record<string, boolean> = $state({})
+	let approvalFormArgs: Record<string, Record<string, any>> = $state({})
+
+	async function handleApprove(key: string, formSchema: any) {
+		const ws = $workspaceStore
+		if (!ws || !jobId) return
+		approvalLoading[key] = true
+		try {
+			const payload =
+				formSchema && Object.keys(formSchema).length > 0 ? (approvalFormArgs[key] ?? {}) : {}
+			await JobService.resumeSuspendedFlowAsOwner({
+				workspace: ws,
+				id: jobId,
+				requestBody: payload
+			})
+			sendUserToast('Approval submitted')
+		} catch (e: any) {
+			sendUserToast(e?.body ?? e?.message ?? 'Failed to approve', true)
+		} finally {
+			approvalLoading[key] = false
+		}
+	}
+
+	async function handleCancel() {
+		const ws = $workspaceStore
+		if (!ws || !jobId) return
+		try {
+			await JobService.cancelQueuedJob({
+				workspace: ws,
+				id: jobId,
+				requestBody: { reason: 'Cancelled from workflow timeline' }
+			})
+			sendUserToast('Job cancelled')
+		} catch (e: any) {
+			sendUserToast(e?.body ?? e?.message ?? 'Failed to cancel', true)
+		}
+	}
 </script>
 
 {#if flow_status}
@@ -167,22 +212,69 @@
 						<span class="italic">sleep ({(v as any).sleep_duration_s}s)</span>
 					</div>
 				{:else if isApproval}
-					<div class="w-full px-2 py-1.5 text-xs flex items-center gap-2">
-						<div class="w-3 flex-shrink-0"></div>
-						<ShieldCheck
-							size={12}
-							class="flex-shrink-0 {isDone ? 'text-green-600' : 'text-yellow-500'}"
-						/>
-						<span class="italic text-secondary">
-							{v.name ?? stepKey(k)}
-						</span>
-						{#if !isDone}
-							<span class="text-tertiary flex items-center gap-1">
-								<Loader2 size={12} class="animate-spin" />
-								waiting
+					{@const selfApprovalDisabled = (v as any).self_approval_disabled === true}
+					{@const formSchema = (v as any).form?.schema}
+					{@const hasForm =
+						formSchema && typeof formSchema === 'object' && Object.keys(formSchema).length > 0}
+					{@const canApprove = jobId && !isDone && ($userStore?.is_admin || !selfApprovalDisabled)}
+					<div class="w-full px-2 py-1.5 text-xs">
+						<div class="flex items-center gap-2">
+							<div class="w-3 flex-shrink-0"></div>
+							<ShieldCheck
+								size={12}
+								class="flex-shrink-0 {isDone ? 'text-green-600' : 'text-yellow-500'}"
+							/>
+							<span class="italic text-secondary">
+								{v.name ?? stepKey(k)}
 							</span>
-						{:else}
-							<span class="text-tertiary">{msToSec(v.duration_ms ?? 0)}s</span>
+							{#if !isDone}
+								<span class="text-tertiary flex items-center gap-1">
+									<Loader2 size={12} class="animate-spin" />
+									waiting
+								</span>
+								{#if canApprove}
+									<div class="ml-auto flex gap-1">
+										<Button
+											variant="default"
+											unifiedSize="sm"
+											disabled={approvalLoading[k]}
+											onclick={() => handleApprove(k, formSchema)}
+										>
+											Approve
+										</Button>
+										<Button
+											variant="default"
+											unifiedSize="sm"
+											disabled={approvalLoading[k]}
+											onclick={() => handleCancel()}
+										>
+											Reject
+										</Button>
+									</div>
+								{/if}
+							{:else}
+								<span class="text-tertiary">{msToSec(v.duration_ms ?? 0)}s</span>
+							{/if}
+						</div>
+						{#if canApprove && hasForm}
+							<div class="mt-2 ml-5 max-w-md">
+								{#if emptyString($enterpriseLicense)}
+									<Alert
+										type="warning"
+										title="Adding a form to the approval page is an EE feature"
+									/>
+								{:else}
+									<SchemaForm
+										onlyMaskPassword
+										noVariablePicker
+										schema={{
+											properties: formSchema,
+											order: Object.keys(formSchema)
+										}}
+										bind:args={approvalFormArgs[k]}
+									/>
+								{/if}
+							</div>
 						{/if}
 					</div>
 				{:else}

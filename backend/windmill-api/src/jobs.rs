@@ -103,7 +103,7 @@ use windmill_common::{
     cache,
     db::UserDB,
     error::{self, to_anyhow, Error},
-    flow_status::{Approval, FlowStatus, FlowStatusModule},
+    flow_status::{Approval, ApprovalConditions, FlowStatus, FlowStatusModule},
     flows::{add_virtual_items_if_necessary, resolve_maybe_value, FlowValue},
     jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
@@ -2181,7 +2181,7 @@ pub async fn resume_suspended_flow_as_owner(
 ) -> error::Result<StatusCode> {
     let mut tx = db.begin().await?;
 
-    let (flow, job_id) = get_suspended_flow_info(flow_id, &mut tx).await?;
+    let (flow, job_id, is_wac) = get_suspended_flow_info(flow_id, &mut tx).await?;
 
     let flow_path = flow.script_path.as_deref().unwrap_or_else(|| "");
     require_owner_of_path(&authed, flow_path)?;
@@ -2189,10 +2189,17 @@ pub async fn resume_suspended_flow_as_owner(
 
     // Check approval conditions (self-approval, required groups, etc.)
     if let Some(ref flow_status_value) = flow.flow_status {
-        if let Ok(flow_status) = serde_json::from_value::<FlowStatus>(flow_status_value.clone()) {
-            let trigger_email = flow.email.as_deref().unwrap_or("");
-            conditionally_require_authed_user(Some(authed.clone()), flow_status, trigger_email)?;
-        }
+        let trigger_email = flow.email.as_deref().unwrap_or("");
+        let ac = serde_json::from_value::<FlowStatus>(flow_status_value.clone())
+            .ok()
+            .and_then(|fs| fs.approval_conditions)
+            .or_else(|| {
+                // WAC flows store approval_conditions directly in flow_status JSONB
+                flow_status_value
+                    .get("approval_conditions")
+                    .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok())
+            });
+        conditionally_require_authed_user(Some(authed.clone()), ac, trigger_email)?;
     }
 
     let value = value.unwrap_or(serde_json::Value::Null);
@@ -2208,7 +2215,19 @@ pub async fn resume_suspended_flow_as_owner(
     )
     .await?;
 
-    resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
+    if is_wac {
+        // WAC: directly decrement suspend counter
+        if flow.suspend > 0 {
+            sqlx::query!(
+                "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1",
+                flow.id,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    } else {
+        resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
+    }
 
     tx.commit().await?;
     Ok(StatusCode::CREATED)
@@ -2255,25 +2274,39 @@ async fn resume_suspended_job_internal(
     // Get flow info - works for step-level, flow-level, and WAC approval
     let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &db).await?;
 
-    // For step-level resumes, verify user auth and flow status
+    // For step-level resumes (both classic flows and WAC), verify user auth and flow status
     // For flow-level resumes (pre-approvals), the flow might not be at a suspended step yet
-    // For WAC approvals, skip flow status checks (there is no flow)
-    if !is_flow_level && !is_wac {
-        let parent_flow = GetQuery::new()
-            .without_logs()
-            .without_code()
-            .without_flow()
-            .fetch(&db, &flow_info.id, &w_id)
-            .await?;
-        let flow_status = parent_flow
-            .flow_status()
-            .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
+    if !is_flow_level {
+        if is_wac {
+            // WAC: approval_conditions are stored in the flow_status JSONB column
+            let ac = flow_info
+                .flow_status
+                .as_ref()
+                .and_then(|v| v.get("approval_conditions"))
+                .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
+            let trigger_email = flow_info.email.as_deref().unwrap_or("");
+            conditionally_require_authed_user(authed.clone(), ac, trigger_email)?;
+        } else {
+            let parent_flow = GetQuery::new()
+                .without_logs()
+                .without_code()
+                .without_flow()
+                .fetch(&db, &flow_info.id, &w_id)
+                .await?;
+            let flow_status = parent_flow
+                .flow_status()
+                .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
 
-        let trigger_email = match &parent_flow {
-            Job::CompletedJob(job) => &job.email,
-            Job::QueuedJob(job) => &job.email,
-        };
-        conditionally_require_authed_user(authed.clone(), flow_status, trigger_email)?;
+            let trigger_email = match &parent_flow {
+                Job::CompletedJob(job) => &job.email,
+                Job::QueuedJob(job) => &job.email,
+            };
+            conditionally_require_authed_user(
+                authed.clone(),
+                flow_status.approval_conditions,
+                trigger_email,
+            )?;
+        }
     }
 
     let exists = sqlx::query_scalar!(
@@ -2540,32 +2573,58 @@ async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowI
 async fn get_suspended_flow_info<'c>(
     job_id: Uuid,
     tx: &mut Transaction<'c, Postgres>,
-) -> error::Result<(FlowInfo, Uuid)> {
-    let flow = sqlx::query_as!(
-            FlowInfo,
-            r#"
-            SELECT j.id AS "id!", COALESCE(s.flow_status, s.workflow_as_code_status) as flow_status, q.suspend AS "suspend!", j.runnable_path as script_path, j.permissioned_as_email as email
+) -> error::Result<(FlowInfo, Uuid, bool)> {
+    let row = sqlx::query!(
+        r#"
+            SELECT j.id AS "id!", s.flow_status, s.workflow_as_code_status,
+                   q.suspend AS "suspend!", j.runnable_path as script_path,
+                   j.permissioned_as_email as email
             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_status s USING (id)
             WHERE j.id = $1
             "#,
-            job_id,
-        )
-        .fetch_optional(&mut **tx)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
-    let job_id = flow
-        .flow_status
-        .as_ref()
-        .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
-        .and_then(|s| match s.modules.get(s.step as usize) {
-            Some(FlowStatusModule::WaitingForEvents { job, .. }) => Some(job.to_owned()),
-            _ => None,
-        });
+        job_id,
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
 
-    if let Some(job_id) = job_id {
-        Ok((flow, job_id))
+    let is_wac = row.workflow_as_code_status.is_some()
+        && row
+            .flow_status
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+            .is_none();
+
+    let flow = FlowInfo {
+        id: row.id,
+        flow_status: row.flow_status,
+        suspend: row.suspend,
+        script_path: row.script_path,
+        email: Some(row.email),
+    };
+
+    if is_wac {
+        // WAC: the suspended job IS the flow job itself — no step to extract
+        if flow.suspend > 0 {
+            Ok((flow, job_id, true))
+        } else {
+            Err(anyhow::anyhow!("the WAC job is not in a suspended state anymore").into())
+        }
     } else {
-        Err(anyhow::anyhow!("the flow is not in a suspended state anymore").into())
+        let step_job_id = flow
+            .flow_status
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+            .and_then(|s| match s.modules.get(s.step as usize) {
+                Some(FlowStatusModule::WaitingForEvents { job, .. }) => Some(job.to_owned()),
+                _ => None,
+            });
+
+        if let Some(step_job_id) = step_job_id {
+            Ok((flow, step_job_id, false))
+        } else {
+            Err(anyhow::anyhow!("the flow is not in a suspended state anymore").into())
+        }
     }
 }
 
@@ -2640,7 +2699,11 @@ pub async fn get_suspended_job_flow(
         Job::CompletedJob(job) => &job.email,
         Job::QueuedJob(job) => &job.email,
     };
-    conditionally_require_authed_user(authed.clone(), flow_status.clone(), trigger_email)?;
+    conditionally_require_authed_user(
+        authed.clone(),
+        flow_status.approval_conditions.clone(),
+        trigger_email,
+    )?;
 
     let approvers_from_status = match flow_module_status {
         FlowStatusModule::Success { approvers, .. } => approvers.to_owned(),
@@ -2681,11 +2744,9 @@ pub async fn get_suspended_job_flow(
 
 fn conditionally_require_authed_user(
     _authed: Option<ApiAuthed>,
-    flow_status: FlowStatus,
+    approval_conditions_opt: Option<ApprovalConditions>,
     _trigger_email: &str,
 ) -> error::Result<()> {
-    let approval_conditions_opt = flow_status.approval_conditions;
-
     if approval_conditions_opt.is_none() {
         return Ok(());
     }

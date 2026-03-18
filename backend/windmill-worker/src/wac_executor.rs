@@ -59,7 +59,13 @@ pub enum WacOutput {
     /// No child job is dispatched — the parent suspends directly and resumes
     /// when a user hits the resume/cancel endpoint.
     #[serde(rename = "approval")]
-    Approval { key: String, timeout: Option<u32>, form: Option<Value> },
+    Approval {
+        key: String,
+        timeout: Option<u32>,
+        form: Option<Value>,
+        #[serde(default)]
+        self_approval_disabled: Option<bool>,
+    },
     /// Server-side sleep — suspend the workflow for a duration without holding a worker.
     #[serde(rename = "sleep")]
     Sleep { key: String, seconds: u32 },

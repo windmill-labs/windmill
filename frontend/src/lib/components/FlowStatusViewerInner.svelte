@@ -2084,6 +2084,7 @@
 																		stepResults={getStepResults(node.workflow_as_code_status)}
 																		result={node.result}
 																		success={node.type === 'Success'}
+																		jobId={node.job_id}
 																	/>
 																</div>
 															{/if}
