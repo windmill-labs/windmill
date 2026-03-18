@@ -550,9 +550,13 @@ async fn execute_windmill_tool(
     });
 
     // Await the spawned task
-    let (handle_result, updated_occupancy) = join_handle
-        .await
-        .map_err(|e| Error::internal_err(format!("Tool execution task failed: {}", e)))?;
+    let (handle_result, updated_occupancy) = join_handle.await.map_err(|e| {
+        if e.is_cancelled() {
+            Error::ExecutionErr("Tool execution task was cancelled".to_string())
+        } else {
+            Error::internal_err(format!("Tool execution task failed: {}", e))
+        }
+    })?;
 
     // Merge occupancy metrics back
     ctx.occupancy_metrics.total_duration_of_running_jobs =
