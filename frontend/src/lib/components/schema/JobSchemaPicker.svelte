@@ -9,6 +9,7 @@
 		payloadData?: any | undefined
 		hovering?: boolean
 		showAuthor?: boolean
+		isPreview?: boolean
 		placement?: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end'
 		viewerOpen?: boolean
 		limitPayloadSize?: boolean
@@ -19,6 +20,7 @@
 		payloadData = undefined,
 		hovering = false,
 		showAuthor = false,
+		isPreview = false,
 		placement = 'bottom-start',
 		viewerOpen = false,
 		limitPayloadSize = false
@@ -36,10 +38,17 @@
 >
 	{#snippet start()}
 		<div class="center-center">
-			<div
-				class="rounded-full w-2 h-2 {job.success ? 'bg-green-400' : 'bg-red-400'}"
-				title={job.success ? 'Success' : 'Failed'}
-			></div>
+			{#if isPreview}
+				<span
+					class="text-2xs font-medium px-1 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300"
+					title="Preview run">P</span
+				>
+			{:else}
+				<div
+					class="rounded-full w-2 h-2 {job.success ? 'bg-green-400' : 'bg-red-400'}"
+					title={job.success ? 'Success' : 'Failed'}
+				></div>
+			{/if}
 		</div>
 	{/snippet}
 	{#snippet extra()}
