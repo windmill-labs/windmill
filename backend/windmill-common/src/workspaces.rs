@@ -404,8 +404,13 @@ impl Default for DataTableForkBehavior {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct DataTable {
     pub database: DataTableDatabase,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub non_diffable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]

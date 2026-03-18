@@ -1608,6 +1608,8 @@ async fn fork_datatable(
             resource_type: DataTableCatalogResourceType::Instance,
             resource_path: new_dbname.clone(),
         },
+        non_diffable: true,
+        forked_from: Some(original_dbname.clone()),
     };
     let datatable_value: serde_json::Value =
         serde_json::to_value(&new_datatable).map_err(|err| Error::internal_err(err.to_string()))?;
@@ -1706,6 +1708,27 @@ async fn fork_resource_datatable(
         new_dbname,
         target_workspace_id,
         resource_path
+    )
+    .execute(db)
+    .await?;
+
+    // Tag the datatable config as non_diffable with forked_from info
+    let forked_from_value = format!("$res:{}", resource_path);
+    let tag_json = serde_json::json!({
+        "nonDiffable": true,
+        "forkedFrom": forked_from_value
+    });
+    sqlx::query!(
+        r#"UPDATE workspace_settings
+           SET datatable = jsonb_set(
+               COALESCE(datatable, '{"datatables":{}}'::jsonb),
+               ARRAY['datatables', $1],
+               COALESCE(datatable->'datatables'->$1, '{}'::jsonb) || $2
+           )
+           WHERE workspace_id = $3"#,
+        datatable_name,
+        tag_json,
+        target_workspace_id
     )
     .execute(db)
     .await?;
