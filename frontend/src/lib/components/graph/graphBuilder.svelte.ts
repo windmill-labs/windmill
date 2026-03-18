@@ -391,8 +391,18 @@ export function topologicalSort(
 	return result.reverse()
 }
 
+/** Collect all inner FlowModules from a container, handling GroupedModule items in inner arrays. */
 function getContainerModules(module: FlowModule): FlowModule[] {
-	return getAllModules([module]).filter((m) => m.id !== module.id)
+	const val = module.value as any
+	const innerArrays: GroupedModule[][] = []
+	if (val.type === 'forloopflow' || val.type === 'whileloopflow') {
+		innerArrays.push(val.modules)
+	} else if (val.type === 'branchone') {
+		innerArrays.push(val.default, ...val.branches.map((b: any) => b.modules))
+	} else if (val.type === 'branchall') {
+		innerArrays.push(...val.branches.map((b: any) => b.modules))
+	}
+	return innerArrays.flatMap((arr) => collectLeafModules(arr))
 }
 
 export function graphBuilder(
