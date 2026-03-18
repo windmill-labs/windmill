@@ -64,7 +64,6 @@ use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
 
 mod ai;
-mod google;
 mod apps;
 pub mod args;
 mod audit;
@@ -77,6 +76,7 @@ mod bedrock;
 mod capture;
 mod concurrency_groups;
 mod db;
+mod google;
 
 mod drafts;
 #[cfg(feature = "private")]
@@ -676,7 +676,7 @@ pub async fn run_server(
                 .layer(from_extractor::<OptAuthed>())
                 // Deprecated, here for backwards compatibility: user should use /mcp/w/:workspace_id/mcp instead
                 .nest("/mcp/w/:workspace_id/sse", mcp_router.clone())
-                .nest("/mcp/w/:workspace_id/mcp", mcp_router)
+                .nest("/mcp/w/:workspace_id/mcp", mcp_router.layer(cors.clone()))
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {

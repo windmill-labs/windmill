@@ -386,7 +386,9 @@ async fn handle_authorization_code_grant(
 
     let access_token = rd_string(32);
     let access_token_hash = hash_token(&access_token);
-    let access_token_prefix = access_token.get(..TOKEN_PREFIX_LEN).unwrap_or(&access_token);
+    let access_token_prefix = access_token
+        .get(..TOKEN_PREFIX_LEN)
+        .unwrap_or(&access_token);
     let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
         None
     } else {
@@ -530,7 +532,9 @@ async fn handle_refresh_token_grant(
     // Generate new tokens
     let new_access_token = rd_string(32);
     let new_access_token_hash = hash_token(&new_access_token);
-    let new_access_token_prefix = new_access_token.get(..TOKEN_PREFIX_LEN).unwrap_or(&new_access_token);
+    let new_access_token_prefix = new_access_token
+        .get(..TOKEN_PREFIX_LEN)
+        .unwrap_or(&new_access_token);
     let new_plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
         None
     } else {
@@ -860,7 +864,10 @@ pub fn global_service() -> Router {
 /// Mounted at /api/w/:workspace_id/mcp/oauth/server (outside authenticated section)
 pub fn workspaced_unauthed_service() -> Router {
     Router::new()
-        .route("/authorize", get(workspaced_oauth_authorize))
+        .route(
+            "/authorize",
+            get(workspaced_oauth_authorize).head(workspaced_oauth_authorize),
+        )
         .route("/token", post(oauth_token))
 }
 
