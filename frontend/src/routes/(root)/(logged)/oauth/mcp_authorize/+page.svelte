@@ -2,15 +2,19 @@
 	import { page } from '$app/state'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
+	import Select from '$lib/components/select/Select.svelte'
+	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Check, Info } from 'lucide-svelte'
+	import McpScopeSelector from '$lib/components/mcp/McpScopeSelector.svelte'
+	import Check from 'lucide-svelte/icons/check'
 
 	// Get OAuth params from URL
-	let workspaceId = page.url.searchParams.get('workspace_id') || ''
+	let isGateway = page.url.searchParams.get('gateway') === 'true'
+	let workspaceId = $state(page.url.searchParams.get('workspace_id') || '')
 	let clientId = page.url.searchParams.get('client_id') || ''
 	let clientName = page.url.searchParams.get('client_name') || 'Unknown Client'
 	let redirectUri = page.url.searchParams.get('redirect_uri') || ''
-	let scope = page.url.searchParams.get('scope') || 'mcp:all'
+	let scope = $state(page.url.searchParams.get('scope') || 'mcp:all')
 	let oauthState = page.url.searchParams.get('state') || ''
 	let codeChallenge = page.url.searchParams.get('code_challenge') || ''
 	let codeChallengeMethod = page.url.searchParams.get('code_challenge_method') || ''
@@ -18,6 +22,33 @@
 	let loading = $state(false)
 	let success = $state(false)
 	let successRedirectUrl = $state('')
+
+	// Gateway mode: fetch user's workspaces for the picker
+	let workspaces: Array<{ value: string; label: string }> = $state([])
+	let loadingWorkspaces = $state(false)
+
+	if (isGateway) {
+		loadingWorkspaces = true
+		WorkspaceService.listUserWorkspaces()
+			.then((result) => {
+				workspaces = result.workspaces
+					.filter((w) => !w.disabled)
+					.map((w) => ({
+						value: w.id,
+						label: w.name
+					}))
+				// Auto-select if only one workspace
+				if (workspaces.length === 1) {
+					workspaceId = workspaces[0].value
+				}
+			})
+			.catch((e) => {
+				sendUserToast('Failed to load workspaces', true)
+			})
+			.finally(() => {
+				loadingWorkspaces = false
+			})
+	}
 
 	function onDeny() {
 		// Redirect to client with error
@@ -33,22 +64,34 @@
 
 	async function onApprove() {
 		if (!workspaceId) {
-			sendUserToast('Error: missing workspace_id', true)
+			sendUserToast('Please select a workspace', true)
 			return
 		}
 		loading = true
 		try {
-			const approveUrl = `/api/w/${workspaceId}/mcp/oauth/server/approve`
+			// Gateway mode uses the gateway approve endpoint with workspace_id in body
+			// Workspace mode uses the workspace-scoped approve endpoint
+			const approveUrl = isGateway
+				? `/api/mcp/gateway/oauth/server/approve`
+				: `/api/w/${workspaceId}/mcp/oauth/server/approve`
+
+			const body: Record<string, string> = {
+				client_id: clientId,
+				redirect_uri: redirectUri,
+				scope: scope,
+				state: oauthState,
+				code_challenge: codeChallenge,
+				code_challenge_method: codeChallengeMethod
+			}
+
+			// Gateway mode sends workspace_id in the body
+			if (isGateway) {
+				body.workspace_id = workspaceId
+			}
+
 			const response = await fetch(approveUrl, {
 				method: 'POST',
-				body: JSON.stringify({
-					client_id: clientId,
-					redirect_uri: redirectUri,
-					scope: scope,
-					state: oauthState,
-					code_challenge: codeChallenge,
-					code_challenge_method: codeChallengeMethod
-				}),
+				body: JSON.stringify(body),
 				headers: {
 					'Content-Type': 'application/json'
 				}
@@ -78,8 +121,8 @@
 	}
 </script>
 
-{#if !workspaceId}
-	<p class="text-center text-sm text-primary mb-6"> Error: missing workspace_id </p>
+{#if !isGateway && !workspaceId}
+	<p class="text-center text-sm text-primary mb-6">Error: missing workspace_id</p>
 {:else}
 	<CenteredModal title={success ? 'Authorization Approved' : 'Authorization Request'}>
 		{#if success}
@@ -100,49 +143,43 @@
 		{:else}
 			<p class="text-center text-sm text-primary mb-6">
 				<span class="font-semibold text-accent">{clientName}</span>
-				is requesting access to your
-				<span class="font-semibold text-accent">{workspaceId}</span>
-				workspace.
+				is requesting access to
+				{#if isGateway && !workspaceId}
+					your Windmill workspace.
+				{:else}
+					your
+					<span class="font-semibold text-accent">{workspaceId}</span>
+					workspace.
+				{/if}
 			</p>
 
-			<div class="mb-6">
-				<p class="text-xs font-semibold text-emphasis mb-3">This will allow the client to:</p>
-				<ul class="flex flex-col gap-y-2">
-					<li class="flex items-center gap-x-2 text-xs text-primary">
-						<Check class="w-4 h-4 text-green-500 flex-shrink-0" />
-						Execute all scripts in the workspace
-					</li>
-					<li class="flex items-center gap-x-2 text-xs text-primary">
-						<Check class="w-4 h-4 text-green-500 flex-shrink-0" />
-						Execute all flows in the workspace
-					</li>
-					<li class="flex items-center gap-x-2 text-xs text-primary">
-						<Check class="w-4 h-4 text-green-500 flex-shrink-0" />
-						Access API endpoints related to the workspace
-					</li>
-				</ul>
-			</div>
+			{#if isGateway}
+				<div class="mb-6">
+					<p class="text-xs font-semibold text-emphasis mb-2">Select a workspace:</p>
+					{#if loadingWorkspaces}
+						<p class="text-xs text-secondary">Loading workspaces...</p>
+					{:else if workspaces.length === 0}
+						<p class="text-xs text-secondary">No workspaces available.</p>
+					{:else}
+						<Select items={workspaces} bind:value={workspaceId} placeholder="Choose a workspace" />
+					{/if}
+				</div>
+			{/if}
 
-			<div
-				class="flex items-start gap-x-2 p-3 mb-6 rounded-md bg-surface-secondary border border-light"
-			>
-				<Info class="w-4 h-4 text-secondary flex-shrink-0 mt-0.5" />
-				<p class="text-2xs text-secondary">
-					For more fine-grained control, you can create a specific token with limited scope from
-					your account settings.
-					<a
-						href="https://www.windmill.dev/docs/core_concepts/mcp"
-						target="_blank"
-						rel="noopener noreferrer"
-						class="text-accent hover:underline">See documentation</a
-					>.
-				</p>
-			</div>
+			{#if workspaceId}
+				<div class="mb-6">
+					<McpScopeSelector {workspaceId} bind:scope />
+				</div>
+			{/if}
 
 			<div class="flex flex-row justify-around gap-x-4">
 				<Button variant="border" size="lg" disabled={loading} onClick={onDeny}>Deny</Button>
-				<Button variant="accent" size="lg" disabled={loading} {loading} onClick={onApprove}
-					>Approve</Button
+				<Button
+					variant="accent"
+					size="lg"
+					disabled={loading || (isGateway && !workspaceId)}
+					{loading}
+					onClick={onApprove}>Approve</Button
 				>
 			</div>
 		{/if}
