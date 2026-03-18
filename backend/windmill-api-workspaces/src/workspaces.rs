@@ -5532,6 +5532,8 @@ async fn query_visible_items<'c>(
                 .fetch_all(&mut **tx)
                 .await?
             }
+            // Datatables and ducklakes are workspace settings, always visible
+            "datatable" | "ducklake" => paths_vec,
             _ => vec![], // Unknown kind
         };
 
