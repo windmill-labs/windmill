@@ -138,7 +138,7 @@ fn check_no_duplicates(
 
 pub async fn insert_new_trigger_into_db(
     authed: &ApiAuthed,
-    db: &DB,
+    _db: &DB,
     tx: &mut PgConnection,
     w_id: &str,
     trigger: &TriggerData<HttpConfigRequest>,

@@ -70,3 +70,17 @@ pub fn truncate_token(token: &str) -> String {
         token.to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_username_to_permissioned_as() {
+        assert_eq!(username_to_permissioned_as("alice"), "u/alice");
+        assert_eq!(
+            username_to_permissioned_as("alice@example.com"),
+            "alice@example.com"
+        );
+    }
+}

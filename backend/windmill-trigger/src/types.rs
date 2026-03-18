@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{types::Json as SqlxJson, FromRow};
 use std::{collections::HashMap, fmt::Debug};
-use windmill_common::{db::Authable, error::Result, jobs::JobTriggerKind};
+use windmill_common::{db::Authable, jobs::JobTriggerKind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]

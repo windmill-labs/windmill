@@ -62,7 +62,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "script_path",
             "is_flow",
             "edited_by",
-            "email",
+            "permissioned_as",
             "edited_at",
             "extra_perms",
             "mode",

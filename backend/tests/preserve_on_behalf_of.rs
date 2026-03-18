@@ -586,8 +586,8 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         "Admin should preserve schedule permissioned_as"
     );
     assert_eq!(
-        schedule.edited_by, "original-user",
-        "Admin should preserve schedule edited_by (looked up from email)"
+        schedule.edited_by, "test-user",
+        "edited_by should be the deploying user (admin)"
     );
 
     // ========================================
@@ -652,8 +652,8 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         "Deployer should preserve schedule permissioned_as"
     );
     assert_eq!(
-        schedule.edited_by, "original-user",
-        "Deployer should preserve schedule edited_by"
+        schedule.edited_by, "deployer-user",
+        "edited_by should be the deploying user (deployer)"
     );
 
     // ========================================
@@ -1479,8 +1479,8 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
         "Admin update should preserve schedule permissioned_as"
     );
     assert_eq!(
-        schedule.edited_by, "original-user",
-        "Admin update should preserve schedule edited_by"
+        schedule.edited_by, "test-user",
+        "edited_by should be the deploying user (admin)"
     );
 
     // ========================================
@@ -1568,8 +1568,8 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
         "Deployer update should preserve schedule permissioned_as"
     );
     assert_eq!(
-        schedule.edited_by, "original-user",
-        "Deployer update should preserve schedule edited_by"
+        schedule.edited_by, "deployer-user",
+        "edited_by should be the deploying user (deployer)"
     );
 
     // ========================================
@@ -1734,8 +1734,8 @@ async fn test_http_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Result<
         "Admin should preserve http trigger email"
     );
     assert_eq!(
-        trigger.edited_by, "original-user",
-        "Admin should preserve http trigger edited_by"
+        trigger.edited_by, "test-user",
+        "edited_by should be the deploying user (admin)"
     );
 
     // ========================================
@@ -1840,7 +1840,7 @@ async fn test_http_trigger_update_preserves_email(db: Pool<Postgres>) -> anyhow:
     .fetch_one(&db)
     .await?;
     assert_eq!(trigger.permissioned_as, "u/original-user");
-    assert_eq!(trigger.edited_by, "original-user");
+    assert_eq!(trigger.edited_by, "test-user");
 
     // Admin updates with preserve flag
     let resp = authed(
@@ -1877,8 +1877,8 @@ async fn test_http_trigger_update_preserves_email(db: Pool<Postgres>) -> anyhow:
         "Admin update should preserve http trigger email"
     );
     assert_eq!(
-        trigger.edited_by, "original-user",
-        "Admin update should preserve http trigger edited_by"
+        trigger.edited_by, "test-user",
+        "edited_by should be the deploying user (admin)"
     );
 
     Ok(())
@@ -1951,8 +1951,8 @@ async fn test_websocket_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Re
         "Admin should preserve websocket trigger email"
     );
     assert_eq!(
-        trigger.edited_by, "original-user",
-        "Admin should preserve websocket trigger edited_by"
+        trigger.edited_by, "test-user",
+        "edited_by should be the deploying user (admin)"
     );
 
     // ========================================
@@ -1990,8 +1990,8 @@ async fn test_websocket_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Re
         "Deployer should preserve websocket trigger email"
     );
     assert_eq!(
-        trigger.edited_by, "original-user",
-        "Deployer should preserve websocket trigger edited_by"
+        trigger.edited_by, "deployer-user",
+        "edited_by should be the deploying user (deployer)"
     );
 
     // ========================================
@@ -2130,8 +2130,8 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
         "Admin update should preserve websocket trigger email"
     );
     assert_eq!(
-        trigger.edited_by, "original-user",
-        "Admin update should preserve websocket trigger edited_by"
+        trigger.edited_by, "test-user",
+        "edited_by should be the deploying user (admin)"
     );
 
     // ========================================
@@ -2211,8 +2211,8 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
         "Deployer update should preserve websocket trigger email"
     );
     assert_eq!(
-        trigger.edited_by, "original-user",
-        "Deployer update should preserve websocket trigger edited_by"
+        trigger.edited_by, "deployer-user",
+        "edited_by should be the deploying user (deployer)"
     );
 
     // ========================================
@@ -2294,6 +2294,145 @@ async fn test_websocket_trigger_update_preserves_email(db: Pool<Postgres>) -> an
     assert_eq!(
         trigger.edited_by, "test-user-2",
         "Non-admin update should overwrite websocket trigger edited_by with their own"
+    );
+
+    Ok(())
+}
+
+/// Schedule: Admin sets permissioned_as to a group
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_schedule_group_permissioned_as(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    // Create a script for the schedule
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_script_with_on_behalf_of(
+        "u/test-user/scheduled_script_group",
+        None,
+        false,
+    ))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "Should create script: {}",
+        resp.text().await?
+    );
+
+    // Admin creates schedule with group-based permissioned_as
+    let resp = authed(
+        client().post(format!("{base}/schedules/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "path": "u/test-user/schedule_group_perm",
+        "schedule": "0 0 */6 * * *",
+        "timezone": "UTC",
+        "script_path": "u/test-user/scheduled_script_group",
+        "is_flow": false,
+        "enabled": false,
+        "permissioned_as": "g/all",
+        "preserve_permissioned_as": true
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "Admin should create schedule with group permissioned_as: {}",
+        resp.text().await?
+    );
+
+    let schedule = sqlx::query!(
+        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "u/test-user/schedule_group_perm",
+        "test-workspace"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        schedule.permissioned_as, "g/all",
+        "Admin should preserve group-based permissioned_as"
+    );
+    assert_eq!(
+        schedule.edited_by, "test-user",
+        "edited_by should be the deploying user, not the group"
+    );
+
+    Ok(())
+}
+
+/// HTTP Trigger: Admin sets permissioned_as to a group
+#[cfg(feature = "http_trigger")]
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_http_trigger_group_permissioned_as(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    // Create a script first
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_script_with_on_behalf_of(
+        "u/test-user/http_handler_group",
+        None,
+        false,
+    ))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "Should create script: {}",
+        resp.text().await?
+    );
+
+    let resp = authed(
+        client().post(format!("{base}/http_triggers/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_http_trigger(
+        "u/test-user/http_trigger_group_perm",
+        "u/test-user/http_handler_group",
+        "group-perm",
+        Some("g/all"),
+        true,
+    ))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "Admin should create trigger with group permissioned_as: {}",
+        resp.text().await?
+    );
+
+    let trigger = sqlx::query!(
+        "SELECT permissioned_as, edited_by FROM http_trigger WHERE path = $1 AND workspace_id = $2",
+        "u/test-user/http_trigger_group_perm",
+        "test-workspace"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        trigger.permissioned_as, "g/all",
+        "Admin should preserve group-based permissioned_as on trigger"
+    );
+    assert_eq!(
+        trigger.edited_by, "test-user",
+        "edited_by should be the deploying user, not the group"
     );
 
     Ok(())
