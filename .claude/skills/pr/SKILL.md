@@ -33,6 +33,7 @@ Follow conventional commit format for the PR title:
 - Keep under 70 characters
 - Use lowercase, imperative mood
 - No period at the end
+- If `*_ee.rs` files were modified, prefix with `[ee]`: `[ee] <type>: <description>`
 
 ## PR Body Format
 
@@ -85,3 +86,25 @@ Generated with [Claude Code](https://claude.com/claude-code)
    )"
    ```
 7. Return the PR URL to the user
+
+## EE Companion PR (when `*_ee.rs` files were modified)
+
+The `*_ee.rs` files in the windmill repo are **symlinks** to `windmill-ee-private` — changes won't appear in `git diff` of the windmill repo. Instead, check the EE repo for uncommitted or unpushed changes.
+
+Follow the full EE PR workflow in `docs/enterprise.md`. The key PR-specific details:
+
+1. Find the EE repo/worktree: see "Finding the EE Repo" in `docs/enterprise.md`
+2. Check for changes: `git -C <ee-path> status --short`
+   - If there are no changes in the EE repo, skip this entire section
+3. Follow steps 1–5 from the "EE PR Workflow" in `docs/enterprise.md`
+4. Create the companion PR (title does NOT get the `[ee]` prefix):
+   ```bash
+   gh pr create --draft --repo windmill-labs/windmill-ee-private --title "<type>: <description>" --body "$(cat <<'EOF'
+   Companion PR for windmill-labs/windmill#<PR_NUMBER>
+
+   ---
+   Generated with [Claude Code](https://claude.com/claude-code)
+   EOF
+   )"
+   ```
+5. Commit `ee-repo-ref.txt` and push the updated windmill branch

@@ -7,25 +7,25 @@ export interface SkillMetadata {
 }
 
 export const SKILLS: SkillMetadata[] = [
-  { name: "write-script-go", description: "MUST use when writing Go scripts.", languageKey: "go" },
-  { name: "write-script-java", description: "MUST use when writing Java scripts.", languageKey: "java" },
-  { name: "write-script-graphql", description: "MUST use when writing GraphQL queries.", languageKey: "graphql" },
-  { name: "write-script-rust", description: "MUST use when writing Rust scripts.", languageKey: "rust" },
-  { name: "write-script-bunnative", description: "MUST use when writing Bun Native scripts.", languageKey: "bunnative" },
-  { name: "write-script-postgresql", description: "MUST use when writing PostgreSQL queries.", languageKey: "postgresql" },
-  { name: "write-script-php", description: "MUST use when writing PHP scripts.", languageKey: "php" },
+  { name: "write-script-bash", description: "MUST use when writing Bash scripts.", languageKey: "bash" },
   { name: "write-script-bigquery", description: "MUST use when writing BigQuery queries.", languageKey: "bigquery" },
   { name: "write-script-bun", description: "MUST use when writing Bun/TypeScript scripts.", languageKey: "bun" },
+  { name: "write-script-bunnative", description: "MUST use when writing Bun Native scripts.", languageKey: "bunnative" },
   { name: "write-script-csharp", description: "MUST use when writing C# scripts.", languageKey: "csharp" },
-  { name: "write-script-mssql", description: "MUST use when writing MS SQL Server queries.", languageKey: "mssql" },
   { name: "write-script-deno", description: "MUST use when writing Deno/TypeScript scripts.", languageKey: "deno" },
-  { name: "write-script-mysql", description: "MUST use when writing MySQL queries.", languageKey: "mysql" },
-  { name: "write-script-powershell", description: "MUST use when writing PowerShell scripts.", languageKey: "powershell" },
-  { name: "write-script-snowflake", description: "MUST use when writing Snowflake queries.", languageKey: "snowflake" },
-  { name: "write-script-python3", description: "MUST use when writing Python scripts.", languageKey: "python3" },
   { name: "write-script-duckdb", description: "MUST use when writing DuckDB queries.", languageKey: "duckdb" },
-  { name: "write-script-bash", description: "MUST use when writing Bash scripts.", languageKey: "bash" },
+  { name: "write-script-go", description: "MUST use when writing Go scripts.", languageKey: "go" },
+  { name: "write-script-graphql", description: "MUST use when writing GraphQL queries.", languageKey: "graphql" },
+  { name: "write-script-java", description: "MUST use when writing Java scripts.", languageKey: "java" },
+  { name: "write-script-mssql", description: "MUST use when writing MS SQL Server queries.", languageKey: "mssql" },
+  { name: "write-script-mysql", description: "MUST use when writing MySQL queries.", languageKey: "mysql" },
   { name: "write-script-nativets", description: "MUST use when writing Native TypeScript scripts.", languageKey: "nativets" },
+  { name: "write-script-php", description: "MUST use when writing PHP scripts.", languageKey: "php" },
+  { name: "write-script-postgresql", description: "MUST use when writing PostgreSQL queries.", languageKey: "postgresql" },
+  { name: "write-script-powershell", description: "MUST use when writing PowerShell scripts.", languageKey: "powershell" },
+  { name: "write-script-python3", description: "MUST use when writing Python scripts.", languageKey: "python3" },
+  { name: "write-script-rust", description: "MUST use when writing Rust scripts.", languageKey: "rust" },
+  { name: "write-script-snowflake", description: "MUST use when writing Snowflake queries.", languageKey: "snowflake" },
   { name: "write-flow", description: "MUST use when creating flows." },
   { name: "raw-app", description: "MUST use when creating raw apps." },
   { name: "triggers", description: "MUST use when configuring triggers." },
@@ -36,1025 +36,70 @@ export const SKILLS: SkillMetadata[] = [
 
 // Skill content for each skill (loaded inline for bundling)
 export const SKILL_CONTENT: Record<string, string> = {
-  "write-script-go": `---
-name: write-script-go
-description: MUST use when writing Go scripts.
+  "write-script-bash": `---
+name: write-script-bash
+description: MUST use when writing Bash scripts.
 ---
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# Go
+# Bash
 
 ## Structure
 
-The file package must be \`inner\` and export a function called \`main\`:
+Do not include \`#!/bin/bash\`. Arguments are obtained as positional parameters:
 
-\`\`\`go
-package inner
+\`\`\`bash
+# Get arguments
+var1="$1"
+var2="$2"
 
-func main(param1 string, param2 int) (map[string]interface{}, error) {
-    return map[string]interface{}{
-        "result": param1,
-        "count":  param2,
-    }, nil
-}
+echo "Processing $var1 and $var2"
+
+# Return JSON by echoing to stdout
+echo "{\\"result\\": \\"$var1\\", \\"count\\": $var2}"
 \`\`\`
 
 **Important:**
-- Package must be \`inner\`
-- Return type must be \`({return_type}, error)\`
-- Function name is \`main\` (lowercase)
+- Do not include shebang (\`#!/bin/bash\`)
+- Arguments are always strings
+- Access with \`$1\`, \`$2\`, etc.
 
-## Return Types
+## Output
 
-The return type can be any Go type that can be serialized to JSON:
+The script output is captured as the result. For structured data, output valid JSON:
 
-\`\`\`go
-package inner
+\`\`\`bash
+name="$1"
+count="$2"
 
-type Result struct {
-    Name  string \`json:"name"\`
-    Count int    \`json:"count"\`
+# Output JSON result
+cat << EOF
+{
+  "name": "$name",
+  "count": $count,
+  "timestamp": "$(date -Iseconds)"
 }
-
-func main(name string, count int) (Result, error) {
-    return Result{
-        Name:  name,
-        Count: count,
-    }, nil
-}
+EOF
 \`\`\`
 
-## Error Handling
+## Environment Variables
 
-Return errors as the second return value:
+Environment variables set in Windmill are available:
 
-\`\`\`go
-package inner
-
-import "errors"
-
-func main(value int) (string, error) {
-    if value < 0 {
-        return "", errors.New("value must be positive")
-    }
-    return "success", nil
-}
+\`\`\`bash
+# Access environment variable
+echo "Workspace: $WM_WORKSPACE"
+echo "Job ID: $WM_JOB_ID"
 \`\`\`
-`,
-  "write-script-java": `---
-name: write-script-java
-description: MUST use when writing Java scripts.
----
-
-## CLI Commands
-
-Place scripts in a folder. After writing, run:
-- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
-
-Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# Java
-
-The script must contain a Main public class with a \`public static main()\` method:
-
-\`\`\`java
-public class Main {
-    public static Object main(String name, int count) {
-        java.util.Map<String, Object> result = new java.util.HashMap<>();
-        result.put("name", name);
-        result.put("count", count);
-        return result;
-    }
-}
-\`\`\`
-
-**Important:**
-- Class must be named \`Main\`
-- Method must be \`public static Object main(...)\`
-- Return type is \`Object\` or \`void\`
-
-## Maven Dependencies
-
-Add dependencies using comments at the top:
-
-\`\`\`java
-//requirements:
-//com.google.code.gson:gson:2.10.1
-//org.apache.httpcomponents:httpclient:4.5.14
-
-import com.google.gson.Gson;
-
-public class Main {
-    public static Object main(String input) {
-        Gson gson = new Gson();
-        return gson.fromJson(input, Object.class);
-    }
-}
-\`\`\`
-`,
-  "write-script-graphql": `---
-name: write-script-graphql
-description: MUST use when writing GraphQL queries.
----
-
-## CLI Commands
-
-Place scripts in a folder. After writing, run:
-- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
-
-Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# GraphQL
-
-## Structure
-
-Write GraphQL queries or mutations. Arguments can be added as query parameters:
-
-\`\`\`graphql
-query GetUser($id: ID!) {
-  user(id: $id) {
-    id
-    name
-    email
-  }
-}
-\`\`\`
-
-## Variables
-
-Variables are passed as script arguments and automatically bound to the query:
-
-\`\`\`graphql
-query SearchProducts($query: String!, $limit: Int = 10) {
-  products(search: $query, first: $limit) {
-    edges {
-      node {
-        id
-        name
-        price
-      }
-    }
-  }
-}
-\`\`\`
-
-## Mutations
-
-\`\`\`graphql
-mutation CreateUser($input: CreateUserInput!) {
-  createUser(input: $input) {
-    id
-    name
-    createdAt
-  }
-}
-\`\`\`
-`,
-  "write-script-rust": `---
-name: write-script-rust
-description: MUST use when writing Rust scripts.
----
-
-## CLI Commands
-
-Place scripts in a folder. After writing, run:
-- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
-
-Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# Rust
-
-## Structure
-
-The script must contain a function called \`main\` with proper return type:
-
-\`\`\`rust
-use anyhow::anyhow;
-use serde::Serialize;
-
-#[derive(Serialize, Debug)]
-struct ReturnType {
-    result: String,
-    count: i32,
-}
-
-fn main(param1: String, param2: i32) -> anyhow::Result<ReturnType> {
-    Ok(ReturnType {
-        result: param1,
-        count: param2,
-    })
-}
-\`\`\`
-
-**Important:**
-- Arguments should be owned types
-- Return type must be serializable (\`#[derive(Serialize)]\`)
-- Return type is \`anyhow::Result<T>\`
-
-## Dependencies
-
-Packages must be specified with a partial cargo.toml at the beginning of the script:
-
-\`\`\`rust
-//! \`\`\`cargo
-//! [dependencies]
-//! anyhow = "1.0.86"
-//! reqwest = { version = "0.11", features = ["json"] }
-//! tokio = { version = "1", features = ["full"] }
-//! \`\`\`
-
-use anyhow::anyhow;
-// ... rest of the code
-\`\`\`
-
-**Note:** Serde is already included, no need to add it again.
-
-## Async Functions
-
-If you need to handle async functions (e.g., using tokio), keep the main function sync and create the runtime inside:
-
-\`\`\`rust
-//! \`\`\`cargo
-//! [dependencies]
-//! anyhow = "1.0.86"
-//! tokio = { version = "1", features = ["full"] }
-//! reqwest = { version = "0.11", features = ["json"] }
-//! \`\`\`
-
-use anyhow::anyhow;
-use serde::Serialize;
-
-#[derive(Serialize, Debug)]
-struct Response {
-    data: String,
-}
-
-fn main(url: String) -> anyhow::Result<Response> {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
-        let resp = reqwest::get(&url).await?.text().await?;
-        Ok(Response { data: resp })
-    })
-}
-\`\`\`
-`,
-  "write-script-bunnative": `---
-name: write-script-bunnative
-description: MUST use when writing Bun Native scripts.
----
-
-## CLI Commands
-
-Place scripts in a folder. After writing, run:
-- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
-
-Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# TypeScript (Bun Native)
-
-Native TypeScript execution with fetch only - no external imports allowed.
-
-## Structure
-
-Export a single **async** function called \`main\`:
-
-\`\`\`typescript
-export async function main(param1: string, param2: number) {
-  // Your code here
-  return { result: param1, count: param2 };
-}
-\`\`\`
-
-Do not call the main function.
-
-## Resource Types
-
-On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-
-Use the \`RT\` namespace for resource types:
-
-\`\`\`typescript
-export async function main(stripe: RT.Stripe) {
-  // stripe contains API key and config from the resource
-}
-\`\`\`
-
-Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
-
-Before using a resource type, check the \`rt.d.ts\` file in the project root to see all available resource types and their fields. This file is generated by \`wmill resource-type generate-namespace\`.
-
-## Imports
-
-**No imports allowed.** Use the globally available \`fetch\` function:
-
-\`\`\`typescript
-export async function main(url: string) {
-  const response = await fetch(url);
-  return await response.json();
-}
-\`\`\`
-
-## Windmill Client
-
-The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
-
-## Preprocessor Scripts
-
-For preprocessor scripts, the function should be named \`preprocessor\` and receives an \`event\` parameter:
-
-\`\`\`typescript
-type Event = {
-  kind:
-    | "webhook"
-    | "http"
-    | "websocket"
-    | "kafka"
-    | "email"
-    | "nats"
-    | "postgres"
-    | "sqs"
-    | "mqtt"
-    | "gcp";
-  body: any;
-  headers: Record<string, string>;
-  query: Record<string, string>;
-};
-
-export async function preprocessor(event: Event) {
-  return {
-    param1: event.body.field1,
-    param2: event.query.id,
-  };
-}
-\`\`\`
-
-## S3 Object Operations
-
-Windmill provides built-in support for S3-compatible storage operations.
-
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
-
-\`\`\`typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
-\`\`\`
-
-## TypeScript Operations
-
-\`\`\`typescript
-import * as wmill from "windmill-client";
-
-// Load file content from S3
-const content: Uint8Array = await wmill.loadS3File(s3object);
-
-// Load file as stream
-const blob: Blob = await wmill.loadS3FileStream(s3object);
-
-// Write file to S3
-const result: S3Object = await wmill.writeS3File(
-  s3object, // Target path (or undefined to auto-generate)
-  fileContent, // string or Blob
-  s3ResourcePath // Optional: specific S3 resource to use
-);
-\`\`\`
-
-
-# TypeScript SDK (windmill-client)
-
-Import: import * as wmill from 'windmill-client'
-
-/**
- * Create a SQL template function for PostgreSQL/datatable queries
- * @param name - Database/datatable name (default: "main")
- * @returns SQL template function for building parameterized queries
- * @example
- * let sql = wmill.datatable()
- * let name = 'Robin'
- * let age = 21
- * await sql\`
- *   SELECT * FROM friends
- *     WHERE name = \${name} AND age = \${age}::int
- * \`.fetch()
- */
-datatable(name: string = "main"): DatatableSqlTemplateFunction
-
-/**
- * Create a SQL template function for DuckDB/ducklake queries
- * @param name - DuckDB database name (default: "main")
- * @returns SQL template function for building parameterized queries
- * @example
- * let sql = wmill.ducklake()
- * let name = 'Robin'
- * let age = 21
- * await sql\`
- *   SELECT * FROM friends
- *     WHERE name = \${name} AND age = \${age}
- * \`.fetch()
- */
-ducklake(name: string = "main"): SqlTemplateFunction
-
-/**
- * Initialize the Windmill client with authentication token and base URL
- * @param token - Authentication token (defaults to WM_TOKEN env variable)
- * @param baseUrl - API base URL (defaults to BASE_INTERNAL_URL or BASE_URL env variable)
- */
-setClient(token?: string, baseUrl?: string): void
-
-/**
- * Create a client configuration from env variables
- * @returns client configuration
- */
-getWorkspace(): string
-
-/**
- * Get a resource value by path
- * @param path path of the resource,  default to internal state path
- * @param undefinedIfEmpty if the resource does not exist, return undefined instead of throwing an error
- * @returns resource value
- */
-async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
-
-/**
- * Get the true root job id
- * @param jobId job id to get the root job id from (default to current job)
- * @returns root job id
- */
-async getRootJobId(jobId?: string): Promise<string>
-
-/**
- * @deprecated Use runScriptByPath or runScriptByHash instead
- */
-async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
-
-/**
- * Run a script synchronously by its path and wait for the result
- * @param path - Script path in Windmill
- * @param args - Arguments to pass to the script
- * @param verbose - Enable verbose logging
- * @returns Script execution result
- */
-async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
-
-/**
- * Run a script synchronously by its hash and wait for the result
- * @param hash_ - Script hash in Windmill
- * @param args - Arguments to pass to the script
- * @param verbose - Enable verbose logging
- * @returns Script execution result
- */
-async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
-
-/**
- * Append a text to the result stream
- * @param text text to append to the result stream
- */
-appendToResultStream(text: string): void
-
-/**
- * Stream to the result stream
- * @param stream stream to stream to the result stream
- */
-async streamResult(stream: AsyncIterable<string>): Promise<void>
-
-/**
- * Run a flow synchronously by its path and wait for the result
- * @param path - Flow path in Windmill
- * @param args - Arguments to pass to the flow
- * @param verbose - Enable verbose logging
- * @returns Flow execution result
- */
-async runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
-
-/**
- * Wait for a job to complete and return its result
- * @param jobId - ID of the job to wait for
- * @param verbose - Enable verbose logging
- * @returns Job result when completed
- */
-async waitJob(jobId: string, verbose: boolean = false): Promise<any>
-
-/**
- * Get the result of a completed job
- * @param jobId - ID of the completed job
- * @returns Job result
- */
-async getResult(jobId: string): Promise<any>
-
-/**
- * Get the result of a job if completed, or its current status
- * @param jobId - ID of the job
- * @returns Object with started, completed, success, and result properties
- */
-async getResultMaybe(jobId: string): Promise<any>
-
-/**
- * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
- */
-async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null): Promise<string>
-
-/**
- * Run a script asynchronously by its path
- * @param path - Script path in Windmill
- * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
- * @returns Job ID of the created job
- */
-async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
-
-/**
- * Run a script asynchronously by its hash
- * @param hash_ - Script hash in Windmill
- * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
- * @returns Job ID of the created job
- */
-async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
-
-/**
- * Run a flow asynchronously by its path
- * @param path - Flow path in Windmill
- * @param args - Arguments to pass to the flow
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
- * @param doNotTrackInParent - If false, tracks state in parent job (only use when fully awaiting the job)
- * @returns Job ID of the created job
- */
-async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true): Promise<string>
-
-/**
- * Resolve a resource value in case the default value was picked because the input payload was undefined
- * @param obj resource value or path of the resource under the format \`$res:path\`
- * @returns resource value
- */
-async resolveDefaultResource(obj: any): Promise<any>
-
-/**
- * Get the state file path from environment variables
- * @returns State path string
- */
-getStatePath(): string
-
-/**
- * Set a resource value by path
- * @param path path of the resource to set, default to state path
- * @param value new value of the resource to set
- * @param initializeToTypeIfNotExist if the resource does not exist, initialize it with this type
- */
-async setResource(value: any, path?: string, initializeToTypeIfNotExist?: string): Promise<void>
-
-/**
- * Set the state
- * @param state state to set
- * @deprecated use setState instead
- */
-async setInternalState(state: any): Promise<void>
-
-/**
- * Set the state
- * @param state state to set
- * @param path Optional state resource path override. Defaults to \`getStatePath()\`.
- */
-async setState(state: any, path?: string): Promise<void>
-
-/**
- * Set the progress
- * Progress cannot go back and limited to 0% to 99% range
- * @param percent Progress to set in %
- * @param jobId? Job to set progress for
- */
-async setProgress(percent: number, jobId?: any): Promise<void>
-
-/**
- * Get the progress
- * @param jobId? Job to get progress from
- * @returns Optional clamped between 0 and 100 progress value
- */
-async getProgress(jobId?: any): Promise<number | null>
-
-/**
- * Set a flow user state
- * @param key key of the state
- * @param value value of the state
- */
-async setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): Promise<void>
-
-/**
- * Get a flow user state
- * @param path path of the variable
- */
-async getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any>
-
-/**
- * Get the internal state
- * @deprecated use getState instead
- */
-async getInternalState(): Promise<any>
-
-/**
- * Get the state shared across executions
- * @param path Optional state resource path override. Defaults to \`getStatePath()\`.
- */
-async getState(path?: string): Promise<any>
-
-/**
- * Get a variable by path
- * @param path path of the variable
- * @returns variable value
- */
-async getVariable(path: string): Promise<string>
-
-/**
- * Set a variable by path, create if not exist
- * @param path path of the variable
- * @param value value of the variable
- * @param isSecretIfNotExist if the variable does not exist, create it as secret or not (default: false)
- * @param descriptionIfNotExist if the variable does not exist, create it with this description (default: "")
- */
-async setVariable(path: string, value: string, isSecretIfNotExist?: boolean, descriptionIfNotExist?: string): Promise<void>
-
-/**
- * Build a PostgreSQL connection URL from a database resource
- * @param path - Path to the database resource
- * @returns PostgreSQL connection URL string
- */
-async databaseUrlFromResource(path: string): Promise<string>
-
-async polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any>
-
-async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any>
-
-/**
- * Get S3 client settings from a resource or workspace default
- * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
- * @returns S3 client configuration settings
- */
-async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings>
-
-/**
- * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
- * 
- * \`\`\`typescript
- * let fileContent = await wmill.loadS3FileContent(inputFile)
- * // if the file is a raw text file, it can be decoded and printed directly:
- * const text = new TextDecoder().decode(fileContentStream)
- * console.log(text);
- * \`\`\`
- */
-async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
-
-/**
- * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
- * 
- * \`\`\`typescript
- * let fileContentBlob = await wmill.loadS3FileStream(inputFile)
- * // if the content is plain text, the blob can be read directly:
- * console.log(await fileContentBlob.text());
- * \`\`\`
- */
-async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
-
-/**
- * Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
- * 
- * \`\`\`typescript
- * const s3object = await writeS3File(s3Object, "Hello Windmill!")
- * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
- * console.log(fileContentAsUtf8Str)
- * \`\`\`
- */
-async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined): Promise<S3Object>
-
-/**
- * Sign S3 objects to be used by anonymous users in public apps
- * @param s3objects s3 objects to sign
- * @returns signed s3 objects
- */
-async signS3Objects(s3objects: S3Object[]): Promise<S3Object[]>
-
-/**
- * Sign S3 object to be used by anonymous users in public apps
- * @param s3object s3 object to sign
- * @returns signed s3 object
- */
-async signS3Object(s3object: S3Object): Promise<S3Object>
-
-/**
- * Generate a presigned public URL for an array of S3 objects.
- * If an S3 object is not signed yet, it will be signed first.
- * @param s3Objects s3 objects to sign
- * @returns list of signed public URLs
- */
-async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl }: { baseUrl?: string } = {}): Promise<string[]>
-
-/**
- * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
- * @param s3Object s3 object to sign
- * @returns signed public URL
- */
-async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: string } = {}): Promise<string>
-
-/**
- * Get URLs needed for resuming a flow after this step
- * @param approver approver name
- * @param flowLevel if true, generate resume URLs for the parent flow instead of the specific step.
- *                  This allows pre-approvals that can be consumed by any later suspend step in the same flow.
- * @returns approval page UI URL, resume and cancel API URLs for resuming the flow
- */
-async getResumeUrls(approver?: string, flowLevel?: boolean): Promise<{
-  approvalPage: string;
-  resume: string;
-  cancel: string;
-}>
-
-/**
- * @deprecated use getResumeUrls instead
- */
-getResumeEndpoints(approver?: string): Promise<{
-  approvalPage: string;
-  resume: string;
-  cancel: string;
-}>
-
-/**
- * Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
- * @param audience audience of the token
- * @param expiresIn Optional number of seconds until the token expires
- * @returns jwt token
- */
-async getIdToken(audience: string, expiresIn?: number): Promise<string>
-
-/**
- * Convert a base64-encoded string to Uint8Array
- * @param data - Base64-encoded string
- * @returns Decoded Uint8Array
- */
-base64ToUint8Array(data: string): Uint8Array
-
-/**
- * Convert a Uint8Array to base64-encoded string
- * @param arrayBuffer - Uint8Array to encode
- * @returns Base64-encoded string
- */
-uint8ArrayToBase64(arrayBuffer: Uint8Array): string
-
-/**
- * Get email from workspace username
- * This method is particularly useful for apps that require the email address of the viewer.
- * Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
- * @param username
- * @returns email address
- */
-async usernameToEmail(username: string): Promise<string>
-
-/**
- * Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
- * 
- * **[Enterprise Edition Only]** To include form fields in the Slack approval request, go to **Advanced -> Suspend -> Form**
- * and define a form. Learn more at [Windmill Documentation](https://www.windmill.dev/docs/flows/flow_approval#form).
- * 
- * @param {Object} options - The configuration options for the Slack approval request.
- * @param {string} options.slackResourcePath - The path to the Slack resource in Windmill.
- * @param {string} options.channelId - The Slack channel ID where the approval request will be sent.
- * @param {string} [options.message] - Optional custom message to include in the Slack approval request.
- * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
- * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
- * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
- * @param {string} [options.resumeButtonText] - Optional text for the resume button.
- * @param {string} [options.cancelButtonText] - Optional text for the cancel button.
- * 
- * @returns {Promise<void>} Resolves when the Slack approval request is successfully sent.
- * 
- * @throws {Error} If the function is not called within a flow or flow preview.
- * @throws {Error} If the \`JobService.getSlackApprovalPayload\` call fails.
- * 
- * **Usage Example:**
- * \`\`\`typescript
- * await requestInteractiveSlackApproval({
- *   slackResourcePath: "/u/alex/my_slack_resource",
- *   channelId: "admins-slack-channel",
- *   message: "Please approve this request",
- *   approver: "approver123",
- *   defaultArgsJson: { key1: "value1", key2: 42 },
- *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
- *   resumeButtonText: "Resume",
- *   cancelButtonText: "Cancel",
- * });
- * \`\`\`
- * 
- * **Note:** This function requires execution within a Windmill flow or flow preview.
- */
-async requestInteractiveSlackApproval({ slackResourcePath, channelId, message, approver, defaultArgsJson, dynamicEnumsJson, resumeButtonText, cancelButtonText, }: SlackApprovalOptions): Promise<void>
-
-/**
- * Sends an interactive approval request via Teams, allowing optional customization of the message, approver, and form fields.
- * 
- * **[Enterprise Edition Only]** To include form fields in the Teams approval request, go to **Advanced -> Suspend -> Form**
- * and define a form. Learn more at [Windmill Documentation](https://www.windmill.dev/docs/flows/flow_approval#form).
- * 
- * @param {Object} options - The configuration options for the Teams approval request.
- * @param {string} options.teamName - The Teams team name where the approval request will be sent.
- * @param {string} options.channelName - The Teams channel name where the approval request will be sent.
- * @param {string} [options.message] - Optional custom message to include in the Teams approval request.
- * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
- * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
- * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
- * 
- * @returns {Promise<void>} Resolves when the Teams approval request is successfully sent.
- * 
- * @throws {Error} If the function is not called within a flow or flow preview.
- * @throws {Error} If the \`JobService.getTeamsApprovalPayload\` call fails.
- * 
- * **Usage Example:**
- * \`\`\`typescript
- * await requestInteractiveTeamsApproval({
- *   teamName: "admins-teams",
- *   channelName: "admins-teams-channel",
- *   message: "Please approve this request",
- *   approver: "approver123",
- *   defaultArgsJson: { key1: "value1", key2: 42 },
- *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
- * });
- * \`\`\`
- * 
- * **Note:** This function requires execution within a Windmill flow or flow preview.
- */
-async requestInteractiveTeamsApproval({ teamName, channelName, message, approver, defaultArgsJson, dynamicEnumsJson, }: TeamsApprovalOptions): Promise<void>
-
-/**
- * Parse an S3 object from URI string or record format
- * @param s3Object - S3 object as URI string (s3://storage/key) or record
- * @returns S3 object record with storage and s3 key
- */
-parseS3Object(s3Object: S3Object): S3ObjectRecord
-
-setWorkflowCtx(ctx: WorkflowCtx | null): void
-
-async sleep(seconds: number): Promise<void>
-
-async step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
-
-/**
- * Create a task that dispatches to a separate Windmill script.
- * 
- * @example
- * const extract = taskScript("f/data/extract");
- * // inside workflow: await extract({ url: "https://..." })
- */
-taskScript(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any>
-
-/**
- * Create a task that dispatches to a separate Windmill flow.
- * 
- * @example
- * const pipeline = taskFlow("f/etl/pipeline");
- * // inside workflow: await pipeline({ input: data })
- */
-taskFlow(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any>
-
-/**
- * Mark an async function as a workflow-as-code entry point.
- * 
- * The function must be **deterministic**: given the same inputs it must call
- * tasks in the same order on every replay. Branching on task results is fine
- * (results are replayed from checkpoint), but branching on external state
- * (current time, random values, external API calls) must use \`step()\` to
- * checkpoint the value so replays see the same result.
- */
-workflow<T>(fn: (...args: any[]) => Promise<T>): void
-
-/**
- * Suspend the workflow and wait for an external approval.
- * 
- * Use \`getResumeUrls()\` (wrapped in \`step()\`) to obtain resume/cancel/approvalPage
- * URLs before calling this function.
- * 
- * @example
- * const urls = await step("urls", () => getResumeUrls());
- * await step("notify", () => sendEmail(urls.approvalPage));
- * const { value, approver } = await waitForApproval({ timeout: 3600 });
- */
-waitForApproval(options?: { timeout?: number; form?: object; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
-
-/**
- * Process items in parallel with optional concurrency control.
- * 
- * Each item is processed by calling \`fn(item)\`, which should be a task().
- * Items are dispatched in batches of \`concurrency\` (default: all at once).
- * 
- * @example
- * const process = task(async (item: string) => { ... });
- * const results = await parallel(items, process, { concurrency: 5 });
- */
-async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: { concurrency?: number },): Promise<R[]>
-`,
-  "write-script-postgresql": `---
-name: write-script-postgresql
-description: MUST use when writing PostgreSQL queries.
----
-
-## CLI Commands
-
-Place scripts in a folder. After writing, run:
-- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
-
-Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# PostgreSQL
-
-Arguments are obtained directly in the statement with \`$1::{type}\`, \`$2::{type}\`, etc.
-
-Name the parameters by adding comments at the beginning of the script (without specifying the type):
-
-\`\`\`sql
--- $1 name1
--- $2 name2 = default_value
-SELECT * FROM users WHERE name = $1::TEXT AND age > $2::INT;
-\`\`\`
-`,
-  "write-script-php": `---
-name: write-script-php
-description: MUST use when writing PHP scripts.
----
-
-## CLI Commands
-
-Place scripts in a folder. After writing, run:
-- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
-
-Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# PHP
-
-## Structure
-
-The script must start with \`<?php\` and contain at least one function called \`main\`:
-
-\`\`\`php
-<?php
-
-function main(string $param1, int $param2) {
-    return ["result" => $param1, "count" => $param2];
-}
-\`\`\`
-
-## Resource Types
-
-On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-
-You need to **redefine** the type of the resources that are needed before the main function. Always check if the class already exists using \`class_exists\`:
-
-\`\`\`php
-<?php
-
-if (!class_exists('Postgresql')) {
-    class Postgresql {
-        public string $host;
-        public int $port;
-        public string $user;
-        public string $password;
-        public string $dbname;
-    }
-}
-
-function main(Postgresql $db) {
-    // $db contains the database connection details
-}
-\`\`\`
-
-The resource type name has to be exactly as specified.
-
-## Library Dependencies
-
-Specify library dependencies as comments before the main function:
-
-\`\`\`php
-<?php
-
-// require:
-// guzzlehttp/guzzle
-// stripe/stripe-php@^10.0
-
-function main() {
-    // Libraries are available
-}
-\`\`\`
-
-One dependency per line. No need to require autoload, it is already done.
 `,
   "write-script-bigquery": `---
 name: write-script-bigquery
@@ -1063,9 +108,11 @@ description: MUST use when writing BigQuery queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -1088,9 +135,11 @@ description: MUST use when writing Bun/TypeScript scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -1213,6 +262,508 @@ const result: S3Object = await wmill.writeS3File(
 Import: import * as wmill from 'windmill-client'
 
 /**
+ * Initialize the Windmill client with authentication token and base URL
+ * @param token - Authentication token (defaults to WM_TOKEN env variable)
+ * @param baseUrl - API base URL (defaults to BASE_INTERNAL_URL or BASE_URL env variable)
+ */
+setClient(token?: string, baseUrl?: string): void
+
+/**
+ * Create a client configuration from env variables
+ * @returns client configuration
+ */
+getWorkspace(): string
+
+/**
+ * Get a resource value by path
+ * @param path path of the resource,  default to internal state path
+ * @param undefinedIfEmpty if the resource does not exist, return undefined instead of throwing an error
+ * @returns resource value
+ */
+async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
+
+/**
+ * Get the true root job id
+ * @param jobId job id to get the root job id from (default to current job)
+ * @returns root job id
+ */
+async getRootJobId(jobId?: string): Promise<string>
+
+/**
+ * @deprecated Use runScriptByPath or runScriptByHash instead
+ */
+async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+
+/**
+ * Run a script synchronously by its path and wait for the result
+ * @param path - Script path in Windmill
+ * @param args - Arguments to pass to the script
+ * @param verbose - Enable verbose logging
+ * @returns Script execution result
+ */
+async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+
+/**
+ * Run a script synchronously by its hash and wait for the result
+ * @param hash_ - Script hash in Windmill
+ * @param args - Arguments to pass to the script
+ * @param verbose - Enable verbose logging
+ * @returns Script execution result
+ */
+async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+
+/**
+ * Append a text to the result stream
+ * @param text text to append to the result stream
+ */
+appendToResultStream(text: string): void
+
+/**
+ * Stream to the result stream
+ * @param stream stream to stream to the result stream
+ */
+async streamResult(stream: AsyncIterable<string>): Promise<void>
+
+/**
+ * Run a flow synchronously by its path and wait for the result
+ * @param path - Flow path in Windmill
+ * @param args - Arguments to pass to the flow
+ * @param verbose - Enable verbose logging
+ * @returns Flow execution result
+ */
+async runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+
+/**
+ * Wait for a job to complete and return its result
+ * @param jobId - ID of the job to wait for
+ * @param verbose - Enable verbose logging
+ * @returns Job result when completed
+ */
+async waitJob(jobId: string, verbose: boolean = false): Promise<any>
+
+/**
+ * Get the result of a completed job
+ * @param jobId - ID of the completed job
+ * @returns Job result
+ */
+async getResult(jobId: string): Promise<any>
+
+/**
+ * Get the result of a job if completed, or its current status
+ * @param jobId - ID of the job
+ * @returns Object with started, completed, success, and result properties
+ */
+async getResultMaybe(jobId: string): Promise<any>
+
+/**
+ * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
+ */
+async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null): Promise<string>
+
+/**
+ * Run a script asynchronously by its path
+ * @param path - Script path in Windmill
+ * @param args - Arguments to pass to the script
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @returns Job ID of the created job
+ */
+async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
+
+/**
+ * Run a script asynchronously by its hash
+ * @param hash_ - Script hash in Windmill
+ * @param args - Arguments to pass to the script
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @returns Job ID of the created job
+ */
+async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
+
+/**
+ * Run a flow asynchronously by its path
+ * @param path - Flow path in Windmill
+ * @param args - Arguments to pass to the flow
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param doNotTrackInParent - If false, tracks state in parent job (only use when fully awaiting the job)
+ * @returns Job ID of the created job
+ */
+async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true): Promise<string>
+
+/**
+ * Resolve a resource value in case the default value was picked because the input payload was undefined
+ * @param obj resource value or path of the resource under the format \`$res:path\`
+ * @returns resource value
+ */
+async resolveDefaultResource(obj: any): Promise<any>
+
+/**
+ * Get the state file path from environment variables
+ * @returns State path string
+ */
+getStatePath(): string
+
+/**
+ * Set a resource value by path
+ * @param path path of the resource to set, default to state path
+ * @param value new value of the resource to set
+ * @param initializeToTypeIfNotExist if the resource does not exist, initialize it with this type
+ */
+async setResource(value: any, path?: string, initializeToTypeIfNotExist?: string): Promise<void>
+
+/**
+ * Set the state
+ * @param state state to set
+ * @deprecated use setState instead
+ */
+async setInternalState(state: any): Promise<void>
+
+/**
+ * Set the state
+ * @param state state to set
+ * @param path Optional state resource path override. Defaults to \`getStatePath()\`.
+ */
+async setState(state: any, path?: string): Promise<void>
+
+/**
+ * Set the progress
+ * Progress cannot go back and limited to 0% to 99% range
+ * @param percent Progress to set in %
+ * @param jobId? Job to set progress for
+ */
+async setProgress(percent: number, jobId?: any): Promise<void>
+
+/**
+ * Get the progress
+ * @param jobId? Job to get progress from
+ * @returns Optional clamped between 0 and 100 progress value
+ */
+async getProgress(jobId?: any): Promise<number | null>
+
+/**
+ * Set a flow user state
+ * @param key key of the state
+ * @param value value of the state
+ */
+async setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): Promise<void>
+
+/**
+ * Get a flow user state
+ * @param path path of the variable
+ */
+async getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any>
+
+/**
+ * Get the internal state
+ * @deprecated use getState instead
+ */
+async getInternalState(): Promise<any>
+
+/**
+ * Get the state shared across executions
+ * @param path Optional state resource path override. Defaults to \`getStatePath()\`.
+ */
+async getState(path?: string): Promise<any>
+
+/**
+ * Get a variable by path
+ * @param path path of the variable
+ * @returns variable value
+ */
+async getVariable(path: string): Promise<string>
+
+/**
+ * Set a variable by path, create if not exist
+ * @param path path of the variable
+ * @param value value of the variable
+ * @param isSecretIfNotExist if the variable does not exist, create it as secret or not (default: false)
+ * @param descriptionIfNotExist if the variable does not exist, create it with this description (default: "")
+ */
+async setVariable(path: string, value: string, isSecretIfNotExist?: boolean, descriptionIfNotExist?: string): Promise<void>
+
+/**
+ * Build a PostgreSQL connection URL from a database resource
+ * @param path - Path to the database resource
+ * @returns PostgreSQL connection URL string
+ */
+async databaseUrlFromResource(path: string): Promise<string>
+
+async polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any>
+
+async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any>
+
+/**
+ * Get S3 client settings from a resource or workspace default
+ * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @returns S3 client configuration settings
+ */
+async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings>
+
+/**
+ * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
+ * 
+ * \`\`\`typescript
+ * let fileContent = await wmill.loadS3FileContent(inputFile)
+ * // if the file is a raw text file, it can be decoded and printed directly:
+ * const text = new TextDecoder().decode(fileContentStream)
+ * console.log(text);
+ * \`\`\`
+ */
+async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
+
+/**
+ * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
+ * 
+ * \`\`\`typescript
+ * let fileContentBlob = await wmill.loadS3FileStream(inputFile)
+ * // if the content is plain text, the blob can be read directly:
+ * console.log(await fileContentBlob.text());
+ * \`\`\`
+ */
+async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
+
+/**
+ * Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
+ * 
+ * \`\`\`typescript
+ * const s3object = await writeS3File(s3Object, "Hello Windmill!")
+ * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
+ * console.log(fileContentAsUtf8Str)
+ * \`\`\`
+ */
+async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined): Promise<S3Object>
+
+/**
+ * Sign S3 objects to be used by anonymous users in public apps
+ * @param s3objects s3 objects to sign
+ * @returns signed s3 objects
+ */
+async signS3Objects(s3objects: S3Object[]): Promise<S3Object[]>
+
+/**
+ * Sign S3 object to be used by anonymous users in public apps
+ * @param s3object s3 object to sign
+ * @returns signed s3 object
+ */
+async signS3Object(s3object: S3Object): Promise<S3Object>
+
+/**
+ * Generate a presigned public URL for an array of S3 objects.
+ * If an S3 object is not signed yet, it will be signed first.
+ * @param s3Objects s3 objects to sign
+ * @returns list of signed public URLs
+ */
+async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl }: { baseUrl?: string } = {}): Promise<string[]>
+
+/**
+ * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
+ * @param s3Object s3 object to sign
+ * @returns signed public URL
+ */
+async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: string } = {}): Promise<string>
+
+/**
+ * Get URLs needed for resuming a flow after this step
+ * @param approver approver name
+ * @param flowLevel if true, generate resume URLs for the parent flow instead of the specific step.
+ *                  This allows pre-approvals that can be consumed by any later suspend step in the same flow.
+ * @returns approval page UI URL, resume and cancel API URLs for resuming the flow
+ */
+async getResumeUrls(approver?: string, flowLevel?: boolean): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}>
+
+/**
+ * @deprecated use getResumeUrls instead
+ */
+getResumeEndpoints(approver?: string): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}>
+
+/**
+ * Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
+ * @param audience audience of the token
+ * @param expiresIn Optional number of seconds until the token expires
+ * @returns jwt token
+ */
+async getIdToken(audience: string, expiresIn?: number): Promise<string>
+
+/**
+ * Convert a base64-encoded string to Uint8Array
+ * @param data - Base64-encoded string
+ * @returns Decoded Uint8Array
+ */
+base64ToUint8Array(data: string): Uint8Array
+
+/**
+ * Convert a Uint8Array to base64-encoded string
+ * @param arrayBuffer - Uint8Array to encode
+ * @returns Base64-encoded string
+ */
+uint8ArrayToBase64(arrayBuffer: Uint8Array): string
+
+/**
+ * Get email from workspace username
+ * This method is particularly useful for apps that require the email address of the viewer.
+ * Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+ * @param username
+ * @returns email address
+ */
+async usernameToEmail(username: string): Promise<string>
+
+/**
+ * Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
+ * 
+ * **[Enterprise Edition Only]** To include form fields in the Slack approval request, go to **Advanced -> Suspend -> Form**
+ * and define a form. Learn more at [Windmill Documentation](https://www.windmill.dev/docs/flows/flow_approval#form).
+ * 
+ * @param {Object} options - The configuration options for the Slack approval request.
+ * @param {string} options.slackResourcePath - The path to the Slack resource in Windmill.
+ * @param {string} options.channelId - The Slack channel ID where the approval request will be sent.
+ * @param {string} [options.message] - Optional custom message to include in the Slack approval request.
+ * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
+ * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
+ * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
+ * @param {string} [options.resumeButtonText] - Optional text for the resume button.
+ * @param {string} [options.cancelButtonText] - Optional text for the cancel button.
+ * 
+ * @returns {Promise<void>} Resolves when the Slack approval request is successfully sent.
+ * 
+ * @throws {Error} If the function is not called within a flow or flow preview.
+ * @throws {Error} If the \`JobService.getSlackApprovalPayload\` call fails.
+ * 
+ * **Usage Example:**
+ * \`\`\`typescript
+ * await requestInteractiveSlackApproval({
+ *   slackResourcePath: "/u/alex/my_slack_resource",
+ *   channelId: "admins-slack-channel",
+ *   message: "Please approve this request",
+ *   approver: "approver123",
+ *   defaultArgsJson: { key1: "value1", key2: 42 },
+ *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
+ *   resumeButtonText: "Resume",
+ *   cancelButtonText: "Cancel",
+ * });
+ * \`\`\`
+ * 
+ * **Note:** This function requires execution within a Windmill flow or flow preview.
+ */
+async requestInteractiveSlackApproval({ slackResourcePath, channelId, message, approver, defaultArgsJson, dynamicEnumsJson, resumeButtonText, cancelButtonText, }: SlackApprovalOptions): Promise<void>
+
+/**
+ * Sends an interactive approval request via Teams, allowing optional customization of the message, approver, and form fields.
+ * 
+ * **[Enterprise Edition Only]** To include form fields in the Teams approval request, go to **Advanced -> Suspend -> Form**
+ * and define a form. Learn more at [Windmill Documentation](https://www.windmill.dev/docs/flows/flow_approval#form).
+ * 
+ * @param {Object} options - The configuration options for the Teams approval request.
+ * @param {string} options.teamName - The Teams team name where the approval request will be sent.
+ * @param {string} options.channelName - The Teams channel name where the approval request will be sent.
+ * @param {string} [options.message] - Optional custom message to include in the Teams approval request.
+ * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
+ * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
+ * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
+ * 
+ * @returns {Promise<void>} Resolves when the Teams approval request is successfully sent.
+ * 
+ * @throws {Error} If the function is not called within a flow or flow preview.
+ * @throws {Error} If the \`JobService.getTeamsApprovalPayload\` call fails.
+ * 
+ * **Usage Example:**
+ * \`\`\`typescript
+ * await requestInteractiveTeamsApproval({
+ *   teamName: "admins-teams",
+ *   channelName: "admins-teams-channel",
+ *   message: "Please approve this request",
+ *   approver: "approver123",
+ *   defaultArgsJson: { key1: "value1", key2: 42 },
+ *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
+ * });
+ * \`\`\`
+ * 
+ * **Note:** This function requires execution within a Windmill flow or flow preview.
+ */
+async requestInteractiveTeamsApproval({ teamName, channelName, message, approver, defaultArgsJson, dynamicEnumsJson, }: TeamsApprovalOptions): Promise<void>
+
+/**
+ * Parse an S3 object from URI string or record format
+ * @param s3Object - S3 object as URI string (s3://storage/key) or record
+ * @returns S3 object record with storage and s3 key
+ */
+parseS3Object(s3Object: S3Object): S3ObjectRecord
+
+setWorkflowCtx(ctx: WorkflowCtx | null): void
+
+async sleep(seconds: number): Promise<void>
+
+async step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+
+/**
+ * Create a task that dispatches to a separate Windmill script.
+ * 
+ * @example
+ * const extract = taskScript("f/data/extract");
+ * // inside workflow: await extract({ url: "https://..." })
+ */
+taskScript(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any>
+
+/**
+ * Create a task that dispatches to a separate Windmill flow.
+ * 
+ * @example
+ * const pipeline = taskFlow("f/etl/pipeline");
+ * // inside workflow: await pipeline({ input: data })
+ */
+taskFlow(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any>
+
+/**
+ * Mark an async function as a workflow-as-code entry point.
+ * 
+ * The function must be **deterministic**: given the same inputs it must call
+ * tasks in the same order on every replay. Branching on task results is fine
+ * (results are replayed from checkpoint), but branching on external state
+ * (current time, random values, external API calls) must use \`step()\` to
+ * checkpoint the value so replays see the same result.
+ */
+workflow<T>(fn: (...args: any[]) => Promise<T>): void
+
+/**
+ * Suspend the workflow and wait for an external approval.
+ * 
+ * Use \`getResumeUrls()\` (wrapped in \`step()\`) to obtain resume/cancel/approvalPage
+ * URLs before calling this function.
+ * 
+ * @example
+ * const urls = await step("urls", () => getResumeUrls());
+ * await step("notify", () => sendEmail(urls.approvalPage));
+ * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ */
+waitForApproval(options?: { timeout?: number; form?: object; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+
+/**
+ * Process items in parallel with optional concurrency control.
+ * 
+ * Each item is processed by calling \`fn(item)\`, which should be a task().
+ * Items are dispatched in batches of \`concurrency\` (default: all at once).
+ * 
+ * @example
+ * const process = task(async (item: string) => { ... });
+ * const results = await parallel(items, process, { concurrency: 5 });
+ */
+async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: { concurrency?: number },): Promise<R[]>
+
+/**
+ * Commit Kafka offsets for a trigger with auto_commit disabled.
+ * @param triggerPath - Path to the Kafka trigger (from event.wm_trigger.trigger_path)
+ * @param topic - Kafka topic name (from event.topic)
+ * @param partition - Partition number (from event.partition)
+ * @param offset - Message offset to commit (from event.offset)
+ */
+async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, offset: number,): Promise<void>
+
+/**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
  * @returns SQL template function for building parameterized queries
@@ -1241,6 +792,137 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
  * \`.fetch()
  */
 ducklake(name: string = "main"): SqlTemplateFunction
+`,
+  "write-script-bunnative": `---
+name: write-script-bunnative
+description: MUST use when writing Bun Native scripts.
+---
+
+## CLI Commands
+
+Place scripts in a folder. After writing, tell the user they can run:
+- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
+- \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
+
+Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# TypeScript (Bun Native)
+
+Native TypeScript execution with fetch only - no external imports allowed.
+
+## Structure
+
+Export a single **async** function called \`main\`:
+
+\`\`\`typescript
+export async function main(param1: string, param2: number) {
+  // Your code here
+  return { result: param1, count: param2 };
+}
+\`\`\`
+
+Do not call the main function.
+
+## Resource Types
+
+On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
+
+Use the \`RT\` namespace for resource types:
+
+\`\`\`typescript
+export async function main(stripe: RT.Stripe) {
+  // stripe contains API key and config from the resource
+}
+\`\`\`
+
+Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
+
+Before using a resource type, check the \`rt.d.ts\` file in the project root to see all available resource types and their fields. This file is generated by \`wmill resource-type generate-namespace\`.
+
+## Imports
+
+**No imports allowed.** Use the globally available \`fetch\` function:
+
+\`\`\`typescript
+export async function main(url: string) {
+  const response = await fetch(url);
+  return await response.json();
+}
+\`\`\`
+
+## Windmill Client
+
+The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
+
+## Preprocessor Scripts
+
+For preprocessor scripts, the function should be named \`preprocessor\` and receives an \`event\` parameter:
+
+\`\`\`typescript
+type Event = {
+  kind:
+    | "webhook"
+    | "http"
+    | "websocket"
+    | "kafka"
+    | "email"
+    | "nats"
+    | "postgres"
+    | "sqs"
+    | "mqtt"
+    | "gcp";
+  body: any;
+  headers: Record<string, string>;
+  query: Record<string, string>;
+};
+
+export async function preprocessor(event: Event) {
+  return {
+    param1: event.body.field1,
+    param2: event.query.id,
+  };
+}
+\`\`\`
+
+## S3 Object Operations
+
+Windmill provides built-in support for S3-compatible storage operations.
+
+### S3Object Type
+
+The S3Object type represents a file in S3 storage:
+
+\`\`\`typescript
+type S3Object = {
+  s3: string; // Path within the bucket
+};
+\`\`\`
+
+## TypeScript Operations
+
+\`\`\`typescript
+import * as wmill from "windmill-client";
+
+// Load file content from S3
+const content: Uint8Array = await wmill.loadS3File(s3object);
+
+// Load file as stream
+const blob: Blob = await wmill.loadS3FileStream(s3object);
+
+// Write file to S3
+const result: S3Object = await wmill.writeS3File(
+  s3object, // Target path (or undefined to auto-generate)
+  fileContent, // string or Blob
+  s3ResourcePath // Optional: specific S3 resource to use
+);
+\`\`\`
+
+
+# TypeScript SDK (windmill-client)
+
+Import: import * as wmill from 'windmill-client'
 
 /**
  * Initialize the Windmill client with authentication token and base URL
@@ -1734,6 +1416,45 @@ waitForApproval(options?: { timeout?: number; form?: object; }): PromiseLike<{ v
  * const results = await parallel(items, process, { concurrency: 5 });
  */
 async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: { concurrency?: number },): Promise<R[]>
+
+/**
+ * Commit Kafka offsets for a trigger with auto_commit disabled.
+ * @param triggerPath - Path to the Kafka trigger (from event.wm_trigger.trigger_path)
+ * @param topic - Kafka topic name (from event.topic)
+ * @param partition - Partition number (from event.partition)
+ * @param offset - Message offset to commit (from event.offset)
+ */
+async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, offset: number,): Promise<void>
+
+/**
+ * Create a SQL template function for PostgreSQL/datatable queries
+ * @param name - Database/datatable name (default: "main")
+ * @returns SQL template function for building parameterized queries
+ * @example
+ * let sql = wmill.datatable()
+ * let name = 'Robin'
+ * let age = 21
+ * await sql\`
+ *   SELECT * FROM friends
+ *     WHERE name = \${name} AND age = \${age}::int
+ * \`.fetch()
+ */
+datatable(name: string = "main"): DatatableSqlTemplateFunction
+
+/**
+ * Create a SQL template function for DuckDB/ducklake queries
+ * @param name - DuckDB database name (default: "main")
+ * @returns SQL template function for building parameterized queries
+ * @example
+ * let sql = wmill.ducklake()
+ * let name = 'Robin'
+ * let age = 21
+ * await sql\`
+ *   SELECT * FROM friends
+ *     WHERE name = \${name} AND age = \${age}
+ * \`.fetch()
+ */
+ducklake(name: string = "main"): SqlTemplateFunction
 `,
   "write-script-csharp": `---
 name: write-script-csharp
@@ -1742,9 +1463,11 @@ description: MUST use when writing C# scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -1790,31 +1513,6 @@ public class Script
 }
 \`\`\`
 `,
-  "write-script-mssql": `---
-name: write-script-mssql
-description: MUST use when writing MS SQL Server queries.
----
-
-## CLI Commands
-
-Place scripts in a folder. After writing, run:
-- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
-
-Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# Microsoft SQL Server (MSSQL)
-
-Arguments use \`@P1\`, \`@P2\`, etc.
-
-Name the parameters by adding comments before the statement:
-
-\`\`\`sql
--- @P1 name1 (varchar)
--- @P2 name2 (int) = 0
-SELECT * FROM users WHERE name = @P1 AND age > @P2;
-\`\`\`
-`,
   "write-script-deno": `---
 name: write-script-deno
 description: MUST use when writing Deno/TypeScript scripts.
@@ -1822,9 +1520,11 @@ description: MUST use when writing Deno/TypeScript scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -1951,6 +1651,508 @@ const result: S3Object = await wmill.writeS3File(
 Import: import * as wmill from 'windmill-client'
 
 /**
+ * Initialize the Windmill client with authentication token and base URL
+ * @param token - Authentication token (defaults to WM_TOKEN env variable)
+ * @param baseUrl - API base URL (defaults to BASE_INTERNAL_URL or BASE_URL env variable)
+ */
+setClient(token?: string, baseUrl?: string): void
+
+/**
+ * Create a client configuration from env variables
+ * @returns client configuration
+ */
+getWorkspace(): string
+
+/**
+ * Get a resource value by path
+ * @param path path of the resource,  default to internal state path
+ * @param undefinedIfEmpty if the resource does not exist, return undefined instead of throwing an error
+ * @returns resource value
+ */
+async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
+
+/**
+ * Get the true root job id
+ * @param jobId job id to get the root job id from (default to current job)
+ * @returns root job id
+ */
+async getRootJobId(jobId?: string): Promise<string>
+
+/**
+ * @deprecated Use runScriptByPath or runScriptByHash instead
+ */
+async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+
+/**
+ * Run a script synchronously by its path and wait for the result
+ * @param path - Script path in Windmill
+ * @param args - Arguments to pass to the script
+ * @param verbose - Enable verbose logging
+ * @returns Script execution result
+ */
+async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+
+/**
+ * Run a script synchronously by its hash and wait for the result
+ * @param hash_ - Script hash in Windmill
+ * @param args - Arguments to pass to the script
+ * @param verbose - Enable verbose logging
+ * @returns Script execution result
+ */
+async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+
+/**
+ * Append a text to the result stream
+ * @param text text to append to the result stream
+ */
+appendToResultStream(text: string): void
+
+/**
+ * Stream to the result stream
+ * @param stream stream to stream to the result stream
+ */
+async streamResult(stream: AsyncIterable<string>): Promise<void>
+
+/**
+ * Run a flow synchronously by its path and wait for the result
+ * @param path - Flow path in Windmill
+ * @param args - Arguments to pass to the flow
+ * @param verbose - Enable verbose logging
+ * @returns Flow execution result
+ */
+async runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+
+/**
+ * Wait for a job to complete and return its result
+ * @param jobId - ID of the job to wait for
+ * @param verbose - Enable verbose logging
+ * @returns Job result when completed
+ */
+async waitJob(jobId: string, verbose: boolean = false): Promise<any>
+
+/**
+ * Get the result of a completed job
+ * @param jobId - ID of the completed job
+ * @returns Job result
+ */
+async getResult(jobId: string): Promise<any>
+
+/**
+ * Get the result of a job if completed, or its current status
+ * @param jobId - ID of the job
+ * @returns Object with started, completed, success, and result properties
+ */
+async getResultMaybe(jobId: string): Promise<any>
+
+/**
+ * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
+ */
+async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null): Promise<string>
+
+/**
+ * Run a script asynchronously by its path
+ * @param path - Script path in Windmill
+ * @param args - Arguments to pass to the script
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @returns Job ID of the created job
+ */
+async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
+
+/**
+ * Run a script asynchronously by its hash
+ * @param hash_ - Script hash in Windmill
+ * @param args - Arguments to pass to the script
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @returns Job ID of the created job
+ */
+async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
+
+/**
+ * Run a flow asynchronously by its path
+ * @param path - Flow path in Windmill
+ * @param args - Arguments to pass to the flow
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param doNotTrackInParent - If false, tracks state in parent job (only use when fully awaiting the job)
+ * @returns Job ID of the created job
+ */
+async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true): Promise<string>
+
+/**
+ * Resolve a resource value in case the default value was picked because the input payload was undefined
+ * @param obj resource value or path of the resource under the format \`$res:path\`
+ * @returns resource value
+ */
+async resolveDefaultResource(obj: any): Promise<any>
+
+/**
+ * Get the state file path from environment variables
+ * @returns State path string
+ */
+getStatePath(): string
+
+/**
+ * Set a resource value by path
+ * @param path path of the resource to set, default to state path
+ * @param value new value of the resource to set
+ * @param initializeToTypeIfNotExist if the resource does not exist, initialize it with this type
+ */
+async setResource(value: any, path?: string, initializeToTypeIfNotExist?: string): Promise<void>
+
+/**
+ * Set the state
+ * @param state state to set
+ * @deprecated use setState instead
+ */
+async setInternalState(state: any): Promise<void>
+
+/**
+ * Set the state
+ * @param state state to set
+ * @param path Optional state resource path override. Defaults to \`getStatePath()\`.
+ */
+async setState(state: any, path?: string): Promise<void>
+
+/**
+ * Set the progress
+ * Progress cannot go back and limited to 0% to 99% range
+ * @param percent Progress to set in %
+ * @param jobId? Job to set progress for
+ */
+async setProgress(percent: number, jobId?: any): Promise<void>
+
+/**
+ * Get the progress
+ * @param jobId? Job to get progress from
+ * @returns Optional clamped between 0 and 100 progress value
+ */
+async getProgress(jobId?: any): Promise<number | null>
+
+/**
+ * Set a flow user state
+ * @param key key of the state
+ * @param value value of the state
+ */
+async setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): Promise<void>
+
+/**
+ * Get a flow user state
+ * @param path path of the variable
+ */
+async getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any>
+
+/**
+ * Get the internal state
+ * @deprecated use getState instead
+ */
+async getInternalState(): Promise<any>
+
+/**
+ * Get the state shared across executions
+ * @param path Optional state resource path override. Defaults to \`getStatePath()\`.
+ */
+async getState(path?: string): Promise<any>
+
+/**
+ * Get a variable by path
+ * @param path path of the variable
+ * @returns variable value
+ */
+async getVariable(path: string): Promise<string>
+
+/**
+ * Set a variable by path, create if not exist
+ * @param path path of the variable
+ * @param value value of the variable
+ * @param isSecretIfNotExist if the variable does not exist, create it as secret or not (default: false)
+ * @param descriptionIfNotExist if the variable does not exist, create it with this description (default: "")
+ */
+async setVariable(path: string, value: string, isSecretIfNotExist?: boolean, descriptionIfNotExist?: string): Promise<void>
+
+/**
+ * Build a PostgreSQL connection URL from a database resource
+ * @param path - Path to the database resource
+ * @returns PostgreSQL connection URL string
+ */
+async databaseUrlFromResource(path: string): Promise<string>
+
+async polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any>
+
+async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any>
+
+/**
+ * Get S3 client settings from a resource or workspace default
+ * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @returns S3 client configuration settings
+ */
+async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings>
+
+/**
+ * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
+ * 
+ * \`\`\`typescript
+ * let fileContent = await wmill.loadS3FileContent(inputFile)
+ * // if the file is a raw text file, it can be decoded and printed directly:
+ * const text = new TextDecoder().decode(fileContentStream)
+ * console.log(text);
+ * \`\`\`
+ */
+async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
+
+/**
+ * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
+ * 
+ * \`\`\`typescript
+ * let fileContentBlob = await wmill.loadS3FileStream(inputFile)
+ * // if the content is plain text, the blob can be read directly:
+ * console.log(await fileContentBlob.text());
+ * \`\`\`
+ */
+async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
+
+/**
+ * Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
+ * 
+ * \`\`\`typescript
+ * const s3object = await writeS3File(s3Object, "Hello Windmill!")
+ * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
+ * console.log(fileContentAsUtf8Str)
+ * \`\`\`
+ */
+async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined): Promise<S3Object>
+
+/**
+ * Sign S3 objects to be used by anonymous users in public apps
+ * @param s3objects s3 objects to sign
+ * @returns signed s3 objects
+ */
+async signS3Objects(s3objects: S3Object[]): Promise<S3Object[]>
+
+/**
+ * Sign S3 object to be used by anonymous users in public apps
+ * @param s3object s3 object to sign
+ * @returns signed s3 object
+ */
+async signS3Object(s3object: S3Object): Promise<S3Object>
+
+/**
+ * Generate a presigned public URL for an array of S3 objects.
+ * If an S3 object is not signed yet, it will be signed first.
+ * @param s3Objects s3 objects to sign
+ * @returns list of signed public URLs
+ */
+async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl }: { baseUrl?: string } = {}): Promise<string[]>
+
+/**
+ * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
+ * @param s3Object s3 object to sign
+ * @returns signed public URL
+ */
+async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: string } = {}): Promise<string>
+
+/**
+ * Get URLs needed for resuming a flow after this step
+ * @param approver approver name
+ * @param flowLevel if true, generate resume URLs for the parent flow instead of the specific step.
+ *                  This allows pre-approvals that can be consumed by any later suspend step in the same flow.
+ * @returns approval page UI URL, resume and cancel API URLs for resuming the flow
+ */
+async getResumeUrls(approver?: string, flowLevel?: boolean): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}>
+
+/**
+ * @deprecated use getResumeUrls instead
+ */
+getResumeEndpoints(approver?: string): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}>
+
+/**
+ * Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
+ * @param audience audience of the token
+ * @param expiresIn Optional number of seconds until the token expires
+ * @returns jwt token
+ */
+async getIdToken(audience: string, expiresIn?: number): Promise<string>
+
+/**
+ * Convert a base64-encoded string to Uint8Array
+ * @param data - Base64-encoded string
+ * @returns Decoded Uint8Array
+ */
+base64ToUint8Array(data: string): Uint8Array
+
+/**
+ * Convert a Uint8Array to base64-encoded string
+ * @param arrayBuffer - Uint8Array to encode
+ * @returns Base64-encoded string
+ */
+uint8ArrayToBase64(arrayBuffer: Uint8Array): string
+
+/**
+ * Get email from workspace username
+ * This method is particularly useful for apps that require the email address of the viewer.
+ * Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+ * @param username
+ * @returns email address
+ */
+async usernameToEmail(username: string): Promise<string>
+
+/**
+ * Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
+ * 
+ * **[Enterprise Edition Only]** To include form fields in the Slack approval request, go to **Advanced -> Suspend -> Form**
+ * and define a form. Learn more at [Windmill Documentation](https://www.windmill.dev/docs/flows/flow_approval#form).
+ * 
+ * @param {Object} options - The configuration options for the Slack approval request.
+ * @param {string} options.slackResourcePath - The path to the Slack resource in Windmill.
+ * @param {string} options.channelId - The Slack channel ID where the approval request will be sent.
+ * @param {string} [options.message] - Optional custom message to include in the Slack approval request.
+ * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
+ * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
+ * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
+ * @param {string} [options.resumeButtonText] - Optional text for the resume button.
+ * @param {string} [options.cancelButtonText] - Optional text for the cancel button.
+ * 
+ * @returns {Promise<void>} Resolves when the Slack approval request is successfully sent.
+ * 
+ * @throws {Error} If the function is not called within a flow or flow preview.
+ * @throws {Error} If the \`JobService.getSlackApprovalPayload\` call fails.
+ * 
+ * **Usage Example:**
+ * \`\`\`typescript
+ * await requestInteractiveSlackApproval({
+ *   slackResourcePath: "/u/alex/my_slack_resource",
+ *   channelId: "admins-slack-channel",
+ *   message: "Please approve this request",
+ *   approver: "approver123",
+ *   defaultArgsJson: { key1: "value1", key2: 42 },
+ *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
+ *   resumeButtonText: "Resume",
+ *   cancelButtonText: "Cancel",
+ * });
+ * \`\`\`
+ * 
+ * **Note:** This function requires execution within a Windmill flow or flow preview.
+ */
+async requestInteractiveSlackApproval({ slackResourcePath, channelId, message, approver, defaultArgsJson, dynamicEnumsJson, resumeButtonText, cancelButtonText, }: SlackApprovalOptions): Promise<void>
+
+/**
+ * Sends an interactive approval request via Teams, allowing optional customization of the message, approver, and form fields.
+ * 
+ * **[Enterprise Edition Only]** To include form fields in the Teams approval request, go to **Advanced -> Suspend -> Form**
+ * and define a form. Learn more at [Windmill Documentation](https://www.windmill.dev/docs/flows/flow_approval#form).
+ * 
+ * @param {Object} options - The configuration options for the Teams approval request.
+ * @param {string} options.teamName - The Teams team name where the approval request will be sent.
+ * @param {string} options.channelName - The Teams channel name where the approval request will be sent.
+ * @param {string} [options.message] - Optional custom message to include in the Teams approval request.
+ * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
+ * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
+ * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
+ * 
+ * @returns {Promise<void>} Resolves when the Teams approval request is successfully sent.
+ * 
+ * @throws {Error} If the function is not called within a flow or flow preview.
+ * @throws {Error} If the \`JobService.getTeamsApprovalPayload\` call fails.
+ * 
+ * **Usage Example:**
+ * \`\`\`typescript
+ * await requestInteractiveTeamsApproval({
+ *   teamName: "admins-teams",
+ *   channelName: "admins-teams-channel",
+ *   message: "Please approve this request",
+ *   approver: "approver123",
+ *   defaultArgsJson: { key1: "value1", key2: 42 },
+ *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
+ * });
+ * \`\`\`
+ * 
+ * **Note:** This function requires execution within a Windmill flow or flow preview.
+ */
+async requestInteractiveTeamsApproval({ teamName, channelName, message, approver, defaultArgsJson, dynamicEnumsJson, }: TeamsApprovalOptions): Promise<void>
+
+/**
+ * Parse an S3 object from URI string or record format
+ * @param s3Object - S3 object as URI string (s3://storage/key) or record
+ * @returns S3 object record with storage and s3 key
+ */
+parseS3Object(s3Object: S3Object): S3ObjectRecord
+
+setWorkflowCtx(ctx: WorkflowCtx | null): void
+
+async sleep(seconds: number): Promise<void>
+
+async step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+
+/**
+ * Create a task that dispatches to a separate Windmill script.
+ * 
+ * @example
+ * const extract = taskScript("f/data/extract");
+ * // inside workflow: await extract({ url: "https://..." })
+ */
+taskScript(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any>
+
+/**
+ * Create a task that dispatches to a separate Windmill flow.
+ * 
+ * @example
+ * const pipeline = taskFlow("f/etl/pipeline");
+ * // inside workflow: await pipeline({ input: data })
+ */
+taskFlow(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any>
+
+/**
+ * Mark an async function as a workflow-as-code entry point.
+ * 
+ * The function must be **deterministic**: given the same inputs it must call
+ * tasks in the same order on every replay. Branching on task results is fine
+ * (results are replayed from checkpoint), but branching on external state
+ * (current time, random values, external API calls) must use \`step()\` to
+ * checkpoint the value so replays see the same result.
+ */
+workflow<T>(fn: (...args: any[]) => Promise<T>): void
+
+/**
+ * Suspend the workflow and wait for an external approval.
+ * 
+ * Use \`getResumeUrls()\` (wrapped in \`step()\`) to obtain resume/cancel/approvalPage
+ * URLs before calling this function.
+ * 
+ * @example
+ * const urls = await step("urls", () => getResumeUrls());
+ * await step("notify", () => sendEmail(urls.approvalPage));
+ * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ */
+waitForApproval(options?: { timeout?: number; form?: object; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+
+/**
+ * Process items in parallel with optional concurrency control.
+ * 
+ * Each item is processed by calling \`fn(item)\`, which should be a task().
+ * Items are dispatched in batches of \`concurrency\` (default: all at once).
+ * 
+ * @example
+ * const process = task(async (item: string) => { ... });
+ * const results = await parallel(items, process, { concurrency: 5 });
+ */
+async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: { concurrency?: number },): Promise<R[]>
+
+/**
+ * Commit Kafka offsets for a trigger with auto_commit disabled.
+ * @param triggerPath - Path to the Kafka trigger (from event.wm_trigger.trigger_path)
+ * @param topic - Kafka topic name (from event.topic)
+ * @param partition - Partition number (from event.partition)
+ * @param offset - Message offset to commit (from event.offset)
+ */
+async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, offset: number,): Promise<void>
+
+/**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
  * @returns SQL template function for building parameterized queries
@@ -1979,6 +2181,414 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
  * \`.fetch()
  */
 ducklake(name: string = "main"): SqlTemplateFunction
+`,
+  "write-script-duckdb": `---
+name: write-script-duckdb
+description: MUST use when writing DuckDB queries.
+---
+
+## CLI Commands
+
+Place scripts in a folder. After writing, tell the user they can run:
+- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
+- \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
+
+Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# DuckDB
+
+Arguments are defined with comments and used with \`$name\` syntax:
+
+\`\`\`sql
+-- $name (text) = default
+-- $age (integer)
+SELECT * FROM users WHERE name = $name AND age > $age;
+\`\`\`
+
+## Ducklake Integration
+
+Attach Ducklake for data lake operations:
+
+\`\`\`sql
+-- Main ducklake
+ATTACH 'ducklake' AS dl;
+
+-- Named ducklake
+ATTACH 'ducklake://my_lake' AS dl;
+
+-- Then query
+SELECT * FROM dl.schema.table;
+\`\`\`
+
+## External Database Connections
+
+Connect to external databases using resources:
+
+\`\`\`sql
+ATTACH '$res:path/to/resource' AS db (TYPE postgres);
+SELECT * FROM db.schema.table;
+\`\`\`
+
+## S3 File Operations
+
+Read files from S3 storage:
+
+\`\`\`sql
+-- Default storage
+SELECT * FROM read_csv('s3:///path/to/file.csv');
+
+-- Named storage
+SELECT * FROM read_csv('s3://storage_name/path/to/file.csv');
+
+-- Parquet files
+SELECT * FROM read_parquet('s3:///path/to/file.parquet');
+
+-- JSON files
+SELECT * FROM read_json('s3:///path/to/file.json');
+\`\`\`
+`,
+  "write-script-go": `---
+name: write-script-go
+description: MUST use when writing Go scripts.
+---
+
+## CLI Commands
+
+Place scripts in a folder. After writing, tell the user they can run:
+- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
+- \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
+
+Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# Go
+
+## Structure
+
+The file package must be \`inner\` and export a function called \`main\`:
+
+\`\`\`go
+package inner
+
+func main(param1 string, param2 int) (map[string]interface{}, error) {
+    return map[string]interface{}{
+        "result": param1,
+        "count":  param2,
+    }, nil
+}
+\`\`\`
+
+**Important:**
+- Package must be \`inner\`
+- Return type must be \`({return_type}, error)\`
+- Function name is \`main\` (lowercase)
+
+## Return Types
+
+The return type can be any Go type that can be serialized to JSON:
+
+\`\`\`go
+package inner
+
+type Result struct {
+    Name  string \`json:"name"\`
+    Count int    \`json:"count"\`
+}
+
+func main(name string, count int) (Result, error) {
+    return Result{
+        Name:  name,
+        Count: count,
+    }, nil
+}
+\`\`\`
+
+## Error Handling
+
+Return errors as the second return value:
+
+\`\`\`go
+package inner
+
+import "errors"
+
+func main(value int) (string, error) {
+    if value < 0 {
+        return "", errors.New("value must be positive")
+    }
+    return "success", nil
+}
+\`\`\`
+`,
+  "write-script-graphql": `---
+name: write-script-graphql
+description: MUST use when writing GraphQL queries.
+---
+
+## CLI Commands
+
+Place scripts in a folder. After writing, tell the user they can run:
+- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
+- \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
+
+Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# GraphQL
+
+## Structure
+
+Write GraphQL queries or mutations. Arguments can be added as query parameters:
+
+\`\`\`graphql
+query GetUser($id: ID!) {
+  user(id: $id) {
+    id
+    name
+    email
+  }
+}
+\`\`\`
+
+## Variables
+
+Variables are passed as script arguments and automatically bound to the query:
+
+\`\`\`graphql
+query SearchProducts($query: String!, $limit: Int = 10) {
+  products(search: $query, first: $limit) {
+    edges {
+      node {
+        id
+        name
+        price
+      }
+    }
+  }
+}
+\`\`\`
+
+## Mutations
+
+\`\`\`graphql
+mutation CreateUser($input: CreateUserInput!) {
+  createUser(input: $input) {
+    id
+    name
+    createdAt
+  }
+}
+\`\`\`
+`,
+  "write-script-java": `---
+name: write-script-java
+description: MUST use when writing Java scripts.
+---
+
+## CLI Commands
+
+Place scripts in a folder. After writing, tell the user they can run:
+- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
+- \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
+
+Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# Java
+
+The script must contain a Main public class with a \`public static main()\` method:
+
+\`\`\`java
+public class Main {
+    public static Object main(String name, int count) {
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        result.put("name", name);
+        result.put("count", count);
+        return result;
+    }
+}
+\`\`\`
+
+**Important:**
+- Class must be named \`Main\`
+- Method must be \`public static Object main(...)\`
+- Return type is \`Object\` or \`void\`
+
+## Maven Dependencies
+
+Add dependencies using comments at the top:
+
+\`\`\`java
+//requirements:
+//com.google.code.gson:gson:2.10.1
+//org.apache.httpcomponents:httpclient:4.5.14
+
+import com.google.gson.Gson;
+
+public class Main {
+    public static Object main(String input) {
+        Gson gson = new Gson();
+        return gson.fromJson(input, Object.class);
+    }
+}
+\`\`\`
+`,
+  "write-script-mssql": `---
+name: write-script-mssql
+description: MUST use when writing MS SQL Server queries.
+---
+
+## CLI Commands
+
+Place scripts in a folder. After writing, tell the user they can run:
+- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
+- \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
+
+Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# Microsoft SQL Server (MSSQL)
+
+Arguments use \`@P1\`, \`@P2\`, etc.
+
+Name the parameters by adding comments before the statement:
+
+\`\`\`sql
+-- @P1 name1 (varchar)
+-- @P2 name2 (int) = 0
+SELECT * FROM users WHERE name = @P1 AND age > @P2;
+\`\`\`
+`,
+  "write-script-mysql": `---
+name: write-script-mysql
+description: MUST use when writing MySQL queries.
+---
+
+## CLI Commands
+
+Place scripts in a folder. After writing, tell the user they can run:
+- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
+- \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
+
+Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# MySQL
+
+Arguments use \`?\` placeholders.
+
+Name the parameters by adding comments before the statement:
+
+\`\`\`sql
+-- ? name1 (text)
+-- ? name2 (int) = 0
+SELECT * FROM users WHERE name = ? AND age > ?;
+\`\`\`
+`,
+  "write-script-nativets": `---
+name: write-script-nativets
+description: MUST use when writing Native TypeScript scripts.
+---
+
+## CLI Commands
+
+Place scripts in a folder. After writing, tell the user they can run:
+- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
+- \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
+
+Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# TypeScript (Native)
+
+Native TypeScript execution with fetch only - no external imports allowed.
+
+## Structure
+
+Export a single **async** function called \`main\`:
+
+\`\`\`typescript
+export async function main(param1: string, param2: number) {
+  // Your code here
+  return { result: param1, count: param2 };
+}
+\`\`\`
+
+Do not call the main function.
+
+## Resource Types
+
+On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
+
+Use the \`RT\` namespace for resource types:
+
+\`\`\`typescript
+export async function main(stripe: RT.Stripe) {
+  // stripe contains API key and config from the resource
+}
+\`\`\`
+
+Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
+
+Before using a resource type, check the \`rt.d.ts\` file in the project root to see all available resource types and their fields. This file is generated by \`wmill resource-type generate-namespace\`.
+
+## Imports
+
+**No imports allowed.** Use the globally available \`fetch\` function:
+
+\`\`\`typescript
+export async function main(url: string) {
+  const response = await fetch(url);
+  return await response.json();
+}
+\`\`\`
+
+## Windmill Client
+
+The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
+
+## Preprocessor Scripts
+
+For preprocessor scripts, the function should be named \`preprocessor\` and receives an \`event\` parameter:
+
+\`\`\`typescript
+type Event = {
+  kind:
+    | "webhook"
+    | "http"
+    | "websocket"
+    | "kafka"
+    | "email"
+    | "nats"
+    | "postgres"
+    | "sqs"
+    | "mqtt"
+    | "gcp";
+  body: any;
+  headers: Record<string, string>;
+  query: Record<string, string>;
+};
+
+export async function preprocessor(event: Event) {
+  return {
+    param1: event.body.field1,
+    param2: event.query.id
+  };
+}
+\`\`\`
+
+
+# TypeScript SDK (windmill-client)
+
+Import: import * as wmill from 'windmill-client'
 
 /**
  * Initialize the Windmill client with authentication token and base URL
@@ -2472,30 +3082,144 @@ waitForApproval(options?: { timeout?: number; form?: object; }): PromiseLike<{ v
  * const results = await parallel(items, process, { concurrency: 5 });
  */
 async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: { concurrency?: number },): Promise<R[]>
+
+/**
+ * Commit Kafka offsets for a trigger with auto_commit disabled.
+ * @param triggerPath - Path to the Kafka trigger (from event.wm_trigger.trigger_path)
+ * @param topic - Kafka topic name (from event.topic)
+ * @param partition - Partition number (from event.partition)
+ * @param offset - Message offset to commit (from event.offset)
+ */
+async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, offset: number,): Promise<void>
+
+/**
+ * Create a SQL template function for PostgreSQL/datatable queries
+ * @param name - Database/datatable name (default: "main")
+ * @returns SQL template function for building parameterized queries
+ * @example
+ * let sql = wmill.datatable()
+ * let name = 'Robin'
+ * let age = 21
+ * await sql\`
+ *   SELECT * FROM friends
+ *     WHERE name = \${name} AND age = \${age}::int
+ * \`.fetch()
+ */
+datatable(name: string = "main"): DatatableSqlTemplateFunction
+
+/**
+ * Create a SQL template function for DuckDB/ducklake queries
+ * @param name - DuckDB database name (default: "main")
+ * @returns SQL template function for building parameterized queries
+ * @example
+ * let sql = wmill.ducklake()
+ * let name = 'Robin'
+ * let age = 21
+ * await sql\`
+ *   SELECT * FROM friends
+ *     WHERE name = \${name} AND age = \${age}
+ * \`.fetch()
+ */
+ducklake(name: string = "main"): SqlTemplateFunction
 `,
-  "write-script-mysql": `---
-name: write-script-mysql
-description: MUST use when writing MySQL queries.
+  "write-script-php": `---
+name: write-script-php
+description: MUST use when writing PHP scripts.
 ---
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# MySQL
+# PHP
 
-Arguments use \`?\` placeholders.
+## Structure
 
-Name the parameters by adding comments before the statement:
+The script must start with \`<?php\` and contain at least one function called \`main\`:
+
+\`\`\`php
+<?php
+
+function main(string $param1, int $param2) {
+    return ["result" => $param1, "count" => $param2];
+}
+\`\`\`
+
+## Resource Types
+
+On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
+
+You need to **redefine** the type of the resources that are needed before the main function. Always check if the class already exists using \`class_exists\`:
+
+\`\`\`php
+<?php
+
+if (!class_exists('Postgresql')) {
+    class Postgresql {
+        public string $host;
+        public int $port;
+        public string $user;
+        public string $password;
+        public string $dbname;
+    }
+}
+
+function main(Postgresql $db) {
+    // $db contains the database connection details
+}
+\`\`\`
+
+The resource type name has to be exactly as specified.
+
+## Library Dependencies
+
+Specify library dependencies as comments before the main function:
+
+\`\`\`php
+<?php
+
+// require:
+// guzzlehttp/guzzle
+// stripe/stripe-php@^10.0
+
+function main() {
+    // Libraries are available
+}
+\`\`\`
+
+One dependency per line. No need to require autoload, it is already done.
+`,
+  "write-script-postgresql": `---
+name: write-script-postgresql
+description: MUST use when writing PostgreSQL queries.
+---
+
+## CLI Commands
+
+Place scripts in a folder. After writing, tell the user they can run:
+- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
+- \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
+
+Use \`wmill resource-type list --schema\` to discover available resource types.
+
+# PostgreSQL
+
+Arguments are obtained directly in the statement with \`$1::{type}\`, \`$2::{type}\`, etc.
+
+Name the parameters by adding comments at the beginning of the script (without specifying the type):
 
 \`\`\`sql
--- ? name1 (text)
--- ? name2 (int) = 0
-SELECT * FROM users WHERE name = ? AND age > ?;
+-- $1 name1
+-- $2 name2 = default_value
+SELECT * FROM users WHERE name = $1::TEXT AND age > $2::INT;
 \`\`\`
 `,
   "write-script-powershell": `---
@@ -2505,9 +3229,11 @@ description: MUST use when writing PowerShell scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2567,31 +3293,6 @@ $result = @{
 $result
 \`\`\`
 `,
-  "write-script-snowflake": `---
-name: write-script-snowflake
-description: MUST use when writing Snowflake queries.
----
-
-## CLI Commands
-
-Place scripts in a folder. After writing, run:
-- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
-
-Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# Snowflake
-
-Arguments use \`?\` placeholders.
-
-Name the parameters by adding comments before the statement:
-
-\`\`\`sql
--- ? name1 (text)
--- ? name2 (number) = 0
-SELECT * FROM users WHERE name = ? AND age > ?;
-\`\`\`
-`,
   "write-script-python3": `---
 name: write-script-python3
 description: MUST use when writing Python scripts.
@@ -2599,9 +3300,11 @@ description: MUST use when writing Python scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -3396,753 +4099,133 @@ async def wait_for_approval(timeout: int = 1800, form: dict | None = None) -> di
 #     results = await parallel(items, process, concurrency=5)
 async def parallel(items, fn, concurrency: Optional[int] = None)
 
+# Commit Kafka offsets for a trigger with auto_commit disabled.
+# 
+# Args:
+#     trigger_path: Path to the Kafka trigger (from event['wm_trigger']['trigger_path'])
+#     topic: Kafka topic name (from event['topic'])
+#     partition: Partition number (from event['partition'])
+#     offset: Message offset to commit (from event['offset'])
+def commit_kafka_offsets(trigger_path: str, topic: str, partition: int, offset: int) -> None
+
 `,
-  "write-script-duckdb": `---
-name: write-script-duckdb
-description: MUST use when writing DuckDB queries.
+  "write-script-rust": `---
+name: write-script-rust
+description: MUST use when writing Rust scripts.
 ---
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
-Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# DuckDB
-
-Arguments are defined with comments and used with \`$name\` syntax:
-
-\`\`\`sql
--- $name (text) = default
--- $age (integer)
-SELECT * FROM users WHERE name = $name AND age > $age;
-\`\`\`
-
-## Ducklake Integration
-
-Attach Ducklake for data lake operations:
-
-\`\`\`sql
--- Main ducklake
-ATTACH 'ducklake' AS dl;
-
--- Named ducklake
-ATTACH 'ducklake://my_lake' AS dl;
-
--- Then query
-SELECT * FROM dl.schema.table;
-\`\`\`
-
-## External Database Connections
-
-Connect to external databases using resources:
-
-\`\`\`sql
-ATTACH '$res:path/to/resource' AS db (TYPE postgres);
-SELECT * FROM db.schema.table;
-\`\`\`
-
-## S3 File Operations
-
-Read files from S3 storage:
-
-\`\`\`sql
--- Default storage
-SELECT * FROM read_csv('s3:///path/to/file.csv');
-
--- Named storage
-SELECT * FROM read_csv('s3://storage_name/path/to/file.csv');
-
--- Parquet files
-SELECT * FROM read_parquet('s3:///path/to/file.parquet');
-
--- JSON files
-SELECT * FROM read_json('s3:///path/to/file.json');
-\`\`\`
-`,
-  "write-script-bash": `---
-name: write-script-bash
-description: MUST use when writing Bash scripts.
----
-
-## CLI Commands
-
-Place scripts in a folder. After writing, run:
-- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# Bash
+# Rust
 
 ## Structure
 
-Do not include \`#!/bin/bash\`. Arguments are obtained as positional parameters:
+The script must contain a function called \`main\` with proper return type:
 
-\`\`\`bash
-# Get arguments
-var1="$1"
-var2="$2"
+\`\`\`rust
+use anyhow::anyhow;
+use serde::Serialize;
 
-echo "Processing $var1 and $var2"
+#[derive(Serialize, Debug)]
+struct ReturnType {
+    result: String,
+    count: i32,
+}
 
-# Return JSON by echoing to stdout
-echo "{\\"result\\": \\"$var1\\", \\"count\\": $var2}"
+fn main(param1: String, param2: i32) -> anyhow::Result<ReturnType> {
+    Ok(ReturnType {
+        result: param1,
+        count: param2,
+    })
+}
 \`\`\`
 
 **Important:**
-- Do not include shebang (\`#!/bin/bash\`)
-- Arguments are always strings
-- Access with \`$1\`, \`$2\`, etc.
+- Arguments should be owned types
+- Return type must be serializable (\`#[derive(Serialize)]\`)
+- Return type is \`anyhow::Result<T>\`
 
-## Output
+## Dependencies
 
-The script output is captured as the result. For structured data, output valid JSON:
+Packages must be specified with a partial cargo.toml at the beginning of the script:
 
-\`\`\`bash
-name="$1"
-count="$2"
+\`\`\`rust
+//! \`\`\`cargo
+//! [dependencies]
+//! anyhow = "1.0.86"
+//! reqwest = { version = "0.11", features = ["json"] }
+//! tokio = { version = "1", features = ["full"] }
+//! \`\`\`
 
-# Output JSON result
-cat << EOF
-{
-  "name": "$name",
-  "count": $count,
-  "timestamp": "$(date -Iseconds)"
-}
-EOF
+use anyhow::anyhow;
+// ... rest of the code
 \`\`\`
 
-## Environment Variables
+**Note:** Serde is already included, no need to add it again.
 
-Environment variables set in Windmill are available:
+## Async Functions
 
-\`\`\`bash
-# Access environment variable
-echo "Workspace: $WM_WORKSPACE"
-echo "Job ID: $WM_JOB_ID"
+If you need to handle async functions (e.g., using tokio), keep the main function sync and create the runtime inside:
+
+\`\`\`rust
+//! \`\`\`cargo
+//! [dependencies]
+//! anyhow = "1.0.86"
+//! tokio = { version = "1", features = ["full"] }
+//! reqwest = { version = "0.11", features = ["json"] }
+//! \`\`\`
+
+use anyhow::anyhow;
+use serde::Serialize;
+
+#[derive(Serialize, Debug)]
+struct Response {
+    data: String,
+}
+
+fn main(url: String) -> anyhow::Result<Response> {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        let resp = reqwest::get(&url).await?.text().await?;
+        Ok(Response { data: resp })
+    })
+}
 \`\`\`
 `,
-  "write-script-nativets": `---
-name: write-script-nativets
-description: MUST use when writing Native TypeScript scripts.
+  "write-script-snowflake": `---
+name: write-script-snowflake
+description: MUST use when writing Snowflake queries.
 ---
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# TypeScript (Native)
+# Snowflake
 
-Native TypeScript execution with fetch only - no external imports allowed.
+Arguments use \`?\` placeholders.
 
-## Structure
+Name the parameters by adding comments before the statement:
 
-Export a single **async** function called \`main\`:
-
-\`\`\`typescript
-export async function main(param1: string, param2: number) {
-  // Your code here
-  return { result: param1, count: param2 };
-}
+\`\`\`sql
+-- ? name1 (text)
+-- ? name2 (number) = 0
+SELECT * FROM users WHERE name = ? AND age > ?;
 \`\`\`
-
-Do not call the main function.
-
-## Resource Types
-
-On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-
-Use the \`RT\` namespace for resource types:
-
-\`\`\`typescript
-export async function main(stripe: RT.Stripe) {
-  // stripe contains API key and config from the resource
-}
-\`\`\`
-
-Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
-
-Before using a resource type, check the \`rt.d.ts\` file in the project root to see all available resource types and their fields. This file is generated by \`wmill resource-type generate-namespace\`.
-
-## Imports
-
-**No imports allowed.** Use the globally available \`fetch\` function:
-
-\`\`\`typescript
-export async function main(url: string) {
-  const response = await fetch(url);
-  return await response.json();
-}
-\`\`\`
-
-## Windmill Client
-
-The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
-
-## Preprocessor Scripts
-
-For preprocessor scripts, the function should be named \`preprocessor\` and receives an \`event\` parameter:
-
-\`\`\`typescript
-type Event = {
-  kind:
-    | "webhook"
-    | "http"
-    | "websocket"
-    | "kafka"
-    | "email"
-    | "nats"
-    | "postgres"
-    | "sqs"
-    | "mqtt"
-    | "gcp";
-  body: any;
-  headers: Record<string, string>;
-  query: Record<string, string>;
-};
-
-export async function preprocessor(event: Event) {
-  return {
-    param1: event.body.field1,
-    param2: event.query.id
-  };
-}
-\`\`\`
-
-
-# TypeScript SDK (windmill-client)
-
-Import: import * as wmill from 'windmill-client'
-
-/**
- * Create a SQL template function for PostgreSQL/datatable queries
- * @param name - Database/datatable name (default: "main")
- * @returns SQL template function for building parameterized queries
- * @example
- * let sql = wmill.datatable()
- * let name = 'Robin'
- * let age = 21
- * await sql\`
- *   SELECT * FROM friends
- *     WHERE name = \${name} AND age = \${age}::int
- * \`.fetch()
- */
-datatable(name: string = "main"): DatatableSqlTemplateFunction
-
-/**
- * Create a SQL template function for DuckDB/ducklake queries
- * @param name - DuckDB database name (default: "main")
- * @returns SQL template function for building parameterized queries
- * @example
- * let sql = wmill.ducklake()
- * let name = 'Robin'
- * let age = 21
- * await sql\`
- *   SELECT * FROM friends
- *     WHERE name = \${name} AND age = \${age}
- * \`.fetch()
- */
-ducklake(name: string = "main"): SqlTemplateFunction
-
-/**
- * Initialize the Windmill client with authentication token and base URL
- * @param token - Authentication token (defaults to WM_TOKEN env variable)
- * @param baseUrl - API base URL (defaults to BASE_INTERNAL_URL or BASE_URL env variable)
- */
-setClient(token?: string, baseUrl?: string): void
-
-/**
- * Create a client configuration from env variables
- * @returns client configuration
- */
-getWorkspace(): string
-
-/**
- * Get a resource value by path
- * @param path path of the resource,  default to internal state path
- * @param undefinedIfEmpty if the resource does not exist, return undefined instead of throwing an error
- * @returns resource value
- */
-async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
-
-/**
- * Get the true root job id
- * @param jobId job id to get the root job id from (default to current job)
- * @returns root job id
- */
-async getRootJobId(jobId?: string): Promise<string>
-
-/**
- * @deprecated Use runScriptByPath or runScriptByHash instead
- */
-async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
-
-/**
- * Run a script synchronously by its path and wait for the result
- * @param path - Script path in Windmill
- * @param args - Arguments to pass to the script
- * @param verbose - Enable verbose logging
- * @returns Script execution result
- */
-async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
-
-/**
- * Run a script synchronously by its hash and wait for the result
- * @param hash_ - Script hash in Windmill
- * @param args - Arguments to pass to the script
- * @param verbose - Enable verbose logging
- * @returns Script execution result
- */
-async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
-
-/**
- * Append a text to the result stream
- * @param text text to append to the result stream
- */
-appendToResultStream(text: string): void
-
-/**
- * Stream to the result stream
- * @param stream stream to stream to the result stream
- */
-async streamResult(stream: AsyncIterable<string>): Promise<void>
-
-/**
- * Run a flow synchronously by its path and wait for the result
- * @param path - Flow path in Windmill
- * @param args - Arguments to pass to the flow
- * @param verbose - Enable verbose logging
- * @returns Flow execution result
- */
-async runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
-
-/**
- * Wait for a job to complete and return its result
- * @param jobId - ID of the job to wait for
- * @param verbose - Enable verbose logging
- * @returns Job result when completed
- */
-async waitJob(jobId: string, verbose: boolean = false): Promise<any>
-
-/**
- * Get the result of a completed job
- * @param jobId - ID of the completed job
- * @returns Job result
- */
-async getResult(jobId: string): Promise<any>
-
-/**
- * Get the result of a job if completed, or its current status
- * @param jobId - ID of the job
- * @returns Object with started, completed, success, and result properties
- */
-async getResultMaybe(jobId: string): Promise<any>
-
-/**
- * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
- */
-async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null): Promise<string>
-
-/**
- * Run a script asynchronously by its path
- * @param path - Script path in Windmill
- * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
- * @returns Job ID of the created job
- */
-async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
-
-/**
- * Run a script asynchronously by its hash
- * @param hash_ - Script hash in Windmill
- * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
- * @returns Job ID of the created job
- */
-async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
-
-/**
- * Run a flow asynchronously by its path
- * @param path - Flow path in Windmill
- * @param args - Arguments to pass to the flow
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
- * @param doNotTrackInParent - If false, tracks state in parent job (only use when fully awaiting the job)
- * @returns Job ID of the created job
- */
-async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true): Promise<string>
-
-/**
- * Resolve a resource value in case the default value was picked because the input payload was undefined
- * @param obj resource value or path of the resource under the format \`$res:path\`
- * @returns resource value
- */
-async resolveDefaultResource(obj: any): Promise<any>
-
-/**
- * Get the state file path from environment variables
- * @returns State path string
- */
-getStatePath(): string
-
-/**
- * Set a resource value by path
- * @param path path of the resource to set, default to state path
- * @param value new value of the resource to set
- * @param initializeToTypeIfNotExist if the resource does not exist, initialize it with this type
- */
-async setResource(value: any, path?: string, initializeToTypeIfNotExist?: string): Promise<void>
-
-/**
- * Set the state
- * @param state state to set
- * @deprecated use setState instead
- */
-async setInternalState(state: any): Promise<void>
-
-/**
- * Set the state
- * @param state state to set
- * @param path Optional state resource path override. Defaults to \`getStatePath()\`.
- */
-async setState(state: any, path?: string): Promise<void>
-
-/**
- * Set the progress
- * Progress cannot go back and limited to 0% to 99% range
- * @param percent Progress to set in %
- * @param jobId? Job to set progress for
- */
-async setProgress(percent: number, jobId?: any): Promise<void>
-
-/**
- * Get the progress
- * @param jobId? Job to get progress from
- * @returns Optional clamped between 0 and 100 progress value
- */
-async getProgress(jobId?: any): Promise<number | null>
-
-/**
- * Set a flow user state
- * @param key key of the state
- * @param value value of the state
- */
-async setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): Promise<void>
-
-/**
- * Get a flow user state
- * @param path path of the variable
- */
-async getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any>
-
-/**
- * Get the internal state
- * @deprecated use getState instead
- */
-async getInternalState(): Promise<any>
-
-/**
- * Get the state shared across executions
- * @param path Optional state resource path override. Defaults to \`getStatePath()\`.
- */
-async getState(path?: string): Promise<any>
-
-/**
- * Get a variable by path
- * @param path path of the variable
- * @returns variable value
- */
-async getVariable(path: string): Promise<string>
-
-/**
- * Set a variable by path, create if not exist
- * @param path path of the variable
- * @param value value of the variable
- * @param isSecretIfNotExist if the variable does not exist, create it as secret or not (default: false)
- * @param descriptionIfNotExist if the variable does not exist, create it with this description (default: "")
- */
-async setVariable(path: string, value: string, isSecretIfNotExist?: boolean, descriptionIfNotExist?: string): Promise<void>
-
-/**
- * Build a PostgreSQL connection URL from a database resource
- * @param path - Path to the database resource
- * @returns PostgreSQL connection URL string
- */
-async databaseUrlFromResource(path: string): Promise<string>
-
-async polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any>
-
-async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any>
-
-/**
- * Get S3 client settings from a resource or workspace default
- * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
- * @returns S3 client configuration settings
- */
-async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings>
-
-/**
- * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
- * 
- * \`\`\`typescript
- * let fileContent = await wmill.loadS3FileContent(inputFile)
- * // if the file is a raw text file, it can be decoded and printed directly:
- * const text = new TextDecoder().decode(fileContentStream)
- * console.log(text);
- * \`\`\`
- */
-async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
-
-/**
- * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
- * 
- * \`\`\`typescript
- * let fileContentBlob = await wmill.loadS3FileStream(inputFile)
- * // if the content is plain text, the blob can be read directly:
- * console.log(await fileContentBlob.text());
- * \`\`\`
- */
-async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
-
-/**
- * Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
- * 
- * \`\`\`typescript
- * const s3object = await writeS3File(s3Object, "Hello Windmill!")
- * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
- * console.log(fileContentAsUtf8Str)
- * \`\`\`
- */
-async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined): Promise<S3Object>
-
-/**
- * Sign S3 objects to be used by anonymous users in public apps
- * @param s3objects s3 objects to sign
- * @returns signed s3 objects
- */
-async signS3Objects(s3objects: S3Object[]): Promise<S3Object[]>
-
-/**
- * Sign S3 object to be used by anonymous users in public apps
- * @param s3object s3 object to sign
- * @returns signed s3 object
- */
-async signS3Object(s3object: S3Object): Promise<S3Object>
-
-/**
- * Generate a presigned public URL for an array of S3 objects.
- * If an S3 object is not signed yet, it will be signed first.
- * @param s3Objects s3 objects to sign
- * @returns list of signed public URLs
- */
-async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl }: { baseUrl?: string } = {}): Promise<string[]>
-
-/**
- * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
- * @param s3Object s3 object to sign
- * @returns signed public URL
- */
-async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: string } = {}): Promise<string>
-
-/**
- * Get URLs needed for resuming a flow after this step
- * @param approver approver name
- * @param flowLevel if true, generate resume URLs for the parent flow instead of the specific step.
- *                  This allows pre-approvals that can be consumed by any later suspend step in the same flow.
- * @returns approval page UI URL, resume and cancel API URLs for resuming the flow
- */
-async getResumeUrls(approver?: string, flowLevel?: boolean): Promise<{
-  approvalPage: string;
-  resume: string;
-  cancel: string;
-}>
-
-/**
- * @deprecated use getResumeUrls instead
- */
-getResumeEndpoints(approver?: string): Promise<{
-  approvalPage: string;
-  resume: string;
-  cancel: string;
-}>
-
-/**
- * Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
- * @param audience audience of the token
- * @param expiresIn Optional number of seconds until the token expires
- * @returns jwt token
- */
-async getIdToken(audience: string, expiresIn?: number): Promise<string>
-
-/**
- * Convert a base64-encoded string to Uint8Array
- * @param data - Base64-encoded string
- * @returns Decoded Uint8Array
- */
-base64ToUint8Array(data: string): Uint8Array
-
-/**
- * Convert a Uint8Array to base64-encoded string
- * @param arrayBuffer - Uint8Array to encode
- * @returns Base64-encoded string
- */
-uint8ArrayToBase64(arrayBuffer: Uint8Array): string
-
-/**
- * Get email from workspace username
- * This method is particularly useful for apps that require the email address of the viewer.
- * Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
- * @param username
- * @returns email address
- */
-async usernameToEmail(username: string): Promise<string>
-
-/**
- * Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
- * 
- * **[Enterprise Edition Only]** To include form fields in the Slack approval request, go to **Advanced -> Suspend -> Form**
- * and define a form. Learn more at [Windmill Documentation](https://www.windmill.dev/docs/flows/flow_approval#form).
- * 
- * @param {Object} options - The configuration options for the Slack approval request.
- * @param {string} options.slackResourcePath - The path to the Slack resource in Windmill.
- * @param {string} options.channelId - The Slack channel ID where the approval request will be sent.
- * @param {string} [options.message] - Optional custom message to include in the Slack approval request.
- * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
- * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
- * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
- * @param {string} [options.resumeButtonText] - Optional text for the resume button.
- * @param {string} [options.cancelButtonText] - Optional text for the cancel button.
- * 
- * @returns {Promise<void>} Resolves when the Slack approval request is successfully sent.
- * 
- * @throws {Error} If the function is not called within a flow or flow preview.
- * @throws {Error} If the \`JobService.getSlackApprovalPayload\` call fails.
- * 
- * **Usage Example:**
- * \`\`\`typescript
- * await requestInteractiveSlackApproval({
- *   slackResourcePath: "/u/alex/my_slack_resource",
- *   channelId: "admins-slack-channel",
- *   message: "Please approve this request",
- *   approver: "approver123",
- *   defaultArgsJson: { key1: "value1", key2: 42 },
- *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
- *   resumeButtonText: "Resume",
- *   cancelButtonText: "Cancel",
- * });
- * \`\`\`
- * 
- * **Note:** This function requires execution within a Windmill flow or flow preview.
- */
-async requestInteractiveSlackApproval({ slackResourcePath, channelId, message, approver, defaultArgsJson, dynamicEnumsJson, resumeButtonText, cancelButtonText, }: SlackApprovalOptions): Promise<void>
-
-/**
- * Sends an interactive approval request via Teams, allowing optional customization of the message, approver, and form fields.
- * 
- * **[Enterprise Edition Only]** To include form fields in the Teams approval request, go to **Advanced -> Suspend -> Form**
- * and define a form. Learn more at [Windmill Documentation](https://www.windmill.dev/docs/flows/flow_approval#form).
- * 
- * @param {Object} options - The configuration options for the Teams approval request.
- * @param {string} options.teamName - The Teams team name where the approval request will be sent.
- * @param {string} options.channelName - The Teams channel name where the approval request will be sent.
- * @param {string} [options.message] - Optional custom message to include in the Teams approval request.
- * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
- * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
- * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
- * 
- * @returns {Promise<void>} Resolves when the Teams approval request is successfully sent.
- * 
- * @throws {Error} If the function is not called within a flow or flow preview.
- * @throws {Error} If the \`JobService.getTeamsApprovalPayload\` call fails.
- * 
- * **Usage Example:**
- * \`\`\`typescript
- * await requestInteractiveTeamsApproval({
- *   teamName: "admins-teams",
- *   channelName: "admins-teams-channel",
- *   message: "Please approve this request",
- *   approver: "approver123",
- *   defaultArgsJson: { key1: "value1", key2: 42 },
- *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
- * });
- * \`\`\`
- * 
- * **Note:** This function requires execution within a Windmill flow or flow preview.
- */
-async requestInteractiveTeamsApproval({ teamName, channelName, message, approver, defaultArgsJson, dynamicEnumsJson, }: TeamsApprovalOptions): Promise<void>
-
-/**
- * Parse an S3 object from URI string or record format
- * @param s3Object - S3 object as URI string (s3://storage/key) or record
- * @returns S3 object record with storage and s3 key
- */
-parseS3Object(s3Object: S3Object): S3ObjectRecord
-
-setWorkflowCtx(ctx: WorkflowCtx | null): void
-
-async sleep(seconds: number): Promise<void>
-
-async step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
-
-/**
- * Create a task that dispatches to a separate Windmill script.
- * 
- * @example
- * const extract = taskScript("f/data/extract");
- * // inside workflow: await extract({ url: "https://..." })
- */
-taskScript(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any>
-
-/**
- * Create a task that dispatches to a separate Windmill flow.
- * 
- * @example
- * const pipeline = taskFlow("f/etl/pipeline");
- * // inside workflow: await pipeline({ input: data })
- */
-taskFlow(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any>
-
-/**
- * Mark an async function as a workflow-as-code entry point.
- * 
- * The function must be **deterministic**: given the same inputs it must call
- * tasks in the same order on every replay. Branching on task results is fine
- * (results are replayed from checkpoint), but branching on external state
- * (current time, random values, external API calls) must use \`step()\` to
- * checkpoint the value so replays see the same result.
- */
-workflow<T>(fn: (...args: any[]) => Promise<T>): void
-
-/**
- * Suspend the workflow and wait for an external approval.
- * 
- * Use \`getResumeUrls()\` (wrapped in \`step()\`) to obtain resume/cancel/approvalPage
- * URLs before calling this function.
- * 
- * @example
- * const urls = await step("urls", () => getResumeUrls());
- * await step("notify", () => sendEmail(urls.approvalPage));
- * const { value, approver } = await waitForApproval({ timeout: 3600 });
- */
-waitForApproval(options?: { timeout?: number; form?: object; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
-
-/**
- * Process items in parallel with optional concurrency control.
- * 
- * Each item is processed by calling \`fn(item)\`, which should be a task().
- * Items are dispatched in batches of \`concurrency\` (default: all at once).
- * 
- * @example
- * const process = task(async (item: string) => { ... });
- * const results = await parallel(items, process, { concurrency: 5 });
- */
-async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: { concurrency?: number },): Promise<R[]>
 `,
   "write-flow": `---
 name: write-flow
@@ -4153,11 +4236,13 @@ description: MUST use when creating flows.
 
 ## CLI Commands
 
-Create a folder ending with \`.flow\` and add a YAML file with the flow definition.
-For rawscript modules, use \`!inline path/to/script.ts\` for the content key.
-After writing:
-- \`wmill flow generate-locks <path_to_flow_folder> --yes\` - Generate lock files for the specific flow you modified (e.g. \`wmill flow generate-locks f/my_folder/my_flow.flow --yes\`)
+Create a folder ending with \`{{FLOW_SUFFIX}}\` and add a \`flow.yaml\` file with the flow definition.
+For rawscript modules, use \`!inline path/to/script.ts\` for the content key. {{INLINE_SCRIPT_NAMING}}
+After writing, tell the user they can run:
+- \`wmill flow generate-locks <path_to_flow_folder> --yes\` - Generate lock files for the specific flow you modified (e.g. \`wmill flow generate-locks f/my_folder/my_flow{{FLOW_SUFFIX}} --yes\`)
 - \`wmill sync push\` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 ## OpenFlow Schema
 
@@ -4290,7 +4375,7 @@ This interactive command creates a complete app structure with your choice of fr
 ## App Structure
 
 \`\`\`
-my_app.raw_app/
+my_app{{RAW_APP_SUFFIX}}/
 ├── AGENTS.md              # AI agent instructions (auto-generated)
 ├── DATATABLES.md          # Database schemas (run 'wmill app generate-agents' to refresh)
 ├── raw_app.yaml           # App configuration (summary, path, data settings)
@@ -4356,7 +4441,7 @@ export async function main(user_id: string) {
 }
 \`\`\`
 
-After creating, generate lock files:
+After creating, tell the user they can generate lock files by running:
 \`\`\`bash
 wmill app generate-locks
 \`\`\`
@@ -4509,6 +4594,8 @@ data:
 
 ## CLI Commands
 
+Tell the user they can run these commands (do NOT run them yourself):
+
 | Command | Description |
 |---------|-------------|
 | \`wmill app new\` | Create a new raw app interactively |
@@ -4525,7 +4612,7 @@ data:
 3. **Keep runnables focused** - one function per file
 4. **Use descriptive IDs** - \`get_user.ts\` not \`a.ts\`
 5. **Always whitelist tables** - add to \`data.tables\` before querying
-6. **Generate locks** - run \`wmill app generate-locks\` after adding/modifying backend runnables
+6. **Generate locks** - tell the user to run \`wmill app generate-locks\` after adding/modifying backend runnables
 `,
   "triggers": `---
 name: triggers
@@ -4546,6 +4633,8 @@ Examples:
 - \`f/sync/postgres_cdc.postgres_trigger.yaml\`
 
 ## CLI Commands
+
+After writing, tell the user they can run these commands (do NOT run them yourself):
 
 \`\`\`bash
 # Push trigger configuration
@@ -4595,6 +4684,8 @@ Windmill uses 6-field cron expressions (includes seconds):
 - \`0 0 0 1 * *\` - First day of each month
 
 ## CLI Commands
+
+After writing, tell the user they can run these commands (do NOT run them yourself):
 
 \`\`\`bash
 # Push schedules to Windmill
@@ -4851,7 +4942,7 @@ wmill resource-type list --schema
 # Get specific resource type schema
 wmill resource-type get postgresql
 
-# Push resources
+# Push resources (tell the user to run this, do NOT run it yourself)
 wmill sync push
 \`\`\`
 `,
@@ -4863,8 +4954,6 @@ description: MUST use when using the CLI.
 # Windmill CLI Commands
 
 The Windmill CLI (\`wmill\`) provides commands for managing scripts, flows, apps, and other resources.
-
-Current version: 1.651.1
 
 ## Global Options
 
@@ -4982,6 +5071,23 @@ folder related commands
 - \`folder push <name:string>\` - push a local folder to the remote by name. This overrides any remote versions.
 - \`folder add-missing\` - create default folder.meta.yaml for all subdirectories of f/ that are missing one
   - \`-y, --yes\` - skip confirmation prompt
+
+### generate-metadata
+
+Generate metadata (locks, schemas) for all scripts, flows, and apps
+
+**Arguments:** \`[folder:string]\`
+
+**Options:**
+- \`--yes\` - Skip confirmation prompt
+- \`--dry-run\` - Show what would be updated without making changes
+- \`--lock-only\` - Re-generate only the lock files
+- \`--schema-only\` - Re-generate only script schemas (skips flows and apps)
+- \`--skip-scripts\` - Skip processing scripts
+- \`--skip-flows\` - Skip processing flows
+- \`--skip-apps\` - Skip processing apps
+- \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
+- \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
 
 ### gitsync-settings
 
@@ -5222,7 +5328,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - \`--extra-includes <patterns:file[]>\` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy
   - \`--repository <repo:string>\` - Specify repository path (e.g., u/user/repo) when multiple repositories exist
   - \`--promotion <branch:string>\` - Use promotionOverrides from the specified branch instead of regular overrides
-  - \`--branch <branch:string>\` - Override the current git branch (works even outside a git repository)
+  - \`--branch, --env <branch:string>\` - Override the current git branch/environment (works even outside a git repository)
 - \`sync push\` - Push any local changes and apply them remotely.
   - \`--yes\` - Push without needing confirmation
   - \`--dry-run\` - Show changes that would be pushed without actually pushing
@@ -5252,7 +5358,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - \`--message <message:string>\` - Include a message that will be added to all scripts/flows/apps updated during this push
   - \`--parallel <number>\` - Number of changes to process in parallel
   - \`--repository <repo:string>\` - Specify repository path (e.g., u/user/repo) when multiple repositories exist
-  - \`--branch <branch:string>\` - Override the current git branch (works even outside a git repository)
+  - \`--branch, --env <branch:string>\` - Override the current git branch/environment (works even outside a git repository)
   - \`--lint\` - Run lint validation before pushing
   - \`--locks-required\` - Fail if scripts or flow inline scripts that need locks have no locks
 
@@ -5354,9 +5460,9 @@ workspace related commands
 - \`workspace list\` - List local workspace profiles
 - \`workspace list-remote\` - List workspaces on the remote server that you have access to
 - \`workspace bind\` - Bind the current Git branch to the active workspace
-  - \`--branch <branch:string>\` - Specify branch (defaults to current)
+  - \`--branch, --env <branch:string>\` - Specify branch/environment (defaults to current)
 - \`workspace unbind\` - Remove workspace binding from the current Git branch
-  - \`--branch <branch:string>\` - Specify branch (defaults to current)
+  - \`--branch, --env <branch:string>\` - Specify branch/environment (defaults to current)
 - \`workspace fork [workspace_name:string] [workspace_id:string]\` - Create a forked workspace
   - \`--create-workspace-name <workspace_name:string>\` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
 - \`workspace delete-fork <fork_name:string>\` - Delete a forked workspace and git branch
@@ -5613,6 +5719,18 @@ properties:
         key:
           type: string
         value: {}
+  auto_offset_reset:
+    type: string
+    enum:
+    - latest
+    - earliest
+    description: Initial offset behavior when consumer group has no committed offset.
+      'latest' starts from new messages only, 'earliest' starts from the beginning.
+  auto_commit:
+    type: boolean
+    description: When true (default), offsets are committed automatically after receiving
+      each message. When false, you must manually commit offsets using the commit_offsets
+      endpoint.
   error_handler_path:
     type: string
     description: Path to a script or flow to run when the triggered job fails

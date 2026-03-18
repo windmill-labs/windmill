@@ -604,7 +604,7 @@
 		{#if !currentTag || !schema[currentTag]}
 			{#if presets.length}
 				<div class="text-xs px-2 my-2 font-bold">Presets</div>
-				<div class="mb-3 px-2 flex gap-2 flex-wrap">
+				<div class="mb-3 px-2 flex gap-2 flex-wrap max-h-24 overflow-y-auto">
 					{#each presets as preset}
 						{@render presetTag(preset)}
 					{/each}

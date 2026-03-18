@@ -1076,10 +1076,14 @@ const server = Bun.serve({
 		if (path === '/health') {
 			return new Response(JSON.stringify({
 				status: 'ok',
+				service: 'debugger',
 				endpoints: ['/python', '/typescript', '/bun'],
 				nsjail: config.nsjail.enabled
 			}), {
-				headers: { 'Content-Type': 'application/json' }
+				headers: {
+					'Content-Type': 'application/json',
+					'Access-Control-Allow-Origin': '*'
+				}
 			})
 		}
 
@@ -1094,6 +1098,13 @@ const server = Bun.serve({
 			// Trim /ws_debug prefix if present (for direct access without reverse proxy stripping)
 			if (path.startsWith('/ws_debug/')) {
 				path = path.slice('/ws_debug'.length)
+			}
+
+			// Handle ping test — respond and close immediately
+			if (path === '/ping') {
+				ws.send(JSON.stringify({ type: 'pong', service: 'debugger' }))
+				ws.close()
+				return
 			}
 
 			logger.info(`New client connected: ${path}`)

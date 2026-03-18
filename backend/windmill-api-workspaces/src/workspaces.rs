@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_api_auth::{require_super_admin, ApiAuthed};
+use windmill_api_auth::{require_devops_role, require_super_admin, ApiAuthed};
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
@@ -157,6 +157,7 @@ pub fn workspaced_service() -> Router {
             "/protection_rules/:rule_name",
             post(update_protection_rule).delete(delete_protection_rule),
         )
+        .route("/log_chat", post(log_ai_chat))
 }
 pub fn global_service() -> Router {
     Router::new()
@@ -2586,7 +2587,7 @@ async fn list_workspaces_as_super_admin(
     Query(pagination): Query<Pagination>,
     ApiAuthed { email, .. }: ApiAuthed,
 ) -> JsonResult<Vec<Workspace>> {
-    require_super_admin(&db, &email).await?;
+    require_devops_role(&db, &email).await?;
     let (per_page, offset) = paginate(pagination);
 
     let mut tx = user_db.begin(&authed).await?;
@@ -3099,8 +3100,8 @@ async fn clone_scripts(
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, restart_unless_cancelled, concurrency_key,
-            visible_to_runner_only, no_main_func, codebase, has_preprocessor,
-            on_behalf_of_email, assets
+            visible_to_runner_only, auto_kind, codebase, has_preprocessor,
+            on_behalf_of_email, assets, modules
         )
         SELECT
             $1, hash, path, parent_hashes, summary, description, content,
@@ -3109,8 +3110,8 @@ async fn clone_scripts(
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, restart_unless_cancelled, concurrency_key,
-            visible_to_runner_only, no_main_func, codebase, has_preprocessor,
-            on_behalf_of_email, assets
+            visible_to_runner_only, auto_kind, codebase, has_preprocessor,
+            on_behalf_of_email, assets, modules
         FROM script
         WHERE workspace_id = $2"#,
         target_workspace_id,
@@ -3594,7 +3595,7 @@ pub(crate) async fn archive_workspace_impl(
 
     // Delete non-session tokens scoped to this workspace
     let deleted_tokens = sqlx::query_scalar!(
-        "DELETE FROM token WHERE workspace_id = $1 AND label IS DISTINCT FROM 'session' RETURNING token",
+        "DELETE FROM token WHERE workspace_id = $1 AND label IS DISTINCT FROM 'session' RETURNING token_prefix",
         w_id
     )
     .fetch_all(&mut *tx)
@@ -5371,4 +5372,29 @@ async fn compare_two_folders(
         exists_in_source: source_folder.is_some(),
         exists_in_fork: target_folder.is_some(),
     });
+}
+
+#[derive(Deserialize)]
+struct LogAiChatPayload {
+    session_id: String,
+    provider: String,
+    model: String,
+    mode: String,
+}
+
+async fn log_ai_chat(
+    Extension(db): Extension<DB>,
+    Json(payload): Json<LogAiChatPayload>,
+) -> Result<StatusCode> {
+    sqlx::query!(
+        "INSERT INTO ai_chat_usage (session_id, provider, model, mode) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (session_id) DO UPDATE SET message_count = ai_chat_usage.message_count + 1",
+        &payload.session_id,
+        &payload.provider,
+        &payload.model,
+        &payload.mode
+    )
+    .execute(&db)
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
 }

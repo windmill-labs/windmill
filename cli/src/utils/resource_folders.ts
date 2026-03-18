@@ -434,6 +434,66 @@ export function isRawAppFolderMetadataFile(p: string): boolean {
 }
 
 // ============================================================================
+// Script Module Path Functions
+// ============================================================================
+
+/**
+ * The suffix used for script module folders.
+ * Unlike flows/apps, modules always use `__mod` (never dotted `.mod`)
+ * to avoid confusion with file extensions.
+ */
+const MODULE_SUFFIX = "__mod";
+
+/**
+ * Get the module folder suffix (always "__mod")
+ */
+export function getModuleFolderSuffix(): string {
+  return MODULE_SUFFIX;
+}
+
+/**
+ * Check if a path is inside a script module folder.
+ * Matches patterns like: .../my_script__mod/...
+ */
+export function isScriptModulePath(p: string): boolean {
+  return normalizeSep(p).includes(MODULE_SUFFIX + "/");
+}
+
+/**
+ * Build the module folder path from a script's base path (without extension).
+ * e.g., "f/my_script" -> "f/my_script__mod"
+ */
+export function buildModuleFolderPath(scriptBasePath: string): string {
+  return scriptBasePath + MODULE_SUFFIX;
+}
+
+/**
+ * Check if a file inside a __mod/ folder is the main entry point (script.{ext}).
+ * Entry points are files named "script.*" directly under __mod/ (not in subdirs).
+ */
+export function isModuleEntryPoint(p: string): boolean {
+  const norm = normalizeSep(p);
+  const suffix = MODULE_SUFFIX + "/";
+  const idx = norm.indexOf(suffix);
+  if (idx === -1) return false;
+  const rest = norm.slice(idx + suffix.length);
+  return rest.startsWith("script.") && !rest.includes("/");
+}
+
+/**
+ * Extract the script base path from a module folder entry.
+ * e.g., "u/admin/my_script__mod/script.ts" -> "u/admin/my_script"
+ * e.g., "u/admin/my_script__mod/helper.ts" -> "u/admin/my_script"
+ */
+export function getScriptBasePathFromModulePath(p: string): string | undefined {
+  const norm = normalizeSep(p);
+  const suffix = MODULE_SUFFIX + "/";
+  const idx = norm.indexOf(suffix);
+  if (idx === -1) return undefined;
+  return norm.slice(0, idx);
+}
+
+// ============================================================================
 // Sync-related Path Functions
 // ============================================================================
 

@@ -56,13 +56,20 @@ export async function pushFlow(
   }
   const localFlow = (await yamlParseFile(localPath + "flow.yaml")) as FlowFile;
 
+  const fileReader = async (path: string) => await readFile(localPath + path, "utf-8");
   await replaceInlineScripts(
     localFlow.value.modules,
-    async (path: string) => await readFile(localPath + path, "utf-8"),
+    fileReader,
     log,
     localPath,
     SEP
   );
+  if (localFlow.value.failure_module) {
+    await replaceInlineScripts([localFlow.value.failure_module], fileReader, log, localPath, SEP);
+  }
+  if (localFlow.value.preprocessor_module) {
+    await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, localPath, SEP);
+  }
 
   if (flow) {
     if (isSuperset(localFlow, flow)) {
@@ -252,13 +259,20 @@ async function preview(
   const localFlow = (await yamlParseFile(flowPath + "flow.yaml")) as FlowFile;
 
   // Replace inline scripts with their actual content
+  const fileReader = async (path: string) => await readFile(flowPath + path, "utf-8");
   await replaceInlineScripts(
     localFlow.value.modules,
-    async (path: string) => await readFile(flowPath + path, "utf-8"),
+    fileReader,
     log,
     flowPath,
     SEP
   );
+  if (localFlow.value.failure_module) {
+    await replaceInlineScripts([localFlow.value.failure_module], fileReader, log, flowPath, SEP);
+  }
+  if (localFlow.value.preprocessor_module) {
+    await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, flowPath, SEP);
+  }
 
   const input = opts.data ? await resolve(opts.data) : {};
 
@@ -294,12 +308,15 @@ async function preview(
   }
 }
 
-async function generateLocks(
+export async function generateLocks(
   opts: GlobalOptions & {
     yes?: boolean;
   } & SyncOptions,
   folder: string | undefined
 ) {
+  log.warn(
+    colors.yellow('This command is deprecated. Use "wmill generate-metadata" instead.')
+  );
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
