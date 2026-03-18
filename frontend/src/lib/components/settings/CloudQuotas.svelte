@@ -74,11 +74,11 @@
 	function getPruneDescription(type: ResourceType): string {
 		switch (type) {
 			case 'scripts':
-				return 'This will soft-delete all non-HEAD script versions (old edits). HEAD versions (the latest deployed version of each script) will be preserved. This frees up quota space since each script edit creates a new row.'
+				return 'This will permanently delete all non-HEAD script versions (old edits). The latest deployed version of each script will be preserved. This directly frees up quota space since each script edit creates a new row counted against the limit.'
 			case 'flows':
-				return 'This will permanently delete all non-HEAD flow versions. Only the latest version of each flow will be kept.'
+				return 'This will permanently delete all non-HEAD flow versions. Only the latest version of each flow will be kept. This frees up storage but does not reduce the flow count (quota counts unique flows, not versions).'
 			case 'apps':
-				return 'This will permanently delete all non-HEAD app versions. Only the latest version of each app will be kept.'
+				return 'This will permanently delete all non-HEAD app versions. Only the latest version of each app will be kept. This frees up storage but does not reduce the app count (quota counts unique apps, not versions).'
 		}
 	}
 

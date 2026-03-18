@@ -5531,7 +5531,7 @@ async fn prune_versions(
     let pruned = match req.resource_type.as_str() {
         "scripts" => {
             let result = sqlx::query(
-                "UPDATE script SET content = '', archived = true, deleted = true, lock = '', schema = null
+                "DELETE FROM script
                 WHERE workspace_id = $1 AND hash NOT IN (
                     SELECT DISTINCT ON (path) hash FROM script
                     WHERE workspace_id = $1 AND deleted = false AND draft_only IS NOT TRUE
