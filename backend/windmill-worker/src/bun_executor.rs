@@ -167,10 +167,11 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
 /// Generate the unified multi-script wrapper for Bun/Node.
 /// Used by both dedicated workers (single script) and runner groups (multiple scripts).
 /// Protocol:
-///   load:<path>:<hash>              -> wm_res[loaded]:<path>
+///   load:<path>:<hash>:<meta_json>  -> wm_res[loaded]:<path>
 ///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
 ///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
 ///   end                             -> exit
+#[cfg(any(feature = "private", test))]
 pub fn generate_multi_script_wrapper() -> String {
     let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
     let print_lines = if is_debug {
@@ -322,6 +323,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
 
 /// Compute arg metadata JSON for a TypeScript/Bun/Deno script.
 /// Returns a JSON string with arg names, datetime args, and preprocessor info.
+#[cfg(any(feature = "private", test))]
 pub fn compute_ts_meta_json(content: &str) -> String {
     let sig =
         windmill_parser_ts::parse_deno_signature(content, true, false, None).unwrap_or_default();

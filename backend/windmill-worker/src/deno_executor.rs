@@ -599,6 +599,7 @@ use crate::{dedicated_worker_oss::handle_dedicated_process, JobCompletedSender};
 ///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
 ///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
 ///   end                             -> exit
+#[cfg(any(feature = "private", test))]
 pub fn generate_multi_script_wrapper() -> String {
     let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
     let print_lines = if is_debug {

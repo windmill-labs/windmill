@@ -1089,6 +1089,7 @@ fn python_preprocessor_spread(sig: windmill_parser::MainArgSignature, indent: &s
 /// Protocol:
 /// Compute arg metadata JSON for a Python script.
 /// Returns a JSON string with arg names, datetime/date/bytes args, and preprocessor info.
+#[cfg(any(feature = "private", test))]
 pub fn compute_py_meta_json(content: &str) -> String {
     use windmill_parser::Typ;
 
@@ -1148,6 +1149,7 @@ pub fn compute_py_meta_json(content: &str) -> String {
 ///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
 ///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
 ///   end                             -> exit
+#[cfg(any(feature = "private", test))]
 pub fn generate_multi_script_wrapper() -> String {
     let postprocessor = get_result_postprocessor(false);
     let res_to_json_body = python_res_to_json_body(postprocessor);
