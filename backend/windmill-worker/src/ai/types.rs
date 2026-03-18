@@ -193,6 +193,9 @@ pub struct ProviderResource {
     /// Enable 1M context window for Anthropic
     #[serde(alias = "enable_1M_context", default)]
     pub enable_1m_context: bool,
+    /// Custom HTTP headers to include in AI requests
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -243,6 +246,10 @@ impl ProviderWithResource {
 
     pub fn get_enable_1m_context(&self) -> bool {
         self.resource.enable_1m_context
+    }
+
+    pub fn get_headers(&self) -> &HashMap<String, String> {
+        &self.resource.headers
     }
 }
 

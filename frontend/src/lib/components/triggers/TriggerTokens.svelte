@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import { FlowService, ScriptService, UserService, type TruncatedToken } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -10,23 +10,21 @@
 	import { capitalize } from '$lib/utils'
 
 	interface Props {
-		isFlow: boolean;
-		path: string;
-		labelPrefix: 'email' | 'webhook';
+		isFlow: boolean
+		path: string
+		labelPrefix: 'email' | 'webhook'
 	}
 
-	let { isFlow, path, labelPrefix }: Props = $props();
+	let { isFlow, path, labelPrefix }: Props = $props()
 
 	const { triggersCount } = getContext<TriggerContext>('TriggerContext')
 
 	let tokens: TruncatedToken[] | undefined = $state(undefined)
 
 	export async function listTokens() {
-		tokens = (
-			isFlow
-				? await FlowService.listTokensOfFlow({ workspace: $workspaceStore!, path })
-				: await ScriptService.listTokensOfScript({ workspace: $workspaceStore!, path })
-		).filter((x) => x.label && x.label.startsWith(labelPrefix + '-'))
+		tokens = isFlow
+			? await FlowService.listTokensOfFlow({ workspace: $workspaceStore!, path })
+			: await ScriptService.listTokensOfScript({ workspace: $workspaceStore!, path })
 		if (labelPrefix == 'email') {
 			$triggersCount = { ...($triggersCount ?? {}), default_email_count: tokens?.length }
 		} else {
@@ -43,14 +41,14 @@
 
 	run(() => {
 		$workspaceStore && listTokens()
-	});
+	})
 </script>
 
 <div class="flex flex-col gap-2">
 	<Label label="Existing {capitalize(labelPrefix)} Tokens">
 		{#if tokens}
 			{#if tokens.length == 0}
-				<div class="text-xs text-secondary">No {labelPrefix} specific tokens found</div>
+				<div class="text-xs text-secondary">No tokens with matching scopes found</div>
 			{:else}
 				<div class="flex flex-col divide-y pt-2">
 					<div class="grid grid-cols-6 text-2xs items-center py-2">

@@ -84,12 +84,13 @@
 						<th>Name</th>
 						<th>Summary</th>
 						<th>Members</th>
+						<th>Instance Role</th>
 						<th></th>
 					</tr>
 				{/snippet}
 				{#snippet body()}
 					<tbody>
-						{#each instanceGroups as { name, summary, emails }}
+						{#each instanceGroups as { name, summary, emails, instance_role }}
 							<tr>
 								<td>
 									<a
@@ -105,6 +106,7 @@
 									{summary ? summary.slice(0, 50) + (summary.length > 50 ? '...' : '') : '-'}
 								</td>
 								<td>{emails?.length ?? 0} members</td>
+								<td>{instance_role ?? '-'}</td>
 								<td
 									><Button
 										variant="default"

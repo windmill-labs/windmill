@@ -3,6 +3,7 @@ name: "java run script"
 mode: ONCE
 hostname: "java"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 disable_rl: true
 

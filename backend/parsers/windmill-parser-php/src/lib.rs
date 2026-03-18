@@ -99,7 +99,7 @@ pub fn parse_php_signature(
             star_args: false,
             star_kwargs: false,
             args,
-            no_main_func: Some(false),
+            auto_kind: None,
             has_preprocessor,
         })
     } else {
@@ -107,7 +107,7 @@ pub fn parse_php_signature(
             star_args: false,
             star_kwargs: false,
             args: vec![],
-            no_main_func: Some(true),
+            auto_kind: Some("lib".to_string()),
             has_preprocessor,
         })
     }
@@ -179,7 +179,7 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         oidx: None
                     }
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 has_preprocessor: None
             }
         );

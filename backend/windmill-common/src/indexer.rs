@@ -21,9 +21,9 @@ pub struct TantivyIndexerSettings {
 impl Default for TantivyIndexerSettings {
     fn default() -> Self {
         TantivyIndexerSettings {
-            writer_memory_budget: 300_000_000,
-            commit_job_max_batch_size: 50_000,
-            commit_log_max_batch_size: 10_000,
+            writer_memory_budget: 150_000_000,
+            commit_job_max_batch_size: 10_000,
+            commit_log_max_batch_size: 5_000,
             refresh_index_period: 300,
             refresh_log_index_period: 300,
             max_indexed_job_log_size: 1_000_000,

@@ -24,7 +24,7 @@ use windmill_common::{
     DB,
 };
 
-use windmill_api_auth::{require_super_admin, ApiAuthed};
+use windmill_api_auth::{require_devops_role, ApiAuthed};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -98,8 +98,8 @@ async fn list_worker_pings(
     Extension(user_db): Extension<UserDB>,
     Query(query): Query<ListWorkerQuery>,
 ) -> JsonResult<Vec<WorkerPing>> {
-    let is_super_admin = require_super_admin(&db, &authed.email).await.is_ok();
-    if *HIDE_WORKERS_FOR_NON_ADMINS && !is_super_admin {
+    let has_devops_role = require_devops_role(&db, &authed.email).await.is_ok();
+    if *HIDE_WORKERS_FOR_NON_ADMINS && !has_devops_role {
         return Ok(Json(vec![]));
     }
     let mut tx = user_db.begin(&authed).await?;
@@ -117,13 +117,13 @@ async fn list_worker_pings(
         query.ping_since,
         per_page as i64,
         offset as i64,
-        is_super_admin
+        has_devops_role
     )
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
 
-    let rows = if *TAGS_ARE_SENSITIVE && !is_super_admin {
+    let rows = if *TAGS_ARE_SENSITIVE && !has_devops_role {
         rows.into_iter()
             .map(|mut w| {
                 w.custom_tags = None;
@@ -154,8 +154,8 @@ async fn exists_workers_with_tags(
 
     // When TAGS_ARE_SENSITIVE is enabled, filter tags based on workspace visibility
     if *TAGS_ARE_SENSITIVE {
-        let is_super_admin = require_super_admin(&db, &authed.email).await.is_ok();
-        if !is_super_admin {
+        let has_devops_role = require_devops_role(&db, &authed.email).await.is_ok();
+        if !has_devops_role {
             if let Some(ref workspace) = tags_query.workspace {
                 // Filter to only tags visible in this workspace
                 let custom_tags = CUSTOM_TAGS_PER_WORKSPACE.read().await;
@@ -208,8 +208,8 @@ async fn get_custom_tags(
         return Ok(Json(all_tags));
     }
     if *TAGS_ARE_SENSITIVE {
-        let is_super_admin = require_super_admin(&db, &authed.email).await.is_ok();
-        if !is_super_admin {
+        let has_devops_role = require_devops_role(&db, &authed.email).await.is_ok();
+        if !has_devops_role {
             return Ok(Json(vec![]));
         }
     }
@@ -245,7 +245,7 @@ async fn get_queue_metrics(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<QueueMetric>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
 
     let queue_metrics = sqlx::query_as!(
         QueueMetric,
@@ -270,7 +270,7 @@ async fn get_queue_counts(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<std::collections::HashMap<String, u32>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
     let queue_counts = windmill_common::queue::get_queue_counts(&db).await;
     Ok(Json(queue_counts))
 }
@@ -279,7 +279,7 @@ async fn get_queue_running_counts(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<std::collections::HashMap<String, u32>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
     let queue_running_counts = windmill_common::queue::get_queue_running_counts(&db).await;
     Ok(Json(queue_running_counts))
 }
