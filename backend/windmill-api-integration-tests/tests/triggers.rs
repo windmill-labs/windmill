@@ -958,7 +958,7 @@ async fn test_kafka_trigger_insert_auto_commit_disabled(db: Pool<Postgres>) -> a
         r#"
         INSERT INTO kafka_trigger (
             path, kafka_resource_path, topics, group_id, script_path,
-            is_flow, workspace_id, edited_by, email, auto_commit
+            is_flow, workspace_id, edited_by, permissioned_as, auto_commit
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         "#,
@@ -970,7 +970,7 @@ async fn test_kafka_trigger_insert_auto_commit_disabled(db: Pool<Postgres>) -> a
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
         false,
     )
     .execute(&db)
