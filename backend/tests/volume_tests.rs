@@ -571,16 +571,16 @@ async fn test_volume_sql_worker_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
     std::fs::write(vol_dir.join("hello.txt"), b"hello from volume")?;
 
     // 3. Push the job and run with SQL-connected worker
-    let code = r#"// volume: test-vol /tmp/data
+    let code = r#"// volume: test-vol data
 
 import { readFileSync, writeFileSync, existsSync } from "fs";
 
 export function main() {
-    const content = readFileSync("/tmp/data/hello.txt", "utf-8");
-    writeFileSync("/tmp/data/output.txt", "written by sql worker");
+    const content = readFileSync("data/hello.txt", "utf-8");
+    writeFileSync("data/output.txt", "written by sql worker");
     return {
         read_content: content,
-        output_exists: existsSync("/tmp/data/output.txt"),
+        output_exists: existsSync("data/output.txt"),
     };
 }"#;
 

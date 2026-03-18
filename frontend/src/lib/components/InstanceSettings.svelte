@@ -20,6 +20,7 @@
 	import Toggle from './Toggle.svelte'
 	import SettingsFooter from './workspaceSettings/SettingsFooter.svelte'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
+	import WorkspaceRegistries from './instanceSettings/WorkspaceRegistries.svelte'
 
 	interface Props {
 		tab?: string
@@ -267,12 +268,13 @@
 	async function downloadStats() {
 		try {
 			downloadingStats = true
-			const encryptedData = await SettingService.getStats()
-			const blob = new Blob([encryptedData], { type: 'application/octet-stream' })
+			const result = await SettingService.getStats()
+			const blob = new Blob([result.data ?? ''], { type: 'application/json' })
 			const url = URL.createObjectURL(blob)
 			const a = document.createElement('a')
 			a.href = url
-			a.download = `windmill-telemetry-${new Date().toISOString().split('T')[0]}.enc`
+			const date = new Date().toISOString().split('T')[0]
+			a.download = `windmill-telemetry-${date}-${result.signature}.json`
 			document.body.appendChild(a)
 			a.click()
 			document.body.removeChild(a)
@@ -401,6 +403,9 @@
 				obj['require_preexisting_user_for_oauth'] = reqPreexisting
 			}
 		}
+		if (category === 'Registries') {
+			obj['workspace_registries'] = vals['workspace_registries'] ?? null
+		}
 		return YAML.stringify(obj)
 	}
 
@@ -465,6 +470,11 @@
 			for (const s of categorySettings) {
 				const v = initialValues[s.key]
 				$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+			}
+			if (category === 'Registries') {
+				const v = initialValues['workspace_registries']
+				$values['workspace_registries'] =
+					v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 			}
 		}
 	}
@@ -569,6 +579,19 @@
 			}
 		}
 
+		// Handle workspace_registries (saved separately like oauths)
+		if (category === 'Registries') {
+			if (!deepEqual(initialValues['workspace_registries'], $values['workspace_registries'])) {
+				await SettingService.setGlobal({
+					key: 'workspace_registries',
+					requestBody: { value: $values['workspace_registries'] ?? null }
+				})
+				initialValues['workspace_registries'] = $values['workspace_registries']
+					? JSON.parse(JSON.stringify($values['workspace_registries']))
+					: undefined
+			}
+		}
+
 		if (licenseKeySet) setLicense()
 
 		if (shouldReloadPage) {
@@ -595,7 +618,8 @@
 			.filter((s) => s.fieldType === 'password' || s.fieldType === 'license_key')
 			.map((s) => s.key),
 		'ducklake_user_pg_pwd',
-		'jwt_secret'
+		'jwt_secret',
+		'workspace_registries'
 	])
 
 	// Settings that should never appear in YAML export/import
@@ -954,6 +978,10 @@
 					<br />When minimal telemetry is disabled, the following is also collected:
 					<ul class="list-disc list-inside pl-2">
 						<li>job usage (language, total duration, count)</li>
+						<li>git sync repo count (sync vs promotion mode)</li>
+						<li
+							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+						>
 					</ul>
 					<br />For air-gapped instances, you can download the telemetry data and send it manually.
 				</div>
@@ -989,6 +1017,9 @@
 						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
 						<li>user usage (author count, operator count)</li>
 						<li>development instance status</li>
+						<li
+							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+						>
 					</ul>
 				</div>
 			{/if}
@@ -1103,6 +1134,10 @@
 				{/each}
 			{/if}
 		</div>
+
+		{#if category === 'Registries'}
+			<WorkspaceRegistries {values} {loading} />
+		{/if}
 
 		{#if !loading && !quickSetup && !hideTabs}
 			<SettingsFooter

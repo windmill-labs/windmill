@@ -638,7 +638,7 @@ async fn create_script_internal<'c>(
                 .await?;
         if nb_scripts.unwrap_or(0) >= 5000 {
             return Err(Error::BadRequest(
-                    "You have reached the maximum number of scripts (5000) on cloud. Contact support@windmill.dev to increase the limit"
+                    "You have reached the maximum number of scripts (5000) on cloud. Check your usage in Workspace Settings > General > Cloud Quotas. Contact support@windmill.dev to increase the limit"
                         .to_string(),
                 ));
         }

@@ -603,6 +603,8 @@ lazy_static::lazy_static! {
     pub static ref RUBY_REPOS: Arc<RwLock<Option<Vec<url::Url>>>> = Arc::new(RwLock::new(None));
     pub static ref CARGO_REGISTRIES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
+    pub static ref WORKSPACE_REGISTRIES: Arc<RwLock<Option<WorkspaceRegistryMap>>> = Arc::new(RwLock::new(None));
+
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref UV_INDEX_STRATEGY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
@@ -655,6 +657,9 @@ pub fn sleep_queue() -> u64 {
         *SLEEP_QUEUE_BASE
     }
 }
+
+pub type WorkspaceRegistryMap =
+    std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>;
 
 type Envs = Vec<(String, String)>;
 
@@ -715,6 +720,117 @@ pub async fn read_ee_registry<T>(
         return None;
     }
     value
+}
+
+/// Like `read_ee_registry`, but first checks for a workspace-specific override.
+/// If the workspace has an override for `setting_key`, that value is used instead of `global_value`.
+pub async fn read_ee_registry_with_workspace_override(
+    global_value: Option<String>,
+    setting_key: &str,
+    display_name: &str,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> Option<String> {
+    let ws_value = {
+        let registries = WORKSPACE_REGISTRIES.read().await;
+        registries
+            .as_ref()
+            .and_then(|m| m.get(w_id))
+            .and_then(|ws| ws.get(setting_key))
+            .and_then(|v| match v {
+                serde_json::Value::String(s) => Some(s.clone()),
+                _ => None,
+            })
+    };
+    let value = ws_value.or(global_value);
+    read_ee_registry(value, display_name, job_id, w_id, conn).await
+}
+
+/// Like `read_ee_registry_with_workspace_override`, but for `bool` values.
+pub async fn read_ee_registry_bool_with_workspace_override(
+    global_value: bool,
+    setting_key: &str,
+    display_name: &str,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> bool {
+    let ws_value = {
+        let registries = WORKSPACE_REGISTRIES.read().await;
+        registries
+            .as_ref()
+            .and_then(|m| m.get(w_id))
+            .and_then(|ws| ws.get(setting_key))
+            .and_then(|v| v.as_bool())
+    };
+    let value = ws_value.unwrap_or(global_value);
+    if !cfg!(feature = "enterprise") && value {
+        append_logs(
+            job_id,
+            w_id,
+            format!("Private registry ({display_name}) configuration ignored: this feature requires Windmill Enterprise Edition\n"),
+            conn,
+        )
+        .await;
+        return false;
+    }
+    value
+}
+
+/// Like `read_ee_registry_with_workspace_override`, but for `Vec<url::Url>` values (e.g. ruby_repos).
+pub async fn read_ee_registry_url_list_with_workspace_override(
+    global_value: Option<Vec<url::Url>>,
+    setting_key: &str,
+    display_name: &str,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> Option<Vec<url::Url>> {
+    let ws_value = {
+        let registries = WORKSPACE_REGISTRIES.read().await;
+        registries
+            .as_ref()
+            .and_then(|m| m.get(w_id))
+            .and_then(|ws| ws.get(setting_key))
+            .and_then(|v| match v {
+                serde_json::Value::String(s) => {
+                    let urls: Vec<url::Url> = s
+                        .split(|c: char| c == ',' || c.is_whitespace())
+                        .filter(|s| !s.is_empty())
+                        .filter_map(|s| url::Url::parse(s).ok())
+                        .collect();
+                    if urls.is_empty() {
+                        None
+                    } else {
+                        Some(urls)
+                    }
+                }
+                _ => None,
+            })
+    };
+    let value = ws_value.or(global_value);
+    read_ee_registry(value, display_name, job_id, w_id, conn).await
+}
+
+/// Returns a cache key suffix for workspace-specific registry overrides.
+/// If the workspace has any registry overrides, returns `":ws:<w_id>"` to namespace
+/// the resolution cache. Otherwise returns empty string.
+///
+/// Called on every job's cache lookup path. When no workspace overrides are
+/// configured (the common case), this returns `""` with zero allocation —
+/// the RwLock read is uncontended and costs only nanoseconds.
+pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
+    let registries = WORKSPACE_REGISTRIES.read().await;
+    let has_overrides = registries
+        .as_ref()
+        .and_then(|m| m.get(w_id))
+        .map_or(false, |ws| !ws.is_empty());
+    if has_overrides {
+        format!(":ws:{w_id}")
+    } else {
+        String::new()
+    }
 }
 
 pub fn is_sandboxing_enabled() -> bool {
