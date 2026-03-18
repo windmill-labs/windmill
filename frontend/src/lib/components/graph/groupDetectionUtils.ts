@@ -1,7 +1,125 @@
+import { topologicalSort } from './graphBuilder.svelte'
+
 type FlowNode = { id: string; parentIds?: string[] }
 
+export type GroupMembership = {
+	memberIds: string[]
+	valid: boolean
+	error?: string
+	/** Topo sort slice range [firstIdx, lastIdx] — used for nesting depth */
+	topoRange?: [number, number]
+	/** Nesting depth: number of other groups whose topoRange strictly contains this one */
+	depth?: number
+}
+
 /**
- * Use a simple algorithm to complete a group and split it into connected components
+ * Compute the set of graph nodes that belong to a group defined by start_id and end_id.
+ * Uses topological sort and slices between start and end — valid because windmill flows
+ * are series-parallel (branches always converge at explicit end nodes).
+ */
+export function computeGroupNodeIds(
+	startId: string,
+	endId: string,
+	flowNodes: FlowNode[]
+): GroupMembership {
+	if (startId === endId) {
+		const sorted = topologicalSort(flowNodes)
+		const idx = sorted.findIndex((n) => n.id === startId)
+		return idx !== -1
+			? { memberIds: [startId], valid: true, topoRange: [idx, idx] as [number, number] }
+			: { memberIds: [], valid: false, error: 'Start node not found' }
+	}
+
+	const sorted = topologicalSort(flowNodes)
+	// Topo sort puts bottom-of-graph nodes first, top-of-graph nodes last.
+	// start_id = top of group (visually) = topo-last, end_id = bottom (visually) = topo-first.
+	const endIdx = sorted.findIndex((n) => n.id === endId)
+
+	// If end_id is a container (branchall, forloop, etc.), its last graph node
+	// is `${endId}-end`. Use that as the actual start of the slice.
+	const endNodeId = sorted.some((n) => n.id === `${endId}-end`) ? `${endId}-end` : endId
+	const firstIdx = endNodeId === endId ? endIdx : sorted.findIndex((n) => n.id === endNodeId)
+
+	const lastIdx = sorted.findIndex((n) => n.id === startId)
+
+	if (firstIdx === -1 || lastIdx === -1) {
+		return { memberIds: [], valid: false, error: 'Start or end node not found' }
+	}
+	if (firstIdx > lastIdx) {
+		return { memberIds: [], valid: false, error: 'end_id must be topologically before start_id' }
+	}
+
+	return {
+		memberIds: sorted.slice(firstIdx, lastIdx + 1).map((n) => n.id),
+		valid: true,
+		topoRange: [firstIdx, lastIdx] as [number, number]
+	}
+}
+
+/**
+ * Compute the set of module IDs that belong to a group defined by start_id and end_id.
+ * Uses the flattened module list (from getAllModules) and slices between start and end.
+ * Used for collapsed group icons, step count, and moduleToCollapsedGroup mapping.
+ */
+export function computeGroupModuleIds(
+	startId: string,
+	endId: string,
+	allModules: { id: string }[]
+): string[] {
+	if (startId === endId) {
+		return allModules.some((m) => m.id === startId) ? [startId] : []
+	}
+
+	const startIdx = allModules.findIndex((m) => m.id === startId)
+	const endIdx = allModules.findIndex((m) => m.id === endId)
+
+	if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) {
+		return []
+	}
+
+	return allModules.slice(startIdx, endIdx + 1).map((m) => m.id)
+}
+
+/**
+ * Check whether a set of selected node IDs can form a valid group.
+ * Uses topologicalSort to find start (first) and end (last) of selection,
+ * then validates with computeGroupNodeIds.
+ */
+export function canFormValidGroup(
+	selectedIds: string[],
+	flowNodes: FlowNode[]
+): { valid: true; startId: string; endId: string } | { valid: false } {
+	if (selectedIds.length === 0) return { valid: false }
+
+	const selectedSet = new Set(selectedIds)
+
+	// Topological sort of the full graph, then filter to selected nodes
+	const sorted = topologicalSort(flowNodes)
+	const selectedSorted = sorted.filter((n) => selectedSet.has(n.id))
+
+	if (selectedSorted.length === 0) return { valid: false }
+
+	// Topo sort: index 0 = bottom of flow, last index = top of flow
+	// start_id = top (visually), end_id = bottom (visually)
+	const startId = selectedSorted[selectedSorted.length - 1].id
+	const endId = selectedSorted[0].id
+
+	// Validate that the computed members match the selection
+	const membership = computeGroupNodeIds(startId, endId, flowNodes)
+	if (!membership.valid) return { valid: false }
+
+	// Check that all selected ids are in the computed members
+	const memberSet = new Set(membership.memberIds)
+	for (const id of selectedIds) {
+		if (!memberSet.has(id)) return { valid: false }
+	}
+
+	return { valid: true, startId, endId }
+}
+
+/**
+ * Legacy utility: complete a group and split it into connected components.
+ * Still used by NoteEditor for FlowNote group notes (contained_node_ids).
  */
 export function completeAndSplitGroup(groupNodes: string[], flowNodes: FlowNode[]): string[][] {
 	if (groupNodes.length <= 1) {
