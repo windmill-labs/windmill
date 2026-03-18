@@ -139,10 +139,7 @@
 	const groupEditorContext = getGroupEditorContext()
 
 	const proxy = groupEditorContext
-		? new GroupedModulesProxy(
-				flowStore as unknown as StateStore<ExtendedOpenFlow>,
-				groupEditorContext.groupEditor
-			)
+		? new GroupedModulesProxy(flowStore as unknown as StateStore<ExtendedOpenFlow>)
 		: undefined
 
 	$effect(() => {
@@ -613,6 +610,7 @@
 			groupedModules={proxy?.items}
 			{noteMode}
 			notes={flowStore.val.value.notes}
+			groups={flowStore.val.value.groups}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
 			failureModule={flowStore.val.value?.failure_module}
 			currentInputSchema={flowStore.val.schema}
@@ -827,7 +825,7 @@
 				const id = (targetModules as any[])[index].id
 				selectionManager.selectId(id)
 
-				if (proxy && !isAgentInsert) {
+				if (proxy) {
 					proxy.syncToStore()
 				}
 

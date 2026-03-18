@@ -431,7 +431,8 @@ export function graphBuilder(
 	flowPathForTriggerNode: string | undefined,
 	expandedSubflows: Record<string, FlowModule[]>,
 	collapsedContainers: Set<string>,
-	showNotes: boolean
+	showNotes: boolean,
+	collapsedGroupIds: Set<string>
 ): {
 	nodes: { [key: string]: NodeLayout }
 	edges: Edge[]
@@ -676,7 +677,7 @@ export function graphBuilder(
 					if (isGroupItem(item)) {
 						const g = item.group
 
-						if (item.collapsed) {
+						if (collapsedGroupIds.has(g.id)) {
 							// Collapsed group: single node
 							const nodeId = `collapsed-group:${g.id}`
 							nodes.push({
@@ -764,7 +765,9 @@ export function graphBuilder(
 
 						// Shared first/last edge wiring for groups
 						if (index === 0) {
-							const entryId = item.collapsed ? `collapsed-group:${g.id}` : `group:${g.id}`
+							const entryId = collapsedGroupIds.has(g.id)
+								? `collapsed-group:${g.id}`
+								: `group:${g.id}`
 							addEdge(beforeNode.id, entryId, undefined, prefix, {
 								currentItems: items,
 								disableMoveIds,

@@ -68,6 +68,7 @@
 	import {
 		buildGroupedModules,
 		getGroupEditorContext,
+		GroupDisplayState,
 		GROUP_HEADER_HEIGHT,
 		type FlowGroup,
 		type GroupedModule
@@ -164,6 +165,8 @@
 		suspendStatus?: Record<string, { job: Job; nb: number }>
 		noteMode?: boolean
 		notes?: FlowNote[]
+		groups?: FlowGroup[]
+		groupDisplayState?: GroupDisplayState
 		chatInputEnabled?: boolean
 		multiSelectEnabled?: boolean
 		onDeleteMultiple?: (ids: string[]) => void
@@ -265,6 +268,8 @@
 		flowHasChanged = false,
 		noteMode = false,
 		notes = undefined,
+		groups = undefined,
+		groupDisplayState: groupDisplayStateProp = undefined,
 		exitNoteMode = undefined,
 		onNotePositionUpdate = undefined,
 		chatInputEnabled = false,
@@ -293,6 +298,9 @@
 		() => nodes
 	)
 
+	// Group display state (runtime collapse, note heights) — same pattern as NoteManager
+	const groupDisplayState = groupDisplayStateProp ?? new GroupDisplayState(() => groups ?? [])
+
 	// Runtime text height tracking for notes (not stored in FlowNote)
 	let noteTextHeights = $state<Record<string, number>>({})
 
@@ -308,11 +316,6 @@
 
 	const noteEditorContext = getNoteEditorContext()
 	const groupEditorContext = getGroupEditorContext()
-
-	// Deep-read group note heights from GroupEditor for reactive layout
-	let groupNoteHeightsKey = $derived(
-		JSON.stringify(groupEditorContext?.groupEditor.getNoteHeights() ?? {})
-	)
 
 	// Function to calculate extra gap needed for notes below the lowest flow nodes
 	function calculateNoteGap(notes: FlowNote[] | undefined): number {
@@ -344,7 +347,8 @@
 		yOffset,
 		diffManager,
 		getFlowNodes: () => currentGraphNodeDeps,
-		getGroupMemberships: () => currentGroupMemberships
+		getGroupMemberships: () => currentGroupMemberships,
+		groupDisplayState
 	} as any)
 
 	if (triggerContext && untrack(() => allowSimplifiedPoll)) {
@@ -395,7 +399,7 @@
 	): Map<string, GroupMembership> {
 		const map = new Map<string, GroupMembership>()
 		for (const group of groups) {
-			if (groupEditorContext?.groupEditor.isRuntimeCollapsed(group.id)) {
+			if (groupDisplayState.isRuntimeCollapsed(group.id)) {
 				const prev = currentGroupMemberships.get(group.id)
 				if (prev) map.set(group.id, prev)
 				continue
@@ -516,7 +520,7 @@
 
 		// 5. Group nodes (expanded heads and collapsed) with notes need extra height
 		if (showNotes) {
-			const noteHeights = groupEditorContext?.groupEditor.getNoteHeights() ?? {}
+			const noteHeights = groupDisplayState.getNoteHeights()
 			for (const node of graphNodes) {
 				let groupId: string | undefined
 				if (node.id.startsWith('group:') && !node.id.endsWith('-end')) {
@@ -641,7 +645,7 @@
 			expandedSubflows = expandedSubflows
 		},
 		expandGroup: (groupId: string) => {
-			groupEditorContext?.groupEditor.expandGroup(groupId)
+			groupDisplayState.expandGroup(groupId)
 		},
 		expandContainer: (moduleId: string) => {
 			collapsedContainers = new Set([...collapsedContainers].filter((id) => id !== moduleId))
@@ -822,7 +826,7 @@
 
 		// Compute group memberships from start_id/end_id
 		currentGroupMemberships = computeAllGroupMemberships(
-			groupEditorContext?.groupEditor.getGroups() ?? [],
+			groups ?? groupEditorContext?.groupEditor.getGroups() ?? [],
 			graphNodeDeps
 		)
 
@@ -970,16 +974,14 @@
 		effectiveModuleActions
 		currentGroups
 
+		const collapsedGroupIds = new Set(groupDisplayState.getCollapsedGroups().map((g) => g.id))
+
 		// Use provided groupedModules (from proxy) or build locally (diff mode / read-only)
 		let gm: GroupedModule[] | undefined = groupedModulesProp
 		if (!gm) {
-			const allGroups = groupEditorContext?.groupEditor.getGroups() ?? []
-			const collapsedGroupIds = new Set(
-				(groupEditorContext?.groupEditor.getCollapsedGroups() ?? []).map((g) => g.id)
-			)
+			const allGroups = groups ?? groupEditorContext?.groupEditor.getGroups() ?? []
 			const graphGroups = allGroups.map((g) => ({
 				...g,
-				collapsed: collapsedGroupIds.has(g.id),
 				moduleIds: untrack(() =>
 					computeGroupModuleIds(g.start_id, g.end_id, getAllModules(effectiveModules ?? []))
 				)
@@ -1025,7 +1027,8 @@
 			triggerNode ? path : undefined,
 			expandedSubflows,
 			collapsedContainers,
-			showNotes
+			showNotes,
+			collapsedGroupIds
 		)
 		return result
 	})
@@ -1034,11 +1037,11 @@
 	)
 	let hideNotesToggle = $derived(
 		(!notes || notes.length === 0) &&
-			!(groupEditorContext?.groupEditor.getGroups().some((g) => g.note != null) ?? false)
+			!(groups ?? groupEditorContext?.groupEditor.getGroups() ?? []).some((g) => g.note != null)
 	)
 
 	// Track groups for re-layout when groups change
-	let currentGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
+	let currentGroups = $derived(groups ?? groupEditorContext?.groupEditor.getGroups() ?? [])
 
 	$effect(() => {
 		;[
@@ -1048,7 +1051,7 @@
 			showNotes,
 			noteManager.renderCount,
 			currentGroups,
-			groupNoteHeightsKey
+			groupDisplayState.renderCount
 		]
 		untrack(async () => {
 			await updateStores()

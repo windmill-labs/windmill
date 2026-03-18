@@ -23,76 +23,94 @@ export type FlowGroup = {
 }
 
 /**
+ * Display state for flow groups inside the graph.
+ * Handles runtime collapse state and note height tracking.
+ * Similar to NoteManager — instantiated inside FlowGraphV2.
+ */
+export class GroupDisplayState {
+	#getGroups: () => FlowGroup[]
+	#runtimeCollapsedIds = $state<Set<string>>(new Set())
+	#runtimeInitialized = $state(false)
+	#noteHeights = $state<Record<string, number>>({})
+	renderCount = $state(0)
+
+	constructor(getGroups: () => FlowGroup[]) {
+		this.#getGroups = getGroups
+	}
+
+	/** Initialize runtime state from collapsed_by_default. Safe to call from event handlers. */
+	private ensureRuntimeInitialized(): void {
+		if (this.#runtimeInitialized) return
+		const groups = this.#getGroups()
+		this.#runtimeCollapsedIds = new Set(
+			groups.filter((g) => g.collapsed_by_default).map((g) => g.id)
+		)
+		this.#runtimeInitialized = true
+	}
+
+	/** Check if a group is currently collapsed (runtime). Safe to call from $derived. */
+	isRuntimeCollapsed(groupId: string): boolean {
+		if (!this.#runtimeInitialized) {
+			return this.#getGroups().find((g) => g.id === groupId)?.collapsed_by_default ?? false
+		}
+		return this.#runtimeCollapsedIds.has(groupId)
+	}
+
+	/** Toggle runtime collapse (Minimize2 button) */
+	toggleRuntimeCollapse(groupId: string): void {
+		this.ensureRuntimeInitialized()
+		const next = new Set(this.#runtimeCollapsedIds)
+		if (next.has(groupId)) next.delete(groupId)
+		else next.add(groupId)
+		this.#runtimeCollapsedIds = next
+		this.render()
+	}
+
+	/** Expand a group at runtime (CollapsedGroupNode click) */
+	expandGroup(groupId: string): void {
+		this.ensureRuntimeInitialized()
+		const next = new Set(this.#runtimeCollapsedIds)
+		next.delete(groupId)
+		this.#runtimeCollapsedIds = next
+		this.render()
+	}
+
+	/** Set note height for a group (used for layout spacing) */
+	setNoteHeight(groupId: string, height: number): void {
+		if (this.#noteHeights[groupId] !== height) {
+			this.#noteHeights[groupId] = height
+			this.render()
+		}
+	}
+
+	/** Get all note heights */
+	getNoteHeights(): Record<string, number> {
+		return this.#noteHeights
+	}
+
+	/** Bump render counter to trigger re-layout */
+	render(): void {
+		this.renderCount++
+	}
+
+	/** Get currently collapsed groups for graph builder. Safe to call from $derived. */
+	getCollapsedGroups(): FlowGroup[] {
+		if (!this.#runtimeInitialized) {
+			return this.#getGroups().filter((g) => g.collapsed_by_default)
+		}
+		return this.#getGroups().filter((g) => this.#runtimeCollapsedIds.has(g.id))
+	}
+}
+
+/**
  * Utility class for editing flow groups via direct flowStore mutations.
  * Follows the same pattern as NoteEditor.
  */
 export class GroupEditor {
 	private flowStore: StateStore<ExtendedOpenFlow>
 
-	// Runtime collapsed state (not persisted in flow YAML)
-	private _runtimeCollapsedIds = $state<Set<string>>(new Set())
-	private _runtimeInitialized = $state(false)
-
-	// Note height tracking (shared between GroupOverlay and CollapsedGroupNode)
-	private _noteHeights = $state<Record<string, number>>({})
-
 	constructor(flowStore: StateStore<ExtendedOpenFlow>) {
 		this.flowStore = flowStore
-	}
-
-	/** Initialize runtime state from collapsed_by_default. Safe to call from event handlers. */
-	private ensureRuntimeInitialized(): void {
-		if (this._runtimeInitialized) return
-		const groups = this.getGroups()
-		this._runtimeCollapsedIds = new Set(
-			groups.filter((g) => g.collapsed_by_default).map((g) => g.id)
-		)
-		this._runtimeInitialized = true
-	}
-
-	/** Check if a group is currently collapsed (runtime). Safe to call from $derived. */
-	isRuntimeCollapsed(groupId: string): boolean {
-		if (!this._runtimeInitialized) {
-			return this.getGroups().find((g) => g.id === groupId)?.collapsed_by_default ?? false
-		}
-		return this._runtimeCollapsedIds.has(groupId)
-	}
-
-	/** Toggle runtime collapse (Minimize2 button) */
-	toggleRuntimeCollapse(groupId: string): void {
-		this.ensureRuntimeInitialized()
-		const next = new Set(this._runtimeCollapsedIds)
-		if (next.has(groupId)) next.delete(groupId)
-		else next.add(groupId)
-		this._runtimeCollapsedIds = next
-	}
-
-	/** Expand a group at runtime (CollapsedGroupNode click) */
-	expandGroup(groupId: string): void {
-		this.ensureRuntimeInitialized()
-		const next = new Set(this._runtimeCollapsedIds)
-		next.delete(groupId)
-		this._runtimeCollapsedIds = next
-	}
-
-	/** Set note height for a group (used for layout spacing) */
-	setNoteHeight(groupId: string, height: number): void {
-		if (this._noteHeights[groupId] !== height) {
-			this._noteHeights[groupId] = height
-		}
-	}
-
-	/** Get all note heights */
-	getNoteHeights(): Record<string, number> {
-		return this._noteHeights
-	}
-
-	/** Get currently collapsed groups for graph builder. Safe to call from $derived. */
-	getCollapsedGroups(): FlowGroup[] {
-		if (!this._runtimeInitialized) {
-			return this.getGroups().filter((g) => g.collapsed_by_default)
-		}
-		return this.getGroups().filter((g) => this._runtimeCollapsedIds.has(g.id))
 	}
 
 	getGroups(): FlowGroup[] {
@@ -180,7 +198,6 @@ export class GroupEditor {
 	/** Remove a note from a group */
 	removeNote(groupId: string): void {
 		this.updateNote(groupId, undefined)
-		this.setNoteHeight(groupId, 0)
 	}
 
 	updateCollapsedDefault(groupId: string, collapsed_by_default: boolean): void {
@@ -271,13 +288,11 @@ export type GroupedModule =
 	| {
 			type: 'group'
 			group: FlowGroup
-			collapsed: boolean
 			modules: GroupedModule[]
 			moduleIds: string[]
 	  }
 
 export type GraphGroup = FlowGroup & {
-	collapsed: boolean
 	moduleIds: string[]
 }
 
@@ -401,7 +416,6 @@ function buildGroupedModulesRecurse(
 						start_id: group.start_id,
 						end_id: group.end_id
 					},
-					collapsed: group.collapsed,
 					modules: innerModules,
 					moduleIds
 				})

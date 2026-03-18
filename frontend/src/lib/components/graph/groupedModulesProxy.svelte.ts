@@ -7,7 +7,6 @@ import {
 	type GroupedModule
 } from './groupEditor.svelte'
 import type { StateStore } from '$lib/utils'
-import type { GroupEditor } from './groupEditor.svelte'
 import { getAllModules } from '../flows/flowExplorer'
 import { computeGroupModuleIds } from './groupDetectionUtils'
 import { stateSnapshot } from '$lib/svelte5Utils.svelte'
@@ -25,7 +24,6 @@ export type ExtendedOpenFlow = {
 export function isGroupItem(item: GroupedModule): item is {
 	type: 'group'
 	group: FlowGroup
-	collapsed: boolean
 	modules: GroupedModule[]
 	moduleIds: string[]
 } {
@@ -182,12 +180,10 @@ function findInTreeImpl(items: GroupedModule[], id: string): FindResult | undefi
 export class GroupedModulesProxy {
 	#items = $state<GroupedModule[]>([])
 	#flowStore: StateStore<ExtendedOpenFlow>
-	#groupEditor: GroupEditor
 	#syncing = false
 
-	constructor(flowStore: StateStore<ExtendedOpenFlow>, groupEditor: GroupEditor) {
+	constructor(flowStore: StateStore<ExtendedOpenFlow>) {
 		this.#flowStore = flowStore
-		this.#groupEditor = groupEditor
 		this.rebuild()
 
 		// Watch for external changes (undo/load)
@@ -195,7 +191,6 @@ export class GroupedModulesProxy {
 			// Track only the identity of modules/groups arrays
 			void flowStore.val.value.modules
 			void flowStore.val.value.groups
-			void this.#groupEditor.getCollapsedGroups()
 			if (!this.#syncing) {
 				// untrack rebuild to avoid tracking deep reads (getAllModules etc.)
 				// that would re-trigger when buildGroupedModules mutates container inner arrays
@@ -238,11 +233,9 @@ export class GroupedModulesProxy {
 	rebuild(): void {
 		const modules = stateSnapshot(this.#flowStore.val.value.modules) as FlowModule[]
 		const allGroups = this.#flowStore.val.value.groups ?? []
-		const collapsedGroupIds = new Set(this.#groupEditor.getCollapsedGroups().map((g) => g.id))
 		const allModules = getAllModules(modules)
 		const graphGroups: GraphGroup[] = allGroups.map((g) => ({
 			...g,
-			collapsed: collapsedGroupIds.has(g.id),
 			moduleIds: computeGroupModuleIds(g.start_id, g.end_id, allModules)
 		}))
 		this.#items = buildGroupedModules(modules, graphGroups)
