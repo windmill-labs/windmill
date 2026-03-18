@@ -128,11 +128,12 @@ use windmill_object_store::OBJECT_STORE_SETTINGS;
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
-        read_result, start_child_process, OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
+        read_result, resolve_nsjail_timeout, start_child_process, OccupancyMetrics, StreamNotifier,
+        DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry,
+    is_sandboxing_enabled, read_ee_registry_with_workspace_override,
     worker_utils::ping_job_status,
     PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
     PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
@@ -235,7 +236,11 @@ pub async fn uv_pip_compile(
     #[cfg(feature = "enterprise")]
     let requirements = replace_pip_secret(conn, w_id, &requirements, worker_name, job_id).await?;
 
-    let req_hash = format!("py-{}-{uv_index_strategy}", calculate_hash(&requirements));
+    let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
+    let req_hash = format!(
+        "py-{}-{uv_index_strategy}{ws_suffix}",
+        calculate_hash(&requirements)
+    );
 
     if !no_cache {
         if let Some(db) = conn.as_sql() {
@@ -286,8 +291,9 @@ pub async fn uv_pip_compile(
         if no_cache {
             args.extend(["--no-cache"]);
         }
-        let pip_extra_index_url = read_ee_registry(
+        let pip_extra_index_url = read_ee_registry_with_workspace_override(
             PIP_EXTRA_INDEX_URL.read().await.clone(),
+            "pip_extra_index_url",
             "pip extra index url",
             job_id,
             w_id,
@@ -300,8 +306,9 @@ pub async fn uv_pip_compile(
                 args.extend(["--extra-index-url", url]);
             });
         }
-        let pip_index_url = read_ee_registry(
+        let pip_index_url = read_ee_registry_with_workspace_override(
             PIP_INDEX_URL.read().await.clone(),
+            "pip_index_url",
             "pip index url",
             job_id,
             w_id,
@@ -542,6 +549,32 @@ async fn postinstall(
     Ok(())
 }
 
+/// Compute the directory (relative to job_dir) where Python writes the main script.
+/// Module files must be placed in this same directory for relative imports to work.
+pub fn compute_python_module_dir(script_path: &str) -> String {
+    let script_path_splitted = script_path.split("/").map(|x| {
+        if x.starts_with(|x: char| x.is_ascii_digit()) {
+            format!("_{}", x)
+        } else {
+            x.to_string()
+        }
+    });
+    let dirs_full = script_path_splitted
+        .clone()
+        .take(script_path_splitted.clone().count() - 1)
+        .join("/")
+        .replace("-", "_")
+        .replace("@", ".");
+    if dirs_full.len() > 0 {
+        dirs_full
+            .strip_prefix("/")
+            .unwrap_or(&dirs_full)
+            .to_string()
+    } else {
+        "tmp".to_string()
+    }
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_python_job(
     requirements_o: Option<&String>,
@@ -562,6 +595,7 @@ pub async fn handle_python_job(
     occupancy_metrics: &mut OccupancyMetrics,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
+    modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
@@ -679,7 +713,9 @@ pub async fn handle_python_job(
     } else {
         String::new()
     };
+
     let main_override = main_name.unwrap_or_else(|| "main".to_string());
+    let res_to_json_body = python_res_to_json_body(postprocessor);
     let wrapper_content: String = if is_wac_v2 {
         format!(
             r#"
@@ -695,8 +731,8 @@ from wmill.client import _run_workflow
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
-args = {{}}
 {transforms}
+args = kwargs
 
 with open("checkpoint.json") as f:
     checkpoint = json.load(f, strict=False)
@@ -720,6 +756,9 @@ for k, v in list(args.items()):
 
 try:
     output = _run_workflow(workflow_fn, checkpoint, args)
+    if isinstance(output, dict) and output.get("type") == "complete":
+        print("")
+        print("--- WAC: complete ---")
     output_json = json.dumps(output, separators=(',', ':'), default=str)
     with open(result_json, 'w') as f:
         f.write(output_json)
@@ -768,19 +807,7 @@ replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\*\\u0000|Infinity|\-Infinity)
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
 def res_to_json(res, typ):
-    if typ.__name__ == 'DataFrame':
-        if typ.__module__ == 'pandas.core.frame':
-            res = res.values.tolist()
-        elif typ.__module__ == 'polars.dataframe.frame':
-            res = res.rows()
-    elif typ.__name__ == 'bytes':
-        res = to_b_64(res)
-    elif typ.__name__ == 'dict':
-        for k, v in res.items():
-            if type(v).__name__ == 'bytes':
-                res[k] = to_b_64(v)
-    unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
-    return {postprocessor}
+{res_to_json_body}
 
 try:
     {preprocessor}
@@ -886,6 +913,8 @@ mount {{
                 )
             })
             .join("\n");
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -902,7 +931,8 @@ mount {{
                     additional_python_paths_folders.as_str(),
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
-                .replace("#{DEV}", DEV_CONF_NSJAIL),
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
     } else {
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
@@ -1021,10 +1051,37 @@ mount {{
     // WAC v2 post-execution: parse output and handle dispatch/suspend.
     // Box::pin to avoid bloating handle_python_job's async state machine (stack overflow).
     if is_wac_v2 {
-        return Box::pin(crate::bun_executor::handle_wac_v2_output(result, job, conn)).await;
+        return Box::pin(crate::bun_executor::handle_wac_v2_output(
+            result, job, conn, modules,
+        ))
+        .await;
     }
 
     Ok(result)
+}
+
+/// Generate Python code to spread preprocessor args from `kwargs` into `pre_args`.
+/// The `indent` parameter controls the join separator for multi-arg spreads.
+fn python_preprocessor_spread(sig: windmill_parser::MainArgSignature, indent: &str) -> String {
+    if sig.star_kwargs {
+        "pre_args = kwargs".to_string()
+    } else {
+        sig.args
+            .into_iter()
+            .map(|x| {
+                let name = &x.name;
+                if x.default.is_none() {
+                    format!("pre_args[\"{name}\"] = kwargs.get(\"{name}\")")
+                } else {
+                    format!(
+                        r#"pre_args["{name}"] = kwargs.get("{name}")
+{indent}if pre_args["{name}"] is None:
+{indent}    del pre_args["{name}"]"#
+                    )
+                }
+            })
+            .join(&format!("\n{indent}"))
+    }
 }
 
 async fn prepare_wrapper(
@@ -1052,6 +1109,7 @@ async fn prepare_wrapper(
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
+    let dirs = compute_python_module_dir(script_path);
     let script_path_splitted = script_path.split("/").map(|x| {
         if x.starts_with(|x: char| x.is_ascii_digit()) {
             format!("_{}", x)
@@ -1059,20 +1117,6 @@ async fn prepare_wrapper(
             x.to_string()
         }
     });
-    let dirs_full = script_path_splitted
-        .clone()
-        .take(script_path_splitted.clone().count() - 1)
-        .join("/")
-        .replace("-", "_")
-        .replace("@", ".");
-    let dirs = if dirs_full.len() > 0 {
-        dirs_full
-            .strip_prefix("/")
-            .unwrap_or(&dirs_full)
-            .to_string()
-    } else {
-        "tmp".to_string()
-    };
     let last = script_path_splitted
         .clone()
         .last()
@@ -1193,31 +1237,7 @@ async fn prepare_wrapper(
             .join("\n    ")
     };
 
-    let pre_spread = if let Some(pre_sig) = pre_sig {
-        let spread = if pre_sig.star_kwargs {
-            "pre_args = kwargs".to_string()
-        } else {
-            pre_sig
-                .args
-                .into_iter()
-                .map(|x| {
-                    let name = &x.name;
-                    if x.default.is_none() {
-                        format!("pre_args[\"{name}\"] = kwargs.get(\"{name}\")")
-                    } else {
-                        format!(
-                            r#"pre_args["{name}"] = kwargs.get("{name}")
-        if pre_args["{name}"] is None:
-            del pre_args["{name}"]"#
-                        )
-                    }
-                })
-                .join("\n        ")
-        };
-        Some(spread)
-    } else {
-        None
-    };
+    let pre_spread = pre_sig.map(|sig| python_preprocessor_spread(sig, "        "));
 
     let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
 
@@ -1743,8 +1763,9 @@ pub async fn handle_python_reqs(
     );
 
     let pip_indexes = (
-        read_ee_registry(
+        read_ee_registry_with_workspace_override(
             PIP_EXTRA_INDEX_URL.read().await.clone(),
+            "pip_extra_index_url",
             "pip extra index url",
             job_id,
             w_id,
@@ -1752,8 +1773,9 @@ pub async fn handle_python_reqs(
         )
         .await
         .map(handle_ephemeral_token),
-        read_ee_registry(
+        read_ee_registry_with_workspace_override(
             PIP_INDEX_URL.read().await.clone(),
+            "pip_index_url",
             "pip index url",
             job_id,
             w_id,
@@ -2338,6 +2360,26 @@ This is not normal behavior, please make sure all workers have enough memory.\n
     };
 }
 
+/// Python function body for `res_to_json(res, typ)`.
+/// Handles DataFrame, bytes, dict coercion + JSON serialization.
+fn python_res_to_json_body(postprocessor: &str) -> String {
+    format!(
+        r#"    if typ.__name__ == 'DataFrame':
+        if typ.__module__ == 'pandas.core.frame':
+            res = res.values.tolist()
+        elif typ.__module__ == 'polars.dataframe.frame':
+            res = res.rows()
+    elif typ.__name__ == 'bytes':
+        res = to_b_64(res)
+    elif typ.__name__ == 'dict':
+        for k, v in res.items():
+            if type(v).__name__ == 'bytes':
+                res[k] = to_b_64(v)
+    unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
+    return {postprocessor}"#
+    )
+}
+
 // Returns code snippet that needs to be injected into wrapper to post-process results or leave unprocessed
 fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
     if skip {
@@ -2433,6 +2475,16 @@ pub async fn start_worker(
         _,
     ) = prepare_wrapper(job_dir, None, None, None, inner_content, script_path).await?;
 
+    // Parse preprocessor signature if the script has one
+    let pre_spread = windmill_parser_py::parse_python_signature(
+        inner_content,
+        Some("preprocessor".to_string()),
+        false,
+    )
+    .ok()
+    .filter(|sig| !sig.args.is_empty())
+    .map(|sig| python_preprocessor_spread(sig, "            "));
+
     {
         let postprocessor = get_result_postprocessor(annotations.skip_result_postprocessing);
         let indented_transforms = transforms
@@ -2441,6 +2493,41 @@ pub async fn start_worker(
             .collect::<Vec<String>>()
             .join("\n");
 
+        let preprocessor_logic = if let Some(ref pre_spread) = pre_spread {
+            format!(
+                r#"
+    if line.startswith('preprocess:'):
+        pre_input = line[len('preprocess:'):]
+        kwargs = json.loads(pre_input, strict=False)
+        if not hasattr(inner_script, 'preprocessor') or not callable(inner_script.preprocessor):
+            err_json = json.dumps({{"message": "preprocessor function is missing", "name": "Error"}}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+            sys.stdout.flush()
+            continue
+        try:
+            pre_args = {{}}
+            {pre_spread}
+            for k, v in list(pre_args.items()):
+                if v == '<function call>':
+                    del pre_args[k]
+            preprocessed_kwargs = inner_script.preprocessor(**pre_args)
+            preprocessed_json = json.dumps(preprocessed_kwargs, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
+            transform_and_run(preprocessed_kwargs)
+        except BaseException as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            tb = traceback.format_tb(exc_traceback)
+            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+        sys.stdout.flush()
+        continue
+"#
+            )
+        } else {
+            String::new()
+        };
+
+        let res_to_json_body = python_res_to_json_body(postprocessor);
         let wrapper_content: String = format!(
             r#"
 import json
@@ -2458,37 +2545,32 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\u0000|Infinity|\-Infinity)')
-sys.stdout.write('start\n')
+def res_to_json(res, typ):
+{res_to_json_body}
 
-for line in sys.stdin:
-    if line == 'end\n':
-        break
-    kwargs = json.loads(line, strict=False)
+def transform_and_run(kwargs):
     args = {{}}
 {indented_transforms}
     {spread}
     for k, v in list(args.items()):
         if v == '<function call>':
             del args[k]
+    res = inner_script.main(**args)
+    typ = type(res)
+    res_json = res_to_json(res, typ)
+    sys.stdout.write("wm_res[success]:" + res_json + "\n")
 
+replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\u0000|Infinity|\-Infinity)')
+sys.stdout.write('start\n')
+
+for line in sys.stdin:
+    if line == 'end\n':
+        break
+    line = line.strip()
+    {preprocessor_logic}
+    kwargs = json.loads(line, strict=False)
     try:
-        res = inner_script.main(**args)
-        typ = type(res)
-        if typ.__name__ == 'DataFrame':
-            if typ.__module__ == 'pandas.core.frame':
-                res = res.values.tolist()
-            elif typ.__module__ == 'polars.dataframe.frame':
-                res = res.rows()
-        elif typ.__name__ == 'bytes':
-            res = to_b_64(res)
-        elif typ.__name__ == 'dict':
-            for k, v in res.items():
-                if type(v).__name__ == 'bytes':
-                    res[k] = to_b_64(v)
-        unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
-        res_json = {postprocessor}
-        sys.stdout.write("wm_res[success]:" + res_json + "\n")
+        transform_and_run(kwargs)
     except BaseException as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         tb = traceback.format_tb(exc_traceback)
@@ -2568,4 +2650,57 @@ for line in sys.stdin:
         client,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_python_module_dir_nested_path() {
+        assert_eq!(
+            compute_python_module_dir("f/my_folder/my_script"),
+            "f/my_folder"
+        );
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_deep_path() {
+        assert_eq!(compute_python_module_dir("f/a/b/c/script"), "f/a/b/c");
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_root_level() {
+        // Root-level script (no parent dirs) should fall back to "tmp"
+        assert_eq!(compute_python_module_dir("my_script"), "tmp");
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_single_folder() {
+        assert_eq!(compute_python_module_dir("f/script"), "f");
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_digit_prefix() {
+        // Dirs starting with digits get underscore-prefixed
+        assert_eq!(
+            compute_python_module_dir("1st_folder/script"),
+            "_1st_folder"
+        );
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_hyphens_replaced() {
+        // Hyphens are replaced with underscores
+        assert_eq!(
+            compute_python_module_dir("my-folder/sub-dir/script"),
+            "my_folder/sub_dir"
+        );
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_at_replaced() {
+        // @ is replaced with .
+        assert_eq!(compute_python_module_dir("u/@admin/script"), "u/.admin");
+    }
 }

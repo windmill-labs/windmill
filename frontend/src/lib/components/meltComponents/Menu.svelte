@@ -10,6 +10,7 @@
 
 	import { twMerge } from 'tailwind-merge'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
+	import { watch } from 'runed'
 
 	interface Props {
 		placement?: Placement
@@ -63,9 +64,10 @@
 	} = menu
 
 	const sync = createSync(states)
-	$effect(() => {
-		sync.open(open, (v) => (open = Boolean(v)))
-	})
+	watch(
+		() => open,
+		() => sync.open(open, (v) => (open = Boolean(v)))
+	)
 
 	export function close() {
 		open = false

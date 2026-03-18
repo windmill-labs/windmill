@@ -23,6 +23,7 @@
 	let uptodateVersion: string | undefined = $state(undefined)
 	let yamlMode = $state(false)
 	let hasUnsavedChanges = $state(false)
+	let hasAnyInvalid = $state(false)
 	let showCloseConfirmModal = $state(false)
 	let diffData: { original: string; modified: string } = $state({ original: '', modified: '' })
 	let inlineDiff = $state(false)
@@ -147,6 +148,7 @@
 			showHeaderInfo={false}
 			bind:yamlMode
 			bind:hasUnsavedChanges
+			bind:hasAnyInvalid
 		/>
 	</DrawerContent>
 </Drawer>
@@ -159,7 +161,7 @@
 				options={{ right: 'Unified' }}
 				size="xs"
 			/>
-			<SaveButton onSave={handleSaveAndCloseDiff} disabled={!hasUnsavedChanges} size="xs" />
+			<SaveButton onSave={handleSaveAndCloseDiff} disabled={!hasUnsavedChanges || hasAnyInvalid} size="xs" />
 		{/snippet}
 		<!-- DiffEditor reacts to inlineDiff changes via $effect — no {#key} needed -->
 		<div class="h-full">

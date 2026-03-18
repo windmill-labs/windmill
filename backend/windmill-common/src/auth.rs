@@ -18,6 +18,12 @@ use crate::{
     DB,
 };
 
+/// Hash a raw token using SHA-256 (hex-encoded, 64 chars).
+/// Used to store and look up tokens without keeping plaintext in the DB.
+pub fn hash_token(token: &str) -> String {
+    crate::utils::calculate_hash(token)
+}
+
 #[derive(Debug)]
 pub struct IdToken {
     token: String,
@@ -25,6 +31,15 @@ pub struct IdToken {
 }
 
 pub const TOKEN_PREFIX_LEN: usize = 10;
+
+/// Safely extract the token prefix (first TOKEN_PREFIX_LEN chars).
+/// Returns the full token if it's shorter than TOKEN_PREFIX_LEN, preventing panics.
+pub fn safe_token_prefix(token: &str) -> String {
+    token
+        .get(..TOKEN_PREFIX_LEN)
+        .unwrap_or(token)
+        .to_string()
+}
 
 lazy_static::lazy_static! {
     // Cache for script hash permissions - (ApiAuthed hash, script_hash) -> permission result
@@ -339,7 +354,7 @@ async fn fetch_authed_from_permissioned_as_inner(
                 if let Some(r) = r {
                     (r.is_admin, r.operator)
                 } else {
-                    return Err(Error::internal_err(format!(
+                    return Err(Error::NotFound(format!(
                         "user {name} not found in workspace {w_id}"
                     )));
                 }

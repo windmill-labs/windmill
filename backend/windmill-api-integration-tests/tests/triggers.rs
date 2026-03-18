@@ -930,7 +930,8 @@ async fn test_kafka_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let trigger = sqlx::query!(
         r#"
-        SELECT kafka_resource_path, topics, group_id, mode AS "mode: String"
+        SELECT kafka_resource_path, topics, group_id, mode AS "mode: String",
+               auto_offset_reset, auto_commit, reset_offset
         FROM kafka_trigger
         WHERE workspace_id = $1 AND path = $2
         "#,
@@ -944,6 +945,50 @@ async fn test_kafka_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(trigger.topics, vec!["topic-a", "topic-b"]);
     assert_eq!(trigger.group_id, "my-consumer-group");
     assert_eq!(trigger.mode, "enabled");
+    assert_eq!(trigger.auto_offset_reset, "latest");
+    assert_eq!(trigger.auto_commit, true);
+    assert_eq!(trigger.reset_offset, false);
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_kafka_trigger_insert_auto_commit_disabled(db: Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::query!(
+        r#"
+        INSERT INTO kafka_trigger (
+            path, kafka_resource_path, topics, group_id, script_path,
+            is_flow, workspace_id, edited_by, email, auto_commit
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        "#,
+        "f/test/kafka_trigger_no_commit",
+        "u/admin/kafka_resource",
+        &["topic-c"] as &[&str],
+        "my-consumer-group-2",
+        "f/test/kafka_handler",
+        false,
+        "test-workspace",
+        "test-user",
+        "test@windmill.dev",
+        false,
+    )
+    .execute(&db)
+    .await?;
+
+    let trigger = sqlx::query!(
+        r#"
+        SELECT auto_commit
+        FROM kafka_trigger
+        WHERE workspace_id = $1 AND path = $2
+        "#,
+        "test-workspace",
+        "f/test/kafka_trigger_no_commit",
+    )
+    .fetch_one(&db)
+    .await?;
+
+    assert_eq!(trigger.auto_commit, false);
 
     Ok(())
 }

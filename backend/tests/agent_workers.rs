@@ -21,6 +21,7 @@ fn bun_code(code: &str) -> RawCode {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }
 }
 

@@ -20,11 +20,6 @@ pub use windmill_parser::{Arg, MainArgSignature, ObjectType, Typ};
 pub const SANITIZED_ENUM_STR: &str = "__sanitized_enum__";
 pub const SANITIZED_RAW_STRING_STR: &str = "__sanitized_raw_string__";
 
-mod asset_parser;
-mod asset_parser_utils;
-pub use asset_parser::parse_assets;
-pub use asset_parser_utils::parse_wmill_sdk_sql_assets;
-
 pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_mysql_file(&code)?;
     if let Some(x) = parsed {
@@ -33,7 +28,7 @@ pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             star_args: false,
             star_kwargs: false,
             args,
-            no_main_func: None,
+            auto_kind: None,
             has_preprocessor: None,
         })
     } else {
@@ -49,7 +44,7 @@ pub fn parse_oracledb_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             star_args: false,
             star_kwargs: false,
             args,
-            no_main_func: None,
+            auto_kind: None,
             has_preprocessor: None,
         })
     } else {
@@ -70,7 +65,7 @@ pub fn parse_pgsql_sig_with_typed_schema(code: &str) -> anyhow::Result<(MainArgS
                 star_args: false,
                 star_kwargs: false,
                 args,
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None,
             },
             typed_schema,
@@ -88,7 +83,7 @@ pub fn parse_bigquery_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             star_args: false,
             star_kwargs: false,
             args,
-            no_main_func: None,
+            auto_kind: None,
             has_preprocessor: None,
         })
     } else {
@@ -103,7 +98,7 @@ pub fn parse_duckdb_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             star_args: false,
             star_kwargs: false,
             args,
-            no_main_func: None,
+            auto_kind: None,
             has_preprocessor: None,
         })
     } else {
@@ -119,7 +114,7 @@ pub fn parse_snowflake_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             star_args: false,
             star_kwargs: false,
             args,
-            no_main_func: None,
+            auto_kind: None,
             has_preprocessor: None,
         })
     } else {
@@ -135,7 +130,7 @@ pub fn parse_mssql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             star_args: false,
             star_kwargs: false,
             args,
-            no_main_func: None,
+            auto_kind: None,
             has_preprocessor: None,
         })
     } else {
@@ -949,7 +944,7 @@ SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
                         oidx: Some(2),
                     },
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -998,7 +993,7 @@ SELECT $2::TEXT;
                         oidx: Some(3),
                     },
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -1125,7 +1120,7 @@ SELECT ?, ?;
                         oidx: None,
                     },
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -1173,7 +1168,7 @@ SELECT :param2;
                         oidx: None,
                     },
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -1213,7 +1208,7 @@ SELECT @token;
                         oidx: None,
                     },
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -1261,7 +1256,7 @@ SELECT ?;
                         oidx: None,
                     }
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -1309,7 +1304,7 @@ SELECT @P2;
                         oidx: None,
                     },
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -1358,7 +1353,7 @@ SELECT * FROM table_name WHERE thing = :name4;
                         oidx: None,
                     },
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -1396,7 +1391,7 @@ SELECT * FROM users WHERE id = $1 AND email = $2::text;
                         oidx: Some(2),
                     },
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -1434,7 +1429,7 @@ SELECT * FROM users LIMIT $1 OFFSET $2;
                         oidx: Some(2),
                     },
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -1484,7 +1479,7 @@ WHERE id = $1
                         oidx: Some(3),
                     },
                 ],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -1511,7 +1506,7 @@ SELECT * FROM users WHERE id = ANY($1);
                     has_default: false,
                     oidx: Some(1),
                 },],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -1540,7 +1535,7 @@ SELECT $1::integer;
                     has_default: false,
                     oidx: Some(1),
                 },],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );
@@ -1572,7 +1567,7 @@ SELECT x
                     has_default: false,
                     oidx: None,
                 },],
-                no_main_func: None,
+                auto_kind: None,
                 has_preprocessor: None
             }
         );

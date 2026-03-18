@@ -517,9 +517,14 @@ async fn test_group_permission_inheritance(db: Pool<Postgres>) -> anyhow::Result
     // for (workspace_id, token) tuples. Since we can't easily clear it from tests,
     // we use a different token or wait for cache expiry. For this test, we create
     // a new token for Charlie.
+    let charlie_token = "CHARLIE_TOKEN_NEW";
+    let charlie_token_hash = windmill_common::utils::calculate_hash(charlie_token);
+    let charlie_token_prefix = &charlie_token[..10.min(charlie_token.len())];
     sqlx::query!(
-        "INSERT INTO token (token, email, label, super_admin, owner, workspace_id)
-         VALUES ('CHARLIE_TOKEN_NEW', 'charlie@windmill.dev', 'Charlie new token', false, 'u/charlie', 'test-workspace')"
+        "INSERT INTO token (token_hash, token_prefix, email, label, super_admin, owner, workspace_id)
+         VALUES ($1, $2, 'charlie@windmill.dev', 'Charlie new token', false, 'u/charlie', 'test-workspace')",
+        charlie_token_hash,
+        charlie_token_prefix,
     )
     .execute(&db)
     .await?;
@@ -563,28 +568,100 @@ async fn test_all_item_types_permissions(db: Pool<Postgres>) -> anyhow::Result<(
     let bob_client = create_client_for_user(port, "BOB_TOKEN_TEST12").await;
 
     // Test Scripts - uses /scripts/get/p/{path}
-    assert!(can_read(&alice_client, &format!("{base_url}/w/test-workspace/scripts/get/p/u/alice/my_script")).await);
-    assert!(!can_read(&bob_client, &format!("{base_url}/w/test-workspace/scripts/get/p/u/alice/my_script")).await);
+    assert!(
+        can_read(
+            &alice_client,
+            &format!("{base_url}/w/test-workspace/scripts/get/p/u/alice/my_script")
+        )
+        .await
+    );
+    assert!(
+        !can_read(
+            &bob_client,
+            &format!("{base_url}/w/test-workspace/scripts/get/p/u/alice/my_script")
+        )
+        .await
+    );
 
     // Test Flows - uses /flows/get/{path} (no /p/)
-    assert!(can_read(&alice_client, &format!("{base_url}/w/test-workspace/flows/get/u/alice/my_flow")).await);
-    assert!(!can_read(&bob_client, &format!("{base_url}/w/test-workspace/flows/get/u/alice/my_flow")).await);
+    assert!(
+        can_read(
+            &alice_client,
+            &format!("{base_url}/w/test-workspace/flows/get/u/alice/my_flow")
+        )
+        .await
+    );
+    assert!(
+        !can_read(
+            &bob_client,
+            &format!("{base_url}/w/test-workspace/flows/get/u/alice/my_flow")
+        )
+        .await
+    );
 
     // Test Resources - uses /resources/get/{path} (no /p/)
-    assert!(can_read(&alice_client, &format!("{base_url}/w/test-workspace/resources/get/u/alice/my_resource")).await);
-    assert!(!can_read(&bob_client, &format!("{base_url}/w/test-workspace/resources/get/u/alice/my_resource")).await);
+    assert!(
+        can_read(
+            &alice_client,
+            &format!("{base_url}/w/test-workspace/resources/get/u/alice/my_resource")
+        )
+        .await
+    );
+    assert!(
+        !can_read(
+            &bob_client,
+            &format!("{base_url}/w/test-workspace/resources/get/u/alice/my_resource")
+        )
+        .await
+    );
 
     // Test Variables - uses /variables/get/{path} (no /p/)
-    assert!(can_read(&alice_client, &format!("{base_url}/w/test-workspace/variables/get/u/alice/my_variable")).await);
-    assert!(!can_read(&bob_client, &format!("{base_url}/w/test-workspace/variables/get/u/alice/my_variable")).await);
+    assert!(
+        can_read(
+            &alice_client,
+            &format!("{base_url}/w/test-workspace/variables/get/u/alice/my_variable")
+        )
+        .await
+    );
+    assert!(
+        !can_read(
+            &bob_client,
+            &format!("{base_url}/w/test-workspace/variables/get/u/alice/my_variable")
+        )
+        .await
+    );
 
     // Test Schedules - uses /schedules/get/{path} (no /p/)
-    assert!(can_read(&alice_client, &format!("{base_url}/w/test-workspace/schedules/get/u/alice/my_schedule")).await);
-    assert!(!can_read(&bob_client, &format!("{base_url}/w/test-workspace/schedules/get/u/alice/my_schedule")).await);
+    assert!(
+        can_read(
+            &alice_client,
+            &format!("{base_url}/w/test-workspace/schedules/get/u/alice/my_schedule")
+        )
+        .await
+    );
+    assert!(
+        !can_read(
+            &bob_client,
+            &format!("{base_url}/w/test-workspace/schedules/get/u/alice/my_schedule")
+        )
+        .await
+    );
 
     // Test Apps - uses /apps/get/p/{path}
-    assert!(can_read(&alice_client, &format!("{base_url}/w/test-workspace/apps/get/p/u/alice/my_app")).await);
-    assert!(!can_read(&bob_client, &format!("{base_url}/w/test-workspace/apps/get/p/u/alice/my_app")).await);
+    assert!(
+        can_read(
+            &alice_client,
+            &format!("{base_url}/w/test-workspace/apps/get/p/u/alice/my_app")
+        )
+        .await
+    );
+    assert!(
+        !can_read(
+            &bob_client,
+            &format!("{base_url}/w/test-workspace/apps/get/p/u/alice/my_app")
+        )
+        .await
+    );
 
     Ok(())
 }
@@ -747,11 +824,9 @@ async fn test_operator_cannot_create_update(db: Pool<Postgres>) -> anyhow::Resul
     .await?;
 
     // Update app versions
-    sqlx::query!(
-        "UPDATE app SET versions = ARRAY[3001::bigint] WHERE id = 3001"
-    )
-    .execute(&db)
-    .await?;
+    sqlx::query!("UPDATE app SET versions = ARRAY[3001::bigint] WHERE id = 3001")
+        .execute(&db)
+        .await?;
 
     let update_app = json!({
         "path": "u/operator/existing_app",

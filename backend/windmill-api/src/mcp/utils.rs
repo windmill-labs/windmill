@@ -151,11 +151,14 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
         .and_where("o.draft_only IS NOT TRUE");
 
     if item_type == "script" {
-        sqlb.and_where("(o.no_main_func IS NOT TRUE OR o.no_main_func IS NULL)");
+        sqlb.and_where("o.auto_kind IS NULL");
     }
 
     if let Some(prefix) = path_prefix {
-        let escaped = prefix.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let escaped = prefix
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
         sqlb.and_where("o.path LIKE ? ESCAPE '\\'".bind(&format!("{}%", escaped)));
     }
 

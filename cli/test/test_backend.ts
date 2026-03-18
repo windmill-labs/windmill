@@ -19,6 +19,13 @@
  *       // ...
  *     });
  *   });
+ *
+ * CROSS-LINKS - Related test helper locations (keep in sync when adding new helpers):
+ * @see test_fixtures.ts - Local file fixtures (createLocalScript, createLocalFlow, etc.)
+ * @see sync_pull_push.test.ts - Local fixtures + createRemoteScript (API-based)
+ *
+ * This file contains: API-based creation helpers (createTestApp, createTestResource, etc.)
+ * If you add new helpers, update cross-links in the files above.
  */
 
 import { CargoBackend, CargoBackendConfig } from "./cargo_backend.ts";
@@ -109,6 +116,7 @@ class CargoBackendAdapter implements TestBackend {
     return this.backend.apiRequest(path, options);
   }
 
+  /** Seeds test data via API calls. See file header for cross-links to related helpers. */
   async seedTestData(): Promise<void> {
     // Create test folder first
     await this.createTestFolder("test");
@@ -124,6 +132,7 @@ class CargoBackendAdapter implements TestBackend {
     await this.createTestApp("f/test/test_dashboard");
   }
 
+  /** See file header for cross-links to related helpers. */
   private async createTestApp(path: string): Promise<void> {
     const response = await this.backend.apiRequest(`/api/w/${this.workspace}/apps/create`, {
       method: "POST",
@@ -156,6 +165,7 @@ class CargoBackendAdapter implements TestBackend {
     }
   }
 
+  /** See file header for cross-links to related helpers. */
   private async createTestFolder(name: string): Promise<void> {
     const response = await this.backend.apiRequest(`/api/w/${this.workspace}/folders/create`, {
       method: "POST",
@@ -172,6 +182,7 @@ class CargoBackendAdapter implements TestBackend {
     }
   }
 
+  /** See file header for cross-links to related helpers. */
   private async createTestGroup(name: string): Promise<void> {
     const response = await this.backend.apiRequest(`/api/w/${this.workspace}/groups/create`, {
       method: "POST",
@@ -189,6 +200,7 @@ class CargoBackendAdapter implements TestBackend {
   }
 
 
+  /** See file header for cross-links to related helpers. */
   private async createTestResource(path: string, description: string): Promise<void> {
     // First ensure the folder exists
     const folderPath = path.split("/").slice(0, 2).join("/"); // e.g., "f/test"
@@ -228,6 +240,7 @@ class CargoBackendAdapter implements TestBackend {
     }
   }
 
+  /** See file header for cross-links to related helpers. */
   private async createTestVariable(path: string, value: string): Promise<void> {
     const response = await this.backend.apiRequest(
       `/api/w/${this.workspace}/variables/create`,

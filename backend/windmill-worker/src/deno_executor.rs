@@ -13,8 +13,8 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, DENO_CACHE_DIR, DENO_PATH, HOME_ENV, NPMRC,
-    NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry_with_workspace_override, DENO_CACHE_DIR, DENO_PATH,
+    HOME_ENV, NPMRC, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 use windmill_common::worker::TypeScriptAnnotations;
@@ -81,15 +81,24 @@ async fn get_common_deno_proc_envs(
     ]);
 
     let npmrc = if let Some(conn) = conn {
-        read_ee_registry(NPMRC.read().await.clone(), "npmrc", job_id, w_id, conn).await
+        read_ee_registry_with_workspace_override(
+            NPMRC.read().await.clone(),
+            "npmrc",
+            "npmrc",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
     } else {
         NPMRC.read().await.clone()
     };
 
     if npmrc.as_ref().map_or(true, |s| s.trim().is_empty()) {
         let registry = if let Some(conn) = conn {
-            read_ee_registry(
+            read_ee_registry_with_workspace_override(
                 NPM_CONFIG_REGISTRY.read().await.clone(),
+                "npm_config_registry",
                 "npm registry",
                 job_id,
                 w_id,
@@ -406,8 +415,9 @@ try {{
         common_deno_proc_envs.insert("HOME".to_string(), job_dir.to_string());
     }
 
-    let npmrc = read_ee_registry(
+    let npmrc = read_ee_registry_with_workspace_override(
         NPMRC.read().await.clone(),
+        "npmrc",
         "npmrc",
         &job.id,
         &job.workspace_id,
@@ -655,11 +665,61 @@ pub async fn start_worker(
             .join("\n");
 
         let spread = args.into_iter().map(|x| x.name).join(",");
+
+        // Parse preprocessor signature if it exists
+        let pre_spread = windmill_parser_ts::parse_deno_signature(
+            inner_content,
+            true,
+            false,
+            Some("preprocessor".to_string()),
+        )
+        .ok()
+        .filter(|sig| !sig.args.is_empty())
+        .map(|sig| sig.args.into_iter().map(|x| x.name).join(","));
+
+        let preprocessor_import = if pre_spread.is_some() {
+            r#"import { preprocessor } from "./main.ts";"#
+        } else {
+            ""
+        };
+
+        let preprocessor_logic = if let Some(ref pre_spread) = pre_spread {
+            format!(
+                r#"
+        if (line.startsWith("preprocess:")) {{
+            const preInput = line.slice("preprocess:".length);
+            const parsedArgs = JSON.parse(preInput);
+            if (typeof preprocessor !== 'function') {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}) + '\n');
+                continue;
+            }}
+            try {{
+                function preArgsObjToArr({{ {pre_spread} }}: any) {{
+                    return [ {pre_spread} ];
+                }}
+                const preprocessedArgs: any = await preprocessor(...preArgsObjToArr(parsedArgs));
+                console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+                // Now call main with preprocessed args
+                let {{ {spread} }} = preprocessedArgs ?? {{}};
+                {dates}
+                let res: any = await main(...[ {spread} ]);
+                console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+            }} catch (e) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}) + '\n');
+            }}
+            continue;
+        }}"#
+            )
+        } else {
+            String::new()
+        };
+
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
         let wrapper_content: String = format!(
             r#"
 import {{ main }} from "./main.ts";
+{preprocessor_import}
 
 BigInt.prototype.toJSON = function () {{
     return this.toString();
@@ -678,6 +738,7 @@ for await (const chunk of Deno.stdin.readable) {{
             exit = true;
             break;
         }}
+        {preprocessor_logic}
         try {{
             let {{ {spread} }} = JSON.parse(line)
             {dates}

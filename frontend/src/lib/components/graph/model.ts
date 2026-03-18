@@ -1,4 +1,4 @@
-import type { FlowStatusModule, Job } from '$lib/gen'
+import type { FlowStatusModule, Job, WorkflowStatus } from '$lib/gen'
 import type { StateStore } from '$lib/utils'
 import type { FlowState } from '../flows/flowState'
 
@@ -67,6 +67,7 @@ export type GraphModuleState = {
 	skipped?: boolean
 	agent_actions?: FlowStatusModule['agent_actions']
 	script_hash?: string
+	workflow_as_code_status?: WorkflowStatus
 }
 
 export type NestedNodes = GraphItem[]

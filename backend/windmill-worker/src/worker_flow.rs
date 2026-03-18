@@ -1453,10 +1453,12 @@ pub async fn update_flow_status_after_job_completion_internal(
                 }
             };
 
-            // When debouncing is applied, store the flow's debouncing settings in
-            // the runnable_settings_handle so that maybe_apply_debouncing can find
-            // them after re-pull and perform argument accumulation.
-            let new_runnable_settings_handle: Option<i64> = if scheduled_for.is_some() {
+            // Store the flow's debouncing settings in the runnable_settings_handle
+            // so that maybe_apply_debouncing can find them after pull and perform
+            // argument accumulation. This is needed both when debounced (CanDebounce)
+            // and when firing immediately (MaxCountExceeded), since accumulation
+            // happens at pull time in both cases.
+            let new_runnable_settings_handle: Option<i64> = if has_debouncing {
                 let debouncing_hash = flow_value
                     .debouncing_settings
                     .insert_cached(db)
@@ -5033,6 +5035,7 @@ pub fn raw_script_to_payload(
             concurrency_settings,
             // TODO: Should this have debouncing?
             debouncing_settings: DebouncingSettings::default(),
+            modules: None,
         }),
         tag,
         delete_after_use,

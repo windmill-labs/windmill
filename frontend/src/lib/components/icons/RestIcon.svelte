@@ -1,10 +1,10 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
 <svg
@@ -15,6 +15,7 @@
 	{height}
 	xmlns:xlink="http://www.w3.org/1999/xlink"
 	viewBox="0 0 1000 1000"
+	fill="currentColor"
 	enable-background="new 0 0 1000 1000"
 	xml:space="preserve"
 >

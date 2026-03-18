@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ai_chat_usage WHERE created_at < NOW() - INTERVAL '60 days'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "98746829ab854dff922a04822bc86122e4ceb34cc8993937dff24cdd7ba3fe5f"
+}

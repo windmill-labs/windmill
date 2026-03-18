@@ -474,6 +474,7 @@ async fn route_job(
         .to_args_from_format(
             &trigger.route_path,
             &called_path,
+            &trigger.path,
             &params,
             runnable_format,
             trigger.wrap_body,

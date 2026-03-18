@@ -16,7 +16,7 @@ import {
 } from 'lucide-svelte'
 import { triggerDisplayNamesMap } from '../triggers/utils'
 import type { FilterInstanceRec, FilterSchemaRec } from '../FilterSearchbar.svelte'
-import { runsTimeframes } from './TimeframeSelect.svelte'
+import { runsTimeframes } from './timeframes'
 
 export function buildRunsFilterSearchbarSchema({
 	paths,

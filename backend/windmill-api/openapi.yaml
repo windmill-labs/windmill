@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.653.0
+  version: 1.659.1
   title: Windmill API
 
   contact:
@@ -1370,17 +1370,22 @@ paths:
 
   /settings/get_stats:
     get:
-      summary: get encrypted telemetry stats (EE only)
+      summary: get telemetry stats with HMAC signature (EE only)
       operationId: getStats
       tags:
         - setting
       responses:
         "200":
-          description: base64-encoded encrypted telemetry blob
+          description: telemetry stats JSON with signature
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                properties:
+                  signature:
+                    type: string
+                  data:
+                    type: string
 
   /settings/latest_key_renewal_attempt:
     get:
@@ -1938,6 +1943,58 @@ paths:
       responses:
         "200":
           description: Successfully imported the installation
+
+  /w/{workspace}/github_app/ghes_installation_callback:
+    post:
+      summary: GHES installation callback
+      description: Register a self-managed GitHub App installation from GitHub Enterprise Server
+      operationId: ghesInstallationCallback
+      tags:
+        - Git Sync
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - installation_id
+              properties:
+                installation_id:
+                  type: integer
+                  format: int64
+                  description: The GitHub App installation ID from GHES
+      responses:
+        "200":
+          description: GHES installation registered successfully
+
+  /github_app/ghes_config:
+    get:
+      summary: Get GHES app config
+      description: Returns the GitHub Enterprise Server app configuration (without private key) for constructing the installation URL
+      operationId: getGhesConfig
+      tags:
+        - Git Sync
+      responses:
+        "200":
+          description: GHES app configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  base_url:
+                    type: string
+                  app_slug:
+                    type: string
+                  client_id:
+                    type: string
+                required:
+                  - base_url
+                  - app_slug
+                  - client_id
 
   /users/accept_invite:
     post:
@@ -4403,6 +4460,107 @@ paths:
                 type: string
         "404":
           description: protection rule not found
+  /w/{workspace}/workspaces/log_chat:
+    post:
+      summary: log AI chat message
+      operationId: logAiChat
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - session_id
+                - provider
+                - model
+                - mode
+              properties:
+                session_id:
+                  type: string
+                provider:
+                  type: string
+                model:
+                  type: string
+                mode:
+                  type: string
+      responses:
+        "204":
+          description: logged
+
+  /w/{workspace}/workspaces/cloud_quotas:
+    get:
+      summary: get cloud quota usage and limits for workspace
+      operationId: getCloudQuotas
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: cloud quota usage and limits
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scripts:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  flows:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  apps:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  variables:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  resources:
+                    $ref: "#/components/schemas/QuotaInfo"
+                required:
+                  - scripts
+                  - flows
+                  - apps
+                  - variables
+                  - resources
+
+  /w/{workspace}/workspaces/prune_versions:
+    post:
+      summary: prune old versions of scripts, flows, or apps
+      operationId: pruneVersions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resource_type:
+                  type: string
+                  enum:
+                    - scripts
+                    - flows
+                    - apps
+              required:
+                - resource_type
+      responses:
+        "200":
+          description: number of pruned versions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pruned:
+                    type: integer
+                required:
+                  - pruned
+
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
       summary: Set public app rate limit for this workspace
@@ -12017,6 +12175,39 @@ paths:
         "200":
           description: kafka trigger offsets reset successfully
 
+  /w/{workspace}/kafka_triggers/commit_offsets/{path}:
+    post:
+      summary: commit kafka offsets for a specific trigger
+      operationId: commitKafkaOffsets
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: offsets to commit
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                topic:
+                  type: string
+                partition:
+                  type: integer
+                  format: int32
+                offset:
+                  type: integer
+                  format: int64
+              required:
+                - topic
+                - partition
+                - offset
+      responses:
+        "200":
+          description: kafka offsets committed successfully
+
   /w/{workspace}/nats_triggers/create:
     post:
       summary: create nats trigger
@@ -14079,7 +14270,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/InstanceGroup"
+                $ref: "#/components/schemas/InstanceGroupWithWorkspaces"
 
   /groups/create:
     post:
@@ -14127,6 +14318,10 @@ paths:
               properties:
                 new_summary:
                   type: string
+                instance_role:
+                  type: string
+                  nullable: true
+                  description: "Instance-level role for group members. 'superadmin', 'devops', 'user' or empty to clear."
               required:
                 - new_summary
       responses:
@@ -18690,14 +18885,20 @@ components:
           type: boolean
         visible_to_runner_only:
           type: boolean
-        no_main_func:
-          type: boolean
+        auto_kind:
+          type: string
         codebase:
           type: string
         has_preprocessor:
           type: boolean
         on_behalf_of_email:
           type: string
+        modules:
+          type: object
+          nullable: true
+          description: "Additional script modules keyed by relative file path"
+          additionalProperties:
+            $ref: "#/components/schemas/ScriptModule"
 
       required:
         - hash
@@ -18714,7 +18915,6 @@ components:
         - language
         - kind
         - starred
-        - no_main_func
         - has_preprocessor
 
     NewScript:
@@ -18787,8 +18987,8 @@ components:
           type: integer
         visible_to_runner_only:
           type: boolean
-        no_main_func:
-          type: boolean
+        auto_kind:
+          type: string
         codebase:
           type: string
         has_preprocessor:
@@ -18816,6 +19016,12 @@ components:
               alt_access_type:
                 type: string
                 enum: [r, w, rw]
+        modules:
+          type: object
+          nullable: true
+          description: "Additional script modules keyed by relative file path"
+          additionalProperties:
+            $ref: "#/components/schemas/ScriptModule"
 
       required:
         - path
@@ -19965,8 +20171,8 @@ components:
             required:
               - name
               - typ
-        no_main_func:
-          type: boolean
+        auto_kind:
+          type: string
           nullable: true
         has_preprocessor:
           type: boolean
@@ -19977,7 +20183,7 @@ components:
         - args
         - type
         - error
-        - no_main_func
+        - auto_kind
         - has_preprocessor
 
     ScriptLang:
@@ -20009,6 +20215,23 @@ components:
           # for related places search: ADD_NEW_LANG
         ]
 
+    ScriptModule:
+      type: object
+      description: "An additional module file associated with a script"
+      properties:
+        content:
+          type: string
+          description: "The source code content of this module"
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        lock:
+          type: string
+          nullable: true
+          description: "Lock file content for this module's dependencies"
+      required:
+        - content
+        - language
+
     Preview:
       type: object
       properties:
@@ -20036,6 +20259,12 @@ components:
           type: string
         flow_path:
           type: string
+        modules:
+          type: object
+          nullable: true
+          description: "Additional script modules keyed by relative file path"
+          additionalProperties:
+            $ref: "#/components/schemas/ScriptModule"
       required:
         - args
 
@@ -22101,6 +22330,10 @@ components:
             - earliest
           default: latest
           description: "Initial offset behavior when consumer group has no committed offset. 'latest' starts from new messages only, 'earliest' starts from the beginning."
+        auto_commit:
+          type: boolean
+          default: true
+          description: "When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint."
         server_id:
           type: string
           description: ID of the server currently handling this trigger (internal)
@@ -22168,6 +22401,10 @@ components:
             - earliest
           default: latest
           description: "Initial offset behavior when consumer group has no committed offset."
+        auto_commit:
+          type: boolean
+          default: true
+          description: "When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint."
         mode:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
@@ -22227,6 +22464,10 @@ components:
             - earliest
           default: latest
           description: "Initial offset behavior when consumer group has no committed offset."
+        auto_commit:
+          type: boolean
+          default: true
+          description: "When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint."
         path:
           type: string
           description: The unique path identifier for this trigger
@@ -22535,6 +22776,12 @@ components:
           type: array
           items:
             type: string
+        instance_role:
+          type: string
+          nullable: true
+          enum:
+            - superadmin
+            - devops
 
     InstanceGroupWithWorkspaces:
       type: object
@@ -22549,6 +22796,12 @@ components:
           type: array
           items:
             type: string
+        instance_role:
+          type: string
+          nullable: true
+          enum:
+            - superadmin
+            - devops
         workspaces:
           type: array
           items:
@@ -22832,6 +23085,9 @@ components:
           type: boolean
         first_time_user:
           type: boolean
+        role_source:
+          type: string
+          enum: ["manual", "instance_group"]
 
       required:
         - email
@@ -22839,6 +23095,7 @@ components:
         - super_admin
         - verified
         - first_time_user
+        - role_source
 
     Flow:
       allOf:
@@ -23535,7 +23792,6 @@ components:
           items:
             $ref: "#/components/schemas/GitSyncObjectType"
       required:
-        - script_path
         - git_repo_resource_path
 
     MetricMetadata:
@@ -23709,6 +23965,12 @@ components:
           type: string
         external_id:
           type: string
+        instance_role:
+          type: string
+          nullable: true
+          enum:
+            - superadmin
+            - devops
       required:
         - name
 
@@ -24205,6 +24467,19 @@ components:
       description: Users that can bypass this ruleset
       items:
         type: string
+    QuotaInfo:
+      type: object
+      properties:
+        used:
+          type: integer
+        limit:
+          type: integer
+        prunable:
+          type: integer
+      required:
+        - used
+        - limit
+        - prunable
     NativeServiceName:
       type: string
       enum:

@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::ai_providers::{
-    empty_string_as_none, AIProvider, ProviderConfig, ProviderModel,
+    empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
@@ -135,15 +135,6 @@ struct AIOAuthResource {
     user: Option<String>,
 }
 
-/// Platform for Anthropic API
-#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
-#[serde(rename_all = "snake_case")]
-enum AnthropicPlatform {
-    #[default]
-    Standard,
-    GoogleVertexAi,
-}
-
 #[derive(Deserialize, Debug)]
 struct AIStandardResource {
     #[serde(alias = "baseUrl", default, deserialize_with = "empty_string_as_none")]
@@ -172,12 +163,15 @@ struct AIStandardResource {
         deserialize_with = "empty_string_as_none"
     )]
     aws_session_token: Option<String>,
-    /// Platform for Anthropic API (standard or google_vertex_ai)
+    /// Platform (standard or google_vertex_ai)
     #[serde(default)]
-    platform: AnthropicPlatform,
+    platform: AIPlatform,
     /// Enable 1M context window for Anthropic
     #[serde(alias = "enable_1M_context", default)]
     enable_1m_context: bool,
+    /// Custom HTTP headers to include in AI requests
+    #[serde(default)]
+    headers: HashMap<String, String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -207,8 +201,9 @@ struct AIRequestConfig {
     pub aws_secret_access_key: Option<String>,
     #[allow(dead_code)]
     pub aws_session_token: Option<String>,
-    pub platform: AnthropicPlatform,
+    pub platform: AIPlatform,
     pub enable_1m_context: bool,
+    pub custom_headers: HashMap<String, String>,
 }
 
 impl AIRequestConfig {
@@ -230,11 +225,13 @@ impl AIRequestConfig {
             aws_session_token,
             platform,
             enable_1m_context,
+            custom_headers,
         ) = match resource {
             AIResource::Standard(resource) => {
                 let region = resource.region.clone();
                 let platform = resource.platform.clone();
                 let enable_1m_context = resource.enable_1m_context;
+                let custom_headers = resource.headers.clone();
                 // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
                 let base_url = if matches!(provider, AIProvider::AWSBedrock) {
                     String::new()
@@ -280,6 +277,7 @@ impl AIRequestConfig {
                     aws_session_token,
                     platform,
                     enable_1m_context,
+                    custom_headers,
                 )
             }
             AIResource::OAuth(resource) => {
@@ -301,8 +299,9 @@ impl AIRequestConfig {
                     None,
                     None,
                     None,
-                    AnthropicPlatform::Standard,
+                    AIPlatform::Standard,
                     false,
+                    HashMap::new(),
                 )
             }
         };
@@ -319,6 +318,7 @@ impl AIRequestConfig {
             aws_session_token,
             platform,
             enable_1m_context,
+            custom_headers,
         })
     }
 
@@ -374,7 +374,7 @@ impl AIRequestConfig {
         let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
         let is_anthropic_vertex =
-            is_anthropic && self.platform == AnthropicPlatform::GoogleVertexAi;
+            is_anthropic && self.platform == AIPlatform::GoogleVertexAi;
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
         let is_google_ai = matches!(provider, AIProvider::GoogleAI);
 
@@ -424,7 +424,9 @@ impl AIRequestConfig {
             if is_azure {
                 request = request.header("api-key", api_key.clone())
             } else if is_google_ai {
-                // Native Gemini API uses x-goog-api-key, not Authorization: Bearer
+                // Note: GoogleAI requests are intercepted earlier (see the GoogleAI
+                // handler block above) and never reach this code path. This branch
+                // is kept as a safety net for the standard Gemini API auth format.
                 request = request.header("x-goog-api-key", api_key.clone())
             } else {
                 request = request.header("authorization", format!("Bearer {}", api_key.clone()))
@@ -447,6 +449,11 @@ impl AIRequestConfig {
 
         // Apply custom headers from AI_HTTP_HEADERS environment variable
         for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+            request = request.header(header_name.as_str(), header_value.as_str());
+        }
+
+        // Apply custom headers from the resource
+        for (header_name, header_value) in &self.custom_headers {
             request = request.header(header_name.as_str(), header_value.as_str());
         }
 
@@ -832,6 +839,7 @@ async fn proxy(
     if matches!(provider, AIProvider::GoogleAI) {
         let api_key = request_config.api_key.as_deref().unwrap_or("");
         let base_url = request_config.base_url.trim_end_matches('/');
+        let is_vertex = request_config.platform == AIPlatform::GoogleVertexAi;
 
         let mut tx = db.begin().await?;
         audit_log(
@@ -848,9 +856,11 @@ async fn proxy(
 
         return match ai_path.as_str() {
             "chat/completions" => {
-                crate::google::handle_google_ai_chat(&body, api_key, base_url).await
+                crate::google::handle_google_ai_chat(&body, api_key, base_url, is_vertex).await
             }
-            "models" => crate::google::handle_google_ai_models(api_key, base_url).await,
+            "models" => {
+                crate::google::handle_google_ai_models(api_key, base_url, is_vertex).await
+            }
             _ => Err(Error::BadRequest(format!(
                 "Unsupported Google AI path: {}",
                 ai_path

@@ -466,6 +466,7 @@ pub async fn push_init_job<'c>(
             dedicated_worker: None,
             concurrency_settings: ConcurrencySettingsWithCustom::default(),
             debouncing_settings: DebouncingSettings::default(),
+            modules: None,
         }),
         PushArgs::from(&ehm),
         worker_name,
@@ -523,6 +524,7 @@ pub async fn push_periodic_bash_job<'c>(
             dedicated_worker: None,
             concurrency_settings: ConcurrencySettingsWithCustom::default(),
             debouncing_settings: DebouncingSettings::default(),
+            modules: None,
         }),
         PushArgs::from(&ehm),
         worker_name,
@@ -1039,6 +1041,35 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             .ok()
             .flatten();
             wac_job_ids = row.flatten();
+
+            // If parent was already completed (e.g. cancelled), update v2_job_completed instead
+            if wac_job_ids.is_none() {
+                let _ = sqlx::query!(
+                    r#"UPDATE v2_job_completed SET
+                            workflow_as_code_status = jsonb_set(
+                                jsonb_set(
+                                    workflow_as_code_status,
+                                    array[$1],
+                                    COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
+                                ),
+                                array[$1, 'duration_ms'],
+                                to_jsonb($2::bigint)
+                            )
+                        WHERE id = $3 AND workflow_as_code_status IS NOT NULL"#,
+                    &completed_job.id.to_string(),
+                    duration,
+                    parent_job
+                )
+                .execute(&mut *tx)
+                .warn_after_seconds(10)
+                .await
+                .inspect_err(|e| {
+                    tracing::error!(
+                        "Could not update completed parent job `duration_ms` in workflow as code status: {}",
+                        e,
+                    )
+                });
+            }
         }
     }
     // tracing::error!("Added completed job {:#?}", queued_job);
@@ -2963,7 +2994,13 @@ impl PulledJobResult {
                 .and_then(|x| x.get("triggered_by_relative_import"))
                 .is_some();
 
-        if (is_djob_to_debounce || debounce_delay_s.filter(|x| *x > 0).is_some())
+        let has_debounce_args = debounce_args_to_accumulate
+            .as_ref()
+            .map_or(false, |v| !v.is_empty());
+
+        if (is_djob_to_debounce
+            || debounce_delay_s.filter(|x| *x > 0).is_some()
+            || has_debounce_args)
             && MIN_VERSION_SUPPORTS_DEBOUNCING.met().await
             && !*WMDEBUG_NO_DEBOUNCING
         {
@@ -3036,8 +3073,16 @@ impl PulledJobResult {
                     if let Some(s) = str_o.as_ref() {
                         match serde_json::from_str::<Vec<Box<RawValue>>>(s) {
                             Ok(ref mut vec) => accumulated_arg.append(vec),
-                            Err(e) => {
-                                return Err(error::Error::ArgumentErr(format!("cannot consolidate arguments of non-list type. Type provided for argument `{arg_name_to_accumulate}` is not a list\nUnwrapped Error: {e}")));
+                            Err(_) => {
+                                // Value is not an array — wrap the scalar into a
+                                // single-element array. This supports union types
+                                // like T | T[] where the caller may pass a bare T.
+                                match RawValue::from_string(s.to_string()) {
+                                    Ok(raw) => accumulated_arg.push(raw),
+                                    Err(e) => {
+                                        return Err(error::Error::ArgumentErr(format!("cannot consolidate argument `{arg_name_to_accumulate}`: value is neither a valid list nor a valid JSON value\nUnwrapped Error: {e}")));
+                                    }
+                                }
                             }
                         }
                     }
@@ -3087,6 +3132,16 @@ impl PulledJobResult {
                     .await?;
                 }
             }
+
+            // Clean up the debounce batch entries now that the job has been pulled
+            sqlx::query!(
+                "DELETE FROM v2_job_debounce_batch WHERE debounce_batch = (
+                    SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1
+                )",
+                j_id,
+            )
+            .execute(db)
+            .await?;
 
             // Handle dependency job debouncing cleanup when a job is pulled for execution
             if is_djob_to_debounce {
@@ -3634,7 +3689,8 @@ pub async fn check_debouncing_within_limits(
     );
 
     if allowed_amount
-        .map(|allowed_amount| current_amount > allowed_amount)
+        .filter(|&a| a > 0)
+        .map(|allowed_amount| current_amount + 1 >= allowed_amount)
         .unwrap_or_default()
         && no_legacy_compat
     {
@@ -4448,7 +4504,7 @@ async fn push_inner<'c, 'd>(
     mut tx: PushIsolationLevel<'c>,
     workspace_id: &str,
     job_payload: JobPayload,
-    args: PushArgs<'d>,
+    mut args: PushArgs<'d>,
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
@@ -4803,19 +4859,34 @@ async fn push_inner<'c, 'd>(
             dedicated_worker,
             concurrency_settings,
             debouncing_settings,
-        }) => JobPayloadUntagged {
-            runnable_id: hash,
-            runnable_path: path,
-            raw_code_tuple: Some((content, lock)),
-            job_kind: JobKind::Preview,
-            language: Some(language),
-            concurrency_settings: concurrency_settings.into(),
-            debouncing_settings,
-            cache_ttl,
-            cache_ignore_s3_path,
-            dedicated_worker,
-            ..Default::default()
-        },
+            modules,
+        }) => {
+            // Inject modules into job args as _MODULES so the worker can extract them
+            if let Some(ref modules) = modules {
+                match serde_json::to_string(modules).and_then(|s| RawValue::from_string(s)) {
+                    Ok(raw) => {
+                        let extra = args.extra.get_or_insert_with(HashMap::new);
+                        extra.insert("_MODULES".to_string(), raw);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to serialize modules for preview job: {e}");
+                    }
+                }
+            }
+            JobPayloadUntagged {
+                runnable_id: hash,
+                runnable_path: path,
+                raw_code_tuple: Some((content, lock)),
+                job_kind: JobKind::Preview,
+                language: Some(language),
+                concurrency_settings: concurrency_settings.into(),
+                debouncing_settings,
+                cache_ttl,
+                cache_ignore_s3_path,
+                dedicated_worker,
+                ..Default::default()
+            }
+        }
         JobPayload::Dependencies {
             hash,
             language,
@@ -5518,10 +5589,11 @@ async fn push_inner<'c, 'd>(
                 &mut *tx,
             )
             .await
-            .map_err(|e| {
-                Error::internal_err(format!(
+            .map_err(|e| match e {
+                Error::NotFound(_) => e,
+                _ => Error::internal_err(format!(
                     "Could not get permissions directly for job {job_id}: {e:#}"
-                ))
+                )),
             })?
         }
     };
