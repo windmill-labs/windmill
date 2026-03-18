@@ -48,20 +48,7 @@ fn resolve_permissioned_as(
     windmill_common::users::username_to_permissioned_as(&authed.username)
 }
 
-fn resolve_edited_by(
-    permissioned_as: Option<&String>,
-    preserve_permissioned_as: Option<bool>,
-    authed: &ApiAuthed,
-) -> String {
-    if let Some(permissioned_as) = permissioned_as {
-        if preserve_permissioned_as.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
-            // Extract username from permissioned_as (e.g. "u/foo" -> "foo")
-            if let Some(username) = permissioned_as.strip_prefix("u/") {
-                return username.to_string();
-            }
-            return permissioned_as.clone();
-        }
-    }
+fn resolve_edited_by(authed: &ApiAuthed) -> String {
     authed.username.clone()
 }
 
@@ -237,11 +224,7 @@ async fn create_schedule(
         validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
     }
 
-    let resolved_edited_by = resolve_edited_by(
-        ns.permissioned_as.as_ref(),
-        ns.preserve_permissioned_as,
-        &authed,
-    );
+    let resolved_edited_by = resolve_edited_by(&authed);
     let resolved_permissioned_as = resolve_permissioned_as(
         ns.permissioned_as.as_ref(),
         ns.preserve_permissioned_as,
@@ -431,11 +414,7 @@ async fn edit_schedule(
 
     clear_schedule(&mut tx, path, &w_id).await?;
 
-    let resolved_edited_by = resolve_edited_by(
-        es.permissioned_as.as_ref(),
-        es.preserve_permissioned_as,
-        &authed,
-    );
+    let resolved_edited_by = resolve_edited_by(&authed);
     let resolved_permissioned_as = resolve_permissioned_as(
         es.permissioned_as.as_ref(),
         es.preserve_permissioned_as,

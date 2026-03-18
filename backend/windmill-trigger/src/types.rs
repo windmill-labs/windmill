@@ -135,17 +135,6 @@ impl BaseTriggerData {
     }
 
     pub fn resolve_edited_by(&self, authed: &impl Authable) -> String {
-        if let Some(ref permissioned_as) = self.permissioned_as {
-            if self.preserve_permissioned_as.unwrap_or(false)
-                && windmill_common::can_preserve_on_behalf_of(authed)
-            {
-                // Extract username from permissioned_as (e.g. "u/foo" -> "foo")
-                if let Some(username) = permissioned_as.strip_prefix("u/") {
-                    return username.to_string();
-                }
-                return permissioned_as.clone();
-            }
-        }
         authed.username().to_string()
     }
 }
