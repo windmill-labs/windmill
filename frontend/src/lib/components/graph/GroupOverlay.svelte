@@ -3,17 +3,15 @@
 	import { calculateNodesBoundsWithOffset } from './util'
 	import { getGroupEditorContext, GROUP_HEADER_HEIGHT } from './groupEditor.svelte'
 	import { getGraphContext } from './graphContext'
-	import type { GroupMembership } from './groupDetectionUtils'
 	import { NoteColor, NOTE_COLORS } from './noteColors'
 	import type { CollapsedSubflowN, GroupHeadN } from './graphBuilder.svelte'
 
 	interface Props {
 		allNodes: (Node & { type: string })[]
 		showNotes: boolean
-		groupMemberships: Map<string, GroupMembership>
 	}
 
-	let { allNodes, showNotes, groupMemberships }: Props = $props()
+	let { allNodes, showNotes }: Props = $props()
 
 	const groupEditorContext = getGroupEditorContext()
 	const graphContext = getGraphContext()
@@ -62,6 +60,31 @@
 			}
 		}
 		return map
+	})
+
+	// Compute nesting depth from visual bounds — group B is nested inside A
+	// if A's vertical extent strictly contains B's
+	let groupDepths = $derived.by(() => {
+		const depths: Record<string, number> = {}
+		for (const group of allGroups) {
+			const bounds = groupBoundsMap[group.id]
+			if (!bounds) continue
+			let depth = 0
+			const top = bounds.y
+			const bottom = bounds.y + bounds.height
+			for (const other of allGroups) {
+				if (other.id === group.id) continue
+				const ob = groupBoundsMap[other.id]
+				if (!ob) continue
+				const oTop = ob.y
+				const oBottom = ob.y + ob.height
+				if (oTop <= top && oBottom >= bottom && (oTop < top || oBottom > bottom)) {
+					depth++
+				}
+			}
+			depths[group.id] = depth
+		}
+		return depths
 	})
 
 	function getOutlineColorClass(color?: string): string {
@@ -114,7 +137,7 @@
 				style:transform="translate({bounds.x}px, {bounds.y}px)"
 				style:width="{bounds.width}px"
 				style:height="{bounds.height}px"
-				style:z-index={-10 + (groupMemberships.get(group.id)?.depth ?? 0)}
+				style:z-index={-10 + (groupDepths[group.id] ?? 0)}
 			></div>
 		</ViewportPortal>
 	{/if}

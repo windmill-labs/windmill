@@ -74,11 +74,7 @@
 		type GroupedModule
 	} from './groupEditor.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
-	import {
-		computeGroupNodeIds,
-		computeGroupModuleIds,
-		type GroupMembership
-	} from './groupDetectionUtils'
+	import { computeGroupModuleIds } from './groupDetectionUtils'
 	import { getAllModules } from '../flows/flowExplorer'
 	import SelectionTool from './SelectionTool.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
@@ -347,7 +343,6 @@
 		yOffset,
 		diffManager,
 		getFlowNodes: () => currentGraphNodeDeps,
-		getGroupMemberships: () => currentGroupMemberships,
 		groupDisplayState
 	} as any)
 
@@ -389,43 +384,6 @@
 		| [NodeDep[], Map<string, { top: number; bottom: number }> | undefined, (NodeDep & NodePos)[]]
 		| undefined = undefined
 	let currentGraphNodeDeps: { id: string; parentIds?: string[] }[] = $state([])
-
-	/** Compute group memberships from start_id/end_id for a given set of flow nodes.
-	 *  Collapsed groups preserve their previous membership (their member nodes
-	 *  aren't in the graph — they've been replaced by a placeholder). */
-	function computeAllGroupMemberships(
-		groups: FlowGroup[],
-		flowNodes: { id: string; parentIds?: string[] }[]
-	): Map<string, GroupMembership> {
-		const map = new Map<string, GroupMembership>()
-		for (const group of groups) {
-			if (groupDisplayState.isRuntimeCollapsed(group.id)) {
-				const prev = currentGroupMemberships.get(group.id)
-				if (prev) map.set(group.id, prev)
-				continue
-			}
-			map.set(group.id, computeGroupNodeIds(group.start_id, group.end_id, flowNodes))
-		}
-		// Compute nesting depth: group B is nested inside group A if B's topoRange
-		// is strictly contained within A's topoRange. Depth = count of containing groups.
-		for (const [id, membership] of map) {
-			if (!membership.topoRange) continue
-			let depth = 0
-			for (const [otherId, other] of map) {
-				if (otherId === id || !other.topoRange) continue
-				const [oFirst, oLast] = other.topoRange
-				const [first, last] = membership.topoRange
-				if (oFirst <= first && oLast >= last && (oFirst < first || oLast > last)) {
-					depth++
-				}
-			}
-			membership.depth = depth
-		}
-		return map
-	}
-
-	// Current group memberships — recomputed when groups or nodes change
-	let currentGroupMemberships: Map<string, GroupMembership> = $state(new Map())
 
 	const MAX_TOOLS_PER_ROW = 2
 
@@ -823,12 +781,6 @@
 			data: { assets: (n.data as any).assets, module: (n.data as any).module }
 		}))
 		currentGraphNodeDeps = graphNodeDeps
-
-		// Compute group memberships from start_id/end_id
-		currentGroupMemberships = computeAllGroupMemberships(
-			groups ?? groupEditorContext?.groupEditor.getGroups() ?? [],
-			graphNodeDeps
-		)
 
 		// Pre-compute extra space per node for assets, AI tools, group notes, group headers
 		const nodeExtraSpace = computeNodeExtraSpace(graphNodeDeps)
@@ -1284,11 +1236,7 @@
 					/>
 				{/if}
 
-				<GroupOverlay
-					allNodes={nodesWithOffset as (Node & { type: string })[]}
-					{showNotes}
-					groupMemberships={currentGroupMemberships}
-				/>
+				<GroupOverlay allNodes={nodesWithOffset as (Node & { type: string })[]} {showNotes} />
 
 				<!-- SelectionTool for handling selection changes and filtering -->
 				<SelectionTool {selectionManager} clearGraphSelection={clearFlowSelection} />
