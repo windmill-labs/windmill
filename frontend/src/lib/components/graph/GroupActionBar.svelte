@@ -25,7 +25,7 @@
 		color,
 		collapsedByDefault,
 		visible = true,
-		menuOpen = $bindable(false),
+		menuOpen = $bindable(),
 		onMenuOpenChange,
 		onAddNote,
 		onRemoveNote,
@@ -35,7 +35,7 @@
 	}: Props = $props()
 
 	$effect(() => {
-		onMenuOpenChange?.(menuOpen)
+		onMenuOpenChange?.(menuOpen ?? false)
 	})
 </script>
 

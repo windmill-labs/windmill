@@ -471,7 +471,7 @@ export function graphBuilder(
 					moduleAction: extra.moduleActions?.[module.id],
 					...extraData
 				},
-				type: extraData?.isCollapsedContainer ? 'module' : 'module',
+				type: 'module',
 				selectable: true
 			})
 
