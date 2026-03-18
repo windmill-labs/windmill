@@ -21,6 +21,7 @@ use tokio::sync::RwLock;
 
 use crate::db::{ApiAuthed, DB};
 use windmill_common::min_version::MIN_KEEP_ALIVE_VERSION;
+use windmill_common::otel_oss::otel_set_health_db_latency;
 use windmill_common::utils::GIT_VERSION;
 use windmill_common::IS_READY;
 
@@ -447,6 +448,8 @@ struct HealthCheckResult {
 async fn perform_health_check(db: &DB) -> HealthCheckResult {
     let checked_at = Utc::now();
     let db_check = check_database_with_latency(db).await;
+
+    otel_set_health_db_latency(db_check.latency_ms as f64);
 
     let workers_alive = if db_check.healthy {
         check_worker_count(db).await

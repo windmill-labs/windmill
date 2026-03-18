@@ -20,6 +20,10 @@ use windmill_common::jobs::InlineScriptTarget;
 use windmill_common::jobs::RunInlineScriptFnParams;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
+use windmill_common::otel_oss::{
+    otel_incr_worker_execution_count, otel_record_worker_execution_duration,
+    otel_record_worker_pull_duration, otel_set_worker_busy,
+};
 use windmill_common::runtime_assets::init_runtime_asset_loop;
 use windmill_common::runtime_assets::register_runtime_asset;
 use windmill_common::scripts::hash_to_codebase_id;
@@ -2066,6 +2070,8 @@ pub async fn run_worker(
             tracing::debug!(worker = %worker_name, hostname = %hostname, "set worker busy to 0");
         }
 
+        otel_set_worker_busy(&worker_name, 0);
+
         occupancy_metrics.running_job_started_at = None;
 
         #[cfg(feature = "prometheus")]
@@ -2366,6 +2372,12 @@ pub async fn run_worker(
                                     wp.observe(duration_pull_s);
                                 }
                             }
+
+                            otel_record_worker_pull_duration(
+                                &worker_name,
+                                j.job.is_some(),
+                                duration_pull_s,
+                            );
                         }
                         match job {
                             Ok(pulled_job_result) => match pulled_job_result.to_pulled_job() {
@@ -2409,6 +2421,8 @@ pub async fn run_worker(
                     wb.set(1);
                     tracing::debug!("set worker busy to 1");
                 }
+
+                otel_set_worker_busy(&worker_name, 1);
 
                 occupancy_metrics.running_job_started_at = Some(Instant::now());
 
@@ -2580,10 +2594,7 @@ pub async fn run_worker(
                     )
                     .await;
 
-                    // counter.add(
-                    //     1,
-                    //     worker_resource
-                    // );
+                    otel_incr_worker_execution_count(&job.tag);
 
                     #[cfg(feature = "prometheus")]
                     let _timer = register_metric(
@@ -2604,6 +2615,8 @@ pub async fn run_worker(
                         |c| c.start_timer(),
                     )
                     .await;
+
+                    let otel_execution_start = Instant::now();
 
                     let job_root = job
                         .flow_innermost_root_job
@@ -2667,7 +2680,6 @@ pub async fn run_worker(
                         create_directory_async(target).await;
                     }
 
-                    #[cfg(feature = "prometheus")]
                     let tag = job.tag.clone();
 
                     let is_init_script: bool = job.tag.as_str() == INIT_SCRIPT_TAG;
@@ -2814,6 +2826,11 @@ pub async fn run_worker(
                         )
                         .await;
                     }
+
+                    otel_record_worker_execution_duration(
+                        &tag,
+                        otel_execution_start.elapsed().as_secs_f64(),
+                    );
 
                     if !KEEP_JOB_DIR.load(Ordering::Relaxed) && !(is_flow && same_worker) {
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
