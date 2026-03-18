@@ -376,7 +376,7 @@ pub async fn run_server(
         ));
 
     let cors = CorsLayer::new()
-        .allow_methods([http::Method::GET, http::Method::POST])
+        .allow_methods([http::Method::GET, http::Method::POST, http::Method::DELETE])
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
@@ -675,7 +675,10 @@ pub async fn run_server(
                 )
                 .layer(from_extractor::<OptAuthed>())
                 // Deprecated, here for backwards compatibility: user should use /mcp/w/:workspace_id/mcp instead
-                .nest("/mcp/w/:workspace_id/sse", mcp_router.clone())
+                .nest(
+                    "/mcp/w/:workspace_id/sse",
+                    mcp_router.clone().layer(cors.clone()),
+                )
                 .nest("/mcp/w/:workspace_id/mcp", mcp_router.layer(cors.clone()))
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]

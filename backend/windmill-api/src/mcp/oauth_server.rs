@@ -864,10 +864,7 @@ pub fn global_service() -> Router {
 /// Mounted at /api/w/:workspace_id/mcp/oauth/server (outside authenticated section)
 pub fn workspaced_unauthed_service() -> Router {
     Router::new()
-        .route(
-            "/authorize",
-            get(workspaced_oauth_authorize).head(workspaced_oauth_authorize),
-        )
+        .route("/authorize", get(workspaced_oauth_authorize))
         .route("/token", post(oauth_token))
 }
 
