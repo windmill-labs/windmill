@@ -20782,6 +20782,14 @@ components:
           type: string
           nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
+        permissioned_as:
+          type: string
+          nullable: true
+          description: "The user or group this schedule runs as (e.g., 'u/admin' or 'g/mygroup'). Only admins and wm_deployers can set this via preserve_permissioned_as."
+        preserve_permissioned_as:
+          type: boolean
+          nullable: true
+          description: "If true and user is admin/wm_deployers, preserve the provided permissioned_as instead of using the deploying user's identity"
       required:
         - schedule
         - timezone

@@ -95,15 +95,15 @@ export async function existsTrigger(
 
 /**
  * Get trigger deployment data with optional permissioned_as preservation.
- * @param onBehalfOfPermissionedAs - If set, the trigger will be deployed with this permissioned_as and preserve_permissioned_as=true.
+ * @param onBehalfOf - If set, the trigger will be deployed with this permissioned_as (u/username or g/group) and preserve_permissioned_as=true.
  */
 export async function getTriggersDeployData(
 	kind: TriggerKind,
 	path: string,
 	workspace: string,
-	onBehalfOfPermissionedAs?: string
+	onBehalfOf?: string
 ) {
-	const preservePermissionedAs = onBehalfOfPermissionedAs !== undefined
+	const preservePermissionedAs = onBehalfOf !== undefined
 
 	if (kind === 'sqs') {
 		const sqsTrigger = await SqsTriggerService.getSqsTrigger({
@@ -114,7 +114,7 @@ export async function getTriggersDeployData(
 		return {
 			data: {
 				...sqsTrigger,
-				permissioned_as: onBehalfOfPermissionedAs,
+				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
 			createFn: SqsTriggerService.createSqsTrigger,
@@ -129,7 +129,7 @@ export async function getTriggersDeployData(
 		return {
 			data: {
 				...kafkaTrigger,
-				permissioned_as: onBehalfOfPermissionedAs,
+				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
 			createFn: KafkaTriggerService.createKafkaTrigger,
@@ -144,7 +144,7 @@ export async function getTriggersDeployData(
 		return {
 			data: {
 				...mqttTrigger,
-				permissioned_as: onBehalfOfPermissionedAs,
+				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
 			createFn: MqttTriggerService.createMqttTrigger,
@@ -159,7 +159,7 @@ export async function getTriggersDeployData(
 		return {
 			data: {
 				...natsTrigger,
-				permissioned_as: onBehalfOfPermissionedAs,
+				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
 			createFn: NatsTriggerService.createNatsTrigger,
@@ -183,7 +183,7 @@ export async function getTriggersDeployData(
 			delivery_config: gcpTrigger.delivery_config ?? undefined,
 			base_endpoint:
 				gcpTrigger.delivery_type === 'push' ? `${window.location.origin}${base}` : undefined,
-			permissioned_as: onBehalfOfPermissionedAs,
+			permissioned_as: onBehalfOf,
 			preserve_permissioned_as: preservePermissionedAs
 		}
 
@@ -201,7 +201,7 @@ export async function getTriggersDeployData(
 		return {
 			data: {
 				...postgresTrigger,
-				permissioned_as: onBehalfOfPermissionedAs,
+				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
 			createFn: PostgresTriggerService.createPostgresTrigger,
@@ -216,7 +216,7 @@ export async function getTriggersDeployData(
 		return {
 			data: {
 				...websocketTrigger,
-				permissioned_as: onBehalfOfPermissionedAs,
+				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
 			createFn: WebsocketTriggerService.createWebsocketTrigger,
@@ -231,7 +231,7 @@ export async function getTriggersDeployData(
 		return {
 			data: {
 				...httpTrigger,
-				permissioned_as: onBehalfOfPermissionedAs,
+				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
 			createFn: HttpTriggerService.createHttpTrigger,
@@ -246,7 +246,7 @@ export async function getTriggersDeployData(
 			data: {
 				...schedulesTrigger,
 				// permissioned_as is only set on create, not update
-				permissioned_as: onBehalfOfPermissionedAs,
+				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
 			createFn: ScheduleService.createSchedule,

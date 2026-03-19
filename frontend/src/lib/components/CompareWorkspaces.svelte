@@ -43,7 +43,7 @@
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
 	import type { Kind } from '$lib/utils_deployable'
-	import { deployItem, getItemValue, getOnBehalfOfEmail } from '$lib/utils_workspace_deploy'
+	import { deployItem, getItemValue, getOnBehalfOf } from '$lib/utils_workspace_deploy'
 	import Tooltip from './Tooltip.svelte'
 	import OnBehalfOfSelector, {
 		needsOnBehalfOfSelection,
@@ -119,7 +119,7 @@
 	// Source workspace on_behalf_of emails (keyed by workspace/kind:path)
 	let onBehalfOfInfo = $state<Record<string, string | undefined>>({})
 	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
-	let customOnBehalfOfEmails = $state<Record<string, string>>({})
+	let customOnBehalfOf = $state<Record<string, string>>({})
 	let deployTargetWorkspace = $derived(mergeIntoParent ? parentWorkspaceId : currentWorkspaceId)
 
 	function getItemKey(diff: WorkspaceItemDiff): string {
@@ -188,7 +188,7 @@
 				if (onBehalfOfInfo[workspacedKey] !== undefined) continue
 
 				try {
-					onBehalfOfInfo[workspacedKey] = await getOnBehalfOfEmail(
+					onBehalfOfInfo[workspacedKey] = await getOnBehalfOf(
 						diff.kind as Kind,
 						diff.path,
 						workspace
@@ -228,12 +228,15 @@
 		})
 	)
 
-	// Get the email to use for deployment based on user's choice
-	function getOnBehalfOfPermissionedAsForDeploy(itemKey: string): string | undefined {
+	/**
+	 * Get the on_behalf_of value for deployment based on user's choice.
+	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for triggers/schedules.
+	 */
+	function getOnBehalfOfForDeploy(itemKey: string): string | undefined {
 		const choice = onBehalfOfChoice[itemKey]
 		if (choice === 'target') return getTargetEmail(itemKey)
-		if (choice === 'custom') return customOnBehalfOfEmails[itemKey]
-		// 'me' or undefined = don't pass, backend will use deploying user's email
+		if (choice === 'custom') return customOnBehalfOf[itemKey]
+		// 'me' or undefined = don't pass, backend will use deploying user's identity
 		return undefined
 	}
 
@@ -301,7 +304,7 @@
 			path,
 			workspaceFrom,
 			workspaceTo: workspaceToDeployTo,
-			onBehalfOfPermissionedAs: getOnBehalfOfPermissionedAsForDeploy(statusPath)
+			onBehalfOf: getOnBehalfOfForDeploy(statusPath)
 		})
 
 		if (result.success) {
@@ -879,11 +882,11 @@
 					selected={onBehalfOfChoice[key]}
 					onSelect={(choice, email) => {
 						onBehalfOfChoice[key] = choice
-						if (email) customOnBehalfOfEmails[key] = email
+						if (email) customOnBehalfOf[key] = email
 					}}
 					kind={diff.kind}
 					canPreserve={canPreserveOnBehalfOf}
-					customEmail={customOnBehalfOfEmails[key]}
+					customEmail={customOnBehalfOf[key]}
 				/>
 			{/if}
 			<!-- Status badges -->

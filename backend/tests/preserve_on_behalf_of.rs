@@ -1431,13 +1431,12 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
 
     // Verify initial state
     let schedule = sqlx::query!(
-        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
         "u/original-user/schedule_to_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(schedule.email, "original@windmill.dev");
     assert_eq!(schedule.permissioned_as, "u/original-user");
     assert_eq!(schedule.edited_by, "original-user");
 
@@ -1464,16 +1463,12 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     );
 
     let schedule = sqlx::query!(
-        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
         "u/original-user/schedule_to_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(
-        schedule.email, "original@windmill.dev",
-        "Admin update should preserve schedule email"
-    );
     assert_eq!(
         schedule.permissioned_as, "u/original-user",
         "Admin update should preserve schedule permissioned_as"
@@ -1553,16 +1548,12 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     );
 
     let schedule = sqlx::query!(
-        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
         "u/deployer-user/schedule_deploy_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(
-        schedule.email, "original@windmill.dev",
-        "Deployer update should preserve schedule email"
-    );
     assert_eq!(
         schedule.permissioned_as, "u/original-user",
         "Deployer update should preserve schedule permissioned_as"
@@ -1642,17 +1633,13 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
     );
 
     let schedule = sqlx::query!(
-        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
         "u/test-user-2/schedule_nonadmin_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
-    // When preserve is denied, resolve_email/resolve_permissioned_as uses the authed user's values
-    assert_eq!(
-        schedule.email, "test2@windmill.dev",
-        "Non-admin update should overwrite schedule email with their own"
-    );
+    // When preserve is denied, resolve_permissioned_as uses the authed user's value
     assert_eq!(
         schedule.permissioned_as, "u/test-user-2",
         "Non-admin update should overwrite schedule permissioned_as with their own"
@@ -2352,7 +2339,7 @@ async fn test_schedule_group_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
     );
 
     let schedule = sqlx::query!(
-        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
         "u/test-user/schedule_group_perm",
         "test-workspace"
     )
@@ -2437,4 +2424,3 @@ async fn test_http_trigger_group_permissioned_as(db: Pool<Postgres>) -> anyhow::
 
     Ok(())
 }
-

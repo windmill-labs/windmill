@@ -416,6 +416,16 @@ async fn edit_schedule(
     clear_schedule(&mut tx, path, &w_id).await?;
 
     let resolved_edited_by = resolve_edited_by(&authed);
+
+    // Only resolve permissioned_as if explicitly provided (optional on edit)
+    let resolved_permissioned_as = es.permissioned_as.as_ref().map(|_| {
+        resolve_permissioned_as(
+            es.permissioned_as.as_ref(),
+            es.preserve_permissioned_as,
+            &authed,
+        )
+    });
+
     // email is still written for backwards compat with old workers that don't know about permissioned_as
 
     let schedule = sqlx::query_as!(
@@ -446,7 +456,8 @@ async fn edit_schedule(
             description             = $22,
             dynamic_skip            = $23,
             email                   = COALESCE($24, email),
-            edited_by               = $25
+            edited_by               = $25,
+            permissioned_as         = COALESCE($26, permissioned_as)
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -510,7 +521,8 @@ async fn edit_schedule(
         es.description,
         es.dynamic_skip,
         Some(authed.email.clone()),
-        resolved_edited_by
+        resolved_edited_by,
+        resolved_permissioned_as
     )
     .fetch_one(&mut *tx)
     .await
@@ -531,6 +543,24 @@ async fn edit_schedule(
         ),
     )
     .await?;
+
+    if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
+        es.permissioned_as.as_deref(),
+        es.preserve_permissioned_as.unwrap_or(false),
+        &authed,
+        &authed.username,
+    ) {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "schedule.on_behalf_of",
+            ActionKind::Update,
+            &w_id,
+            Some(&path.to_string()),
+            Some([("on_behalf_of", on_behalf_of.as_str()), ("action", "edit")].into()),
+        )
+        .await?;
+    }
 
     if schedule.enabled {
         tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
@@ -1154,6 +1184,8 @@ pub struct EditSchedule {
     pub paused_until: Option<DateTime<Utc>>,
     pub cron_version: Option<String>,
     pub dynamic_skip: Option<String>,
+    pub permissioned_as: Option<String>,
+    pub preserve_permissioned_as: Option<bool>,
 }
 
 pub use windmill_queue::schedule::clear_schedule;
