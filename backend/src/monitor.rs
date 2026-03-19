@@ -39,6 +39,10 @@ use windmill_common::ee_oss::{jobs_waiting_alerts, worker_groups_alerts};
 
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
+use windmill_common::otel_oss::{
+    otel_incr_zombie_delete_count, otel_incr_zombie_restart_count, otel_set_db_pool,
+    otel_set_queue_count, otel_set_queue_running_count,
+};
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::APP_WORKSPACED_ROUTE,
@@ -1960,28 +1964,39 @@ pub async fn monitor_pool(db: &DB) {
     if METRICS_ENABLED.load(Ordering::Relaxed) {
         let db = db.clone();
         tokio::spawn(async move {
-            let active_pool_connections: prometheus::IntGauge = prometheus::register_int_gauge!(
+            let active_gauge = prometheus::register_int_gauge!(
                 "pool_connections_active",
                 "Number of active postgresql connections in the pool"
             )
             .unwrap();
-
-            let idle_pool_connections: prometheus::IntGauge = prometheus::register_int_gauge!(
+            let idle_gauge = prometheus::register_int_gauge!(
                 "pool_connections_idle",
                 "Number of idle postgresql connections in the pool"
             )
             .unwrap();
-
-            let max_pool_connections: prometheus::IntGauge = prometheus::register_int_gauge!(
+            let max_gauge = prometheus::register_int_gauge!(
                 "pool_connections_max",
                 "Number of max postgresql connections in the pool"
             )
             .unwrap();
 
-            max_pool_connections.set(db.options().get_max_connections() as i64);
+            max_gauge.set(db.options().get_max_connections() as i64);
             loop {
-                active_pool_connections.set(db.size() as i64);
-                idle_pool_connections.set(db.num_idle() as i64);
+                active_gauge.set(db.size() as i64);
+                idle_gauge.set(db.num_idle() as i64);
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        });
+    }
+}
+
+pub async fn monitor_pool_otel(db: &DB) {
+    if OTEL_METRICS_ENABLED.load(Ordering::Relaxed) {
+        let db = db.clone();
+        tokio::spawn(async move {
+            let max = db.options().get_max_connections() as i64;
+            loop {
+                otel_set_db_pool(db.size() as i64, db.num_idle() as i64, max);
                 tokio::time::sleep(Duration::from_secs(30)).await;
             }
         });
@@ -2320,7 +2335,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         .map(|last_check| chrono::Utc::now() - last_check > chrono::Duration::seconds(25))
         .unwrap_or(true);
 
-    if metrics_enabled || save_metrics {
+    if metrics_enabled || save_metrics || OTEL_METRICS_ENABLED.load(Ordering::Relaxed) {
         let queue_counts = windmill_common::queue::get_queue_counts(db).await;
 
         #[cfg(feature = "prometheus")]
@@ -2344,6 +2359,8 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
                 metric.set(count as i64);
                 tags_to_watch.push(tag.to_string());
             }
+
+            otel_set_queue_count(&tag, count as i64);
 
             // save queue_count and delay metrics per tag
             if save_metrics {
@@ -2378,28 +2395,45 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             *w = tags_to_watch;
         }
 
+        // Single DB query for running counts, shared by Prometheus and OTel
+        let otel_running = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
         #[cfg(feature = "prometheus")]
-        if metrics_enabled {
-            // Handle queue running count metrics
+        let need_running_counts = metrics_enabled || otel_running;
+        #[cfg(not(feature = "prometheus"))]
+        let need_running_counts = otel_running;
+
+        if need_running_counts {
             let queue_running_counts = windmill_common::queue::get_queue_running_counts(db).await;
 
-            for q in QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
-                if queue_running_counts.get(q).is_none() {
-                    (*QUEUE_RUNNING_COUNT).with_label_values(&[q]).set(0);
+            #[cfg(feature = "prometheus")]
+            if metrics_enabled {
+                for q in QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
+                    if queue_running_counts.get(q).is_none() {
+                        (*QUEUE_RUNNING_COUNT).with_label_values(&[q]).set(0);
+                    }
                 }
             }
 
-            let mut running_tags_to_watch = vec![];
-            for q in queue_running_counts {
-                let count = q.1;
-                let tag = q.0;
+            #[allow(unused_mut, unused_variables)]
+            let mut running_tags_to_watch: Vec<String> = vec![];
+            for (tag, count) in &queue_running_counts {
+                #[cfg(feature = "prometheus")]
+                if metrics_enabled {
+                    let metric = (*QUEUE_RUNNING_COUNT).with_label_values(&[tag]);
+                    metric.set(*count as i64);
+                    running_tags_to_watch.push(tag.to_string());
+                }
 
-                let metric = (*QUEUE_RUNNING_COUNT).with_label_values(&[&tag]);
-                metric.set(count as i64);
-                running_tags_to_watch.push(tag.to_string());
+                if otel_running {
+                    otel_set_queue_running_count(tag, *count as i64);
+                }
             }
-            let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
-            *w = running_tags_to_watch;
+
+            #[cfg(feature = "prometheus")]
+            if metrics_enabled {
+                let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
+                *w = running_tags_to_watch;
+            }
         }
     }
 
@@ -2693,6 +2727,8 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
         }
 
+        otel_incr_zombie_restart_count(restarted.len() as u64);
+
         let base_url = BASE_URL.read().await.clone();
         for r in restarted {
             let last_ping = if let Some(x) = r.ping {
@@ -2860,6 +2896,8 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
     }
+
+    otel_incr_zombie_delete_count(timeouts.len() as u64);
 
     for (job_id, error_kind) in timeouts {
         // since the job is unrecoverable, the same worker queue should never be sent anything

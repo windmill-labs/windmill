@@ -52,6 +52,10 @@ use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
+use windmill_common::otel_oss::{
+    otel_incr_queue_delete_count, otel_incr_queue_pull_count, otel_incr_queue_push_count,
+    otel_incr_worker_execution_failed,
+};
 use windmill_common::{
     auth::permissioned_as_to_username,
     cache::{self, FlowData},
@@ -764,6 +768,8 @@ pub async fn add_completed_job_error(
         |c| c.inc(),
     )
     .await;
+
+    otel_incr_worker_execution_failed(&completed_job.tag);
 
     let result = WrappedError { error: e };
     tracing::error!(
@@ -3422,6 +3428,7 @@ pub async fn pull(
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
+            otel_incr_queue_pull_count();
             return Ok(PulledJobResult {
                 job: Some(pulled_job),
                 suspended,
@@ -4176,6 +4183,7 @@ pub async fn delete_job<'c>(
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_DELETE_COUNT.inc();
     }
+    otel_incr_queue_delete_count();
 
     let job_removed =
         sqlx::query_scalar!("DELETE FROM v2_job_queue WHERE id = $1 RETURNING 1", job_id,)
@@ -5797,6 +5805,7 @@ async fn push_inner<'c, 'd>(
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_PUSH_COUNT.inc();
     }
+    otel_incr_queue_push_count();
 
     {
         let uuid_string = job_id.to_string();
