@@ -7,6 +7,12 @@ const file = fileURLToPath(new URL('package.json', import.meta.url))
 const json = readFileSync(file, 'utf8')
 const version = JSON.parse(json)
 
+const remoteUrl =
+	process.env.REMOTE ??
+	(process.env.BACKEND_PORT
+		? `http://localhost:${process.env.BACKEND_PORT}`
+		: 'https://app.windmill.dev/')
+
 let plugin = {
 	name: 'configure-response-headers',
 	configureServer: (server) => {
@@ -31,16 +37,16 @@ const config = {
 			'app.windmill.xyz',
 			'public.windmill.xyz'
 		],
-		port: 3000,
+		port: parseInt(process.env.FRONTEND_PORT) || 3000,
 		cors: { origin: '*' },
 		proxy: {
 			'^/\\.well-known/.*': {
-				target: process.env.REMOTE ?? 'https://app.windmill.dev',
+				target: remoteUrl,
 				changeOrigin: true,
 				cookieDomainRewrite: 'localhost'
 			},
 			'^/api/w/[^/]+/s3_proxy/.*': {
-				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
+				target: remoteUrl,
 				changeOrigin: false, // Important for signature to be correct
 				cookieDomainRewrite: 'localhost',
 				configure: (proxy, options) => {
@@ -53,7 +59,7 @@ const config = {
 				}
 			},
 			'^/api/.*': {
-				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
+				target: remoteUrl,
 				changeOrigin: true,
 				cookieDomainRewrite: 'localhost'
 			},
