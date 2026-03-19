@@ -114,3 +114,15 @@ pub fn otel_set_db_pool(_active: i64, _idle: i64, _max: i64) {}
 
 #[cfg(not(feature = "private"))]
 pub fn otel_set_health_db_latency(_ms: f64) {}
+
+#[cfg(not(feature = "private"))]
+pub fn otel_incr_worker_started() {}
+
+#[cfg(not(feature = "private"))]
+pub fn otel_set_worker_uptime(_worker: &str, _secs: f64) {}
+
+#[cfg(not(feature = "private"))]
+pub fn otel_set_health_status_phase(_phase: &str) {}
+
+#[cfg(not(feature = "private"))]
+pub fn otel_set_health_db_unresponsive(_unresponsive: bool) {}

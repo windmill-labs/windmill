@@ -54,6 +54,7 @@ use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::otel_oss::{
     otel_incr_queue_delete_count, otel_incr_queue_pull_count, otel_incr_queue_push_count,
+    otel_incr_worker_execution_failed,
 };
 use windmill_common::{
     auth::permissioned_as_to_username,
@@ -767,6 +768,8 @@ pub async fn add_completed_job_error(
         |c| c.inc(),
     )
     .await;
+
+    otel_incr_worker_execution_failed(&completed_job.tag);
 
     let result = WrappedError { error: e };
     tracing::error!(

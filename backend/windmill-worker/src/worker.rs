@@ -21,8 +21,9 @@ use windmill_common::jobs::RunInlineScriptFnParams;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
 use windmill_common::otel_oss::{
-    otel_incr_worker_execution_count, otel_record_worker_execution_duration,
-    otel_record_worker_pull_duration, otel_set_worker_busy,
+    otel_incr_worker_execution_count, otel_incr_worker_started,
+    otel_record_worker_execution_duration, otel_record_worker_pull_duration, otel_set_worker_busy,
+    otel_set_worker_uptime,
 };
 use windmill_common::runtime_assets::init_runtime_asset_loop;
 use windmill_common::runtime_assets::register_runtime_asset;
@@ -1860,6 +1861,8 @@ pub async fn run_worker(
         ws.inc();
     }
 
+    otel_incr_worker_started();
+
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<SameWorkerPayload>(5);
 
     let (mut job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
@@ -2083,6 +2086,8 @@ pub async fn run_worker(
             );
             tracing::debug!(worker = %worker_name, hostname = %hostname, "set uptime metric");
         }
+
+        otel_set_worker_uptime(&worker_name, start_time.elapsed().as_secs_f64());
 
         if last_ping.elapsed().as_secs() > NUM_SECS_PING {
             let read_cgroups =
