@@ -16,18 +16,16 @@
 	import SettingsSearchInput from '$lib/components/instanceSettings/SettingsSearchInput.svelte'
 	import Breadcrumb from '$lib/components/common/breadcrumb/Breadcrumb.svelte'
 	import { ChevronRight, ArrowLeft } from 'lucide-svelte'
-	import { superadmin, workspaceStore, userStore } from '$lib/stores'
-	import { getUserExt } from '$lib/user'
+	import { superadmin } from '$lib/stores'
 	import { onDestroy, tick } from 'svelte'
-	import { UserService, JobService, SettingService, type AIConfig } from '$lib/gen'
+	import { UserService, JobService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
-	import { workspaceAIClients } from '$lib/components/copilot/lib'
+	import InstanceAISettings from '$lib/components/instanceSettings/InstanceAISettings.svelte'
 
 	const settingsSteps = [
 		{ id: 'Core', label: 'Core' },
@@ -158,101 +156,7 @@
 	let accountFormValid = $derived(emailValid && passwordValid)
 
 	// --- AI step state ---
-	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
-	let aiCodeCompletionModel: string | undefined = $state(undefined)
-	let aiDefaultModel: string | undefined = $state(undefined)
-	let aiCustomPrompts: Record<string, string> = $state({})
-	let aiMaxTokensPerModel: Record<string, number> = $state({})
-	let aiUsingOpenaiClientCredentialsOauth = $state(false)
-	let aiConfigLoaded = $state(false)
-
-	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
-	let initialAiCodeCompletionModel: string | undefined = $state(undefined)
-	let initialAiDefaultModel: string | undefined = $state(undefined)
-	let initialAiCustomPrompts: Record<string, string> = $state({})
-	let initialAiMaxTokensPerModel: Record<string, number> = $state({})
-
-	function cloneJson<T>(v: T): T {
-		return JSON.parse(JSON.stringify(v))
-	}
-
-	function storeAiInitialState() {
-		initialAiProviders = cloneJson(aiProviders)
-		initialAiDefaultModel = aiDefaultModel
-		initialAiCodeCompletionModel = aiCodeCompletionModel
-		initialAiCustomPrompts = cloneJson(aiCustomPrompts)
-		initialAiMaxTokensPerModel = cloneJson(aiMaxTokensPerModel)
-	}
-
-	let aiHasUnsavedChanges = $derived(
-		JSON.stringify(aiProviders) !== JSON.stringify(initialAiProviders) ||
-			aiDefaultModel !== initialAiDefaultModel ||
-			aiCodeCompletionModel !== initialAiCodeCompletionModel ||
-			JSON.stringify(aiCustomPrompts) !== JSON.stringify(initialAiCustomPrompts) ||
-			JSON.stringify(aiMaxTokensPerModel) !== JSON.stringify(initialAiMaxTokensPerModel)
-	)
-
-	async function loadAiConfig() {
-		try {
-			const config = (await SettingService.getGlobal({ key: 'ai_config' })) as
-				| AIConfig
-				| undefined
-			aiProviders = config?.providers ?? {}
-			aiDefaultModel = config?.default_model?.model
-			aiCodeCompletionModel = config?.code_completion_model?.model
-			aiCustomPrompts = config?.custom_prompts ?? {}
-			aiMaxTokensPerModel = config?.max_tokens_per_model ?? {}
-			for (const mode of ['edit', 'fix', 'gen']) {
-				if (!(mode in aiCustomPrompts)) {
-					aiCustomPrompts[mode] = ''
-				}
-			}
-			storeAiInitialState()
-			aiConfigLoaded = true
-		} catch (e) {
-			console.error('Failed to load instance AI config', e)
-			aiConfigLoaded = true
-		}
-	}
-
-	async function handleAiCustomSave(config: AIConfig) {
-		await SettingService.setGlobal({
-			key: 'ai_config',
-			requestBody: { value: config }
-		})
-		sendUserToast('Instance AI settings saved')
-	}
-
-	function discardAiChanges() {
-		aiProviders = cloneJson(initialAiProviders)
-		aiDefaultModel = initialAiDefaultModel
-		aiCodeCompletionModel = initialAiCodeCompletionModel
-		aiCustomPrompts = cloneJson(initialAiCustomPrompts)
-		aiMaxTokensPerModel = cloneJson(initialAiMaxTokensPerModel)
-	}
-
-	// Ensure workspace and user stores are set for the AI step (this page bypasses the (logged) layout)
-	async function ensureStores() {
-		if (!$workspaceStore) {
-			$workspaceStore = 'admins'
-		}
-		if (!$userStore) {
-			$userStore = await getUserExt($workspaceStore)
-		}
-		workspaceAIClients.init($workspaceStore)
-	}
-
-	$effect(() => {
-		const isAiStep =
-			(mode === 'wizard' && wizardStep === AI_STEP_INDEX) ||
-			(mode === 'full' && fullTab === 'ai')
-		if (isAiStep) {
-			ensureStores()
-			if (!aiConfigLoaded) {
-				loadAiConfig()
-			}
-		}
-	})
+	let aiHasUnsavedChanges = $state(false)
 
 	// --- EE license key warning ---
 	let showLicenseKeyWarning = $state(false)
@@ -437,67 +341,6 @@
 	}
 </script>
 
-{#snippet aiSetupContent()}
-	<SettingsPageHeader
-		title="AI Configuration"
-		description="Configure default AI providers for all workspaces. Workspace-level settings can override these."
-		link="https://www.windmill.dev/docs/core_concepts/ai_generation"
-	/>
-
-	<div
-		class="p-3 border rounded-md bg-surface-secondary mb-4 mt-4 flex items-center justify-between gap-4"
-	>
-		<div>
-			<p class="text-xs font-medium text-secondary">Resource types</p>
-			<p class="text-2xs text-tertiary mt-0.5">
-				AI providers require their resource types. Sync from the Hub if they are missing.
-			</p>
-		</div>
-		<Button
-			variant="default"
-			unifiedSize="sm"
-			loading={hubSyncStatus === 'loading'}
-			onClick={syncFromHub}
-		>
-			Sync from hub
-		</Button>
-	</div>
-	{#if hubSyncStatus === 'success'}
-		<div class="mb-4">
-			<Alert type="success" title="Resource types synced">
-				{hubSyncMessage}
-			</Alert>
-		</div>
-	{:else if hubSyncStatus === 'error'}
-		<div class="mb-4">
-			<Alert type="error" title="Sync failed">
-				{hubSyncMessage}
-			</Alert>
-		</div>
-	{/if}
-
-	<p class="text-2xs text-hint mb-2">
-		Resources used here must exist in the <strong>admins</strong> workspace.
-	</p>
-
-	{#if aiConfigLoaded}
-		<AISettings
-			bind:aiProviders
-			bind:codeCompletionModel={aiCodeCompletionModel}
-			bind:defaultModel={aiDefaultModel}
-			bind:customPrompts={aiCustomPrompts}
-			bind:maxTokensPerModel={aiMaxTokensPerModel}
-			bind:usingOpenaiClientCredentialsOauth={aiUsingOpenaiClientCredentialsOauth}
-			hasUnsavedChanges={aiHasUnsavedChanges}
-			workspace="admins"
-			disableChatOffset
-			customSave={handleAiCustomSave}
-			onSave={storeAiInitialState}
-			onDiscard={discardAiChanges}
-		/>
-	{/if}
-{/snippet}
-
 {#snippet accountSetupContent()}
 	<SettingsPageHeader title="Root login & Resource Types" />
 
@@ -629,7 +472,7 @@
 						/>
 					{/key}
 				{:else if wizardStep === AI_STEP_INDEX}
-					{@render aiSetupContent()}
+					<InstanceAISettings bind:hasUnsavedChanges={aiHasUnsavedChanges} disableChatOffset showHubSync />
 				{:else}
 					{@render accountSetupContent()}
 				{/if}
@@ -675,7 +518,7 @@
 
 					<div class="flex-1 min-w-0 h-full overflow-auto px-4">
 						{#if fullTab === 'ai' && !yamlMode}
-							{@render aiSetupContent()}
+							<InstanceAISettings bind:hasUnsavedChanges={aiHasUnsavedChanges} disableChatOffset showHubSync />
 						{:else}
 							<InstanceSettings
 								bind:this={instanceSettings}
