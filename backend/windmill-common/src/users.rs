@@ -23,7 +23,8 @@ pub fn username_to_permissioned_as(user: &str) -> String {
 }
 
 lazy_static::lazy_static! {
-    static ref EMAIL_CACHE: quick_cache::sync::Cache<(String, String), (String, std::time::Instant)> =
+    /// Cache key is "workspace_id/username" to avoid allocating a tuple of two Strings on every lookup.
+    static ref EMAIL_CACHE: quick_cache::sync::Cache<String, (String, std::time::Instant)> =
         quick_cache::sync::Cache::new(500);
 }
 
@@ -39,7 +40,7 @@ pub async fn get_email_from_permissioned_as(
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> crate::error::Result<String> {
     if let Some(username) = permissioned_as.strip_prefix("u/") {
-        let key = (workspace_id.to_string(), username.to_string());
+        let key = format!("{}/{}", workspace_id, username);
         if let Some((email, cached_at)) = EMAIL_CACHE.get(&key) {
             if cached_at.elapsed().as_secs() < EMAIL_CACHE_TTL_SECS {
                 return Ok(email);
