@@ -11,16 +11,8 @@
 {$BASE_URL} {
         bind {$ADDRESS}
 
-        # Extra services: LSP (/ws/*), Multiplayer (/ws_mp/*), Debugger (/ws_debug/*)
-        # Gateway mode (default): single route, gateway dispatches by prefix
+        # Extra services: LSP, Multiplayer, Debugger (windmill_extra gateway)
         reverse_proxy /ws/* /ws_mp/* /ws_debug/* http://windmill_extra:3000
-        #
-        # Direct mode: set ENABLE_GATEWAY=false and use separate routes instead
-        # reverse_proxy /ws/* http://windmill_extra:3001
-        # reverse_proxy /ws_mp/* http://windmill_extra:3002
-        # handle_path /ws_debug/* {
-        #         reverse_proxy http://windmill_extra:3003
-        # }
 
         # Search indexer, Enterprise Edition (windmill_indexer:8002)
         # reverse_proxy /api/srch/* http://windmill_indexer:8002
