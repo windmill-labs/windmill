@@ -300,8 +300,8 @@
 				<div class="flex items-center justify-between">
 					<span class="block text-xs font-semibold">{label}</span>
 					<div class="flex gap-2">
-						<Button size="xs2" on:click={selectAll}>Select All</Button>
-						<Button size="xs2" on:click={clearAll}>Clear All</Button>
+						<Button size="xs2" onClick={selectAll}>Select All</Button>
+						<Button size="xs2" onClick={clearAll}>Clear All</Button>
 					</div>
 				</div>
 			{/snippet}

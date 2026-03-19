@@ -42,7 +42,7 @@
 					workspaceId = workspaces[0].value
 				}
 			})
-			.catch((e) => {
+			.catch(() => {
 				sendUserToast('Failed to load workspaces', true)
 			})
 			.finally(() => {
