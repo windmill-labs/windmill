@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, AppViewerContext } from '../../types'
+	import type { AppEditorContext, AppViewerContext, GridItem } from '../../types'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import InlineScriptsPanelList from './InlineScriptsPanelList.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
@@ -39,19 +39,39 @@
 		}
 	}
 
-	// let gridItem = $derived(
-	// 	$selectedComponentInEditor && !$selectedComponentInEditor.startsWith(BG_PREFIX)
-	// 		// ? findGridItem($app, $selectedComponentInEditor?.split('_')?.[0])
-	// 		: undefined
-	// )
+	let prefixOrId = $derived.by(() => {
+		const sel = $selectedComponentInEditor
+		if (!sel) return undefined
+		if (sel.startsWith(BG_PREFIX)) return 'bg'
+		return sel.endsWith('_transformer') ? sel.slice(0, -'_transformer'.length) : sel
+	})
+	let id = $derived.by(() => {
+		const sel = $selectedComponentInEditor
+		if (!sel || !sel.startsWith(BG_PREFIX)) return undefined
+		const rest = sel.slice(BG_PREFIX.length)
+		return rest.endsWith('_transformer') ? rest.slice(0, -'_transformer'.length) : rest
+	})
 
-	let [prefixOrId, id] = $derived($selectedComponentInEditor?.split('_') ?? [])
-
-	// let unusedInlineScript = $derived(
-	// 	$app?.unusedInlineScripts?.findIndex(
-	// 		(k_, index) => `unused-${index}` === $selectedComponentInEditor
-	// 	)
-	// )
+	function containsAction(gridItem: GridItem, actionId: string | undefined): boolean {
+		if (!actionId || !gridItem?.data) return false
+		const data = gridItem.data
+		if (data.type === 'tablecomponent') {
+			return data.actionButtons?.some((a) => a.id === actionId) ?? false
+		}
+		if (
+			data.type === 'aggridcomponent' ||
+			data.type === 'aggridcomponentee' ||
+			data.type === 'dbexplorercomponent' ||
+			data.type === 'aggridinfinitecomponent' ||
+			data.type === 'aggridinfinitecomponentee'
+		) {
+			return data.actions?.some((a) => a.id === actionId) ?? false
+		}
+		if (data.type === 'menucomponent') {
+			return data.menuItems?.some((a) => a.id === actionId) ?? false
+		}
+		return false
+	}
 
 	interface Props {
 		width?: number | undefined
@@ -72,9 +92,9 @@
 			<div class="text-sm text-secondary text-center py-8 px-2">
 				Select a runnable on the left panel
 			</div>
-		{:else if prefixOrId != 'bg' && !prefixOrId.startsWith('unused-')}
+		{:else if prefixOrId != 'bg' && !prefixOrId?.startsWith('unused-')}
 			{#each $app.grid as gridItem, index (gridItem?.id)}
-				{#if gridItem?.id == prefixOrId}
+				{#if gridItem?.id == prefixOrId || containsAction(gridItem, prefixOrId)}
 					<InlineScriptsPanelWithTable
 						on:createScriptFromInlineScript={(e) => {
 							createScriptFromInlineScript(
@@ -90,7 +110,7 @@
 			{/each}
 			{#each Object.keys($app.subgrids ?? {}) as subgrid (subgrid)}
 				{#each $app.subgrids?.[subgrid] ?? [] as subgridItem, index (subgridItem?.id)}
-					{#if subgridItem?.id == prefixOrId && $app.subgrids?.[subgrid]}
+					{#if (subgridItem?.id == prefixOrId || containsAction(subgridItem, prefixOrId)) && $app.subgrids?.[subgrid]}
 						<InlineScriptsPanelWithTable
 							on:createScriptFromInlineScript={(e) => {
 								createScriptFromInlineScript(
@@ -105,7 +125,7 @@
 					{/if}
 				{/each}
 			{/each}
-		{:else if prefixOrId != 'bg' && prefixOrId.startsWith('unused-')}
+		{:else if prefixOrId != 'bg' && prefixOrId?.startsWith('unused-')}
 			{#each $app.unusedInlineScripts as unusedInlineScript, index}
 				{#if `unused-${index}` == prefixOrId}
 					<InlineScriptEditor
