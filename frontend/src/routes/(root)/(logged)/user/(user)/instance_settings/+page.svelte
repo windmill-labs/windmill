@@ -16,7 +16,8 @@
 	import SettingsSearchInput from '$lib/components/instanceSettings/SettingsSearchInput.svelte'
 	import Breadcrumb from '$lib/components/common/breadcrumb/Breadcrumb.svelte'
 	import { ChevronRight, ArrowLeft } from 'lucide-svelte'
-	import { superadmin } from '$lib/stores'
+	import { superadmin, workspaceStore, userStore } from '$lib/stores'
+	import { getUserExt } from '$lib/user'
 	import { onDestroy, tick } from 'svelte'
 	import { UserService, JobService, SettingService, type AIConfig } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -229,13 +230,25 @@
 		aiMaxTokensPerModel = cloneJson(initialAiMaxTokensPerModel)
 	}
 
+	// Ensure workspace and user stores are set for the AI step (this page bypasses the (logged) layout)
+	async function ensureStores() {
+		if (!$workspaceStore) {
+			$workspaceStore = 'admins'
+		}
+		if (!$userStore) {
+			$userStore = await getUserExt($workspaceStore)
+		}
+	}
+
 	$effect(() => {
-		if (
-			!aiConfigLoaded &&
-			((mode === 'wizard' && wizardStep === AI_STEP_INDEX) ||
-				(mode === 'full' && fullTab === 'ai'))
-		) {
-			loadAiConfig()
+		const isAiStep =
+			(mode === 'wizard' && wizardStep === AI_STEP_INDEX) ||
+			(mode === 'full' && fullTab === 'ai')
+		if (isAiStep) {
+			ensureStores()
+			if (!aiConfigLoaded) {
+				loadAiConfig()
+			}
 		}
 	})
 
