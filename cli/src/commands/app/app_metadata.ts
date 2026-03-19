@@ -7,6 +7,7 @@ import { yamlParseFile } from "../../utils/yaml.ts";
 import { stringify as yamlStringify } from "yaml";
 import { GlobalOptions } from "../../types.ts";
 import {
+  readLockfile,
   checkifMetadataUptodate,
   blueColor,
   clearGlobalLock,
@@ -129,9 +130,6 @@ export async function generateAppLocksInternal(
     log.info(`Generating locks for app ${appFolder} at ${remote_path}`);
   }
 
-  const rawWorkspaceDependencies: Record<string, string> =
-    await getRawWorkspaceDependencies();
-
   // Read the app file first to filter workspace dependencies
   const appFilePath = path.join(
     appFolder,
@@ -139,32 +137,18 @@ export async function generateAppLocksInternal(
   );
   const appFile = (await yamlParseFile(appFilePath)) as AppFile;
 
-  // Filter workspace dependencies based on inline scripts' languages and annotations
   const appValue = rawApp ? (appFile as RawAppFile).runnables : (appFile as NormalAppFile).value;
-  const filteredDeps = await filterWorkspaceDependenciesForApp(
-    appValue,
-    rawWorkspaceDependencies,
-    appFolder
-  );
-
   const folderNormalized = appFolder.replaceAll(SEP, "/");
 
-  // Compute hashes (needed for both staleness check and generation)
-  let hashes = await generateAppHash(
-    filteredDeps,
-    appFolder,
-    rawApp,
-    opts.defaultTs
-  );
-
-  const conf = await import("../../utils/metadata.ts").then((m) =>
-    m.readLockfile()
-  );
-  const isDirectlyStale = !(await checkifMetadataUptodate(appFolder, hashes[TOP_HASH], conf, TOP_HASH));
+  let filteredDeps: Record<string, string> = {};
+  const conf = await readLockfile();
 
   // New behaviour: tree-based dependency tracking
   if (!legacyBehaviour && tree) {
     if (dryRun) {
+      const hashes = await generateAppHash({}, appFolder, rawApp, opts.defaultTs);
+      const isDirectlyStale = !(await checkifMetadataUptodate(appFolder, hashes[TOP_HASH], conf, TOP_HASH));
+
       // For raw apps in new format, runnables are in separate files under backend/
       let treeAppValue = structuredClone(appValue);
       if (rawApp) {
@@ -175,8 +159,8 @@ export async function generateAppLocksInternal(
         }
       }
 
-      // First pass: collect all relative imports from inline scripts, add app as single tree node
-      const allImports: string[] = [];
+      // First pass: add inline scripts as separate nodes, then add app node importing them
+      const inlineScriptPaths: string[] = [];
       await traverseAndProcessInlineScripts(treeAppValue, async (inlineScript, context) => {
         if (!inlineScript.content || !inlineScript.language) {
           return inlineScript;
@@ -196,17 +180,27 @@ export async function generateAppLocksInternal(
         const treePath = folderNormalized + "/" + context.path.join("/");
         const language = inlineScript.language as ScriptLanguage;
         const imports = await extractRelativeImports(content, treePath, language);
-        allImports.push(...imports);
+        await tree.addNode(treePath, content, language, "", imports, "inline_script", folderNormalized, appFolder, false);
+        inlineScriptPaths.push(treePath);
 
         return inlineScript;
       });
 
-      await tree.addScript(folderNormalized, "", "bun", "", allImports, rawWorkspaceDependencies, "app", folderNormalized, appFolder, isDirectlyStale, rawApp);
+      await tree.addNode(folderNormalized, "", "bun", "", inlineScriptPaths, "app", folderNormalized, appFolder, isDirectlyStale, rawApp);
       return;
     }
-    // Second pass: proceed to generate (caller verified this app is stale via tree)
+    // Second pass: get mismatched workspace deps from tree
+    // TODO: pass raw workspace deps more precisely to every inline script lock generation call
+    // (currently we pass the union of all mismatched deps filtered for the whole app)
+    filteredDeps = await filterWorkspaceDependenciesForApp(appValue, tree.getMismatchedWorkspaceDeps(), appFolder);
   } else {
-    // Legacy behaviour: use existing staleness check
+    // Legacy behaviour
+    const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
+    filteredDeps = await filterWorkspaceDependenciesForApp(appValue, rawWorkspaceDependencies, appFolder);
+
+    const hashes = await generateAppHash(filteredDeps, appFolder, rawApp, opts.defaultTs);
+    const isDirectlyStale = !(await checkifMetadataUptodate(appFolder, hashes[TOP_HASH], conf, TOP_HASH));
+
     if (!isDirectlyStale) {
       if (!noStaleMessage) {
         log.info(
@@ -232,6 +226,8 @@ export async function generateAppLocksInternal(
   let updatedScripts: string[] = [];
 
   if (!justUpdateMetadataLock) {
+    const hashes = await generateAppHash(filteredDeps, appFolder, rawApp, opts.defaultTs);
+
     const changedScripts = [];
     // Find hashes that do not correspond to previous hashes
     for (const [scriptPath, hash] of Object.entries(hashes)) {
@@ -244,7 +240,7 @@ export async function generateAppLocksInternal(
     }
 
     // Get temp_script_refs from tree for relative import resolution
-    const tempScriptRefs = tree?.flatten(folderNormalized);
+    const tempScriptRefs = tree?.getTempScriptRefs(folderNormalized);
 
     // In tree mode, the tree already verified this app is stale (possibly via dependency change).
     // Per-script hashes only detect content changes, not transitive dependency changes,
@@ -314,14 +310,14 @@ export async function generateAppLocksInternal(
   }
 
   // Regenerate hashes after updates
-  hashes = await generateAppHash(
+  const finalHashes = await generateAppHash(
     filteredDeps,
     appFolder,
     rawApp,
     opts.defaultTs
   );
   await clearGlobalLock(appFolder);
-  for (const [scriptPath, hash] of Object.entries(hashes)) {
+  for (const [scriptPath, hash] of Object.entries(finalHashes)) {
     await updateMetadataGlobalLock(appFolder, hash, scriptPath);
   }
   if (!noStaleMessage) {

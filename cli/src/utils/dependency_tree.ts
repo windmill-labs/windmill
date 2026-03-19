@@ -4,8 +4,15 @@
 
 import { Workspace } from "../commands/workspace/workspace.ts";
 import * as wmill from "../../gen/services.gen.ts";
+import type { ScriptLang } from "../../gen/types.gen.ts";
 import { ScriptLanguage } from "./script_common.ts";
-import { filterWorkspaceDependencies, generateScriptHash } from "./metadata.ts";
+import {
+  filterWorkspaceDependencies,
+  generateScriptHash,
+  checkifMetadataUptodate,
+  workspaceDependenciesPathToLanguageAndFilename,
+  updateMetadataGlobalLock,
+} from "./metadata.ts";
 import { generateHash } from "./utils.ts";
 
 /**
@@ -17,21 +24,35 @@ export async function uploadScripts(
   tree: DoubleLinkedDependencyTree,
   workspace: Workspace
 ): Promise<void> {
-  // Compute SHA256(content) for all scripts with content
-  const localHashes: Record<string, string> = {};
+  // Split into scripts vs workspace deps and compute SHA256(content) for each
+  const scriptHashes: Record<string, string> = {};
+  const workspaceDeps: { path: string; language: ScriptLang; name?: string; hash: string }[] = [];
+
   for (const path of tree.allPaths()) {
     const content = tree.getContent(path);
-    if (content) {
-      localHashes[path] = await generateHash(content);
+    if (!content) continue;
+
+    const hash = await generateHash(content);
+
+    if (tree.getItemType(path) === "dependencies") {
+      const info = workspaceDependenciesPathToLanguageAndFilename(path);
+      if (info) {
+        workspaceDeps.push({ path, language: info.language as ScriptLang, name: info.name, hash });
+      }
+    } else {
+      scriptHashes[path] = hash;
     }
   }
 
-  if (Object.keys(localHashes).length === 0) return;
+  if (Object.keys(scriptHashes).length === 0 && workspaceDeps.length === 0) return;
 
-  // Single batch query: find which scripts differ from deployed versions
+  // Single batch query: find which scripts/deps differ from deployed versions
   const mismatched = await wmill.diffRawScriptsWithDeployed({
     workspace: workspace.workspaceId,
-    requestBody: localHashes,
+    requestBody: {
+      scripts: scriptHashes,
+      workspace_deps: workspaceDeps,
+    },
   });
 
   // Upload only mismatched scripts to temp storage
@@ -47,7 +68,7 @@ export async function uploadScripts(
   }
 }
 
-export type ItemType = "script" | "flow" | "app";
+export type ItemType = "script" | "inline_script" | "flow" | "app" | "dependencies";
 
 interface DependencyNode {
   content: string;
@@ -68,22 +89,29 @@ interface DependencyNode {
 
 export class DoubleLinkedDependencyTree {
   private nodes: Map<string, DependencyNode> = new Map();
+  private workspaceDeps: Record<string, string> = {};
 
-  async addScript(
+  setWorkspaceDeps(deps: Record<string, string>): void {
+    this.workspaceDeps = deps;
+  }
+
+  async addNode(
     path: string,
     content: string,
     language: ScriptLanguage,
     metadata: string,
     imports: string[],
-    rawWorkspaceDependencies: Record<string, string>,
     itemType: ItemType,
     folder: string,
     originalPath: string,
     isDirectlyStale: boolean,
     isRawApp?: boolean
   ): Promise<void> {
-    const filteredDeps = filterWorkspaceDependencies(rawWorkspaceDependencies, content, language);
-    const stalenessHash = await generateScriptHash(filteredDeps, content, metadata);
+    const hasWorkspaceDeps = itemType === "script" || itemType === "inline_script";
+    const filteredDeps = hasWorkspaceDeps
+      ? filterWorkspaceDependencies(this.workspaceDeps, content, language)
+      : {};
+    const stalenessHash = await generateScriptHash({}, content, metadata);
 
     if (!this.nodes.has(path)) {
       this.nodes.set(path, {
@@ -103,7 +131,25 @@ export class DoubleLinkedDependencyTree {
     node.isDirectlyStale = isDirectlyStale;
     node.isRawApp = isRawApp;
 
-    for (const importPath of imports) {
+    // Create nodes for referenced workspace deps with content and language.
+    const filteredDepsPaths = Object.keys(filteredDeps);
+    for (const depsPath of filteredDepsPaths) {
+      if (!this.nodes.has(depsPath)) {
+        const depsInfo = workspaceDependenciesPathToLanguageAndFilename(depsPath);
+        const contentHash = await generateHash(filteredDeps[depsPath] + depsPath);
+        const isUpToDate = await checkifMetadataUptodate(depsPath, contentHash, undefined);
+        this.nodes.set(depsPath, {
+          content: filteredDeps[depsPath],
+          stalenessHash: "", language: depsInfo?.language ?? "deno", metadata: "",
+          imports: new Set(), importedBy: new Set(),
+          itemType: "dependencies", folder: "", originalPath: depsPath,
+          isDirectlyStale: !isUpToDate,
+        });
+      }
+    }
+
+    const allImports = [...imports, ...filteredDepsPaths];
+    for (const importPath of allImports) {
       node.imports.add(importPath);
 
       if (!this.nodes.has(importPath)) {
@@ -168,6 +214,10 @@ export class DoubleLinkedDependencyTree {
     return this.nodes.get(path)?.originalPath;
   }
 
+  getImports(path: string): Set<string> | undefined {
+    return this.nodes.get(path)?.imports;
+  }
+
   /**
    * Returns true if this node has been marked stale (directly or transitively).
    */
@@ -216,11 +266,10 @@ export class DoubleLinkedDependencyTree {
   }
 
   /**
-   * Flatten imports for a script - returns path → contentHash for all transitive imports.
-   * Must be called after uploadScripts() has populated contentHash values.
+   * Walks all transitive imports for a node, calling the callback for each.
+   * Callback may return true to stop traversing that branch.
    */
-  flatten(scriptPath: string): Record<string, string> {
-    const result: Record<string, string> = {};
+  traverseTransitive(scriptPath: string, callback: (importPath: string, node: DependencyNode) => boolean | void): void {
     const queue = [scriptPath];
     const visited = new Set<string>();
 
@@ -234,14 +283,14 @@ export class DoubleLinkedDependencyTree {
 
       for (const importPath of node.imports) {
         const importNode = this.nodes.get(importPath);
-        if (importNode?.contentHash) {
-          result[importPath] = importNode.contentHash;
-          queue.push(importPath);
+        if (importNode) {
+          const stop = callback(importPath, importNode);
+          if (!stop) {
+            queue.push(importPath);
+          }
         }
       }
     }
-
-    return result;
   }
 
   allPaths(): IterableIterator<string> {
@@ -264,15 +313,47 @@ export class DoubleLinkedDependencyTree {
   }
 
   /**
-   * Flatten imports for multiple scripts - returns combined path → hash.
-   * Useful for getting all temp_script_refs for a flow/app's inline scripts.
+   * Returns workspace deps that were uploaded as mismatched with remote.
+   * These need to be passed as raw_workspace_dependencies in job args
+   * so the backend uses local content instead of deployed.
    */
-  flattenAll(paths: string[]): Record<string, string> {
+  getMismatchedWorkspaceDeps(): Record<string, string> {
     const result: Record<string, string> = {};
-    for (const path of paths) {
-      Object.assign(result, this.flatten(path));
+    for (const [path, node] of this.nodes.entries()) {
+      if (node.itemType === "dependencies" && node.contentHash && node.content) {
+        result[path] = node.content;
+      }
     }
     return result;
+  }
+
+  /**
+   * Returns path → contentHash for all transitive imports that have been uploaded.
+   * Stops branches where no contentHash is set (node matches deployed version).
+   * Must be called after uploadScripts() has populated contentHash values.
+   */
+  getTempScriptRefs(scriptPath: string): Record<string, string> {
+    const result: Record<string, string> = {};
+    this.traverseTransitive(scriptPath, (_path, node) => {
+      if (node.contentHash) {
+        result[_path] = node.contentHash;
+      }
+    });
+    return result;
+  }
+
+  /**
+   * Persist workspace dep hashes to wmill-lock.yaml so getRawWorkspaceDependencies
+   * considers them up-to-date on the next run.
+   */
+  async persistDepsHashes(depsPaths: string[]): Promise<void> {
+    for (const path of depsPaths) {
+      const node = this.nodes.get(path);
+      if (node?.itemType === "dependencies" && node.content) {
+        const hash = await generateHash(node.content + path);
+        await updateMetadataGlobalLock(path, hash);
+      }
+    }
   }
 
   get size(): number {

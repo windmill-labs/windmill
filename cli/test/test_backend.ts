@@ -667,6 +667,36 @@ export async function createNonAdminUser(
   return await loginResp.text();
 }
 
+/**
+ * Create workspace dependencies via the API (e.g. a shared package.json for bun scripts).
+ */
+export async function createRemoteWorkspaceDeps(
+  backend: TestBackend,
+  language: string,
+  content: string,
+): Promise<void> {
+  if (!backend.apiRequest) {
+    throw new Error("Backend does not support apiRequest");
+  }
+
+  const resp = await backend.apiRequest(
+    `/api/w/${backend.workspace}/workspace_dependencies/create`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspace_id: backend.workspace,
+        language,
+        content,
+      }),
+    }
+  );
+  if (!resp.ok) {
+    throw new Error(`Failed to create workspace deps (${resp.status}): ${await resp.text()}`);
+  }
+  await resp.text();
+}
+
 // Re-export for convenience
 export type { CargoBackendConfig } from "./cargo_backend.ts";
 export type { ContainerConfig } from "./containerized_backend.ts";

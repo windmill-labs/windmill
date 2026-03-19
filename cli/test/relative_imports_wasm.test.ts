@@ -6,10 +6,10 @@
  */
 
 import { expect, test, describe } from "bun:test";
-import { readFile, readdir, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile, mkdir } from "node:fs/promises";
 import { loadParser } from "../src/utils/metadata.ts";
 import { extractRelativeImports } from "../src/utils/relative_imports.ts";
-import { withTestBackend, type TestBackend } from "./test_backend.ts";
+import { withTestBackend, type TestBackend, createRemoteWorkspaceDeps } from "./test_backend.ts";
 import {
   createLocalScript,
   createLocalFlow,
@@ -509,6 +509,432 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
       // Raw app lock should now have axios
       const rawAppHasAxios = await anyLockContains(rawAppDir, "axios");
       expect(rawAppHasAxios).toBe(true);
+    });
+  });
+
+  test("locally modified workspace deps are used for lock generation instead of remote", { timeout: 120000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+      );
+
+      // Deploy workspace deps with lodash on the remote
+      const remotePackageJson = JSON.stringify({ dependencies: { lodash: "^4" } });
+      await createRemoteWorkspaceDeps(backend, "bun", remotePackageJson);
+
+      // Pull to get remote state locally
+      const pull = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pull.code).toBe(0);
+
+      // Modify workspace deps locally to use axios instead of lodash (NOT pushed)
+      await mkdir(`${tempDir}/dependencies`, { recursive: true });
+      await writeFile(
+        `${tempDir}/dependencies/package.json`,
+        JSON.stringify({ dependencies: { axios: "^1" } })
+      );
+
+      // Generate metadata to persist workspace deps hash — after this, deps are "up-to-date"
+      // in wmill-lock.yaml even though they differ from the remote deployed version
+      const gen1 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
+      expect(gen1.code).toBe(0);
+
+      // Verify wmill-lock.yaml has the workspace deps entry with correct hash
+      const { generateHash } = await import("../src/utils/utils.ts");
+      const localDepsContent = JSON.stringify({ dependencies: { axios: "^1" } });
+      const expectedHash = await generateHash(localDepsContent + "dependencies/package.json");
+      const lockYaml = await readFile(`${tempDir}/wmill-lock.yaml`, "utf-8");
+      expect(lockYaml).toContain("dependencies/package.json");
+      expect(lockYaml).toContain(expectedHash);
+
+      // Create a new script that uses workspace deps (no annotation = uses default package.json)
+      await createLocalScript(
+        tempDir,
+        "f/test",
+        "my_script",
+        "bun",
+        `export async function main() { return "hello"; }`
+      );
+
+      // Generate metadata — workspace deps are NOT stale (hash matches lockfile),
+      // but they differ from the remote deployed version.
+      // The script's lock should use the local workspace deps (axios), not remote (lodash).
+      const gen2 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
+      if (gen2.code !== 0) {
+        console.log("STDOUT:", gen2.stdout);
+        console.log("STDERR:", gen2.stderr);
+      }
+      expect(gen2.code).toBe(0);
+
+      const scriptLock = await readFile(
+        `${tempDir}/f/test/my_script.script.lock`,
+        "utf-8"
+      ).catch(() => "");
+      // Lock should use local workspace deps (axios), not remote (lodash)
+      expect(scriptLock).toContain("axios");
+      expect(scriptLock).not.toContain("lodash");
+    });
+  });
+
+  test("unchanged workspace deps do not cause dependents to be stale on subsequent runs", { timeout: 120000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+      );
+
+      // Create local workspace deps
+      await mkdir(`${tempDir}/dependencies`, { recursive: true });
+      await writeFile(
+        `${tempDir}/dependencies/package.json`,
+        JSON.stringify({ dependencies: { axios: "^1" } })
+      );
+
+      // Create a script that uses workspace deps
+      await createLocalScript(
+        tempDir,
+        "f/test",
+        "my_script",
+        "bun",
+        `export async function main() { return "hello"; }`
+      );
+
+      // First generate-metadata — everything is stale, locks get generated
+      const gen1 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
+      if (gen1.code !== 0) {
+        console.log("STDOUT:", gen1.stdout);
+        console.log("STDERR:", gen1.stderr);
+      }
+      expect(gen1.code).toBe(0);
+
+      const scriptLock = await readFile(
+        `${tempDir}/f/test/my_script.script.lock`,
+        "utf-8"
+      ).catch(() => "");
+      expect(scriptLock).toContain("axios");
+
+      // Second generate-metadata — nothing changed, should report "All metadata up-to-date"
+      const gen2 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
+      if (gen2.code !== 0) {
+        console.log("STDOUT:", gen2.stdout);
+        console.log("STDERR:", gen2.stderr);
+      }
+      expect(gen2.code).toBe(0);
+
+      const output = gen2.stdout + gen2.stderr;
+      expect(output).toContain("All metadata up-to-date");
+      // Should NOT show workspace deps or scripts as stale
+      expect(output).not.toContain("stale metadata");
+    });
+  });
+
+  test("diff endpoint correctly identifies mismatched scripts and workspace deps", { timeout: 60000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const { generateHash } = await import("../src/utils/utils.ts");
+      const { setClient } = await import("../src/core/client.ts");
+      const { diffRawScriptsWithDeployed } = await import("../gen/services.gen.ts");
+
+      setClient(backend.token, backend.baseUrl);
+
+      // Deploy a script and two workspace deps (bun + python)
+      const scriptContent = `export async function main() { return "hello"; }`;
+      await createRemoteScript(backend, "f/test/deployed_script", scriptContent);
+
+      const bunDepsContent = JSON.stringify({ dependencies: { lodash: "^4" } });
+      await createRemoteWorkspaceDeps(backend, "bun", bunDepsContent);
+
+      const scriptHash = await generateHash(scriptContent);
+      const bunDepsHash = await generateHash(bunDepsContent);
+      const wrongHash = await generateHash("totally different content");
+
+      // Call 1: matching hash, same path → should NOT be mismatched
+      const call1 = await diffRawScriptsWithDeployed({
+        workspace: backend.workspace,
+        requestBody: {
+          scripts: { "f/test/deployed_script": scriptHash },
+          workspace_deps: [
+            { path: "dependencies/package.json", language: "bun", hash: bunDepsHash },
+          ],
+        },
+      });
+      expect(call1).not.toContain("f/test/deployed_script");
+      expect(call1).not.toContain("dependencies/package.json");
+
+      // Call 2: wrong hash same path + right hash wrong path → both should be mismatched
+      const call2 = await diffRawScriptsWithDeployed({
+        workspace: backend.workspace,
+        requestBody: {
+          scripts: {
+            "f/test/deployed_script": wrongHash,
+            "f/test/nonexistent_script": scriptHash,
+          },
+          workspace_deps: [
+            { path: "dependencies/package.json", language: "bun", hash: wrongHash },
+            { path: "dependencies/requirements.in", language: "python3", hash: bunDepsHash },
+          ],
+        },
+      });
+      // Same path, wrong hash → mismatched
+      expect(call2).toContain("f/test/deployed_script");
+      expect(call2).toContain("dependencies/package.json");
+      // Wrong path, right hash → mismatched (endpoint should not match by hash alone)
+      expect(call2).toContain("f/test/nonexistent_script");
+      expect(call2).toContain("dependencies/requirements.in");
+    });
+  });
+
+  test("folder arg includes importers outside the folder by default", { timeout: 120000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+      );
+
+      // Script A in f/lib — has lodash dep
+      await createLocalScript(
+        tempDir,
+        "f/lib",
+        "helper",
+        "bun",
+        `import _ from "lodash";\nexport function helper() { return _.VERSION; }`
+      );
+
+      // Script B in f/app — imports A from a different directory
+      await createLocalScript(
+        tempDir,
+        "f/app",
+        "consumer",
+        "bun",
+        `import { helper } from "/f/lib/helper";\nexport async function main() { return helper(); }`
+      );
+
+      // First: generate-metadata globally to establish baseline locks
+      const gen1 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
+      if (gen1.code !== 0) {
+        console.log("STDOUT:", gen1.stdout);
+        console.log("STDERR:", gen1.stderr);
+      }
+      expect(gen1.code).toBe(0);
+
+      const consumerLock1 = await readFile(
+        `${tempDir}/f/app/consumer.script.lock`,
+        "utf-8"
+      ).catch(() => "");
+      expect(consumerLock1).toContain("lodash");
+
+      // Now modify helper to use axios instead
+      await createLocalScript(
+        tempDir,
+        "f/lib",
+        "helper",
+        "bun",
+        `import axios from "axios";\nexport function helper() { return axios; }`
+      );
+
+      // Run generate-metadata for f/lib only — consumer (in f/app) should also be updated
+      const gen2 = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "f/lib"],
+        tempDir
+      );
+      if (gen2.code !== 0) {
+        console.log("STDOUT:", gen2.stdout);
+        console.log("STDERR:", gen2.stderr);
+      }
+      expect(gen2.code).toBe(0);
+
+      // Consumer's lock should now have axios (updated even though it's outside f/lib)
+      const consumerLock2 = await readFile(
+        `${tempDir}/f/app/consumer.script.lock`,
+        "utf-8"
+      ).catch(() => "");
+      expect(consumerLock2).toContain("axios");
+    });
+  });
+
+  test("--strict-folder-boundaries skips importers outside the folder and warns", { timeout: 120000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+      );
+
+      // Script A in f/lib — has lodash dep
+      await createLocalScript(
+        tempDir,
+        "f/lib",
+        "helper",
+        "bun",
+        `import _ from "lodash";\nexport function helper() { return _.VERSION; }`
+      );
+
+      // Script B in f/app — imports A
+      await createLocalScript(
+        tempDir,
+        "f/app",
+        "consumer",
+        "bun",
+        `import { helper } from "/f/lib/helper";\nexport async function main() { return helper(); }`
+      );
+
+      // Establish baseline
+      const gen1 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
+      expect(gen1.code).toBe(0);
+
+      const consumerLock1 = await readFile(
+        `${tempDir}/f/app/consumer.script.lock`,
+        "utf-8"
+      ).catch(() => "");
+      expect(consumerLock1).toContain("lodash");
+
+      // Modify helper to use axios
+      await createLocalScript(
+        tempDir,
+        "f/lib",
+        "helper",
+        "bun",
+        `import axios from "axios";\nexport function helper() { return axios; }`
+      );
+
+      // Run with --strict-folder-boundaries — consumer should NOT be updated
+      const gen2 = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "--strict-folder-boundaries", "f/lib"],
+        tempDir
+      );
+      if (gen2.code !== 0) {
+        console.log("STDOUT:", gen2.stdout);
+        console.log("STDERR:", gen2.stderr);
+      }
+      expect(gen2.code).toBe(0);
+
+      // Consumer lock should still have lodash (not updated)
+      const consumerLock2 = await readFile(
+        `${tempDir}/f/app/consumer.script.lock`,
+        "utf-8"
+      ).catch(() => "");
+      expect(consumerLock2).toContain("lodash");
+      expect(consumerLock2).not.toContain("axios");
+
+      // Output should contain a warning about the skipped importer
+      const output = gen2.stdout + gen2.stderr;
+      expect(output).toContain("Warning");
+      expect(output).toContain("f/app/consumer");
+
+      // Running again with same args should report up-to-date (not stuck in loop)
+      const gen3 = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "--strict-folder-boundaries", "f/lib"],
+        tempDir
+      );
+      expect(gen3.code).toBe(0);
+      const output3 = gen3.stdout + gen3.stderr;
+      expect(output3).toContain("All metadata up-to-date");
+    });
+  });
+
+  // TODO: consider adding --skip-workspace-dependencies flag to generate-metadata
+  test("folder arg includes workspace dependencies in lock generation", { timeout: 120000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+      );
+
+      // Deploy workspace deps with lodash on remote
+      const remotePackageJson = JSON.stringify({ dependencies: { lodash: "^4" } });
+      await createRemoteWorkspaceDeps(backend, "bun", remotePackageJson);
+
+      // Pull to get remote state
+      const pull = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pull.code).toBe(0);
+
+      // Modify workspace deps locally to use axios
+      await mkdir(`${tempDir}/dependencies`, { recursive: true });
+      await writeFile(
+        `${tempDir}/dependencies/package.json`,
+        JSON.stringify({ dependencies: { axios: "^1" } })
+      );
+
+      // Create a script that uses workspace deps
+      await createLocalScript(
+        tempDir,
+        "f/mydir",
+        "my_script",
+        "bun",
+        `export async function main() { return "hello"; }`
+      );
+
+      // Run generate-metadata for f/mydir only — should still include workspace deps content
+      // TODO: consider adding --skip-workspace-dependencies flag
+      const gen = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "f/mydir"],
+        tempDir
+      );
+      if (gen.code !== 0) {
+        console.log("STDOUT:", gen.stdout);
+        console.log("STDERR:", gen.stderr);
+      }
+      expect(gen.code).toBe(0);
+
+      const scriptLock = await readFile(
+        `${tempDir}/f/mydir/my_script.script.lock`,
+        "utf-8"
+      ).catch(() => "");
+      // Lock should use local workspace deps (axios), not remote (lodash)
+      expect(scriptLock).toContain("axios");
+      expect(scriptLock).not.toContain("lodash");
+
+      // Running again should report up-to-date (not stuck in loop)
+      const gen2 = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "f/mydir"],
+        tempDir
+      );
+      expect(gen2.code).toBe(0);
+      const output2 = gen2.stdout + gen2.stderr;
+      expect(output2).toContain("All metadata up-to-date");
+    });
+  });
+
+  test("strict folder boundaries with workspace deps does not loop", { timeout: 120000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+      );
+
+      // Create local workspace deps
+      await mkdir(`${tempDir}/dependencies`, { recursive: true });
+      await writeFile(
+        `${tempDir}/dependencies/package.json`,
+        JSON.stringify({ dependencies: { axios: "^1" } })
+      );
+
+      // Create a script that uses workspace deps
+      await createLocalScript(
+        tempDir,
+        "f/mydir",
+        "my_script",
+        "bun",
+        `export async function main() { return "hello"; }`
+      );
+
+      // First run with strict + folder
+      const gen1 = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "--strict-folder-boundaries", "f/mydir"],
+        tempDir
+      );
+      if (gen1.code !== 0) {
+        console.log("STDOUT:", gen1.stdout);
+        console.log("STDERR:", gen1.stderr);
+      }
+      expect(gen1.code).toBe(0);
+
+      // Second run — should report up-to-date, not stuck in loop
+      const gen2 = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "--strict-folder-boundaries", "f/mydir"],
+        tempDir
+      );
+      expect(gen2.code).toBe(0);
+      const output2 = gen2.stdout + gen2.stderr;
+      expect(output2).toContain("All metadata up-to-date");
     });
   });
 });

@@ -81,18 +81,10 @@ export async function generateFlowLockInternal(
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
   }
 
-  // Always get out-of-sync workspace dependencies
-  const rawWorkspaceDependencies: Record<string, string> =
-    await getRawWorkspaceDependencies();
-
   const flowValue = (await yamlParseFile(
     folder! + SEP + "flow.yaml"
   )) as FlowFile;
 
-  // Filter workspace dependencies based on inline scripts' languages and annotations
-  const filteredDeps = await filterWorkspaceDependenciesForFlow(flowValue.value as FlowValue, rawWorkspaceDependencies, folder);
-
-  // Extract inline scripts for tree population
   const folderNormalized = folder.replaceAll(SEP, "/");
   const inlineScriptsForTree = extractInlineScriptsForFlows(
     structuredClone(flowValue.value.modules),
@@ -101,23 +93,14 @@ export async function generateFlowLockInternal(
     opts.defaultTs
   ).filter(s => !s.is_lock);
 
-  // Compute hashes (needed for both staleness check and generation)
-  let hashes = await generateFlowHash(
-    filteredDeps,
-    folder,
-    opts.defaultTs
-  );
+  let filteredDeps: Record<string, string> = {};
   const conf = await readLockfile();
-  const isDirectlyStale = !(await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH));
 
-  // New behaviour: tree-based dependency tracking
   if (!legacyBehaviour && tree) {
     if (dryRun) {
-      // First pass: collect all relative imports from inline scripts, add flow as single tree node
-      const allImports: string[] = [];
+      const inlineScriptPaths: string[] = [];
       for (const script of inlineScriptsForTree) {
         let content = script.content;
-        // Resolve !inline references
         if (content.startsWith("!inline ")) {
           const filePath = folder + SEP + content.replace("!inline ", "");
           try {
@@ -130,15 +113,25 @@ export async function generateFlowLockInternal(
         const treePath = folderNormalized + "/" + path.basename(script.path, path.extname(script.path));
         const language = script.language as ScriptLanguage;
         const imports = await extractRelativeImports(content, treePath, language);
-        allImports.push(...imports);
+        await tree.addNode(treePath, content, language, "", imports, "inline_script", folderNormalized, folder, false);
+        inlineScriptPaths.push(treePath);
       }
 
-      await tree.addScript(folderNormalized, "", "bun", "", allImports, rawWorkspaceDependencies, "flow", folderNormalized, folder, isDirectlyStale);
+      const hashes = await generateFlowHash({}, folder, opts.defaultTs);
+      const isDirectlyStale = !(await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH));
+
+      await tree.addNode(folderNormalized, "", "bun", "", inlineScriptPaths, "flow", folderNormalized, folder, isDirectlyStale);
       return;
     }
-    // Second pass: proceed to generate (caller verified this flow is stale via tree)
+    // Second pass: get mismatched workspace deps from tree
+    filteredDeps = await filterWorkspaceDependenciesForFlow(flowValue.value as FlowValue, tree.getMismatchedWorkspaceDeps(), folder);
   } else {
-    // Legacy behaviour: use existing staleness check
+    const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
+    filteredDeps = await filterWorkspaceDependenciesForFlow(flowValue.value as FlowValue, rawWorkspaceDependencies, folder);
+
+    const hashes = await generateFlowHash(filteredDeps, folder, opts.defaultTs);
+    const isDirectlyStale = !(await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH));
+
     if (!isDirectlyStale) {
       if (!noStaleMessage) {
         log.info(
@@ -165,6 +158,8 @@ export async function generateFlowLockInternal(
   let changedScripts: string[] = [];
 
   if (!justUpdateMetadataLock) {
+    const hashes = await generateFlowHash(filteredDeps, folder, opts.defaultTs);
+
     //find hashes that do not correspond to previous hashes
     for (const [path, hash] of Object.entries(hashes)) {
       if (path == TOP_HASH) {
@@ -201,7 +196,7 @@ export async function generateFlowLockInternal(
     }
 
     //removeChangedLocks
-    const tempScriptRefs = tree?.flatten(folderNormalized);
+    const tempScriptRefs = tree?.getTempScriptRefs(folderNormalized);
     flowValue.value = await updateFlow(
       workspace,
       flowValue.value,
@@ -237,13 +232,13 @@ export async function generateFlowLockInternal(
     );
   }
 
-  hashes = await generateFlowHash(
+  const finalHashes = await generateFlowHash(
     filteredDeps,
     folder,
     opts.defaultTs
   );
   await clearGlobalLock(folder);
-  for (const [path, hash] of Object.entries(hashes)) {
+  for (const [path, hash] of Object.entries(finalHashes)) {
     await updateMetadataGlobalLock(folder, hash, path);
   }
   if (!noStaleMessage) {
@@ -253,7 +248,7 @@ export async function generateFlowLockInternal(
   // Return the list of updated scripts (extract just the filename from the path)
   // In tree mode, all scripts are relocked (not just content-changed ones)
   const relocked = (tree && !legacyBehaviour)
-    ? Object.keys(hashes).filter(k => k !== TOP_HASH)
+    ? Object.keys(finalHashes).filter(k => k !== TOP_HASH)
     : changedScripts;
   const updatedScripts = relocked.map(p => {
     const parts = p.split(SEP);

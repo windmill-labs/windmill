@@ -2521,40 +2521,84 @@ async fn store_raw_script_temp(
 /// Receives a map of path → SHA256(content), returns paths where the hash
 /// differs from the deployed script (or the script doesn't exist on remote).
 /// Hash comparison is done entirely in Postgres to avoid transferring content.
+#[derive(Deserialize)]
+struct WorkspaceDepDiff {
+    path: String,
+    language: ScriptLang,
+    name: Option<String>,
+    hash: String,
+}
+
+#[derive(Deserialize)]
+struct DiffRequest {
+    scripts: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    workspace_deps: Vec<WorkspaceDepDiff>,
+}
+
 async fn diff_raw_scripts_with_deployed(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(local_hashes): Json<std::collections::HashMap<String, String>>,
+    Json(req): Json<DiffRequest>,
 ) -> Result<Json<Vec<String>>> {
     check_scopes(&authed, || "scripts:read".to_string())?;
 
-    if local_hashes.is_empty() {
-        return Ok(Json(vec![]));
+    let mut matching_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut all_paths: Vec<String> = Vec::new();
+
+    // --- Scripts ---
+    if !req.scripts.is_empty() {
+        let paths: Vec<String> = req.scripts.keys().cloned().collect();
+        let hashes: Vec<String> = paths.iter().map(|p| req.scripts[p].clone()).collect();
+
+        let matching: Vec<String> = sqlx::query_scalar(
+            "SELECT local.path FROM \
+             unnest($1::text[], $2::text[]) AS local(path, hash) \
+             INNER JOIN LATERAL ( \
+               SELECT encode(sha256(convert_to(s.content, 'UTF8')), 'hex') AS deployed_hash \
+               FROM script s \
+               WHERE s.path = local.path AND s.workspace_id = $3 AND s.archived = false \
+               ORDER BY s.created_at DESC LIMIT 1 \
+             ) deployed ON deployed.deployed_hash = local.hash"
+        )
+        .bind(&paths)
+        .bind(&hashes)
+        .bind(&w_id)
+        .fetch_all(&db)
+        .await?;
+
+        matching_set.extend(matching);
+        all_paths.extend(paths);
     }
 
-    let paths: Vec<String> = local_hashes.keys().cloned().collect();
-    let hashes: Vec<String> = paths.iter().map(|p| local_hashes[p].clone()).collect();
+    // --- Workspace dependencies ---
+    for dep in &req.workspace_deps {
+        let matching: Option<String> = sqlx::query_scalar(
+            "SELECT $1::text \
+             WHERE EXISTS ( \
+               SELECT 1 FROM workspace_dependencies wd \
+               WHERE wd.workspace_id = $2 AND wd.archived = false \
+                 AND wd.language = $3::SCRIPT_LANG \
+                 AND wd.name IS NOT DISTINCT FROM $4 \
+                 AND encode(sha256(convert_to(wd.content, 'UTF8')), 'hex') = $5 \
+             )"
+        )
+        .bind(&dep.path)
+        .bind(&w_id)
+        .bind(dep.language.as_str())
+        .bind(&dep.name)
+        .bind(&dep.hash)
+        .fetch_optional(&db)
+        .await?;
 
-    // Find paths where local hash matches deployed content hash — these are up-to-date
-    let matching: Vec<String> = sqlx::query_scalar(
-        "SELECT local.path FROM \
-         unnest($1::text[], $2::text[]) AS local(path, hash) \
-         INNER JOIN LATERAL ( \
-           SELECT encode(sha256(convert_to(s.content, 'UTF8')), 'hex') AS deployed_hash \
-           FROM script s \
-           WHERE s.path = local.path AND s.workspace_id = $3 AND s.archived = false \
-           ORDER BY s.created_at DESC LIMIT 1 \
-         ) deployed ON deployed.deployed_hash = local.hash"
-    )
-    .bind(&paths)
-    .bind(&hashes)
-    .bind(&w_id)
-    .fetch_all(&db)
-    .await?;
+        if let Some(path) = matching {
+            matching_set.insert(path);
+        }
+        all_paths.push(dep.path.clone());
+    }
 
-    let matching_set: std::collections::HashSet<String> = matching.into_iter().collect();
-    let mismatched: Vec<String> = paths
+    let mismatched: Vec<String> = all_paths
         .into_iter()
         .filter(|p| !matching_set.contains(p))
         .collect();

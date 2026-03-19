@@ -7020,14 +7020,41 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: map of script path to SHA256 content hash
+        description: scripts and workspace deps to diff against deployed versions
         required: true
         content:
           application/json:
             schema:
               type: object
-              additionalProperties:
-                type: string
+              required:
+                - scripts
+              properties:
+                scripts:
+                  description: map of script path to SHA256 content hash
+                  type: object
+                  additionalProperties:
+                    type: string
+                workspace_deps:
+                  description: workspace dependencies to diff
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - path
+                      - language
+                      - hash
+                    properties:
+                      path:
+                        description: CLI path (e.g. dependencies/package.json)
+                        type: string
+                      language:
+                        $ref: "#/components/schemas/ScriptLang"
+                      name:
+                        description: named workspace dependency (null for default)
+                        type: string
+                      hash:
+                        description: SHA256 content hash
+                        type: string
       responses:
         "200":
           description: list of paths that differ from deployed versions

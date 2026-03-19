@@ -56,7 +56,7 @@ export class LockfileGenerationError extends Error {
 }
 
 
-export async function getRawWorkspaceDependencies(): Promise<Record<string, string>> {
+export async function getRawWorkspaceDependencies(legacyBehaviour: boolean): Promise<Record<string, string>> {
   const rawWorkspaceDeps: Record<string, string> = {};
 
   try {
@@ -70,11 +70,13 @@ export async function getRawWorkspaceDependencies(): Promise<Record<string, stri
       // Find matching language
       for (const lang of workspaceDependenciesLanguages) {
         if (entry.name.endsWith(lang.filename)) {
-          // Check if out of sync
-          const contentHash = await generateHash(content + filePath);
-          const isUpToDate = await checkifMetadataUptodate(filePath, contentHash, undefined);
-
-          if (!isUpToDate) {
+          if (legacyBehaviour) {
+            const contentHash = await generateHash(content + filePath);
+            const isUpToDate = await checkifMetadataUptodate(filePath, contentHash, undefined);
+            if (!isUpToDate) {
+              rawWorkspaceDeps[filePath] = content;
+            }
+          } else {
             rawWorkspaceDeps[filePath] = content;
           }
           break;
@@ -226,13 +228,15 @@ export async function generateScriptMetadataInternal(
 
   const hasModules = existsSync(moduleFolderPath) && statSync(moduleFolderPath).isDirectory();
 
-  let hash = await generateScriptHash(filteredRawWorkspaceDependencies, scriptContent, metadataContent);
+  // In non-legacy mode, workspace deps are tracked via the tree — exclude from hash
+  const depsForHash = (!legacyBehaviour && tree) ? {} : filteredRawWorkspaceDependencies;
+  let hash = await generateScriptHash(depsForHash, scriptContent, metadataContent);
 
   // Compute per-module hashes for stale detection (like flow inline scripts)
   let moduleHashes: Record<string, string> = {};
   if (hasModules) {
     moduleHashes = await computeModuleHashes(
-      moduleFolderPath, opts.defaultTs, rawWorkspaceDependencies, isFolderLayout
+      moduleFolderPath, opts.defaultTs, (!legacyBehaviour && tree) ? {} : rawWorkspaceDependencies, isFolderLayout
     );
   }
   const hasModuleHashes = Object.keys(moduleHashes).length > 0;
@@ -256,7 +260,7 @@ export async function generateScriptMetadataInternal(
     if (dryRun) {
       // First pass: populate tree with script and its imports
       const imports = await extractRelativeImports(scriptContent, remotePath, language);
-      await tree.addScript(remotePath, scriptContent, language, metadataContent, imports, rawWorkspaceDependencies, "script", remotePath, scriptPath, isDirectlyStale);
+      await tree.addNode(remotePath, scriptContent, language, metadataContent, imports, "script", remotePath, scriptPath, isDirectlyStale);
       return;
     }
     // Second pass: proceed to generate (caller verified this script is stale via tree)
@@ -308,7 +312,7 @@ export async function generateScriptMetadataInternal(
     const hasCodebase = findCodebase(scriptPath, codebases) != undefined;
 
     if (!hasCodebase) {
-      const tempScriptRefs = tree?.flatten(remotePath);
+      const tempScriptRefs = tree?.getTempScriptRefs(remotePath);
       const lockPathOverride = isFolderLayout
         ? path.dirname(scriptPath) + "/script.lock"
         : undefined;
@@ -380,7 +384,7 @@ export async function generateScriptMetadataInternal(
   const metadataContentUsedForHash = newMetadataContent;
 
   hash = await generateScriptHash(
-    filteredRawWorkspaceDependencies,
+    depsForHash,
     scriptContent,
     metadataContentUsedForHash
   );
