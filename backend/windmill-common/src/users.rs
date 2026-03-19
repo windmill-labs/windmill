@@ -22,9 +22,18 @@ pub fn username_to_permissioned_as(user: &str) -> String {
     }
 }
 
+/// Borrowed key for zero-allocation cache lookups via `Equivalent<(String, String)>`.
+#[derive(Hash)]
+struct EmailCacheKey<'a>(&'a str, &'a str);
+
+impl equivalent::Equivalent<(String, String)> for EmailCacheKey<'_> {
+    fn equivalent(&self, key: &(String, String)) -> bool {
+        self.0 == key.0 && self.1 == key.1
+    }
+}
+
 lazy_static::lazy_static! {
-    /// Cache key is "workspace_id/username" to avoid allocating a tuple of two Strings on every lookup.
-    static ref EMAIL_CACHE: quick_cache::sync::Cache<String, (String, std::time::Instant)> =
+    static ref EMAIL_CACHE: quick_cache::sync::Cache<(String, String), (String, std::time::Instant)> =
         quick_cache::sync::Cache::new(500);
 }
 
@@ -40,8 +49,8 @@ pub async fn get_email_from_permissioned_as(
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> crate::error::Result<String> {
     if let Some(username) = permissioned_as.strip_prefix("u/") {
-        let key = format!("{}/{}", workspace_id, username);
-        if let Some((email, cached_at)) = EMAIL_CACHE.get(&key) {
+        let lookup = EmailCacheKey(workspace_id, username);
+        if let Some((email, cached_at)) = EMAIL_CACHE.get(&lookup) {
             if cached_at.elapsed().as_secs() < EMAIL_CACHE_TTL_SECS {
                 return Ok(email);
             }
@@ -54,6 +63,7 @@ pub async fn get_email_from_permissioned_as(
         .fetch_optional(db)
         .await?
         .unwrap_or_else(|| format!("{}@windmill.dev", username));
+        let key = (workspace_id.to_string(), username.to_string());
         EMAIL_CACHE.insert(key, (email.clone(), std::time::Instant::now()));
         Ok(email)
     } else if let Some(group) = permissioned_as.strip_prefix("g/") {

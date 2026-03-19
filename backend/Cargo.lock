@@ -16486,6 +16486,7 @@ dependencies = [
  "cron",
  "croner",
  "datafusion",
+ "equivalent",
  "futures",
  "futures-core",
  "gethostname",
