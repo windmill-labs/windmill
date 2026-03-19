@@ -399,6 +399,7 @@
 									/>
 									<TestAiKey
 										aiProvider={provider as AIProvider}
+										workspace={effectiveWorkspace}
 										resourcePath={aiProviders[provider].resource_path}
 										model={aiProviders[provider].models[0]}
 									/>
