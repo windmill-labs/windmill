@@ -11,15 +11,14 @@
 {$BASE_URL} {
         bind {$ADDRESS}
 
-        # LSP - Language Server Protocol for code intelligence (windmill_extra:3001)
+        # Extra services: LSP (/ws/*), Multiplayer (/ws_mp/*), Debugger (/ws_debug/*)
+        # Option A — gateway mode (recommended): single route, gateway dispatches by prefix
+        #   Set ENABLE_GATEWAY=true on windmill_extra to use this.
+        # reverse_proxy /ws/* /ws_mp/* /ws_debug/* http://windmill_extra:3000
+        #
+        # Option B — direct mode: separate routes to each service port
         reverse_proxy /ws/* http://windmill_extra:3001
-
-        # Multiplayer - Real-time collaboration, Enterprise Edition (windmill_extra:3002)
-        # Uncomment and set ENABLE_MULTIPLAYER=true in docker-compose.yml
         # reverse_proxy /ws_mp/* http://windmill_extra:3002
-
-        # Debugger - Interactive debugging via DAP WebSocket (windmill_extra:3003)
-        # Set ENABLE_DEBUGGER=true in docker-compose.yml to enable
         handle_path /ws_debug/* {
                 reverse_proxy http://windmill_extra:3003
         }

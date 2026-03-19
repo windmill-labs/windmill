@@ -109,6 +109,7 @@ WORKDIR /multiplayer
 # Copy multiplayer server files
 COPY multiplayer/package.json .
 COPY multiplayer/server.mjs .
+COPY multiplayer/gateway.mjs .
 
 # Install dependencies
 RUN npm install
@@ -129,13 +130,15 @@ RUN chmod -R a+rX /usr/local && \
     chmod -R a+rX /debugger
 
 # Expose all service ports
-EXPOSE 3001 3002 3003
+EXPOSE 3000 3001 3002 3003
 
 # Environment variables for service control
 ENV ENABLE_LSP=true
 ENV ENABLE_MULTIPLAYER=true
 ENV ENABLE_DEBUGGER=true
 # nsjail sandboxing for debugger (requires --privileged, off by default)
+ENV ENABLE_GATEWAY=false
+ENV GATEWAY_PORT=3000
 ENV ENABLE_NSJAIL=false
 
 # LSP port
