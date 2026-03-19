@@ -469,9 +469,15 @@
 						targetWorkspace={workspaceToDeployTo!}
 						{targetEmail}
 						selected={onBehalfOfChoice[statusPath]}
-						onSelect={(choice, email) => {
+						onSelect={(choice, email, username) => {
 							onBehalfOfChoice[statusPath] = choice
-							if (email) customOnBehalfOf[statusPath] = email
+							if (item.kind === 'trigger' && username) {
+								// Triggers/schedules use permissioned_as format (u/username)
+								customOnBehalfOf[statusPath] = `u/${username}`
+							} else if (email) {
+								// Flows/scripts/apps use email format
+								customOnBehalfOf[statusPath] = email
+							}
 						}}
 						kind={item.kind}
 						canPreserve={canPreserveOnBehalfOf}
