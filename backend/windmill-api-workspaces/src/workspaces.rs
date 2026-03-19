@@ -4866,7 +4866,10 @@ async fn compare_workspaces(
             .fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
         scripts_changed: visible_diffs.iter().filter(|s| s.kind == "script").count(),
         flows_changed: visible_diffs.iter().filter(|s| s.kind == "flow").count(),
-        apps_changed: visible_diffs.iter().filter(|s| s.kind == "app").count(),
+        apps_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "app" || s.kind == "raw_app")
+            .count(),
         resources_changed: visible_diffs
             .iter()
             .filter(|s| s.kind == "resource")

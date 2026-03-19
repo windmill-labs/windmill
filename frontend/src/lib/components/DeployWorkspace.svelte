@@ -14,7 +14,7 @@
 	import Button from './common/button/Button.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import Alert from './common/alert/Alert.svelte'
-	import { DiffIcon, Loader2 } from 'lucide-svelte'
+	import { DiffIcon, FileJson, Loader2 } from 'lucide-svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import {
@@ -99,9 +99,7 @@
 			if (!$superadmin) {
 				const targetUser = await UserService.whoami({ workspace: workspaceToDeployTo! })
 				canPreserveOnBehalfOf =
-					targetUser.is_admin ||
-					targetUser.groups?.includes('wm_deployers') ||
-					false
+					targetUser.is_admin || targetUser.groups?.includes('wm_deployers') || false
 			} else {
 				canPreserveOnBehalfOf = true
 			}
@@ -478,6 +476,9 @@
 					/>
 				{/if}
 
+				{#if item.kind === 'raw_app'}
+					<Badge small icon={{ icon: FileJson }}>Raw</Badge>
+				{/if}
 				{#if exists === false}
 					{#if item.include}
 						<Badge
@@ -538,16 +539,14 @@
 							{#if kind === 'trigger'}
 								You must set the "edited by" user for all triggers before deploying
 								<Tooltip class="text-yellow-600">
-									The "edited by" field defines which user's permissions will be applied
-									when the trigger runs. Make sure this is set to an appropriate user
-									before deploying.
+									The "edited by" field defines which user's permissions will be applied when the
+									trigger runs. Make sure this is set to an appropriate user before deploying.
 								</Tooltip>
 							{:else}
 								You must set the "on behalf of" user for all items before deploying
 								<Tooltip class="text-yellow-600">
-									The "run on behalf of" field defines which user's permissions will be
-									applied during execution. Make sure this is set to an appropriate user
-									before deploying.
+									The "run on behalf of" field defines which user's permissions will be applied
+									during execution. Make sure this is set to an appropriate user before deploying.
 								</Tooltip>
 							{/if}
 						</span>
