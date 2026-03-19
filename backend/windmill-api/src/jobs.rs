@@ -2751,6 +2751,17 @@ fn conditionally_require_authed_user(
     }
     let approval_conditions = approval_conditions_opt.unwrap();
 
+    // Check self-approval independently of user_auth_required
+    if approval_conditions.self_approval_disabled {
+        if let Some(ref authed) = _authed {
+            if !authed.is_admin && authed.email.eq(_trigger_email) {
+                return Err(Error::PermissionDenied(
+                    "Self-approval is disabled for this flow step".to_string(),
+                ));
+            }
+        }
+    }
+
     if approval_conditions.user_auth_required {
         {
             #[cfg(not(feature = "enterprise"))]
@@ -2768,13 +2779,6 @@ fn conditionally_require_authed_user(
 
                 let authed = _authed.unwrap();
                 if !authed.is_admin {
-                    if approval_conditions.self_approval_disabled && authed.email.eq(_trigger_email)
-                    {
-                        return Err(Error::PermissionDenied(
-                            "Self-approval is disabled for this flow step".to_string(),
-                        ));
-                    }
-
                     if !approval_conditions.user_groups_required.is_empty() {
                         #[cfg(feature = "enterprise")]
                         {

@@ -312,15 +312,13 @@ pub async fn prepare_checkpoint_for_resume(
 }
 
 /// Detect WAC v2 patterns in TypeScript/Bun code.
-/// Checks for `import ... from "windmill-client"` containing workflow/task,
+/// Checks for `import ... from "windmill-client"` containing workflow,
 /// skipping comment lines. Handles both single-line and multi-line imports.
 pub fn is_wac_v2_ts(code: &str) -> bool {
     let mut has_wac_import = false;
     let mut has_workflow = false;
-    let mut has_task = false;
     let mut in_import_block = false;
     let mut import_block_has_workflow = false;
-    let mut import_block_has_task = false;
     for line in code.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("//") {
@@ -334,33 +332,23 @@ pub fn is_wac_v2_ts(code: &str) -> bool {
             if trimmed.contains("workflow") {
                 has_workflow = true;
             }
-            if trimmed.contains("task") {
-                has_task = true;
-            }
             in_import_block = false;
         }
         // Start of multi-line import: import {
         else if trimmed.starts_with("import") && trimmed.contains("{") && !trimmed.contains("}") {
             in_import_block = true;
             import_block_has_workflow = trimmed.contains("workflow");
-            import_block_has_task = trimmed.contains("task");
         }
         // Inside multi-line import block
         else if in_import_block {
             if trimmed.contains("workflow") {
                 import_block_has_workflow = true;
             }
-            if trimmed.contains("task") {
-                import_block_has_task = true;
-            }
             // End of multi-line import: } from "windmill-client"
             if trimmed.contains("windmill-client") {
                 has_wac_import = true;
                 if import_block_has_workflow {
                     has_workflow = true;
-                }
-                if import_block_has_task {
-                    has_task = true;
                 }
                 in_import_block = false;
             }
@@ -373,7 +361,7 @@ pub fn is_wac_v2_ts(code: &str) -> bool {
             has_workflow = true;
         }
     }
-    has_wac_import && has_workflow && has_task
+    has_wac_import && has_workflow
 }
 
 /// Detect WAC v2 patterns in Python code.

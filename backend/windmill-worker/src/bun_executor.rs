@@ -2679,27 +2679,66 @@ pub async fn handle_wac_v2_output(
             // Store approval_conditions in flow_status for resume endpoint auth checks
             let sad = self_approval_disabled.unwrap_or(false);
             if sad {
-                use windmill_common::flow_status::ApprovalConditions;
-                let approval_conditions = ApprovalConditions {
-                    user_auth_required: true,
-                    user_groups_required: vec![],
-                    self_approval_disabled: true,
-                };
-                sqlx::query(
-                    "UPDATE v2_job_status SET flow_status = JSONB_SET(
+                #[cfg(not(feature = "enterprise"))]
+                return Err(error::Error::ExecutionErr(
+                    "Disabling self-approval is an enterprise only feature".to_string(),
+                ));
+
+                #[cfg(feature = "enterprise")]
+                {
+                    use windmill_common::flow_status::ApprovalConditions;
+                    let approval_conditions = ApprovalConditions {
+                        user_auth_required: true,
+                        user_groups_required: vec![],
+                        self_approval_disabled: true,
+                    };
+                    sqlx::query(
+                        "UPDATE v2_job_status SET flow_status = JSONB_SET(
                         COALESCE(flow_status, '{}'::jsonb),
                         '{approval_conditions}',
                         $2::jsonb
                     ) WHERE id = $1",
-                )
-                .bind(&job.id)
-                .bind(&serde_json::json!(approval_conditions))
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    error::Error::internal_err(format!("Failed to save approval conditions: {e}"))
-                })?;
+                    )
+                    .bind(&job.id)
+                    .bind(&serde_json::json!(approval_conditions))
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        error::Error::internal_err(format!(
+                            "Failed to save approval conditions: {e}"
+                        ))
+                    })?;
+                }
             }
+
+            // Generate resume URLs for the inline approval buttons
+            let resume_id: u32 = 0;
+            let (resume_url, cancel_url, approval_page_url) = {
+                use hmac::{Hmac, Mac};
+                use sha2::Sha256;
+                use windmill_common::variables::get_workspace_key;
+
+                let wkey = get_workspace_key(&job.workspace_id, db).await?;
+                let mut mac = Hmac::<Sha256>::new_from_slice(wkey.as_bytes())
+                    .map_err(|e| error::Error::internal_err(format!("HMAC key error: {e}")))?;
+                mac.update(job.id.as_bytes());
+                mac.update(resume_id.to_be_bytes().as_ref());
+                let signature = hex::encode(mac.finalize().into_bytes());
+
+                let base_url = windmill_common::BASE_URL.read().await.clone();
+                let w_id = &job.workspace_id;
+                let job_id = &job.id;
+
+                let resume = format!(
+                    "{base_url}/api/w/{w_id}/jobs_u/resume/{job_id}/{resume_id}/{signature}"
+                );
+                let cancel = format!(
+                    "{base_url}/api/w/{w_id}/jobs_u/cancel/{job_id}/{resume_id}/{signature}"
+                );
+                let approval_page =
+                    format!("{base_url}/approve/{w_id}/{job_id}/{resume_id}/{signature}");
+                (resume, cancel, approval_page)
+            };
 
             // Store approval form metadata for the approval page endpoint
             let approval_meta = serde_json::json!({
@@ -2707,6 +2746,9 @@ pub async fn handle_wac_v2_output(
                 "form": form,
                 "timeout": timeout_secs as u32,
                 "self_approval_disabled": sad,
+                "resume": resume_url,
+                "cancel": cancel_url,
+                "approvalPage": approval_page_url,
             });
             sqlx::query(
                 "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
@@ -2733,6 +2775,9 @@ pub async fn handle_wac_v2_output(
                     "approval": true,
                     "self_approval_disabled": sad,
                     "form": form,
+                    "resume": &resume_url,
+                    "cancel": &cancel_url,
+                    "approvalPage": &approval_page_url,
                 });
                 let step_timeline_key = format!("_step/{}", key);
                 sqlx::query(

@@ -125,18 +125,49 @@
 	let approvalLoading: Record<string, boolean> = $state({})
 	let approvalFormArgs: Record<string, Record<string, any>> = $state({})
 
-	async function handleApprove(key: string, formSchema: any) {
+	function parseResumeUrl(
+		url: string
+	): { jobId: string; resumeId: number; signature: string; approver?: string } | undefined {
+		try {
+			const split = url.split('/')
+			const signaturePart = split.pop() ?? ''
+			const regex = /([^?]+)(?:\?[^=]+=(\w+))?/
+			const matches = signaturePart.match(regex)
+			const signature = matches?.[1]
+			if (!signature) return undefined
+			const approver = matches?.[2] || undefined
+			const resumeId = Number(split.pop() ?? '-1')
+			const jobId = split.pop() ?? ''
+			return { jobId, resumeId, signature, approver }
+		} catch {
+			return undefined
+		}
+	}
+
+	async function handleApprove(key: string, resumeUrl: string | undefined, formSchema: any) {
 		const ws = $workspaceStore
-		if (!ws || !jobId) return
+		if (!ws) return
 		approvalLoading[key] = true
 		try {
 			const payload =
 				formSchema && Object.keys(formSchema).length > 0 ? (approvalFormArgs[key] ?? {}) : {}
-			await JobService.resumeSuspendedFlowAsOwner({
-				workspace: ws,
-				id: jobId,
-				requestBody: payload
-			})
+			const parsed = resumeUrl ? parseResumeUrl(resumeUrl) : undefined
+			if (parsed) {
+				await JobService.resumeSuspendedJobPost({
+					workspace: ws,
+					id: parsed.jobId,
+					resumeId: parsed.resumeId,
+					signature: parsed.signature,
+					approver: parsed.approver,
+					requestBody: payload
+				})
+			} else if (jobId) {
+				await JobService.resumeSuspendedFlowAsOwner({
+					workspace: ws,
+					id: jobId,
+					requestBody: payload
+				})
+			}
 			sendUserToast('Approval submitted')
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? 'Failed to approve', true)
@@ -145,15 +176,27 @@
 		}
 	}
 
-	async function handleCancel() {
+	async function handleCancel(cancelUrl: string | undefined) {
 		const ws = $workspaceStore
-		if (!ws || !jobId) return
+		if (!ws) return
 		try {
-			await JobService.cancelQueuedJob({
-				workspace: ws,
-				id: jobId,
-				requestBody: { reason: 'Cancelled from workflow timeline' }
-			})
+			const parsed = cancelUrl ? parseResumeUrl(cancelUrl) : undefined
+			if (parsed) {
+				await JobService.cancelSuspendedJobPost({
+					workspace: ws,
+					id: parsed.jobId,
+					resumeId: parsed.resumeId,
+					signature: parsed.signature,
+					approver: parsed.approver,
+					requestBody: {}
+				})
+			} else if (jobId) {
+				await JobService.cancelQueuedJob({
+					workspace: ws,
+					id: jobId,
+					requestBody: { reason: 'Cancelled from workflow timeline' }
+				})
+			}
 			sendUserToast('Job cancelled')
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? 'Failed to cancel', true)
@@ -216,7 +259,10 @@
 					{@const formSchema = (v as any).form?.schema}
 					{@const hasForm =
 						formSchema && typeof formSchema === 'object' && Object.keys(formSchema).length > 0}
-					{@const canApprove = jobId && !isDone && ($userStore?.is_admin || !selfApprovalDisabled)}
+					{@const resumeUrl = (v as any).resume as string | undefined}
+					{@const cancelUrl = (v as any).cancel as string | undefined}
+					{@const isAdminOrSuperAdmin = $userStore?.is_admin || $userStore?.is_super_admin}
+					{@const canApprove = !isDone && (resumeUrl || (jobId && isAdminOrSuperAdmin))}
 					<div class="w-full px-2 py-1.5 text-xs">
 						<div class="flex items-center gap-2">
 							<div class="w-3 flex-shrink-0"></div>
@@ -238,7 +284,7 @@
 											variant="default"
 											unifiedSize="sm"
 											disabled={approvalLoading[k]}
-											onclick={() => handleApprove(k, formSchema)}
+											onclick={() => handleApprove(k, resumeUrl, formSchema)}
 										>
 											Approve
 										</Button>
@@ -246,7 +292,7 @@
 											variant="default"
 											unifiedSize="sm"
 											disabled={approvalLoading[k]}
-											onclick={() => handleCancel()}
+											onclick={() => handleCancel(cancelUrl)}
 										>
 											Reject
 										</Button>
@@ -256,6 +302,11 @@
 								<span class="text-tertiary">{msToSec(v.duration_ms ?? 0)}s</span>
 							{/if}
 						</div>
+						{#if canApprove && selfApprovalDisabled && isAdminOrSuperAdmin}
+							<div class="mt-1 ml-5 text-yellow-600 text-2xs">
+								Self-approval is disabled but allowed because you are an admin/owner
+							</div>
+						{/if}
 						{#if canApprove && hasForm}
 							<div class="mt-2 ml-5 max-w-md">
 								{#if emptyString($enterpriseLicense)}
@@ -367,13 +418,13 @@
 								{@const result = stepResults[stepKey(k)]}
 								{#if isDone && result !== undefined}
 									<div>
-										<div class="text-2xs text-secondary font-semibold mb-1">Result</div>
+										<div class="text-2xs text-secondary font-semibold mb-1"> Result </div>
 										<div class="max-h-40 overflow-auto">
 											<ObjectViewer json={result} pureViewer />
 										</div>
 									</div>
 								{:else}
-									<div class="text-xs text-secondary py-1">Step completed (no result)</div>
+									<div class="text-xs text-secondary py-1"> Step completed (no result) </div>
 								{/if}
 							{:else if loadingJobs[k] && !childJobs[k]}
 								<div class="flex items-center gap-2 text-xs text-secondary py-1">
@@ -385,7 +436,7 @@
 								<!-- Logs -->
 								{#if job.logs || isRunning}
 									<div class="mb-2">
-										<div class="text-2xs text-secondary font-semibold mb-1">Logs</div>
+										<div class="text-2xs text-secondary font-semibold mb-1"> Logs </div>
 										<LogViewer
 											content={job.logs ?? ''}
 											jobId={k}
@@ -401,7 +452,7 @@
 								<!-- Result -->
 								{#if isDone && job.result !== undefined}
 									<div>
-										<div class="text-2xs text-secondary font-semibold mb-1">Result</div>
+										<div class="text-2xs text-secondary font-semibold mb-1"> Result </div>
 										<div class="max-h-40 overflow-auto">
 											<ObjectViewer json={job.result} pureViewer />
 										</div>
