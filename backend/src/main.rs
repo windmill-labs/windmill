@@ -1036,7 +1036,7 @@ Windmill Community Edition {GIT_VERSION}
 
     if server_mode || worker_mode || indexer_mode || mcp_mode {
         let port_var = std::env::var("PORT")
-            .or_else(|_| std::env::var("WM_BACKEND_PORT"))
+            .or_else(|_| std::env::var("BACKEND_PORT"))
             .ok()
             .and_then(|x| x.parse().ok());
 

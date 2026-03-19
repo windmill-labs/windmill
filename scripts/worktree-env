@@ -46,8 +46,6 @@ cat > .env.local <<EOF
 BACKEND_PORT=$backend_port
 FRONTEND_PORT=$frontend_port
 REMOTE=http://localhost:$backend_port
-WM_BACKEND_PORT=$backend_port
-WM_FRONTEND_PORT=$frontend_port
 EOF
 
 if [[ -n "${CARGO_FEATURES:-}" ]]; then

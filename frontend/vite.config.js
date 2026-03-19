@@ -9,8 +9,8 @@ const version = JSON.parse(json)
 
 const remoteUrl =
 	process.env.REMOTE ??
-	(process.env.WM_BACKEND_PORT
-		? `http://localhost:${process.env.WM_BACKEND_PORT}`
+	(process.env.BACKEND_PORT
+		? `http://localhost:${process.env.BACKEND_PORT}`
 		: 'https://app.windmill.dev/')
 
 let plugin = {
@@ -37,7 +37,7 @@ const config = {
 			'app.windmill.xyz',
 			'public.windmill.xyz'
 		],
-		port: parseInt(process.env.WM_FRONTEND_PORT) || 3000,
+		port: parseInt(process.env.FRONTEND_PORT) || 3000,
 		cors: { origin: '*' },
 		proxy: {
 			'^/\\.well-known/.*': {
