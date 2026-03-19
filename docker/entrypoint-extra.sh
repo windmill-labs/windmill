@@ -43,7 +43,7 @@ echo "[entrypoint] Starting Windmill Extra Services"
 echo "[entrypoint] ENABLE_LSP=${ENABLE_LSP:-true}"
 echo "[entrypoint] ENABLE_MULTIPLAYER=${ENABLE_MULTIPLAYER:-true}"
 echo "[entrypoint] ENABLE_DEBUGGER=${ENABLE_DEBUGGER:-true}"
-echo "[entrypoint] ENABLE_GATEWAY=${ENABLE_GATEWAY:-false}"
+echo "[entrypoint] ENABLE_GATEWAY=${ENABLE_GATEWAY:-true}"
 
 # Start LSP service
 if [ "${ENABLE_LSP:-true}" = "true" ]; then
@@ -83,7 +83,7 @@ if [ "${ENABLE_DEBUGGER:-true}" = "true" ]; then
 fi
 
 # Start Gateway reverse proxy (routes /ws/*, /ws_mp/*, /ws_debug/* to the right service)
-if [ "${ENABLE_GATEWAY:-false}" = "true" ]; then
+if [ "${ENABLE_GATEWAY:-true}" = "true" ]; then
     echo "[entrypoint] Starting Gateway on port ${GATEWAY_PORT:-3000}..."
     cd /multiplayer
     node gateway.mjs &

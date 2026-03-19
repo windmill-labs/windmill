@@ -137,7 +137,7 @@ ENV ENABLE_LSP=true
 ENV ENABLE_MULTIPLAYER=true
 ENV ENABLE_DEBUGGER=true
 # nsjail sandboxing for debugger (requires --privileged, off by default)
-ENV ENABLE_GATEWAY=false
+ENV ENABLE_GATEWAY=true
 ENV GATEWAY_PORT=3000
 ENV ENABLE_NSJAIL=false
 
