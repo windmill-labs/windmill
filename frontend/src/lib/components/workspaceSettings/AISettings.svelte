@@ -221,6 +221,28 @@
 			: {}
 	}
 
+	function isSaveDisabled(): boolean {
+		return (
+			!Object.values(aiProviders).every((p) => p.resource_path) ||
+			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
+			(Object.keys(aiProviders).length > 0 && !defaultModel)
+		)
+	}
+
+	export async function saveIfDirtyAndValid(): Promise<boolean> {
+		if (!dirty) {
+			return true
+		}
+
+		if (isSaveDisabled()) {
+			sendUserToast('Complete AI settings before leaving this page', true)
+			return false
+		}
+
+		await editCopilotConfig()
+		return true
+	}
+
 	async function editCopilotConfig(): Promise<void> {
 		const config = buildConfig()
 
@@ -483,7 +505,5 @@
 	onSave={editCopilotConfig}
 	onDiscard={discard}
 	saveLabel="Save AI settings"
-	disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
-		(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-		(Object.keys(aiProviders).length > 0 && !defaultModel)}
+	disabled={isSaveDisabled()}
 />

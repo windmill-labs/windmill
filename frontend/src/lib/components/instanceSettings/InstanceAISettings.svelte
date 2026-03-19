@@ -22,6 +22,7 @@
 
 	let initialConfig: AIConfig | undefined = $state(undefined)
 	let loaded = $state(false)
+	let aiSettings: AISettings | undefined = $state(undefined)
 
 	async function loadConfig() {
 		try {
@@ -41,6 +42,10 @@
 			requestBody: { value: config }
 		})
 		sendUserToast('Instance AI settings saved')
+	}
+
+	export async function persistBeforeExit(): Promise<boolean> {
+		return (await aiSettings?.saveIfDirtyAndValid()) ?? true
 	}
 
 	// Ensure stores are set (this page may bypass the (logged) layout)
@@ -130,6 +135,7 @@
 	</p>
 
 	<AISettings
+		bind:this={aiSettings}
 		bind:hasUnsavedChanges
 		{initialConfig}
 		workspace="admins"
