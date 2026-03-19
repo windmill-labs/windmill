@@ -109,7 +109,10 @@
 
 	let selectedDisplayName = $derived.by(() => {
 		if (selected === 'target') return targetUsername
-		if (selected === 'me') return $userStore?.username
+		if (selected === 'me') {
+			const username = $userStore?.username
+			return kind === 'trigger' && username ? `u/${username}` : username
+		}
 		if (selected === 'custom') return customUsername
 		return undefined
 	})
@@ -147,7 +150,9 @@
 				onclick={() => onSelect('me')}
 			>
 				<Check class="w-3 h-3 {selected === 'me' ? 'opacity-100' : 'opacity-0'}" />
-				<span class="truncate max-w-40">{$userStore?.username}</span>
+				<span class="truncate max-w-40"
+					>{kind === 'trigger' ? `u/${$userStore?.username}` : $userStore?.username}</span
+				>
 				<span class="text-xs text-tertiary">(me)</span>
 			</button>
 			<!-- Custom / Pick from workspace -->
