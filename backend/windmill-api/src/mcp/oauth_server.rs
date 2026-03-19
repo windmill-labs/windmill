@@ -855,6 +855,254 @@ impl IntoResponse for OAuthErrorRedirect {
     }
 }
 
+// ── Gateway (workspace-agnostic) OAuth handlers ──
+
+/// GET /.well-known/oauth-authorization-server/api/mcp/gateway/oauth/server
+pub async fn gateway_oauth_metadata() -> Json<AuthorizationMetadata> {
+    let base_url = BASE_URL.read().await;
+    let issuer = format!("{}/api/mcp/gateway/oauth/server", base_url);
+
+    Json(AuthorizationMetadata {
+        issuer,
+        authorization_endpoint: format!("{}/api/mcp/gateway/oauth/server/authorize", base_url),
+        token_endpoint: format!("{}/api/mcp/gateway/oauth/server/token", base_url),
+        registration_endpoint: Some(format!("{}/api/mcp/oauth/server/register", base_url)),
+        scopes_supported: Some(supported_scopes()),
+        response_types_supported: Some(vec!["code".to_string()]),
+        grant_types_supported: Some(vec![
+            "authorization_code".to_string(),
+            "refresh_token".to_string(),
+        ]),
+        code_challenge_methods_supported: Some(vec!["S256".to_string()]),
+    })
+}
+
+/// GET /.well-known/oauth-protected-resource/api/mcp/gateway
+pub async fn gateway_protected_resource_metadata() -> Json<ProtectedResourceMetadata> {
+    let base_url = BASE_URL.read().await;
+    let resource_url = format!("{}/api/mcp/gateway", base_url);
+    let auth_server_url = format!("{}/api/mcp/gateway/oauth/server", base_url);
+    Json(ProtectedResourceMetadata {
+        resource: resource_url,
+        authorization_servers: vec![auth_server_url],
+        scopes_supported: Some(supported_scopes()),
+        bearer_methods_supported: Some(vec!["header".to_string()]),
+    })
+}
+
+/// GET /api/mcp/gateway/oauth/server/authorize - redirects to consent page (gateway mode)
+pub async fn gateway_oauth_authorize(
+    Extension(db): Extension<DB>,
+    Query(params): Query<AuthorizeQuery>,
+) -> impl IntoResponse {
+    let client = match sqlx::query_as!(
+        OAuthClient,
+        "SELECT client_id, client_name, redirect_uris FROM mcp_oauth_server_client WHERE client_id = $1",
+        params.client_id
+    )
+    .fetch_optional(&db)
+    .await
+    {
+        Ok(Some(client)) => client,
+        Ok(None) => {
+            return OAuthJsonError::new("invalid_client", Some("Unknown client_id"))
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("Database error looking up client: {}", e);
+            return OAuthJsonError::new("server_error", Some("Database error"))
+                .into_response();
+        }
+    };
+
+    if !client.redirect_uris.contains(&params.redirect_uri) {
+        return OAuthJsonError::new(
+            "invalid_request",
+            Some("redirect_uri does not match registered URIs"),
+        )
+        .into_response();
+    }
+
+    if params.response_type != "code" {
+        return OAuthErrorRedirect::new(
+            &params.redirect_uri,
+            "unsupported_response_type",
+            Some("Only 'code' response type is supported"),
+            params.state.as_deref(),
+        )
+        .into_response();
+    }
+
+    let code_challenge = match &params.code_challenge {
+        Some(challenge) if !challenge.is_empty() => challenge.as_str(),
+        _ => {
+            return OAuthErrorRedirect::new(
+                &params.redirect_uri,
+                "invalid_request",
+                Some("PKCE required: code_challenge parameter is mandatory"),
+                params.state.as_deref(),
+            )
+            .into_response();
+        }
+    };
+
+    let code_challenge_method = params.code_challenge_method.as_deref().unwrap_or("S256");
+
+    if code_challenge_method != "S256" {
+        return OAuthErrorRedirect::new(
+            &params.redirect_uri,
+            "invalid_request",
+            Some("Invalid code_challenge_method: only 'S256' is supported"),
+            params.state.as_deref(),
+        )
+        .into_response();
+    }
+
+    let resource = match &params.resource {
+        Some(r) => r,
+        None => {
+            return OAuthErrorRedirect::new(
+                &params.redirect_uri,
+                "invalid_request",
+                Some("Missing 'resource' parameter. Required for MCP audience binding."),
+                params.state.as_deref(),
+            )
+            .into_response();
+        }
+    };
+
+    let base_url = BASE_URL.read().await;
+    let frontend_url = format!(
+        "{}/oauth/mcp_authorize?{}",
+        base_url,
+        serde_urlencoded::to_string(&[
+            ("gateway", "true"),
+            ("client_id", params.client_id.as_str()),
+            ("client_name", client.client_name.as_str()),
+            ("redirect_uri", params.redirect_uri.as_str()),
+            ("scope", params.scope.as_deref().unwrap_or("mcp:all")),
+            ("state", params.state.as_deref().unwrap_or("")),
+            ("code_challenge", code_challenge),
+            ("code_challenge_method", code_challenge_method),
+            ("resource", resource),
+        ])
+        .unwrap_or_default()
+    );
+
+    Redirect::temporary(&frontend_url).into_response()
+}
+
+/// Gateway approval form — includes workspace_id in the body (user selects it on frontend)
+#[derive(Debug, Deserialize)]
+pub struct GatewayApprovalForm {
+    pub client_id: String,
+    pub redirect_uri: String,
+    pub scope: String,
+    pub state: String,
+    pub code_challenge: String,
+    pub code_challenge_method: String,
+    pub workspace_id: String,
+}
+
+/// POST /api/mcp/gateway/oauth/server/approve - user approval with workspace selection
+pub async fn gateway_oauth_approve(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(form): Json<GatewayApprovalForm>,
+) -> Result<Json<ApprovalResponse>> {
+    if form.workspace_id.is_empty() {
+        return Err(Error::BadRequest("workspace_id is required".to_string()));
+    }
+
+    // Verify user is a member of the selected workspace
+    let is_member = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 AND NOT disabled)",
+        form.workspace_id,
+        authed.email
+    )
+    .fetch_one(&db)
+    .await
+    .map_err(|e| Error::InternalErr(format!("Database error: {}", e)))?
+    .unwrap_or(false);
+
+    if !is_member {
+        return Err(Error::NotAuthorized(
+            "User is not a member of this workspace".to_string(),
+        ));
+    }
+
+    // Verify client exists and redirect_uri is registered
+    let client = sqlx::query_as!(
+        OAuthClient,
+        "SELECT client_id, client_name, redirect_uris FROM mcp_oauth_server_client WHERE client_id = $1",
+        form.client_id
+    )
+    .fetch_optional(&db)
+    .await
+    .map_err(|e| Error::InternalErr(format!("Database error: {}", e)))?
+    .ok_or_else(|| Error::BadRequest("Unknown client_id".to_string()))?;
+
+    if !client.redirect_uris.contains(&form.redirect_uri) {
+        return Err(Error::BadRequest(
+            "Invalid redirect_uri for this client".to_string(),
+        ));
+    }
+
+    if form.code_challenge.is_empty() {
+        return Err(Error::BadRequest(
+            "PKCE required: code_challenge is mandatory".to_string(),
+        ));
+    }
+
+    if form.code_challenge_method.is_empty() {
+        return Err(Error::BadRequest(
+            "PKCE required: code_challenge_method is mandatory".to_string(),
+        ));
+    }
+
+    if form.code_challenge_method != "S256" {
+        return Err(Error::BadRequest(
+            "Invalid code_challenge_method: only 'S256' is supported".to_string(),
+        ));
+    }
+
+    let code = format!("mcp-code-{}", rd_string(32));
+
+    let scopes: Vec<String> = form
+        .scope
+        .split_whitespace()
+        .map(|s| s.to_string())
+        .collect();
+
+    sqlx::query!(
+        "INSERT INTO mcp_oauth_server_code
+         (code, client_id, user_email, workspace_id, scopes, redirect_uri, code_challenge, code_challenge_method)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        code,
+        form.client_id,
+        authed.email,
+        form.workspace_id,
+        &scopes,
+        form.redirect_uri,
+        &form.code_challenge,
+        &form.code_challenge_method,
+    )
+    .execute(&db)
+    .await
+    .map_err(|e| Error::InternalErr(format!("Failed to store authorization code: {}", e)))?;
+
+    Ok(Json(ApprovalResponse {
+        code,
+        state: if form.state.is_empty() {
+            None
+        } else {
+            Some(form.state)
+        },
+    }))
+}
+
+// ── Router constructors ──
+
 /// Mounted at /api/mcp/oauth/server
 pub fn global_service() -> Router {
     Router::new().route("/register", post(oauth_register))
@@ -872,4 +1120,18 @@ pub fn workspaced_unauthed_service() -> Router {
 /// Mounted at /api/w/:workspace_id/mcp/oauth/server (inside authenticated section)
 pub fn workspaced_authed_service() -> Router {
     Router::new().route("/approve", post(workspaced_oauth_approve))
+}
+
+/// Gateway OAuth endpoints that don't require authentication
+/// Mounted at /api/mcp/gateway/oauth/server (outside authenticated section)
+pub fn gateway_unauthed_service() -> Router {
+    Router::new()
+        .route("/authorize", get(gateway_oauth_authorize))
+        .route("/token", post(oauth_token))
+}
+
+/// Gateway OAuth endpoints that require authentication
+/// Mounted at /api/mcp/gateway/oauth/server (inside authenticated section)
+pub fn gateway_authed_service() -> Router {
+    Router::new().route("/approve", post(gateway_oauth_approve))
 }

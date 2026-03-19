@@ -280,9 +280,7 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
-                                            token_prefix: Some(
-                                                safe_token_prefix(token),
-                                            ),
+                                            token_prefix: Some(safe_token_prefix(token)),
                                         })
                                     } else {
                                         let groups = vec![name.to_string()];
@@ -304,9 +302,7 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
-                                            token_prefix: Some(
-                                                safe_token_prefix(token),
-                                            ),
+                                            token_prefix: Some(safe_token_prefix(token)),
                                         })
                                     }
                                 } else {
@@ -369,9 +365,7 @@ impl AuthCache {
                                                 folders,
                                                 scopes,
                                                 username_override,
-                                                token_prefix: Some(
-                                                    safe_token_prefix(token),
-                                                ),
+                                                token_prefix: Some(safe_token_prefix(token)),
                                             })
                                         }
                                         None if super_admin => Some(ApiAuthed {
@@ -383,9 +377,7 @@ impl AuthCache {
                                             folders: vec![],
                                             scopes,
                                             username_override,
-                                            token_prefix: Some(
-                                                safe_token_prefix(token),
-                                            ),
+                                            token_prefix: Some(safe_token_prefix(token)),
                                         }),
                                         None => None,
                                     }
@@ -660,7 +652,12 @@ pub async fn resolve_opt_job_authed(
                 .map(|x| x.0)
                 .unwrap_or_default();
             let path_vec: Vec<&str> = original_uri.path().split("/").collect();
-            let workspace_id = maybe_get_workspace_id_from_path(&path_vec);
+            let workspace_id = maybe_get_workspace_id_from_path(&path_vec).or_else(|| {
+                parts
+                    .extensions
+                    .get::<windmill_common::db::GatewayWorkspaceId>()
+                    .map(|g| g.0.clone())
+            });
 
             if let Some(mut opt_job_authed) =
                 cache.get_opt_job_authed(workspace_id.clone(), &token).await
