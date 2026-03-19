@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.660.1](https://github.com/windmill-labs/windmill/compare/v1.660.0...v1.660.1) (2026-03-19)
+
+
+### Bug Fixes
+
+* prevent S3 file browser crash when selecting storage ([#8444](https://github.com/windmill-labs/windmill/issues/8444)) ([a8fa0cc](https://github.com/windmill-labs/windmill/commit/a8fa0cccef870f841c68be77832d9be12109badb))
+* schema inference not updating on reset and language switch ([#8446](https://github.com/windmill-labs/windmill/issues/8446)) ([c0edbe4](https://github.com/windmill-labs/windmill/commit/c0edbe431773f878201e96a79ce291d4b37a10bb))
+
 ## [1.660.0](https://github.com/windmill-labs/windmill/compare/v1.659.1...v1.660.0) (2026-03-18)
 
 
