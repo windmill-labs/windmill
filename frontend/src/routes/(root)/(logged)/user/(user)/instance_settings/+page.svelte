@@ -84,6 +84,8 @@
 	let enableHubSync = $state(true)
 	let accountSubmitting = $state(false)
 	let accountError = $state('')
+	let showOssAccountDialog = $state(false)
+	let ossAccountError = $state('')
 
 	// --- Resource type sync (triggered on entering account step) ---
 	let rtSyncStatus: 'idle' | 'loading' | 'success' | 'error' = $state('idle')
@@ -316,7 +318,13 @@
 					)
 			)
 		} catch (e: any) {
-			accountError = e?.body?.message || e?.body || e?.message || 'An error occurred'
+			const msg = e?.body?.message || e?.body || e?.message || 'An error occurred'
+			if (typeof msg === 'string' && msg.includes('Enterprise feature')) {
+				ossAccountError = msg
+				showOssAccountDialog = true
+			} else {
+				accountError = msg
+			}
 		} finally {
 			accountSubmitting = false
 		}
@@ -635,6 +643,40 @@
 			<span>
 				You are running the Enterprise Edition image but have not entered a license key. A valid
 				license key is required to use EE features. Are you sure you want to continue without one?
+			</span>
+		</div>
+	</ConfirmationModal>
+{/if}
+
+{#if showOssAccountDialog}
+	<ConfirmationModal
+		open={showOssAccountDialog}
+		title="Enterprise feature"
+		confirmationText="Continue with default credentials"
+		on:canceled={() => {
+			showOssAccountDialog = false
+		}}
+		on:confirmed={() => {
+			showOssAccountDialog = false
+			sendUserToast('Setup complete. Please log in with the default credentials.')
+			goto(
+				'/user/logout?rd=' +
+					encodeURIComponent(
+						'/user/login?email=' +
+							encodeURIComponent('admin@windmill.dev') +
+							'&password=' +
+							encodeURIComponent('changeme')
+					)
+			)
+		}}
+	>
+		<div class="flex flex-col w-full space-y-4">
+			<Alert type="error" title="Backend error">
+				{ossAccountError}
+			</Alert>
+			<span>
+				You can change your password after logging in from the user settings. Click
+				"Continue" to finish setup and log in with the default credentials.
 			</span>
 		</div>
 	</ConfirmationModal>

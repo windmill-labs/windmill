@@ -38,7 +38,7 @@ pub async fn create_user(
     mut _nu: NewUser,
 ) -> Result<(StatusCode, String)> {
     Err(Error::internal_err(
-        "Not implemented in Windmill's Open Source repository".to_string(),
+        "User creation is an Enterprise feature. On the open-source version, use the default credentials (admin@windmill.dev / changeme) and change them from the user settings.".to_string(),
     ))
 }
 
