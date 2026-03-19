@@ -20568,6 +20568,7 @@ components:
         - is_flow
         - enabled
         - email
+        - permissioned_as
 
     ScheduleWJobs:
       allOf:
