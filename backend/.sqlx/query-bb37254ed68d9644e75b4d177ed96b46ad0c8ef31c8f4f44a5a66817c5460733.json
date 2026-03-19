@@ -1,30 +1,35 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT app_id, value, created_by, created_at, raw_app\n         FROM app_version\n         WHERE app_id = ANY(SELECT id FROM app WHERE workspace_id = $1)\n         ORDER BY app_id, created_at",
+  "query": "SELECT id, app_id, value, created_by, created_at, raw_app\n         FROM app_version\n         WHERE app_id = ANY(SELECT id FROM app WHERE workspace_id = $1)\n         ORDER BY app_id, created_at",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "app_id",
+        "name": "id",
         "type_info": "Int8"
       },
       {
         "ordinal": 1,
+        "name": "app_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
         "name": "value",
         "type_info": "Json"
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "created_by",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "raw_app",
         "type_info": "Bool"
       }
@@ -39,8 +44,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "5d621d9d2bb37c3115e10a90452c42e563d1c7f2c4d27e9386fe9ed06fe3607a"
+  "hash": "bb37254ed68d9644e75b4d177ed96b46ad0c8ef31c8f4f44a5a66817c5460733"
 }
