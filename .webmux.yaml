@@ -44,7 +44,7 @@ profiles:
       - Pane 1: backend (cargo watch -x run)
       - Pane 2: frontend (npm run dev)
       To check logs, use: \`tmux capture-pane -t .1 -p -S -50\` (backend) or \`tmux capture-pane -t .2 -p -S -50\` (frontend).
-      When restarting backend or frontend, make sure to use ${BACKEND_PORT} and ${FRONTEND_PORT}.
+      For this window specifically, backend is running on: ${BACKEND_PORT} and frontend is running on: ${FRONTEND_PORT}.
       To connect to the database, use this connection string: ${DATABASE_URL}
       Because we are running backend with cargo watch, to verify your changes, just check the logs in the backend pane. No need for cargo check.
       IMPORTANT: Read docs/autonomous-mode.md before starting any work.
