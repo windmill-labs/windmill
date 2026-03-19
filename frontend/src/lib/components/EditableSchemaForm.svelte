@@ -333,10 +333,11 @@
 		}
 	})
 	$effect(() => {
-		// Track schema properties and order so this effect re-runs when
-		// inferArgs rebuilds the schema (not just on reference change).
-		schema?.order
-		Object.keys(schema?.properties ?? {})
+		// Track schema.properties reference so this effect re-runs when
+		// inferArgs replaces it (schema.properties = {}). Don't track
+		// Object.keys or schema.order — those change during field rename
+		// and would cause unwanted reordering.
+		schema?.properties
 		schema && untrack(() => onSchemaChange())
 	})
 	$effect(() => {
