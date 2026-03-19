@@ -130,6 +130,13 @@
 		}
 	}
 
+	let isWac = $derived(!!(job as any)?.workflow_as_code_status)
+	let filteredArgs = $derived.by(() => {
+		if (!job?.args) return job?.args
+		const args = { ...(job.args as any) }
+		delete args['_MODULES']
+		return args
+	})
 	let schema = $derived(approvalInfo?.form_schema?.schema ?? {})
 	let hasForm = $derived(schema && typeof schema === 'object' && Object.keys(schema).length > 0)
 	let selfApprovalDisabled = $derived(
@@ -151,7 +158,11 @@
 
 <ScheduleEditor bind:this={scheduleEditor} />
 
-<CenteredModal title="Approval for resuming of flow" disableLogo centerVertically={false}>
+<CenteredModal
+	title="Approval for resuming of {isWac ? 'workflow' : 'flow'}"
+	disableLogo
+	centerVertically={false}
+>
 	{#if error}
 		<div class="space-y-6">
 			{#if error.includes('logged in') || error.includes('sign in') || error.includes('Not authorized')}
@@ -209,11 +220,13 @@
 		</div>
 
 		{#if !completed}
-			<h2 class="mt-4 mb-2 text-sm font-semibold text-emphasis">Flow arguments</h2>
+			<h2 class="mt-4 mb-2 text-sm font-semibold text-emphasis">
+				{isWac ? 'Workflow' : 'Flow'} arguments
+			</h2>
 			<JobArgs
 				id={job?.id}
 				workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
-				args={job?.args}
+				args={filteredArgs}
 			/>
 		{/if}
 
