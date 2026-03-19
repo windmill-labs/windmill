@@ -297,9 +297,7 @@
 	}
 
 	const editTabDefaultSize = untrack(() => noPreview) ? 100 : 50
-	editPanelSize = untrack(() => editTab)
-		? (untrack(() => editPanelInitialSize) ?? editTabDefaultSize)
-		: 0
+	editPanelSize = untrack(() => editTab) ? (untrack(() => editPanelInitialSize) ?? editTabDefaultSize) : 0
 	let inputPanelSize = $state(100 - editPanelSize)
 	let editPanelSizeSmooth = tweened(editPanelSize, {
 		duration: 150
@@ -333,11 +331,6 @@
 		}
 	})
 	$effect(() => {
-		// Track schema.properties reference so this effect re-runs when
-		// inferArgs replaces it (schema.properties = {}). Don't track
-		// Object.keys or schema.order — those change during field rename
-		// and would cause unwanted reordering.
-		schema?.properties
 		schema && untrack(() => onSchemaChange())
 	})
 	$effect(() => {
