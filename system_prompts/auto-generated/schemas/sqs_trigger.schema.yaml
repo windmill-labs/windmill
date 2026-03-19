@@ -68,6 +68,7 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
+- permissioned_as
 - is_flow
 - queue_url
 - aws_resource_path

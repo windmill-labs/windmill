@@ -5563,6 +5563,7 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
+- permissioned_as
 - is_flow
 - gcp_resource_path
 - topic_id
@@ -5689,6 +5690,7 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
+- permissioned_as
 - is_flow
 - route_path
 - request_type
@@ -5784,6 +5786,7 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
+- permissioned_as
 - is_flow
 - kafka_resource_path
 - group_id
@@ -5875,6 +5878,7 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
+- permissioned_as
 - is_flow
 - subscribe_topics
 - mqtt_resource_path
@@ -5950,6 +5954,7 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
+- permissioned_as
 - is_flow
 - nats_resource_path
 - use_jetstream
@@ -6019,6 +6024,7 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
+- permissioned_as
 - is_flow
 - postgres_resource_path
 - replication_slot_name
@@ -6220,6 +6226,7 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
+- permissioned_as
 - is_flow
 - queue_url
 - aws_resource_path
@@ -6309,6 +6316,7 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
+- permissioned_as
 - is_flow
 - url
 - filters

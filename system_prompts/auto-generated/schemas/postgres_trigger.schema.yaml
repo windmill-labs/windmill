@@ -62,6 +62,7 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
+- permissioned_as
 - is_flow
 - postgres_resource_path
 - replication_slot_name

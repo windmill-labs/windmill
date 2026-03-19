@@ -87,6 +87,7 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
+- permissioned_as
 - is_flow
 - gcp_resource_path
 - topic_id

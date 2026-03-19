@@ -117,6 +117,7 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
+- permissioned_as
 - is_flow
 - route_path
 - request_type

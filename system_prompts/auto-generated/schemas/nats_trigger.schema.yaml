@@ -69,6 +69,7 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
+- permissioned_as
 - is_flow
 - nats_resource_path
 - use_jetstream
