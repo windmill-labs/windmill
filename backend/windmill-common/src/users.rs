@@ -15,6 +15,8 @@ pub const COOKIE_NAME: &str = "token";
 pub fn username_to_permissioned_as(user: &str) -> String {
     if user.contains('@') {
         user.to_string()
+    } else if let Some(group) = user.strip_prefix("group-") {
+        format!("g/{}", group)
     } else {
         format!("u/{}", user)
     }
@@ -82,5 +84,7 @@ mod tests {
             username_to_permissioned_as("alice@example.com"),
             "alice@example.com"
         );
+        assert_eq!(username_to_permissioned_as("group-all"), "g/all");
+        assert_eq!(username_to_permissioned_as("group-my-team"), "g/my-team");
     }
 }

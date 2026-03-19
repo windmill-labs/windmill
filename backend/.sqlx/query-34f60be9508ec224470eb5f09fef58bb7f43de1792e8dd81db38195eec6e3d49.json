@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        UPDATE schedule SET\n            enabled = $1,\n            email = $2,\n            permissioned_as = $5\n        WHERE path = $3 AND workspace_id = $4\n        RETURNING\n            workspace_id,\n            path,\n            edited_by,\n            edited_at,\n            schedule,\n            timezone,\n            enabled,\n            script_path,\n            is_flow,\n            args AS \"args: _\",\n            extra_perms,\n            email,\n            permissioned_as,\n            error,\n            on_failure,\n            on_failure_times,\n            on_failure_exact,\n            on_failure_extra_args AS \"on_failure_extra_args: _\",\n            on_recovery,\n            on_recovery_times,\n            on_recovery_extra_args AS \"on_recovery_extra_args: _\",\n            on_success,\n            on_success_extra_args AS \"on_success_extra_args: _\",\n            ws_error_handler_muted,\n            retry,\n            no_flow_overlap,\n            summary,\n            description,\n            tag,\n            paused_until,\n            cron_version,\n            dynamic_skip\n        ",
+  "query": "\n        UPDATE schedule SET\n            schedule                = $1,\n            timezone                = $2,\n            args                    = $3,\n            on_failure              = $4,\n            on_failure_times        = $5,\n            on_failure_exact        = $6,\n            on_failure_extra_args   = $7,\n            on_recovery             = $8,\n            on_recovery_times       = $9,\n            on_recovery_extra_args  = $10,\n            on_success              = $11,\n            on_success_extra_args   = $12,\n            ws_error_handler_muted  = $13,\n            retry                   = $14,\n            summary                 = $15,\n            no_flow_overlap         = $16,\n            tag                     = $17,\n            paused_until            = $18,\n            path                    = $19,\n            workspace_id            = $20,\n            cron_version            = COALESCE($21, cron_version),\n            description             = $22,\n            dynamic_skip            = $23,\n            email                   = COALESCE($24, email),\n            edited_by               = $25\n        WHERE path = $19 AND workspace_id = $20\n        RETURNING\n            workspace_id,\n            path,\n            edited_by,\n            edited_at,\n            schedule,\n            timezone,\n            enabled,\n            script_path,\n            is_flow,\n            args AS \"args: _\",\n            extra_perms,\n            email,\n            permissioned_as,\n            error,\n            on_failure,\n            on_failure_times,\n            on_failure_exact,\n            on_failure_extra_args AS \"on_failure_extra_args: _\",\n            on_recovery,\n            on_recovery_times,\n            on_recovery_extra_args AS \"on_recovery_extra_args: _\",\n            on_success,\n            on_success_extra_args AS \"on_success_extra_args: _\",\n            ws_error_handler_muted,\n            retry,\n            no_flow_overlap,\n            summary,\n            description,\n            tag,\n            paused_until,\n            cron_version,\n            dynamic_skip\n        ",
   "describe": {
     "columns": [
       {
@@ -166,10 +166,30 @@
     ],
     "parameters": {
       "Left": [
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Varchar",
+        "Int4",
+        "Bool",
+        "Jsonb",
+        "Varchar",
+        "Int4",
+        "Jsonb",
+        "Varchar",
+        "Jsonb",
+        "Bool",
+        "Jsonb",
+        "Varchar",
         "Bool",
         "Varchar",
+        "Timestamptz",
         "Text",
         "Text",
+        "Text",
+        "Text",
+        "Varchar",
+        "Varchar",
         "Varchar"
       ]
     },
@@ -208,5 +228,5 @@
       true
     ]
   },
-  "hash": "6c6c8dfe877544752fec649f9b38a6f86f32ea527de5873cd5660c92da82cfae"
+  "hash": "34f60be9508ec224470eb5f09fef58bb7f43de1792e8dd81db38195eec6e3d49"
 }

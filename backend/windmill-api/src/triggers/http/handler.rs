@@ -10,7 +10,6 @@ use crate::{
         get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result,
         trigger_runnable_inner, RunnableId,
     },
-    users::fetch_api_authed,
     utils::{check_scopes, ExpiringCacheEntry},
 };
 use axum::{
@@ -220,8 +219,8 @@ async fn get_http_route_trigger(
         &db,
     )
     .await?;
-    let authed = fetch_api_authed(
-        trigger.edited_by.clone(),
+    let authed = windmill_api_auth::fetch_api_authed_from_permissioned_as(
+        trigger.permissioned_as.clone(),
         email,
         &trigger.workspace_id,
         &db,

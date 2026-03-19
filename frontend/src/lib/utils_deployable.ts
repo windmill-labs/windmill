@@ -245,6 +245,7 @@ export async function getTriggersDeployData(
 		return {
 			data: {
 				...schedulesTrigger,
+				// permissioned_as is only set on create, not update
 				permissioned_as: onBehalfOfPermissionedAs,
 				preserve_permissioned_as: preservePermissionedAs
 			},

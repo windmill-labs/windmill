@@ -15,7 +15,7 @@ use serde_json::value::RawValue;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Row};
 use tokio::sync::RwLock;
-use windmill_api_auth::{fetch_api_authed, ApiAuthed};
+use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     error::{Error, Result},
     jobs::JobTriggerKind,
@@ -98,7 +98,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 path: trigger.base.path,
                 workspace_id: trigger.base.workspace_id,
                 is_flow: trigger.base.is_flow,
-                username: trigger.base.edited_by,
+                edited_by: trigger.base.edited_by,
                 permissioned_as: trigger.base.permissioned_as,
                 script_path: trigger.base.script_path,
                 trigger_config: trigger.config,
@@ -148,7 +148,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 let permissioned_as =
                     windmill_common::users::username_to_permissioned_as(&capture.username);
                 ListeningTrigger {
-                    username: capture.username,
+                    edited_by: capture.username,
                     path: capture.path,
                     workspace_id: capture.workspace_id,
                     script_path: "".to_string(),
@@ -575,7 +575,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             &Self::TRIGGER_KIND,
             main_args,
             preprocessor_args,
-            &listening_trigger.username,
+            &listening_trigger.edited_by,
         )
         .await
         {
@@ -825,7 +825,7 @@ pub struct ListeningTrigger<T> {
     pub path: String,
     pub is_flow: bool,
     pub workspace_id: String,
-    pub username: String,
+    pub edited_by: String,
     pub permissioned_as: String,
     pub trigger_config: T,
     pub script_path: String,
@@ -835,19 +835,19 @@ pub struct ListeningTrigger<T> {
 }
 
 impl<T> ListeningTrigger<T> {
-    pub async fn authed(&self, db: &DB, username: &str) -> Result<ApiAuthed> {
+    pub async fn authed(&self, db: &DB, trigger_kind: &str) -> Result<ApiAuthed> {
         let email = windmill_common::users::get_email_from_permissioned_as(
             &self.permissioned_as,
             &self.workspace_id,
             db,
         )
         .await?;
-        fetch_api_authed(
-            self.username.clone(),
+        windmill_api_auth::fetch_api_authed_from_permissioned_as(
+            self.permissioned_as.clone(),
             email,
             &self.workspace_id,
             db,
-            Some(format!("{}-{}", username, self.path)),
+            Some(format!("{}-{}", trigger_kind, self.path)),
         )
         .await
     }

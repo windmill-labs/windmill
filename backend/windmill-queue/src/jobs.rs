@@ -1863,18 +1863,17 @@ pub async fn try_schedule_next_job<'c>(
         &job.workspace_id
     );
 
-    let permissioned_as = if schedule.permissioned_as.is_empty() {
-        windmill_common::users::username_to_permissioned_as(&schedule.edited_by)
-    } else {
-        schedule.permissioned_as.clone()
-    };
-    let email = windmill_common::users::get_email_from_permissioned_as(
+    let permissioned_as = schedule.permissioned_as.clone();
+    let email = match windmill_common::users::get_email_from_permissioned_as(
         &permissioned_as,
         &job.workspace_id,
         db,
     )
     .await
-    .unwrap_or_else(|_| schedule.email.clone());
+    {
+        Ok(email) => email,
+        Err(e) => return (tx, Some(e)),
+    };
     let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
         &permissioned_as,
         &email,
@@ -5835,7 +5834,7 @@ async fn push_inner<'c, 'd>(
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {
             AuditAuthor {
                 email: email.to_string(),
-                username: permissioned_as.trim_start_matches("u/").to_string(),
+                username: windmill_common::auth::permissioned_as_to_username(&permissioned_as),
                 username_override: Some(user.to_string()),
                 token_prefix: token_prefix.map(|s| s.to_string()),
             }

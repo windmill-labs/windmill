@@ -459,19 +459,13 @@ pub async fn push_scheduled_job<'c>(
             is_windmill_user,
         )
     } else {
-        let permissioned_as = if schedule.permissioned_as.is_empty() {
-            // Fallback for pre-migration data
-            username_to_permissioned_as(&schedule.edited_by)
-        } else {
-            schedule.permissioned_as.clone()
-        };
+        let permissioned_as = schedule.permissioned_as.clone();
         let resolved_email = windmill_common::users::get_email_from_permissioned_as(
             &permissioned_as,
             &schedule.workspace_id,
             db,
         )
-        .await
-        .unwrap_or_else(|_| schedule.email.clone());
+        .await?;
         (resolved_email, permissioned_as, authed, false)
     };
 

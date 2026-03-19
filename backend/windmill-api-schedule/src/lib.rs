@@ -230,6 +230,7 @@ async fn create_schedule(
         ns.preserve_permissioned_as,
         &authed,
     );
+    // email is still written for backwards compat with old workers that don't know about permissioned_as
     let resolved_email = windmill_common::users::get_email_from_permissioned_as(
         &resolved_permissioned_as,
         &w_id,
@@ -415,17 +416,7 @@ async fn edit_schedule(
     clear_schedule(&mut tx, path, &w_id).await?;
 
     let resolved_edited_by = resolve_edited_by(&authed);
-    let resolved_permissioned_as = resolve_permissioned_as(
-        es.permissioned_as.as_ref(),
-        es.preserve_permissioned_as,
-        &authed,
-    );
-    let resolved_email = windmill_common::users::get_email_from_permissioned_as(
-        &resolved_permissioned_as,
-        &w_id,
-        &db,
-    )
-    .await?;
+    // email is still written for backwards compat with old workers that don't know about permissioned_as
 
     let schedule = sqlx::query_as!(
         Schedule,
@@ -455,8 +446,7 @@ async fn edit_schedule(
             description             = $22,
             dynamic_skip            = $23,
             email                   = COALESCE($24, email),
-            edited_by               = $25,
-            permissioned_as         = $26
+            edited_by               = $25
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -519,9 +509,8 @@ async fn edit_schedule(
         es.cron_version,
         es.description,
         es.dynamic_skip,
-        Some(resolved_email),
-        resolved_edited_by,
-        resolved_permissioned_as
+        Some(authed.email.clone()),
+        resolved_edited_by
     )
     .fetch_one(&mut *tx)
     .await
@@ -542,29 +531,6 @@ async fn edit_schedule(
         ),
     )
     .await?;
-    if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        es.permissioned_as.as_deref(),
-        es.preserve_permissioned_as.unwrap_or(false),
-        &authed,
-        &authed.username,
-    ) {
-        audit_log(
-            &mut *tx,
-            &authed,
-            "schedule.on_behalf_of",
-            ActionKind::Update,
-            &w_id,
-            Some(path),
-            Some(
-                [
-                    ("on_behalf_of", on_behalf_of.as_str()),
-                    ("action", "update"),
-                ]
-                .into(),
-            ),
-        )
-        .await?;
-    }
 
     if schedule.enabled {
         tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
@@ -795,14 +761,13 @@ pub async fn set_enabled(
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
-    let permissioned_as = windmill_common::users::username_to_permissioned_as(&authed.username);
+    // email is still written for backwards compat with old workers that don't know about permissioned_as
     let schedule_o = sqlx::query_as!(
         Schedule,
         r#"
         UPDATE schedule SET
             enabled = $1,
-            email = $2,
-            permissioned_as = $5
+            email = $2
         WHERE path = $3 AND workspace_id = $4
         RETURNING
             workspace_id,
@@ -841,8 +806,7 @@ pub async fn set_enabled(
         payload.enabled,
         authed.email,
         path,
-        w_id,
-        permissioned_as
+        w_id
     )
     .fetch_optional(&mut *tx)
     .await?;
@@ -1190,8 +1154,6 @@ pub struct EditSchedule {
     pub paused_until: Option<DateTime<Utc>>,
     pub cron_version: Option<String>,
     pub dynamic_skip: Option<String>,
-    pub permissioned_as: Option<String>,
-    pub preserve_permissioned_as: Option<bool>,
 }
 
 pub use windmill_queue::schedule::clear_schedule;
