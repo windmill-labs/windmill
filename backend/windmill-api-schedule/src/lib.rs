@@ -426,7 +426,16 @@ async fn edit_schedule(
         )
     });
 
-    // email is still written for backwards compat with old workers that don't know about permissioned_as
+    // email is still written for backwards compat with old workers that don't know about permissioned_as.
+    // When permissioned_as is preserved, derive email from it to keep email consistent with the old behavior.
+    let resolved_email = match resolved_permissioned_as {
+        Some(ref pa)
+            if pa != &windmill_common::users::username_to_permissioned_as(&authed.username) =>
+        {
+            windmill_common::users::get_email_from_permissioned_as(pa, &w_id, &db).await?
+        }
+        _ => authed.email.clone(),
+    };
 
     let schedule = sqlx::query_as!(
         Schedule,
@@ -520,7 +529,7 @@ async fn edit_schedule(
         es.cron_version,
         es.description,
         es.dynamic_skip,
-        Some(authed.email.clone()),
+        Some(resolved_email),
         resolved_edited_by,
         resolved_permissioned_as
     )
