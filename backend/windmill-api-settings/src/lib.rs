@@ -981,6 +981,14 @@ async fn setup_custom_instance_pg_database_inner(
                 e.to_string(),
             ))
         })?;
+
+    if let Err(e) = client
+        .batch_execute(&format!("ALTER ROLE custom_instance_user REPLICATION;"))
+        .await
+    {
+        tracing::error!("Failed to grant replication permission to custom_instance_user: {e:#}");
+    }
+
     logs.grant_permissions = "OK".to_string();
 
     drop(client); // /!\ Drop before joining to avoid deadlock
