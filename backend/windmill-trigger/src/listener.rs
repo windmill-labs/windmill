@@ -120,7 +120,6 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "is_flow",
             "workspace_id",
             "owner AS username",
-            "email",
             "trigger_config",
         ];
 
@@ -796,7 +795,6 @@ where
     is_flow: bool,
     workspace_id: String,
     username: String,
-    email: String,
     #[serde(flatten)]
     trigger_config: T,
 }
@@ -814,7 +812,6 @@ where
             is_flow: row.try_get("is_flow")?,
             workspace_id: row.try_get("workspace_id")?,
             username: row.try_get("username")?,
-            email: row.try_get("email")?,
             trigger_config,
         })
     }

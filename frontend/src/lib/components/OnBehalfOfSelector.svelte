@@ -1,6 +1,11 @@
 <script lang="ts" module>
 	export type OnBehalfOfChoice = 'target' | 'me' | 'custom' | undefined
 
+	export interface OnBehalfOfDetails {
+		email: string
+		permissionedAs: string
+	}
+
 	/**
 	 * Check if an item needs on_behalf_of selection.
 	 * Shows the selector when the source item has an on_behalf_of value set.
@@ -25,11 +30,11 @@
 		targetValue: string | undefined
 		selected: OnBehalfOfChoice
 		/**
-		 * Called when the user picks a choice. `value` is the resolved value to use for deployment:
-		 * - email for flows/scripts/apps
-		 * - permissioned_as (u/username) for triggers/schedules
+		 * Called when the user picks a choice.
+		 * For 'custom', `details` contains both `email` and `permissionedAs` (u/{username}).
+		 * Callers pick whichever format they need.
 		 */
-		onSelect: (choice: OnBehalfOfChoice, value?: string) => void
+		onSelect: (choice: OnBehalfOfChoice, details?: OnBehalfOfDetails) => void
 		kind: string
 		canPreserve: boolean
 		/** The value of the custom-selected user (for display) */
@@ -115,9 +120,7 @@
 	}
 
 	function selectUser(user: User) {
-		// Return the right format: u/username for triggers, email for flows/scripts
-		const value = isTrigger ? `u/${user.username}` : user.email
-		onSelect('custom', value)
+		onSelect('custom', { email: user.email, permissionedAs: `u/${user.username}` })
 		modalOpen = false
 	}
 

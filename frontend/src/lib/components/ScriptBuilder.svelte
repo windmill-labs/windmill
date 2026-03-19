@@ -1785,7 +1785,7 @@
 														targetWorkspace={$workspaceStore ?? ''}
 														targetValue={originalOnBehalfOfEmail}
 														selected={onBehalfOfChoice}
-														onSelect={(choice, value) => {
+														onSelect={(choice, details) => {
 															onBehalfOfChoice = choice
 															if (choice === 'me') {
 																script.on_behalf_of_email = $userStore?.email
@@ -1795,9 +1795,9 @@
 																script.on_behalf_of_email = originalOnBehalfOfEmail
 																customOnBehalfOfEmail = ''
 																preserveOnBehalfOf = true
-															} else if (choice === 'custom' && value) {
-																script.on_behalf_of_email = value
-																customOnBehalfOfEmail = value
+															} else if (choice === 'custom' && details) {
+																script.on_behalf_of_email = details.email
+																customOnBehalfOfEmail = details.email
 																preserveOnBehalfOf = true
 															}
 														}}

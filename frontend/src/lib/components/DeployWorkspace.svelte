@@ -35,7 +35,8 @@
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import OnBehalfOfSelector, {
 		needsOnBehalfOfSelection,
-		type OnBehalfOfChoice
+		type OnBehalfOfChoice,
+		type OnBehalfOfDetails
 	} from './OnBehalfOfSelector.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 
@@ -77,7 +78,7 @@
 	// Target workspace on_behalf_of emails (keyed by kind:path)
 	let targetOnBehalfOfInfo = $state<Record<string, string | undefined>>({})
 	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
-	let customOnBehalfOf = $state<Record<string, string>>({})
+	let customOnBehalfOf = $state<Record<string, OnBehalfOfDetails>>({})
 	let canPreserveOnBehalfOf = $state(false)
 
 	// Check if an item needs on_behalf_of selection
@@ -89,10 +90,13 @@
 	 * Get the on_behalf_of value for deployment based on user's choice.
 	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for triggers/schedules.
 	 */
-	function getOnBehalfOfForDeploy(statusPath: string): string | undefined {
+	function getOnBehalfOfForDeploy(statusPath: string, kind: Kind): string | undefined {
 		const choice = onBehalfOfChoice[statusPath]
 		if (choice === 'target') return targetOnBehalfOfInfo[statusPath]
-		if (choice === 'custom') return customOnBehalfOf[statusPath]
+		if (choice === 'custom') {
+			const details = customOnBehalfOf[statusPath]
+			return kind === 'trigger' ? details?.permissionedAs : details?.email
+		}
 		// 'me' or undefined = don't pass, backend will use deploying user's identity
 		return undefined
 	}
@@ -298,7 +302,7 @@
 			workspaceFrom: $workspaceStore!,
 			workspaceTo: workspaceToDeployTo!,
 			additionalInformation,
-			onBehalfOf: getOnBehalfOfForDeploy(statusPath)
+			onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind)
 		})
 
 		if (result.success) {
@@ -469,13 +473,13 @@
 						targetWorkspace={workspaceToDeployTo!}
 						{targetValue}
 						selected={onBehalfOfChoice[statusPath]}
-						onSelect={(choice, value) => {
+						onSelect={(choice, details) => {
 							onBehalfOfChoice[statusPath] = choice
-							if (value) customOnBehalfOf[statusPath] = value
+							if (details) customOnBehalfOf[statusPath] = details
 						}}
 						kind={item.kind}
 						canPreserve={canPreserveOnBehalfOf}
-						customValue={customOnBehalfOf[statusPath]}
+						customValue={customOnBehalfOf[statusPath]?.permissionedAs}
 					/>
 				{/if}
 

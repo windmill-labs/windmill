@@ -1664,15 +1664,15 @@ async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Res
 // ============================================================================
 // HTTP Trigger Tests
 // ============================================================================
-// All trigger types share the same BaseTriggerData.resolve_email() and
-// resolve_edited_by() code path. Testing HTTP triggers validates the
+// All trigger types share the same BaseTriggerData.resolve_permissioned_as()
+// and resolve_edited_by() code path. Testing HTTP triggers validates the
 // preservation logic for all trigger types (WebSocket, MQTT, PostgreSQL,
 // Kafka, NATS, SQS, GCP, Email).
 
-/// HTTP Trigger: admin preserve_email tests (HTTP triggers require admin)
+/// HTTP Trigger: admin preserve_permissioned_as tests (HTTP triggers require admin)
 #[cfg(feature = "http_trigger")]
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
-async fn test_http_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_http_trigger_preserve_permissioned_as(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
@@ -1888,10 +1888,10 @@ async fn test_http_trigger_update_preserves_email(db: Pool<Postgres>) -> anyhow:
 // WebSocket Trigger Tests
 // ============================================================================
 
-/// WebSocket Trigger: admin, deployer, and non-admin preserve_email tests
+/// WebSocket Trigger: admin, deployer, and non-admin preserve_permissioned_as tests
 #[cfg(feature = "websocket")]
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
-async fn test_websocket_trigger_preserve_email(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_websocket_trigger_preserve_permissioned_as(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;

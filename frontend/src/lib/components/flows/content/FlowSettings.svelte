@@ -411,7 +411,7 @@
 							targetWorkspace={$workspaceStore ?? ''}
 							targetValue={$savedOnBehalfOfEmail}
 							selected={onBehalfOfChoice}
-							onSelect={(choice, value) => {
+							onSelect={(choice, details) => {
 								onBehalfOfChoice = choice
 								if (choice === 'me') {
 									flowStore.val.on_behalf_of_email = $userStore?.email
@@ -421,9 +421,9 @@
 									flowStore.val.on_behalf_of_email = $savedOnBehalfOfEmail
 									customOnBehalfOfEmail = ''
 									$preserveOnBehalfOf = true
-								} else if (choice === 'custom' && value) {
-									flowStore.val.on_behalf_of_email = value
-									customOnBehalfOfEmail = value
+								} else if (choice === 'custom' && details) {
+									flowStore.val.on_behalf_of_email = details.email
+									customOnBehalfOfEmail = details.email
 									$preserveOnBehalfOf = true
 								}
 							}}
