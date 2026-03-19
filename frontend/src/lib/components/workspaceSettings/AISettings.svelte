@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { WorkspaceService, type AIConfig, type AIProvider } from '$lib/gen'
+	import { ResourceService, WorkspaceService, type AIConfig, type AIProvider } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { AI_PROVIDERS, fetchAvailableModels } from '../copilot/lib'
@@ -24,39 +24,113 @@
 	import SettingCard from '../instanceSettings/SettingCard.svelte'
 
 	let {
-		aiProviders = $bindable(),
-		codeCompletionModel = $bindable(),
-		defaultModel = $bindable(),
-		customPrompts = $bindable(),
-		maxTokensPerModel = $bindable(),
-		usingOpenaiClientCredentialsOauth = $bindable(),
-		onSave,
-		onDiscard,
-		hasUnsavedChanges = false,
+		initialConfig = undefined,
+		hasUnsavedChanges = $bindable(false),
 		workspace = undefined,
 		disableChatOffset = false,
 		hasInstanceAiConfig = false,
 		usesInstanceAiConfig = false,
-		customSave = undefined
+		customSave = undefined,
+		onSave = undefined
 	}: {
-		aiProviders: Exclude<AIConfig['providers'], undefined>
-		codeCompletionModel: string | undefined
-		defaultModel: string | undefined
-		customPrompts: Record<string, string>
-		maxTokensPerModel: Record<string, number>
-		usingOpenaiClientCredentialsOauth: boolean
-		onSave?: () => void
-		onDiscard?: () => void
+		initialConfig?: AIConfig | undefined
 		hasUnsavedChanges?: boolean
 		workspace?: string | undefined
 		disableChatOffset?: boolean
 		hasInstanceAiConfig?: boolean
 		usesInstanceAiConfig?: boolean
 		customSave?: (config: AIConfig) => Promise<void>
+		onSave?: () => void
 	} = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 
+	// --- Internal state ---
+	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
+	let codeCompletionModel: string | undefined = $state(undefined)
+	let defaultModel: string | undefined = $state(undefined)
+	let customPrompts: Record<string, string> = $state({})
+	let maxTokensPerModel: Record<string, number> = $state({})
+	let usingOpenaiClientCredentialsOauth = $state(false)
+
+	// --- Initial state for dirty tracking ---
+	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
+	let initialCodeCompletionModel: string | undefined = $state(undefined)
+	let initialDefaultModel: string | undefined = $state(undefined)
+	let initialCustomPrompts: Record<string, string> = $state({})
+	let initialMaxTokensPerModel: Record<string, number> = $state({})
+
+	function clone<T>(v: T): T {
+		return JSON.parse(JSON.stringify(v))
+	}
+
+	function applyConfig(config: AIConfig | undefined) {
+		aiProviders = config?.providers ?? {}
+		defaultModel = config?.default_model?.model
+		codeCompletionModel = config?.code_completion_model?.model
+		customPrompts = config?.custom_prompts ?? {}
+		maxTokensPerModel = config?.max_tokens_per_model ?? {}
+		for (const mode of ['edit', 'fix', 'gen']) {
+			if (!(mode in customPrompts)) {
+				customPrompts[mode] = ''
+			}
+		}
+	}
+
+	function storeInitialState() {
+		initialAiProviders = clone(aiProviders)
+		initialDefaultModel = defaultModel
+		initialCodeCompletionModel = codeCompletionModel
+		initialCustomPrompts = clone(customPrompts)
+		initialMaxTokensPerModel = clone(maxTokensPerModel)
+	}
+
+	export function loadFromConfig(config: AIConfig | undefined) {
+		applyConfig(config)
+		storeInitialState()
+	}
+
+	export function discard() {
+		aiProviders = clone(initialAiProviders)
+		defaultModel = initialDefaultModel
+		codeCompletionModel = initialCodeCompletionModel
+		customPrompts = clone(initialCustomPrompts)
+		maxTokensPerModel = clone(initialMaxTokensPerModel)
+	}
+
+	// Initialize from prop
+	if (initialConfig) {
+		applyConfig(initialConfig)
+		storeInitialState()
+	}
+
+	// Check if openai_client_credentials_oauth resource type exists
+	async function loadOpenaiOauthFlag() {
+		try {
+			usingOpenaiClientCredentialsOauth = await ResourceService.existsResourceType({
+				workspace: effectiveWorkspace,
+				path: 'openai_client_credentials_oauth'
+			})
+		} catch {
+			usingOpenaiClientCredentialsOauth = false
+		}
+	}
+	loadOpenaiOauthFlag()
+
+	// --- Dirty tracking ---
+	let dirty = $derived(
+		JSON.stringify(aiProviders) !== JSON.stringify(initialAiProviders) ||
+			defaultModel !== initialDefaultModel ||
+			codeCompletionModel !== initialCodeCompletionModel ||
+			JSON.stringify(customPrompts) !== JSON.stringify(initialCustomPrompts) ||
+			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel)
+	)
+
+	$effect(() => {
+		hasUnsavedChanges = dirty
+	})
+
+	// --- Model fetching ---
 	let fetchedAiModels = $state(false)
 	let availableAiModels = $state(
 		Object.fromEntries(
@@ -121,7 +195,7 @@
 		sendUserToast('Reset to last saved state')
 	}
 
-	async function editCopilotConfig(): Promise<void> {
+	function buildConfig(): AIConfig {
 		const code_completion_model =
 			codeCompletionModel && modelProviderMap[codeCompletionModel]
 				? { model: codeCompletionModel, provider: modelProviderMap[codeCompletionModel] }
@@ -134,18 +208,21 @@
 			.filter(([_, prompt]) => prompt.trim().length > 0)
 			.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
 
-		const config: AIConfig =
-			Object.keys(aiProviders ?? {}).length > 0
-				? {
-						providers: aiProviders,
-						code_completion_model,
-						default_model,
-						custom_prompts:
-							Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
-						max_tokens_per_model:
-							Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
-					}
-				: {}
+		return Object.keys(aiProviders ?? {}).length > 0
+			? {
+					providers: aiProviders,
+					code_completion_model,
+					default_model,
+					custom_prompts:
+						Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
+					max_tokens_per_model:
+						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
+				}
+			: {}
+	}
+
+	async function editCopilotConfig(): Promise<void> {
+		const config = buildConfig()
 
 		if (customSave) {
 			await customSave(config)
@@ -158,6 +235,7 @@
 			sendUserToast('AI settings updated')
 		}
 		initialPrompts = { ...customPrompts }
+		storeInitialState()
 		onSave?.()
 	}
 
@@ -401,9 +479,9 @@
 />
 
 <SettingsFooter
-	{hasUnsavedChanges}
+	hasUnsavedChanges={dirty}
 	onSave={editCopilotConfig}
-	onDiscard={() => onDiscard?.()}
+	onDiscard={discard}
 	saveLabel="Save AI settings"
 	disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
 		(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||

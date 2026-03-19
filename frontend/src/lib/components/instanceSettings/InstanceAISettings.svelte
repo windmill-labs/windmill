@@ -8,12 +8,6 @@
 	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
 	import { Alert, Button } from '../common'
 
-	const AIMode = {
-		Edit: 'edit',
-		Fix: 'fix',
-		Gen: 'gen'
-	} as const
-
 	interface Props {
 		hasUnsavedChanges?: boolean
 		disableChatOffset?: boolean
@@ -26,62 +20,14 @@
 		showHubSync = false
 	}: Props = $props()
 
-	// --- AI config state ---
-	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
-	let codeCompletionModel: string | undefined = $state(undefined)
-	let defaultModel: string | undefined = $state(undefined)
-	let customPrompts: Record<string, string> = $state({})
-	let maxTokensPerModel: Record<string, number> = $state({})
-	let usingOpenaiClientCredentialsOauth = $state(false)
-
-	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
-	let initialCodeCompletionModel: string | undefined = $state(undefined)
-	let initialDefaultModel: string | undefined = $state(undefined)
-	let initialCustomPrompts: Record<string, string> = $state({})
-	let initialMaxTokensPerModel: Record<string, number> = $state({})
-
+	let initialConfig: AIConfig | undefined = $state(undefined)
 	let loaded = $state(false)
-
-	let dirty = $derived(
-		JSON.stringify(aiProviders) !== JSON.stringify(initialAiProviders) ||
-			defaultModel !== initialDefaultModel ||
-			codeCompletionModel !== initialCodeCompletionModel ||
-			JSON.stringify(customPrompts) !== JSON.stringify(initialCustomPrompts) ||
-			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel)
-	)
-
-	$effect(() => {
-		hasUnsavedChanges = dirty
-	})
-
-	function clone<T>(v: T): T {
-		return JSON.parse(JSON.stringify(v))
-	}
-
-	function storeInitialState() {
-		initialAiProviders = clone(aiProviders)
-		initialDefaultModel = defaultModel
-		initialCodeCompletionModel = codeCompletionModel
-		initialCustomPrompts = clone(customPrompts)
-		initialMaxTokensPerModel = clone(maxTokensPerModel)
-	}
 
 	async function loadConfig() {
 		try {
-			const config = (await SettingService.getGlobal({ key: 'ai_config' })) as
+			initialConfig = ((await SettingService.getGlobal({ key: 'ai_config' })) as
 				| AIConfig
-				| undefined
-			aiProviders = config?.providers ?? {}
-			defaultModel = config?.default_model?.model
-			codeCompletionModel = config?.code_completion_model?.model
-			customPrompts = config?.custom_prompts ?? {}
-			maxTokensPerModel = config?.max_tokens_per_model ?? {}
-			for (const mode of Object.values(AIMode)) {
-				if (!(mode in customPrompts)) {
-					customPrompts[mode] = ''
-				}
-			}
-			storeInitialState()
+				| undefined) ?? {}
 			loaded = true
 		} catch (e) {
 			console.error('Failed to load instance AI config', e)
@@ -95,18 +41,9 @@
 			requestBody: { value: config }
 		})
 		sendUserToast('Instance AI settings saved')
-		storeInitialState()
 	}
 
-	function discardChanges() {
-		aiProviders = clone(initialAiProviders)
-		defaultModel = initialDefaultModel
-		codeCompletionModel = initialCodeCompletionModel
-		customPrompts = clone(initialCustomPrompts)
-		maxTokensPerModel = clone(initialMaxTokensPerModel)
-	}
-
-	// --- Ensure stores are set (this page may bypass the (logged) layout) ---
+	// Ensure stores are set (this page may bypass the (logged) layout)
 	async function ensureStores() {
 		if (!$workspaceStore) {
 			$workspaceStore = 'admins'
@@ -193,17 +130,10 @@
 	</p>
 
 	<AISettings
-		bind:aiProviders
-		bind:codeCompletionModel
-		bind:defaultModel
-		bind:customPrompts
-		bind:maxTokensPerModel
-		bind:usingOpenaiClientCredentialsOauth
-		hasUnsavedChanges={dirty}
+		bind:hasUnsavedChanges
+		{initialConfig}
 		workspace="admins"
 		{disableChatOffset}
 		customSave={handleCustomSave}
-		onSave={storeInitialState}
-		onDiscard={discardChanges}
 	/>
 {/if}
