@@ -537,10 +537,10 @@
 					{#if hasUnselectedOnBehalfOf}
 						<span class="text-xs text-yellow-600">
 							{#if kind === 'trigger'}
-								You must set the "edited by" user for all triggers before deploying
+								You must set the "permissioned as" user for all triggers before deploying
 								<Tooltip class="text-yellow-600">
-									The "edited by" field defines which user's permissions will be applied when the
-									trigger runs. Make sure this is set to an appropriate user before deploying.
+									The "permissioned as" field defines which user's permissions will be applied when
+									the trigger fires. Make sure this is set appropriately before deploying.
 								</Tooltip>
 							{:else}
 								You must set the "on behalf of" user for all items before deploying

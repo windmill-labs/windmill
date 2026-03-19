@@ -5,10 +5,7 @@
 	 * Check if an item needs on_behalf_of selection.
 	 * Shows the selector when the source item has an on_behalf_of_email set.
 	 */
-	export function needsOnBehalfOfSelection(
-		kind: string,
-		sourceEmail: string | undefined
-	): boolean {
+	export function needsOnBehalfOfSelection(kind: string, sourceEmail: string | undefined): boolean {
 		if (kind !== 'flow' && kind !== 'script' && kind !== 'app' && kind !== 'trigger') return false
 		return !!sourceEmail
 	}
@@ -48,7 +45,7 @@
 
 	let label = $derived(
 		kind === 'trigger'
-			? 'Set the user this will be recorded as edited by:'
+			? 'Set the user this will be permissioned as:'
 			: 'Set the user this will be run on behalf of:'
 	)
 
@@ -120,17 +117,15 @@
 
 <MeltPopover placement="bottom" on:openChange={(e) => e.detail && loadUsers()}>
 	{#snippet trigger()}
-	
-			<span class="inline-flex items-center gap-1">
-				<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
-				{#if selectedDisplayName}
-					<span class="text-xs truncate max-w-24">{selectedDisplayName}</span>
-				{/if}
-			</span>
-		
+		<span class="inline-flex items-center gap-1">
+			<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
+			{#if selectedDisplayName}
+				<span class="text-xs truncate max-w-24">{selectedDisplayName}</span>
+			{/if}
+		</span>
 	{/snippet}
 	{#snippet content({ close: closePopover })}
-		<div   class="p-3 flex flex-col gap-2 min-w-48">
+		<div class="p-3 flex flex-col gap-2 min-w-48">
 			<div class="text-xs font-medium text-secondary mb-1">{label}</div>
 			<!-- Target option -->
 			{#if targetEmail}
@@ -185,10 +180,14 @@
 	<div class="flex flex-col gap-4">
 		<div class="text-xs text-secondary">
 			{#if kind === 'trigger'}
-				Choose the user this trigger will be recorded as edited by {isDeployment ? 'in the target workspace' : 'in this workspace'}.
+				Choose the user this trigger will be permissioned as {isDeployment
+					? 'in the target workspace'
+					: 'in this workspace'}. The selected user's permissions will be used when the trigger
+				fires.
 			{:else}
-				Choose the user this {kind} will run on behalf of {isDeployment ? 'in the target workspace' : 'in this workspace'}. The selected
-				user's permissions will be used when executing.
+				Choose the user this {kind} will run on behalf of {isDeployment
+					? 'in the target workspace'
+					: 'in this workspace'}. The selected user's permissions will be used when executing.
 			{/if}
 			<a
 				href="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
