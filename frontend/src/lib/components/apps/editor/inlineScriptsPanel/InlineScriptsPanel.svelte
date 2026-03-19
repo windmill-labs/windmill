@@ -52,8 +52,8 @@
 		return rest.endsWith('_transformer') ? rest.slice(0, -'_transformer'.length) : rest
 	})
 
-	function containsAction(gridItem: GridItem, actionId: string | undefined): boolean {
-		if (!actionId || !gridItem?.data) return false
+	function containsAction(gridItem: GridItem, actionId: string): boolean {
+		if (!gridItem?.data) return false
 		const data = gridItem.data
 		if (data.type === 'tablecomponent') {
 			return data.actionButtons?.some((a) => a.id === actionId) ?? false
@@ -72,6 +72,20 @@
 		}
 		return false
 	}
+
+	// Resolve which grid item ID to render — computed once per selection change
+	let matchedGridItemId = $derived.by(() => {
+		if (!prefixOrId || prefixOrId === 'bg' || prefixOrId.startsWith('unused-')) return undefined
+		const allItems: GridItem[] = [
+			...($app?.grid ?? []),
+			...Object.values($app?.subgrids ?? {}).flat()
+		]
+		// Fast path: direct ID match (most common)
+		if (allItems.some((item) => item?.id === prefixOrId)) return prefixOrId
+		// Slow path: check nested actions
+		const parent = allItems.find((item) => containsAction(item, prefixOrId))
+		return parent?.id
+	})
 
 	interface Props {
 		width?: number | undefined
@@ -94,7 +108,7 @@
 			</div>
 		{:else if prefixOrId != 'bg' && !prefixOrId?.startsWith('unused-')}
 			{#each $app.grid as gridItem, index (gridItem?.id)}
-				{#if gridItem?.id == prefixOrId || containsAction(gridItem, prefixOrId)}
+				{#if gridItem?.id == matchedGridItemId}
 					<InlineScriptsPanelWithTable
 						on:createScriptFromInlineScript={(e) => {
 							createScriptFromInlineScript(
@@ -110,7 +124,7 @@
 			{/each}
 			{#each Object.keys($app.subgrids ?? {}) as subgrid (subgrid)}
 				{#each $app.subgrids?.[subgrid] ?? [] as subgridItem, index (subgridItem?.id)}
-					{#if (subgridItem?.id == prefixOrId || containsAction(subgridItem, prefixOrId)) && $app.subgrids?.[subgrid]}
+					{#if subgridItem?.id == matchedGridItemId && $app.subgrids?.[subgrid]}
 						<InlineScriptsPanelWithTable
 							on:createScriptFromInlineScript={(e) => {
 								createScriptFromInlineScript(
