@@ -64,20 +64,19 @@ const config = {
 				cookieDomainRewrite: 'localhost'
 			},
 			'^/ws/.*': {
-				target: process.env.REMOTE_LSP ?? remoteUrl,
+				target: process.env.REMOTE_LSP ?? process.env.REMOTE_EXTRA ?? remoteUrl,
 				changeOrigin: true,
 				ws: true
 			},
 			'^/ws_mp/.*': {
-				target: process.env.REMOTE_MP ?? remoteUrl,
+				target: process.env.REMOTE_MP ?? process.env.REMOTE_EXTRA ?? remoteUrl,
 				changeOrigin: true,
 				ws: true
 			},
 			'^/ws_debug/.*': {
-				target: process.env.REMOTE_DEBUG ?? remoteUrl,
+				target: process.env.REMOTE_DEBUG ?? process.env.REMOTE_EXTRA ?? remoteUrl,
 				changeOrigin: true,
-				ws: true,
-				rewrite: (path) => path.replace(/^\/ws_debug/, '')
+				ws: true
 			},
 			'^/ui_builder/.*': {
 				target: 'http://localhost:4000',

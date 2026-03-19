@@ -592,10 +592,18 @@
 						<input type="text" placeholder="Folder prefix" bind:value={filter} class="text-xl" />
 					</div>
 				{/if}
-				{#if fileListLoading === false && displayedFileKeys.length === 0}
-					<div class="p-4 text-primary text-xs text-center italic">
-						No files in the workspace S3 bucket at that prefix
-					</div>
+				{#if displayedFileKeys.length === 0}
+					{#if fileListLoading}
+						<div class="grow min-h-0 flex justify-center items-center">
+							<div class="flex text-secondary text-xs items-center">
+								<Loader2 size={12} class="animate-spin mr-1" /> Loading content
+							</div>
+						</div>
+					{:else}
+						<div class="p-4 text-primary text-xs text-center italic">
+							No files in the workspace S3 bucket at that prefix
+						</div>
+					{/if}
 				{:else}
 					<div class="grow min-h-0" bind:clientHeight={listDivHeight}>
 						<VirtualList

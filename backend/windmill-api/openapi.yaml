@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.659.1
+  version: 1.660.1
   title: Windmill API
 
   contact:
@@ -4491,6 +4491,76 @@ paths:
       responses:
         "204":
           description: logged
+
+  /w/{workspace}/workspaces/cloud_quotas:
+    get:
+      summary: get cloud quota usage and limits for workspace
+      operationId: getCloudQuotas
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: cloud quota usage and limits
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scripts:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  flows:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  apps:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  variables:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  resources:
+                    $ref: "#/components/schemas/QuotaInfo"
+                required:
+                  - scripts
+                  - flows
+                  - apps
+                  - variables
+                  - resources
+
+  /w/{workspace}/workspaces/prune_versions:
+    post:
+      summary: prune old versions of scripts, flows, or apps
+      operationId: pruneVersions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resource_type:
+                  type: string
+                  enum:
+                    - scripts
+                    - flows
+                    - apps
+              required:
+                - resource_type
+      responses:
+        "200":
+          description: number of pruned versions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pruned:
+                    type: integer
+                required:
+                  - pruned
+
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
       summary: Set public app rate limit for this workspace
@@ -24394,6 +24464,19 @@ components:
       description: Users that can bypass this ruleset
       items:
         type: string
+    QuotaInfo:
+      type: object
+      properties:
+        used:
+          type: integer
+        limit:
+          type: integer
+        prunable:
+          type: integer
+      required:
+        - used
+        - limit
+        - prunable
     NativeServiceName:
       type: string
       enum:
