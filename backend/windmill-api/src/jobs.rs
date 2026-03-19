@@ -2237,39 +2237,30 @@ pub async fn resume_suspended_flow_as_owner(
 
 // --- New approval system endpoints ---
 
-async fn generate_and_store_approval_token(
+/// Generate a stateless approval token from workspace key + job_id.
+/// This token grants access to view approval info and attempt to resume,
+/// but cannot be reversed to obtain the HMAC resume secret.
+async fn generate_approval_token(
     db: &DB,
     job_id: Uuid,
     workspace_id: &str,
 ) -> error::Result<String> {
-    let token = ulid::Ulid::new().to_string();
-    sqlx::query!(
-        "INSERT INTO approval_token (token, job_id, workspace_id) VALUES ($1, $2, $3)",
-        token,
-        job_id,
-        workspace_id,
-    )
-    .execute(db)
-    .await?;
-    Ok(token)
+    let key = get_workspace_key(workspace_id, db).await?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(job_id.as_bytes());
+    mac.update(b"approval_token");
+    Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
+/// Verify an approval token against the workspace key + job_id.
 async fn validate_approval_token(
     db: &DB,
     token: &str,
     job_id: Uuid,
     workspace_id: &str,
 ) -> error::Result<()> {
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM approval_token WHERE token = $1 AND job_id = $2 AND workspace_id = $3)",
-        token,
-        job_id,
-        workspace_id,
-    )
-    .fetch_one(db)
-    .await?
-    .unwrap_or(false);
-    if !exists {
+    let expected = generate_approval_token(db, job_id, workspace_id).await?;
+    if token != expected {
         return Err(Error::NotAuthorized("Invalid approval token".to_string()));
     }
     Ok(())
@@ -3252,7 +3243,7 @@ pub async fn get_resume_urls_internal(
     let approval_target_id = get_flow_id_for_job(&db, job_id)
         .await
         .unwrap_or(target_job_id);
-    let approval_token = generate_and_store_approval_token(&db, approval_target_id, &w_id).await?;
+    let approval_token = generate_approval_token(&db, approval_target_id, &w_id).await?;
 
     let base_url_str = BASE_URL.read().await.clone();
     let base_url = base_url_str.as_str();

@@ -2720,21 +2720,16 @@ pub async fn handle_wac_v2_output(
                 key.hash(&mut hasher);
                 (hasher.finish() & 0xFFFF_FFFF) as u32
             };
-            // Generate approval token for the new approval page
+            // Generate stateless approval token (HMAC of workspace key + job_id + "approval_token")
             let approval_token = {
-                let token = ulid::Ulid::new().to_string();
-                sqlx::query!(
-                    "INSERT INTO approval_token (token, job_id, workspace_id) VALUES ($1, $2, $3)",
-                    token,
-                    job.id,
-                    job.workspace_id,
-                )
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    error::Error::internal_err(format!("Failed to store approval token: {e}"))
-                })?;
-                token
+                use hmac::Mac;
+                use windmill_common::variables::get_workspace_key;
+                let wkey = get_workspace_key(&job.workspace_id, db).await?;
+                let mut mac2 = hmac::Hmac::<sha2::Sha256>::new_from_slice(wkey.as_bytes())
+                    .map_err(|e| error::Error::internal_err(format!("HMAC key error: {e}")))?;
+                mac2.update(job.id.as_bytes());
+                mac2.update(b"approval_token");
+                hex::encode(mac2.finalize().into_bytes())
             };
 
             let (resume_url, cancel_url, approval_page_url) = {
