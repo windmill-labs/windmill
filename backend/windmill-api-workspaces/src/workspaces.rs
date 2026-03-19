@@ -4771,7 +4771,7 @@ async fn compare_workspaces(
                 compare_two_flows(&db, &source_workspace_id, &fork_workspace_id, &item.path)
                     .await?,
             ),
-            "app" => Some(
+            "app" | "raw_app" => Some(
                 compare_two_apps(&db, &source_workspace_id, &fork_workspace_id, &item.path).await?,
             ),
             "resource" => Some(
@@ -4975,7 +4975,7 @@ async fn query_visible_items<'c>(
                 .fetch_all(&mut **tx)
                 .await?
             }
-            "app" => {
+            "app" | "raw_app" => {
                 sqlx::query_scalar!(
                     "SELECT path FROM app
                      WHERE workspace_id = $1 AND path = ANY($2)",

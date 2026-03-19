@@ -138,7 +138,7 @@
 			} else if (kind === 'flow') {
 				const flow = await FlowService.getFlowByPath({ workspace, path })
 				return flow.summary
-			} else if (kind === 'app') {
+			} else if (kind === 'app' || kind === 'raw_app') {
 				const app = await AppService.getAppByPath({ workspace, path })
 				return app.summary
 			} else if (kind === 'folder') {
