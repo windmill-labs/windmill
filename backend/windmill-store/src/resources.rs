@@ -42,10 +42,7 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{self, Error, JsonResult, Result},
     get_database_url,
-    utils::{
-        get_custom_pg_instance_password, not_found_if_none, paginate, require_admin, Pagination,
-        StripPath,
-    },
+    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
     worker::{CLOUD_HOSTED, WINDMILL_DIR},
     PgDatabase,
