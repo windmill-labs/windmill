@@ -4,7 +4,6 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use windmill_common::DB;
-use windmill_test_utils::*;
 use windmill_trigger::handler::TriggerCrud;
 use windmill_trigger::listener::Listener;
 use windmill_trigger::types::TriggerMode;
