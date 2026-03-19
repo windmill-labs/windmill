@@ -75,25 +75,17 @@
 	// Fetch users eagerly so we can resolve usernames for display
 	loadUsers()
 
-	/** Format a username for display: u/username for triggers, plain username otherwise */
-	function formatUsername(username: string | undefined): string | undefined {
-		if (!username) return undefined
-		return isTrigger ? `u/${username}` : username
-	}
-
-	/** Resolve a value to a display name */
+	/** Resolve a value to a display name, always showing u/username format */
 	function resolveDisplayName(value: string | undefined): string | undefined {
 		if (!value) return undefined
-		// If already in permissioned_as format, show as-is
 		if (value.startsWith('u/') || value.startsWith('g/')) return value
-		// Try to resolve email to username
 		const username = users.find((u) => u.email === value)?.username
-		return formatUsername(username) ?? value
+		return username ? `u/${username}` : value
 	}
 
 	let targetDisplayName = $derived(resolveDisplayName(targetValue))
 	let customDisplayName = $derived(resolveDisplayName(customValue))
-	let myDisplayName = $derived(formatUsername($userStore?.username))
+	let myDisplayName = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
 
 	let activeUsers = $derived(users.filter((u) => !u.disabled))
 	let filteredUsers = $derived(
@@ -231,12 +223,10 @@
 					onclick={() => selectUser(user)}
 				>
 					<div class="flex flex-col min-w-0">
-						<span class="font-medium truncate"
-							>{isTrigger ? `u/${user.username}` : user.username}</span
-						>
+						<span class="font-medium truncate">u/{user.username}</span>
 						<span class="text-xs text-tertiary truncate">{user.email}</span>
 					</div>
-					{#if customValue === (isTrigger ? `u/${user.username}` : user.email) && selected === 'custom'}
+					{#if selected === 'custom' && (customValue === `u/${user.username}` || customValue === user.email)}
 						<Check class="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />
 					{/if}
 				</button>
