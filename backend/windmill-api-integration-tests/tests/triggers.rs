@@ -1276,9 +1276,9 @@ async fn test_schedule_insert_and_query(db: Pool<Postgres>) -> anyhow::Result<()
         r#"
         INSERT INTO schedule (
             workspace_id, path, edited_by, schedule, enabled,
-            script_path, is_flow, email, timezone
+            script_path, is_flow, email, timezone, permissioned_as
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         "#,
         "test-workspace",
         "f/test/my_schedule",
@@ -1289,6 +1289,7 @@ async fn test_schedule_insert_and_query(db: Pool<Postgres>) -> anyhow::Result<()
         false,
         "test@windmill.dev",
         "UTC",
+        "u/test-user",
     )
     .execute(&db)
     .await?;
