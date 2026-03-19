@@ -16,7 +16,8 @@
 	import SettingsSearchInput from '$lib/components/instanceSettings/SettingsSearchInput.svelte'
 	import Breadcrumb from '$lib/components/common/breadcrumb/Breadcrumb.svelte'
 	import { ChevronRight, ArrowLeft } from 'lucide-svelte'
-	import { superadmin } from '$lib/stores'
+	import { superadmin, workspaceStore } from '$lib/stores'
+	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 	import { onDestroy, tick } from 'svelte'
 	import { UserService, JobService, SettingService, type AIConfig } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -229,13 +230,28 @@
 		aiMaxTokensPerModel = cloneJson(initialAiMaxTokensPerModel)
 	}
 
+	// Set workspace store and disable chat offset when AI step is active
+	let savedChatSize: number | undefined = $state(undefined)
+
 	$effect(() => {
-		if (
-			!aiConfigLoaded &&
-			((mode === 'wizard' && wizardStep === AI_STEP_INDEX) ||
-				(mode === 'full' && fullTab === 'ai'))
-		) {
-			loadAiConfig()
+		const isAiActive =
+			(mode === 'wizard' && wizardStep === AI_STEP_INDEX) ||
+			(mode === 'full' && fullTab === 'ai')
+
+		if (isAiActive) {
+			$workspaceStore = 'admins'
+
+			if (savedChatSize === undefined) {
+				savedChatSize = chatState.size
+				chatState.size = 0
+			}
+
+			if (!aiConfigLoaded) {
+				loadAiConfig()
+			}
+		} else if (savedChatSize !== undefined) {
+			chatState.size = savedChatSize
+			savedChatSize = undefined
 		}
 	})
 
