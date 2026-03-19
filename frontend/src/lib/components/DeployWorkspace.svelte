@@ -461,27 +461,21 @@
 				{@const statusPath = item.key}
 				{@const exists = allAlreadyExists[statusPath]}
 				{@const status = deploymentStatus[statusPath]}
-				{@const targetEmail = targetOnBehalfOfInfo[statusPath]}
+				{@const targetValue = targetOnBehalfOfInfo[statusPath]}
 
 				<!-- On-behalf-of selector -->
 				{#if itemNeedsOnBehalfOfSelection(statusPath, item.kind)}
 					<OnBehalfOfSelector
 						targetWorkspace={workspaceToDeployTo!}
-						{targetEmail}
+						{targetValue}
 						selected={onBehalfOfChoice[statusPath]}
-						onSelect={(choice, email, username) => {
+						onSelect={(choice, value) => {
 							onBehalfOfChoice[statusPath] = choice
-							if (item.kind === 'trigger' && username) {
-								// Triggers/schedules use permissioned_as format (u/username)
-								customOnBehalfOf[statusPath] = `u/${username}`
-							} else if (email) {
-								// Flows/scripts/apps use email format
-								customOnBehalfOf[statusPath] = email
-							}
+							if (value) customOnBehalfOf[statusPath] = value
 						}}
 						kind={item.kind}
 						canPreserve={canPreserveOnBehalfOf}
-						customEmail={customOnBehalfOf[statusPath]}
+						customValue={customOnBehalfOf[statusPath]}
 					/>
 				{/if}
 

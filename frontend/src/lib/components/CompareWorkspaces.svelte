@@ -878,15 +878,15 @@
 			{#if itemNeedsOnBehalfOfSelection(key, diff.kind)}
 				<OnBehalfOfSelector
 					targetWorkspace={deployTargetWorkspace}
-					{targetEmail}
+					targetValue={targetEmail}
 					selected={onBehalfOfChoice[key]}
-					onSelect={(choice, email) => {
+					onSelect={(choice, value) => {
 						onBehalfOfChoice[key] = choice
-						if (email) customOnBehalfOf[key] = email
+						if (value) customOnBehalfOf[key] = value
 					}}
 					kind={diff.kind}
 					canPreserve={canPreserveOnBehalfOf}
-					customEmail={customOnBehalfOf[key]}
+					customValue={customOnBehalfOf[key]}
 				/>
 			{/if}
 			<!-- Status badges -->

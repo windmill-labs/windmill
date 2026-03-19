@@ -114,7 +114,10 @@
 	let wacAlphaModalOpen = $state(false)
 
 	function showWacAlphaModalIfNeeded() {
-		if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(WAC_ALPHA_ACK_KEY) !== 'true') {
+		if (
+			typeof sessionStorage !== 'undefined' &&
+			sessionStorage.getItem(WAC_ALPHA_ACK_KEY) !== 'true'
+		) {
 			wacAlphaModalOpen = true
 		}
 	}
@@ -380,10 +383,20 @@
 
 	if (script.content == '') {
 		if (template === 'wac_python') {
-			script.modules = { 'helper.py': { content: 'def main(a: str) -> str:\n    return f"hello {a}"\n', language: 'python3' } }
+			script.modules = {
+				'helper.py': {
+					content: 'def main(a: str) -> str:\n    return f"hello {a}"\n',
+					language: 'python3'
+				}
+			}
 			showWacAlphaModalIfNeeded()
 		} else if (template === 'wac_typescript') {
-			script.modules = { 'helper.ts': { content: 'export function main(a: string): string {\n  return `hello ${a}`\n}\n', language: 'bun' } }
+			script.modules = {
+				'helper.ts': {
+					content: 'export function main(a: string): string {\n  return `hello ${a}`\n}\n',
+					language: 'bun'
+				}
+			}
 			showWacAlphaModalIfNeeded()
 		}
 		initContent(script.language, script.kind, template)
@@ -412,7 +425,16 @@
 	async function initContent(
 		language: SupportedLanguage,
 		kind: Script['kind'] | undefined,
-		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox' | 'wac_python' | 'wac_typescript'
+		template:
+			| 'pgsql'
+			| 'mysql'
+			| 'script'
+			| 'docker'
+			| 'powershell'
+			| 'bunnative'
+			| 'claudesandbox'
+			| 'wac_python'
+			| 'wac_typescript'
 	) {
 		scriptEditor?.disableCollaboration()
 		const templateScript = await isTemplateScript()
@@ -618,7 +640,12 @@
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
-			if (stay || (script.auto_kind === 'lib' && script.kind !== 'preprocessor' && !isWorkflowAsCode(script.content, script.language))) {
+			if (
+				stay ||
+				(script.auto_kind === 'lib' &&
+					script.kind !== 'preprocessor' &&
+					!isWorkflowAsCode(script.content, script.language))
+			) {
 				script.parent_hash = newHash
 				sendUserToast('Deployed')
 			} else {
@@ -867,10 +894,7 @@
 					]
 				: []
 
-		if (
-			dropdownItems.length === 0 &&
-			isWorkflowAsCode(script.content, script.language)
-		) {
+		if (dropdownItems.length === 0 && isWorkflowAsCode(script.content, script.language)) {
 			dropdownItems = [
 				{
 					label: 'Export as YAML/JSON',
@@ -1217,7 +1241,10 @@
 											<div class=" grid grid-cols-3 gap-2">
 												{#each langs as [label, lang] (lang)}
 													{@const isPicked =
-														(lang == script.language && template != 'bunnative' && template != 'docker' && template != 'claudesandbox') ||
+														(lang == script.language &&
+															template != 'bunnative' &&
+															template != 'docker' &&
+															template != 'claudesandbox') ||
 														(template == 'bunnative' && lang == 'bunnative') ||
 														(template == 'docker' && lang == 'docker') ||
 														(template == 'claudesandbox' && lang == 'bun')}
@@ -1283,7 +1310,13 @@
 												on:click={() => {
 													template = 'wac_typescript'
 													script.language = 'bun'
-													script.modules = { 'helper.ts': { content: 'export function main(a: string): string {\n  return `hello ${a}`\n}\n', language: 'bun' } }
+													script.modules = {
+														'helper.ts': {
+															content:
+																'export function main(a: string): string {\n  return `hello ${a}`\n}\n',
+															language: 'bun'
+														}
+													}
 													initContent('bun', script.kind, template)
 													showWacAlphaModalIfNeeded()
 												}}
@@ -1303,7 +1336,12 @@
 												on:click={() => {
 													template = 'wac_python'
 													script.language = 'python3'
-													script.modules = { 'helper.py': { content: 'def main(a: str) -> str:\n    return f"hello {a}"\n', language: 'python3' } }
+													script.modules = {
+														'helper.py': {
+															content: 'def main(a: str) -> str:\n    return f"hello {a}"\n',
+															language: 'python3'
+														}
+													}
 													initContent('python3', script.kind, template)
 													showWacAlphaModalIfNeeded()
 												}}
@@ -1745,9 +1783,9 @@
 												{#if script.on_behalf_of_email && canPreserve}
 													&rarr; <OnBehalfOfSelector
 														targetWorkspace={$workspaceStore ?? ''}
-														targetEmail={originalOnBehalfOfEmail}
+														targetValue={originalOnBehalfOfEmail}
 														selected={onBehalfOfChoice}
-														onSelect={(choice, email) => {
+														onSelect={(choice, value) => {
 															onBehalfOfChoice = choice
 															if (choice === 'me') {
 																script.on_behalf_of_email = $userStore?.email
@@ -1757,15 +1795,15 @@
 																script.on_behalf_of_email = originalOnBehalfOfEmail
 																customOnBehalfOfEmail = ''
 																preserveOnBehalfOf = true
-															} else if (choice === 'custom' && email) {
-																script.on_behalf_of_email = email
-																customOnBehalfOfEmail = email
+															} else if (choice === 'custom' && value) {
+																script.on_behalf_of_email = value
+																customOnBehalfOfEmail = value
 																preserveOnBehalfOf = true
 															}
 														}}
 														kind="script"
 														{canPreserve}
-														customEmail={customOnBehalfOfEmail}
+														customValue={customOnBehalfOfEmail}
 														isDeployment={false}
 													/>
 												{:else if script.on_behalf_of_email && !canPreserve}
@@ -2053,7 +2091,19 @@
 <Modal bind:open={wacAlphaModalOpen} title="Workflow-as-Code (Alpha)" kind="X">
 	<div class="flex flex-col gap-4 pr-4">
 		<p class="text-sm text-secondary">
-			Workflow-as-Code is in <strong>alpha</strong> — use in production at your own risk. It is an alternative to the Flow editor for advanced users. Feedback welcome on <a href="https://github.com/windmill-labs/windmill/issues" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline">GitHub</a> or <a href="https://discord.com/invite/V7PM2YHsPB" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline">Discord</a>.
+			Workflow-as-Code is in <strong>alpha</strong> — use in production at your own risk. It is an
+			alternative to the Flow editor for advanced users. Feedback welcome on
+			<a
+				href="https://github.com/windmill-labs/windmill/issues"
+				target="_blank"
+				class="text-blue-600 dark:text-blue-400 hover:underline">GitHub</a
+			>
+			or
+			<a
+				href="https://discord.com/invite/V7PM2YHsPB"
+				target="_blank"
+				class="text-blue-600 dark:text-blue-400 hover:underline">Discord</a
+			>.
 		</p>
 		<div class="flex justify-end">
 			<Button size="sm" on:click={acknowledgeWacAlpha}>Acknowledge</Button>

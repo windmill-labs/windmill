@@ -54,9 +54,7 @@
 	} = $props()
 
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
-	let canPreserve = $derived(
-		!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer
-	)
+	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
@@ -197,12 +195,13 @@
 	</Tooltip>
 	{#if canPreserve}
 		<div class="mt-4">
-			Because you are either an admin or part of the {WM_DEPLOYERS_GROUP} group, you can select another user to run this app on behalf of. Once deployed the app will be run on behalf of
+			Because you are either an admin or part of the {WM_DEPLOYERS_GROUP} group, you can select another
+			user to run this app on behalf of. Once deployed the app will be run on behalf of
 			<OnBehalfOfSelector
 				targetWorkspace={$workspaceStore ?? ''}
-				targetEmail={savedOnBehalfOfEmail}
+				targetValue={savedOnBehalfOfEmail}
 				selected={onBehalfOfChoice}
-				onSelect={(choice, email, username) => {
+				onSelect={(choice, value) => {
 					onBehalfOfChoice = choice
 					if (choice === 'me') {
 						policy.on_behalf_of_email = $userStore?.email
@@ -213,22 +212,20 @@
 						policy.on_behalf_of_email = savedOnBehalfOfEmail
 						customOnBehalfOfEmail = ''
 						preserveOnBehalfOf = true
-					} else if (choice === 'custom' && email) {
-						policy.on_behalf_of_email = email
-						policy.on_behalf_of = username ? `u/${username}` : undefined
-						customOnBehalfOfEmail = email
+					} else if (choice === 'custom' && value) {
+						policy.on_behalf_of_email = value
+						customOnBehalfOfEmail = value
 						preserveOnBehalfOf = true
 					}
 				}}
 				kind="app"
 				{canPreserve}
-				customEmail={customOnBehalfOfEmail}
+				customValue={customOnBehalfOfEmail}
 				isDeployment={false}
 			/>
 		</div>
 	{/if}
 </Alert>
-
 
 <div class="mt-10"></div>
 
