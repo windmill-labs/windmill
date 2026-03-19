@@ -125,49 +125,18 @@
 	let approvalLoading: Record<string, boolean> = $state({})
 	let approvalFormArgs: Record<string, Record<string, any>> = $state({})
 
-	function parseResumeUrl(
-		url: string
-	): { jobId: string; resumeId: number; signature: string; approver?: string } | undefined {
-		try {
-			const split = url.split('/')
-			const signaturePart = split.pop() ?? ''
-			const regex = /([^?]+)(?:\?[^=]+=(\w+))?/
-			const matches = signaturePart.match(regex)
-			const signature = matches?.[1]
-			if (!signature) return undefined
-			const approver = matches?.[2] || undefined
-			const resumeId = Number(split.pop() ?? '-1')
-			const jobId = split.pop() ?? ''
-			return { jobId, resumeId, signature, approver }
-		} catch {
-			return undefined
-		}
-	}
-
-	async function handleApprove(key: string, resumeUrl: string | undefined, formSchema: any) {
+	async function handleApprove(key: string, formSchema: any) {
 		const ws = $workspaceStore
-		if (!ws) return
+		if (!ws || !jobId) return
 		approvalLoading[key] = true
 		try {
 			const payload =
-				formSchema && Object.keys(formSchema).length > 0 ? (approvalFormArgs[key] ?? {}) : {}
-			const parsed = resumeUrl ? parseResumeUrl(resumeUrl) : undefined
-			if (parsed) {
-				await JobService.resumeSuspendedJobPost({
-					workspace: ws,
-					id: parsed.jobId,
-					resumeId: parsed.resumeId,
-					signature: parsed.signature,
-					approver: parsed.approver,
-					requestBody: payload
-				})
-			} else if (jobId) {
-				await JobService.resumeSuspendedFlowAsOwner({
-					workspace: ws,
-					id: jobId,
-					requestBody: payload
-				})
-			}
+				formSchema && Object.keys(formSchema).length > 0 ? (approvalFormArgs[key] ?? {}) : undefined
+			await JobService.resumeSuspended({
+				workspace: ws,
+				jobId: jobId,
+				requestBody: { payload, approved: true }
+			})
 			sendUserToast('Approval submitted')
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? 'Failed to approve', true)
@@ -176,27 +145,15 @@
 		}
 	}
 
-	async function handleCancel(cancelUrl: string | undefined) {
+	async function handleCancel() {
 		const ws = $workspaceStore
-		if (!ws) return
+		if (!ws || !jobId) return
 		try {
-			const parsed = cancelUrl ? parseResumeUrl(cancelUrl) : undefined
-			if (parsed) {
-				await JobService.cancelSuspendedJobPost({
-					workspace: ws,
-					id: parsed.jobId,
-					resumeId: parsed.resumeId,
-					signature: parsed.signature,
-					approver: parsed.approver,
-					requestBody: {}
-				})
-			} else if (jobId) {
-				await JobService.cancelQueuedJob({
-					workspace: ws,
-					id: jobId,
-					requestBody: { reason: 'Cancelled from workflow timeline' }
-				})
-			}
+			await JobService.resumeSuspended({
+				workspace: ws,
+				jobId: jobId,
+				requestBody: { approved: false }
+			})
 			sendUserToast('Job cancelled')
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? 'Failed to cancel', true)
@@ -259,10 +216,7 @@
 					{@const formSchema = (v as any).form?.schema}
 					{@const hasForm =
 						formSchema && typeof formSchema === 'object' && Object.keys(formSchema).length > 0}
-					{@const resumeUrl = (v as any).resume as string | undefined}
-					{@const cancelUrl = (v as any).cancel as string | undefined}
-					{@const isAdminOrSuperAdmin = $userStore?.is_admin || $userStore?.is_super_admin}
-					{@const canApprove = !isDone && (resumeUrl || (jobId && isAdminOrSuperAdmin))}
+					{@const canApprove = !isDone && jobId}
 					<div class="w-full px-2 py-1.5 text-xs">
 						<div class="flex items-center gap-2">
 							<div class="w-3 flex-shrink-0"></div>
@@ -284,7 +238,7 @@
 											variant="default"
 											unifiedSize="sm"
 											disabled={approvalLoading[k]}
-											onclick={() => handleApprove(k, resumeUrl, formSchema)}
+											onclick={() => handleApprove(k, formSchema)}
 										>
 											Approve
 										</Button>
@@ -292,7 +246,7 @@
 											variant="default"
 											unifiedSize="sm"
 											disabled={approvalLoading[k]}
-											onclick={() => handleCancel(cancelUrl)}
+											onclick={() => handleCancel()}
 										>
 											Reject
 										</Button>
@@ -302,7 +256,7 @@
 								<span class="text-tertiary">{msToSec(v.duration_ms ?? 0)}s</span>
 							{/if}
 						</div>
-						{#if canApprove && selfApprovalDisabled && isAdminOrSuperAdmin}
+						{#if canApprove && selfApprovalDisabled && $userStore?.is_admin}
 							<div class="mt-1 ml-5 text-yellow-600 text-2xs">
 								Self-approval is disabled but allowed because you are an admin/owner
 							</div>

@@ -11048,6 +11048,129 @@ paths:
         "200":
           description: Interactive slack approval message sent successfully
 
+  /w/{workspace}/jobs_u/flow/resume_suspended/{job_id}:
+    post:
+      summary: resume or cancel a suspended flow/WAC job
+      description: >
+        Resume or cancel a suspended flow/WAC job. Uses approval rules to
+        determine authorization. Either a valid approval_token or an
+        authenticated session is required.
+      operationId: resumeSuspended
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                payload:
+                  description: payload to send to the resumed job
+                approval_token:
+                  type: string
+                  description: approval token for unauthenticated access
+                approved:
+                  type: boolean
+                  description: whether to approve (true) or cancel (false) the job
+                  default: true
+      responses:
+        "201":
+          description: job resumed
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs_u/flow/approval_info/{job_id}:
+    get:
+      summary: get approval info for a suspended flow/WAC job
+      description: >
+        Get approval info for a suspended flow/WAC job. Returns form schema,
+        approval rules, and whether the current user can approve. Either a
+        valid token query parameter or an authenticated session is required.
+      operationId: getApprovalInfo
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: token
+          in: query
+          required: false
+          schema:
+            type: string
+          description: approval token for unauthenticated access
+      responses:
+        "200":
+          description: approval info
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - flow_id
+                  - can_approve
+                  - user_auth_required
+                  - approvers
+                properties:
+                  flow_id:
+                    type: string
+                    format: uuid
+                  form_schema:
+                    description: form schema for the approval step
+                  description:
+                    description: description of the approval step
+                  approval_conditions:
+                    type: object
+                    properties:
+                      user_auth_required:
+                        type: boolean
+                      user_groups_required:
+                        type: array
+                        items:
+                          type: string
+                      self_approval_disabled:
+                        type: boolean
+                    required:
+                      - user_auth_required
+                      - user_groups_required
+                      - self_approval_disabled
+                  can_approve:
+                    type: boolean
+                    description: whether the current user/token holder can approve
+                  user_auth_required:
+                    type: boolean
+                    description: whether user authentication is required to approve
+                  hide_cancel:
+                    type: boolean
+                    description: whether to hide the cancel button in the UI
+                  approvers:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - resume_id
+                        - approver
+                      properties:
+                        resume_id:
+                          type: integer
+                        approver:
+                          type: string
+
   /w/{workspace}/jobs_u/resume/{id}/{resume_id}/{signature}:
     get:
       summary: resume a job for a suspended flow
