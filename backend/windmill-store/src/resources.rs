@@ -42,10 +42,7 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{self, Error, JsonResult, Result},
     get_database_url,
-    utils::{
-        get_custom_pg_instance_password, not_found_if_none, paginate, require_admin, Pagination,
-        StripPath,
-    },
+    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
     worker::{CLOUD_HOSTED, WINDMILL_DIR},
     PgDatabase,
@@ -504,12 +501,9 @@ pub async fn get_resource_value_interpolated_internal<'a>(
 ) -> Result<Option<serde_json::Value>> {
     // This is a special syntax to help debugging custom instance databases
     if let Some(dbname) = path.strip_prefix("CUSTOM_INSTANCE_DB/") {
-        let db = db_with_opt_authed.db();
         require_super_admin(db_with_opt_authed.db(), &db_with_opt_authed.email()).await?;
         let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
         pg_creds.dbname = dbname.to_string();
-        pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
-        pg_creds.user = Some("custom_instance_user".to_string());
         let pg_creds = serde_json::to_value(&pg_creds)
             .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?;
         return Ok(Some(pg_creds));
