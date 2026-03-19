@@ -27,6 +27,7 @@
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
+	import { workspaceAIClients } from '$lib/components/copilot/lib'
 
 	const settingsSteps = [
 		{ id: 'Core', label: 'Core' },
@@ -238,6 +239,7 @@
 		if (!$userStore) {
 			$userStore = await getUserExt($workspaceStore)
 		}
+		workspaceAIClients.init($workspaceStore)
 	}
 
 	$effect(() => {
