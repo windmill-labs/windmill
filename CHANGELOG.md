@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.661.0](https://github.com/windmill-labs/windmill/compare/v1.660.1...v1.661.0) (2026-03-19)
+
+
+### Features
+
+* add OTel metrics support ([#8442](https://github.com/windmill-labs/windmill/issues/8442)) ([7de98c0](https://github.com/windmill-labs/windmill/commit/7de98c0df464d8a7c9cf5d04228753294183f759))
+
+
+### Bug Fixes
+
+* fix datatable setup on RDS ([#8450](https://github.com/windmill-labs/windmill/issues/8450)) ([446afb5](https://github.com/windmill-labs/windmill/commit/446afb5b36211e5cbe8a279ce68f2f790a5953b9))
+* full code apps deployable on merge UI and deploy UI ([#8451](https://github.com/windmill-labs/windmill/issues/8451)) ([0e022b1](https://github.com/windmill-labs/windmill/commit/0e022b14fd36e897106219010917bd7ceabf4078))
+* improve DND drag feedback in EditableSchemaForm ([#8449](https://github.com/windmill-labs/windmill/issues/8449)) ([fd7f0d3](https://github.com/windmill-labs/windmill/commit/fd7f0d3da9153d91c15df5847aaae51e67479cde))
+* prevent raw app iframe reload on userStore refresh ([#8455](https://github.com/windmill-labs/windmill/issues/8455)) ([4e59a1a](https://github.com/windmill-labs/windmill/commit/4e59a1a166847045897a6b576812bb53546e683b))
+* resolve blank inline script panel for components with underscores in ID ([#8457](https://github.com/windmill-labs/windmill/issues/8457)) ([b2c1e3d](https://github.com/windmill-labs/windmill/commit/b2c1e3de0a263f606127f0decedb11a2ce0b822b))
+
 ## [1.660.1](https://github.com/windmill-labs/windmill/compare/v1.660.0...v1.660.1) (2026-03-19)
 
 
