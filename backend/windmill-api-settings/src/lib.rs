@@ -972,8 +972,7 @@ async fn setup_custom_instance_pg_database_inner(
              GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
              ALTER DEFAULT PRIVILEGES IN SCHEMA public
                  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;
-             ALTER ROLE custom_instance_user CREATEROLE;
-             ALTER ROLE custom_instance_user REPLICATION;"
+             ALTER ROLE custom_instance_user CREATEROLE;"
         ))
         .await
         .map_err(|e| {
