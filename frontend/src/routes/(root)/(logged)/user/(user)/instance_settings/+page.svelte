@@ -675,8 +675,8 @@
 				{ossAccountError}
 			</Alert>
 			<span>
-				You can change your password after logging in from the user settings. Click
-				"Continue" to finish setup and log in with the default credentials.
+				Click "Continue" to finish setup and log in with the default credentials
+				(admin@windmill.dev / changeme).
 			</span>
 		</div>
 	</ConfirmationModal>
