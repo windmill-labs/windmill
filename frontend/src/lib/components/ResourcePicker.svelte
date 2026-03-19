@@ -193,8 +193,6 @@
 />
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
-	{workspace}
-	disableChatOffset={!!workspace}
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
 		if (e.detail) {

@@ -5,8 +5,6 @@
 
 	import { Loader2, Save } from 'lucide-svelte'
 
-	let { workspace = undefined, disableChatOffset = false }: { workspace?: string; disableChatOffset?: boolean } = $props()
-
 	let drawer: Drawer | undefined = $state()
 	let canSave = $state(true)
 	let resource_type: string | undefined = $state(undefined)
@@ -36,7 +34,7 @@
 	let mode: 'edit' | 'new' = $derived(!path ? 'new' : 'edit')
 </script>
 
-<Drawer bind:this={drawer} size="800px" {disableChatOffset}>
+<Drawer bind:this={drawer} size="800px">
 	<DrawerContent
 		title={mode == 'edit' ? 'Edit ' + path : 'Add a resource'}
 		on:close={drawer?.closeDrawer}
@@ -48,7 +46,6 @@
 				{path}
 				{resource_type}
 				{defaultValues}
-				{workspace}
 				on:refresh
 				bind:this={resourceEditor}
 				bind:canSave

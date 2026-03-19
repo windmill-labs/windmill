@@ -33,7 +33,6 @@
 		hidePath?: boolean
 		onChange?: (args: { path: string; args: Record<string, any>; description: string }) => void
 		defaultValues?: Record<string, any> | undefined
-		workspace?: string | undefined
 	}
 
 	let {
@@ -42,11 +41,8 @@
 		path = $bindable(''),
 		hidePath = false,
 		onChange,
-		defaultValues = undefined,
-		workspace = undefined
+		defaultValues = undefined
 	}: Props = $props()
-
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 
 	let isValid = $state(true)
 	let jsonError = $state('')
@@ -72,13 +68,13 @@
 	let rawCode: string | undefined = $state(undefined)
 
 	async function initEdit() {
-		resourceToEdit = await ResourceService.getResource({ workspace: effectiveWorkspace, path })
+		resourceToEdit = await ResourceService.getResource({ workspace: $workspaceStore!, path })
 		description = resourceToEdit!.description ?? ''
 		resource_type = resourceToEdit!.resource_type
 		args = resourceToEdit?.value ?? ({} as any)
 		loadResourceType()
 		can_write =
-			resourceToEdit.workspace_id == effectiveWorkspace &&
+			resourceToEdit.workspace_id == $workspaceStore &&
 			canWrite(path, resourceToEdit.extra_perms ?? {}, $userStore)
 		linkedVars = Object.entries(args)
 			.filter(([_, v]) => typeof v == 'string' && v == `$var:${initialPath}`)
@@ -96,12 +92,12 @@
 	export async function editResource(): Promise<void> {
 		if (resourceToEdit) {
 			await ResourceService.updateResource({
-				workspace: effectiveWorkspace,
+				workspace: $workspaceStore!,
 				path: resourceToEdit.path,
 				requestBody: { path, value: args, description }
 			})
 			if (resourceToEdit.resource_type === 'json_schema') {
-				clearJsonSchemaResourceCache(resourceToEdit.path, effectiveWorkspace)
+				clearJsonSchemaResourceCache(resourceToEdit.path, $workspaceStore!)
 			}
 			sendUserToast(`Updated resource at ${path}`)
 			dispatch('refresh', path)
@@ -112,7 +108,7 @@
 
 	export async function createResource(): Promise<void> {
 		await ResourceService.createResource({
-			workspace: effectiveWorkspace,
+			workspace: $workspaceStore!,
 			requestBody: { path, value: args, description, resource_type: resource_type! }
 		})
 		sendUserToast(`Updated resource at ${path}`)
@@ -123,7 +119,7 @@
 		if (resource_type) {
 			try {
 				const resourceType = await ResourceService.getResourceType({
-					workspace: effectiveWorkspace,
+					workspace: $workspaceStore!,
 					path: resource_type
 				})
 
