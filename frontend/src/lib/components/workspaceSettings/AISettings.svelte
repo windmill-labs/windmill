@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { ResourceService, WorkspaceService, type AIConfig, type AIProvider } from '$lib/gen'
+	import {
+		ResourceService,
+		WorkspaceService,
+		type AIConfig,
+		type AIProvider,
+		type GetCopilotInfoResponse
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { AI_PROVIDERS, fetchAvailableModels } from '../copilot/lib'
@@ -40,7 +46,7 @@
 		hasInstanceAiConfig?: boolean
 		usesInstanceAiConfig?: boolean
 		customSave?: (config: AIConfig) => Promise<void>
-		onSave?: () => void
+		onSave?: (info?: GetCopilotInfoResponse) => void | Promise<void>
 	} = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
@@ -245,6 +251,7 @@
 
 	async function editCopilotConfig(): Promise<void> {
 		const config = buildConfig()
+		let effectiveConfig: GetCopilotInfoResponse | undefined
 
 		if (customSave) {
 			await customSave(config)
@@ -253,12 +260,15 @@
 				workspace: effectiveWorkspace,
 				requestBody: config
 			})
-			setCopilotInfo(config)
+			effectiveConfig = await WorkspaceService.getCopilotInfo({
+				workspace: effectiveWorkspace
+			})
+			setCopilotInfo(effectiveConfig)
 			sendUserToast('AI settings updated')
 		}
 		initialPrompts = { ...customPrompts }
 		storeInitialState()
-		onSave?.()
+		await onSave?.(effectiveConfig)
 	}
 
 	async function onAiProviderChange(provider: AIProvider) {

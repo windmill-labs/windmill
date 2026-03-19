@@ -21,7 +21,8 @@
 		WorkspaceService,
 		SettingService,
 		type AIConfig,
-		type ErrorHandler
+		type ErrorHandler,
+		type GetCopilotInfoResponse
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -1771,6 +1772,13 @@ export async function main(
 								bind:hasUnsavedChanges={hasAiSettingsChanges}
 								{hasInstanceAiConfig}
 								{usesInstanceAiConfig}
+								onSave={(copilotInfo?: GetCopilotInfoResponse) => {
+									if (!copilotInfo) {
+										return
+									}
+									hasInstanceAiConfig = copilotInfo.has_instance_ai_config
+									usesInstanceAiConfig = copilotInfo.uses_instance_ai_config
+								}}
 							/>
 						{:else if tab == 'windmill_data_tables'}
 							<DataTableSettings bind:dataTableSettings bind:this={dataTableSettingsComponent} />
