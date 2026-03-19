@@ -18,7 +18,7 @@
 
 import http from 'http'
 
-const PORT = parseInt(process.env.GATEWAY_PORT || '3000')
+const PORT = parseInt(process.env.PORT || process.env.GATEWAY_PORT || '3000')
 const HOST = process.env.GATEWAY_HOST || '0.0.0.0'
 
 const LSP_PORT = parseInt(process.env.LSP_PORT || '3001')

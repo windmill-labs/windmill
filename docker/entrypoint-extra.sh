@@ -86,7 +86,7 @@ fi
 if [ "${ENABLE_GATEWAY:-true}" = "true" ]; then
     echo "[entrypoint] Starting Gateway on port ${GATEWAY_PORT:-3000}..."
     cd /multiplayer
-    node gateway.mjs &
+    PORT=${GATEWAY_PORT:-3000} node gateway.mjs &
     PIDS+=($!)
     echo "[entrypoint] Gateway started (PID: ${PIDS[-1]})"
 fi
