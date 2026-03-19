@@ -34,6 +34,7 @@
 		onDiscard,
 		hasUnsavedChanges = false,
 		workspace = undefined,
+		disableChatOffset = false,
 		hasInstanceAiConfig = false,
 		usesInstanceAiConfig = false,
 		customSave = undefined
@@ -48,6 +49,7 @@
 		onDiscard?: () => void
 		hasUnsavedChanges?: boolean
 		workspace?: string | undefined
+		disableChatOffset?: boolean
 		hasInstanceAiConfig?: boolean
 		usesInstanceAiConfig?: boolean
 		customSave?: (config: AIConfig) => Promise<void>
@@ -272,6 +274,7 @@
 									<ResourcePicker
 										selectFirst
 										{workspace}
+										{disableChatOffset}
 										resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
 											? 'openai_client_credentials_oauth'
 											: provider}

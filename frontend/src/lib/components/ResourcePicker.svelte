@@ -30,6 +30,7 @@
 		excludedValues?: string[]
 		datatableAsPgResource?: boolean
 		workspace?: string | undefined
+		disableChatOffset?: boolean
 	}
 
 	let {
@@ -49,7 +50,8 @@
 		onClear = undefined,
 		excludedValues = undefined,
 		datatableAsPgResource = false,
-		workspace = undefined
+		workspace = undefined,
+		disableChatOffset = false
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
@@ -190,9 +192,13 @@
 	}}
 	bind:this={appConnect}
 	{expressOAuthSetup}
+	{workspace}
+	{disableChatOffset}
 />
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
+	{workspace}
+	{disableChatOffset}
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
 		if (e.detail) {
