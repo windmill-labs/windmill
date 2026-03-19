@@ -3249,10 +3249,12 @@ async fn clone_apps(
         app_id_mapping.insert(app.id, new_app_id);
     }
 
+    let mut version_id_mapping: HashMap<i64, i64> = HashMap::new();
+
     {
         // Clone app versions
         let app_versions = sqlx::query!(
-            "SELECT app_id, value, created_by, created_at, raw_app
+            "SELECT id, app_id, value, created_by, created_at, raw_app
          FROM app_version
          WHERE app_id = ANY(SELECT id FROM app WHERE workspace_id = $1)
          ORDER BY app_id, created_at",
@@ -3263,14 +3265,44 @@ async fn clone_apps(
 
         for version in app_versions {
             if let Some(&new_app_id) = app_id_mapping.get(&version.app_id) {
-                sqlx::query!(
+                let new_version_id = sqlx::query_scalar!(
                     "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
-                 VALUES ($1, $2, $3, $4, $5)",
+                 VALUES ($1, $2, $3, $4, $5) RETURNING id",
                     new_app_id,
                     version.value,
                     version.created_by,
                     version.created_at,
                     version.raw_app,
+                )
+                .fetch_one(&mut **tx)
+                .await?;
+
+                version_id_mapping.insert(version.id, new_version_id);
+            }
+        }
+    }
+
+    // Clone app bundles for raw apps
+    if !version_id_mapping.is_empty() {
+        let old_ids: Vec<i64> = version_id_mapping.keys().copied().collect();
+        let bundles = sqlx::query!(
+            "SELECT app_version_id, file_type, data FROM app_bundles
+             WHERE app_version_id = ANY($1) AND w_id = $2",
+            &old_ids,
+            source_workspace_id
+        )
+        .fetch_all(&mut **tx)
+        .await?;
+
+        for bundle in bundles {
+            if let Some(&new_version_id) = version_id_mapping.get(&bundle.app_version_id) {
+                sqlx::query!(
+                    "INSERT INTO app_bundles (app_version_id, w_id, file_type, data)
+                     VALUES ($1, $2, $3, $4)",
+                    new_version_id,
+                    target_workspace_id,
+                    bundle.file_type,
+                    bundle.data,
                 )
                 .execute(&mut **tx)
                 .await?;
