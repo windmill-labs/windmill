@@ -2711,8 +2711,32 @@ pub async fn handle_wac_v2_output(
                 }
             }
 
-            // Generate resume URLs for the inline approval buttons
-            let resume_id: u32 = 0;
+            // Generate resume URLs for the inline approval buttons.
+            // Use a hash of the step key as resume_id so each waitForApproval()
+            // in the same workflow gets a unique resume_job record.
+            let resume_id: u32 = {
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                key.hash(&mut hasher);
+                (hasher.finish() & 0xFFFF_FFFF) as u32
+            };
+            // Generate approval token for the new approval page
+            let approval_token = {
+                let token = ulid::Ulid::new().to_string();
+                sqlx::query!(
+                    "INSERT INTO approval_token (token, job_id, workspace_id) VALUES ($1, $2, $3)",
+                    token,
+                    job.id,
+                    job.workspace_id,
+                )
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error::Error::internal_err(format!("Failed to store approval token: {e}"))
+                })?;
+                token
+            };
+
             let (resume_url, cancel_url, approval_page_url) = {
                 use hmac::{Hmac, Mac};
                 use sha2::Sha256;
@@ -2736,7 +2760,7 @@ pub async fn handle_wac_v2_output(
                     "{base_url}/api/w/{w_id}/jobs_u/cancel/{job_id}/{resume_id}/{signature}"
                 );
                 let approval_page =
-                    format!("{base_url}/approve/{w_id}/{job_id}/{resume_id}/{signature}");
+                    format!("{base_url}/approve/{w_id}/{job_id}?token={approval_token}");
                 (resume, cancel, approval_page)
             };
 

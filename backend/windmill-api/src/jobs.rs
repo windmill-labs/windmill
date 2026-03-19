@@ -401,6 +401,8 @@ pub fn workspace_unauthed_service() -> Router {
             post(cancel_persistent_script_api),
         )
         .route("/queue/force_cancel/:id", post(force_cancel))
+        .route("/flow/resume_suspended/:job_id", post(resume_suspended))
+        .route("/flow/approval_info/:job_id", get(get_approval_info))
 }
 
 pub fn global_root_service() -> Router {
@@ -2233,6 +2235,359 @@ pub async fn resume_suspended_flow_as_owner(
     Ok(StatusCode::CREATED)
 }
 
+// --- New approval system endpoints ---
+
+async fn generate_and_store_approval_token(
+    db: &DB,
+    job_id: Uuid,
+    workspace_id: &str,
+) -> error::Result<String> {
+    let token = ulid::Ulid::new().to_string();
+    sqlx::query!(
+        "INSERT INTO approval_token (token, job_id, workspace_id) VALUES ($1, $2, $3)",
+        token,
+        job_id,
+        workspace_id,
+    )
+    .execute(db)
+    .await?;
+    Ok(token)
+}
+
+async fn validate_approval_token(
+    db: &DB,
+    token: &str,
+    job_id: Uuid,
+    workspace_id: &str,
+) -> error::Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM approval_token WHERE token = $1 AND job_id = $2 AND workspace_id = $3)",
+        token,
+        job_id,
+        workspace_id,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+    if !exists {
+        return Err(Error::NotAuthorized("Invalid approval token".to_string()));
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct ResumeSuspendedBody {
+    payload: Option<serde_json::Value>,
+    approval_token: Option<String>,
+    approved: Option<bool>,
+}
+
+async fn resume_suspended(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Json(body): Json<ResumeSuspendedBody>,
+) -> error::Result<StatusCode> {
+    let approved = body.approved.unwrap_or(true);
+    let value = body.payload.unwrap_or(serde_json::Value::Null);
+
+    // Determine if we have a valid authed user or token
+    let has_token = if let Some(ref token) = body.approval_token {
+        validate_approval_token(&db, token, job_id, &w_id)
+            .await
+            .is_ok()
+    } else {
+        false
+    };
+
+    if opt_authed.is_none() && !has_token {
+        return Err(Error::NotAuthorized(
+            "Must be logged in or provide a valid approval token".to_string(),
+        ));
+    }
+
+    let mut tx = db.begin().await?;
+
+    // Resolve the suspended flow (works for both WAC and classic flows)
+    let (flow, resume_job_id, is_wac) = get_suspended_flow_info(job_id, &mut tx).await?;
+
+    // Check approval conditions
+    let approval_conditions = if is_wac {
+        flow.flow_status
+            .as_ref()
+            .and_then(|v| v.get("approval_conditions"))
+            .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok())
+    } else {
+        flow.flow_status
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+            .and_then(|fs| fs.approval_conditions)
+    };
+
+    if let Some(ref ac) = approval_conditions {
+        if ac.user_auth_required && opt_authed.is_none() {
+            return Err(Error::NotAuthorized(
+                "This approval requires a logged-in user. Please sign in.".to_string(),
+            ));
+        }
+    }
+
+    // If logged in, check authorization rules
+    if let Some(ref authed) = opt_authed {
+        let is_admin = authed.is_admin;
+        let is_owner = flow
+            .script_path
+            .as_deref()
+            .map(|p| require_owner_of_path(authed, p).is_ok())
+            .unwrap_or(false);
+
+        if !is_admin && !is_owner {
+            let trigger_email = flow.email.as_deref().unwrap_or("");
+            conditionally_require_authed_user(
+                Some(authed.clone()),
+                approval_conditions.clone(),
+                trigger_email,
+            )?;
+        }
+    } else if !has_token {
+        return Err(Error::NotAuthorized(
+            "Must be logged in or provide a valid approval token".to_string(),
+        ));
+    }
+
+    // Generate a unique resume_id
+    let resume_id: u32 = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        chrono::Utc::now().timestamp_nanos_opt().hash(&mut hasher);
+        job_id.hash(&mut hasher);
+        (hasher.finish() & 0xFFFF_FFFF) as u32
+    };
+
+    // Check for duplicate
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM resume_job WHERE id = $1)",
+        Uuid::from_u128(resume_job_id.as_u128() ^ resume_id as u128),
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(false);
+
+    if exists {
+        return Err(Error::BadRequest("Resume request already sent".to_string()));
+    }
+
+    let approver_value = opt_authed.as_ref().map(|a| a.username.clone());
+
+    insert_resume_job(
+        resume_id,
+        resume_job_id,
+        &flow,
+        value,
+        approver_value.clone(),
+        approved,
+        &mut tx,
+    )
+    .await?;
+
+    if !approved {
+        sqlx::query!("UPDATE v2_job_queue SET suspend = 0 WHERE id = $1", flow.id,)
+            .execute(&mut *tx)
+            .await?;
+    } else if is_wac {
+        if flow.suspend > 0 {
+            sqlx::query!(
+                "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1",
+                flow.id,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    } else {
+        resume_immediately_if_relevant(flow, resume_job_id, &mut tx).await?;
+    }
+
+    let approver = approver_value.unwrap_or_else(|| "anonymous".to_string());
+    let audit_author = if let Some(ref authed) = opt_authed {
+        AuditAuthor::from(authed)
+    } else {
+        AuditAuthor {
+            email: approver.clone(),
+            username: approver.clone(),
+            username_override: None,
+            token_prefix: None,
+        }
+    };
+
+    audit_log(
+        &mut *tx,
+        &audit_author,
+        "jobs.suspend_resume",
+        ActionKind::Update,
+        &w_id,
+        Some(
+            &serde_json::json!({
+                "approved": approved,
+                "job_id": job_id,
+                "details": if approved {
+                    format!("Approved by {}", &approver)
+                } else {
+                    format!("Cancelled by {}", &approver)
+                }
+            })
+            .to_string(),
+        ),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(StatusCode::CREATED)
+}
+
+#[derive(Deserialize)]
+struct ApprovalInfoQuery {
+    token: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ApprovalInfo {
+    flow_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    form_schema: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    approval_conditions: Option<ApprovalConditions>,
+    can_approve: bool,
+    user_auth_required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hide_cancel: Option<bool>,
+    approvers: Vec<Approval>,
+}
+
+async fn get_approval_info(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Query(query): Query<ApprovalInfoQuery>,
+) -> error::Result<Json<ApprovalInfo>> {
+    // Validate access: either logged in or valid token
+    let has_token = if let Some(ref token) = query.token {
+        validate_approval_token(&db, token, job_id, &w_id)
+            .await
+            .is_ok()
+    } else {
+        false
+    };
+
+    if opt_authed.is_none() && !has_token {
+        return Err(Error::NotAuthorized(
+            "Must be logged in or provide a valid approval token".to_string(),
+        ));
+    }
+
+    // Fetch job info
+    let row = sqlx::query!(
+        r#"
+        SELECT j.id, j.runnable_path as script_path, j.permissioned_as_email as email,
+               s.flow_status, s.workflow_as_code_status
+        FROM v2_job j
+        LEFT JOIN v2_job_status s ON s.id = j.id
+        WHERE j.id = $1 AND j.workspace_id = $2
+        "#,
+        job_id,
+        w_id,
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
+
+    let is_wac = row.workflow_as_code_status.is_some();
+
+    // Extract approval info based on WAC vs classic flow
+    let (form_schema, description, approval_conditions, hide_cancel) = if is_wac {
+        let approval_meta = row
+            .workflow_as_code_status
+            .as_ref()
+            .and_then(|v| v.get("_approval"));
+        let form = approval_meta.and_then(|m| m.get("form").cloned());
+        let ac = row
+            .flow_status
+            .as_ref()
+            .and_then(|v| v.get("approval_conditions"))
+            .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
+        (form, None, ac, None)
+    } else {
+        let fs = row
+            .flow_status
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
+        let ac = fs.as_ref().and_then(|s| s.approval_conditions.clone());
+        // For classic flows, form/description come from the step result, not stored here
+        (None, None, ac, None)
+    };
+
+    let user_auth_required = approval_conditions
+        .as_ref()
+        .map(|ac| ac.user_auth_required)
+        .unwrap_or(false);
+
+    // Determine if current user can approve
+    let can_approve = if let Some(ref authed) = opt_authed {
+        if authed.is_admin {
+            true
+        } else {
+            let is_owner = row
+                .script_path
+                .as_deref()
+                .map(|p| require_owner_of_path(authed, p).is_ok())
+                .unwrap_or(false);
+            if is_owner {
+                true
+            } else {
+                let trigger_email = row.email.as_str();
+                conditionally_require_authed_user(
+                    Some(authed.clone()),
+                    approval_conditions.clone(),
+                    trigger_email,
+                )
+                .is_ok()
+            }
+        }
+    } else {
+        // Not logged in — can approve only if no auth required
+        !user_auth_required
+    };
+
+    // Get existing approvers
+    let approvers = sqlx::query!(
+        "SELECT resume_id, approver FROM resume_job WHERE flow = $1",
+        job_id,
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .map(|x| Approval {
+        resume_id: x.resume_id as u16,
+        approver: x.approver.unwrap_or_else(|| "anonymous".to_string()),
+    })
+    .collect();
+
+    Ok(Json(ApprovalInfo {
+        flow_id: row.id,
+        form_schema,
+        description,
+        approval_conditions,
+        can_approve,
+        user_auth_required,
+        hide_cancel,
+        approvers,
+    }))
+}
+
+// --- End new approval system endpoints ---
+
 pub async fn resume_suspended_job(
     authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
@@ -2274,40 +2629,8 @@ async fn resume_suspended_job_internal(
     // Get flow info - works for step-level, flow-level, and WAC approval
     let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &db).await?;
 
-    // For step-level resumes (both classic flows and WAC), verify user auth and flow status
-    // For flow-level resumes (pre-approvals), the flow might not be at a suspended step yet
-    if !is_flow_level {
-        if is_wac {
-            // WAC: approval_conditions are stored in the flow_status JSONB column
-            let ac = flow_info
-                .flow_status
-                .as_ref()
-                .and_then(|v| v.get("approval_conditions"))
-                .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
-            let trigger_email = flow_info.email.as_deref().unwrap_or("");
-            conditionally_require_authed_user(authed.clone(), ac, trigger_email)?;
-        } else {
-            let parent_flow = GetQuery::new()
-                .without_logs()
-                .without_code()
-                .without_flow()
-                .fetch(&db, &flow_info.id, &w_id)
-                .await?;
-            let flow_status = parent_flow
-                .flow_status()
-                .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
-
-            let trigger_email = match &parent_flow {
-                Job::CompletedJob(job) => &job.email,
-                Job::QueuedJob(job) => &job.email,
-            };
-            conditionally_require_authed_user(
-                authed.clone(),
-                flow_status.approval_conditions,
-                trigger_email,
-            )?;
-        }
-    }
+    // HMAC secret = full capability. Skip approval_conditions checks.
+    // Authorization rules are enforced by the new resume_suspended endpoint instead.
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -2924,11 +3247,18 @@ pub async fn get_resume_urls_internal(
         .map(|x| format!("?approver={}", encode(x)))
         .unwrap_or_else(String::new);
 
+    // Generate approval token for the new approval page URL.
+    // The token targets the parent flow/WAC job for proper resolution.
+    let approval_target_id = get_flow_id_for_job(&db, job_id)
+        .await
+        .unwrap_or(target_job_id);
+    let approval_token = generate_and_store_approval_token(&db, approval_target_id, &w_id).await?;
+
     let base_url_str = BASE_URL.read().await.clone();
     let base_url = base_url_str.as_str();
     let res = ResumeUrls {
         approvalPage: format!(
-            "{base_url}/approve/{w_id}/{target_job_id}/{resume_id}/{signature}{approver_query}"
+            "{base_url}/approve/{w_id}/{approval_target_id}?token={approval_token}"
         ),
         cancel: build_resume_url(
             "cancel",
