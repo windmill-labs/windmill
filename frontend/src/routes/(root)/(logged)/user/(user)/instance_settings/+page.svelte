@@ -319,7 +319,7 @@
 			)
 		} catch (e: any) {
 			const msg = e?.body?.message || e?.body || e?.message || 'An error occurred'
-			if (typeof msg === 'string' && msg.includes('Enterprise feature')) {
+			if (typeof msg === 'string' && msg.includes('User creation is an Enterprise feature')) {
 				ossAccountError = msg
 				showOssAccountDialog = true
 			} else {
