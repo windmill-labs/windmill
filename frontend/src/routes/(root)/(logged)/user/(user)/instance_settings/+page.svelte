@@ -319,7 +319,7 @@
 			)
 		} catch (e: any) {
 			const msg = e?.body?.message || e?.body || e?.message || 'An error occurred'
-			if (typeof msg === 'string' && msg.includes('User creation is an Enterprise feature')) {
+			if (typeof msg === 'string' && msg.includes('User creation is not implemented in the open-source version')) {
 				ossAccountError = msg
 				showOssAccountDialog = true
 			} else {
@@ -651,7 +651,7 @@
 {#if showOssAccountDialog}
 	<ConfirmationModal
 		open={showOssAccountDialog}
-		title="Enterprise feature"
+		title="Not available in open-source"
 		confirmationText="Continue with default credentials"
 		on:canceled={() => {
 			showOssAccountDialog = false
