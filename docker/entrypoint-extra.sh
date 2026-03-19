@@ -43,6 +43,7 @@ echo "[entrypoint] Starting Windmill Extra Services"
 echo "[entrypoint] ENABLE_LSP=${ENABLE_LSP:-true}"
 echo "[entrypoint] ENABLE_MULTIPLAYER=${ENABLE_MULTIPLAYER:-true}"
 echo "[entrypoint] ENABLE_DEBUGGER=${ENABLE_DEBUGGER:-true}"
+echo "[entrypoint] ENABLE_GATEWAY=${ENABLE_GATEWAY:-true}"
 
 # Start LSP service
 if [ "${ENABLE_LSP:-true}" = "true" ]; then
@@ -79,6 +80,15 @@ if [ "${ENABLE_DEBUGGER:-true}" = "true" ]; then
     bun run dap_debug_service.ts $DEBUGGER_ARGS &
     PIDS+=($!)
     echo "[entrypoint] Debugger started (PID: ${PIDS[-1]})"
+fi
+
+# Start Gateway reverse proxy (routes /ws/*, /ws_mp/*, /ws_debug/* to the right service)
+if [ "${ENABLE_GATEWAY:-true}" = "true" ]; then
+    echo "[entrypoint] Starting Gateway on port ${GATEWAY_PORT:-3000}..."
+    cd /multiplayer
+    PORT=${GATEWAY_PORT:-3000} node gateway.mjs &
+    PIDS+=($!)
+    echo "[entrypoint] Gateway started (PID: ${PIDS[-1]})"
 fi
 
 # Check if any services were started

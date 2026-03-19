@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.660.1](https://github.com/windmill-labs/windmill/compare/v1.660.0...v1.660.1) (2026-03-19)
+
+
+### Bug Fixes
+
+* prevent S3 file browser crash when selecting storage ([#8444](https://github.com/windmill-labs/windmill/issues/8444)) ([a8fa0cc](https://github.com/windmill-labs/windmill/commit/a8fa0cccef870f841c68be77832d9be12109badb))
+* schema inference not updating on reset and language switch ([#8446](https://github.com/windmill-labs/windmill/issues/8446)) ([c0edbe4](https://github.com/windmill-labs/windmill/commit/c0edbe431773f878201e96a79ce291d4b37a10bb))
+
+## [1.660.0](https://github.com/windmill-labs/windmill/compare/v1.659.1...v1.660.0) (2026-03-18)
+
+
+### Features
+
+* **cli:** use local scripts when previewing flows ([#8365](https://github.com/windmill-labs/windmill/issues/8365)) ([435de95](https://github.com/windmill-labs/windmill/commit/435de95e7d5c9433dafac5369cfc533fd738fc22))
+* MCP server readiness for Anthropic connectors directory ([#8438](https://github.com/windmill-labs/windmill/issues/8438)) ([1cfb40b](https://github.com/windmill-labs/windmill/commit/1cfb40bdaa877f1616fc1c1cf5fb6b6aa1832b86))
+
+
+### Bug Fixes
+
+* exclude wm_deployers group from CE group limit check ([#8429](https://github.com/windmill-labs/windmill/issues/8429)) ([9a6ce44](https://github.com/windmill-labs/windmill/commit/9a6ce44c8414810292ebc8a1ae64950ee2c76307))
+* prevent AI agent tool jobs from becoming zombies on cancellation ([#8437](https://github.com/windmill-labs/windmill/issues/8437)) ([f4489cb](https://github.com/windmill-labs/windmill/commit/f4489cbe645489a892994c70d17df2284b494568))
+* show cancelled WAC jobs as done in workflow timeline ([#8436](https://github.com/windmill-labs/windmill/issues/8436)) ([bee9282](https://github.com/windmill-labs/windmill/commit/bee928276e098ce7b17e20af74e34458e5c5353e))
+
+
+### Performance Improvements
+
+* cache composer vendor dir to skip reinstall on repeated php executions ([#8330](https://github.com/windmill-labs/windmill/issues/8330)) ([66a8e84](https://github.com/windmill-labs/windmill/commit/66a8e844a64d91d57dcabb7ad31d9308dec99032))
+
 ## [1.659.1](https://github.com/windmill-labs/windmill/compare/v1.659.0...v1.659.1) (2026-03-18)
 
 

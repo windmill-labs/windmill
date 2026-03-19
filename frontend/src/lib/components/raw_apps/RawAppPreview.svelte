@@ -3,7 +3,7 @@
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import type { Runnable } from './rawAppPolicy'
 	import { htmlContent } from './utils'
-	import { onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 
 	interface Props {
 		workspace: string
@@ -26,10 +26,14 @@
 
 	// Use blob URL instead of srcDoc to give the iframe a proper origin.
 	// srcDoc iframes have "null" origin which breaks URL constructor in routers.
+	// untrack(user) so that userStore refreshes don't regenerate the blob URL
+	// and cause the iframe to fully reload (losing all state).
+	// The user context is only needed for initial render.
 	let blobUrl = $derived.by(() => {
 		if (!secret) return undefined
+		const u = untrack(() => user)
 		const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
-		const html = htmlContent(workspace, secret, { ctx: user, workspace }, baseUrl, initialHash)
+		const html = htmlContent(workspace, secret, { ctx: u, workspace }, baseUrl, initialHash)
 		const blob = new Blob([html], { type: 'text/html' })
 		return URL.createObjectURL(blob)
 	})

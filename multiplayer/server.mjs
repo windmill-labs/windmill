@@ -122,8 +122,14 @@ const setupWSConnection = (conn, req, docName) => {
 }
 
 const server = http.createServer((req, res) => {
+  // Strip /ws_mp/ prefix if present (when accessed without reverse proxy path stripping)
+  if (req.url?.startsWith('/ws_mp/')) {
+    req.url = req.url.slice('/ws_mp'.length)
+  } else if (req.url === '/ws_mp') {
+    req.url = '/'
+  }
   console.log(`[${new Date().toISOString()}] HTTP ${req.method} ${req.url} from=${req.socket.remoteAddress}`)
-  if (req.url === '/' || req.url === '/health' || req.url === '/ws_mp/health') {
+  if (req.url === '/' || req.url === '/health') {
     res.writeHead(200, {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*'

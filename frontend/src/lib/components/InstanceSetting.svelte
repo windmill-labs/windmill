@@ -560,10 +560,10 @@
 									options={{ right: 'Logs' }}
 								/>
 								<Toggle
-									disabled
+									disabled={!$enterpriseLicense}
 									id="metrics_enabled"
 									bind:checked={$values[setting.key].metrics_enabled}
-									options={{ right: 'Metrics (coming soon)' }}
+									options={{ right: 'Metrics' }}
 								/>
 							</div>
 

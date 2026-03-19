@@ -751,7 +751,6 @@
 		if (activeModuleTab === null) return
 		try {
 			await inferArgs(effectiveLang, editorCode, testPanelSchema)
-			testPanelSchema = testPanelSchema
 			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
 		} catch (e) {
 			// Module code may be in-progress; silently ignore
@@ -1196,7 +1195,11 @@
 		!hasPreprocessor && (selectedTab = 'main')
 	})
 	$effect(() => {
-		selectedTab && code && untrack(() => inferSchema(code))
+		// Only depend on selectedTab (preprocessor ↔ main toggle).
+		// Code changes are handled by the editor on:change handler and
+		// explicit inferSchema calls (initContent, onMount), so we read
+		// `code` inside untrack to avoid a redundant double-inference race.
+		selectedTab && untrack(() => code && inferSchema(code))
 	})
 
 	let argsRender = $state(0)
