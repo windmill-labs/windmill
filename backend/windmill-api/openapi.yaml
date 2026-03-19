@@ -20857,7 +20857,7 @@ components:
       required:
         - path
         - script_path
-        - email
+        - permissioned_as
         - extra_perms
         - workspace_id
         - edited_by

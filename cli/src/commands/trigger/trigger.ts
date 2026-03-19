@@ -55,6 +55,7 @@ type TriggerFile<K extends TriggerType> = Omit<
   | "workspace"
   | "edited_by"
   | "edited_at"
+  | "permissioned_as"
   | "error"
   | "last_server_ping"
   | "server_id"
