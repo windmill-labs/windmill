@@ -59,11 +59,13 @@
 	)
 	let max = $derived(
 		flowDone
-			? Object.values(flow_status).reduce(
-					(a, b) =>
-						Math.max(a, b.started_at ? new Date(b.started_at).getTime() + (b.duration_ms ?? 0) : 0),
-					0
-				)
+			? Object.values(flow_status).reduce((a, b) => {
+					if (!b.started_at) return a
+					const startedAt = new Date(b.started_at).getTime()
+					// For cancelled steps without duration_ms, use `now` as end time
+					const endAt = b.duration_ms != undefined ? startedAt + b.duration_ms : now
+					return Math.max(a, endAt)
+				}, 0)
 			: undefined
 	)
 	let total = $derived(flowDone && max ? max - min : Math.max(now - min, 2000))
@@ -106,7 +108,7 @@
 	let pollInterval = setInterval(() => {
 		for (const [id, v] of Object.entries(flow_status)) {
 			if (isStep(id)) continue
-			const isRunning = v.duration_ms == undefined && v.started_at != undefined
+			const isRunning = !flowDone && v.duration_ms == undefined && v.started_at != undefined
 			if (expandedRows[id] && isRunning) {
 				fetchChildJob(id)
 			}
@@ -154,8 +156,8 @@
 			{@const isInlineStep = isStep(k)}
 			{@const isSleep = (v as any).sleep_duration_s != undefined}
 			{@const isApproval = (v as any).approval === true}
-			{@const isRunning = v.duration_ms == undefined && v.started_at != undefined}
-			{@const isDone = v.duration_ms != undefined}
+			{@const isRunning = !flowDone && v.duration_ms == undefined && v.started_at != undefined}
+			{@const isDone = v.duration_ms != undefined || flowDone}
 			{@const isExpanded = expandedRows[k] ?? false}
 			<div class="border-b last:border-b-0">
 				{#if isSleep}
@@ -234,7 +236,7 @@
 												{min}
 												started_at={startedAt}
 												len={v.duration_ms ?? now - startedAt}
-												running={v.duration_ms == undefined}
+												running={!flowDone && v.duration_ms == undefined}
 											/>
 										{/if}
 									{:else}
@@ -246,7 +248,7 @@
 											gray
 											started_at={scheduledFor}
 											len={waitingLen < 100 ? 0 : waitingLen - 100}
-											running={startedAt == undefined}
+											running={!flowDone && startedAt == undefined}
 										/>
 										{#if startedAt}
 											<TimelineBar
@@ -257,7 +259,7 @@
 												concat
 												started_at={startedAt}
 												len={v.duration_ms ?? now - startedAt}
-												running={v.duration_ms == undefined}
+												running={!flowDone && v.duration_ms == undefined}
 											/>
 										{/if}
 									{/if}

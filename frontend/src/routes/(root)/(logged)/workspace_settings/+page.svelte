@@ -43,6 +43,7 @@
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
 	import ChangeWorkspaceColor from '$lib/components/settings/ChangeWorkspaceColor.svelte'
+	import CloudQuotas from '$lib/components/settings/CloudQuotas.svelte'
 	import {
 		convertBackendSettingsToFrontendSettings,
 		type S3ResourceSettings
@@ -1524,6 +1525,11 @@
 								description="Configure general workspace settings."
 								link="https://www.windmill.dev/docs/core_concepts/workspace_settings"
 							/>
+
+							{#if isCloudHosted()}
+								<CloudQuotas />
+								<div class="my-4 border-b"></div>
+							{/if}
 
 							<div class="flex flex-col gap-6">
 								<ChangeWorkspaceName />

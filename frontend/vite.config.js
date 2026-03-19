@@ -58,20 +58,19 @@ const config = {
 				cookieDomainRewrite: 'localhost'
 			},
 			'^/ws/.*': {
-				target: process.env.REMOTE_LSP ?? 'https://app.windmill.dev',
+				target: process.env.REMOTE_LSP ?? process.env.REMOTE_EXTRA ?? 'https://app.windmill.dev',
 				changeOrigin: true,
 				ws: true
 			},
 			'^/ws_mp/.*': {
-				target: process.env.REMOTE_MP ?? 'https://app.windmill.dev',
+				target: process.env.REMOTE_MP ?? process.env.REMOTE_EXTRA ?? 'https://app.windmill.dev',
 				changeOrigin: true,
 				ws: true
 			},
 			'^/ws_debug/.*': {
-				target: process.env.REMOTE_DEBUG ?? 'https://app.windmill.dev',
+				target: process.env.REMOTE_DEBUG ?? process.env.REMOTE_EXTRA ?? 'https://app.windmill.dev',
 				changeOrigin: true,
-				ws: true,
-				rewrite: (path) => path.replace(/^\/ws_debug/, '')
+				ws: true
 			},
 			'^/ui_builder/.*': {
 				target: 'http://localhost:4000',

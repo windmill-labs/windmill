@@ -16,7 +16,11 @@
 	import ArgInput from './ArgInput.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { deepEqual } from 'fast-equals'
-	import { dragHandleZone, type Options as DndOptions } from '@windmill-labs/svelte-dnd-action'
+	import {
+		dragHandleZone,
+		SHADOW_ITEM_MARKER_PROPERTY_NAME,
+		type Options as DndOptions
+	} from '@windmill-labs/svelte-dnd-action'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
 	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
@@ -295,7 +299,9 @@
 				class={twMerge(
 					typeof diff[argName] === 'object' &&
 						diff[argName].diff !== 'same' &&
-						'bg-red-300 dark:bg-red-800 rounded-md'
+						'bg-red-300 dark:bg-red-800 rounded-md',
+					item[SHADOW_ITEM_MARKER_PROPERTY_NAME] &&
+						'!visible border-2 border-dashed border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded-md [&>*]:invisible'
 				)}
 				innerClass="w-full"
 			>
