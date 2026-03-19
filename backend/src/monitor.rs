@@ -1960,53 +1960,30 @@ pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
 }
 
 #[cfg(feature = "prometheus")]
-#[cfg(feature = "prometheus")]
 pub async fn monitor_pool(db: &DB) {
-    let prom_enabled = METRICS_ENABLED.load(Ordering::Relaxed);
-    let otel_enabled = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
-
-    if prom_enabled || otel_enabled {
+    if METRICS_ENABLED.load(Ordering::Relaxed) {
         let db = db.clone();
         tokio::spawn(async move {
-            #[cfg(feature = "prometheus")]
-            let (active_gauge, idle_gauge, max_gauge) = if prom_enabled {
-                let active = prometheus::register_int_gauge!(
-                    "pool_connections_active",
-                    "Number of active postgresql connections in the pool"
-                )
-                .unwrap();
-                let idle = prometheus::register_int_gauge!(
-                    "pool_connections_idle",
-                    "Number of idle postgresql connections in the pool"
-                )
-                .unwrap();
-                let max = prometheus::register_int_gauge!(
-                    "pool_connections_max",
-                    "Number of max postgresql connections in the pool"
-                )
-                .unwrap();
-                max.set(db.options().get_max_connections() as i64);
-                (Some(active), Some(idle), Some(max))
-            } else {
-                (None, None, None)
-            };
-            let _ = max_gauge; // suppress unused warning when prometheus enabled but prom_enabled=false
+            let active_gauge = prometheus::register_int_gauge!(
+                "pool_connections_active",
+                "Number of active postgresql connections in the pool"
+            )
+            .unwrap();
+            let idle_gauge = prometheus::register_int_gauge!(
+                "pool_connections_idle",
+                "Number of idle postgresql connections in the pool"
+            )
+            .unwrap();
+            let max_gauge = prometheus::register_int_gauge!(
+                "pool_connections_max",
+                "Number of max postgresql connections in the pool"
+            )
+            .unwrap();
 
-            let max_conns = db.options().get_max_connections() as i64;
+            max_gauge.set(db.options().get_max_connections() as i64);
             loop {
-                let active = db.size() as i64;
-                let idle = db.num_idle() as i64;
-
-                #[cfg(feature = "prometheus")]
-                if let (Some(ag), Some(ig)) = (active_gauge.as_ref(), idle_gauge.as_ref()) {
-                    ag.set(active);
-                    ig.set(idle);
-                }
-
-                if otel_enabled {
-                    otel_set_db_pool(active, idle, max_conns);
-                }
-
+                active_gauge.set(db.size() as i64);
+                idle_gauge.set(db.num_idle() as i64);
                 tokio::time::sleep(Duration::from_secs(30)).await;
             }
         });
