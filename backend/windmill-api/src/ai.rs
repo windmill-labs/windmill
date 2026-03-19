@@ -494,7 +494,7 @@ impl ExpiringAIRequestConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct AIConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub providers: Option<HashMap<AIProvider, ProviderConfig>>,
@@ -762,31 +762,52 @@ async fn proxy(
             request_cache.config
         }
         _ => {
-            let (resource_path, save_to_cache) = if let Some(resource_path) = forced_resource_path {
+            let (resource_path, save_to_cache, resource_workspace) = if let Some(resource_path) = forced_resource_path {
                 // forced resource path
-                (resource_path, false)
+                (resource_path, false, w_id.clone())
             } else {
-                let ai_config = sqlx::query_scalar!(
+                let workspace_ai_config = sqlx::query_scalar!(
                     "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
                     &w_id
                 )
                 .fetch_one(&db)
                 .await?;
 
-                if ai_config.is_none() {
-                    return Err(Error::internal_err(
-                        "AI resource not configured".to_string(),
-                    ));
-                }
+                let (ai_config_value, resource_workspace) = {
+                    let ws_has_config = workspace_ai_config
+                        .as_ref()
+                        .and_then(|v| serde_json::from_value::<AIConfig>(v.clone()).ok())
+                        .and_then(|c| c.providers)
+                        .map(|p| !p.is_empty())
+                        .unwrap_or(false);
 
-                let mut ai_config = serde_json::from_value::<AIConfig>(ai_config.unwrap())
+                    if ws_has_config {
+                        (workspace_ai_config.unwrap(), w_id.clone())
+                    } else {
+                        let instance_config = sqlx::query_scalar!(
+                            "SELECT value FROM global_settings WHERE name = 'ai_config'"
+                        )
+                        .fetch_optional(&db)
+                        .await?;
+
+                        match instance_config {
+                            Some(config) => (config, "admins".to_string()),
+                            None => {
+                                return Err(Error::internal_err(
+                                    "AI resource not configured".to_string(),
+                                ));
+                            }
+                        }
+                    }
+                };
+
+                let mut ai_config = serde_json::from_value::<AIConfig>(ai_config_value)
                     .map_err(|e| Error::BadRequest(e.to_string()))?;
 
                 let provider_config = ai_config
                     .providers
                     .as_mut()
-                    .map(|providers| providers.remove(&provider))
-                    .flatten()
+                    .and_then(|providers| providers.remove(&provider))
                     .ok_or_else(|| {
                         Error::BadRequest(format!("Provider {:?} not configured", provider))
                     })?;
@@ -795,13 +816,13 @@ async fn proxy(
                     return Err(Error::BadRequest("Resource path is empty".to_string()));
                 }
 
-                (provider_config.resource_path, true)
+                (provider_config.resource_path, true, resource_workspace)
             };
 
             let resource= sqlx::query_scalar!(
                 "SELECT value as \"value: sqlx::types::Json<Box<RawValue>>\" FROM resource WHERE path = $1 AND workspace_id = $2",
                 &resource_path,
-                &w_id
+                &resource_workspace
             )
             .fetch_optional(&db)
             .await?
@@ -811,7 +832,7 @@ async fn proxy(
             let resource = serde_json::from_str::<AIResource>(resource.0.get())
                 .map_err(|e| Error::BadRequest(e.to_string()))?;
 
-            let request_config = AIRequestConfig::new(&provider, &db, &w_id, resource).await?;
+            let request_config = AIRequestConfig::new(&provider, &db, &resource_workspace, resource).await?;
             if save_to_cache {
                 AI_REQUEST_CACHE.insert(
                     (w_id.clone(), provider.clone()),

@@ -118,6 +118,9 @@
 	let customPrompts: Record<string, string> = $state({})
 	let maxTokensPerModel: Record<string, number> = $state({})
 
+	let hasInstanceAiConfig = $state(false)
+	let usesInstanceAiConfig = $state(false)
+
 	// Track initial AI config for unsaved changes detection
 	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
 	let initialCodeCompletionModel: string | undefined = $state(undefined)
@@ -507,6 +510,12 @@
 		customer_id = settings.customer_id
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
+
+		const copilotInfo = await WorkspaceService.getCopilotInfo({
+			workspace: $workspaceStore!
+		})
+		hasInstanceAiConfig = copilotInfo.has_instance_ai_config
+		usesInstanceAiConfig = copilotInfo.uses_instance_ai_config
 
 		aiProviders = settings.ai_config?.providers ?? {}
 		defaultModel = settings.ai_config?.default_model?.model
@@ -1837,6 +1846,8 @@ export async function main(
 								bind:maxTokensPerModel
 								bind:usingOpenaiClientCredentialsOauth
 								hasUnsavedChanges={hasAiSettingsChanges}
+								{hasInstanceAiConfig}
+								{usesInstanceAiConfig}
 								onDiscard={discardAiSettingsChanges}
 								onSave={() => {
 									// Update initial state after successful save

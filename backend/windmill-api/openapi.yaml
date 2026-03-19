@@ -3210,7 +3210,17 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AIConfig"
+                allOf:
+                  - $ref: "#/components/schemas/AIConfig"
+                  - type: object
+                    properties:
+                      has_instance_ai_config:
+                        type: boolean
+                      uses_instance_ai_config:
+                        type: boolean
+                    required:
+                      - has_instance_ai_config
+                      - uses_instance_ai_config
 
   /w/{workspace}/workspaces/edit_error_handler:
     post:

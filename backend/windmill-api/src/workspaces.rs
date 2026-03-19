@@ -142,33 +142,66 @@ async fn edit_copilot_config(
     Ok(format!("Edit copilot config for workspace {}", &w_id))
 }
 
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct CopilotInfoResponse {
+    #[serde(flatten)]
+    ai_config: AIConfig,
+    has_instance_ai_config: bool,
+    uses_instance_ai_config: bool,
+}
+
 async fn get_copilot_info(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<AIConfig> {
-    let mut tx = db.begin().await?;
+) -> JsonResult<CopilotInfoResponse> {
     let copilot_info = sqlx::query_scalar!(
         "SELECT ai_config as \"ai_config: sqlx::types::Json<AIConfig>\" FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&db)
     .await
     .map_err(|e| {
         Error::internal_err(format!(
             "getting ai config: {e:#}"
         ))
     })?;
-    tx.commit().await?;
 
-    if let Some(sqlx::types::Json(copilot_info)) = copilot_info {
-        Ok(Json(copilot_info))
+    let instance_ai_config = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = 'ai_config'"
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let has_instance_ai_config = instance_ai_config.is_some();
+
+    let workspace_has_config = copilot_info
+        .as_ref()
+        .and_then(|c| c.0.providers.as_ref())
+        .map(|p| !p.is_empty())
+        .unwrap_or(false);
+
+    if workspace_has_config {
+        Ok(Json(CopilotInfoResponse {
+            ai_config: copilot_info.unwrap().0,
+            has_instance_ai_config,
+            uses_instance_ai_config: false,
+        }))
+    } else if let Some(instance_config) = instance_ai_config {
+        let ai_config = serde_json::from_value::<AIConfig>(instance_config)
+            .unwrap_or_default();
+        let has_providers = ai_config.providers.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
+        Ok(Json(CopilotInfoResponse {
+            ai_config,
+            has_instance_ai_config: true,
+            uses_instance_ai_config: has_providers,
+        }))
     } else {
-        Ok(Json(AIConfig {
-            providers: None,
-            default_model: None,
-            code_completion_model: None,
-            custom_prompts: None,
-            max_tokens_per_model: None,
+        Ok(Json(CopilotInfoResponse {
+            ai_config: AIConfig::default(),
+            has_instance_ai_config: false,
+            uses_instance_ai_config: false,
         }))
     }
 }

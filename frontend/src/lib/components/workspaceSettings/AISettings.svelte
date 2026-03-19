@@ -32,7 +32,11 @@
 		usingOpenaiClientCredentialsOauth = $bindable(),
 		onSave,
 		onDiscard,
-		hasUnsavedChanges = false
+		hasUnsavedChanges = false,
+		workspace = undefined,
+		hasInstanceAiConfig = false,
+		usesInstanceAiConfig = false,
+		customSave = undefined
 	}: {
 		aiProviders: Exclude<AIConfig['providers'], undefined>
 		codeCompletionModel: string | undefined
@@ -43,7 +47,13 @@
 		onSave?: () => void
 		onDiscard?: () => void
 		hasUnsavedChanges?: boolean
+		workspace?: string | undefined
+		hasInstanceAiConfig?: boolean
+		usesInstanceAiConfig?: boolean
+		customSave?: (config: AIConfig) => Promise<void>
 	} = $props()
+
+	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 
 	let fetchedAiModels = $state(false)
 	let availableAiModels = $state(
@@ -91,7 +101,7 @@
 				try {
 					const models = await fetchAvailableModels(
 						aiProviders[provider].resource_path,
-						$workspaceStore!,
+						effectiveWorkspace,
 						provider as AIProvider
 					)
 					availableAiModels[provider] = models
@@ -110,42 +120,42 @@
 	}
 
 	async function editCopilotConfig(): Promise<void> {
-		if (Object.keys(aiProviders ?? {}).length > 0) {
-			const code_completion_model =
-				codeCompletionModel && modelProviderMap[codeCompletionModel]
-					? { model: codeCompletionModel, provider: modelProviderMap[codeCompletionModel] }
-					: undefined
-			const default_model =
-				defaultModel && modelProviderMap[defaultModel]
-					? { model: defaultModel, provider: modelProviderMap[defaultModel] }
-					: undefined
-			// Convert customPrompts to include only non-empty prompts
-			const custom_prompts: Record<string, string> = Object.entries(customPrompts)
-				.filter(([_, prompt]) => prompt.trim().length > 0)
-				.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
+		const code_completion_model =
+			codeCompletionModel && modelProviderMap[codeCompletionModel]
+				? { model: codeCompletionModel, provider: modelProviderMap[codeCompletionModel] }
+				: undefined
+		const default_model =
+			defaultModel && modelProviderMap[defaultModel]
+				? { model: defaultModel, provider: modelProviderMap[defaultModel] }
+				: undefined
+		const custom_prompts: Record<string, string> = Object.entries(customPrompts)
+			.filter(([_, prompt]) => prompt.trim().length > 0)
+			.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
 
-			const config: AIConfig = {
-				providers: aiProviders,
-				code_completion_model,
-				default_model,
-				custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
-				max_tokens_per_model:
-					Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
-			}
+		const config: AIConfig =
+			Object.keys(aiProviders ?? {}).length > 0
+				? {
+						providers: aiProviders,
+						code_completion_model,
+						default_model,
+						custom_prompts:
+							Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
+						max_tokens_per_model:
+							Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
+					}
+				: {}
+
+		if (customSave) {
+			await customSave(config)
+		} else {
 			await WorkspaceService.editCopilotConfig({
-				workspace: $workspaceStore!,
+				workspace: effectiveWorkspace,
 				requestBody: config
 			})
 			setCopilotInfo(config)
-		} else {
-			await WorkspaceService.editCopilotConfig({
-				workspace: $workspaceStore!,
-				requestBody: {}
-			})
-			setCopilotInfo({})
+			sendUserToast('AI settings updated')
 		}
-		sendUserToast(`AI settings updated`)
-		initialPrompts = { ...customPrompts } // Update initial prompts after successful save
+		initialPrompts = { ...customPrompts }
 		onSave?.()
 	}
 
@@ -154,7 +164,7 @@
 			try {
 				const models = await fetchAvailableModels(
 					aiProviders[provider].resource_path,
-					$workspaceStore!,
+					effectiveWorkspace,
 					provider as AIProvider
 				)
 				availableAiModels[provider] = models
@@ -183,6 +193,15 @@
 />
 
 <div class="flex flex-col gap-6 mt-4 pb-8">
+	{#if usesInstanceAiConfig}
+		<div class="p-3 border border-blue-200 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20 rounded-md text-xs text-secondary">
+			Instance-level AI settings are currently active. Configure workspace-specific settings below to override them.
+		</div>
+	{:else if hasInstanceAiConfig && Object.keys(aiProviders).length > 0}
+		<div class="p-3 border border-surface-hover bg-surface-secondary rounded-md text-xs text-secondary">
+			Workspace AI settings override instance defaults. Remove workspace settings to use instance defaults.
+		</div>
+	{/if}
 	<SettingCard label="AI Providers">
 		<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
 			{#each Object.entries(AI_PROVIDERS) as [provider, details]}
@@ -252,6 +271,7 @@
 								<div class="flex flex-row gap-1">
 									<ResourcePicker
 										selectFirst
+										{workspace}
 										resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
 											? 'openai_client_credentials_oauth'
 											: provider}

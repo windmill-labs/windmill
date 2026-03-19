@@ -29,6 +29,7 @@
 		onClear?: () => void
 		excludedValues?: string[]
 		datatableAsPgResource?: boolean
+		workspace?: string | undefined
 	}
 
 	let {
@@ -47,8 +48,11 @@
 		class: className = '',
 		onClear = undefined,
 		excludedValues = undefined,
-		datatableAsPgResource = false
+		datatableAsPgResource = false,
+		workspace = undefined
 	}: Props = $props()
+
+	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 
 	if (initialValue && value == undefined) {
 		value = initialValue
@@ -104,7 +108,7 @@
 			const resources = await Promise.all(
 				resourceTypesToQuery.map((rt) =>
 					ResourceService.listResource({
-						workspace: $workspaceStore!,
+						workspace: effectiveWorkspace,
 						resourceType: rt
 					})
 				)
@@ -122,7 +126,7 @@
 			if (datatableAsPgResource && resourceType === 'postgresql') {
 				try {
 					const datatables = await WorkspaceService.listDataTables({
-						workspace: $workspaceStore!
+						workspace: effectiveWorkspace
 					})
 					for (const dt of datatables) {
 						nc.push({
@@ -155,7 +159,7 @@
 	let previousResourceType = untrack(() => resourceType)
 
 	$effect(() => {
-		$workspaceStore && resourceType
+		effectiveWorkspace && resourceType
 		untrack(() => {
 			if (previousResourceType != resourceType) {
 				previousResourceType = resourceType
@@ -167,7 +171,7 @@
 
 	$effect(() => {
 		excludedValues
-		if ($workspaceStore && resourceType && !disabled) {
+		if (effectiveWorkspace && resourceType && !disabled) {
 			untrack(() => loadResources(resourceType))
 		}
 	})
