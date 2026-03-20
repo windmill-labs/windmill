@@ -14,7 +14,7 @@
 	import Button from './common/button/Button.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import Alert from './common/alert/Alert.svelte'
-	import { DiffIcon, Loader2 } from 'lucide-svelte'
+	import { DiffIcon, FileJson, Loader2 } from 'lucide-svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import {
@@ -483,6 +483,9 @@
 					/>
 				{/if}
 
+				{#if item.kind === 'raw_app'}
+					<Badge small icon={{ icon: FileJson }}>Raw</Badge>
+				{/if}
 				{#if exists === false}
 					{#if item.include}
 						<Badge

@@ -11,7 +11,14 @@
 	 * Shows the selector when the source item has an on_behalf_of value set.
 	 */
 	export function needsOnBehalfOfSelection(kind: string, sourceValue: string | undefined): boolean {
-		if (kind !== 'flow' && kind !== 'script' && kind !== 'app' && kind !== 'trigger') return false
+		if (
+			kind !== 'flow' &&
+			kind !== 'script' &&
+			kind !== 'app' &&
+			kind !== 'raw_app' &&
+			kind !== 'trigger'
+		)
+			return false
 		return !!sourceValue
 	}
 </script>

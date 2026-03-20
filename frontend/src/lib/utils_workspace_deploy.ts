@@ -104,7 +104,7 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 					on_behalf_of_email: onBehalfOf
 				}
 			})
-		} else if (kind === 'app') {
+		} else if (kind === 'app' || kind === 'raw_app') {
 			const app = await AppService.getAppByPath({
 				workspace: workspaceFrom,
 				path: path
@@ -312,7 +312,7 @@ export async function checkItemExists(
 			workspace: workspace,
 			path: path
 		})
-	} else if (kind === 'app') {
+	} else if (kind === 'app' || kind === 'raw_app') {
 		return await AppService.existsApp({
 			workspace: workspace,
 			path: path
@@ -407,7 +407,7 @@ export async function getItemValue(
 				summary: script.summary,
 				language: script.language
 			}
-		} else if (kind === 'app') {
+		} else if (kind === 'app' || kind === 'raw_app') {
 			const app = await AppService.getAppByPath({
 				workspace: workspace,
 				path: path
@@ -474,7 +474,7 @@ export async function getOnBehalfOf(
 		} else if (kind === 'script') {
 			const script = await ScriptService.getScriptByPath({ workspace, path })
 			return script.on_behalf_of_email
-		} else if (kind === 'app') {
+		} else if (kind === 'app' || kind === 'raw_app') {
 			const app = await AppService.getAppByPath({ workspace, path })
 			return app.policy.on_behalf_of_email
 		} else if (kind === 'trigger' && additionalInformation?.triggers) {

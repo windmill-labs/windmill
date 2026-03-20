@@ -8,6 +8,7 @@
 		ArrowUpRight,
 		Building,
 		DiffIcon,
+		FileJson,
 		GitFork,
 		Loader2,
 		Trash2,
@@ -139,7 +140,7 @@
 			} else if (kind === 'flow') {
 				const flow = await FlowService.getFlowByPath({ workspace, path })
 				return flow.summary
-			} else if (kind === 'app') {
+			} else if (kind === 'app' || kind === 'raw_app') {
 				const app = await AppService.getAppByPath({ workspace, path })
 				return app.summary
 			} else if (kind === 'folder') {
@@ -155,7 +156,7 @@
 	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
 		// Only fetch summaries for scripts, flows, and apps
 		const itemsToFetch = diffs.filter((diff) =>
-			['script', 'flow', 'app', 'folder'].includes(diff.kind)
+			['script', 'flow', 'app', 'raw_app', 'folder'].includes(diff.kind)
 		)
 
 		for (const diff of itemsToFetch) {
@@ -182,7 +183,9 @@
 	}
 
 	async function fetchOnBehalfOfInfo(diffs: WorkspaceItemDiff[]) {
-		const flowsAndScripts = diffs.filter((d) => ['flow', 'script', 'app'].includes(d.kind))
+		const flowsAndScripts = diffs.filter((d) =>
+			['flow', 'script', 'app', 'raw_app'].includes(d.kind)
+		)
 		for (const diff of flowsAndScripts) {
 			for (const workspace of [currentWorkspaceId, parentWorkspaceId]) {
 				const workspacedKey = getWorkspacedKey(workspace, getItemKey(diff))
@@ -892,6 +895,9 @@
 					canPreserve={canPreserveOnBehalfOf}
 					customValue={customOnBehalfOf[key]?.permissionedAs}
 				/>
+			{/if}
+			{#if diff.kind === 'raw_app'}
+				<Badge small icon={{ icon: FileJson }}>Raw</Badge>
 			{/if}
 			<!-- Status badges -->
 			{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
