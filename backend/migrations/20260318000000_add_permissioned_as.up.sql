@@ -57,7 +57,7 @@ UPDATE schedule SET permissioned_as = CASE
         SELECT 1 FROM password p WHERE p.email = schedule.email AND p.super_admin = true
     ) THEN COALESCE(
         'u/' || (SELECT u.username FROM usr u WHERE u.email = schedule.email AND u.workspace_id = schedule.workspace_id LIMIT 1),
-        CASE WHEN edited_by LIKE '%@%' THEN edited_by ELSE 'u/' || edited_by END
+        schedule.email
     )
     ELSE CASE WHEN edited_by LIKE '%@%' THEN edited_by ELSE 'u/' || edited_by END
 END;
