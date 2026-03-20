@@ -25,9 +25,8 @@
 
 	async function loadConfig() {
 		try {
-			initialConfig = ((await SettingService.getGlobal({ key: 'ai_config' })) as
-				| AIConfig
-				| undefined) ?? {}
+			initialConfig =
+				((await SettingService.getGlobal({ key: 'ai_config' })) as AIConfig | undefined) ?? {}
 			loaded = true
 		} catch (e) {
 			console.error('Failed to load instance AI config', e)
@@ -132,6 +131,7 @@
 		title="Windmill AI"
 		description="Windmill AI integrates with your favorite AI providers and models. Set your AI settings at the instance level to be able to use them on all your workspaces. Workspace-level settings can override these."
 		link="https://www.windmill.dev/docs/core_concepts/ai_generation"
+		promptScope="instance"
 		customSave={handleCustomSave}
 	/>
 {/if}

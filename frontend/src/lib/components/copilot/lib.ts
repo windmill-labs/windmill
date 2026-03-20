@@ -67,7 +67,14 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	googleai: {
 		label: 'Google AI',
-		defaultModels: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemini-3-flash', 'gemini-3.1-pro', 'gemini-3.1-flash-lite']
+		defaultModels: [
+			'gemini-2.5-flash',
+			'gemini-2.5-pro',
+			'gemini-2.5-flash-lite',
+			'gemini-3-flash',
+			'gemini-3.1-pro',
+			'gemini-3.1-flash-lite'
+		]
 	},
 	groq: {
 		label: 'Groq',
@@ -370,7 +377,7 @@ export function getAiProxyBaseURL(workspace?: string): string {
 		: `${location.origin}${OpenAPI.BASE}/ai/proxy`
 }
 
-function createOpenAIProxyClient(baseURL: string): OpenAI {
+export function createOpenAIProxyClient(baseURL: string): OpenAI {
 	return new OpenAI({
 		baseURL,
 		apiKey: 'fake-key',
@@ -381,7 +388,7 @@ function createOpenAIProxyClient(baseURL: string): OpenAI {
 	})
 }
 
-function createAnthropicProxyClient(baseURL: string): Anthropic {
+export function createAnthropicProxyClient(baseURL: string): Anthropic {
 	return new Anthropic({
 		baseURL,
 		apiKey: 'fake-key',

@@ -255,6 +255,8 @@ pub struct WorkspaceSettings {
     pub success_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
+    pub has_instance_ai_config: bool,
+    pub uses_instance_ai_config: bool,
 }
 
 /// #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
@@ -562,8 +564,7 @@ async fn get_settings(
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<WorkspaceSettings> {
     let mut tx = user_db.begin(&authed).await?;
-    let settings = sqlx::query_as!(
-        WorkspaceSettings,
+    let settings = sqlx::query_as::<_, WorkspaceSettings>(
         r#"
         SELECT
             workspace_id,
@@ -596,25 +597,45 @@ async fn get_settings(
             auto_invite,
             error_handler,
             success_handler,
-            public_app_execution_limit_per_minute
+            public_app_execution_limit_per_minute,
+            false as has_instance_ai_config,
+            false as uses_instance_ai_config
         FROM
             workspace_settings
         WHERE
             workspace_id = $1
         "#,
-        &w_id
     )
+    .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
 
+    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let instance_ai_config: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT value FROM global_settings WHERE name = 'ai_config'")
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| Error::internal_err(format!("getting instance ai settings: {e:#}")))?;
+
     tx.commit().await?;
 
-    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let has_workspace_ai_config = has_ai_providers(settings.ai_config.as_ref());
+    let has_instance_ai_config = has_ai_providers(instance_ai_config.as_ref());
+    settings.has_instance_ai_config = has_instance_ai_config;
+    settings.uses_instance_ai_config = !has_workspace_ai_config && has_instance_ai_config;
     if !authed.is_admin {
         settings.slack_oauth_client_secret = None;
     }
     Ok(Json(settings))
+}
+
+fn has_ai_providers(config: Option<&serde_json::Value>) -> bool {
+    config
+        .and_then(|value| value.get("providers"))
+        .and_then(|providers| providers.as_object())
+        .map(|providers| !providers.is_empty())
+        .unwrap_or(false)
 }
 
 #[derive(Serialize)]

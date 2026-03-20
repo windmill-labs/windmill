@@ -2548,6 +2548,13 @@ paths:
                   public_app_execution_limit_per_minute:
                     type: integer
                     description: Rate limit for public app executions per minute per server. NULL or 0 means disabled.
+                  has_instance_ai_config:
+                    type: boolean
+                  uses_instance_ai_config:
+                    type: boolean
+                required:
+                  - has_instance_ai_config
+                  - uses_instance_ai_config
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:

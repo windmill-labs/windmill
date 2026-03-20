@@ -9,7 +9,7 @@
 // Re-export everything from windmill-api-workspaces
 pub use windmill_api_workspaces::workspaces::*;
 
-use crate::ai::{AIConfig, AI_REQUEST_CACHE};
+use crate::ai::{invalidate_ai_request_cache_for_workspace, AIConfig};
 use crate::db::ApiAuthed;
 use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
@@ -109,11 +109,7 @@ async fn edit_copilot_config(
     .execute(&mut *tx)
     .await?;
 
-    if let Some(ref providers) = ai_config.providers {
-        for provider in providers.keys() {
-            AI_REQUEST_CACHE.remove(&(w_id.clone(), provider.clone()));
-        }
-    }
+    invalidate_ai_request_cache_for_workspace(&w_id);
 
     audit_log(
         &mut *tx,
@@ -168,11 +164,10 @@ async fn get_copilot_info(
         ))
     })?;
 
-    let instance_ai_config = sqlx::query_scalar!(
-        "SELECT value FROM global_settings WHERE name = 'ai_config'"
-    )
-    .fetch_optional(&db)
-    .await?;
+    let instance_ai_config =
+        sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
+            .fetch_optional(&db)
+            .await?;
 
     let has_instance_ai_config = instance_ai_config.is_some();
 
@@ -189,9 +184,12 @@ async fn get_copilot_info(
             uses_instance_ai_config: false,
         }))
     } else if let Some(instance_config) = instance_ai_config {
-        let ai_config = serde_json::from_value::<AIConfig>(instance_config)
-            .unwrap_or_default();
-        let has_providers = ai_config.providers.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
+        let ai_config = serde_json::from_value::<AIConfig>(instance_config).unwrap_or_default();
+        let has_providers = ai_config
+            .providers
+            .as_ref()
+            .map(|p| !p.is_empty())
+            .unwrap_or(false);
         Ok(Json(CopilotInfoResponse {
             ai_config,
             has_instance_ai_config: true,

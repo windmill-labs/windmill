@@ -40,7 +40,8 @@
 		onSave = undefined,
 		title = 'Windmill AI',
 		description = 'Windmill AI integrates with your favorite AI providers and models.',
-		link = 'https://www.windmill.dev/docs/core_concepts/ai_generation'
+		link = 'https://www.windmill.dev/docs/core_concepts/ai_generation',
+		promptScope = 'workspace'
 	}: {
 		initialConfig?: AIConfig | undefined
 		hasUnsavedChanges?: boolean
@@ -53,6 +54,7 @@
 		title?: string
 		description?: string
 		link?: string
+		promptScope?: 'workspace' | 'instance'
 	} = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
@@ -164,6 +166,11 @@
 	let promptCount = $derived(
 		Object.values(customPrompts).filter((p) => p?.trim().length > 0).length
 	)
+	let promptDescription = $derived(
+		promptScope === 'instance'
+			? 'Customize AI behavior with instance-level system prompts. These apply when a workspace uses instance AI defaults.'
+			: 'Customize AI behavior with workspace-level system prompts. These apply to all workspace members.'
+	)
 
 	let selectedAiModels = $derived(Object.values(aiProviders).flatMap((p) => p.models))
 	let modelProviderMap = $derived(
@@ -225,8 +232,7 @@
 					providers: aiProviders,
 					code_completion_model,
 					default_model,
-					custom_prompts:
-						Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
+					custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
 					max_tokens_per_model:
 						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
 				}
@@ -304,20 +310,22 @@
 	const autocompleteModels = $derived(selectedAiModels.filter(supportsAutocomplete))
 </script>
 
-<SettingsPageHeader
-	{title}
-	{description}
-	{link}
-/>
+<SettingsPageHeader {title} {description} {link} />
 
 <div class="flex flex-col gap-6 mt-4 pb-8">
 	{#if usesInstanceAiConfig}
-		<div class="p-3 border border-blue-200 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20 rounded-md text-xs text-secondary">
-			Instance-level AI settings are currently active. Configure workspace-specific settings below to override them.
+		<div
+			class="p-3 border border-blue-200 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20 rounded-md text-xs text-secondary"
+		>
+			Instance-level AI settings are currently active. Configure workspace-specific settings below
+			to override them.
 		</div>
 	{:else if hasInstanceAiConfig && Object.keys(aiProviders).length > 0}
-		<div class="p-3 border border-surface-hover bg-surface-secondary rounded-md text-xs text-secondary">
-			Workspace AI settings override instance defaults. Remove workspace settings to use instance defaults.
+		<div
+			class="p-3 border border-surface-hover bg-surface-secondary rounded-md text-xs text-secondary"
+		>
+			Workspace AI settings override instance defaults. Remove workspace settings to use instance
+			defaults.
 		</div>
 	{/if}
 	<SettingCard label="AI Providers">
@@ -484,11 +492,7 @@
 
 	<ModelTokenLimits {aiProviders} bind:maxTokensPerModel />
 
-	<SettingCard
-		label="Custom system prompts"
-		description="Customize AI behavior with workspace-level system prompts. These apply to all workspace
-			members."
-	>
+	<SettingCard label="Custom system prompts" description={promptDescription}>
 		<div class="flex items-center gap-2 pt-1">
 			<Button
 				onclick={() => (modalOpen = true)}
@@ -514,7 +518,7 @@
 	bind:customPrompts
 	onReset={resetPrompts}
 	hasChanges={hasPromptsChanges}
-	isWorkspaceSettings={true}
+	scope={promptScope}
 />
 
 <SettingsFooter

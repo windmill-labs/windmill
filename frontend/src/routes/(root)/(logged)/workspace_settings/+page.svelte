@@ -21,8 +21,7 @@
 		WorkspaceService,
 		SettingService,
 		type AIConfig,
-		type ErrorHandler,
-		type GetCopilotInfoResponse
+		type ErrorHandler
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -489,13 +488,9 @@
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
 
-		const copilotInfo = await WorkspaceService.getCopilotInfo({
-			workspace: $workspaceStore!
-		})
-		hasInstanceAiConfig = copilotInfo.has_instance_ai_config
-		usesInstanceAiConfig = copilotInfo.uses_instance_ai_config
-
 		aiInitialConfig = settings.ai_config ?? {}
+		hasInstanceAiConfig = settings.has_instance_ai_config ?? false
+		usesInstanceAiConfig = settings.uses_instance_ai_config ?? false
 		const errorHandler = settings.error_handler as
 			| { path?: string; extra_args?: any; muted_on_cancel?: boolean; muted_on_user_path?: boolean }
 			| undefined
@@ -1772,7 +1767,7 @@ export async function main(
 								bind:hasUnsavedChanges={hasAiSettingsChanges}
 								{hasInstanceAiConfig}
 								{usesInstanceAiConfig}
-								onSave={(copilotInfo?: GetCopilotInfoResponse) => {
+								onSave={(copilotInfo) => {
 									if (!copilotInfo) {
 										return
 									}

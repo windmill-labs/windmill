@@ -5,10 +5,14 @@ import type {
 	ChatCompletionCreateParams
 } from 'openai/resources/index.mjs'
 import type { ResponseErrorEvent } from 'openai/resources/responses/responses.mjs'
-import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
+import {
+	createOpenAIProxyClient,
+	getAiProxyBaseURL,
+	getProviderAndCompletionConfig,
+	workspaceAIClients
+} from '../lib'
 import { processToolCall, type Tool, type ToolCallbacks } from './shared'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
-import { OpenAPI } from '$lib/gen'
 import type { AIProviderModel } from '$lib/gen'
 
 // Conversion utilities for Responses API
@@ -354,6 +358,7 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 	abortController: AbortController,
 	testOptions?: {
 		apiKey?: string
+		workspace?: string
 		resourcePath?: string
 		forceModelProvider: AIProviderModel
 	}
@@ -390,15 +395,10 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 	}
 
 	const openaiClient = testOptions?.apiKey
-		? new OpenAI({
-				baseURL: `${location.origin}${OpenAPI.BASE}/ai/proxy`,
-				apiKey: 'fake-key',
-				defaultHeaders: {
-					Authorization: '' // a non empty string will be unable to access Windmill backend proxy
-				},
-				dangerouslyAllowBrowser: true
-			})
-		: workspaceAIClients.getOpenaiClient()
+		? createOpenAIProxyClient(getAiProxyBaseURL())
+		: testOptions?.workspace
+			? workspaceAIClients.createOpenaiClient(testOptions.workspace)
+			: workspaceAIClients.getOpenaiClient()
 
 	const response = await openaiClient.responses.create(
 		{
