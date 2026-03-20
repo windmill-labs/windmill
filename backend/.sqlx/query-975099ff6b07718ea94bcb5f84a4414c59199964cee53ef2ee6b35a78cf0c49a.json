@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT git_sync FROM workspace_settings WHERE git_sync IS NOT NULL",
+  "query": "SELECT value FROM global_settings WHERE name = 'ai_config'",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "git_sync",
+        "name": "value",
         "type_info": "Jsonb"
       }
     ],
@@ -13,8 +13,8 @@
       "Left": []
     },
     "nullable": [
-      true
+      false
     ]
   },
-  "hash": "1bf189625a4f14e12e0d0510eb534600b68125fb55f77ad3abf3333ebab22416"
+  "hash": "975099ff6b07718ea94bcb5f84a4414c59199964cee53ef2ee6b35a78cf0c49a"
 }
