@@ -459,8 +459,8 @@ async fn test_trigger_notify_http_trigger_change(db: Pool<Postgres>) {
 
     // Insert an HTTP trigger
     sqlx::query(
-        "INSERT INTO http_trigger (path, route_path, route_path_key, script_path, is_flow, workspace_id, edited_by, email, http_method, authentication_method)
-         VALUES ($1, '/test/route', '/test/route', 'test/script', false, 'test-workspace', 'test-user', 'test@test.com', 'get', 'none')",
+        "INSERT INTO http_trigger (path, route_path, route_path_key, script_path, is_flow, workspace_id, edited_by, permissioned_as, http_method, authentication_method)
+         VALUES ($1, '/test/route', '/test/route', 'test/script', false, 'test-workspace', 'test-user', 'u/test-user', 'get', 'none')",
     )
     .bind(&trigger_path)
     .execute(&db)

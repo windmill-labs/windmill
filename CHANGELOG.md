@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.662.0](https://github.com/windmill-labs/windmill/compare/v1.661.0...v1.662.0) (2026-03-20)
+
+
+### Features
+
+* mcp oauth gateway ([#8443](https://github.com/windmill-labs/windmill/issues/8443)) ([51957f7](https://github.com/windmill-labs/windmill/commit/51957f7d921b624fc132ca9ea03cdd30a5810e51))
+
+
+### Bug Fixes
+
+* replace email with permissioned_as for triggers/schedules ([#8439](https://github.com/windmill-labs/windmill/issues/8439)) ([efb4a27](https://github.com/windmill-labs/windmill/commit/efb4a27d5181bf9db3deb5e8100ec60adbe45e7f))
+* strip invalid enum values from MCP schemas ([#8462](https://github.com/windmill-labs/windmill/issues/8462)) ([88ad376](https://github.com/windmill-labs/windmill/commit/88ad3767916b86c4e0b272d040ee0b75a0580d76))
+
 ## [1.661.0](https://github.com/windmill-labs/windmill/compare/v1.660.1...v1.661.0) (2026-03-19)
 
 
