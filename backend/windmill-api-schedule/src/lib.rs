@@ -417,24 +417,25 @@ async fn edit_schedule(
 
     let resolved_edited_by = resolve_edited_by(&authed);
 
-    // Only resolve permissioned_as if explicitly provided (optional on edit)
-    let resolved_permissioned_as = es.permissioned_as.as_ref().map(|_| {
-        resolve_permissioned_as(
-            es.permissioned_as.as_ref(),
-            es.preserve_permissioned_as,
-            &authed,
-        )
-    });
+    let resolved_permissioned_as = resolve_permissioned_as(
+        es.permissioned_as.as_ref(),
+        es.preserve_permissioned_as,
+        &authed,
+    );
 
     // email is still written for backwards compat with old workers that don't know about permissioned_as.
-    // When permissioned_as is preserved, derive email from it to keep email consistent with the old behavior.
-    let resolved_email = match resolved_permissioned_as {
-        Some(ref pa)
-            if pa != &windmill_common::users::username_to_permissioned_as(&authed.username) =>
-        {
-            windmill_common::users::get_email_from_permissioned_as(pa, &w_id, &db).await?
-        }
-        _ => authed.email.clone(),
+    // When permissioned_as is preserved to a different user, derive email from it.
+    let resolved_email = if resolved_permissioned_as
+        != windmill_common::users::username_to_permissioned_as(&authed.username)
+    {
+        windmill_common::users::get_email_from_permissioned_as(
+            &resolved_permissioned_as,
+            &w_id,
+            &db,
+        )
+        .await?
+    } else {
+        authed.email.clone()
     };
 
     let schedule = sqlx::query_as!(
@@ -464,9 +465,9 @@ async fn edit_schedule(
             cron_version            = COALESCE($21, cron_version),
             description             = $22,
             dynamic_skip            = $23,
-            email                   = COALESCE($24, email),
+            email                   = $24,
             edited_by               = $25,
-            permissioned_as         = COALESCE($26, permissioned_as)
+            permissioned_as         = $26
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -529,7 +530,7 @@ async fn edit_schedule(
         es.cron_version,
         es.description,
         es.dynamic_skip,
-        Some(resolved_email),
+        resolved_email,
         resolved_edited_by,
         resolved_permissioned_as
     )
