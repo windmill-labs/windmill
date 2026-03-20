@@ -46,6 +46,7 @@
 	let {
 		closeDrawer,
 		showHeaderInfo = true,
+		disableChatOffset = false,
 		yamlMode = $bindable(false),
 		hasUnsavedChanges = $bindable(false),
 		hasAnyInvalid = $bindable(false)
@@ -236,7 +237,7 @@
 			<div class="h-full overflow-auto bg-surface">
 				<div class="h-fit px-8 py-4">
 					{#if tab === 'ai' && !yamlMode}
-						<InstanceAISettings />
+						<InstanceAISettings {disableChatOffset} />
 					{:else if tab === 'users' && !yamlMode}
 						<div class="h-full">
 							{#if !automateUsernameCreation && !isCloudHosted()}
