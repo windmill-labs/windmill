@@ -7,3 +7,5 @@ CREATE TABLE raw_script_temp (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (workspace_id, hash)
 );
+
+CREATE INDEX IF NOT EXISTS idx_raw_script_temp_created_at ON raw_script_temp (created_at);

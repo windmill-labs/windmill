@@ -6,6 +6,7 @@
 
 import { ScriptLanguage } from "./script_common.ts";
 import { loadParser } from "./metadata.ts";
+import * as log from "../core/log.ts";
 
 /**
  * Extract relative imports from script content based on language.
@@ -31,8 +32,8 @@ export async function extractRelativeImports(
       default:
         return [];
     }
-  } catch {
-    // Parse errors - return empty array
+  } catch (e) {
+    log.warn(`Failed to parse relative imports for ${scriptPath}: ${e}. Dependency tracking for relative imports will be disabled.`);
     return [];
   }
 }
