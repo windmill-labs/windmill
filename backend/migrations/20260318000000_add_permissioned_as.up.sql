@@ -49,6 +49,16 @@ ALTER TABLE email_trigger ALTER COLUMN permissioned_as SET NOT NULL;
 ALTER TABLE email_trigger DROP COLUMN email;
 
 -- Schedule table: add permissioned_as, keep email for backwards compat with old workers
+-- For superadmin-owned schedules, use the email to find the actual username (since edited_by
+-- may have been overwritten by a later edit). Otherwise use edited_by as the source.
 ALTER TABLE schedule ADD COLUMN permissioned_as VARCHAR(255);
-UPDATE schedule SET permissioned_as = CASE WHEN edited_by LIKE '%@%' THEN edited_by ELSE 'u/' || edited_by END;
+UPDATE schedule SET permissioned_as = CASE
+    WHEN EXISTS (
+        SELECT 1 FROM password p WHERE p.email = schedule.email AND p.super_admin = true
+    ) THEN COALESCE(
+        'u/' || (SELECT u.username FROM usr u WHERE u.email = schedule.email AND u.workspace_id = schedule.workspace_id LIMIT 1),
+        CASE WHEN edited_by LIKE '%@%' THEN edited_by ELSE 'u/' || edited_by END
+    )
+    ELSE CASE WHEN edited_by LIKE '%@%' THEN edited_by ELSE 'u/' || edited_by END
+END;
 ALTER TABLE schedule ALTER COLUMN permissioned_as SET NOT NULL;
