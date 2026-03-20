@@ -660,7 +660,12 @@ pub async fn resolve_opt_job_authed(
                 .map(|x| x.0)
                 .unwrap_or_default();
             let path_vec: Vec<&str> = original_uri.path().split("/").collect();
-            let workspace_id = maybe_get_workspace_id_from_path(&path_vec);
+            let workspace_id = maybe_get_workspace_id_from_path(&path_vec).or_else(|| {
+                parts
+                    .extensions
+                    .get::<windmill_common::db::GatewayWorkspaceId>()
+                    .map(|g| g.0.clone())
+            });
 
             if let Some(mut opt_job_authed) =
                 cache.get_opt_job_authed(workspace_id.clone(), &token).await
