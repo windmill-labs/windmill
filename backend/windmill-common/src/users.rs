@@ -69,7 +69,7 @@ pub async fn get_email_from_permissioned_as(
         )
         .fetch_optional(db)
         .await?
-        .unwrap_or_else(|| format!("{}@windmill.dev", username));
+        .unwrap_or_else(|| format!("{}@unknown.windmill.dev", username));
         let key = (workspace_id.to_string(), username.to_string());
         EMAIL_CACHE.insert(key, (email.clone(), std::time::Instant::now()));
         Ok(email)
