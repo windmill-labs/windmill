@@ -144,7 +144,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "script_path",
             "is_flow",
             "edited_by",
-            "email",
+            "permissioned_as",
             "edited_at",
             "extra_perms",
             "mode",
@@ -222,6 +222,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         path: &str,
         mode: &TriggerMode,
     ) -> Result<bool> {
+        let permissioned_as = windmill_common::users::username_to_permissioned_as(&authed.username);
         let updated = if Self::SUPPORTS_SERVER_STATE {
             sqlx::query(&format!(
                 r#"
@@ -229,7 +230,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
                     {}
                 SET
                     mode = $1,
-                    email = $2,
+                    permissioned_as = $2,
                     edited_by = $3,
                     edited_at = now(),
                     server_id = NULL,
@@ -241,7 +242,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
                 Self::TABLE_NAME
             ))
             .bind(mode)
-            .bind(&authed.email)
+            .bind(&permissioned_as)
             .bind(&authed.username)
             .bind(workspace_id)
             .bind(path)
@@ -255,7 +256,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
                     {}
                 SET
                     mode = $1,
-                    email = $2,
+                    permissioned_as = $2,
                     edited_by = $3,
                     edited_at = now()
                 WHERE
@@ -265,7 +266,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
                 Self::TABLE_NAME
             ))
             .bind(mode)
-            .bind(&authed.email)
+            .bind(&permissioned_as)
             .bind(&authed.username)
             .bind(workspace_id)
             .bind(path)
@@ -322,7 +323,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "script_path",
             "is_flow",
             "edited_by",
-            "email",
+            "permissioned_as",
             "edited_at",
             "extra_perms",
             "mode",
@@ -417,8 +418,8 @@ async fn create_trigger<T: TriggerCrud>(
 
     let new_path = new_trigger.base.path.clone();
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
-        new_trigger.base.email.as_deref(),
-        new_trigger.base.preserve_email.unwrap_or(false),
+        new_trigger.base.permissioned_as.as_deref(),
+        new_trigger.base.preserve_permissioned_as.unwrap_or(false),
         &authed,
         &authed.username,
     );
@@ -535,8 +536,8 @@ async fn update_trigger<T: TriggerCrud>(
 
     let new_path = edit_trigger.base.path.to_string();
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
-        edit_trigger.base.email.as_deref(),
-        edit_trigger.base.preserve_email.unwrap_or(false),
+        edit_trigger.base.permissioned_as.as_deref(),
+        edit_trigger.base.preserve_permissioned_as.unwrap_or(false),
         &authed,
         &authed.username,
     );

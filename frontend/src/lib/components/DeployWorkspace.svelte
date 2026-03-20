@@ -26,7 +26,7 @@
 		checkItemExists,
 		deployItem,
 		getItemValue,
-		getOnBehalfOfEmail
+		getOnBehalfOf
 	} from '$lib/utils_workspace_deploy'
 	import type { App } from './apps/types'
 	import { getAllGridItems } from './apps/editor/appUtils'
@@ -35,7 +35,8 @@
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import OnBehalfOfSelector, {
 		needsOnBehalfOfSelection,
-		type OnBehalfOfChoice
+		type OnBehalfOfChoice,
+		type OnBehalfOfDetails
 	} from './OnBehalfOfSelector.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 
@@ -77,7 +78,7 @@
 	// Target workspace on_behalf_of emails (keyed by kind:path)
 	let targetOnBehalfOfInfo = $state<Record<string, string | undefined>>({})
 	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
-	let customOnBehalfOfEmails = $state<Record<string, string>>({})
+	let customOnBehalfOf = $state<Record<string, OnBehalfOfDetails>>({})
 	let canPreserveOnBehalfOf = $state(false)
 
 	// Check if an item needs on_behalf_of selection
@@ -85,12 +86,18 @@
 		return needsOnBehalfOfSelection(kind, sourceOnBehalfOfInfo[statusPath])
 	}
 
-	// Get the email to use for deployment based on user's choice
-	function getOnBehalfOfEmailForDeploy(statusPath: string): string | undefined {
+	/**
+	 * Get the on_behalf_of value for deployment based on user's choice.
+	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for triggers/schedules.
+	 */
+	function getOnBehalfOfForDeploy(statusPath: string, kind: Kind): string | undefined {
 		const choice = onBehalfOfChoice[statusPath]
 		if (choice === 'target') return targetOnBehalfOfInfo[statusPath]
-		if (choice === 'custom') return customOnBehalfOfEmails[statusPath]
-		// 'me' or undefined = don't pass, backend will use deploying user's email
+		if (choice === 'custom') {
+			const details = customOnBehalfOf[statusPath]
+			return kind === 'trigger' ? details?.permissionedAs : details?.email
+		}
+		// 'me' or undefined = don't pass, backend will use deploying user's identity
 		return undefined
 	}
 
@@ -145,7 +152,7 @@
 		)) {
 			const key = computeStatusPath(dep.kind, dep.path)
 			try {
-				sourceOnBehalfOfInfo[key] = await getOnBehalfOfEmail(
+				sourceOnBehalfOfInfo[key] = await getOnBehalfOf(
 					dep.kind,
 					dep.path,
 					$workspaceStore!,
@@ -155,7 +162,7 @@
 				sourceOnBehalfOfInfo[key] = undefined
 			}
 			try {
-				targetOnBehalfOfInfo[key] = await getOnBehalfOfEmail(
+				targetOnBehalfOfInfo[key] = await getOnBehalfOf(
 					dep.kind,
 					dep.path,
 					workspaceToDeployTo!,
@@ -295,7 +302,7 @@
 			workspaceFrom: $workspaceStore!,
 			workspaceTo: workspaceToDeployTo!,
 			additionalInformation,
-			onBehalfOfEmail: getOnBehalfOfEmailForDeploy(statusPath)
+			onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind)
 		})
 
 		if (result.success) {
@@ -458,21 +465,21 @@
 				{@const statusPath = item.key}
 				{@const exists = allAlreadyExists[statusPath]}
 				{@const status = deploymentStatus[statusPath]}
-				{@const targetEmail = targetOnBehalfOfInfo[statusPath]}
+				{@const targetValue = targetOnBehalfOfInfo[statusPath]}
 
 				<!-- On-behalf-of selector -->
 				{#if itemNeedsOnBehalfOfSelection(statusPath, item.kind)}
 					<OnBehalfOfSelector
 						targetWorkspace={workspaceToDeployTo!}
-						{targetEmail}
+						{targetValue}
 						selected={onBehalfOfChoice[statusPath]}
-						onSelect={(choice, email) => {
+						onSelect={(choice, details) => {
 							onBehalfOfChoice[statusPath] = choice
-							if (email) customOnBehalfOfEmails[statusPath] = email
+							if (details) customOnBehalfOf[statusPath] = details
 						}}
 						kind={item.kind}
 						canPreserve={canPreserveOnBehalfOf}
-						customEmail={customOnBehalfOfEmails[statusPath]}
+						customValue={customOnBehalfOf[statusPath]?.permissionedAs}
 					/>
 				{/if}
 
@@ -537,10 +544,10 @@
 					{#if hasUnselectedOnBehalfOf}
 						<span class="text-xs text-yellow-600">
 							{#if kind === 'trigger'}
-								You must set the "edited by" user for all triggers before deploying
+								You must set the "permissioned as" user for all triggers before deploying
 								<Tooltip class="text-yellow-600">
-									The "edited by" field defines which user's permissions will be applied when the
-									trigger runs. Make sure this is set to an appropriate user before deploying.
+									The "permissioned as" field defines which user's permissions will be applied when
+									the trigger fires. Make sure this is set appropriately before deploying.
 								</Tooltip>
 							{:else}
 								You must set the "on behalf of" user for all items before deploying

@@ -119,9 +119,9 @@
 <div class="flex flex-col gap-6">
 	{#if name === 'wm_deployers'}
 		<Alert type="info" title="Deployer permissions">
-			Members of this group can preserve the original author (on_behalf_of / edited_by) when
-			deploying scripts, flows, apps, and triggers to this workspace. Without this permission,
-			deployed items will be reassigned to the deploying user.
+			Members of this group can preserve the original author (on_behalf_of / permissioned_as) when
+			deploying scripts, flows, apps, triggers, and schedules to this workspace. Without this
+			permission, deployed items will be reassigned to the deploying user.
 		</Alert>
 	{/if}
 	<Label label="Summary" for="summary">
@@ -159,14 +159,13 @@
 		{/if}
 		{#if members}
 			<TableCustom>
-
 				{#snippet headerRow()}
-								<tr >
+					<tr>
 						<th>user</th>
 						<th></th>
 						<th></th>
 					</tr>
-							{/snippet}
+				{/snippet}
 				{#snippet body()}
 					<tbody>
 						{#each members ?? [] as { member_name, role }}<tr>
@@ -303,12 +302,11 @@
 			{#if instance_group?.emails}
 				<h2 class="mt-6 text-emphasis text-xs font-semibold">Members from the instance group</h2>
 				<TableCustom>
-	
 					{#snippet headerRow()}
-										<tr >
+						<tr>
 							<th>user</th>
 						</tr>
-									{/snippet}
+					{/snippet}
 					{#snippet body()}
 						<tbody>
 							{#each instance_group?.emails ?? [] as email}<tr>
