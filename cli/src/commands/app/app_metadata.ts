@@ -309,9 +309,10 @@ export async function generateAppLocksInternal(
     }
   }
 
-  // Regenerate hashes after updates
+  // Non-legacy mode excludes workspace deps from hash (tracked via tree instead)
+  const depsForHash = (tree && !legacyBehaviour) ? {} : filteredDeps;
   const finalHashes = await generateAppHash(
-    filteredDeps,
+    depsForHash,
     appFolder,
     rawApp,
     opts.defaultTs

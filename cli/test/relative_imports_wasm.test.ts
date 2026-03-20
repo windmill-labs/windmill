@@ -937,4 +937,226 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
       expect(output2).toContain("All metadata up-to-date");
     });
   });
+
+  // Bug #1: flow/app with mismatched workspace deps — hash inconsistency causes perpetual staleness
+  test("flow/app/raw app with workspace deps does not loop across runs", { timeout: 120000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+      );
+
+      // Deploy workspace deps with lodash on remote
+      const remotePackageJson = JSON.stringify({ dependencies: { lodash: "^4" } });
+      await createRemoteWorkspaceDeps(backend, "bun", remotePackageJson);
+
+      // Pull to get remote state
+      const pull = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pull.code).toBe(0);
+
+      // Modify workspace deps locally to use axios
+      await mkdir(`${tempDir}/dependencies`, { recursive: true });
+      await writeFile(
+        `${tempDir}/dependencies/package.json`,
+        JSON.stringify({ dependencies: { axios: "^1" } })
+      );
+
+      // Create a flow, app, and raw app with inline scripts
+      await createLocalFlow(
+        tempDir,
+        "f/test",
+        "my_flow",
+        `export async function main() { return "hello from flow"; }`
+      );
+      await createLocalApp(
+        tempDir,
+        "f/test",
+        "my_app",
+        `export async function main() { return "hello from app"; }`
+      );
+      await createLocalRawApp(
+        tempDir,
+        "f/test",
+        "my_raw_app",
+        `export async function main() { return "hello from raw app"; }`
+      );
+
+      // First run — generates locks
+      const gen1 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
+      if (gen1.code !== 0) {
+        console.log("STDOUT:", gen1.stdout);
+        console.log("STDERR:", gen1.stderr);
+      }
+      expect(gen1.code).toBe(0);
+
+      // Second run — should report up-to-date, not loop
+      const gen2 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
+      expect(gen2.code).toBe(0);
+      const output2 = gen2.stdout + gen2.stderr;
+      expect(output2).toContain("All metadata up-to-date");
+    });
+  });
+
+  // Bug #2: flow/app/raw app importing locally-modified helper uses local content not remote
+  test("flow/app/raw app importing locally modified helper uses local content", { timeout: 120000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+      );
+
+      // Helper with lodash dep — only exists locally, never pushed
+      await createLocalScript(
+        tempDir,
+        "f/test",
+        "helper",
+        "bun",
+        `import _ from "lodash";\nexport function helper() { return _.VERSION; }`
+      );
+
+      // Flow, app, and raw app inline scripts import the helper
+      await createLocalFlow(
+        tempDir,
+        "f/test",
+        "my_flow",
+        `import { helper } from "/f/test/helper";\nexport async function main() { return helper(); }`
+      );
+      await createLocalApp(
+        tempDir,
+        "f/test",
+        "my_app",
+        `import { helper } from "/f/test/helper";\nexport async function main() { return helper(); }`
+      );
+      await createLocalRawApp(
+        tempDir,
+        "f/test",
+        "my_raw_app",
+        `import { helper } from "/f/test/helper";\nexport async function main() { return helper(); }`
+      );
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir
+      );
+      if (result.code !== 0) {
+        console.log("STDOUT:", result.stdout);
+        console.log("STDERR:", result.stderr);
+      }
+      expect(result.code).toBe(0);
+
+      // All locks should contain lodash (transitive dep from local helper)
+      const flowDir = `${tempDir}/f/test/my_flow.flow`;
+      expect(await anyLockContains(flowDir, "lodash")).toBe(true);
+
+      const appDir = `${tempDir}/f/test/my_app.app`;
+      expect(await anyLockContains(appDir, "lodash")).toBe(true);
+
+      const rawAppDir = `${tempDir}/f/test/my_raw_app.raw_app`;
+      expect(await anyLockContains(rawAppDir, "lodash")).toBe(true);
+    });
+  });
+
+  // Cross-directory relative imports with ../
+  test("cross-directory relative import with ../ propagates deps", { timeout: 60000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+      );
+
+      // Helper in f/shared with lodash dep
+      await createLocalScript(
+        tempDir,
+        "f/shared",
+        "utils",
+        "bun",
+        `import _ from "lodash";\nexport function utils() { return _.VERSION; }`
+      );
+
+      // Script in f/app imports via ../shared/utils
+      await createLocalScript(
+        tempDir,
+        "f/app",
+        "consumer",
+        "bun",
+        `import { utils } from "../shared/utils";\nexport async function main() { return utils(); }`
+      );
+
+      const result = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir
+      );
+      if (result.code !== 0) {
+        console.log("STDOUT:", result.stdout);
+        console.log("STDERR:", result.stderr);
+      }
+      expect(result.code).toBe(0);
+
+      const consumerLock = await readFile(
+        `${tempDir}/f/app/consumer.script.lock`,
+        "utf-8"
+      ).catch(() => "");
+      expect(consumerLock).toContain("lodash");
+    });
+  });
+
+  // Multi-level transitive chain: A -> B -> C, C changes, A must update
+  test("3-level transitive chain propagates staleness", { timeout: 120000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+      );
+
+      // C has dayjs dep
+      await createLocalScript(
+        tempDir,
+        "f/chain",
+        "c",
+        "bun",
+        `import dayjs from "dayjs";\nexport function c() { return dayjs(); }`
+      );
+
+      // B imports C
+      await createLocalScript(
+        tempDir,
+        "f/chain",
+        "b",
+        "bun",
+        `import { c } from "./c";\nexport function b() { return c(); }`
+      );
+
+      // A imports B
+      await createLocalScript(
+        tempDir,
+        "f/chain",
+        "a",
+        "bun",
+        `import { b } from "/f/chain/b";\nexport async function main() { return b(); }`
+      );
+
+      // First run — establish baseline
+      const gen1 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
+      expect(gen1.code).toBe(0);
+
+      const aLock1 = await readFile(`${tempDir}/f/chain/a.script.lock`, "utf-8").catch(() => "");
+      expect(aLock1).toContain("dayjs");
+
+      // Modify C to use uuid instead
+      await createLocalScript(
+        tempDir,
+        "f/chain",
+        "c",
+        "bun",
+        `import { v4 } from "uuid";\nexport function c() { return v4(); }`
+      );
+
+      // Second run — A should be updated transitively (C changed -> B stale -> A stale)
+      const gen2 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
+      expect(gen2.code).toBe(0);
+
+      const aLock2 = await readFile(`${tempDir}/f/chain/a.script.lock`, "utf-8").catch(() => "");
+      expect(aLock2).toContain("uuid");
+    });
+  });
 });

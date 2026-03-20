@@ -232,8 +232,10 @@ export async function generateFlowLockInternal(
     );
   }
 
+  // Non-legacy mode excludes workspace deps from hash (tracked via tree instead)
+  const depsForHash = (tree && !legacyBehaviour) ? {} : filteredDeps;
   const finalHashes = await generateFlowHash(
-    filteredDeps,
+    depsForHash,
     folder,
     opts.defaultTs
   );

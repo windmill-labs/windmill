@@ -708,6 +708,7 @@ export class CargoBackend {
       this.deleteAll("resources"),
       this.deleteAll("variables"),
       this.deleteAll("folders"),
+      this.deleteAllWorkspaceDeps(),
     ]);
 
     console.log("Workspace reset complete");
@@ -733,6 +734,28 @@ export class CargoBackend {
       }
     } catch {
       // Ignore listing failures
+    }
+  }
+
+  private async deleteAllWorkspaceDeps(): Promise<void> {
+    try {
+      const listResponse = await this.apiRequest(`/api/w/${this.config.workspace}/workspace_dependencies/list`);
+      if (!listResponse.ok) return;
+
+      const items = await listResponse.json() as { language: string; name?: string }[];
+      for (const item of items) {
+        try {
+          const nameParam = item.name ? `?name=${encodeURIComponent(item.name)}` : "";
+          await this.apiRequest(
+            `/api/w/${this.config.workspace}/workspace_dependencies/delete/${item.language}${nameParam}`,
+            { method: "POST" }
+          );
+        } catch {
+          // Ignore individual deletion failures
+        }
+      }
+    } catch {
+      // Ignore failures
     }
   }
 }

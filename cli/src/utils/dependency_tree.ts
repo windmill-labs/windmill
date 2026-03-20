@@ -34,14 +34,16 @@ export async function uploadScripts(
 
     const hash = await generateHash(content);
 
-    if (tree.getItemType(path) === "dependencies") {
+    const itemType = tree.getItemType(path);
+    if (itemType === "dependencies") {
       const info = workspaceDependenciesPathToLanguageAndFilename(path);
       if (info) {
         workspaceDeps.push({ path, language: info.language as ScriptLang, name: info.name, hash });
       }
-    } else {
+    } else if (itemType === "script") {
       scriptHashes[path] = hash;
     }
+    // Skip inline_script, flow, app — they don't need temp storage uploads
   }
 
   if (Object.keys(scriptHashes).length === 0 && workspaceDeps.length === 0) return;
@@ -329,7 +331,6 @@ export class DoubleLinkedDependencyTree {
 
   /**
    * Returns path → contentHash for all transitive imports that have been uploaded.
-   * Stops branches where no contentHash is set (node matches deployed version).
    * Must be called after uploadScripts() has populated contentHash values.
    */
   getTempScriptRefs(scriptPath: string): Record<string, string> {
