@@ -123,3 +123,4 @@ required:
 - timezone
 - is_flow
 - enabled
+- permissioned_as

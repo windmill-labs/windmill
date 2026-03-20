@@ -6155,6 +6155,7 @@ required:
 - timezone
 - is_flow
 - enabled
+- permissioned_as
 `,
   "sqs_trigger": `type: object
 properties:
