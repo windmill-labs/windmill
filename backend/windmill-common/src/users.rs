@@ -12,13 +12,20 @@ pub const SUPERADMIN_SYNC_EMAIL: &str = "superadmin_sync@windmill.dev";
 
 pub const COOKIE_NAME: &str = "token";
 
+/// Prefix for user-based permissioned_as values: "u/"
+pub const PERMISSIONED_AS_USER_PREFIX: &str = "u/";
+/// Prefix for group-based permissioned_as values: "g/"
+pub const PERMISSIONED_AS_GROUP_PREFIX: &str = "g/";
+/// Prefix for group-based usernames: "group-"
+pub const USERNAME_GROUP_PREFIX: &str = "group-";
+
 pub fn username_to_permissioned_as(user: &str) -> String {
     if user.contains('@') {
         user.to_string()
-    } else if let Some(group) = user.strip_prefix("group-") {
-        format!("g/{}", group)
+    } else if let Some(group) = user.strip_prefix(USERNAME_GROUP_PREFIX) {
+        format!("{}{}", PERMISSIONED_AS_GROUP_PREFIX, group)
     } else {
-        format!("u/{}", user)
+        format!("{}{}", PERMISSIONED_AS_USER_PREFIX, user)
     }
 }
 
@@ -48,7 +55,7 @@ pub async fn get_email_from_permissioned_as(
     workspace_id: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> crate::error::Result<String> {
-    if let Some(username) = permissioned_as.strip_prefix("u/") {
+    if let Some(username) = permissioned_as.strip_prefix(PERMISSIONED_AS_USER_PREFIX) {
         let lookup = EmailCacheKey(workspace_id, username);
         if let Some((email, cached_at)) = EMAIL_CACHE.get(&lookup) {
             if cached_at.elapsed().as_secs() < EMAIL_CACHE_TTL_SECS {
@@ -66,8 +73,8 @@ pub async fn get_email_from_permissioned_as(
         let key = (workspace_id.to_string(), username.to_string());
         EMAIL_CACHE.insert(key, (email.clone(), std::time::Instant::now()));
         Ok(email)
-    } else if let Some(group) = permissioned_as.strip_prefix("g/") {
-        Ok(format!("group-{}@windmill.dev", group))
+    } else if let Some(group) = permissioned_as.strip_prefix(PERMISSIONED_AS_GROUP_PREFIX) {
+        Ok(format!("{}{}@windmill.dev", USERNAME_GROUP_PREFIX, group))
     } else {
         // raw email
         Ok(permissioned_as.to_string())

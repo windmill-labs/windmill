@@ -2437,3 +2437,374 @@ async fn test_http_trigger_group_permissioned_as(db: Pool<Postgres>) -> anyhow::
 
     Ok(())
 }
+
+// ============================================================================
+// Schedule Create/Update Permission Tests (without preserve)
+// ============================================================================
+// Verify that schedule create and update correctly set permissioned_as, email,
+// edited_by on the schedule, and that the pushed job has correct created_by,
+// permissioned_as, and permissioned_as_email fields.
+
+/// Helper to create a schedule and return the schedule + job fields
+async fn create_schedule_and_get_job(
+    base: &str,
+    token: &str,
+    schedule_path: &str,
+    script_path: &str,
+    db: &Pool<Postgres>,
+) -> anyhow::Result<(
+    // schedule fields
+    String, // email
+    String, // permissioned_as
+    String, // edited_by
+    // job fields
+    String, // created_by
+    String, // permissioned_as
+    String, // permissioned_as_email
+)> {
+    let resp = authed(client().post(format!("{base}/schedules/create")), token)
+        .json(&json!({
+            "path": schedule_path,
+            "schedule": "0 0 */6 * * *",
+            "timezone": "UTC",
+            "script_path": script_path,
+            "is_flow": false,
+            "enabled": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "Should create schedule: {}",
+        resp.text().await?
+    );
+
+    let schedule = sqlx::query!(
+        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        schedule_path,
+        "test-workspace"
+    )
+    .fetch_one(db)
+    .await?;
+
+    // Wait briefly for the job to be pushed
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let job = sqlx::query!(
+        r#"SELECT created_by, permissioned_as, permissioned_as_email
+           FROM v2_job
+           WHERE workspace_id = 'test-workspace'
+             AND trigger_kind = 'schedule'
+             AND trigger = $1
+           ORDER BY created_at DESC
+           LIMIT 1"#,
+        schedule_path
+    )
+    .fetch_one(db)
+    .await?;
+
+    Ok((
+        schedule.email,
+        schedule.permissioned_as,
+        schedule.edited_by,
+        job.created_by,
+        job.permissioned_as,
+        job.permissioned_as_email,
+    ))
+}
+
+/// Normal user creates a schedule — all fields should reflect that user
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_schedule_permissions_normal_user(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    // Create script owned by the normal user
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN_2",
+    )
+    .json(&new_script_with_on_behalf_of(
+        "u/test-user-2/sched_perm_script",
+        None,
+        false,
+    ))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "create script: {}", resp.text().await?);
+
+    let (sched_email, sched_pa, sched_edited_by, _job_created_by, job_pa, job_pa_email) =
+        create_schedule_and_get_job(
+            &base,
+            "SECRET_TOKEN_2",
+            "u/test-user-2/normal_user_schedule",
+            "u/test-user-2/sched_perm_script",
+            &db,
+        )
+        .await?;
+
+    assert_eq!(sched_email, "test2@windmill.dev", "schedule email");
+    assert_eq!(sched_pa, "u/test-user-2", "schedule permissioned_as");
+    assert_eq!(sched_edited_by, "test-user-2", "schedule edited_by");
+    assert_eq!(job_pa, "u/test-user-2", "job permissioned_as");
+    assert_eq!(
+        job_pa_email, "test2@windmill.dev",
+        "job permissioned_as_email"
+    );
+
+    // Now update the schedule (normal edit, no preserve) — fields should stay as the same user
+    let resp = authed(
+        client().post(format!(
+            "{base}/schedules/update/u/test-user-2/normal_user_schedule"
+        )),
+        "SECRET_TOKEN_2",
+    )
+    .json(&json!({
+        "schedule": "0 0 */12 * * *",
+        "timezone": "UTC"
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "update schedule: {}",
+        resp.text().await?
+    );
+
+    let schedule = sqlx::query!(
+        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "u/test-user-2/normal_user_schedule",
+        "test-workspace"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(schedule.email, "test2@windmill.dev", "email after update");
+    assert_eq!(
+        schedule.permissioned_as, "u/test-user-2",
+        "permissioned_as after update"
+    );
+    assert_eq!(schedule.edited_by, "test-user-2", "edited_by after update");
+
+    Ok(())
+}
+
+/// Workspace admin creates a schedule — all fields should reflect the admin
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_schedule_permissions_workspace_admin(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    // test-user is admin + superadmin in workspace
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_script_with_on_behalf_of(
+        "u/test-user/admin_sched_script",
+        None,
+        false,
+    ))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "create script: {}", resp.text().await?);
+
+    let (sched_email, sched_pa, sched_edited_by, _job_created_by, job_pa, job_pa_email) =
+        create_schedule_and_get_job(
+            &base,
+            "SECRET_TOKEN",
+            "u/test-user/admin_schedule",
+            "u/test-user/admin_sched_script",
+            &db,
+        )
+        .await?;
+
+    assert_eq!(sched_email, "test@windmill.dev", "schedule email");
+    assert_eq!(sched_pa, "u/test-user", "schedule permissioned_as");
+    assert_eq!(sched_edited_by, "test-user", "schedule edited_by");
+    assert_eq!(job_pa, "u/test-user", "job permissioned_as");
+    assert_eq!(
+        job_pa_email, "test@windmill.dev",
+        "job permissioned_as_email"
+    );
+
+    // Admin edits a schedule owned by normal user — should take over ownership
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN_2",
+    )
+    .json(&new_script_with_on_behalf_of(
+        "u/test-user-2/admin_edit_target_script",
+        None,
+        false,
+    ))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "create script: {}", resp.text().await?);
+
+    // Normal user creates it
+    let resp = authed(
+        client().post(format!("{base}/schedules/create")),
+        "SECRET_TOKEN_2",
+    )
+    .json(&json!({
+        "path": "u/test-user-2/admin_edit_target",
+        "schedule": "0 0 */6 * * *",
+        "timezone": "UTC",
+        "script_path": "u/test-user-2/admin_edit_target_script",
+        "is_flow": false,
+        "enabled": false
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "create schedule: {}",
+        resp.text().await?
+    );
+
+    // Admin edits it (no preserve)
+    let resp = authed(
+        client().post(format!(
+            "{base}/schedules/update/u/test-user-2/admin_edit_target"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "schedule": "0 0 */12 * * *",
+        "timezone": "UTC"
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "admin update: {}", resp.text().await?);
+
+    let schedule = sqlx::query!(
+        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "u/test-user-2/admin_edit_target",
+        "test-workspace"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        schedule.email, "test@windmill.dev",
+        "admin edit takes over email"
+    );
+    assert_eq!(
+        schedule.permissioned_as, "u/test-user",
+        "admin edit takes over permissioned_as"
+    );
+    assert_eq!(schedule.edited_by, "test-user", "admin edit sets edited_by");
+
+    Ok(())
+}
+
+/// Superadmin NOT in workspace creates a schedule — uses email as permissioned_as
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_schedule_permissions_superadmin_not_in_workspace(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    // Superadmin not in workspace creates a script
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "EXTERNAL_SUPERADMIN_TOKEN",
+    )
+    .json(&new_script_with_on_behalf_of(
+        "u/superadmin-external/sa_sched_script",
+        None,
+        false,
+    ))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "create script: {}", resp.text().await?);
+
+    // Superadmin creates a schedule
+    let resp = authed(
+        client().post(format!("{base}/schedules/create")),
+        "EXTERNAL_SUPERADMIN_TOKEN",
+    )
+    .json(&json!({
+        "path": "u/superadmin-external/sa_schedule",
+        "schedule": "0 0 */6 * * *",
+        "timezone": "UTC",
+        "script_path": "u/superadmin-external/sa_sched_script",
+        "is_flow": false,
+        "enabled": false
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "superadmin create schedule: {}",
+        resp.text().await?
+    );
+
+    let schedule = sqlx::query!(
+        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "u/superadmin-external/sa_schedule",
+        "test-workspace"
+    )
+    .fetch_one(&db)
+    .await?;
+
+    // Superadmin not in workspace: username_to_permissioned_as uses the email directly
+    // since the authed username for a superadmin not in workspace IS the email
+    assert_eq!(
+        schedule.email, "superadmin-external@windmill.dev",
+        "schedule email should be superadmin email"
+    );
+    assert_eq!(
+        schedule.permissioned_as,
+        schedule.email.clone(),
+        "permissioned_as should match email for superadmin not in workspace"
+    );
+
+    // Update by the same superadmin
+    let resp = authed(
+        client().post(format!(
+            "{base}/schedules/update/u/superadmin-external/sa_schedule"
+        )),
+        "EXTERNAL_SUPERADMIN_TOKEN",
+    )
+    .json(&json!({
+        "schedule": "0 0 */12 * * *",
+        "timezone": "UTC"
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "superadmin update: {}",
+        resp.text().await?
+    );
+
+    let schedule_after = sqlx::query!(
+        "SELECT email, permissioned_as, edited_by FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "u/superadmin-external/sa_schedule",
+        "test-workspace"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        schedule_after.permissioned_as, schedule.permissioned_as,
+        "permissioned_as should remain the same after self-edit"
+    );
+    assert_eq!(
+        schedule_after.email, schedule.email,
+        "email should remain the same after self-edit"
+    );
+
+    Ok(())
+}
