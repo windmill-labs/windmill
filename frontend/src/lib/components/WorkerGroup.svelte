@@ -47,7 +47,6 @@
 	import Dropdown from './DropdownV2.svelte'
 	import TagList from './TagList.svelte'
 	import DedicatedWorkersSelector from './DedicatedWorkersSelector.svelte'
-	import RunnerGroupSelector from './RunnerGroupSelector.svelte'
 	import { computeHashedTag } from './dedicated_worker'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
@@ -94,7 +93,6 @@
 		min_alive_workers_alert_threshold?: number
 		autoscaling?: AutoscalingConfig
 		native_mode?: boolean
-		runner_groups?: string[]
 	} = $state({})
 
 	function loadNConfig() {
@@ -282,11 +280,9 @@
 	let drawer: Drawer | undefined = $state()
 	let vcpus_memory = $derived(computeVCpuAndMemory(workers))
 	let selected = $derived(
-		nconfig?.runner_groups != undefined && nconfig.runner_groups.length > 0
-			? 'runners'
-			: nconfig?.dedicated_worker != undefined || nconfig?.dedicated_workers != undefined
-				? 'dedicated'
-				: 'normal'
+		nconfig?.dedicated_worker != undefined || nconfig?.dedicated_workers != undefined
+			? 'dedicated'
+			: 'normal'
 	)
 	let isNativeMode = $derived(
 		config?.native_mode === true ||
@@ -392,16 +388,9 @@
 						nconfig.dedicated_workers = nconfig.dedicated_workers ?? []
 						nconfig.dedicated_worker = undefined
 						nconfig.worker_tags = undefined
-						nconfig.runner_groups = undefined
-					} else if (e.detail == 'runners') {
-						nconfig.runner_groups = nconfig.runner_groups ?? []
-						nconfig.dedicated_worker = undefined
-						nconfig.dedicated_workers = undefined
-						nconfig.worker_tags = undefined
 					} else {
 						nconfig.dedicated_worker = undefined
 						nconfig.dedicated_workers = undefined
-						nconfig.runner_groups = undefined
 						nconfig.worker_tags = []
 					}
 				}}
@@ -409,7 +398,6 @@
 				{#snippet children({ item })}
 					<ToggleButton value="normal" label="Any jobs within worker tags" {item} />
 					<ToggleButton value="dedicated" label="Dedicated to scripts/flows" {item} />
-					<ToggleButton value="runners" label="Runner groups" {item} />
 				{/snippet}
 			</ToggleButtonGroup>
 		</Label>
@@ -674,35 +662,6 @@
 							if (nconfig) {
 								nconfig.dedicated_workers = tags
 								nconfig.dedicated_worker = undefined
-							}
-						}}
-					/>
-				{/if}
-			</div>
-		{:else if selected == 'runners'}
-			<div class="flex flex-col gap-4">
-				{#if $superadmin || $devopsRole}
-					<div class="py-2">
-						<Alert
-							size="xs"
-							type="info"
-							title="Scripts must have 'dedicated worker' enabled and reference a named workspace dependency"
-						/>
-					</div>
-				{/if}
-
-				<p class="text-xs text-secondary"
-					>Scripts sharing the same workspace dependency execute in the same long-lived process.
-					Workers will get killed upon detecting changes.</p
-				>
-
-				{#if nconfig !== undefined}
-					<RunnerGroupSelector
-						selectedGroups={nconfig.runner_groups ?? []}
-						disabled={!canEditEEConfig}
-						onchange={(groups) => {
-							if (nconfig) {
-								nconfig.runner_groups = groups
 							}
 						}}
 					/>

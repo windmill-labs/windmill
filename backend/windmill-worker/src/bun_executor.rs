@@ -3626,7 +3626,12 @@ pub async fn start_worker(
     let main_code = remove_pinned_imports(inner_content)?;
     let script_dir = format!("{job_dir}/scripts/{safe_script_name}");
     tokio::fs::create_dir_all(&script_dir).await?;
+    // Write main.ts to job_dir so the loader plugin can resolve relative imports
+    // (it matches ./main.ts in cwd). Also write to scripts/ subdirectory for the wrapper.
+    let _ = write_file(job_dir, "main.ts", &main_code)?;
     let _ = write_file(&script_dir, "main.ts", &main_code)?;
+    // Mark scripts dir as ESM so Node.js doesn't warn about module type
+    let _ = write_file(&script_dir, "package.json", r#"{"type":"module"}"#)?;
 
     {
         let wrapper_content = generate_multi_script_wrapper();
@@ -3654,6 +3659,43 @@ pub async fn start_worker(
     }
 
     if annotation.nodejs && !codebase.is_some() {
+        // The multi-script wrapper uses dynamic import() which Bun.build can't follow.
+        // Append a second build step to node_builder.ts that transpiles main.ts -> main.js
+        // for Node.js. We use job_dir/main.ts as entrypoint (so the loader plugin can
+        // resolve relative imports from ./main.ts) and output to scripts/{safe_name}/
+        // (where the wrapper's resolveMainFile() looks at runtime).
+        {
+            use std::io::Write;
+            let job_dir_js = job_dir.replace('\\', "/");
+            let script_dir_js = format!("{job_dir_js}/scripts/{safe_script_name}");
+            let extra_build = format!(
+                r#"
+try {{
+    await Bun.build({{
+        entrypoints: ["{job_dir_js}/main.ts"],
+        outdir: "{script_dir_js}",
+        target: "node",
+        plugins: [p],
+        external: fileNames,
+        minify: true,
+    }});
+    // Remove .ts copies so the wrapper's resolveMainFile() picks up main.js
+    const fs = await import("node:fs");
+    try {{ fs.unlinkSync("{script_dir_js}/main.ts"); }} catch(_) {{}}
+    try {{ fs.unlinkSync("{job_dir_js}/main.ts"); }} catch(_) {{}}
+}} catch(err) {{
+    console.log(err);
+    console.log("Failed to build script for node");
+    process.exit(1);
+}}
+"#
+            );
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(format!("{job_dir}/node_builder.ts"))?;
+            f.write_all(extra_build.as_bytes())?;
+        }
+
         generate_wrapper_mjs(
             job_dir,
             w_id,

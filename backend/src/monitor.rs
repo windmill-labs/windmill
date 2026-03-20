@@ -271,7 +271,6 @@ pub async fn initial_load(
                     additional_python_paths: None,
                     pip_local_dependencies: None,
                     native_mode,
-                    runner_groups: None,
                 };
             }
         }

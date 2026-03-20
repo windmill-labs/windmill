@@ -1,6 +1,21 @@
 <script lang="ts">
-	import { ScriptService, FlowService, WorkspaceService, type FlowModule } from '$lib/gen'
-	import { Check, X, RefreshCcw, ChevronDown, ChevronRight, CodeXml } from 'lucide-svelte'
+	import {
+		ScriptService,
+		FlowService,
+		WorkspaceService,
+		WorkspaceDependenciesService,
+		type FlowModule
+	} from '$lib/gen'
+	import {
+		Check,
+		X,
+		RefreshCcw,
+		ChevronDown,
+		ChevronRight,
+		CodeXml,
+		ExternalLink,
+		TriangleAlert
+	} from 'lucide-svelte'
 	import { Button } from './common'
 	import Select from './select/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -22,6 +37,8 @@
 		runners?: FlowRunner[]
 		loadingRunners?: boolean
 		expanded?: boolean
+		// Workspace dependency names from annotations (scripts only)
+		workspaceDeps?: string[]
 	}
 
 	// A "FlowRunner" is an individual step within a flow that will get a dedicated worker
@@ -47,6 +64,8 @@
 	let workspaces: { id: string; name: string }[] = $state([])
 	let workspacesLoading = $state(true)
 	let selectorExpanded = $state(false)
+	// Set of existing workspace dependency names for the current workspace (for validation)
+	let existingDeps: Set<string> = $state(new Set())
 
 	// Track detailed info for each selected tag (for displaying in summary)
 	interface SelectedTagInfo {
@@ -54,9 +73,11 @@
 		workspace: string
 		type: 'script' | 'flow'
 		path: string
+		language?: string
 		runners?: FlowRunner[]
 		expanded?: boolean
 		loading?: boolean
+		workspaceDeps?: string[]
 	}
 	let selectedTagsInfo: SvelteMap<string, SelectedTagInfo> = $state(new SvelteMap())
 
@@ -102,8 +123,59 @@
 		// Capture current state without tracking to avoid infinite loops
 		const currentInfo = untrack(() => selectedTagsInfo)
 		const currentRunnables = untrack(() => runnables)
+		const currentExistingDeps = untrack(() => existingDeps)
 
 		const newInfo = new SvelteMap<string, SelectedTagInfo>()
+
+		// Collect workspaces that need dep info fetched
+		const workspacesNeedingDeps = new Set<string>()
+		for (const tag of tags) {
+			const existing = currentInfo.get(tag)
+			const existingRunnable = currentRunnables.find((r) => r.tag === tag)
+			// If we don't have workspaceDeps cached, we need to fetch for this workspace
+			if (!existing?.workspaceDeps && !existingRunnable?.workspaceDeps) {
+				const parsed = parseTag(tag)
+				if (parsed?.type === 'script') {
+					workspacesNeedingDeps.add(parsed.workspace)
+				}
+			}
+		}
+
+		// Fetch workspace dep info for workspaces that need it
+		const depsPerWorkspace = new Map<string, Map<string, { deps: string[]; language: string }>>()
+		if (workspacesNeedingDeps.size > 0 || currentExistingDeps.size === 0) {
+			await Promise.all(
+				Array.from(workspacesNeedingDeps).map(async (ws) => {
+					try {
+						const [dedicatedDeps, wsDeps] = await Promise.all([
+							ScriptService.listDedicatedWithDeps({ workspace: ws }).catch(() => []),
+							WorkspaceDependenciesService.listWorkspaceDependencies({
+								workspace: ws
+							}).catch(() => [])
+						])
+						const depsMap = new Map<string, { deps: string[]; language: string }>()
+						for (const d of dedicatedDeps) {
+							if (d.workspace_dep_names.length > 0) {
+								depsMap.set(d.path, {
+									deps: d.workspace_dep_names,
+									language: d.language
+								})
+							}
+						}
+						depsPerWorkspace.set(ws, depsMap)
+						// Merge into existingDeps
+						for (const d of wsDeps) {
+							if (!d.archived && d.name) {
+								currentExistingDeps.add(d.name)
+							}
+						}
+					} catch {
+						// ignore
+					}
+				})
+			)
+			existingDeps = new Set(currentExistingDeps)
+		}
 
 		try {
 			await Promise.all(
@@ -111,6 +183,14 @@
 					// Check if we already have this info cached
 					const existing = currentInfo.get(tag)
 					if (existing && (existing.type === 'script' || existing.runners !== undefined)) {
+						// Backfill workspaceDeps and language if missing
+						if (existing.type === 'script' && !existing.workspaceDeps) {
+							const depInfo = depsPerWorkspace.get(existing.workspace)?.get(existing.path)
+							if (depInfo) {
+								existing.workspaceDeps = depInfo.deps
+								existing.language = depInfo.language
+							}
+						}
 						newInfo.set(tag, existing)
 						return
 					}
@@ -118,13 +198,17 @@
 					// Check if we have it loaded in runnables
 					const existingRunnable = currentRunnables.find((r) => r.tag === tag)
 					if (existingRunnable) {
+						const ws = tag.substring(0, tag.indexOf(':'))
+						const depInfo = depsPerWorkspace.get(ws)?.get(existingRunnable.path)
 						newInfo.set(tag, {
 							tag,
-							workspace: tag.substring(0, tag.indexOf(':')),
+							workspace: ws,
 							type: existingRunnable.type,
 							path: existingRunnable.path,
+							language: existingRunnable.language,
 							runners: existingRunnable.runners,
-							expanded: existing?.expanded ?? false
+							expanded: existing?.expanded ?? false,
+							workspaceDeps: existingRunnable.workspaceDeps ?? depInfo?.deps
 						})
 						return
 					}
@@ -134,11 +218,14 @@
 					if (!parsed) return
 
 					if (parsed.type === 'script') {
+						const depInfo = depsPerWorkspace.get(parsed.workspace)?.get(parsed.path)
 						newInfo.set(tag, {
 							tag,
 							workspace: parsed.workspace,
 							type: 'script',
-							path: parsed.path
+							path: parsed.path,
+							language: depInfo?.language,
+							workspaceDeps: depInfo?.deps
 						})
 					} else {
 						// Flows need to fetch to get runners
@@ -295,7 +382,7 @@
 			loading = true
 			runnables = []
 
-			const [scripts, flows] = await Promise.all([
+			const [scripts, flows, dedicatedDeps, wsDeps] = await Promise.all([
 				ScriptService.listScripts({
 					workspace: workspaceId,
 					dedicatedWorker: true
@@ -303,8 +390,30 @@
 				FlowService.listFlows({
 					workspace: workspaceId,
 					dedicatedWorker: true
-				})
+				}),
+				ScriptService.listDedicatedWithDeps({
+					workspace: workspaceId
+				}).catch(() => []),
+				WorkspaceDependenciesService.listWorkspaceDependencies({
+					workspace: workspaceId
+				}).catch(() => [])
 			])
+
+			// Track existing workspace dep names for validation
+			existingDeps = new Set(
+				wsDeps
+					.filter((d) => !d.archived)
+					.map((d) => d.name)
+					.filter((n): n is string => !!n)
+			)
+
+			// Build a map from path -> workspace dep names
+			const depsMap = new Map<string, string[]>()
+			for (const d of dedicatedDeps) {
+				if (d.workspace_dep_names.length > 0) {
+					depsMap.set(d.path, d.workspace_dep_names)
+				}
+			}
 
 			const newRunnables: Runnable[] = []
 
@@ -318,7 +427,8 @@
 						language: script.language ?? 'unknown',
 						type: 'script',
 						path: script.path,
-						selected: selectedTags.includes(tag)
+						selected: selectedTags.includes(tag),
+						workspaceDeps: depsMap.get(script.path)
 					})
 				}
 			}
@@ -396,9 +506,77 @@
 	})
 
 	let selectedCount = $derived(runnables.filter((r) => r.selected).length)
+
+	// Compute shared runner groups: scripts sharing a (dep_name, language) pair
+	interface RunnerGroup {
+		depName: string
+		language: string
+		tags: string[]
+	}
+
+	let runnerGroups: RunnerGroup[] = $derived.by(() => {
+		const groupMap = new Map<string, { depName: string; language: string; tags: string[] }>()
+		for (const tag of selectedTags) {
+			const info = selectedTagsInfo.get(tag)
+			if (info?.type === 'script' && info.workspaceDeps) {
+				const lang = info.language ?? runnables.find((r) => r.tag === tag)?.language ?? 'unknown'
+				for (const dep of info.workspaceDeps) {
+					const key = `${dep}:${lang}`
+					const existing = groupMap.get(key)
+					if (existing) {
+						existing.tags.push(tag)
+					} else {
+						groupMap.set(key, { depName: dep, language: lang, tags: [tag] })
+					}
+				}
+			}
+		}
+		// Only return groups with 2+ scripts
+		return Array.from(groupMap.values()).filter((g) => g.tags.length >= 2)
+	})
 </script>
 
 <div class="flex flex-col gap-3">
+	<!-- Shared runner groups -->
+	{#if runnerGroups.length > 0}
+		<div class="flex flex-col gap-1.5">
+			{#each runnerGroups as group}
+				<div class="border rounded-md overflow-hidden">
+					<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary">
+						<span class="text-xs font-semibold text-emphasis">Shared runner</span>
+						<span class="text-xs text-secondary">·</span>
+						{#if existingDeps.has(group.depName)}
+							<a
+								href="/workspace_settings?tab=dependencies"
+								target="_blank"
+								class="text-xs text-accent hover:underline flex items-center gap-1"
+							>
+								{group.depName}
+								<ExternalLink class="h-3 w-3" />
+							</a>
+						{:else}
+							<span class="text-xs flex items-center gap-1 text-yellow-500">
+								<TriangleAlert class="h-3 w-3" />
+								{group.depName}
+							</span>
+						{/if}
+						<span class="text-xs text-secondary">·</span>
+						<span class="text-xs text-secondary">{group.language}</span>
+					</div>
+					<div class="divide-y">
+						{#each group.tags as tag}
+							{@const info = selectedTagsInfo.get(tag)}
+							<div class="flex items-center gap-2 px-3 py-1 text-xs text-secondary">
+								<CodeXml size={12} class="flex-shrink-0 text-tertiary" />
+								<span class="truncate">{info?.path ?? tag}</span>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/each}
+		</div>
+	{/if}
+
 	<!-- Selected tags summary -->
 	{#if selectedTags.length > 0}
 		<div class="flex flex-col gap-2">
@@ -438,8 +616,27 @@
 											<Badge color="indigo" small>
 												{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
 											</Badge>
-										{:else if info.type === 'script'}
+										{:else if info.type === 'script' && !info.workspaceDeps?.length}
 											<Badge color="blue" small>1 runner</Badge>
+										{/if}
+										{#if info.workspaceDeps}
+											{#each info.workspaceDeps as dep}
+												{#if existingDeps.has(dep)}
+													<Badge
+														color="dark-gray"
+														small
+														href="/workspace_settings?tab=dependencies"
+													>
+														{dep}
+														<ExternalLink class="h-2.5 w-2.5" />
+													</Badge>
+												{:else}
+													<Badge color="yellow" small>
+														<TriangleAlert class="h-2.5 w-2.5" />
+														{dep}
+													</Badge>
+												{/if}
+											{/each}
 										{/if}
 									{:else}
 										<span class="text-xs text-tertiary truncate">{tag}</span>
@@ -585,9 +782,7 @@
 														<Check class="h-3 w-3 text-white" />
 													{/if}
 												</div>
-												<span class="flex-1 text-xs truncate min-w-0"
-													>{runnable.displayName}</span
-												>
+												<span class="flex-1 text-xs truncate min-w-0">{runnable.displayName}</span>
 												{#if runnable.type === 'flow' && runnable.runners}
 													<span class="text-xs text-tertiary flex-shrink-0">
 														{runnable.runners.length}
@@ -596,6 +791,18 @@
 												<Badge color={runnable.type === 'flow' ? 'indigo' : 'blue'} small>
 													{runnable.type === 'flow' ? 'flow' : runnable.language}
 												</Badge>
+												{#if runnable.workspaceDeps}
+													{#each runnable.workspaceDeps as dep}
+														{#if existingDeps.has(dep)}
+															<Badge color="dark-gray" small>{dep}</Badge>
+														{:else}
+															<Badge color="yellow" small>
+																<TriangleAlert class="h-2.5 w-2.5" />
+																{dep}
+															</Badge>
+														{/if}
+													{/each}
+												{/if}
 											</button>
 										</div>
 

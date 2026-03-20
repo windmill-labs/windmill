@@ -239,6 +239,7 @@ pub fn workspaced_service() -> Router {
             "/history_update/h/:hash/p/*path",
             post(update_script_history),
         )
+        .route("/list_dedicated_with_deps", get(list_dedicated_with_deps))
 }
 
 #[derive(Serialize, FromRow)]
@@ -2462,4 +2463,57 @@ async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+#[derive(Serialize)]
+struct DedicatedScriptDeps {
+    path: String,
+    language: ScriptLang,
+    workspace_dep_names: Vec<String>,
+}
+
+async fn list_dedicated_with_deps(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<DedicatedScriptDeps>> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let rows = sqlx::query_as::<_, (String, ScriptLang, String)>(
+        "SELECT path, language, content FROM script
+         WHERE workspace_id = $1
+           AND archived = false
+           AND dedicated_worker = true
+           AND language = ANY($2)
+         ORDER BY created_at DESC",
+    )
+    .bind(&w_id)
+    .bind(&[
+        ScriptLang::Python3,
+        ScriptLang::Bun,
+        ScriptLang::Bunnative,
+        ScriptLang::Deno,
+    ] as &[ScriptLang])
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    // Deduplicate by path (latest version first due to ORDER BY)
+    let mut seen = std::collections::HashSet::new();
+    let result = rows
+        .into_iter()
+        .filter(|(path, _, _)| seen.insert(path.clone()))
+        .map(|(path, language, content)| {
+            let dep_names =
+                windmill_common::scripts::extract_workspace_dependencies_annotated_refs(
+                    &language, &content, &path,
+                )
+                .map(|refs| refs.external)
+                .unwrap_or_default();
+            DedicatedScriptDeps { path, language, workspace_dep_names: dep_names }
+        })
+        .collect();
+
+    Ok(Json(result))
 }
