@@ -5,7 +5,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceAIClients } from '../copilot/lib'
 	import AISettings from '../workspaceSettings/AISettings.svelte'
-	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
 	import { Alert, Button } from '../common'
 
 	interface Props {
@@ -90,12 +89,6 @@
 </script>
 
 {#if loaded}
-	<SettingsPageHeader
-		title="AI Configuration"
-		description="Configure default AI providers for all workspaces. Workspace-level settings can override these."
-		link="https://www.windmill.dev/docs/core_concepts/ai_generation"
-	/>
-
 	{#if showHubSync}
 		<div
 			class="p-3 border rounded-md bg-surface-secondary mb-4 mt-4 flex items-center justify-between gap-4"
@@ -130,16 +123,15 @@
 		{/if}
 	{/if}
 
-	<p class="text-2xs text-hint mb-2">
-		Resources used here must exist in the <strong>admins</strong> workspace.
-	</p>
-
 	<AISettings
 		bind:this={aiSettings}
 		bind:hasUnsavedChanges
 		{initialConfig}
 		workspace="admins"
 		{disableChatOffset}
+		title="Windmill AI"
+		description="Windmill AI integrates with your favorite AI providers and models. Set your AI settings at the instance level to be able to use them on all your workspaces. Workspace-level settings can override these."
+		link="https://www.windmill.dev/docs/core_concepts/ai_generation"
 		customSave={handleCustomSave}
 	/>
 {/if}

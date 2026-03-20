@@ -37,7 +37,10 @@
 		hasInstanceAiConfig = false,
 		usesInstanceAiConfig = false,
 		customSave = undefined,
-		onSave = undefined
+		onSave = undefined,
+		title = 'Windmill AI',
+		description = 'Windmill AI integrates with your favorite AI providers and models.',
+		link = 'https://www.windmill.dev/docs/core_concepts/ai_generation'
 	}: {
 		initialConfig?: AIConfig | undefined
 		hasUnsavedChanges?: boolean
@@ -47,6 +50,9 @@
 		usesInstanceAiConfig?: boolean
 		customSave?: (config: AIConfig) => Promise<void>
 		onSave?: (info?: GetCopilotInfoResponse) => void | Promise<void>
+		title?: string
+		description?: string
+		link?: string
 	} = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
@@ -299,9 +305,9 @@
 </script>
 
 <SettingsPageHeader
-	title="Windmill AI"
-	description="Windmill AI integrates with your favorite AI providers and models."
-	link="https://www.windmill.dev/docs/core_concepts/ai_generation"
+	{title}
+	{description}
+	{link}
 />
 
 <div class="flex flex-col gap-6 mt-4 pb-8">
