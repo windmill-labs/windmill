@@ -157,6 +157,20 @@ export async function generateFlowLockInternal(
 
   let changedScripts: string[] = [];
 
+  // Build mapping from on-disk file names (hash keys like "a.py") to tree paths
+  // (like "folder/a.inline_script"). The tree uses extractInlineScriptsForFlows without
+  // a path assigner, so paths always have .inline_script suffix, but on-disk files
+  // may not (non-dotted mode).
+  const fileToTreePath = new Map<string, string>();
+  for (const script of inlineScriptsForTree) {
+    const c = script.content;
+    if (c.startsWith("!inline ")) {
+      const fileName = c.replace("!inline ", "");
+      const treePath = folderNormalized + "/" + path.basename(script.path, path.extname(script.path));
+      fileToTreePath.set(fileName, treePath);
+    }
+  }
+
   if (!justUpdateMetadataLock) {
     const hashes = await generateFlowHash(filteredDeps, folder, opts.defaultTs);
 
@@ -174,11 +188,15 @@ export async function generateFlowLockInternal(
       log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
     }
     const fileReader = async (path: string) => await readFile(folder + SEP + path, "utf-8");
-    // In tree mode, the tree already verified this flow is stale (possibly via dependency change).
-    // Per-script hashes only detect content changes, not transitive dependency changes,
-    // so we must remove all locks to force the backend to regenerate them.
+    // In tree mode, use the tree's staleness info (which includes transitive dependency changes)
+    // to determine which scripts need relocking, instead of only content-changed ones.
     const locksToRemove = (tree && !legacyBehaviour)
-      ? Object.keys(hashes).filter(k => k !== TOP_HASH)
+      ? Object.keys(hashes).filter(k => {
+          if (k === TOP_HASH) return false;
+          const treePath = fileToTreePath.get(k)
+            ?? (folderNormalized + "/" + path.basename(k, path.extname(k)));
+          return tree.isStale(treePath);
+        })
       : changedScripts;
     await replaceInlineScripts(
       flowValue.value.modules,
@@ -252,7 +270,8 @@ export async function generateFlowLockInternal(
   const relocked = (tree && !legacyBehaviour)
     ? Object.keys(finalHashes).filter(k => {
         if (k === TOP_HASH) return false;
-        const treePath = folderNormalized + "/" + path.basename(k, path.extname(k));
+        const treePath = fileToTreePath.get(k)
+          ?? (folderNormalized + "/" + path.basename(k, path.extname(k)));
         return tree.isStale(treePath);
       })
     : changedScripts;
