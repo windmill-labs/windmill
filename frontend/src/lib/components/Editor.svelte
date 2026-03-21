@@ -347,7 +347,9 @@
 	}
 
 	export function setCode(ncode: string, noHistory: boolean = false): void {
-		if (code != ncode) {
+		// Track whether the code actually changed before updating.
+		const changed = code != ncode
+		if (changed) {
 			code = ncode
 		}
 
@@ -368,7 +370,13 @@
 				editor.pushUndoStop()
 			}
 		}
-		// Update lint diagnostics after code change
+		// Dispatch change immediately when code actually changed. This ensures
+		// callers like the Reset button and copilot trigger on:change handlers.
+		// The debounced onDidChangeModelContent handler will no-op since code
+		// will already match by the time it fires.
+		if (changed) {
+			dispatch('change', ncode)
+		}
 		updateRawAppLintDiagnostics()
 	}
 

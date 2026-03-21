@@ -44,6 +44,7 @@ pub fn extract_resource_types_from_schema(schema: &SchemaType) -> HashSet<String
 ///
 /// Some MCP clients (e.g., n8n) have limited JSON Schema support:
 /// - `integer` type is not supported (convert to `number`)
+/// - invalid non-array `enum` values are removed
 pub fn make_schema_compatible(schema: &mut Value) {
     let Value::Object(obj) = schema else { return };
 
@@ -62,6 +63,11 @@ pub fn make_schema_compatible(schema: &mut Value) {
             }
             _ => {}
         }
+    }
+
+    // 2. Invalid enum values like `enum: null` are not valid draft 2020-12.
+    if obj.get("enum").is_some_and(|enum_val| !enum_val.is_array()) {
+        obj.remove("enum");
     }
 
     // Recursively process nested schemas
@@ -97,5 +103,75 @@ pub fn make_schema_compatible(schema: &mut Value) {
         for s in any_of.iter_mut() {
             make_schema_compatible(s);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::make_schema_compatible;
+    use serde_json::json;
+
+    #[test]
+    fn converts_nested_integer_types() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "count": { "type": "integer" }
+            },
+            "required": []
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert_eq!(schema["properties"]["count"]["type"], json!("number"));
+    }
+
+    #[test]
+    fn removes_invalid_nested_enum_values() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "object",
+                    "properties": {
+                        "expand": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": null
+                            }
+                        }
+                    }
+                }
+            },
+            "required": []
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert_eq!(
+            schema["properties"]["body"]["properties"]["expand"]["items"],
+            json!({ "type": "string" })
+        );
+    }
+
+    #[test]
+    fn preserves_valid_enum_arrays() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["open", "closed"]
+                }
+            }
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert_eq!(
+            schema["properties"]["status"]["enum"],
+            json!(["open", "closed"])
+        );
     }
 }

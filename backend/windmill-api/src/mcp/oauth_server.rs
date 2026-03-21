@@ -234,19 +234,11 @@ fn supported_scopes() -> Vec<String> {
 }
 
 /// GET /.well-known/oauth-authorization-server/api/w/:workspace_id/mcp/oauth/server
-pub async fn workspaced_oauth_metadata(
-    Path(workspace_id): Path<String>,
-) -> Json<AuthorizationMetadata> {
-    let base_url = BASE_URL.read().await;
-    let issuer = format!("{}/api/w/{}/mcp/oauth/server", base_url, workspace_id);
-
-    Json(AuthorizationMetadata {
-        issuer,
-        authorization_endpoint: format!(
-            "{}/api/w/{}/mcp/oauth/server/authorize",
-            base_url, workspace_id
-        ),
-        token_endpoint: format!("{}/api/w/{}/mcp/oauth/server/token", base_url, workspace_id),
+fn build_oauth_metadata(oauth_prefix: &str, base_url: &str) -> AuthorizationMetadata {
+    AuthorizationMetadata {
+        issuer: format!("{}{}", base_url, oauth_prefix),
+        authorization_endpoint: format!("{}{}/authorize", base_url, oauth_prefix),
+        token_endpoint: format!("{}{}/token", base_url, oauth_prefix),
         registration_endpoint: Some(format!("{}/api/mcp/oauth/server/register", base_url)),
         scopes_supported: Some(supported_scopes()),
         response_types_supported: Some(vec!["code".to_string()]),
@@ -255,7 +247,28 @@ pub async fn workspaced_oauth_metadata(
             "refresh_token".to_string(),
         ]),
         code_challenge_methods_supported: Some(vec!["S256".to_string()]),
-    })
+    }
+}
+
+fn build_protected_resource_metadata(
+    resource_path: &str,
+    oauth_prefix: &str,
+    base_url: &str,
+) -> ProtectedResourceMetadata {
+    ProtectedResourceMetadata {
+        resource: format!("{}{}", base_url, resource_path),
+        authorization_servers: vec![format!("{}{}", base_url, oauth_prefix)],
+        scopes_supported: Some(supported_scopes()),
+        bearer_methods_supported: Some(vec!["header".to_string()]),
+    }
+}
+
+pub async fn workspaced_oauth_metadata(
+    Path(workspace_id): Path<String>,
+) -> Json<AuthorizationMetadata> {
+    let base_url = BASE_URL.read().await;
+    let oauth_prefix = format!("/api/w/{}/mcp/oauth/server", workspace_id);
+    Json(build_oauth_metadata(&oauth_prefix, &base_url))
 }
 
 /// GET /.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/mcp
@@ -263,14 +276,13 @@ pub async fn protected_resource_metadata_by_path(
     Path(workspace_id): Path<String>,
 ) -> Json<ProtectedResourceMetadata> {
     let base_url = BASE_URL.read().await;
-    let resource_url = format!("{}/api/mcp/w/{}/mcp", base_url, workspace_id);
-    let auth_server_url = format!("{}/api/w/{}/mcp/oauth/server", base_url, workspace_id);
-    Json(ProtectedResourceMetadata {
-        resource: resource_url,
-        authorization_servers: vec![auth_server_url],
-        scopes_supported: Some(supported_scopes()),
-        bearer_methods_supported: Some(vec!["header".to_string()]),
-    })
+    let resource_path = format!("/api/mcp/w/{}/mcp", workspace_id);
+    let oauth_prefix = format!("/api/w/{}/mcp/oauth/server", workspace_id);
+    Json(build_protected_resource_metadata(
+        &resource_path,
+        &oauth_prefix,
+        &base_url,
+    ))
 }
 
 /// POST /api/mcp/oauth/server/register - dynamic client registration
@@ -386,7 +398,9 @@ async fn handle_authorization_code_grant(
 
     let access_token = rd_string(32);
     let access_token_hash = hash_token(&access_token);
-    let access_token_prefix = access_token.get(..TOKEN_PREFIX_LEN).unwrap_or(&access_token);
+    let access_token_prefix = access_token
+        .get(..TOKEN_PREFIX_LEN)
+        .unwrap_or(&access_token);
     let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
         None
     } else {
@@ -530,7 +544,9 @@ async fn handle_refresh_token_grant(
     // Generate new tokens
     let new_access_token = rd_string(32);
     let new_access_token_hash = hash_token(&new_access_token);
-    let new_access_token_prefix = new_access_token.get(..TOKEN_PREFIX_LEN).unwrap_or(&new_access_token);
+    let new_access_token_prefix = new_access_token
+        .get(..TOKEN_PREFIX_LEN)
+        .unwrap_or(&new_access_token);
     let new_plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
         None
     } else {
@@ -595,18 +611,19 @@ async fn handle_refresh_token_grant(
     }))
 }
 
-/// GET /api/w/:workspace_id/mcp/oauth/server/authorize - redirects to consent page
-pub async fn workspaced_oauth_authorize(
-    Extension(db): Extension<DB>,
-    Path(workspace_id): Path<String>,
-    Query(params): Query<AuthorizeQuery>,
-) -> impl IntoResponse {
+/// Shared authorize logic — validates params, looks up client, redirects to consent page.
+/// When `workspace_id` is Some, passes it to frontend; when None, passes `gateway=true`.
+async fn oauth_authorize_inner(
+    db: &DB,
+    params: AuthorizeQuery,
+    workspace_id: Option<String>,
+) -> axum::response::Response {
     let client = match sqlx::query_as!(
         OAuthClient,
         "SELECT client_id, client_name, redirect_uris FROM mcp_oauth_server_client WHERE client_id = $1",
         params.client_id
     )
-    .fetch_optional(&db)
+    .fetch_optional(db)
     .await
     {
         Ok(Some(client)) => client,
@@ -677,12 +694,18 @@ pub async fn workspaced_oauth_authorize(
         }
     };
 
+    // Build frontend redirect params — gateway mode vs workspace mode
+    let (mode_key, mode_value) = match &workspace_id {
+        Some(w_id) => ("workspace_id", w_id.as_str()),
+        None => ("gateway", "true"),
+    };
+
     let base_url = BASE_URL.read().await;
     let frontend_url = format!(
         "{}/oauth/mcp_authorize?{}",
         base_url,
         serde_urlencoded::to_string(&[
-            ("workspace_id", workspace_id.as_str()),
+            (mode_key, mode_value),
             ("client_id", params.client_id.as_str()),
             ("client_name", client.client_name.as_str()),
             ("redirect_uri", params.redirect_uri.as_str()),
@@ -698,12 +721,12 @@ pub async fn workspaced_oauth_authorize(
     Redirect::temporary(&frontend_url).into_response()
 }
 
-/// POST /api/w/:workspace_id/mcp/oauth/server/approve - user approval (frontend)
-pub async fn workspaced_oauth_approve(
-    Extension(db): Extension<DB>,
-    Path(workspace_id): Path<String>,
-    authed: ApiAuthed,
-    Json(form): Json<ApprovalForm>,
+/// Shared approve logic — validates form, checks membership, stores auth code.
+async fn oauth_approve_inner(
+    db: &DB,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+    form: ApprovalForm,
 ) -> Result<Json<ApprovalResponse>> {
     // Verify user is a member of the workspace
     let is_member = sqlx::query_scalar!(
@@ -711,7 +734,7 @@ pub async fn workspaced_oauth_approve(
         workspace_id,
         authed.email
     )
-    .fetch_one(&db)
+    .fetch_one(db)
     .await
     .map_err(|e| Error::InternalErr(format!("Database error: {}", e)))?
     .unwrap_or(false);
@@ -728,7 +751,7 @@ pub async fn workspaced_oauth_approve(
         "SELECT client_id, client_name, redirect_uris FROM mcp_oauth_server_client WHERE client_id = $1",
         form.client_id
     )
-    .fetch_optional(&db)
+    .fetch_optional(db)
     .await
     .map_err(|e| Error::InternalErr(format!("Database error: {}", e)))?
     .ok_or_else(|| Error::BadRequest("Unknown client_id".to_string()))?;
@@ -778,7 +801,7 @@ pub async fn workspaced_oauth_approve(
         &form.code_challenge,
         &form.code_challenge_method,
     )
-    .execute(&db)
+    .execute(db)
     .await
     .map_err(|e| Error::InternalErr(format!("Failed to store authorization code: {}", e)))?;
 
@@ -790,6 +813,25 @@ pub async fn workspaced_oauth_approve(
             Some(form.state)
         },
     }))
+}
+
+/// GET /api/w/:workspace_id/mcp/oauth/server/authorize
+pub async fn workspaced_oauth_authorize(
+    Extension(db): Extension<DB>,
+    Path(workspace_id): Path<String>,
+    Query(params): Query<AuthorizeQuery>,
+) -> impl IntoResponse {
+    oauth_authorize_inner(&db, params, Some(workspace_id)).await
+}
+
+/// POST /api/w/:workspace_id/mcp/oauth/server/approve
+pub async fn workspaced_oauth_approve(
+    Extension(db): Extension<DB>,
+    Path(workspace_id): Path<String>,
+    authed: ApiAuthed,
+    Json(form): Json<ApprovalForm>,
+) -> Result<Json<ApprovalResponse>> {
+    oauth_approve_inner(&db, &authed, &workspace_id, form).await
 }
 
 /// PKCE validation (S256 only)
@@ -851,6 +893,73 @@ impl IntoResponse for OAuthErrorRedirect {
     }
 }
 
+// ── Gateway (workspace-agnostic) OAuth handlers ──
+// Thin wrappers that delegate to the shared inner functions above.
+
+pub async fn gateway_oauth_metadata() -> Json<AuthorizationMetadata> {
+    let base_url = BASE_URL.read().await;
+    Json(build_oauth_metadata(
+        "/api/mcp/gateway/oauth/server",
+        &base_url,
+    ))
+}
+
+pub async fn gateway_protected_resource_metadata() -> Json<ProtectedResourceMetadata> {
+    let base_url = BASE_URL.read().await;
+    Json(build_protected_resource_metadata(
+        "/api/mcp/gateway",
+        "/api/mcp/gateway/oauth/server",
+        &base_url,
+    ))
+}
+
+/// GET /api/mcp/gateway/oauth/server/authorize — gateway mode (no workspace in path)
+pub async fn gateway_oauth_authorize(
+    Extension(db): Extension<DB>,
+    Query(params): Query<AuthorizeQuery>,
+) -> impl IntoResponse {
+    oauth_authorize_inner(&db, params, None).await
+}
+
+/// POST /api/mcp/gateway/oauth/server/approve — workspace_id comes from JSON body
+pub async fn gateway_oauth_approve(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(form): Json<GatewayApprovalForm>,
+) -> Result<Json<ApprovalResponse>> {
+    if form.workspace_id.is_empty() {
+        return Err(Error::BadRequest("workspace_id is required".to_string()));
+    }
+    oauth_approve_inner(
+        &db,
+        &authed,
+        &form.workspace_id,
+        ApprovalForm {
+            client_id: form.client_id,
+            redirect_uri: form.redirect_uri,
+            scope: form.scope,
+            state: form.state,
+            code_challenge: form.code_challenge,
+            code_challenge_method: form.code_challenge_method,
+        },
+    )
+    .await
+}
+
+/// Gateway approval form — same as ApprovalForm but includes workspace_id
+#[derive(Debug, Deserialize)]
+pub struct GatewayApprovalForm {
+    pub client_id: String,
+    pub redirect_uri: String,
+    pub scope: String,
+    pub state: String,
+    pub code_challenge: String,
+    pub code_challenge_method: String,
+    pub workspace_id: String,
+}
+
+// ── Router constructors ──
+
 /// Mounted at /api/mcp/oauth/server
 pub fn global_service() -> Router {
     Router::new().route("/register", post(oauth_register))
@@ -868,4 +977,18 @@ pub fn workspaced_unauthed_service() -> Router {
 /// Mounted at /api/w/:workspace_id/mcp/oauth/server (inside authenticated section)
 pub fn workspaced_authed_service() -> Router {
     Router::new().route("/approve", post(workspaced_oauth_approve))
+}
+
+/// Gateway OAuth endpoints that don't require authentication
+/// Mounted at /api/mcp/gateway/oauth/server (outside authenticated section)
+pub fn gateway_unauthed_service() -> Router {
+    Router::new()
+        .route("/authorize", get(gateway_oauth_authorize))
+        .route("/token", post(oauth_token))
+}
+
+/// Gateway OAuth endpoints that require authentication
+/// Mounted at /api/mcp/gateway/oauth/server (inside authenticated section)
+pub fn gateway_authed_service() -> Router {
+    Router::new().route("/approve", post(gateway_oauth_approve))
 }
