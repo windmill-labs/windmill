@@ -110,6 +110,12 @@ async function createRemoteScript(
   content: string = 'export async function main() { return "hello"; }',
   language: string = "bun"
 ): Promise<void> {
+  // Archive any existing script at this path first to avoid hash conflicts
+  await backend.apiRequest!(
+    `/api/w/${backend.workspace}/scripts/delete/p/${encodeURIComponent(scriptPath)}`,
+    { method: "POST" }
+  ).catch(() => {});
+
   const resp = await backend.apiRequest!(
     `/api/w/${backend.workspace}/scripts/create`,
     {
