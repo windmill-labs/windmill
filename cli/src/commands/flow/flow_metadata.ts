@@ -248,9 +248,13 @@ export async function generateFlowLockInternal(
   }
 
   // Return the list of updated scripts (extract just the filename from the path)
-  // In tree mode, all scripts are relocked (not just content-changed ones)
+  // In tree mode, use the same staleness-aware list we used for lock removal
   const relocked = (tree && !legacyBehaviour)
-    ? Object.keys(finalHashes).filter(k => k !== TOP_HASH)
+    ? Object.keys(finalHashes).filter(k => {
+        if (k === TOP_HASH) return false;
+        const treePath = folderNormalized + "/" + path.basename(k, path.extname(k));
+        return tree.isStale(treePath);
+      })
     : changedScripts;
   const updatedScripts = relocked.map(p => {
     const parts = p.split(SEP);

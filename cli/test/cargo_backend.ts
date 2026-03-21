@@ -67,7 +67,7 @@ export class CargoBackend {
     // Local mode without license key: zip only (EE features reject API calls without valid license)
     const isCI = process.env["CI_MINIMAL_FEATURES"] === "true";
     const hasLicenseKey = !!process.env["EE_LICENSE_KEY"];
-    const defaultFeatures = isCI ? ["zip"] : (hasLicenseKey ? ["zip", "private", "enterprise", "license", "python"] : ["zip"]);
+    const defaultFeatures = isCI ? ["zip"] : (hasLicenseKey ? ["zip", "private", "enterprise", "license", "python"] : ["zip", "python"]);
 
     // Parse additional features from environment variable
     const envFeatures = process.env["TEST_FEATURES"]?.split(",").filter(f => f.trim()) || [];

@@ -30,6 +30,7 @@ import {
   getFolderSuffix,
   getMetadataFileName,
   getModuleFolderSuffix,
+  getNonDottedPaths,
 } from "../src/utils/resource_folders.ts";
 
 // =============================================================================
@@ -48,7 +49,8 @@ export interface ScriptFixture {
 
 export interface FlowFixture {
   metadata: FileFixture;
-  inlineScript: FileFixture;
+  inlineScript?: FileFixture;
+  inlineLock?: FileFixture;
 }
 
 export interface AppFixture {
@@ -154,14 +156,27 @@ kind: script
  */
 export function createFlowFixture(
   name: string,
-  inlineScriptContent?: string
+  inlineScriptContent?: string,
+  language: "bun" | "python3" = "bun"
 ): FlowFixture {
   const flowSuffix = getFolderSuffix("flow");
   const metadataFile = getMetadataFileName("flow", "yaml");
 
-  const scriptContent =
-    inlineScriptContent ??
-    `export async function main() {\n  return "Hello from flow ${name}";\n}`;
+  const defaultContent = language === "python3"
+    ? `def main():\n    return "Hello from flow ${name}"`
+    : `export async function main() {\n  return "Hello from flow ${name}";\n}`;
+
+  const scriptContent = inlineScriptContent ?? defaultContent;
+
+  const langMap: Record<string, string> = { bun: "bun", python3: "python3" };
+  const extMap: Record<string, string> = { bun: "ts", python3: "py" };
+
+  const ext = extMap[language];
+  // With dotted paths (.flow), inline scripts use .inline_script suffix (a.inline_script.ts)
+  // With non-dotted paths (__flow), they don't (a.ts)
+  const inlineSuffix = getNonDottedPaths() ? "" : ".inline_script";
+  const scriptFile = `a${inlineSuffix}.${ext}`;
+  const lockFile = `a${inlineSuffix}.lock`;
 
   return {
     metadata: {
@@ -172,10 +187,10 @@ value:
   modules:
     - id: a
       value:
+        lock: "!inline ${lockFile}"
         type: rawscript
-        content: |
-          ${scriptContent.split("\n").join("\n          ")}
-        language: bun
+        content: "!inline ${scriptFile}"
+        language: ${langMap[language]}
         input_transforms: {}
 schema:
   $schema: "https://json-schema.org/draft/2020-12/schema"
@@ -185,8 +200,12 @@ schema:
 `,
     },
     inlineScript: {
-      path: `${name}${flowSuffix}/a.inline_script.ts`,
+      path: `${name}${flowSuffix}/${scriptFile}`,
       content: scriptContent,
+    },
+    inlineLock: {
+      path: `${name}${flowSuffix}/${lockFile}`,
+      content: "",
     },
   };
 }
@@ -395,13 +414,15 @@ export async function createLocalFlow(
   tempDir: string,
   path: string,
   name: string,
-  inlineScriptContent?: string
+  inlineScriptContent?: string,
+  language: "bun" | "python3" = "bun"
 ): Promise<void> {
-  const fixture = createFlowFixture(name, inlineScriptContent);
+  const fixture = createFlowFixture(name, inlineScriptContent, language);
   const flowDir = `${tempDir}/${path}/${name}${getFolderSuffix("flow")}`;
   await mkdir(flowDir, { recursive: true });
 
   for (const file of Object.values(fixture)) {
+    if (!file) continue;
     const fullPath = `${tempDir}/${path}/${file.path}`;
     await writeFile(fullPath, file.content, "utf-8");
   }
@@ -433,6 +454,7 @@ export async function createLocalApp(
   await mkdir(appDir, { recursive: true });
 
   for (const file of Object.values(fixture)) {
+    if (!file) continue;
     const fullPath = `${tempDir}/${path}/${file.path}`;
     await writeFile(fullPath, file.content, "utf-8");
   }

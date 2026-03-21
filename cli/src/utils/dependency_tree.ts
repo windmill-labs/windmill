@@ -30,17 +30,19 @@ export async function uploadScripts(
 
   for (const path of tree.allPaths()) {
     const content = tree.getContent(path);
-    if (!content) continue;
-
-    const hash = await generateHash(content);
-
     const itemType = tree.getItemType(path);
+
     if (itemType === "dependencies") {
+      // Empty string is valid for workspace deps (means "no deps") — only skip undefined
+      if (content === undefined) continue;
       const info = workspaceDependenciesPathToLanguageAndFilename(path);
       if (info) {
+        const hash = await generateHash(content);
         workspaceDeps.push({ path, language: info.language as ScriptLang, name: info.name, hash });
       }
     } else if (itemType === "script") {
+      if (!content) continue;
+      const hash = await generateHash(content);
       scriptHashes[path] = hash;
     }
     // Skip inline_script, flow, app — they don't need temp storage uploads
@@ -60,7 +62,15 @@ export async function uploadScripts(
   // Upload only mismatched scripts to temp storage
   for (const path of mismatched) {
     const content = tree.getContent(path);
-    if (content) {
+    const itemType = tree.getItemType(path);
+
+    if (itemType === "dependencies") {
+      // Workspace deps don't need temp storage — just mark as mismatched.
+      // Empty string is valid (means the dep file was emptied locally).
+      if (content !== undefined) {
+        tree.setContentHash(path, "mismatched");
+      }
+    } else if (content) {
       const hash = await wmill.storeRawScriptTemp({
         workspace: workspace.workspaceId,
         requestBody: content,
@@ -322,7 +332,7 @@ export class DoubleLinkedDependencyTree {
   getMismatchedWorkspaceDeps(): Record<string, string> {
     const result: Record<string, string> = {};
     for (const [path, node] of this.nodes.entries()) {
-      if (node.itemType === "dependencies" && node.contentHash && node.content) {
+      if (node.itemType === "dependencies" && node.contentHash && node.content !== undefined) {
         result[path] = node.content;
       }
     }
@@ -350,7 +360,7 @@ export class DoubleLinkedDependencyTree {
   async persistDepsHashes(depsPaths: string[]): Promise<void> {
     for (const path of depsPaths) {
       const node = this.nodes.get(path);
-      if (node?.itemType === "dependencies" && node.content) {
+      if (node?.itemType === "dependencies" && node.content !== undefined) {
         const hash = await generateHash(node.content + path);
         await updateMetadataGlobalLock(path, hash);
       }

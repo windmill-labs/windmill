@@ -22,7 +22,7 @@ lock: ""
 // Test 1: TS basic import with npm dependency propagation
 // =============================================================================
 
-test("TS: imported script's npm dep appears in importer's lock", async () => {
+test("TS: imported script's npm dep appears in importer's lock", { timeout: 60000 }, async () => {
   await withTestBackend(async (backend, tempDir) => {
     await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes: ["**"]
@@ -64,7 +64,7 @@ export function helper() { return _.VERSION; }
 // Test 2: TS chained imports - dependency propagates through chain
 // =============================================================================
 
-test("TS: chained imports propagate npm deps through entire chain", async () => {
+test("TS: chained imports propagate npm deps through entire chain", { timeout: 60000 }, async () => {
   await withTestBackend(async (backend, tempDir) => {
     await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes: ["**"]
@@ -109,7 +109,7 @@ export function utilC() { return _.VERSION; }
 // Test 3: TS circular imports - completes without hanging, locks generated
 // =============================================================================
 
-test("TS: circular imports handled gracefully with correct locks", async () => {
+test("TS: circular imports handled gracefully with correct locks", { timeout: 60000 }, async () => {
   await withTestBackend(async (backend, tempDir) => {
     await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes: ["**"]
@@ -150,7 +150,7 @@ export function funcB() { return _.VERSION + funcA(); }
 // Test 4: Python basic import with pip dependency propagation
 // =============================================================================
 
-test("Python: imported script's pip dep appears in importer's lock", async () => {
+test("Python: imported script's pip dep appears in importer's lock", { timeout: 60000 }, async () => {
   await withTestBackend(async (backend, tempDir) => {
     await writeFile(`${tempDir}/wmill.yaml`, `includes: ["**"]
 excludes: []`);
@@ -177,6 +177,10 @@ def helper_func():
       ["generate-metadata", "-i", "f/test/*", "--yes"],
       tempDir
     );
+    if (result.code !== 0) {
+      console.log("STDOUT:", result.stdout);
+      console.log("STDERR:", result.stderr);
+    }
     expect(result.code).toBe(0);
 
     const lockMain = await readFile(`${tempDir}/f/test/main.script.lock`, "utf-8").catch(() => "");
@@ -191,7 +195,7 @@ def helper_func():
 // Test 5: Diamond dependency - A imports B and C, both import D
 // =============================================================================
 
-test("Python: diamond dependency pattern propagates correctly", async () => {
+test("Python: diamond dependency pattern propagates correctly", { timeout: 60000 }, async () => {
   await withTestBackend(async (backend, tempDir) => {
     await writeFile(`${tempDir}/wmill.yaml`, `includes: ["**"]
 excludes: []`);
@@ -252,7 +256,7 @@ def func_d():
 // Test 6: Script isolation - unrelated script not marked stale
 // =============================================================================
 
-test("Script isolation: unrelated script not affected by changes", async () => {
+test("Script isolation: unrelated script not affected by changes", { timeout: 120000 }, async () => {
   await withTestBackend(async (backend, tempDir) => {
     await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
 includes: ["**"]
@@ -288,7 +292,7 @@ export async function main() { return helper(); }
       ["generate-metadata", "-i", "f/test/*", "--yes", "--dry-run"],
       tempDir
     );
-    expect(check1.stdout).toContain("No metadata to update");
+    expect(check1.stdout).toContain("All metadata up-to-date");
 
     // Change script_b
     await writeFile(`${tempDir}/f/test/script_b.ts`,
@@ -311,7 +315,7 @@ export async function main() { return helper(); }
 // Test 7: Python relative imports with dot syntax
 // =============================================================================
 
-test("Python: relative imports with dot syntax work correctly", async () => {
+test("Python: relative imports with dot syntax work correctly", { timeout: 60000 }, async () => {
   await withTestBackend(async (backend, tempDir) => {
     await writeFile(`${tempDir}/wmill.yaml`, `includes: ["**"]
 excludes: []`);
@@ -353,7 +357,7 @@ def helper_func():
 // Test 8: Adding new import updates importer's lock
 // =============================================================================
 
-test("Python: adding new import updates importer's lock correctly", async () => {
+test("Python: adding new import updates importer's lock correctly", { timeout: 120000 }, async () => {
   await withTestBackend(async (backend, tempDir) => {
     await writeFile(`${tempDir}/wmill.yaml`, `includes: ["**"]
 excludes: []`);

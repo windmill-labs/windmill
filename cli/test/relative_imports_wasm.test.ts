@@ -5,7 +5,7 @@
  *    using the CLI generate-metadata command against a real backend
  */
 
-import { expect, test, describe } from "bun:test";
+import { expect, test, describe, beforeAll } from "bun:test";
 import { readFile, readdir, writeFile, mkdir } from "node:fs/promises";
 import { loadParser } from "../src/utils/metadata.ts";
 import { extractRelativeImports } from "../src/utils/relative_imports.ts";
@@ -16,6 +16,7 @@ import {
   createLocalApp,
   createLocalRawApp,
 } from "./test_fixtures.ts";
+import { setNonDottedPaths } from "../src/utils/resource_folders.ts";
 
 // =============================================================================
 // WASM Parser Unit Tests
@@ -106,7 +107,8 @@ async function anyLockContains(dir: string, needle: string): Promise<boolean> {
 async function createRemoteScript(
   backend: TestBackend,
   scriptPath: string,
-  content: string = 'export async function main() { return "hello"; }'
+  content: string = 'export async function main() { return "hello"; }',
+  language: string = "bun"
 ): Promise<void> {
   const resp = await backend.apiRequest!(
     `/api/w/${backend.workspace}/scripts/create`,
@@ -116,7 +118,7 @@ async function createRemoteScript(
       body: JSON.stringify({
         path: scriptPath,
         content,
-        language: "bun",
+        language,
         summary: "Test script",
         description: "Created by integration test",
         schema: {
@@ -128,8 +130,11 @@ async function createRemoteScript(
       }),
     }
   );
+  const respText = await resp.text();
+  if (resp.status >= 300) {
+    console.log(`createRemoteScript ${scriptPath} (${language}) failed: ${resp.status} ${respText}`);
+  }
   expect(resp.status).toBeLessThan(300);
-  await resp.text();
 }
 
 // =============================================================================
@@ -144,12 +149,36 @@ const importerScript = `import { helper } from "/f/test/helper";
 export async function main() { return helper(); }
 `;
 
-describe("E2E: relative import dependency propagation via generate-metadata", () => {
+const pyHelperScript = `import requests
+
+def helper():
+    return requests.__version__
+`;
+
+const pyImporterScript = `from f.test.py_helper import helper
+
+def main():
+    return helper()
+`;
+
+for (const nonDotted of [false, true]) {
+describe(`E2E: relative import dependency propagation via generate-metadata (${nonDotted ? "non-dotted" : "dotted"} paths)`, () => {
+  const inlineSuffix = nonDotted ? "" : ".inline_script";
+  const flowSuffix = nonDotted ? "__flow" : ".flow";
+  const appSuffix = nonDotted ? "__app" : ".app";
+  const rawAppSuffix = nonDotted ? "__raw_app" : ".raw_app";
+  const wmillYaml = nonDotted
+    ? `defaultTs: bun\nincludes: ["**"]\nexcludes: []\nnonDottedPaths: true`
+    : `defaultTs: bun\nincludes: ["**"]\nexcludes: []`;
+
+  beforeAll(() => {
+    setNonDottedPaths(nonDotted);
+  });
   test("script importing another script gets transitive npm deps in lock", { timeout: 60000 }, async () => {
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       // helper has lodash dep
@@ -191,7 +220,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       await createLocalScript(tempDir, "f/test", "helper", "bun", helperScript);
@@ -215,7 +244,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
       expect(helperLock).toContain("lodash");
 
       // Flow inline script lock should also have lodash (transitive via helper)
-      const flowDir = `${tempDir}/f/test/my_flow.flow`;
+      const flowDir = `${tempDir}/f/test/my_flow${flowSuffix}`;
       const flowHasLodash = await anyLockContains(flowDir, "lodash");
       expect(flowHasLodash).toBe(true);
     });
@@ -225,7 +254,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       await createLocalScript(tempDir, "f/test", "helper", "bun", helperScript);
@@ -248,7 +277,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
       expect(helperLock).toContain("lodash");
 
       // App inline script lock should have lodash (transitive via helper)
-      const appDir = `${tempDir}/f/test/my_app.app`;
+      const appDir = `${tempDir}/f/test/my_app${appSuffix}`;
       const appHasLodash = await anyLockContains(appDir, "lodash");
       expect(appHasLodash).toBe(true);
     });
@@ -258,7 +287,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       await createLocalScript(tempDir, "f/test", "helper", "bun", helperScript);
@@ -281,7 +310,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
       expect(helperLock).toContain("lodash");
 
       // Raw app inline script lock should have lodash (transitive via helper)
-      const rawAppDir = `${tempDir}/f/test/my_raw_app.raw_app`;
+      const rawAppDir = `${tempDir}/f/test/my_raw_app${rawAppSuffix}`;
       const rawAppHasLodash = await anyLockContains(rawAppDir, "lodash");
       expect(rawAppHasLodash).toBe(true);
     });
@@ -291,7 +320,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       await createLocalScript(tempDir, "f/test", "helper", "bun", helperScript);
@@ -347,7 +376,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       // Deploy helper (lodash) to backend, then pull locally
@@ -413,7 +442,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       // Create helper (lodash dep) and generate its metadata
@@ -454,35 +483,65 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     });
   });
 
-  test("dependency change triggers lock regeneration for flows and apps", { timeout: 120000 }, async () => {
+  test("dependency change triggers lock regeneration for flows and apps", { timeout: 180000 }, async () => {
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
-      // helper uses lodash
+      // Step 1: Create helper scripts locally and deploy them to remote via push
       await createLocalScript(tempDir, "f/test", "helper", "bun", helperScript);
+      await createLocalScript(tempDir, "f/test", "py_helper", "python3", pyHelperScript);
+
+      // Generate metadata for scripts only, then push to deploy them on remote
+      const genScripts = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "--skip-flows", "--skip-apps"],
+        tempDir
+      );
+      expect(genScripts.code).toBe(0);
+
+      const push = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      if (push.code !== 0) {
+        console.log("PUSH STDOUT:", push.stdout);
+        console.log("PUSH STDERR:", push.stderr);
+      }
+      expect(push.code).toBe(0);
+
+      // Step 2: Now create flows/apps that import the deployed helpers
       await createLocalFlow(tempDir, "f/test", "my_flow", importerScript);
+      await createLocalFlow(tempDir, "f/test", "my_py_flow", pyImporterScript, "python3");
       await createLocalApp(tempDir, "f/test", "my_app", importerScript);
       await createLocalRawApp(tempDir, "f/test", "my_raw_app", importerScript);
 
-      // Generate initial metadata — all should get lodash in locks
+      // Step 3: Generate initial metadata for everything
       const initial = await backend.runCLICommand(
         ["generate-metadata", "--yes"],
         tempDir
       );
+      if (initial.code !== 0) {
+        console.log("INITIAL STDOUT:", initial.stdout);
+        console.log("INITIAL STDERR:", initial.stderr);
+      }
       expect(initial.code).toBe(0);
 
-      // Verify flow/app locks have lodash
-      const flowDir = `${tempDir}/f/test/my_flow.flow`;
+      // Verify flow directories have correct structure — no extra files created
+      const flowDir = `${tempDir}/f/test/my_flow${flowSuffix}`;
+      expect((await readdir(flowDir)).sort()).toEqual([`a${inlineSuffix}.lock`, `a${inlineSuffix}.ts`, "flow.yaml"]);
+      const pyFlowDir = `${tempDir}/f/test/my_py_flow${flowSuffix}`;
+      expect((await readdir(pyFlowDir)).sort()).toEqual([`a${inlineSuffix}.lock`, `a${inlineSuffix}.py`, "flow.yaml"]);
+
+      // Verify TS flow/app locks have lodash
       expect(await anyLockContains(flowDir, "lodash")).toBe(true);
-      const appDir = `${tempDir}/f/test/my_app.app`;
+      const appDir = `${tempDir}/f/test/my_app${appSuffix}`;
       expect(await anyLockContains(appDir, "lodash")).toBe(true);
-      const rawAppDir = `${tempDir}/f/test/my_raw_app.raw_app`;
+      const rawAppDir = `${tempDir}/f/test/my_raw_app${rawAppSuffix}`;
       expect(await anyLockContains(rawAppDir, "lodash")).toBe(true);
 
-      // Modify helper to use axios instead of lodash
+      // Verify Python flow lock has requests
+      expect(await anyLockContains(pyFlowDir, "requests")).toBe(true);
+
+      // Step 5: Modify helpers LOCALLY (NOT pushed to remote — this is the key scenario)
       await createLocalScript(
         tempDir,
         "f/test",
@@ -490,89 +549,98 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
         "bun",
         `import axios from "axios";\nexport function helper() { return axios.VERSION; }\n`
       );
+      await createLocalScript(
+        tempDir,
+        "f/test",
+        "py_helper",
+        "python3",
+        `import pandas\n\ndef helper():\n    return pandas.__version__\n`
+      );
 
-      // Regenerate — dependents should get new locks with axios
+      // Step 6: Regenerate — flow locks must use LOCAL helper content, not remote deployed version
       const regen = await backend.runCLICommand(
         ["generate-metadata", "--yes"],
         tempDir
       );
+      if (regen.code !== 0) {
+        console.log("REGEN STDOUT:", regen.stdout);
+        console.log("REGEN STDERR:", regen.stderr);
+      }
       expect(regen.code).toBe(0);
 
-      // Flow lock should now have axios, not lodash
-      const flowHasAxios = await anyLockContains(flowDir, "axios");
-      expect(flowHasAxios).toBe(true);
+      // TS flow lock should now have axios (from local helper), not lodash (from remote)
+      expect(await anyLockContains(flowDir, "axios")).toBe(true);
+      expect(await anyLockContains(flowDir, "lodash")).toBe(false);
 
-      // App lock should now have axios
-      const appHasAxios = await anyLockContains(appDir, "axios");
-      expect(appHasAxios).toBe(true);
+      // Python flow lock should now have pandas (from local helper), not requests (from remote)
+      const pyFlowLockFiles = await findLockFiles(pyFlowDir);
+      for (const f of pyFlowLockFiles) {
+        const c = await readFile(f, "utf-8").catch(() => "");
+        console.log(`PY FLOW LOCK [${f}]: ${c.substring(0, 500)}`);
+      }
+      expect(await anyLockContains(pyFlowDir, "pandas")).toBe(true);
+      expect(await anyLockContains(pyFlowDir, "requests")).toBe(false);
 
-      // Raw app lock should now have axios
-      const rawAppHasAxios = await anyLockContains(rawAppDir, "axios");
-      expect(rawAppHasAxios).toBe(true);
+      // TS app lock should now have axios, not lodash
+      expect(await anyLockContains(appDir, "axios")).toBe(true);
+      expect(await anyLockContains(appDir, "lodash")).toBe(false);
+
+      // Raw app lock should now have axios, not lodash
+      expect(await anyLockContains(rawAppDir, "axios")).toBe(true);
+      expect(await anyLockContains(rawAppDir, "lodash")).toBe(false);
     });
   });
 
-  test("locally modified workspace deps are used for lock generation instead of remote", { timeout: 120000 }, async () => {
+  test("locally modified workspace deps are used for lock generation instead of remote", { timeout: 180000 }, async () => {
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
-      // Deploy workspace deps with lodash on the remote
-      const remotePackageJson = JSON.stringify({ dependencies: { lodash: "^4" } });
-      await createRemoteWorkspaceDeps(backend, "bun", remotePackageJson);
+      // Deploy named Python workspace dep "test" with requests on the remote
+      await createRemoteWorkspaceDeps(backend, "python3", "requests", "test");
 
       // Pull to get remote state locally
       const pull = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
       expect(pull.code).toBe(0);
 
-      // Modify workspace deps locally to use axios instead of lodash (NOT pushed)
+      // Empty the workspace dep locally (NOT pushed) — simulates removing all deps
       await mkdir(`${tempDir}/dependencies`, { recursive: true });
       await writeFile(
-        `${tempDir}/dependencies/package.json`,
-        JSON.stringify({ dependencies: { axios: "^1" } })
+        `${tempDir}/dependencies/test.requirements.in`,
+        ""
       );
 
-      // Generate metadata to persist workspace deps hash — after this, deps are "up-to-date"
-      // in wmill-lock.yaml even though they differ from the remote deployed version
-      const gen1 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
-      expect(gen1.code).toBe(0);
-
-      // Verify wmill-lock.yaml has the workspace deps entry with correct hash
-      const { generateHash } = await import("../src/utils/utils.ts");
-      const localDepsContent = JSON.stringify({ dependencies: { axios: "^1" } });
-      const expectedHash = await generateHash(localDepsContent + "dependencies/package.json");
-      const lockYaml = await readFile(`${tempDir}/wmill-lock.yaml`, "utf-8");
-      expect(lockYaml).toContain("dependencies/package.json");
-      expect(lockYaml).toContain(expectedHash);
-
-      // Create a new script that uses workspace deps (no annotation = uses default package.json)
+      // Create a Python script that uses the named workspace dep via #requirements: test
       await createLocalScript(
         tempDir,
         "f/test",
         "my_script",
-        "bun",
-        `export async function main() { return "hello"; }`
+        "python3",
+        `#requirements: test\n\ndef main():\n    return "hello"\n`
       );
 
-      // Generate metadata — workspace deps are NOT stale (hash matches lockfile),
-      // but they differ from the remote deployed version.
-      // The script's lock should use the local workspace deps (axios), not remote (lodash).
-      const gen2 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
-      if (gen2.code !== 0) {
-        console.log("STDOUT:", gen2.stdout);
-        console.log("STDERR:", gen2.stderr);
+      // Generate metadata — local dep is empty, so lock must NOT contain requests (from remote)
+      const gen = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
+      if (gen.code !== 0) {
+        console.log("STDOUT:", gen.stdout);
+        console.log("STDERR:", gen.stderr);
       }
-      expect(gen2.code).toBe(0);
+      expect(gen.code).toBe(0);
 
       const scriptLock = await readFile(
         `${tempDir}/f/test/my_script.script.lock`,
         "utf-8"
       ).catch(() => "");
-      // Lock should use local workspace deps (axios), not remote (lodash)
-      expect(scriptLock).toContain("axios");
-      expect(scriptLock).not.toContain("lodash");
+      // Lock must use local (empty) workspace deps, not remote (requests)
+      expect(scriptLock).not.toContain("requests");
+
+      // Second run should be idempotent — no stale items
+      const gen2 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
+      expect(gen2.code).toBe(0);
+      const output2 = gen2.stdout + gen2.stderr;
+      expect(output2).toContain("All metadata up-to-date");
     });
   });
 
@@ -580,7 +648,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       // Create local workspace deps
@@ -687,7 +755,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       // Script A in f/lib — has lodash dep
@@ -755,7 +823,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       // Script A in f/lib — has lodash dep
@@ -835,7 +903,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       // Deploy workspace deps with lodash on remote
@@ -897,7 +965,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       // Create local workspace deps
@@ -943,7 +1011,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       // Deploy workspace deps with lodash on remote
@@ -1002,7 +1070,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       // Helper with lodash dep — only exists locally, never pushed
@@ -1045,13 +1113,13 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
       expect(result.code).toBe(0);
 
       // All locks should contain lodash (transitive dep from local helper)
-      const flowDir = `${tempDir}/f/test/my_flow.flow`;
+      const flowDir = `${tempDir}/f/test/my_flow${flowSuffix}`;
       expect(await anyLockContains(flowDir, "lodash")).toBe(true);
 
-      const appDir = `${tempDir}/f/test/my_app.app`;
+      const appDir = `${tempDir}/f/test/my_app${appSuffix}`;
       expect(await anyLockContains(appDir, "lodash")).toBe(true);
 
-      const rawAppDir = `${tempDir}/f/test/my_raw_app.raw_app`;
+      const rawAppDir = `${tempDir}/f/test/my_raw_app${rawAppSuffix}`;
       expect(await anyLockContains(rawAppDir, "lodash")).toBe(true);
     });
   });
@@ -1061,7 +1129,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       // Helper in f/shared with lodash dep
@@ -1105,7 +1173,7 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
-        `defaultTs: bun\nincludes: ["**"]\nexcludes: []`
+        wmillYaml
       );
 
       // C has dayjs dep
@@ -1160,3 +1228,4 @@ describe("E2E: relative import dependency propagation via generate-metadata", ()
     });
   });
 });
+} // end for nonDotted

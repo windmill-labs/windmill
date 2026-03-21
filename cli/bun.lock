@@ -24,11 +24,11 @@
         "windmill-parser-wasm-nu": "*",
         "windmill-parser-wasm-php": "*",
         "windmill-parser-wasm-py": "*",
-        "windmill-parser-wasm-py-imports": "file:../backend/parsers/windmill-parser-wasm/pkg-py-imports",
+        "windmill-parser-wasm-py-imports": "*",
         "windmill-parser-wasm-regex": "*",
         "windmill-parser-wasm-ruby": "*",
         "windmill-parser-wasm-rust": "*",
-        "windmill-parser-wasm-ts": "file:../backend/parsers/windmill-parser-wasm/pkg-ts",
+        "windmill-parser-wasm-ts": "^1.659.1",
         "windmill-parser-wasm-yaml": "*",
         "windmill-yaml-validator": "1.1.1",
         "ws": "8.18.0",
@@ -295,7 +295,7 @@
 
     "windmill-parser-wasm-py": ["windmill-parser-wasm-py@1.628.3", "", {}, "sha512-TlluqknZpg8cZ+A3m6JFLPseY2PpKtDsxdj26fAnCUzKPtse8TxQR+n0dwC80rfW5TwdWSulvNGRDgcNuf7CTw=="],
 
-    "windmill-parser-wasm-py-imports": ["windmill-parser-wasm-py-imports@file:../backend/parsers/windmill-parser-wasm/pkg-py-imports", {}],
+    "windmill-parser-wasm-py-imports": ["windmill-parser-wasm-py-imports@1.659.1", "", {}, "sha512-nfnf04WBRf8f/mNIwdvggYOgz3erxrFGjKqULYBH+bKFMlKA6V7eB19m6CXOBkq9rjTp0ZFG+rgsR+Us7JEkyQ=="],
 
     "windmill-parser-wasm-regex": ["windmill-parser-wasm-regex@1.639.0", "", {}, "sha512-qvYM4sYxB6M0xrqwBljS2fWqOMk6rp++60TRltJnzZDzVaWQrKjTGwNMmfepGAIWy1OGVKp0SCVERhe2P+O6tQ=="],
 
@@ -303,7 +303,7 @@
 
     "windmill-parser-wasm-rust": ["windmill-parser-wasm-rust@1.558.1", "", {}, "sha512-21S7lm1KF8zO1187rbq14hzPHII2RdM2+D44MoAh1F6VoaScj+Puq0z5B1O/hwn/95R/a9jBlL2D8jbkXtlD1A=="],
 
-    "windmill-parser-wasm-ts": ["windmill-parser-wasm-ts@file:../backend/parsers/windmill-parser-wasm/pkg-ts", {}],
+    "windmill-parser-wasm-ts": ["windmill-parser-wasm-ts@1.659.1", "", {}, "sha512-EmXMzOmazC5r29UZh+1TVF9g/N2X51pqK11qDL6xWGeWTIIonhfOZ5nWdGvKQMDUR650fGxehImZzW2v9hNy+w=="],
 
     "windmill-parser-wasm-yaml": ["windmill-parser-wasm-yaml@1.593.0", "", {}, "sha512-Gyx4aR2jsJYuDrD3mCNTmz7LWOQQXPw5yKNCC1xRgUOPfjsD/tINAFfsBLwVOSmlQQcFZO+wHm4KtDtXOcnGVw=="],
 

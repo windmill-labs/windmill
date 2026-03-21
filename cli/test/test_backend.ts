@@ -674,6 +674,7 @@ export async function createRemoteWorkspaceDeps(
   backend: TestBackend,
   language: string,
   content: string,
+  name?: string,
 ): Promise<void> {
   if (!backend.apiRequest) {
     throw new Error("Backend does not support apiRequest");
@@ -688,6 +689,7 @@ export async function createRemoteWorkspaceDeps(
         workspace_id: backend.workspace,
         language,
         content,
+        ...(name ? { name } : {}),
       }),
     }
   );
