@@ -1036,7 +1036,10 @@ Windmill Community Edition {GIT_VERSION}
     }
 
     if server_mode || worker_mode || indexer_mode || mcp_mode {
-        let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
+        let port_var = std::env::var("PORT")
+            .or_else(|_| std::env::var("BACKEND_PORT"))
+            .ok()
+            .and_then(|x| x.parse().ok());
 
         let port = if server_mode || indexer_mode || mcp_mode {
             port_var.unwrap_or(DEFAULT_PORT as u16)
@@ -1081,6 +1084,10 @@ Windmill Community Edition {GIT_VERSION}
         #[cfg(feature = "prometheus")]
         if let Some(db) = conn.as_sql() {
             crate::monitor::monitor_pool(&db).await;
+        }
+
+        if let Some(db) = conn.as_sql() {
+            crate::monitor::monitor_pool_otel(&db).await;
         }
 
         send_logs_to_object_store(&conn, &hostname, &mode);

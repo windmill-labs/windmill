@@ -858,7 +858,13 @@ mod tests {
         let sig = calculate_hmac_signature(HmacAlgorithm::Sha256, secret, payload);
         let encoded = encode_hmac_signature(Encoding::Hex, &sig);
 
-        let data = make_auth_data(payload, &encoded, None, HmacAlgorithm::Sha256, Encoding::Hex);
+        let data = make_auth_data(
+            payload,
+            &encoded,
+            None,
+            HmacAlgorithm::Sha256,
+            Encoding::Hex,
+        );
         assert!(verify_hmac_signature(data, secret).is_ok());
     }
 
@@ -886,7 +892,13 @@ mod tests {
         let sig = calculate_hmac_signature(HmacAlgorithm::Sha512, secret, payload);
         let encoded = encode_hmac_signature(Encoding::Hex, &sig);
 
-        let data = make_auth_data(payload, &encoded, None, HmacAlgorithm::Sha512, Encoding::Hex);
+        let data = make_auth_data(
+            payload,
+            &encoded,
+            None,
+            HmacAlgorithm::Sha512,
+            Encoding::Hex,
+        );
         assert!(verify_hmac_signature(data, secret).is_ok());
     }
 
@@ -939,7 +951,13 @@ mod tests {
         let sig = calculate_hmac_signature(HmacAlgorithm::Sha256, secret, payload);
         let encoded = encode_hmac_signature(Encoding::Hex, &sig);
 
-        let data = make_auth_data(payload, &encoded, None, HmacAlgorithm::Sha256, Encoding::Hex);
+        let data = make_auth_data(
+            payload,
+            &encoded,
+            None,
+            HmacAlgorithm::Sha256,
+            Encoding::Hex,
+        );
         let result = verify_hmac_signature(data, "wrong_key");
         assert!(matches!(result, Err(AuthenticationError::InvalidSignature)));
     }
@@ -1045,10 +1063,7 @@ mod tests {
 
     #[test]
     fn test_hmac_algorithm_serde() {
-        assert_eq!(
-            serde_json::to_value(HmacAlgorithm::Sha1).unwrap(),
-            "sha1"
-        );
+        assert_eq!(serde_json::to_value(HmacAlgorithm::Sha1).unwrap(), "sha1");
         assert_eq!(
             serde_json::to_value(HmacAlgorithm::Sha256).unwrap(),
             "sha256"
@@ -1339,7 +1354,13 @@ mod tests {
     fn test_twitch_authenticate_valid_notification() {
         let secret = "twitch_secret";
         let payload = r#"{"subscription":{},"event":{"user_id":"123"}}"#.to_string();
-        let headers = twitch_headers(secret, &payload, "msg-123", "2024-01-01T00:00:00Z", "notification");
+        let headers = twitch_headers(
+            secret,
+            &payload,
+            "msg-123",
+            "2024-01-01T00:00:00Z",
+            "notification",
+        );
 
         let method = AuthenticationMethod::Signature(SignatureAuthentication {
             signature_provider: WebhookType::Twitch,
@@ -1441,7 +1462,8 @@ mod tests {
 
     #[test]
     fn test_zoom_non_challenge_returns_none() {
-        let payload = r#"{"event":"meeting.started","event_ts":1234567890,"payload":{"plainToken":"abc"}}"#;
+        let payload =
+            r#"{"event":"meeting.started","event_ts":1234567890,"payload":{"plainToken":"abc"}}"#;
 
         let handler = WebhookType::Zoom.get_webhook_handler().unwrap();
         let config_data = SignatureConfigData { secret_key: "secret" };
@@ -1461,10 +1483,7 @@ mod tests {
         let encoded = encode_hmac_signature(Encoding::Hex, &sig);
 
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "X-My-Signature",
-            HeaderValue::from_str(&encoded).unwrap(),
-        );
+        headers.insert("X-My-Signature", HeaderValue::from_str(&encoded).unwrap());
 
         let method = AuthenticationMethod::Signature(SignatureAuthentication {
             signature_provider: WebhookType::Custom,
@@ -1736,8 +1755,7 @@ mod tests {
 
     #[test]
     fn test_error_missing_header_is_400() {
-        let response =
-            AuthenticationError::MissingHeader("X-Sig".to_string()).into_response();
+        let response = AuthenticationError::MissingHeader("X-Sig".to_string()).into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 

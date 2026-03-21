@@ -104,6 +104,8 @@ pub struct Input {
     created_by: String,
     is_public: bool,
     success: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    is_preview: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -113,6 +115,7 @@ pub struct CompletedJobMini {
     args: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
     created_by: String,
     success: bool,
+    is_preview: bool,
 }
 
 #[derive(Deserialize)]
@@ -153,9 +156,10 @@ async fn get_input_history(
     let inner_limit = 2 * (per_page + offset);
 
     let sql = &format!(
-        "SELECT id, completed_at, created_by, args, success FROM (\
+        "SELECT id, completed_at, created_by, args, success, is_preview FROM (\
             SELECT id, v2_job_completed.completed_at, created_by, 'null'::jsonb as args, \
-            status = 'success' as success \
+            status = 'success' as success, \
+            kind IN ('preview', 'flowpreview') as is_preview \
             FROM v2_job JOIN v2_job_completed USING (id) \
             WHERE v2_job.workspace_id = $3 AND {} = $1 AND kind = any($2) \
             {args_query} AND v2_job_completed.status != 'skipped' {include_non_root} \
@@ -209,6 +213,7 @@ async fn get_input_history(
             created_by: row.created_by,
             is_public: true,
             success: row.success,
+            is_preview: row.is_preview,
         });
     }
 
@@ -306,6 +311,7 @@ async fn list_saved_inputs(
             created_at: row.created_at,
             is_public: row.is_public,
             success: true,
+            is_preview: false,
         })
     }
 

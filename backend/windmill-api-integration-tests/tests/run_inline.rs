@@ -1,6 +1,9 @@
+#[cfg(feature = "run_inline")]
 use serde_json::json;
+#[cfg(feature = "run_inline")]
 use sqlx::{Pool, Postgres};
 
+#[cfg(feature = "run_inline")]
 use windmill_test_utils::*;
 
 #[cfg(feature = "run_inline")]
@@ -20,18 +23,22 @@ async fn init_inline_utils(port: u16) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "run_inline")]
 fn run_inline_url(port: u16, endpoint: &str) -> String {
     format!("http://localhost:{port}/api/w/test-workspace/jobs/run_inline/{endpoint}")
 }
 
+#[cfg(feature = "run_inline")]
 fn client() -> reqwest::Client {
     reqwest::Client::new()
 }
 
+#[cfg(feature = "run_inline")]
 fn authed(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     builder.header("Authorization", "Bearer SECRET_TOKEN")
 }
 
+#[cfg(feature = "run_inline")]
 fn new_script(
     path: &str,
     summary: &str,

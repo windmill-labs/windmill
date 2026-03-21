@@ -63,18 +63,19 @@
 
 			const inputsWithPayload = await Promise.all(
 				inputs.map(async (input) => {
+					const isPreview = !!(input as any).is_preview
 					if (cachedArgs[input.id]) {
 						return {
 							...input,
 							payloadData: cachedArgs[input.id]
 						}
 					}
-					const payloadData = await loadArgsFromHistory(input.id, undefined, false)
+					const payloadData = await loadArgsFromHistory(input.id, undefined, false, isPreview)
 					if (payloadData === 'WINDMILL_TOO_BIG') {
 						return {
 							...input,
 							payloadData: 'WINDMILL_TOO_BIG',
-							getFullPayload: () => loadArgsFromHistory(input.id, undefined, true)
+							getFullPayload: () => loadArgsFromHistory(input.id, undefined, true, isPreview)
 						}
 					}
 					cachedArgs[input.id] = payloadData
@@ -93,10 +94,17 @@
 		timeout && clearTimeout(timeout)
 	})
 
+	function filterPreviewArgs(args: any, isPreview: boolean): any {
+		if (!isPreview || !args || typeof args !== 'object' || Array.isArray(args)) return args
+		const { _MODULES, ...rest } = args
+		return rest
+	}
+
 	async function loadArgsFromHistory(
 		id: string | undefined,
 		input: boolean | undefined,
-		allowLarge: boolean
+		allowLarge: boolean,
+		isPreview: boolean = false
 	): Promise<any> {
 		if (!id) return
 		const payloadData = await InputService.getArgsFromHistoryOrSavedInput({
@@ -105,7 +113,7 @@
 			input,
 			allowLarge
 		})
-		return payloadData
+		return filterPreviewArgs(payloadData, isPreview)
 	}
 
 	function updateViewerOpenState(itemId: string, isOpen: boolean) {
@@ -131,6 +139,7 @@
 			job={item}
 			hovering={hover}
 			payloadData={item.payloadData}
+			isPreview={!!item.is_preview}
 			{showAuthor}
 			{placement}
 			{viewerOpen}
