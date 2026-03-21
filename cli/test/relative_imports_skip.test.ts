@@ -11,6 +11,9 @@ import { expect, test } from "bun:test";
 import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { withTestBackend } from "./test_backend.ts";
 
+// TODO: re-enable Python tests on CI if python feature is included by default
+const isCI = process.env["CI_MINIMAL_FEATURES"] === "true";
+
 const defaultMetadata = `summary: "Test"
 schema:
   type: object
@@ -150,7 +153,7 @@ export function funcB() { return _.VERSION + funcA(); }
 // Test 4: Python basic import with pip dependency propagation
 // =============================================================================
 
-test("Python: imported script's pip dep appears in importer's lock", { timeout: 60000 }, async () => {
+test.skipIf(isCI)("Python: imported script's pip dep appears in importer's lock", { timeout: 60000 }, async () => {
   await withTestBackend(async (backend, tempDir) => {
     await writeFile(`${tempDir}/wmill.yaml`, `includes: ["**"]
 excludes: []`);
@@ -195,7 +198,7 @@ def helper_func():
 // Test 5: Diamond dependency - A imports B and C, both import D
 // =============================================================================
 
-test("Python: diamond dependency pattern propagates correctly", { timeout: 60000 }, async () => {
+test.skipIf(isCI)("Python: diamond dependency pattern propagates correctly", { timeout: 60000 }, async () => {
   await withTestBackend(async (backend, tempDir) => {
     await writeFile(`${tempDir}/wmill.yaml`, `includes: ["**"]
 excludes: []`);
@@ -315,7 +318,7 @@ export async function main() { return helper(); }
 // Test 7: Python relative imports with dot syntax
 // =============================================================================
 
-test("Python: relative imports with dot syntax work correctly", { timeout: 60000 }, async () => {
+test.skipIf(isCI)("Python: relative imports with dot syntax work correctly", { timeout: 60000 }, async () => {
   await withTestBackend(async (backend, tempDir) => {
     await writeFile(`${tempDir}/wmill.yaml`, `includes: ["**"]
 excludes: []`);
@@ -357,7 +360,7 @@ def helper_func():
 // Test 8: Adding new import updates importer's lock
 // =============================================================================
 
-test("Python: adding new import updates importer's lock correctly", { timeout: 120000 }, async () => {
+test.skipIf(isCI)("Python: adding new import updates importer's lock correctly", { timeout: 120000 }, async () => {
   await withTestBackend(async (backend, tempDir) => {
     await writeFile(`${tempDir}/wmill.yaml`, `includes: ["**"]
 excludes: []`);
