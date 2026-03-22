@@ -2,7 +2,7 @@ import type { FlowModule } from '$lib/gen'
 import type { StateStore } from '$lib/utils'
 import type { ExtendedOpenFlow } from '../flows/types'
 
-import { canFormValidGroup, computeGroupModuleIds } from './groupDetectionUtils'
+import { canFormValidGroup, computeGroupModuleIds, VIRTUAL_NODE_IDS } from './groupDetectionUtils'
 import type { NoteColor } from './noteColors'
 import { DEFAULT_GROUP_NOTE_COLOR, getNextAvailableColor } from './noteColors'
 import { generateId } from './util'
@@ -340,6 +340,15 @@ function buildGroupedModulesRecurse(
 	const indexMap = new Map<string, number>()
 	for (let i = 0; i < modules.length; i++) {
 		indexMap.set(modules[i].id, i)
+	}
+
+	// Reject groups that reference virtual nodes
+	for (const g of groups) {
+		if (VIRTUAL_NODE_IDS.has(g.start_id) || VIRTUAL_NODE_IDS.has(g.end_id)) {
+			throw new Error(
+				`Group '${g.id}' references virtual node: groups cannot include Input, Result, or Trigger`
+			)
+		}
 	}
 
 	// Partition: groups for this level vs rest

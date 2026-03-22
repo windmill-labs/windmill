@@ -1,5 +1,8 @@
 import { topologicalSort } from './graphBuilder.svelte'
 
+/** Node IDs synthesized by graphBuilder that are not real FlowModules */
+export const VIRTUAL_NODE_IDS = new Set(['Input', 'Result', 'Trigger'])
+
 type FlowNode = { id: string; parentIds?: string[] }
 
 export type GroupMembership = {
@@ -127,10 +130,14 @@ export function canFormValidGroup(
 
 	if (selectedSorted.length === 0) return { valid: false }
 
+	// Filter out virtual nodes — they cannot be part of a group
+	const nonVirtualSorted = selectedSorted.filter((n) => !VIRTUAL_NODE_IDS.has(n.id))
+	if (nonVirtualSorted.length === 0) return { valid: false }
+
 	// Topo sort: index 0 = bottom of flow, last index = top of flow
 	// start_id = top (visually), end_id = bottom (visually)
-	const startId = selectedSorted[selectedSorted.length - 1].id
-	const endId = selectedSorted[0].id
+	const startId = nonVirtualSorted[nonVirtualSorted.length - 1].id
+	const endId = nonVirtualSorted[0].id
 
 	// Validate that the computed members match the selection
 	const membership = computeGroupNodeIds(startId, endId, flowNodes)
