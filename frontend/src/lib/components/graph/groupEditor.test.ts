@@ -47,6 +47,21 @@ describe('buildGroupedModules', () => {
 		expect(() => buildGroupedModules(modules, groups)).toThrow(/overlap without nesting/i)
 	})
 
+	it('throws when group start_id is a virtual node (Input)', () => {
+		const groups = [makeGroup('g1', 'Input', 'b', ['a', 'b'])]
+		expect(() => buildGroupedModules(modules, groups)).toThrow(/virtual node/i)
+	})
+
+	it('throws when group end_id is a virtual node (Result)', () => {
+		const groups = [makeGroup('g1', 'a', 'Result', ['a', 'b', 'c'])]
+		expect(() => buildGroupedModules(modules, groups)).toThrow(/virtual node/i)
+	})
+
+	it('throws when group references Trigger', () => {
+		const groups = [makeGroup('g1', 'Trigger', 'c', ['a', 'b', 'c'])]
+		expect(() => buildGroupedModules(modules, groups)).toThrow(/virtual node/i)
+	})
+
 	it('allows fully nested groups', () => {
 		const mods = [makeModule('a'), makeModule('b'), makeModule('c'), makeModule('d')]
 		const groups = [
