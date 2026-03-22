@@ -18,6 +18,9 @@ import {
 } from "./test_fixtures.ts";
 import { setNonDottedPaths } from "../src/utils/resource_folders.ts";
 
+// TODO: re-enable on CI when python feature is included by default
+const isCI = process.env["CI_MINIMAL_FEATURES"] === "true";
+
 // =============================================================================
 // WASM Parser Unit Tests
 // =============================================================================
@@ -489,7 +492,7 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
     });
   });
 
-  test("dependency change triggers lock regeneration for flows and apps", { timeout: 180000 }, async () => {
+  test.skipIf(isCI)("dependency change triggers lock regeneration for flows and apps", { timeout: 180000 }, async () => {
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
@@ -597,7 +600,7 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
     });
   });
 
-  test("locally modified workspace deps are used for lock generation instead of remote", { timeout: 180000 }, async () => {
+  test.skipIf(isCI)("locally modified workspace deps are used for lock generation instead of remote", { timeout: 180000 }, async () => {
     await withTestBackend(async (backend, tempDir) => {
       await writeFile(
         `${tempDir}/wmill.yaml`,
