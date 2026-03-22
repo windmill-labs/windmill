@@ -5,7 +5,7 @@
  *    using the CLI generate-metadata command against a real backend
  */
 
-import { expect, test, describe, beforeAll } from "bun:test";
+import { expect, test, describe, beforeAll, afterAll } from "bun:test";
 import { readFile, readdir, writeFile, mkdir } from "node:fs/promises";
 import { loadParser } from "../src/utils/metadata.ts";
 import { extractRelativeImports } from "../src/utils/relative_imports.ts";
@@ -182,6 +182,9 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
 
   beforeAll(() => {
     setNonDottedPaths(nonDotted);
+  });
+  afterAll(() => {
+    setNonDottedPaths(false);
   });
   test("script importing another script gets transitive npm deps in lock", { timeout: 60000 }, async () => {
     await withTestBackend(async (backend, tempDir) => {

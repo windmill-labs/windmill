@@ -157,7 +157,8 @@ kind: script
 export function createFlowFixture(
   name: string,
   inlineScriptContent?: string,
-  language: "bun" | "python3" = "bun"
+  language: "bun" | "python3" = "bun",
+  lockContent?: string
 ): FlowFixture {
   const flowSuffix = getFolderSuffix("flow");
   const metadataFile = getMetadataFileName("flow", "yaml");
@@ -178,7 +179,11 @@ export function createFlowFixture(
   const scriptFile = `a${inlineSuffix}.${ext}`;
   const lockFile = `a${inlineSuffix}.lock`;
 
-  return {
+  const lockLine = lockContent !== undefined
+    ? `\n        lock: "!inline ${lockFile}"`
+    : "";
+
+  const result: FlowFixture = {
     metadata: {
       path: `${name}${flowSuffix}/${metadataFile}`,
       content: `summary: "${name} flow"
@@ -187,9 +192,8 @@ value:
   modules:
     - id: a
       value:
-        lock: "!inline ${lockFile}"
         type: rawscript
-        content: "!inline ${scriptFile}"
+        content: "!inline ${scriptFile}"${lockLine}
         language: ${langMap[language]}
         input_transforms: {}
 schema:
@@ -203,11 +207,16 @@ schema:
       path: `${name}${flowSuffix}/${scriptFile}`,
       content: scriptContent,
     },
-    inlineLock: {
-      path: `${name}${flowSuffix}/${lockFile}`,
-      content: "",
-    },
   };
+
+  if (lockContent !== undefined) {
+    result.inlineLock = {
+      path: `${name}${flowSuffix}/${lockFile}`,
+      content: lockContent,
+    };
+  }
+
+  return result;
 }
 
 // =============================================================================
@@ -415,9 +424,10 @@ export async function createLocalFlow(
   path: string,
   name: string,
   inlineScriptContent?: string,
-  language: "bun" | "python3" = "bun"
+  language: "bun" | "python3" = "bun",
+  lockContent?: string
 ): Promise<void> {
-  const fixture = createFlowFixture(name, inlineScriptContent, language);
+  const fixture = createFlowFixture(name, inlineScriptContent, language, lockContent);
   const flowDir = `${tempDir}/${path}/${name}${getFolderSuffix("flow")}`;
   await mkdir(flowDir, { recursive: true });
 
