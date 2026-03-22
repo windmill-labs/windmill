@@ -934,6 +934,8 @@
 			return { nodes: {}, edges: [], error: groupError }
 		}
 
+		console.log('dbg', effectiveModules)
+
 		// Use provided groupedModules (from proxy) or build locally (diff mode / read-only)
 		let gm: GroupedModule[] | undefined = groupedModulesProp
 		if (!gm) {
@@ -944,16 +946,10 @@
 					computeGroupModuleIds(g.start_id, g.end_id, getAllModules(effectiveModules ?? []))
 				)
 			}))
-			const excludeIds = new Set<string>()
-			const ppId = untrack(() => effectivePreprocessorModule)?.id
-			if (ppId) excludeIds.add(ppId)
-			const fmId = untrack(() => effectiveFailureModule)?.id
-			if (fmId) excludeIds.add(fmId)
 			try {
 				gm = buildGroupedModules(
 					stateSnapshot(untrack(() => effectiveModules) ?? []) as FlowModule[],
-					graphGroups,
-					excludeIds
+					graphGroups
 				)
 			} catch (e) {
 				return { nodes: {}, edges: [], error: e }

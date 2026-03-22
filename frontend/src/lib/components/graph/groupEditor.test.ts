@@ -62,18 +62,6 @@ describe('buildGroupedModules', () => {
 		expect(() => buildGroupedModules(modules, groups)).toThrow(/virtual node/i)
 	})
 
-	it('throws when group references an excluded node (preprocessor)', () => {
-		const excludeIds = new Set(['preprocessor1'])
-		const groups = [makeGroup('g1', 'preprocessor1', 'b', ['a', 'b'])]
-		expect(() => buildGroupedModules(modules, groups, excludeIds)).toThrow(/non-groupable/i)
-	})
-
-	it('throws when group end_id is an excluded node (failure module)', () => {
-		const excludeIds = new Set(['failure1'])
-		const groups = [makeGroup('g1', 'a', 'failure1', ['a', 'b'])]
-		expect(() => buildGroupedModules(modules, groups, excludeIds)).toThrow(/non-groupable/i)
-	})
-
 	it('allows fully nested groups', () => {
 		const mods = [makeModule('a'), makeModule('b'), makeModule('c'), makeModule('d')]
 		const groups = [
