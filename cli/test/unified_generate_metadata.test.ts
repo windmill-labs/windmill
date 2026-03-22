@@ -641,7 +641,7 @@ describe("generate-metadata with script modules", () => {
       expect(output).toContain("order_workflow");
       // Module files should NOT appear as separate stale scripts (only within [changed modules: ...])
       const lines = output.split("\n");
-      const staleLines = lines.filter((l: string) => l.includes("f/test/"));
+      const staleLines = lines.filter((l: string) => l.includes("f/test/") || l.includes("f\\test\\"));
       expect(staleLines.length).toBe(1);
       expect(staleLines[0]).toContain("order_workflow");
     });

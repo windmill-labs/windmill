@@ -49,11 +49,7 @@ export function helper() { return _.VERSION; }
       ["generate-metadata", "-i", "f/test/*", "--yes"],
       tempDir
     );
-    if (result.code !== 0) {
-      console.log("STDOUT:", result.stdout);
-      console.log("STDERR:", result.stderr);
-    }
-    expect(result.code).toBe(0);
+    expect(result.code, `generate-metadata failed:\nSTDOUT: ${result.stdout}\nSTDERR: ${result.stderr}`).toBe(0);
 
     const lockA = await readFile(`${tempDir}/f/test/script_a.script.lock`, "utf-8").catch(() => "");
     const lockB = await readFile(`${tempDir}/f/test/script_b.script.lock`, "utf-8").catch(() => "");
