@@ -65,6 +65,10 @@ export default class HistoryManager {
 		this.indexDB?.close()
 	}
 
+	getCurrentChatId() {
+		return this.currentChatId
+	}
+
 	getPastChats() {
 		return this.pastChats
 	}

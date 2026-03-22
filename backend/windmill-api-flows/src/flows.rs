@@ -454,7 +454,7 @@ async fn create_flow(
                 .await?;
         if nb_flows.unwrap_or(0) >= 1000 {
             return Err(Error::BadRequest(
-                    "You have reached the maximum number of flows (1000) on cloud. Contact support@windmill.dev to increase the limit"
+                    "You have reached the maximum number of flows (1000) on cloud. Check your usage in Workspace Settings > General > Cloud Quotas. Contact support@windmill.dev to increase the limit"
                         .to_string(),
                 ));
         }

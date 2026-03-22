@@ -134,6 +134,12 @@
 							<Toggle
 								size="xs"
 								bind:checked={flowModule.stop_after_if.skip_if_stopped}
+								on:change={(event) => {
+									if (flowModule.stop_after_if && event.detail) {
+										flowModule.stop_after_if.error_message = undefined
+										raise_error_message_stop_after_if = false
+									}
+								}}
 								options={{
 									right: 'Label flow as "skipped" if stopped'
 								}}
@@ -143,13 +149,18 @@
 								bind:checked={raise_error_message_stop_after_if}
 								on:change={(event) => {
 									if (flowModule.stop_after_if) {
-										flowModule.stop_after_if.error_message = event.detail === false ? undefined : ''
+										if (event.detail) {
+											flowModule.stop_after_if.error_message = ''
+											flowModule.stop_after_if.skip_if_stopped = false
+										} else {
+											flowModule.stop_after_if.error_message = undefined
+										}
 									}
 								}}
 								options={{
 									right: 'Raise an error message if stopped',
 									rightTooltip:
-										'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used.'
+										'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used. Mutually exclusive with "Label flow as skipped".'
 								}}
 							/>
 						</div>
@@ -269,6 +280,12 @@
 							<Toggle
 								size="xs"
 								bind:checked={flowModule.stop_after_all_iters_if.skip_if_stopped}
+								on:change={(event) => {
+									if (flowModule.stop_after_all_iters_if && event.detail) {
+										flowModule.stop_after_all_iters_if.error_message = undefined
+										raise_error_message_stop_after_all_if = false
+									}
+								}}
 								options={{
 									right: 'Label flow as "skipped" if stopped'
 								}}
@@ -278,14 +295,18 @@
 								bind:checked={raise_error_message_stop_after_all_if}
 								on:change={(event) => {
 									if (flowModule.stop_after_all_iters_if) {
-										flowModule.stop_after_all_iters_if.error_message =
-											event.detail === false ? undefined : ''
+										if (event.detail) {
+											flowModule.stop_after_all_iters_if.error_message = ''
+											flowModule.stop_after_all_iters_if.skip_if_stopped = false
+										} else {
+											flowModule.stop_after_all_iters_if.error_message = undefined
+										}
 									}
 								}}
 								options={{
 									right: 'Raise an error message if stopped',
 									rightTooltip:
-										'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used.'
+										'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used. Mutually exclusive with "Label flow as skipped".'
 								}}
 							/>
 						</div>

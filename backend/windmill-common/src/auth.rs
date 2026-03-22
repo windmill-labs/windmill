@@ -35,10 +35,7 @@ pub const TOKEN_PREFIX_LEN: usize = 10;
 /// Safely extract the token prefix (first TOKEN_PREFIX_LEN chars).
 /// Returns the full token if it's shorter than TOKEN_PREFIX_LEN, preventing panics.
 pub fn safe_token_prefix(token: &str) -> String {
-    token
-        .get(..TOKEN_PREFIX_LEN)
-        .unwrap_or(token)
-        .to_string()
+    token.get(..TOKEN_PREFIX_LEN).unwrap_or(token).to_string()
 }
 
 lazy_static::lazy_static! {
@@ -121,10 +118,11 @@ pub fn check_extra_perms(
     groups: &[String],
 ) -> Option<bool> {
     // Check direct user permission
-    let user_key = if username.starts_with("u/") {
+    use crate::users::{PERMISSIONED_AS_GROUP_PREFIX, PERMISSIONED_AS_USER_PREFIX};
+    let user_key = if username.starts_with(PERMISSIONED_AS_USER_PREFIX) {
         username.to_string()
     } else {
-        format!("u/{username}")
+        format!("{PERMISSIONED_AS_USER_PREFIX}{username}")
     };
     if let Some(v) = extra_perms.get(&user_key) {
         return Some(v.as_bool().unwrap_or(false));
@@ -134,10 +132,10 @@ pub fn check_extra_perms(
     let mut found = false;
     let mut write = false;
     for g in groups {
-        let key = if g.starts_with("g/") {
+        let key = if g.starts_with(PERMISSIONED_AS_GROUP_PREFIX) {
             g.to_string()
         } else {
-            format!("g/{g}")
+            format!("{PERMISSIONED_AS_GROUP_PREFIX}{g}")
         };
         if let Some(v) = extra_perms.get(&key) {
             found = true;
@@ -293,12 +291,13 @@ pub async fn is_devops_email(db: &DB, email: &str) -> Result<bool> {
 }
 
 pub fn permissioned_as_to_username(permissioned_as: &str) -> String {
-    if let Some((prefix, name)) = permissioned_as.split_once('/') {
-        if prefix == "u" {
-            name.to_string()
-        } else {
-            format!("group-{}", name)
-        }
+    use crate::users::{PERMISSIONED_AS_USER_PREFIX, USERNAME_GROUP_PREFIX};
+    if let Some(name) = permissioned_as.strip_prefix(PERMISSIONED_AS_USER_PREFIX) {
+        name.to_string()
+    } else if let Some(name) =
+        permissioned_as.strip_prefix(crate::users::PERMISSIONED_AS_GROUP_PREFIX)
+    {
+        format!("{}{}", USERNAME_GROUP_PREFIX, name)
     } else {
         permissioned_as.to_string()
     }
@@ -379,7 +378,7 @@ async fn fetch_authed_from_permissioned_as_inner(
             let folders = get_folders_for_user(&w_id, "", &groups, &mut *conn).await?;
             Ok(Authed {
                 email: email.to_string(),
-                username: format!("group-{name}"),
+                username: format!("{}{name}", crate::users::USERNAME_GROUP_PREFIX),
                 is_admin: false,
                 groups,
                 is_operator: false,

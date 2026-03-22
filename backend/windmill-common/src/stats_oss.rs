@@ -67,7 +67,7 @@ pub async fn get_stats_payload(
 }
 
 #[cfg(not(feature = "private"))]
-pub fn encrypt_stats(_stats: &Stats) -> Result<String> {
+pub fn sign_stats(_json: &str) -> String {
     // stats details are closed source
-    Ok(String::new())
+    String::new()
 }

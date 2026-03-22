@@ -39,6 +39,10 @@ use windmill_common::ee_oss::{jobs_waiting_alerts, worker_groups_alerts};
 
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
+use windmill_common::otel_oss::{
+    otel_incr_zombie_delete_count, otel_incr_zombie_restart_count, otel_set_db_pool,
+    otel_set_queue_count, otel_set_queue_running_count,
+};
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::APP_WORKSPACED_ROUTE,
@@ -90,11 +94,12 @@ use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
-    OtelTracingProxySettings, SameWorkerSender, BUNFIG_INSTALL_SCOPES, CARGO_REGISTRIES,
-    INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR,
-    MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY,
+    OtelTracingProxySettings, SameWorkerSender, WorkspaceRegistryMap, BUNFIG_INSTALL_SCOPES,
+    CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION,
+    KEEP_JOB_DIR, MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY,
     NSJAIL_AVAILABLE, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL,
     PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UV_INDEX_STRATEGY,
+    WORKSPACE_REGISTRIES,
 };
 
 #[cfg(feature = "parquet")]
@@ -234,6 +239,7 @@ pub async fn initial_load(
                 )
             }
             windmill_common::min_version::store_min_keep_alive_version(db).await;
+            reload_instance_events_webhook_setting(db).await;
         }
     }
 
@@ -352,6 +358,7 @@ pub async fn initial_load(
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
         reload_cargo_registries_setting(&conn).await;
+        reload_workspace_registries_setting(&conn).await;
     }
 }
 
@@ -1358,6 +1365,26 @@ async fn delete_log_files_from_disk_and_store(
     let _: Vec<_> = delete_futures.collect().await;
 }
 
+pub async fn reload_instance_events_webhook_setting(db: &DB) {
+    use windmill_common::global_settings::INSTANCE_EVENTS_WEBHOOK_SETTING;
+    use windmill_common::webhook::INSTANCE_EVENTS_WEBHOOK;
+
+    let value = load_value_from_global_settings(db, INSTANCE_EVENTS_WEBHOOK_SETTING).await;
+    match value {
+        Ok(Some(serde_json::Value::String(s))) if !s.is_empty() => {
+            *INSTANCE_EVENTS_WEBHOOK.write().await = Some(s);
+        }
+        Ok(None) | Ok(Some(serde_json::Value::Null)) | Ok(Some(serde_json::Value::String(_))) => {
+            // Fall back to env var if DB has no value
+            *INSTANCE_EVENTS_WEBHOOK.write().await = std::env::var("INSTANCE_EVENTS_WEBHOOK").ok();
+        }
+        Err(e) => {
+            tracing::error!("Error loading instance_events_webhook setting: {e:#}");
+        }
+        _ => (),
+    };
+}
+
 pub async fn reload_scim_token_setting(conn: &Connection) {
     reload_option_setting_with_tracing(conn, SCIM_TOKEN_SETTING, "SCIM_TOKEN", SCIM_TOKEN.clone())
         .await;
@@ -1554,6 +1581,35 @@ pub async fn reload_cargo_registries_setting(conn: &Connection) {
         CARGO_REGISTRIES.clone(),
     )
     .await;
+}
+
+pub async fn reload_workspace_registries_setting(conn: &Connection) {
+    let value = load_value_from_global_settings_with_conn(
+        conn,
+        windmill_common::global_settings::WORKSPACE_REGISTRIES_SETTING,
+        true,
+    )
+    .await;
+    match value {
+        Ok(Some(v)) => match serde_json::from_value::<WorkspaceRegistryMap>(v) {
+            Ok(parsed) => {
+                tracing::info!(
+                    "Loaded workspace registries for {} workspaces",
+                    parsed.len()
+                );
+                *WORKSPACE_REGISTRIES.write().await = Some(parsed);
+            }
+            Err(e) => {
+                tracing::error!("Error parsing workspace_registries setting: {e:#}");
+            }
+        },
+        Ok(None) => {
+            *WORKSPACE_REGISTRIES.write().await = None;
+        }
+        Err(e) => {
+            tracing::error!("Error loading workspace_registries setting: {e:#}");
+        }
+    }
 }
 
 pub async fn reload_hub_api_secret_setting(conn: &Connection) {
@@ -1908,28 +1964,39 @@ pub async fn monitor_pool(db: &DB) {
     if METRICS_ENABLED.load(Ordering::Relaxed) {
         let db = db.clone();
         tokio::spawn(async move {
-            let active_pool_connections: prometheus::IntGauge = prometheus::register_int_gauge!(
+            let active_gauge = prometheus::register_int_gauge!(
                 "pool_connections_active",
                 "Number of active postgresql connections in the pool"
             )
             .unwrap();
-
-            let idle_pool_connections: prometheus::IntGauge = prometheus::register_int_gauge!(
+            let idle_gauge = prometheus::register_int_gauge!(
                 "pool_connections_idle",
                 "Number of idle postgresql connections in the pool"
             )
             .unwrap();
-
-            let max_pool_connections: prometheus::IntGauge = prometheus::register_int_gauge!(
+            let max_gauge = prometheus::register_int_gauge!(
                 "pool_connections_max",
                 "Number of max postgresql connections in the pool"
             )
             .unwrap();
 
-            max_pool_connections.set(db.options().get_max_connections() as i64);
+            max_gauge.set(db.options().get_max_connections() as i64);
             loop {
-                active_pool_connections.set(db.size() as i64);
-                idle_pool_connections.set(db.num_idle() as i64);
+                active_gauge.set(db.size() as i64);
+                idle_gauge.set(db.num_idle() as i64);
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        });
+    }
+}
+
+pub async fn monitor_pool_otel(db: &DB) {
+    if OTEL_METRICS_ENABLED.load(Ordering::Relaxed) {
+        let db = db.clone();
+        tokio::spawn(async move {
+            let max = db.options().get_max_connections() as i64;
+            loop {
+                otel_set_db_pool(db.size() as i64, db.num_idle() as i64, max);
                 tokio::time::sleep(Duration::from_secs(30)).await;
             }
         });
@@ -2268,7 +2335,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         .map(|last_check| chrono::Utc::now() - last_check > chrono::Duration::seconds(25))
         .unwrap_or(true);
 
-    if metrics_enabled || save_metrics {
+    if metrics_enabled || save_metrics || OTEL_METRICS_ENABLED.load(Ordering::Relaxed) {
         let queue_counts = windmill_common::queue::get_queue_counts(db).await;
 
         #[cfg(feature = "prometheus")]
@@ -2292,6 +2359,8 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
                 metric.set(count as i64);
                 tags_to_watch.push(tag.to_string());
             }
+
+            otel_set_queue_count(&tag, count as i64);
 
             // save queue_count and delay metrics per tag
             if save_metrics {
@@ -2326,28 +2395,45 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             *w = tags_to_watch;
         }
 
+        // Single DB query for running counts, shared by Prometheus and OTel
+        let otel_running = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
         #[cfg(feature = "prometheus")]
-        if metrics_enabled {
-            // Handle queue running count metrics
+        let need_running_counts = metrics_enabled || otel_running;
+        #[cfg(not(feature = "prometheus"))]
+        let need_running_counts = otel_running;
+
+        if need_running_counts {
             let queue_running_counts = windmill_common::queue::get_queue_running_counts(db).await;
 
-            for q in QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
-                if queue_running_counts.get(q).is_none() {
-                    (*QUEUE_RUNNING_COUNT).with_label_values(&[q]).set(0);
+            #[cfg(feature = "prometheus")]
+            if metrics_enabled {
+                for q in QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
+                    if queue_running_counts.get(q).is_none() {
+                        (*QUEUE_RUNNING_COUNT).with_label_values(&[q]).set(0);
+                    }
                 }
             }
 
-            let mut running_tags_to_watch = vec![];
-            for q in queue_running_counts {
-                let count = q.1;
-                let tag = q.0;
+            #[allow(unused_mut, unused_variables)]
+            let mut running_tags_to_watch: Vec<String> = vec![];
+            for (tag, count) in &queue_running_counts {
+                #[cfg(feature = "prometheus")]
+                if metrics_enabled {
+                    let metric = (*QUEUE_RUNNING_COUNT).with_label_values(&[tag]);
+                    metric.set(*count as i64);
+                    running_tags_to_watch.push(tag.to_string());
+                }
 
-                let metric = (*QUEUE_RUNNING_COUNT).with_label_values(&[&tag]);
-                metric.set(count as i64);
-                running_tags_to_watch.push(tag.to_string());
+                if otel_running {
+                    otel_set_queue_running_count(tag, *count as i64);
+                }
             }
-            let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
-            *w = running_tags_to_watch;
+
+            #[cfg(feature = "prometheus")]
+            if metrics_enabled {
+                let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
+                *w = running_tags_to_watch;
+            }
         }
     }
 
@@ -2641,6 +2727,8 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
         }
 
+        otel_incr_zombie_restart_count(restarted.len() as u64);
+
         let base_url = BASE_URL.read().await.clone();
         for r in restarted {
             let last_ping = if let Some(x) = r.ping {
@@ -2808,6 +2896,8 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
     }
+
+    otel_incr_zombie_delete_count(timeouts.len() as u64);
 
     for (job_id, error_kind) in timeouts {
         // since the job is unrecoverable, the same worker queue should never be sent anything

@@ -204,8 +204,9 @@
 	}
 
 	function updateLastJob() {
-		// Prefer testJob only when actively running/streaming (individual step test in progress)
-		if (testJob && (testJob.result_stream || testJob.type === 'QueuedJob')) {
+		// Prefer testJob when actively running/streaming (individual step test in progress)
+		// or when there's no moduleId (result node — no flowStateStore entry exists)
+		if (testJob && (testJob.result_stream || testJob.type === 'QueuedJob' || !moduleId)) {
 			return testJob
 		}
 		if (

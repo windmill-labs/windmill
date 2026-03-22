@@ -8,6 +8,7 @@
 		ArrowUpRight,
 		Building,
 		DiffIcon,
+		FileJson,
 		GitFork,
 		Loader2,
 		Trash2,
@@ -43,11 +44,12 @@
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
 	import type { Kind } from '$lib/utils_deployable'
-	import { deployItem, getItemValue, getOnBehalfOfEmail } from '$lib/utils_workspace_deploy'
+	import { deployItem, getItemValue, getOnBehalfOf } from '$lib/utils_workspace_deploy'
 	import Tooltip from './Tooltip.svelte'
 	import OnBehalfOfSelector, {
 		needsOnBehalfOfSelection,
-		type OnBehalfOfChoice
+		type OnBehalfOfChoice,
+		type OnBehalfOfDetails
 	} from './OnBehalfOfSelector.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
@@ -119,7 +121,7 @@
 	// Source workspace on_behalf_of emails (keyed by workspace/kind:path)
 	let onBehalfOfInfo = $state<Record<string, string | undefined>>({})
 	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
-	let customOnBehalfOfEmails = $state<Record<string, string>>({})
+	let customOnBehalfOf = $state<Record<string, OnBehalfOfDetails>>({})
 	let deployTargetWorkspace = $derived(mergeIntoParent ? parentWorkspaceId : currentWorkspaceId)
 
 	function getItemKey(diff: WorkspaceItemDiff): string {
@@ -138,7 +140,7 @@
 			} else if (kind === 'flow') {
 				const flow = await FlowService.getFlowByPath({ workspace, path })
 				return flow.summary
-			} else if (kind === 'app') {
+			} else if (kind === 'app' || kind === 'raw_app') {
 				const app = await AppService.getAppByPath({ workspace, path })
 				return app.summary
 			} else if (kind === 'folder') {
@@ -154,7 +156,7 @@
 	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
 		// Only fetch summaries for scripts, flows, and apps
 		const itemsToFetch = diffs.filter((diff) =>
-			['script', 'flow', 'app', 'folder'].includes(diff.kind)
+			['script', 'flow', 'app', 'raw_app', 'folder'].includes(diff.kind)
 		)
 
 		for (const diff of itemsToFetch) {
@@ -181,14 +183,16 @@
 	}
 
 	async function fetchOnBehalfOfInfo(diffs: WorkspaceItemDiff[]) {
-		const flowsAndScripts = diffs.filter((d) => ['flow', 'script', 'app'].includes(d.kind))
+		const flowsAndScripts = diffs.filter((d) =>
+			['flow', 'script', 'app', 'raw_app'].includes(d.kind)
+		)
 		for (const diff of flowsAndScripts) {
 			for (const workspace of [currentWorkspaceId, parentWorkspaceId]) {
 				const workspacedKey = getWorkspacedKey(workspace, getItemKey(diff))
 				if (onBehalfOfInfo[workspacedKey] !== undefined) continue
 
 				try {
-					onBehalfOfInfo[workspacedKey] = await getOnBehalfOfEmail(
+					onBehalfOfInfo[workspacedKey] = await getOnBehalfOf(
 						diff.kind as Kind,
 						diff.path,
 						workspace
@@ -200,21 +204,21 @@
 		}
 	}
 
-	// Get source workspace email for an item
-	function getSourceEmail(itemKey: string): string | undefined {
+	// Get source workspace on_behalf_of value for an item (email for runnables, permissioned_as for triggers)
+	function getSourceOnBehalfOf(itemKey: string): string | undefined {
 		const sourceWorkspace = mergeIntoParent ? currentWorkspaceId : parentWorkspaceId
 		return onBehalfOfInfo[getWorkspacedKey(sourceWorkspace, itemKey)]
 	}
 
-	// Get target workspace email for an item (existing item in destination)
-	function getTargetEmail(itemKey: string): string | undefined {
+	// Get target workspace on_behalf_of value for an item (existing item in destination)
+	function getTargetOnBehalfOf(itemKey: string): string | undefined {
 		const targetWorkspace = mergeIntoParent ? parentWorkspaceId : currentWorkspaceId
 		return onBehalfOfInfo[getWorkspacedKey(targetWorkspace, itemKey)]
 	}
 
 	// Check if an item needs on_behalf_of selection
 	function itemNeedsOnBehalfOfSelection(itemKey: string, kind: string): boolean {
-		return needsOnBehalfOfSelection(kind, getSourceEmail(itemKey))
+		return needsOnBehalfOfSelection(kind, getSourceOnBehalfOf(itemKey))
 	}
 
 	// Check if all required on_behalf_of selections are made
@@ -228,12 +232,18 @@
 		})
 	)
 
-	// Get the email to use for deployment based on user's choice
-	function getOnBehalfOfEmailForDeploy(itemKey: string): string | undefined {
+	/**
+	 * Get the on_behalf_of value for deployment based on user's choice.
+	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for triggers/schedules.
+	 */
+	function getOnBehalfOfForDeploy(itemKey: string, kind: Kind): string | undefined {
 		const choice = onBehalfOfChoice[itemKey]
-		if (choice === 'target') return getTargetEmail(itemKey)
-		if (choice === 'custom') return customOnBehalfOfEmails[itemKey]
-		// 'me' or undefined = don't pass, backend will use deploying user's email
+		if (choice === 'target') return getTargetOnBehalfOf(itemKey)
+		if (choice === 'custom') {
+			const details = customOnBehalfOf[itemKey]
+			return kind === 'trigger' ? details?.permissionedAs : details?.email
+		}
+		// 'me' or undefined = don't pass, backend will use deploying user's identity
 		return undefined
 	}
 
@@ -301,7 +311,7 @@
 			path,
 			workspaceFrom,
 			workspaceTo: workspaceToDeployTo,
-			onBehalfOfEmail: getOnBehalfOfEmailForDeploy(statusPath)
+			onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind)
 		})
 
 		if (result.success) {
@@ -865,7 +875,7 @@
 		{#snippet itemActions(item)}
 			{@const diff = item.diff as WorkspaceItemDiff}
 			{@const key = item.key}
-			{@const targetEmail = getTargetEmail(key)}
+			{@const targetOnBehalfOf = getTargetOnBehalfOf(key)}
 			{@const isConflict = diff.ahead > 0 && diff.behind > 0}
 			{@const existsInBothWorkspaces = !(
 				(diff.exists_in_fork && !diff.exists_in_source) ||
@@ -875,16 +885,19 @@
 			{#if itemNeedsOnBehalfOfSelection(key, diff.kind)}
 				<OnBehalfOfSelector
 					targetWorkspace={deployTargetWorkspace}
-					{targetEmail}
+					targetValue={targetOnBehalfOf}
 					selected={onBehalfOfChoice[key]}
-					onSelect={(choice, email) => {
+					onSelect={(choice, details) => {
 						onBehalfOfChoice[key] = choice
-						if (email) customOnBehalfOfEmails[key] = email
+						if (details) customOnBehalfOf[key] = details
 					}}
 					kind={diff.kind}
 					canPreserve={canPreserveOnBehalfOf}
-					customEmail={customOnBehalfOfEmails[key]}
+					customValue={customOnBehalfOf[key]?.permissionedAs}
 				/>
+			{/if}
+			{#if diff.kind === 'raw_app'}
+				<Badge small icon={{ icon: FileJson }}>Raw</Badge>
 			{/if}
 			<!-- Status badges -->
 			{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}

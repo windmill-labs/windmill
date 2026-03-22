@@ -13,8 +13,8 @@ use monitor::{
     reload_maven_settings_xml_setting, reload_no_default_maven_setting,
     reload_nuget_config_setting, reload_powershell_repo_pat_setting,
     reload_powershell_repo_url_setting, reload_ruby_repos_setting,
-    reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
-    send_logs_to_object_store, WORKERS_NAMES,
+    reload_timeout_wait_result_setting, reload_workspace_registries_setting,
+    send_current_log_file_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::{Pool, Postgres};
@@ -44,15 +44,16 @@ use windmill_common::{
         DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING,
-        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
-        MAVEN_SETTINGS_XML_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
+        INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
         OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
         POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING, WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -102,7 +103,8 @@ use crate::monitor::{
     reload_base_url_setting, reload_bunfig_install_scopes_setting,
     reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
     reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
-    reload_hub_api_secret_setting, reload_hub_base_url_setting, reload_job_default_timeout_setting,
+    reload_hub_api_secret_setting, reload_hub_base_url_setting,
+    reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
     reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
     reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
     reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
@@ -1033,7 +1035,10 @@ Windmill Community Edition {GIT_VERSION}
     }
 
     if server_mode || worker_mode || indexer_mode || mcp_mode {
-        let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
+        let port_var = std::env::var("PORT")
+            .or_else(|_| std::env::var("BACKEND_PORT"))
+            .ok()
+            .and_then(|x| x.parse().ok());
 
         let port = if server_mode || indexer_mode || mcp_mode {
             port_var.unwrap_or(DEFAULT_PORT as u16)
@@ -1078,6 +1083,10 @@ Windmill Community Edition {GIT_VERSION}
         #[cfg(feature = "prometheus")]
         if let Some(db) = conn.as_sql() {
             crate::monitor::monitor_pool(&db).await;
+        }
+
+        if let Some(db) = conn.as_sql() {
+            crate::monitor::monitor_pool_otel(&db).await;
         }
 
         send_logs_to_object_store(&conn, &hostname, &mode);
@@ -1768,6 +1777,7 @@ async fn process_notify_event(
                 MAVEN_SETTINGS_XML_SETTING => reload_maven_settings_xml_setting(conn).await,
                 NO_DEFAULT_MAVEN_SETTING => reload_no_default_maven_setting(conn).await,
                 RUBY_REPOS_SETTING => reload_ruby_repos_setting(conn).await,
+                WORKSPACE_REGISTRIES_SETTING => reload_workspace_registries_setting(conn).await,
                 HUB_API_SECRET_SETTING => reload_hub_api_secret_setting(conn).await,
                 KEEP_JOB_DIR_SETTING => {
                     load_keep_job_dir(conn).await;
@@ -1848,6 +1858,9 @@ async fn process_notify_event(
                     if let Err(e) = reload_critical_alerts_on_token_expiry_setting(conn).await {
                         tracing::error!(error = %e, "Could not reload critical alerts on token expiry setting");
                     }
+                }
+                INSTANCE_EVENTS_WEBHOOK_SETTING => {
+                    reload_instance_events_webhook_setting(db).await;
                 }
                 "workspace_telemetry_enabled" => {
                     // Read the new value from the database and log it

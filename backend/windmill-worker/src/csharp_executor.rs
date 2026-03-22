@@ -32,8 +32,9 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, CSHARP_CACHE_DIR, DISABLE_NUSER, DOTNET_PATH,
-    HOME_ENV, NSJAIL_PATH, NUGET_CONFIG, PATH_ENV, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry_with_workspace_override, CSHARP_CACHE_DIR,
+    DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH, NUGET_CONFIG, PATH_ENV,
+    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 #[cfg(feature = "csharp")]
 use windmill_common::scripts::ScriptLang;
@@ -82,8 +83,9 @@ pub async fn generate_nuget_lockfile(
 ) -> error::Result<String> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
-    if let Some(nuget_config) = read_ee_registry(
+    if let Some(nuget_config) = read_ee_registry_with_workspace_override(
         NUGET_CONFIG.read().await.clone(),
+        "nuget_config",
         "nuget config",
         job_id,
         w_id,
@@ -344,8 +346,9 @@ async fn build_cs_proj(
     hash: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
-    if let Some(nuget_config) = read_ee_registry(
+    if let Some(nuget_config) = read_ee_registry_with_workspace_override(
         NUGET_CONFIG.read().await.clone(),
+        "nuget_config",
         "nuget config",
         job_id,
         w_id,
@@ -376,7 +379,7 @@ async fn build_cs_proj(
             "--configuration",
             "Release",
             "-o",
-            job_dir,
+            &format!("{job_dir}/out"),
             "--no-self-contained",
             "-p:PublishSingleFile=true",
             "-p:IncludeNativeLibrariesForSelfExtract=true",
@@ -434,9 +437,9 @@ async fn build_cs_proj(
 
     let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
     #[cfg(unix)]
-    let target = format!("{job_dir}/Main");
+    let target = format!("{job_dir}/out/Main");
     #[cfg(windows)]
-    let target = format!("{job_dir}/Main.exe");
+    let target = format!("{job_dir}/out/Main.exe");
 
     match save_cache(
         &bin_path,
@@ -447,7 +450,7 @@ async fn build_cs_proj(
     .await
     {
         Err(e) => {
-            let em = format!("could not save {job_dir}/Main to C# cache: {e:?}",);
+            let em = format!("could not save {job_dir}/out/Main to C# cache: {e:?}",);
             tracing::error!(em);
             Ok(em)
         }
@@ -509,11 +512,13 @@ pub async fn handle_csharp_job(
 ) -> Result<Box<RawValue>, Error> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
-    let hash = calculate_hash(&format!(
+    let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
+    let mut hash = calculate_hash(&format!(
         "{}{}",
         inner_content,
         requirements_o.unwrap_or(&String::new())
     ));
+    hash.push_str(&ws_suffix);
     let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
     let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
 
@@ -522,11 +527,17 @@ pub async fn handle_csharp_job(
     let cache_logs = if cache {
         #[cfg(unix)]
         {
-            let target = format!("{job_dir}/Main");
+            let out_dir = format!("{job_dir}/out");
+            std::fs::create_dir_all(&out_dir).map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "could not create output directory {out_dir}: {e:?}"
+                ))
+            })?;
+            let target = format!("{out_dir}/Main");
             let symlink = std::os::unix::fs::symlink(&bin_path, &target);
             symlink.map_err(|e| {
                 Error::ExecutionErr(format!(
-                    "could not copy cached binary from {bin_path} to {job_dir}/Main: {e:?}"
+                    "could not copy cached binary from {bin_path} to {target}: {e:?}"
                 ))
             })?;
         }
@@ -626,12 +637,12 @@ pub async fn handle_csharp_job(
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), true).await?
     } else {
         #[cfg(unix)]
-        let compiled_executable_name = "./Main".to_string();
+        let compiled_executable_name = "./out/Main".to_string();
         #[cfg(windows)]
         let compiled_executable_name = if cache {
             bin_path.to_string()
         } else {
-            format!("{job_dir}/Main.exe")
+            format!("{job_dir}/out/Main.exe")
         };
 
         let mut run_csharp = build_command_with_isolation(&compiled_executable_name, &[]);
