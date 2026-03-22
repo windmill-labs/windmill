@@ -244,8 +244,13 @@ export class GroupedModulesProxy {
 			...g,
 			moduleIds: computeGroupModuleIds(g.start_id, g.end_id, allModules)
 		}))
+		const excludeIds = new Set<string>()
+		const pp = this.#flowStore.val.value.preprocessor_module?.id
+		if (pp) excludeIds.add(pp)
+		const fm = this.#flowStore.val.value.failure_module?.id
+		if (fm) excludeIds.add(fm)
 		try {
-			this.#items = buildGroupedModules(modules, graphGroups)
+			this.#items = buildGroupedModules(modules, graphGroups, excludeIds)
 			this.#error = undefined
 		} catch (e) {
 			this.#error = e

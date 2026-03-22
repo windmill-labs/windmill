@@ -118,7 +118,8 @@ export function computeGroupModuleIds(
  */
 export function canFormValidGroup(
 	selectedIds: string[],
-	flowNodes: FlowNode[]
+	flowNodes: FlowNode[],
+	excludeIds?: Set<string>
 ): { valid: true; startId: string; endId: string } | { valid: false } {
 	if (selectedIds.length === 0) return { valid: false }
 
@@ -130,8 +131,10 @@ export function canFormValidGroup(
 
 	if (selectedSorted.length === 0) return { valid: false }
 
-	// Filter out virtual nodes — they cannot be part of a group
-	const nonVirtualSorted = selectedSorted.filter((n) => !VIRTUAL_NODE_IDS.has(n.id))
+	// Filter out virtual nodes and explicitly excluded IDs — they cannot be part of a group
+	const nonVirtualSorted = selectedSorted.filter(
+		(n) => !VIRTUAL_NODE_IDS.has(n.id) && !excludeIds?.has(n.id)
+	)
 	if (nonVirtualSorted.length === 0) return { valid: false }
 
 	// Topo sort: index 0 = bottom of flow, last index = top of flow

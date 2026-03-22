@@ -944,10 +944,16 @@
 					computeGroupModuleIds(g.start_id, g.end_id, getAllModules(effectiveModules ?? []))
 				)
 			}))
+			const excludeIds = new Set<string>()
+			const ppId = untrack(() => effectivePreprocessorModule)?.id
+			if (ppId) excludeIds.add(ppId)
+			const fmId = untrack(() => effectiveFailureModule)?.id
+			if (fmId) excludeIds.add(fmId)
 			try {
 				gm = buildGroupedModules(
 					stateSnapshot(untrack(() => effectiveModules) ?? []) as FlowModule[],
-					graphGroups
+					graphGroups,
+					excludeIds
 				)
 			} catch (e) {
 				return { nodes: {}, edges: [], error: e }

@@ -148,7 +148,14 @@ export class GroupEditor {
 			filteredIds = [...filteredIds, ...subflowIds]
 		}
 
-		const result = canFormValidGroup(filteredIds, flowNodes)
+		// Exclude preprocessor and failure module from group boundaries
+		const excludeIds = new Set<string>()
+		const pp = this.flowStore.val.value?.preprocessor_module?.id
+		if (pp) excludeIds.add(pp)
+		const fm = this.flowStore.val.value?.failure_module?.id
+		if (fm) excludeIds.add(fm)
+
+		const result = canFormValidGroup(filteredIds, flowNodes, excludeIds)
 		if (!result.valid) return undefined
 
 		const groups = this.getGroups()
@@ -296,8 +303,12 @@ export type GraphGroup = FlowGroup & {
 	moduleIds: string[]
 }
 
-export function buildGroupedModules(modules: FlowModule[], groups: GraphGroup[]): GroupedModule[] {
-	const { items, consumed } = buildGroupedModulesRecurse(modules, groups)
+export function buildGroupedModules(
+	modules: FlowModule[],
+	groups: GraphGroup[],
+	excludeIds?: Set<string>
+): GroupedModule[] {
+	const { items, consumed } = buildGroupedModulesRecurse(modules, groups, excludeIds)
 	const unconsumed = groups.filter((g) => !consumed.has(g.id))
 	if (unconsumed.length > 0) {
 		console.warn(
@@ -335,18 +346,24 @@ function getContainerInnerArrays(
 
 function buildGroupedModulesRecurse(
 	modules: FlowModule[],
-	groups: GraphGroup[]
+	groups: GraphGroup[],
+	excludeIds?: Set<string>
 ): { items: GroupedModule[]; consumed: Set<string> } {
 	const indexMap = new Map<string, number>()
 	for (let i = 0; i < modules.length; i++) {
 		indexMap.set(modules[i].id, i)
 	}
 
-	// Reject groups that reference virtual nodes
+	// Reject groups that reference virtual or excluded nodes
 	for (const g of groups) {
 		if (VIRTUAL_NODE_IDS.has(g.start_id) || VIRTUAL_NODE_IDS.has(g.end_id)) {
 			throw new Error(
 				`Group '${g.id}' references virtual node: groups cannot include Input, Result, or Trigger`
+			)
+		}
+		if (excludeIds?.has(g.start_id) || excludeIds?.has(g.end_id)) {
+			throw new Error(
+				`Group '${g.id}' references a non-groupable node (preprocessor or failure module)`
 			)
 		}
 	}
@@ -451,7 +468,7 @@ function buildGroupedModulesRecurse(
 			}
 			const mod = item as FlowModule
 			for (const { get, set } of getContainerInnerArrays(mod)) {
-				const inner = buildGroupedModulesRecurse(get(), remaining)
+				const inner = buildGroupedModulesRecurse(get(), remaining, excludeIds)
 				set(inner.items as any)
 				for (const id of inner.consumed) consumed.add(id)
 				remaining = remaining.filter((g) => !inner.consumed.has(g.id))
