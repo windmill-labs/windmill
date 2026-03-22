@@ -568,6 +568,9 @@ export async function withTestBackend<T>(
       await backend.seedTestData();
     }
     return await testFn(backend, tempDir);
+  } catch (e) {
+    console.error("Test failed with error:", e);
+    throw e;
   } finally {
     await rm(tempDir, { recursive: true });
   }
