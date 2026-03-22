@@ -128,7 +128,7 @@ function restoreOriginalModules(
 	})
 }
 
-/** Flatten GroupedModule[] back to FlowModule[] */
+/** Flatten GroupedModule[] back to FlowModule[] (mutates container inner arrays in-place) */
 export function flattenGroupedModules(items: GroupedModule[]): FlowModule[] {
 	return items.flatMap((item) => {
 		if (isGroupItem(item)) return flattenGroupedModules(item.modules)
@@ -149,12 +149,21 @@ export function flattenGroupedModules(items: GroupedModule[]): FlowModule[] {
 	})
 }
 
-/** Derive FlowGroup[] from the grouped structure */
+/** Read-only flatten: collect leaf FlowModules without mutating container inner arrays.
+ *  Only unwraps group items; containers (forloop, branch, etc.) are returned as-is. */
+function flattenGroupedModulesReadonly(items: GroupedModule[]): FlowModule[] {
+	return items.flatMap((item) => {
+		if (isGroupItem(item)) return flattenGroupedModulesReadonly(item.modules)
+		return [item as FlowModule]
+	})
+}
+
+/** Derive FlowGroup[] from the grouped structure (read-only, does not mutate) */
 export function deriveGroups(items: GroupedModule[]): FlowGroup[] {
 	const groups: FlowGroup[] = []
 	for (const item of items) {
 		if (isGroupItem(item)) {
-			const flat = flattenGroupedModules(item.modules)
+			const flat = flattenGroupedModulesReadonly(item.modules)
 			if (flat.length === 0) {
 				throw new Error(
 					`deriveGroups: group "${item.group.id}" has no modules — use getGroupsEmptiedBy() to detect and confirm before removing`
@@ -309,7 +318,7 @@ export class GroupedModulesProxy {
 		const result: FlowGroup[] = []
 		for (const item of items) {
 			if (isGroupItem(item)) {
-				const flat = flattenGroupedModules(item.modules)
+				const flat = flattenGroupedModulesReadonly(item.modules)
 				const remaining = flat.filter((m) => !nodeSet.has(m.id))
 				if (remaining.length === 0 && flat.length > 0) {
 					result.push(item.group)
