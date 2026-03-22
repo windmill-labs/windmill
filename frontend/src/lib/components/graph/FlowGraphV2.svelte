@@ -67,7 +67,6 @@
 	import GroupOverlay from './GroupOverlay.svelte'
 	import {
 		buildGroupedModules,
-		getGroupEditorContext,
 		GroupDisplayState,
 		GROUP_HEADER_HEIGHT,
 		type FlowGroup,
@@ -313,7 +312,6 @@
 	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const noteEditorContext = getNoteEditorContext()
-	const groupEditorContext = getGroupEditorContext()
 
 	// Function to calculate extra gap needed for notes below the lowest flow nodes
 	function calculateNoteGap(notes: FlowNote[] | undefined): number {
@@ -937,7 +935,7 @@
 		// Use provided groupedModules (from proxy) or build locally (diff mode / read-only)
 		let gm: GroupedModule[] | undefined = groupedModulesProp
 		if (!gm) {
-			const allGroups = groups ?? groupEditorContext?.groupEditor.getGroups() ?? []
+			const allGroups = groups ?? []
 			const graphGroups = allGroups.map((g) => ({
 				...g,
 				moduleIds: untrack(() =>
@@ -998,12 +996,11 @@
 		$showAssets && Object.values(nodes).every((n) => n.type !== 'asset')
 	)
 	let hideNotesToggle = $derived(
-		(!notes || notes.length === 0) &&
-			!(groups ?? groupEditorContext?.groupEditor.getGroups() ?? []).some((g) => g.note != null)
+		(!notes || notes.length === 0) && !(groups ?? []).some((g) => g.note != null)
 	)
 
 	// Track groups for re-layout when groups change
-	let currentGroups = $derived(groups ?? groupEditorContext?.groupEditor.getGroups() ?? [])
+	let currentGroups = $derived(groups ?? [])
 
 	$effect(() => {
 		;[
@@ -1246,7 +1243,10 @@
 					/>
 				{/if}
 
-				<GroupOverlay allNodes={nodesWithOffset as (Node & { type: string })[]} />
+				<GroupOverlay
+					allNodes={nodesWithOffset as (Node & { type: string })[]}
+					groups={groups ?? []}
+				/>
 
 				<!-- SelectionTool for handling selection changes and filtering -->
 				<SelectionTool {selectionManager} clearGraphSelection={clearFlowSelection} />

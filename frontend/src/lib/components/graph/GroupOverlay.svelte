@@ -1,21 +1,21 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
-	import { getGroupEditorContext, GROUP_HEADER_HEIGHT } from './groupEditor.svelte'
+	import { GROUP_HEADER_HEIGHT, type FlowGroup } from './groupEditor.svelte'
 	import { getGraphContext } from './graphContext'
 	import { NoteColor, NOTE_COLORS } from './noteColors'
 	import type { GroupHeadN } from './graphBuilder.svelte'
 
 	interface Props {
 		allNodes: (Node & { type: string })[]
+		groups: FlowGroup[]
 	}
 
-	let { allNodes }: Props = $props()
+	let { allNodes, groups }: Props = $props()
 
-	const groupEditorContext = getGroupEditorContext()
 	const graphContext = getGraphContext()
 
 	// All groups for always-visible overlays
-	let allGroups = $derived(groupEditorContext?.groupEditor.getGroups() ?? [])
+	let allGroups = $derived(groups)
 
 	// Pre-compute bounds for all groups reactively (tracks allNodes measured changes)
 	let groupBoundsMap = $derived.by(() => {
