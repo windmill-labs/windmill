@@ -328,6 +328,8 @@ export class CargoBackend {
       SQLX_OFFLINE: "true",
       // Disable embedding to speed up startup
       DISABLE_EMBEDDING: "true",
+      // Skip worker version check for workspace deps (workers need time to report version)
+      WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: "1",
       // Create default admin user
       CREATE_SUPERADMIN_IF_NOT_EXISTS: "1",
       SUPERADMIN_EMAIL: this.config.username,
