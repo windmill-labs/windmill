@@ -38,15 +38,43 @@ export function computeGroupNodeIds(
 	// If end_id is a container (branchall, forloop, etc.), its last graph node
 	// is `${endId}-end`. Use that as the actual start of the slice.
 	const endNodeId = sorted.some((n) => n.id === `${endId}-end`) ? `${endId}-end` : endId
-	const firstIdx = endNodeId === endId ? endIdx : sorted.findIndex((n) => n.id === endNodeId)
+	let firstIdx = endNodeId === endId ? endIdx : sorted.findIndex((n) => n.id === endNodeId)
 
-	const lastIdx = sorted.findIndex((n) => n.id === startId)
+	let lastIdx = sorted.findIndex((n) => n.id === startId)
 
 	if (firstIdx === -1 || lastIdx === -1) {
 		return { memberIds: [], valid: false, error: 'Start or end node not found' }
 	}
 	if (firstIdx > lastIdx) {
 		return { memberIds: [], valid: false, error: 'end_id must be topologically before start_id' }
+	}
+
+	// Extend range to fully include any groups partially within the range
+	const groupHeadIndices = new Map<string, number>()
+	const groupEndIndices = new Map<string, number>()
+	for (let i = 0; i < sorted.length; i++) {
+		const id = sorted[i].id
+		if (id.startsWith('group:') && id.endsWith('-end')) {
+			groupEndIndices.set(id.slice('group:'.length, -'-end'.length), i)
+		} else if (id.startsWith('group:')) {
+			groupHeadIndices.set(id.slice('group:'.length), i)
+		}
+	}
+
+	let changed = true
+	while (changed) {
+		changed = false
+		for (const [groupId, headIdx] of groupHeadIndices) {
+			const endIdx = groupEndIndices.get(groupId)
+			if (endIdx === undefined) continue
+			const headIn = headIdx >= firstIdx && headIdx <= lastIdx
+			const endIn = endIdx >= firstIdx && endIdx <= lastIdx
+			if (headIn !== endIn) {
+				firstIdx = Math.min(firstIdx, endIdx, headIdx)
+				lastIdx = Math.max(lastIdx, endIdx, headIdx)
+				changed = true
+			}
+		}
 	}
 
 	return {
@@ -114,7 +142,18 @@ export function canFormValidGroup(
 		if (!memberSet.has(id)) return { valid: false }
 	}
 
-	return { valid: true, startId, endId }
+	// Derive boundaries from expanded membership (which includes full groups)
+	// Filter out graph-internal marker nodes — start_id/end_id must be real module IDs
+	const realModules = membership.memberIds.filter(
+		(id) => !id.startsWith('group:') && !id.endsWith('-end')
+	)
+	if (realModules.length === 0) return { valid: false }
+
+	// memberIds are in topo order (bottom-first), so:
+	const expandedEndId = realModules[0]
+	const expandedStartId = realModules[realModules.length - 1]
+
+	return { valid: true, startId: expandedStartId, endId: expandedEndId }
 }
 
 /**
