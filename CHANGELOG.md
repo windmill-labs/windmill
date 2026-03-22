@@ -1,5 +1,72 @@
 # Changelog
 
+## [1.662.0](https://github.com/windmill-labs/windmill/compare/v1.661.0...v1.662.0) (2026-03-20)
+
+
+### Features
+
+* mcp oauth gateway ([#8443](https://github.com/windmill-labs/windmill/issues/8443)) ([51957f7](https://github.com/windmill-labs/windmill/commit/51957f7d921b624fc132ca9ea03cdd30a5810e51))
+
+
+### Bug Fixes
+
+* replace email with permissioned_as for triggers/schedules ([#8439](https://github.com/windmill-labs/windmill/issues/8439)) ([efb4a27](https://github.com/windmill-labs/windmill/commit/efb4a27d5181bf9db3deb5e8100ec60adbe45e7f))
+* strip invalid enum values from MCP schemas ([#8462](https://github.com/windmill-labs/windmill/issues/8462)) ([88ad376](https://github.com/windmill-labs/windmill/commit/88ad3767916b86c4e0b272d040ee0b75a0580d76))
+
+## [1.661.0](https://github.com/windmill-labs/windmill/compare/v1.660.1...v1.661.0) (2026-03-19)
+
+
+### Features
+
+* add OTel metrics support ([#8442](https://github.com/windmill-labs/windmill/issues/8442)) ([7de98c0](https://github.com/windmill-labs/windmill/commit/7de98c0df464d8a7c9cf5d04228753294183f759))
+
+
+### Bug Fixes
+
+* fix datatable setup on RDS ([#8450](https://github.com/windmill-labs/windmill/issues/8450)) ([446afb5](https://github.com/windmill-labs/windmill/commit/446afb5b36211e5cbe8a279ce68f2f790a5953b9))
+* full code apps deployable on merge UI and deploy UI ([#8451](https://github.com/windmill-labs/windmill/issues/8451)) ([0e022b1](https://github.com/windmill-labs/windmill/commit/0e022b14fd36e897106219010917bd7ceabf4078))
+* improve DND drag feedback in EditableSchemaForm ([#8449](https://github.com/windmill-labs/windmill/issues/8449)) ([fd7f0d3](https://github.com/windmill-labs/windmill/commit/fd7f0d3da9153d91c15df5847aaae51e67479cde))
+* prevent raw app iframe reload on userStore refresh ([#8455](https://github.com/windmill-labs/windmill/issues/8455)) ([4e59a1a](https://github.com/windmill-labs/windmill/commit/4e59a1a166847045897a6b576812bb53546e683b))
+* resolve blank inline script panel for components with underscores in ID ([#8457](https://github.com/windmill-labs/windmill/issues/8457)) ([b2c1e3d](https://github.com/windmill-labs/windmill/commit/b2c1e3de0a263f606127f0decedb11a2ce0b822b))
+
+## [1.660.1](https://github.com/windmill-labs/windmill/compare/v1.660.0...v1.660.1) (2026-03-19)
+
+
+### Bug Fixes
+
+* prevent S3 file browser crash when selecting storage ([#8444](https://github.com/windmill-labs/windmill/issues/8444)) ([a8fa0cc](https://github.com/windmill-labs/windmill/commit/a8fa0cccef870f841c68be77832d9be12109badb))
+* schema inference not updating on reset and language switch ([#8446](https://github.com/windmill-labs/windmill/issues/8446)) ([c0edbe4](https://github.com/windmill-labs/windmill/commit/c0edbe431773f878201e96a79ce291d4b37a10bb))
+
+## [1.660.0](https://github.com/windmill-labs/windmill/compare/v1.659.1...v1.660.0) (2026-03-18)
+
+
+### Features
+
+* **cli:** use local scripts when previewing flows ([#8365](https://github.com/windmill-labs/windmill/issues/8365)) ([435de95](https://github.com/windmill-labs/windmill/commit/435de95e7d5c9433dafac5369cfc533fd738fc22))
+* MCP server readiness for Anthropic connectors directory ([#8438](https://github.com/windmill-labs/windmill/issues/8438)) ([1cfb40b](https://github.com/windmill-labs/windmill/commit/1cfb40bdaa877f1616fc1c1cf5fb6b6aa1832b86))
+
+
+### Bug Fixes
+
+* exclude wm_deployers group from CE group limit check ([#8429](https://github.com/windmill-labs/windmill/issues/8429)) ([9a6ce44](https://github.com/windmill-labs/windmill/commit/9a6ce44c8414810292ebc8a1ae64950ee2c76307))
+* prevent AI agent tool jobs from becoming zombies on cancellation ([#8437](https://github.com/windmill-labs/windmill/issues/8437)) ([f4489cb](https://github.com/windmill-labs/windmill/commit/f4489cbe645489a892994c70d17df2284b494568))
+* show cancelled WAC jobs as done in workflow timeline ([#8436](https://github.com/windmill-labs/windmill/issues/8436)) ([bee9282](https://github.com/windmill-labs/windmill/commit/bee928276e098ce7b17e20af74e34458e5c5353e))
+
+
+### Performance Improvements
+
+* cache composer vendor dir to skip reinstall on repeated php executions ([#8330](https://github.com/windmill-labs/windmill/issues/8330)) ([66a8e84](https://github.com/windmill-labs/windmill/commit/66a8e844a64d91d57dcabb7ad31d9308dec99032))
+
+## [1.659.1](https://github.com/windmill-labs/windmill/compare/v1.659.0...v1.659.1) (2026-03-18)
+
+
+### Bug Fixes
+
+* add checkpoint.json mount to python nsjail config for WAC v2 ([#8421](https://github.com/windmill-labs/windmill/issues/8421)) ([4829f44](https://github.com/windmill-labs/windmill/commit/4829f447ed3df8489995c5e54955fbfe6b31e37d))
+* cleanup job debounce batch ([#8420](https://github.com/windmill-labs/windmill/issues/8420)) ([ad03a5d](https://github.com/windmill-labs/windmill/commit/ad03a5dbd7f93748115037791143249ba0ab6161))
+* **frontend:** fix output of resultnode + svelte5 nits ([#8424](https://github.com/windmill-labs/windmill/issues/8424)) ([f481ea4](https://github.com/windmill-labs/windmill/commit/f481ea4059b4e5cb01273cffeb53ff340e8bd5bd))
+* per-tab test panel in script editor for WAC v2 modules ([#8422](https://github.com/windmill-labs/windmill/issues/8422)) ([0f26169](https://github.com/windmill-labs/windmill/commit/0f261695a3cb2c3a95d16390e54aa7a6ac3e11e7))
+
 ## [1.659.0](https://github.com/windmill-labs/windmill/compare/v1.658.0...v1.659.0) (2026-03-17)
 
 

@@ -4,6 +4,11 @@ use crate::audit::AuditAuthor;
 
 pub type DB = Pool<Postgres>;
 
+/// Workspace ID resolved by gateway middleware (stored in request extensions).
+/// Used by auth to resolve workspace when the URL path doesn't contain one.
+#[derive(Clone, Debug)]
+pub struct GatewayWorkspaceId(pub String);
+
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct Authed {
     pub email: String,

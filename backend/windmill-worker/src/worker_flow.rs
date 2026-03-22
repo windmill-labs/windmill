@@ -286,15 +286,20 @@ struct RecoveryObject {
 
 fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<String>) {
     if let Some(stop_after_if) = stop_after_if {
+        // skip_if_stopped and error_message are mutually exclusive:
+        // skip_if_stopped=true means clean stop (mark remaining as skipped),
+        // error_message means stop with error. skip_if_stopped takes precedence.
+        if stop_after_if.skip_if_stopped {
+            return (true, None);
+        }
         let err_msg = stop_after_if.error_message.as_ref().and_then(|message| {
-            let s = if message.is_empty() {
-                format!("stop after if: {}", stop_after_if.expr)
+            if message.is_empty() {
+                Some(format!("stop after if: {}", stop_after_if.expr))
             } else {
-                message.clone()
-            };
-            Some(s)
+                Some(message.clone())
+            }
         });
-        return (stop_after_if.skip_if_stopped, err_msg);
+        return (false, err_msg);
     }
     return (false, None);
 }

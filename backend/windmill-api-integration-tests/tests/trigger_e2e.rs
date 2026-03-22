@@ -158,7 +158,7 @@ async fn test_mqtt_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO mqtt_trigger (
             path, mqtt_resource_path, subscribe_topics, client_version,
-            script_path, is_flow, workspace_id, edited_by, email
+            script_path, is_flow, workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, ARRAY[$3::jsonb], $4::mqtt_client_version, $5, $6, $7, $8, $9)
         "#,
@@ -171,7 +171,7 @@ async fn test_mqtt_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
     .bind(false)
     .bind("test-workspace")
     .bind("test-user")
-    .bind("test@windmill.dev")
+    .bind("u/test-user")
     .execute(&db)
     .await?;
 
@@ -240,7 +240,7 @@ async fn test_websocket_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO websocket_trigger (
             path, url, script_path, is_flow, workspace_id,
-            edited_by, email, initial_messages
+            edited_by, permissioned_as, initial_messages
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
@@ -250,7 +250,7 @@ async fn test_websocket_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
         &[json!({"type": "RawMessage", "content": "hello from e2e test"})]
             as &[serde_json::Value],
     )
@@ -338,7 +338,7 @@ async fn test_postgres_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
     sqlx::query(
         r#"
         INSERT INTO postgres_trigger (
-            path, script_path, is_flow, workspace_id, edited_by, email,
+            path, script_path, is_flow, workspace_id, edited_by, permissioned_as,
             postgres_resource_path, replication_slot_name, publication_name
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -349,7 +349,7 @@ async fn test_postgres_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
     .bind(false)
     .bind("test-workspace")
     .bind("test-user")
-    .bind("test@windmill.dev")
+    .bind("u/test-user")
     .bind("u/test-user/pg_res")
     .bind(&slot_name)
     .bind(&pub_name)
@@ -410,7 +410,7 @@ async fn test_kafka_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO kafka_trigger (
             path, kafka_resource_path, topics, group_id,
-            script_path, is_flow, workspace_id, edited_by, email
+            script_path, is_flow, workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         "#,
@@ -422,7 +422,7 @@ async fn test_kafka_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
     )
     .execute(&db)
     .await?;
@@ -502,7 +502,7 @@ async fn test_nats_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO nats_trigger (
             path, nats_resource_path, subjects, script_path,
-            is_flow, workspace_id, edited_by, email, use_jetstream
+            is_flow, workspace_id, edited_by, permissioned_as, use_jetstream
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         "#,
@@ -513,7 +513,7 @@ async fn test_nats_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
         false,
     )
     .execute(&db)
@@ -580,7 +580,7 @@ async fn test_sqs_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO sqs_trigger (
             path, queue_url, aws_resource_path, script_path,
-            is_flow, workspace_id, edited_by, email
+            is_flow, workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
@@ -591,7 +591,7 @@ async fn test_sqs_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
     )
     .execute(&db)
     .await?;
@@ -675,7 +675,7 @@ async fn test_gcp_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
         INSERT INTO gcp_trigger (
             path, gcp_resource_path, topic_id, subscription_id,
             delivery_type, subscription_mode, script_path, is_flow,
-            workspace_id, edited_by, email
+            workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, $3, $4, $5::delivery_mode, $6::gcp_subscription_mode, $7, $8, $9, $10, $11)
         "#,
@@ -690,7 +690,7 @@ async fn test_gcp_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
     .bind(false)
     .bind("test-workspace")
     .bind("test-user")
-    .bind("test@windmill.dev")
+    .bind("u/test-user")
     .execute(&db)
     .await?;
 

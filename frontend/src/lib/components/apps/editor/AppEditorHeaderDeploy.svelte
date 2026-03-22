@@ -54,10 +54,9 @@
 	} = $props()
 
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
-	let canPreserve = $derived(
-		!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer
-	)
+	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
+	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
 	let dirtyCustomPath = $state(false)
@@ -197,12 +196,13 @@
 	</Tooltip>
 	{#if canPreserve}
 		<div class="mt-4">
-			Because you are either an admin or part of the {WM_DEPLOYERS_GROUP} group, you can select another user to run this app on behalf of. Once deployed the app will be run on behalf of
+			Because you are either an admin or part of the {WM_DEPLOYERS_GROUP} group, you can select another
+			user to run this app on behalf of. Once deployed the app will be run on behalf of
 			<OnBehalfOfSelector
 				targetWorkspace={$workspaceStore ?? ''}
-				targetEmail={savedOnBehalfOfEmail}
+				targetValue={savedOnBehalfOfEmail}
 				selected={onBehalfOfChoice}
-				onSelect={(choice, email, username) => {
+				onSelect={(choice, details) => {
 					onBehalfOfChoice = choice
 					if (choice === 'me') {
 						policy.on_behalf_of_email = $userStore?.email
@@ -211,24 +211,24 @@
 						preserveOnBehalfOf = false
 					} else if (choice === 'target') {
 						policy.on_behalf_of_email = savedOnBehalfOfEmail
+						policy.on_behalf_of = savedOnBehalfOf
 						customOnBehalfOfEmail = ''
 						preserveOnBehalfOf = true
-					} else if (choice === 'custom' && email) {
-						policy.on_behalf_of_email = email
-						policy.on_behalf_of = username ? `u/${username}` : undefined
-						customOnBehalfOfEmail = email
+					} else if (choice === 'custom' && details) {
+						policy.on_behalf_of_email = details.email
+						policy.on_behalf_of = details.permissionedAs
+						customOnBehalfOfEmail = details.email
 						preserveOnBehalfOf = true
 					}
 				}}
 				kind="app"
 				{canPreserve}
-				customEmail={customOnBehalfOfEmail}
+				customValue={customOnBehalfOfEmail}
 				isDeployment={false}
 			/>
 		</div>
 	{/if}
 </Alert>
-
 
 <div class="mt-10"></div>
 

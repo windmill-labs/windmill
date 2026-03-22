@@ -96,6 +96,7 @@ class HealthHandler(web.RequestHandler):
         self.set_header("Content-Type", "application/json")
 
     def get(self):
+        log.info("HTTP GET %s", self.request.uri)
         self.write(json.dumps({"status": "ok", "service": "lsp"}))
 
     def options(self):
@@ -104,6 +105,7 @@ class HealthHandler(web.RequestHandler):
 
 class PingHandler(websocket.WebSocketHandler):
     def open(self):
+        log.info("WS ping from %s", self.request.remote_ip)
         self.write_message(json.dumps({"type": "pong", "service": "lsp"}))
         self.close()
 

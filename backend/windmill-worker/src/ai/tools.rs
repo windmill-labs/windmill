@@ -45,6 +45,10 @@ use windmill_queue::{
     MiniPulledJob, PushArgs, PushIsolationLevel,
 };
 
+/// Shared collection of abort handles for spawned tool tasks.
+/// Used to abort in-flight tasks when the parent agent is force-cancelled.
+pub type ToolAbortHandles = Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>>;
+
 /// Context for tool execution containing all required references and state
 pub struct ToolExecutionContext<'a> {
     // Database & connections
@@ -73,6 +77,9 @@ pub struct ToolExecutionContext<'a> {
     pub flow_context: &'a mut FlowContext,
     pub previous_result: &'a Option<Box<RawValue>>,
     pub id_context: &'a Option<crate::js_eval::IdContext>,
+
+    // Abort handles for spawned tool tasks (used for force-cancel cleanup)
+    pub tool_abort_handles: ToolAbortHandles,
 }
 
 /// Execute all tool calls from an AI response
@@ -549,10 +556,19 @@ async fn execute_windmill_tool(
         (result, occupancy_metrics_spawn)
     });
 
+    // Register abort handle so the task can be killed on force-cancel
+    let abort_handle = join_handle.abort_handle();
+    // unwrap safe: lock is only held briefly for push/drain, no panic possible inside
+    ctx.tool_abort_handles.lock().unwrap().push(abort_handle);
+
     // Await the spawned task
-    let (handle_result, updated_occupancy) = join_handle
-        .await
-        .map_err(|e| Error::internal_err(format!("Tool execution task failed: {}", e)))?;
+    let (handle_result, updated_occupancy) = join_handle.await.map_err(|e| {
+        if e.is_cancelled() {
+            Error::ExecutionErr("Tool execution task was cancelled".to_string())
+        } else {
+            Error::internal_err(format!("Tool execution task failed: {}", e))
+        }
+    })?;
 
     // Merge occupancy metrics back
     ctx.occupancy_metrics.total_duration_of_running_jobs =
