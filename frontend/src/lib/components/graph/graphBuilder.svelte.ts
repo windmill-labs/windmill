@@ -343,6 +343,10 @@ export type CollapsedGroupN = {
 		collapsed_by_default: boolean | undefined
 		stepCount: number
 		modules: FlowModule[]
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+		flowJob: Job | undefined
+		isOwner: boolean
+		suspendStatus: Record<string, { job: Job; nb: number }>
 		showNotes: boolean
 		editMode: boolean
 		eventHandlers: GraphEventHandlers
@@ -699,6 +703,10 @@ export function graphBuilder(
 									collapsed_by_default: g.collapsed_by_default,
 									stepCount: item.moduleIds.length,
 									modules: collectLeafModules(item.modules),
+									flowModuleStates: extra.flowModuleStates,
+									flowJob: extra.flowJob,
+									isOwner: extra.isOwner,
+									suspendStatus: extra.suspendStatus,
 									showNotes,
 									editMode: extra.editMode,
 									eventHandlers
