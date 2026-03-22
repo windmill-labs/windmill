@@ -20,7 +20,7 @@
 	import ResultNode from './renderers/nodes/ResultNode.svelte'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
-	import CollapsedSubflowNode from './renderers/nodes/CollapsedSubflowNode.svelte'
+	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import AssetNode from './renderers/nodes/AssetNode.svelte'
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
@@ -62,7 +62,7 @@
 		whileLoopEnd: ForLoopEndNode,
 		branchOneStart: BranchOneStart,
 		branchOneEnd: BranchOneEndNode,
-		collapsedSubflow: CollapsedSubflowNode,
+		subflowBound: SubflowBound,
 		noBranch: NoBranchNode,
 		asset: AssetNode,
 		assetsOverflowed: AssetsOverflowedNode,

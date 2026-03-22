@@ -19,8 +19,7 @@
 		Loader2,
 		TriangleAlert,
 		Timer,
-		Maximize2,
-		Minimize2
+		Maximize2
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -92,8 +91,6 @@
 		enableTestRun?: boolean
 		maximizeSubflow?: () => void
 		menuItems?: Item[]
-		collapseContainer?: () => void
-		expandContainer?: () => void
 	}
 
 	let {
@@ -128,9 +125,7 @@
 		flowJob,
 		enableTestRun = false,
 		maximizeSubflow = undefined,
-		menuItems = undefined,
-		collapseContainer = undefined,
-		expandContainer = undefined
+		menuItems = undefined
 	}: Props = $props()
 
 	// AI action colors take priority over execution state
@@ -491,13 +486,6 @@
 			{#if maximizeSubflow !== undefined}
 				{@render buttonMaximizeSubflow?.()}
 			{/if}
-			{#if collapseContainer !== undefined}
-				{@render buttonCollapseContainer?.()}
-			{/if}
-			{#if expandContainer !== undefined}
-				{@render buttonExpandContainer?.()}
-			{/if}
-
 			{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
 				<Popover
 					style="will-change: transform;"
@@ -575,10 +563,6 @@
 			{/if}
 		{:else if maximizeSubflow !== undefined}
 			{@render buttonMaximizeSubflow?.()}
-		{:else if collapseContainer !== undefined}
-			{@render buttonCollapseContainer?.()}
-		{:else if expandContainer !== undefined}
-			{@render buttonExpandContainer?.()}
 		{/if}
 	</div>
 
@@ -653,54 +637,6 @@
 				e.stopPropagation()
 				e.preventDefault()
 				maximizeSubflow?.()
-			}}
-			onpointerdown={(e) => {
-				e.stopPropagation()
-				e.preventDefault()
-			}}
-		>
-			<Maximize2 size={12} />
-		</button>
-	</div>
-{/snippet}
-
-{#snippet buttonCollapseContainer()}
-	<div class="absolute -translate-y-[100%] top-2 right-10 h-7 p-1">
-		<button
-			title="Collapse"
-			class={twMerge(
-				'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1',
-				'shadow-md rounded-md',
-				hover || selected ? 'opacity-100' : 'opacity-50'
-			)}
-			onclick={(e) => {
-				e.stopPropagation()
-				e.preventDefault()
-				collapseContainer?.()
-			}}
-			onpointerdown={(e) => {
-				e.stopPropagation()
-				e.preventDefault()
-			}}
-		>
-			<Minimize2 size={12} />
-		</button>
-	</div>
-{/snippet}
-
-{#snippet buttonExpandContainer()}
-	<div class="absolute -translate-y-[100%] top-2 right-10 h-7 p-1">
-		<button
-			title="Expand"
-			class={twMerge(
-				'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1',
-				'shadow-md rounded-md',
-				hover || selected ? 'opacity-100' : 'opacity-50'
-			)}
-			onclick={(e) => {
-				e.stopPropagation()
-				e.preventDefault()
-				expandContainer?.()
 			}}
 			onpointerdown={(e) => {
 				e.stopPropagation()

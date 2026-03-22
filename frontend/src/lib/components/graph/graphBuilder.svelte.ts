@@ -70,8 +70,6 @@ export type GraphEventHandlers = {
 	expandSubflow: (id: string, path: string) => void
 	minimizeSubflow: (id: string) => void
 	expandGroup: (groupId: string) => void
-	expandContainer: (moduleId: string) => void
-	collapseContainer: (moduleId: string) => void
 	updateMock: (detail: { mock: FlowModule['mock']; id: string }) => void
 	testUpTo: (id: string) => void
 	editInput: (moduleId: string, key: string) => void
@@ -114,7 +112,7 @@ export type FlowNode =
 	| WhileLoopEndN
 	| BranchOneStartN
 	| BranchOneEndN
-	| CollapsedSubflowN
+	| SubflowBoundN
 	| NoBranchN
 	| TriggerN
 	| AssetN
@@ -161,8 +159,6 @@ export type ModuleN = {
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
 		moduleAction: ModuleActionInfo | undefined
-		isCollapsedContainer?: boolean
-		containerModules?: FlowModule[]
 	}
 }
 
@@ -258,8 +254,8 @@ export type BranchOneEndN = {
 	}
 }
 
-export type CollapsedSubflowN = {
-	type: 'collapsedSubflow'
+export type SubflowBoundN = {
+	type: 'subflowBound'
 	data: {
 		id: string
 		eventHandlers: GraphEventHandlers
@@ -267,8 +263,6 @@ export type CollapsedSubflowN = {
 		preLabel: string | undefined
 		subflowId: string
 		selected: boolean
-		expanded: boolean
-		module: FlowModule
 	}
 }
 
@@ -395,20 +389,6 @@ export function topologicalSort(
 	return result.reverse()
 }
 
-/** Collect all inner FlowModules from a container, handling GroupedModule items in inner arrays. */
-function getContainerModules(module: FlowModule): FlowModule[] {
-	const val = module.value as any
-	const innerArrays: GroupedModule[][] = []
-	if (val.type === 'forloopflow' || val.type === 'whileloopflow') {
-		innerArrays.push(val.modules)
-	} else if (val.type === 'branchone') {
-		innerArrays.push(val.default, ...val.branches.map((b: any) => b.modules))
-	} else if (val.type === 'branchall') {
-		innerArrays.push(...val.branches.map((b: any) => b.modules))
-	}
-	return innerArrays.flatMap((arr) => collectLeafModules(arr))
-}
-
 export function graphBuilder(
 	groupedModules: GroupedModule[] | undefined,
 	modules: FlowModule[] | undefined,
@@ -443,7 +423,6 @@ export function graphBuilder(
 	simplifiableFlow: SimplifiableFlow | undefined,
 	flowPathForTriggerNode: string | undefined,
 	expandedSubflows: Record<string, FlowModule[]>,
-	collapsedContainers: Set<string>,
 	showNotes: boolean,
 	collapsedGroupIds: Set<string>
 ): {
@@ -818,20 +797,7 @@ export function graphBuilder(
 						})
 					}
 
-					// Collapsed container check (before the type-based chain)
-					const isContainer =
-						module.value.type === 'branchall' ||
-						module.value.type === 'branchone' ||
-						module.value.type === 'forloopflow' ||
-						module.value.type === 'whileloopflow'
-
-					if (isContainer && collapsedContainers.has(module.id)) {
-						addNode(module, {
-							isCollapsedContainer: true,
-							containerModules: getContainerModules(module)
-						})
-						previousId = module.id
-					} else if (module.value.type === 'branchall') {
+					if (module.value.type === 'branchall') {
 						// Start
 						addNode(module)
 
@@ -1114,11 +1080,9 @@ export function graphBuilder(
 									subflowId: module.id,
 									eventHandlers: eventHandlers,
 									preLabel: '',
-									selected: false,
-									expanded: true,
-									module: module
+									selected: false
 								},
-								type: 'collapsedSubflow'
+								type: 'subflowBound'
 							}
 
 							nodes.push(startNode)
@@ -1144,11 +1108,9 @@ export function graphBuilder(
 									subflowId: module.id,
 									eventHandlers: eventHandlers,
 									preLabel: '',
-									selected: false,
-									expanded: true,
-									module: module
+									selected: false
 								},
-								type: 'collapsedSubflow'
+								type: 'subflowBound'
 							}
 
 							nodes.push(endNode)
@@ -1164,24 +1126,6 @@ export function graphBuilder(
 							)
 
 							previousId = endNode.id
-						} else if (module.value.type === 'flow') {
-							// Non-expanded flow module — show as collapsedSubflow
-							nodes.push({
-								id: module.id,
-								data: {
-									id: module.id,
-									subflowId: module.id,
-									eventHandlers: eventHandlers,
-									label: module.summary || module.value['path'] || module.id,
-									preLabel: '',
-									selected: false,
-									expanded: false,
-									module: module
-								},
-								type: 'collapsedSubflow',
-								selectable: true
-							})
-							previousId = module.id
 						} else {
 							addNode(module)
 							previousId = module.id

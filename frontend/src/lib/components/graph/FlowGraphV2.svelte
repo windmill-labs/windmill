@@ -49,7 +49,7 @@
 	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
 	import type { TriggerContext } from '../triggers'
 	import { workspaceStore } from '$lib/stores'
-	import CollapsedSubflowNode from './renderers/nodes/CollapsedSubflowNode.svelte'
+	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import ViewportResizer from './ViewportResizer.svelte'
 	import ViewportSynchronizer from './ViewportSynchronizer.svelte'
@@ -282,9 +282,6 @@
 		onMoveMultiple = undefined,
 		movingIds = undefined
 	}: Props = $props()
-
-	// Runtime state for collapsed containers (expanded by default)
-	let collapsedContainers = $state<Set<string>>(new Set())
 
 	// Initialize note manager with fine-grained reactivity
 	const noteManager = new NoteManager(
@@ -605,12 +602,6 @@
 		expandGroup: (groupId: string) => {
 			groupDisplayState.expandGroup(groupId)
 		},
-		expandContainer: (moduleId: string) => {
-			collapsedContainers = new Set([...collapsedContainers].filter((id) => id !== moduleId))
-		},
-		collapseContainer: (moduleId: string) => {
-			collapsedContainers = new Set([...collapsedContainers, moduleId])
-		},
 		updateMock: (detail) => {
 			onUpdateMock?.(detail)
 		},
@@ -878,7 +869,7 @@
 		whileLoopEnd: ForLoopEndNode,
 		branchOneStart: BranchOneStart,
 		branchOneEnd: BranchOneEndNode,
-		collapsedSubflow: CollapsedSubflowNode,
+		subflowBound: SubflowBound,
 		noBranch: NoBranchNode,
 		trigger: TriggersNode,
 		asset: AssetNode,
@@ -986,7 +977,6 @@
 			simplifiableFlow,
 			triggerNode ? path : undefined,
 			expandedSubflows,
-			collapsedContainers,
 			showNotes,
 			collapsedGroupIds
 		)
