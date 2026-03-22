@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { writable } from 'svelte/store'
-	import { SvelteFlow, SvelteFlowProvider, type Node, type Edge, type Viewport } from '@xyflow/svelte'
+	import {
+		SvelteFlow,
+		SvelteFlowProvider,
+		type Node,
+		type Edge,
+		type Viewport
+	} from '@xyflow/svelte'
 	import { setGraphContext } from './graphContext'
 	import { SelectionManager } from './selectionUtils.svelte'
 	import { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
@@ -20,6 +26,9 @@
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import AiToolNode from './renderers/nodes/AIToolNode.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
+	import CollapsedGroupNode from './renderers/nodes/CollapsedGroupNode.svelte'
+	import GroupHeadNode from './renderers/nodes/GroupHeadNode.svelte'
+	import GroupEndNode from './renderers/nodes/GroupEndNode.svelte'
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
@@ -58,7 +67,10 @@
 		asset: AssetNode,
 		assetsOverflowed: AssetsOverflowedNode,
 		aiTool: AiToolNode,
-		newAiTool: NewAiToolNode
+		newAiTool: NewAiToolNode,
+		collapsedGroup: CollapsedGroupNode,
+		groupHead: GroupHeadNode,
+		groupEnd: GroupEndNode
 	} as any
 
 	const edgeTypes = {

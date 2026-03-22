@@ -7,21 +7,23 @@
 
 	interface Props {
 		data: CollapsedGroupN['data']
+		id: string
 	}
 
-	let { data }: Props = $props()
+	let { data, id }: Props = $props()
 
 	let outlineColorClass = $derived(
-		(NOTE_COLORS[(data.color as NoteColor) ?? NoteColor.BLUE] ?? NOTE_COLORS[NoteColor.BLUE]).outline
+		(NOTE_COLORS[(data.color as NoteColor) ?? NoteColor.BLUE] ?? NOTE_COLORS[NoteColor.BLUE])
+			.outline
 	)
 
 	let bgColorClass = $derived(
 		NOTE_COLORS[(data.color as NoteColor) ?? NoteColor.BLUE]?.backgroundLight ??
-		NOTE_COLORS[NoteColor.BLUE].backgroundLight
+			NOTE_COLORS[NoteColor.BLUE].backgroundLight
 	)
 </script>
 
-<NodeWrapper>
+<NodeWrapper nodeId={id}>
 	<div
 		class="w-full max-w-full rounded-lg outline outline-1 -outline-offset-1 {outlineColorClass} {bgColorClass}"
 		style="width: 275px;"

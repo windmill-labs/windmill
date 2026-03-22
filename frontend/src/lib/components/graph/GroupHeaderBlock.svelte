@@ -21,6 +21,9 @@
 
 	const groupEditorContext = getGroupEditorContext()
 	const graphContext = getGraphContext()
+	const moveManager = graphContext?.moveManager
+
+	let moveModuleId = $derived(collapsed ? `collapsed-group:${groupId}` : `group:${groupId}`)
 
 	let hovered = $state(false)
 	let menuOpen = $state(false)
@@ -30,7 +33,11 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="nodrag" onmouseenter={() => (hovered = true)} onmouseleave={() => (hovered = false)}>
+<div
+	class="nodrag relative"
+	onmouseenter={() => (hovered = true)}
+	onmouseleave={() => (hovered = false)}
+>
 	<GroupHeader
 		{summary}
 		{color}
@@ -56,6 +63,8 @@
 			{collapsedByDefault}
 			{visible}
 			{menuOpen}
+			{moveManager}
+			{moveModuleId}
 			onMenuOpenChange={(open) => (menuOpen = open)}
 			onAddNote={() => groupEditorContext?.groupEditor.addNote(groupId)}
 			onRemoveNote={() => {

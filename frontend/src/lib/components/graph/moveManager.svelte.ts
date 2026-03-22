@@ -212,7 +212,7 @@ export class MoveManager {
 			// Use graph-level node IDs when available (handles redirected edges near groups).
 			const adjSource = zone.adjacencySourceId ?? zone.sourceId
 			const adjTarget = zone.adjacencyTargetId ?? zone.targetId
-			if (adjSource === draggedId || adjTarget === draggedId) continue
+			if (this.draggedNodeIds.has(adjSource) || this.draggedNodeIds.has(adjTarget)) continue
 
 			const dx = Math.abs(flowPos.x - zone.centerX)
 			const dy = Math.abs(flowPos.y - zone.centerY)

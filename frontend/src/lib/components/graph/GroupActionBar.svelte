@@ -5,6 +5,8 @@
 	import Toggle from '../Toggle.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import MoveHandleButton from './MoveHandleButton.svelte'
+	import type { MoveManager } from './moveManager.svelte'
 
 	interface Props {
 		note: string | undefined | null
@@ -12,6 +14,8 @@
 		collapsedByDefault: boolean
 		visible?: boolean
 		menuOpen?: boolean
+		moveManager?: MoveManager
+		moveModuleId?: string
 		onMenuOpenChange?: (open: boolean) => void
 		onAddNote: () => void
 		onRemoveNote: () => void
@@ -26,6 +30,8 @@
 		collapsedByDefault,
 		visible = true,
 		menuOpen = $bindable(),
+		moveManager,
+		moveModuleId,
 		onMenuOpenChange,
 		onAddNote,
 		onRemoveNote,
@@ -40,9 +46,18 @@
 </script>
 
 <div
-	class="absolute -translate-y-[100%] top-2 right-0 h-7 p-1 min-w-7"
+	class="absolute -translate-y-[100%] top-2 right-0 h-7 p-1 min-w-7 flex flex-row gap-2"
 	style="will-change: transform;"
 >
+	{#if moveManager && moveModuleId}
+		<MoveHandleButton
+			{moveManager}
+			moduleId={moveModuleId}
+			singleNode
+			{visible}
+			onClickMove={() => moveManager.toggleMoving(moveModuleId!)}
+		/>
+	{/if}
 	<DropdownV2
 		placement="bottom-end"
 		bind:open={menuOpen}

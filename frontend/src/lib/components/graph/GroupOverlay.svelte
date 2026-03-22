@@ -85,6 +85,16 @@
 			NOTE_COLORS[NoteColor.BLUE].backgroundLight
 		)
 	}
+
+	const moveManager = graphContext?.moveManager
+
+	function isGroupDragged(groupId: string): boolean {
+		if (!moveManager) return false
+		return (
+			moveManager.draggedNodeIds.has(`group:${groupId}`) ||
+			moveManager.draggedNodeIds.has(`collapsed-group:${groupId}`)
+		)
+	}
 </script>
 
 {#each allGroups as group (group.id)}
@@ -95,6 +105,7 @@
 				class="absolute rounded-lg outline outline-1 -outline-offset-1 pointer-events-none {getOutlineColorClass(
 					group.color
 				)} {getBgColorClass(group.color)}"
+				class:opacity-30={isGroupDragged(group.id)}
 				style:transform="translate({bounds.x}px, {bounds.y}px)"
 				style:width="{bounds.width}px"
 				style:height="{bounds.height}px"

@@ -4,10 +4,15 @@
 	import GroupHeaderBlock from '../../GroupHeaderBlock.svelte'
 	import type { GroupHeadN } from '../../graphBuilder.svelte'
 
-	let { data }: { data: GroupHeadN['data'] } = $props()
+	interface Props {
+		data: GroupHeadN['data']
+		id: string
+	}
+
+	let { data, id }: Props = $props()
 </script>
 
-<NodeWrapper enableSourceHandle enableTargetHandle>
+<NodeWrapper enableSourceHandle enableTargetHandle nodeId={id}>
 	<div style="width: {NODE.width}px;">
 		<GroupHeaderBlock
 			groupId={data.groupId}

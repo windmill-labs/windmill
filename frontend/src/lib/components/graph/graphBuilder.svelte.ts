@@ -720,6 +720,7 @@ export function graphBuilder(
 							// Expanded group: head → recurse → end
 							const headId = `group:${g.id}`
 							const endId = `group:${g.id}-end`
+							const localDisableMoveIds = [...disableMoveIds, headId]
 
 							const headNode: NodeLayout = {
 								id: headId,
@@ -765,7 +766,7 @@ export function graphBuilder(
 								endNode,
 								simplifiedTriggerView,
 								prefix,
-								disableMoveIds,
+								localDisableMoveIds,
 								parentIndex
 							)
 
@@ -774,14 +775,17 @@ export function graphBuilder(
 
 						// Shared first/last edge wiring for groups
 						if (index === 0) {
-							const entryId = collapsedGroupIds.has(g.id)
-								? `collapsed-group:${g.id}`
-								: `group:${g.id}`
-							addEdge(beforeNode.id, entryId, undefined, prefix, {
-								currentItems: items,
-								disableMoveIds,
-								disableInsert: simplifiedTriggerView
-							})
+							addEdge(
+								beforeNode.id,
+								collapsedGroupIds.has(g.id) ? `collapsed-group:${g.id}` : `group:${g.id}`,
+								undefined,
+								prefix,
+								{
+									currentItems: items,
+									disableMoveIds,
+									disableInsert: simplifiedTriggerView
+								}
+							)
 						}
 
 						if (index === items.length - 1 && previousId && nextNode) {
