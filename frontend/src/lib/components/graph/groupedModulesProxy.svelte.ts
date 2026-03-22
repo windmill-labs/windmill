@@ -96,6 +96,38 @@ export function matchGroupedModuleForDfs(item: GroupedModule, nodeId: string): b
 	return matchGroupedModule(item, nodeId)
 }
 
+/**
+ * After flattening proxy snapshots, swap each module for its original store
+ * counterpart so we preserve reactive identity. Only the ordering (and
+ * container inner-array ordering) comes from the proxy; values stay original.
+ */
+function restoreOriginalModules(
+	modules: FlowModule[],
+	originalMap: Map<string, FlowModule>
+): FlowModule[] {
+	return modules.map((mod) => {
+		const original = originalMap.get(mod.id) ?? mod
+		const ov = original.value
+		const mv = mod.value
+		if (
+			(ov.type === 'forloopflow' || ov.type === 'whileloopflow') &&
+			(mv.type === 'forloopflow' || mv.type === 'whileloopflow')
+		) {
+			ov.modules = restoreOriginalModules(mv.modules, originalMap)
+		} else if (ov.type === 'branchone' && mv.type === 'branchone') {
+			ov.default = restoreOriginalModules(mv.default, originalMap)
+			for (let i = 0; i < ov.branches.length; i++) {
+				ov.branches[i].modules = restoreOriginalModules(mv.branches[i].modules, originalMap)
+			}
+		} else if (ov.type === 'branchall' && mv.type === 'branchall') {
+			for (let i = 0; i < ov.branches.length; i++) {
+				ov.branches[i].modules = restoreOriginalModules(mv.branches[i].modules, originalMap)
+			}
+		}
+		return original
+	})
+}
+
 /** Flatten GroupedModule[] back to FlowModule[] */
 export function flattenGroupedModules(items: GroupedModule[]): FlowModule[] {
 	return items.flatMap((item) => {
@@ -259,7 +291,16 @@ export class GroupedModulesProxy {
 		// container inner arrays in-place, which would destroy group items before
 		// deriveGroups can find them.
 		const derivedGroups = deriveGroups(this.#items)
-		this.#flowStore.val.value.modules = flattenGroupedModules(this.#items)
+
+		// Build lookup from current store modules (originals) before overwriting
+		const originalMap = new Map<string, FlowModule>()
+		for (const m of getAllModules(this.#flowStore.val.value.modules)) {
+			originalMap.set(m.id, m)
+		}
+
+		// Flatten proxy to get correct ordering, then swap in originals
+		const flattened = flattenGroupedModules(this.#items)
+		this.#flowStore.val.value.modules = restoreOriginalModules(flattened, originalMap)
 		this.#flowStore.val.value.groups = derivedGroups
 		this.#syncing = false
 	}

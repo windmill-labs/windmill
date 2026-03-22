@@ -32,13 +32,6 @@
 		return {}
 	}
 
-	/** Flatten GroupedModule[] to FlowModule[], skipping group wrappers */
-	function flattenModules(items: any[]): FlowModule[] {
-		return items.flatMap((m) =>
-			m.type === 'group' ? flattenModules(m.modules) : [m as FlowModule]
-		)
-	}
-
 	function isSelectedDescendant(
 		module: FlowModule,
 		selectedId: string
@@ -46,7 +39,7 @@
 		if (!selectedId) return 'none'
 		// Check direct children
 		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
-			const children = flattenModules(module.value.modules as any[])
+			const children = module.value.modules
 			if (children.some((m) => m.id === selectedId)) {
 				return 'child'
 			}

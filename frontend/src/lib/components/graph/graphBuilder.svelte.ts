@@ -440,6 +440,13 @@ export function graphBuilder(
 		const nodes: NodeLayout[] = []
 		const edges: Edge[] = []
 
+		// Build a lookup map from the original reactive modules so that node data
+		// references the live module objects rather than the grouped proxy snapshots.
+		const moduleMap = new Map<string, FlowModule>()
+		for (const m of getAllModules(modules, failureModule)) {
+			moduleMap.set(m.id, m)
+		}
+
 		function addNode(module: FlowModule, extraData?: Record<string, any>) {
 			const duplicated = nodes.find((n) => n.id === module.id)
 			if (duplicated) {
@@ -447,10 +454,12 @@ export function graphBuilder(
 				throw new Error(`Duplicated node detected: ${module.id}`)
 			}
 
+			const originalModule = moduleMap.get(module.id) ?? module
+
 			nodes.push({
 				id: module.id,
 				data: {
-					module: module,
+					module: originalModule,
 					id: module.id,
 					parentIds: [],
 					eventHandlers: eventHandlers,
@@ -460,7 +469,7 @@ export function graphBuilder(
 					editMode: extra.editMode,
 					isOwner: extra.isOwner,
 					flowJob: extra.flowJob,
-					assets: getFlowModuleAssets(module, extra.additionalAssetsMap),
+					assets: getFlowModuleAssets(originalModule, extra.additionalAssetsMap),
 					moduleAction: extra.moduleActions?.[module.id],
 					...extraData
 				},
@@ -681,7 +690,7 @@ export function graphBuilder(
 									color: g.color,
 									collapsed_by_default: g.collapsed_by_default,
 									stepCount: item.moduleIds.length,
-									modules: collectLeafModules(item.modules),
+									modules: collectLeafModules(item.modules).map((m) => moduleMap.get(m.id) ?? m),
 									flowModuleStates: extra.flowModuleStates,
 									flowJob: extra.flowJob,
 									isOwner: extra.isOwner,
@@ -890,7 +899,7 @@ export function graphBuilder(
 							id: `${module.id}-start`,
 							data: {
 								id: module.id,
-								module: module,
+								module: moduleMap.get(module.id) ?? module,
 								simplifiedTriggerView,
 								eventHandlers: eventHandlers,
 								editMode: extra.editMode,
