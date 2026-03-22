@@ -681,11 +681,7 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
 
       // First generate-metadata — everything is stale, locks get generated
       const gen1 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
-      if (gen1.code !== 0) {
-        console.log("STDOUT:", gen1.stdout);
-        console.log("STDERR:", gen1.stderr);
-      }
-      expect(gen1.code).toBe(0);
+      expect(gen1.code, `generate-metadata failed:\nSTDOUT: ${gen1.stdout}\nSTDERR: ${gen1.stderr}`).toBe(0);
 
       const scriptLock = await readFile(
         `${tempDir}/f/test/my_script.script.lock`,
@@ -695,11 +691,7 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
 
       // Second generate-metadata — nothing changed, should report "All metadata up-to-date"
       const gen2 = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
-      if (gen2.code !== 0) {
-        console.log("STDOUT:", gen2.stdout);
-        console.log("STDERR:", gen2.stderr);
-      }
-      expect(gen2.code).toBe(0);
+      expect(gen2.code, `generate-metadata failed:\nSTDOUT: ${gen2.stdout}\nSTDERR: ${gen2.stderr}`).toBe(0);
 
       const output = gen2.stdout + gen2.stderr;
       expect(output).toContain("All metadata up-to-date");
