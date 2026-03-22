@@ -85,6 +85,7 @@ pub mod schema;
 pub mod scripts;
 pub mod secret_backend;
 pub mod server;
+pub mod ssrf;
 #[cfg(feature = "private")]
 pub mod stats_ee;
 pub mod stats_oss;
