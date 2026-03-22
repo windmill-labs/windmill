@@ -128,6 +128,7 @@
 		success?: boolean | undefined
 		modules?: FlowModule[] | undefined
 		groupedModules?: GroupedModule[]
+		groupError?: unknown
 		failureModule?: FlowModule | undefined
 		preprocessorModule?: FlowModule | undefined
 		minHeight?: number
@@ -225,6 +226,7 @@
 		success = undefined,
 		modules = [],
 		groupedModules: groupedModulesProp = undefined,
+		groupError = undefined,
 		failureModule = undefined,
 		preprocessorModule = undefined,
 		minHeight = 0,
@@ -928,6 +930,10 @@
 
 		const collapsedGroupIds = new Set(groupDisplayState.getCollapsedGroups().map((g) => g.id))
 
+		if (groupError) {
+			return { nodes: {}, edges: [], error: groupError }
+		}
+
 		// Use provided groupedModules (from proxy) or build locally (diff mode / read-only)
 		let gm: GroupedModule[] | undefined = groupedModulesProp
 		if (!gm) {
@@ -938,10 +944,14 @@
 					computeGroupModuleIds(g.start_id, g.end_id, getAllModules(effectiveModules ?? []))
 				)
 			}))
-			gm = buildGroupedModules(
-				stateSnapshot(untrack(() => effectiveModules) ?? []) as FlowModule[],
-				graphGroups
-			)
+			try {
+				gm = buildGroupedModules(
+					stateSnapshot(untrack(() => effectiveModules) ?? []) as FlowModule[],
+					graphGroups
+				)
+			} catch (e) {
+				return { nodes: {}, edges: [], error: e }
+			}
 		}
 
 		const result = graphBuilder(

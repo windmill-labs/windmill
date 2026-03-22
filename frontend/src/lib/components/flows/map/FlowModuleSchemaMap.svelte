@@ -608,6 +608,7 @@
 			maxHeight={minHeight}
 			modules={flowStore.val.value.modules}
 			groupedModules={proxy?.items}
+			groupError={proxy?.error}
 			{noteMode}
 			notes={flowStore.val.value.notes}
 			groups={flowStore.val.value.groups}

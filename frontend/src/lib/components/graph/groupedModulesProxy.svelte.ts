@@ -179,6 +179,7 @@ function findInTreeImpl(items: GroupedModule[], id: string): FindResult | undefi
  */
 export class GroupedModulesProxy {
 	#items = $state<GroupedModule[]>([])
+	#error = $state<unknown>(undefined)
 	#flowStore: StateStore<ExtendedOpenFlow>
 	#syncing = false
 
@@ -202,6 +203,11 @@ export class GroupedModulesProxy {
 	/** Reactive access to the grouped structure */
 	get items(): GroupedModule[] {
 		return this.#items
+	}
+
+	/** Reactive access to group build errors */
+	get error(): unknown {
+		return this.#error
 	}
 
 	/** Find a position in the tree by ID (recurses into groups) */
@@ -238,7 +244,12 @@ export class GroupedModulesProxy {
 			...g,
 			moduleIds: computeGroupModuleIds(g.start_id, g.end_id, allModules)
 		}))
-		this.#items = buildGroupedModules(modules, graphGroups)
+		try {
+			this.#items = buildGroupedModules(modules, graphGroups)
+			this.#error = undefined
+		} catch (e) {
+			this.#error = e
+		}
 	}
 
 	/** Sync grouped structure back to flowStore */
