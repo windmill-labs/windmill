@@ -270,7 +270,7 @@
 <BaseEdge
 	path={completeEdge}
 	{markerEnd}
-	class={$useDataflow ? 'hidden' : isAdjacentToDragged ? 'opacity-30' : ''}
+	class={$useDataflow || groupBoundary ? 'hidden' : isAdjacentToDragged ? 'opacity-30' : ''}
 	interactionWidth={0}
 	style={undefined}
 	label={undefined}
