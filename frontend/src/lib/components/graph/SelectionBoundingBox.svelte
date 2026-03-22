@@ -6,7 +6,6 @@
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { getNoteEditorContext } from './noteEditor.svelte'
 	import { getGroupEditorContext } from './groupEditor.svelte'
-	import { canFormValidGroup } from './groupDetectionUtils'
 	import { getGraphContext } from './graphContext'
 	import MoveHandleButton from './MoveHandleButton.svelte'
 	import { tick } from 'svelte'
@@ -60,7 +59,7 @@
 	let canCreateGroup = $derived.by(() => {
 		if (selectedNodes.length < 1 || !groupEditorContext?.groupEditor || !graphContext) return false
 		const flowNodes = graphContext.getFlowNodes?.() ?? []
-		return canFormValidGroup(selectedNodes, flowNodes).valid
+		return groupEditorContext.groupEditor.canCreateGroup(selectedNodes, flowNodes)
 	})
 
 	function handleAddGroup() {

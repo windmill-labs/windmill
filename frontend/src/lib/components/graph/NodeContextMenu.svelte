@@ -4,7 +4,6 @@
 	import type { Snippet } from 'svelte'
 	import { getNoteEditorContext } from './noteEditor.svelte'
 	import { getGroupEditorContext } from './groupEditor.svelte'
-	import { canFormValidGroup } from './groupDetectionUtils'
 	import { getGraphContext } from './graphContext'
 	import { tick } from 'svelte'
 
@@ -23,9 +22,10 @@
 	const graphContext = getGraphContext()
 
 	let canCreateGroup = $derived.by(() => {
-		if (selectedNodeIds.length < 1 || !groupEditorContext?.groupEditor || !graphContext) return false
+		if (selectedNodeIds.length < 1 || !groupEditorContext?.groupEditor || !graphContext)
+			return false
 		const flowNodes = graphContext.getFlowNodes?.() ?? []
-		return canFormValidGroup(selectedNodeIds, flowNodes).valid
+		return groupEditorContext.groupEditor.canCreateGroup(selectedNodeIds, flowNodes)
 	})
 
 	const menuItems: ContextMenuItem[] = $derived([

@@ -123,6 +123,24 @@ export class GroupEditor {
 		}
 	}
 
+	/** IDs that cannot be part of a group (preprocessor, failure module) */
+	getExcludeIds(): Set<string> {
+		const excludeIds = new Set<string>()
+		const pp = this.flowStore.val.value?.preprocessor_module?.id
+		if (pp) excludeIds.add(pp)
+		const fm = this.flowStore.val.value?.failure_module?.id
+		if (fm) excludeIds.add(fm)
+		return excludeIds
+	}
+
+	/** Check whether the given selection can form a valid group */
+	canCreateGroup(
+		selectedIds: string[],
+		flowNodes: { id: string; parentIds?: string[] }[]
+	): boolean {
+		return canFormValidGroup(selectedIds, flowNodes, this.getExcludeIds()).valid
+	}
+
 	/**
 	 * Create a new group from selected node IDs.
 	 * Uses canFormValidGroup to determine start_id and end_id.
@@ -148,14 +166,7 @@ export class GroupEditor {
 			filteredIds = [...filteredIds, ...subflowIds]
 		}
 
-		// Exclude preprocessor and failure module from group boundaries
-		const excludeIds = new Set<string>()
-		const pp = this.flowStore.val.value?.preprocessor_module?.id
-		if (pp) excludeIds.add(pp)
-		const fm = this.flowStore.val.value?.failure_module?.id
-		if (fm) excludeIds.add(fm)
-
-		const result = canFormValidGroup(filteredIds, flowNodes, excludeIds)
+		const result = canFormValidGroup(filteredIds, flowNodes, this.getExcludeIds())
 		if (!result.valid) return undefined
 
 		const groups = this.getGroups()
