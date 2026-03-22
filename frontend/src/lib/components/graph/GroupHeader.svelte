@@ -19,6 +19,8 @@
 		NOTE_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ?? NOTE_COLORS[NoteColor.BLUE]
 	)
 
+	const PLACEHOLDER = 'Group'
+
 	// Inline summary editing
 	let editingSummary = $state(false)
 	let summaryInput = $state('')
@@ -77,19 +79,25 @@
 	</div>
 	<div class="absolute inset-x-0 flex items-center justify-center h-full pointer-events-none px-7">
 		{#if editingSummary}
-			<TextInput
-				bind:this={textInputComponent}
-				bind:value={summaryInput}
-				size="xs"
-				class="!bg-transparent !border-transparent !shadow-none !text-2xs !font-medium !p-0 !m-0 !min-w-0 !w-fit text-center !min-h-0 !h-auto nodrag nowheel pointer-events-auto"
-				inputProps={{
-					placeholder: 'Group',
-					onblur: saveSummary,
-					onkeydown: handleSummaryKeydown,
-					spellcheck: false,
-					style: 'padding: 2px !important; field-sizing: content; min-width: 5ch !important'
-				}}
-			/>
+			<div
+				class="input-sizer inline-grid items-center pointer-events-auto text-2xs font-medium max-w-full"
+				data-value={summaryInput || PLACEHOLDER}
+			>
+				<TextInput
+					bind:this={textInputComponent}
+					bind:value={summaryInput}
+					size="xs"
+					class="!bg-transparent !border-transparent !shadow-none !text-2xs !font-medium !p-0 !m-0 !min-w-0 text-center !min-h-0 !h-auto nodrag nowheel"
+					inputProps={{
+						placeholder: PLACEHOLDER,
+						onblur: saveSummary,
+						onkeydown: handleSummaryKeydown,
+						spellcheck: false,
+						size: 1,
+						style: 'padding: 2px !important; grid-area: 1 / 1'
+					}}
+				/>
+			</div>
 		{:else}
 			<span
 				class="text-2xs font-medium truncate text-center pointer-events-auto {editMode
@@ -97,8 +105,20 @@
 					: ''}"
 				onclick={editMode ? stopPropagation(preventDefault(startEditingSummary)) : undefined}
 				onpointerdown={editMode ? stopPropagation(preventDefault(() => {})) : undefined}
-				>{summary || 'Group'}</span
+				>{summary || PLACEHOLDER}</span
 			>
 		{/if}
 	</div>
 </div>
+
+<style>
+	.input-sizer::after {
+		content: attr(data-value) ' ';
+		visibility: hidden;
+		white-space: pre;
+		grid-area: 1 / 1;
+		font: inherit;
+		padding: 2px;
+		text-align: center;
+	}
+</style>
