@@ -131,16 +131,15 @@ export function canFormValidGroup(
 
 	if (selectedSorted.length === 0) return { valid: false }
 
-	// Filter out virtual nodes and explicitly excluded IDs — they cannot be part of a group
-	const nonVirtualSorted = selectedSorted.filter(
-		(n) => !VIRTUAL_NODE_IDS.has(n.id) && !excludeIds?.has(n.id)
-	)
-	if (nonVirtualSorted.length === 0) return { valid: false }
+	// Reject if selection contains any virtual or excluded node
+	if (selectedSorted.some((n) => VIRTUAL_NODE_IDS.has(n.id) || excludeIds?.has(n.id))) {
+		return { valid: false }
+	}
 
 	// Topo sort: index 0 = bottom of flow, last index = top of flow
 	// start_id = top (visually), end_id = bottom (visually)
-	const startId = nonVirtualSorted[nonVirtualSorted.length - 1].id
-	const endId = nonVirtualSorted[0].id
+	const startId = selectedSorted[selectedSorted.length - 1].id
+	const endId = selectedSorted[0].id
 
 	// Validate that the computed members match the selection
 	const membership = computeGroupNodeIds(startId, endId, flowNodes)
