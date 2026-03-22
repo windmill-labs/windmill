@@ -934,8 +934,6 @@
 			return { nodes: {}, edges: [], error: groupError }
 		}
 
-		console.log('dbg', effectiveModules)
-
 		// Use provided groupedModules (from proxy) or build locally (diff mode / read-only)
 		let gm: GroupedModule[] | undefined = groupedModulesProp
 		if (!gm) {
