@@ -210,6 +210,7 @@ where
                     "updated_by",
                     "edited_at",
                     "edited_by",
+                    "permissioned_as",
                     "archived",
                     "has_draft",
                     "error",

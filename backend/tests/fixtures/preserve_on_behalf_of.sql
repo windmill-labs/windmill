@@ -65,6 +65,11 @@ INSERT INTO usr_to_group(workspace_id, group_, usr) VALUES
 	('test-workspace', 'wm_deployers', 'deployer-user')
 ON CONFLICT DO NOTHING;
 
+-- Superadmin NOT in workspace (only in password table, not in usr)
+INSERT INTO password(email, password_hash, login_type, super_admin, verified, name, username)
+    VALUES ('superadmin-external@windmill.dev', 'not-a-real-hash', 'password', true, true, 'External Superadmin', 'superadmin-external')
+ON CONFLICT DO NOTHING;
+
 -- Tokens for all users (token_hash = sha256 hex, token_prefix = first 10 chars)
 -- NOTE: plaintext `token` column is included for backward compat during transition.
 -- Remove it once the `token` column is dropped from the schema.
@@ -79,6 +84,9 @@ VALUES (encode(sha256('DEPLOYER_TOKEN'::bytea), 'hex'), 'DEPLOYER_T', 'DEPLOYER_
 ON CONFLICT DO NOTHING;
 INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin)
 VALUES (encode(sha256('ORIGINAL_TOKEN'::bytea), 'hex'), 'ORIGINAL_T', 'ORIGINAL_TOKEN', 'original@windmill.dev', 'original token', false)
+ON CONFLICT DO NOTHING;
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin)
+VALUES (encode(sha256('EXTERNAL_SUPERADMIN_TOKEN'::bytea), 'hex'), 'EXTERNAL_S', 'EXTERNAL_SUPERADMIN_TOKEN', 'superadmin-external@windmill.dev', 'external superadmin token', true)
 ON CONFLICT DO NOTHING;
 
 GRANT ALL PRIVILEGES ON TABLE workspace_key TO windmill_admin;

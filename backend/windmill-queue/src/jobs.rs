@@ -52,6 +52,10 @@ use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
+use windmill_common::otel_oss::{
+    otel_incr_queue_delete_count, otel_incr_queue_pull_count, otel_incr_queue_push_count,
+    otel_incr_worker_execution_failed,
+};
 use windmill_common::{
     auth::permissioned_as_to_username,
     cache::{self, FlowData},
@@ -765,6 +769,8 @@ pub async fn add_completed_job_error(
     )
     .await;
 
+    otel_incr_worker_execution_failed(&completed_job.tag);
+
     let result = WrappedError { error: e };
     tracing::error!(
         "job {} in {} did not succeed: {}",
@@ -1041,6 +1047,35 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             .ok()
             .flatten();
             wac_job_ids = row.flatten();
+
+            // If parent was already completed (e.g. cancelled), update v2_job_completed instead
+            if wac_job_ids.is_none() {
+                let _ = sqlx::query!(
+                    r#"UPDATE v2_job_completed SET
+                            workflow_as_code_status = jsonb_set(
+                                jsonb_set(
+                                    workflow_as_code_status,
+                                    array[$1],
+                                    COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
+                                ),
+                                array[$1, 'duration_ms'],
+                                to_jsonb($2::bigint)
+                            )
+                        WHERE id = $3 AND workflow_as_code_status IS NOT NULL"#,
+                    &completed_job.id.to_string(),
+                    duration,
+                    parent_job
+                )
+                .execute(&mut *tx)
+                .warn_after_seconds(10)
+                .await
+                .inspect_err(|e| {
+                    tracing::error!(
+                        "Could not update completed parent job `duration_ms` in workflow as code status: {}",
+                        e,
+                    )
+                });
+            }
         }
     }
     // tracing::error!("Added completed job {:#?}", queued_job);
@@ -1834,9 +1869,20 @@ pub async fn try_schedule_next_job<'c>(
         &job.workspace_id
     );
 
+    let permissioned_as = schedule.permissioned_as.clone();
+    let email = match windmill_common::users::get_email_from_permissioned_as(
+        &permissioned_as,
+        &job.workspace_id,
+        db,
+    )
+    .await
+    {
+        Ok(email) => email,
+        Err(e) => return (tx, Some(e)),
+    };
     let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
-        &windmill_common::users::username_to_permissioned_as(&schedule.edited_by),
-        &schedule.email,
+        &permissioned_as,
+        &email,
         &job.workspace_id,
         &mut *tx,
     )
@@ -3382,6 +3428,7 @@ pub async fn pull(
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
+            otel_incr_queue_pull_count();
             return Ok(PulledJobResult {
                 job: Some(pulled_job),
                 suspended,
@@ -4136,6 +4183,7 @@ pub async fn delete_job<'c>(
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_DELETE_COUNT.inc();
     }
+    otel_incr_queue_delete_count();
 
     let job_removed =
         sqlx::query_scalar!("DELETE FROM v2_job_queue WHERE id = $1 RETURNING 1", job_id,)
@@ -5757,6 +5805,7 @@ async fn push_inner<'c, 'd>(
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_PUSH_COUNT.inc();
     }
+    otel_incr_queue_push_count();
 
     {
         let uuid_string = job_id.to_string();
@@ -5794,7 +5843,7 @@ async fn push_inner<'c, 'd>(
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {
             AuditAuthor {
                 email: email.to_string(),
-                username: permissioned_as.trim_start_matches("u/").to_string(),
+                username: windmill_common::auth::permissioned_as_to_username(&permissioned_as),
                 username_override: Some(user.to_string()),
                 token_prefix: token_prefix.map(|s| s.to_string()),
             }

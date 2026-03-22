@@ -204,14 +204,14 @@ VALUES ('test-workspace', 'u/bob/my_variable', 'bob_value', false,
 -- ============================================
 
 -- Alice's personal schedule
-INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, enabled, script_path, args, is_flow, email, timezone, extra_perms)
+INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, enabled, script_path, args, is_flow, email, timezone, extra_perms, permissioned_as)
 VALUES ('test-workspace', 'u/alice/my_schedule', 'alice', NOW(), '0 * * * *', false,
-        'u/alice/my_script', '{}', false, 'alice@windmill.dev', 'UTC', '{}');
+        'u/alice/my_script', '{}', false, 'alice@windmill.dev', 'UTC', '{}', 'u/alice');
 
 -- Bob's personal schedule
-INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, enabled, script_path, args, is_flow, email, timezone, extra_perms)
+INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, enabled, script_path, args, is_flow, email, timezone, extra_perms, permissioned_as)
 VALUES ('test-workspace', 'u/bob/my_schedule', 'bob', NOW(), '0 * * * *', false,
-        'u/bob/my_script', '{}', false, 'bob@windmill.dev', 'UTC', '{}');
+        'u/bob/my_script', '{}', false, 'bob@windmill.dev', 'UTC', '{}', 'u/bob');
 
 -- ============================================
 -- APPS (with app_versions)

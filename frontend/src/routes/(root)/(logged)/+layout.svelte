@@ -50,6 +50,7 @@
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { ArrowLeft, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
+	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
@@ -125,7 +126,9 @@
 				console.error('Could not persist workspace to local storage', e)
 			}
 			const user = await getUserExt(workspace)
-			userStore.set(user)
+			if (!deepEqual(user, $userStore)) {
+				userStore.set(user)
+			}
 			if (isCloudHosted() && user?.is_admin) {
 				isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
 			}
