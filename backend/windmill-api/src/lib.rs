@@ -640,6 +640,10 @@ pub async fn run_server(
                 .nest("/indexer", indexer_oss::management_service())
                 .nest("/mcp/w/:workspace_id/list_tools", mcp_list_tools_service)
                 .nest("/health/detailed", health::detailed_service())
+                .nest(
+                    "/saml",
+                    saml_oss::authed_service().layer(Extension(Arc::clone(&sp_extension))),
+                )
                 .nest("/mcp/gateway/oauth/server", {
                     #[cfg(feature = "mcp")]
                     {
