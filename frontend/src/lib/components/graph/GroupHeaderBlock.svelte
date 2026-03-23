@@ -67,10 +67,7 @@
 			{moveModuleId}
 			onMenuOpenChange={(open) => (menuOpen = open)}
 			onAddNote={() => groupEditorContext?.groupEditor.addNote(groupId)}
-			onRemoveNote={() => {
-				graphContext?.groupDisplayState?.setNoteHeight(groupId, 0)
-				groupEditorContext?.groupEditor.removeNote(groupId)
-			}}
+			onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(groupId)}
 			onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(groupId, c)}
 			onUpdateCollapsedDefault={(v) =>
 				groupEditorContext?.groupEditor.updateCollapsedDefault(groupId, v)}

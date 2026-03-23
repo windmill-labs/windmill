@@ -49,7 +49,10 @@
 			}
 		})
 		observer.observe(containerElement)
-		return () => observer.disconnect()
+		return () => {
+			observer.disconnect()
+			onHeightChange(0)
+		}
 	})
 
 	function handleDoubleClick() {
@@ -120,7 +123,7 @@
 				ondblclick={editMode ? stopPropagation(preventDefault(handleDoubleClick)) : undefined}
 				onpointerdown={editMode ? stopPropagation(() => {}) : undefined}
 			>
-				Double click to add a note
+				Double click to edit the note
 			</div>
 		{/if}
 	</div>
