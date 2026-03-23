@@ -276,8 +276,9 @@
 		() => nodes
 	)
 
-	// Group display state (runtime collapse, note heights) — same pattern as NoteManager
-	const groupDisplayState = groupDisplayStateProp ?? new GroupDisplayState(() => groups ?? [])
+	const groupDisplayState = $derived(
+		groupDisplayStateProp ?? new GroupDisplayState(() => groups ?? [])
+	)
 
 	// Runtime text height tracking for notes (not stored in FlowNote)
 	let noteTextHeights = $state<Record<string, number>>({})
@@ -324,7 +325,9 @@
 		yOffset,
 		diffManager,
 		getFlowNodes: () => currentGraphNodeDeps,
-		groupDisplayState
+		get groupDisplayState() {
+			return groupDisplayState
+		}
 	} as any)
 
 	if (triggerContext && untrack(() => allowSimplifiedPoll)) {

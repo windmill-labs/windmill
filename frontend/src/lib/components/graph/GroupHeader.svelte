@@ -51,14 +51,6 @@
 			editingSummary = false
 		}
 	}
-
-	// Animate chevron rotation on mount
-	let chevronRotated = $state(collapsed)
-	$effect(() => {
-		requestAnimationFrame(() => {
-			chevronRotated = !collapsed
-		})
-	})
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -73,7 +65,7 @@
 >
 	<div
 		class="flex items-center justify-center shrink-0 opacity-60 transition-transform duration-100"
-		class:rotate-90={chevronRotated}
+		class:rotate-90={!collapsed}
 	>
 		<ChevronRight size={12} />
 	</div>
