@@ -29,7 +29,7 @@ const p = {
 
     let cdirNodeModules = `${cdirFwd}/node_modules/`;
 
-    const filterLoad = new RegExp(`^${cdir}\/main\\.ts$`);
+    const filterLoad = new RegExp(`^${cdirFwd}\/main\\.ts$`);
     const transpiler = new Bun.Transpiler({
       loader: "ts",
     });
