@@ -2,7 +2,7 @@
 mod tests {
     use serde_json::json;
     use windmill_parser::{Arg, MainArgSignature, ObjectProperty, ObjectType, Typ};
-    use windmill_parser_ts::{parse_deno_signature, parse_expr_for_imports};
+    use windmill_parser_ts::{parse_deno_signature, parse_expr_for_imports, parse_relative_imports};
 
     #[test]
     fn test_imports_basic() {
@@ -798,12 +798,92 @@ mod tests {
         // Test case where there are exports but no preprocessor
         let code = r#"
         export { foo, bar } from "./utils";
-        
+
         export async function main(param: string) {
             return param;
         }
         "#;
         let sig = parse_deno_signature(code, false, false, None).unwrap();
         assert_eq!(sig.has_preprocessor, Some(false));
+    }
+
+    // ==========================================================================
+    // Tests for parse_relative_imports
+    // ==========================================================================
+
+    #[test]
+    fn test_relative_imports_dot() {
+        let code = r#"
+        import { helper } from "./helper";
+        export async function main() { return helper(); }
+        "#;
+        let result = parse_relative_imports(code, "f/folder/script").unwrap();
+        assert_eq!(result, vec!["f/folder/helper"]);
+    }
+
+    #[test]
+    fn test_relative_imports_double_dot() {
+        let code = r#"
+        import { utils } from "../utils/helper";
+        export async function main() { return utils(); }
+        "#;
+        let result = parse_relative_imports(code, "f/folder/subfolder/script").unwrap();
+        assert_eq!(result, vec!["f/folder/utils/helper"]);
+    }
+
+    #[test]
+    fn test_relative_imports_absolute_path() {
+        let code = r#"
+        import { shared } from "/f/shared/utils";
+        export async function main() { return shared(); }
+        "#;
+        let result = parse_relative_imports(code, "f/folder/script").unwrap();
+        assert_eq!(result, vec!["f/shared/utils"]);
+    }
+
+    #[test]
+    fn test_relative_imports_mixed() {
+        let code = r#"
+        import { helper } from "./helper";
+        import { utils } from "../utils";
+        import { shared } from "/f/shared/lib";
+        import lodash from "lodash";
+        export async function main() { return helper() + utils() + shared(); }
+        "#;
+        let result = parse_relative_imports(code, "f/folder/script").unwrap();
+        // Should only include relative imports, not external packages like lodash
+        assert_eq!(result, vec!["f/folder/helper", "f/shared/lib", "f/utils"]);
+    }
+
+    #[test]
+    fn test_relative_imports_with_ts_extension() {
+        let code = r#"
+        import { helper } from "./helper.ts";
+        export async function main() { return helper(); }
+        "#;
+        let result = parse_relative_imports(code, "f/folder/script").unwrap();
+        assert_eq!(result, vec!["f/folder/helper"]);
+    }
+
+    #[test]
+    fn test_relative_imports_external_only() {
+        let code = r#"
+        import lodash from "lodash";
+        import { something } from "@scope/package";
+        export async function main() { return lodash.map([]); }
+        "#;
+        let result = parse_relative_imports(code, "f/folder/script").unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_relative_imports_deeply_nested() {
+        let code = r#"
+        import { a } from "../../a";
+        import { b } from "../../../b";
+        export async function main() { return a() + b(); }
+        "#;
+        let result = parse_relative_imports(code, "f/one/two/three/script").unwrap();
+        assert_eq!(result, vec!["f/b", "f/one/a"]);
     }
 }

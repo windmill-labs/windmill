@@ -346,20 +346,9 @@ pub struct DuckdbConnectionSettingsQueryV2 {
     pub storage: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum S3ModeFormat {
-    Json,
-    Csv,
-    Parquet,
-}
-
-pub fn s3_mode_extension(format: S3ModeFormat) -> &'static str {
-    match format {
-        S3ModeFormat::Json => "json",
-        S3ModeFormat::Csv => "csv",
-        S3ModeFormat::Parquet => "parquet",
-    }
-}
+// Re-export from windmill-parser to keep a single type definition
+// (windmill-parser is WASM-compatible, windmill-types is not due to sqlx)
+pub use windmill_parser::{s3_mode_extension, S3ModeFormat};
 
 #[cfg(test)]
 mod tests {

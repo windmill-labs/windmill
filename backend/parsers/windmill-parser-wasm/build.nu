@@ -67,6 +67,12 @@ const targets = [
     features: "asset-parser",
     env: "default",
   },
+  {
+    ident: "py-imports",
+    desc: "Python imports"
+    features: "py-imports-parser",
+    env: "default",
+  },
   # ^^^ Add new entry here ^^^
 ];
 # NOTE: This is legacy command for building all, but it is not more used

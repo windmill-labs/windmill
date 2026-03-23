@@ -921,6 +921,7 @@ mod dedicated_worker_protocol {
                     "test-workspace",
                     "f/test/script",
                     LoaderMode::Node,
+                    &None,
                 ))
                 .expect("build_loader failed");
 
@@ -1299,6 +1300,7 @@ mod bun_builder_tests {
         // Write build.js using the loader and builder constants directly
         // Parameters are dummy values since tests don't use Windmill relative imports
         let loader = RELATIVE_BUN_LOADER
+            .replace("TEMP_SCRIPT_REFS_PLACEHOLDER", "{}")
             .replace("W_ID", "test-workspace")
             .replace("BASE_INTERNAL_URL", "http://localhost:8000")
             .replace("TOKEN", "test-token")

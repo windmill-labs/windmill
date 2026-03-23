@@ -10,6 +10,8 @@ import * as log from "../../core/log.ts";
 import {
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
+  readLockfile,
+  checkifMetadataUptodate,
 } from "../../utils/metadata.ts";
 import { generateFlowLockInternal, FlowLocksResult } from "../flow/flow_metadata.ts";
 import { generateAppLocksInternal, getAppFolders, AppLocksResult } from "../app/app_metadata.ts";
@@ -19,14 +21,20 @@ import {
   ignoreF,
 } from "../sync/sync.ts";
 import { exts } from "../script/script.ts";
-import { isFlowPath, isAppPath, isRawAppPath, isScriptModulePath, isModuleEntryPoint } from "../../utils/resource_folders.ts";
+import { isFolderResourcePathAnyFormat, isScriptModulePath, isModuleEntryPoint } from "../../utils/resource_folders.ts";
 import { listSyncCodebases } from "../../utils/codebase.ts";
+import {
+  DoubleLinkedDependencyTree,
+  uploadScripts,
+  ItemType,
+} from "../../utils/dependency_tree.ts";
 
 interface StaleItem {
-  type: "script" | "flow" | "app";
+  type: ItemType;
   path: string;
   folder: string;
   isRawApp?: boolean;
+  staleReason?: string;
 }
 
 async function generateMetadata(
@@ -38,6 +46,7 @@ async function generateMetadata(
     skipScripts?: boolean;
     skipFlows?: boolean;
     skipApps?: boolean;
+    strictFolderBoundaries?: boolean;
   } & SyncOptions,
   folder?: string
 ) {
@@ -49,11 +58,9 @@ async function generateMetadata(
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
 
-  const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
+  const rawWorkspaceDependencies = await getRawWorkspaceDependencies(false);
   const codebases = await listSyncCodebases(opts);
   const ignore = await ignoreF(opts);
-
-  const staleItems: StaleItem[] = [];
 
   // --schema-only implies skipping flows and apps (they only have locks, no schemas)
   const skipScripts = opts.skipScripts ?? false;
@@ -70,7 +77,11 @@ async function generateMetadata(
     return;
   }
 
-  log.info(colors.gray(`Checking ${checking.join(", ")}...`));
+  log.info(`Checking ${checking.join(", ")}...`);
+
+  // Build dependency tree for relative import tracking
+  const tree = new DoubleLinkedDependencyTree();
+  tree.setWorkspaceDeps(rawWorkspaceDependencies);
 
   // === Collect stale scripts ===
   if (!skipScripts) {
@@ -81,9 +92,7 @@ async function generateMetadata(
         return (
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||
           ignore(p, isD) ||
-          isFlowPath(p) ||
-          isAppPath(p) ||
-          isRawAppPath(p) ||
+          isFolderResourcePathAnyFormat(p) ||
           (isScriptModulePath(p) && !isModuleEntryPoint(p))
         );
       },
@@ -92,19 +101,18 @@ async function generateMetadata(
     );
 
     for (const e of Object.keys(scriptElems)) {
-      const candidate = await generateScriptMetadataInternal(
+      await generateScriptMetadataInternal(
         e,
         workspace,
         opts,
-        true, // dryRun
+        true, // dryRun - populate tree
         true, // noStaleMessage
         rawWorkspaceDependencies,
         codebases,
-        false
+        false,
+        false, // legacyBehaviour
+        tree
       );
-      if (candidate) {
-        staleItems.push({ type: "script", path: candidate, folder: e });
-      }
     }
   }
 
@@ -126,18 +134,17 @@ async function generateMetadata(
       )
     ).map((x) => x.substring(0, x.lastIndexOf(SEP)));
 
-    for (const folder of flowElems) {
-      const candidate = await generateFlowLockInternal(
-        folder,
-        true, // dryRun
+    for (const flowFolder of flowElems) {
+      await generateFlowLockInternal(
+        flowFolder,
+        true, // dryRun - populate tree
         workspace,
         opts,
         false,
-        true // noStaleMessage
+        true, // noStaleMessage
+        false, // legacyBehaviour
+        tree
       );
-      if (candidate) {
-        staleItems.push({ type: "flow", path: candidate, folder });
-      }
     }
   }
 
@@ -161,33 +168,74 @@ async function generateMetadata(
     const appFolders = getAppFolders(elems, "app.yaml");
 
     for (const appFolder of rawAppFolders) {
-      const candidate = await generateAppLocksInternal(
+      await generateAppLocksInternal(
         appFolder,
         true, // rawApp
-        true, // dryRun
+        true, // dryRun - populate tree
         workspace,
         opts,
         false,
-        true // noStaleMessage
+        true, // noStaleMessage
+        false, // legacyBehaviour
+        tree
       );
-      if (candidate) {
-        staleItems.push({ type: "app", path: candidate, folder: appFolder, isRawApp: true });
-      }
     }
 
     for (const appFolder of appFolders) {
-      const candidate = await generateAppLocksInternal(
+      await generateAppLocksInternal(
         appFolder,
         false, // rawApp
-        true, // dryRun
+        true, // dryRun - populate tree
         workspace,
         opts,
         false,
-        true // noStaleMessage
+        true, // noStaleMessage
+        false, // legacyBehaviour
+        tree
       );
-      if (candidate) {
-        staleItems.push({ type: "app", path: candidate, folder: appFolder, isRawApp: false });
-      }
+    }
+  }
+
+  // === Propagate staleness through imports ===
+  tree.propagateStaleness();
+
+  // Upload stale scripts to temp storage so the backend can resolve relative imports.
+  // If this fails (e.g. backend is older and doesn't have /raw_temp endpoints),
+  // degrade gracefully: locks will be generated using deployed script content only.
+  try {
+    await uploadScripts(tree, workspace);
+  } catch (e) {
+    log.warn(colors.yellow(
+      `Failed to upload scripts to temp storage (backend may be too old): ${e}. ` +
+      `Locks will be generated using deployed script versions only — locally modified ` +
+      `relative imports may not be reflected.`
+    ));
+  }
+
+  // === Populate staleItems from tree ===
+  const staleItems: StaleItem[] = [];
+  const seenFolders = new Set<string>();
+
+  for (const p of tree.allPaths()) {
+    const staleReason = tree.getStaleReason(p);
+    if (!staleReason) continue;
+
+    const itemType = tree.getItemType(p)!;
+    const itemFolder = tree.getFolder(p)!;
+
+    if (itemType === "dependencies") {
+      staleItems.push({ type: itemType, path: p, folder: itemFolder, staleReason });
+    } else if (itemType === "inline_script") {
+      // Inline scripts are not listed separately — their parent flow/app is stale via propagation
+      continue;
+    } else if (itemType === "script") {
+      const originalPath = tree.getOriginalPath(p)!;
+      staleItems.push({ type: itemType, path: originalPath, folder: itemFolder, staleReason });
+    } else if (!seenFolders.has(itemFolder)) {
+      // Flows/Apps: one entry per folder (dedupe multiple inline scripts)
+      seenFolders.add(itemFolder);
+      const originalPath = tree.getOriginalPath(p)!;
+      staleItems.push({ type: itemType, path: originalPath, folder: itemFolder, isRawApp: tree.getIsRawApp(p), staleReason });
     }
   }
 
@@ -200,11 +248,54 @@ async function generateMetadata(
     if (folder.endsWith("/")) {
       folder = folder.substring(0, folder.length - 1);
     }
-    // Normalize item.folder for comparison (Windows file paths use backslashes)
-    filteredItems = staleItems.filter((item) => {
+    // Strip file extension if user passed a specific file path (e.g. f/test/script.ts)
+    const folderNoExt = folder.replace(/\.[^/.]+$/, "");
+    // Check if an item is inside the specified folder
+    const isInsideFolder = (item: StaleItem) => {
       const normalizedFolder = item.folder.replaceAll("\\", "/");
-      return normalizedFolder === folder || normalizedFolder.startsWith(folder + "/");
-    });
+      const normalizedPath = item.path.replaceAll("\\", "/");
+      return normalizedFolder === folder || normalizedFolder.startsWith(folder + "/")
+        || normalizedPath === folder || normalizedPath === folderNoExt;
+    };
+    const isPathInFolder = (p: string) => p.startsWith(folder + "/") || p === folder || p === folderNoExt;
+    // Check if a tree path or any of its transitive deps is inside the folder
+    const touchesFolder = (treePath: string) => {
+      if (isPathInFolder(treePath)) return true;
+      let found = false;
+      tree.traverseTransitive(treePath, (importPath) => {
+        if (isPathInFolder(importPath)) {
+          found = true;
+          return true; // stop early
+        }
+      });
+      return found;
+    };
+
+    const isRelevant = (item: StaleItem) => {
+      if (isInsideFolder(item)) return true;
+      if (item.type === "dependencies") return true;
+      const treePath = (item.type === "script"
+        ? item.path.replace(/\.[^/.]+$/, "")
+        : item.folder).replaceAll("\\", "/");
+      return touchesFolder(treePath);
+    };
+
+    if (opts.strictFolderBoundaries) {
+      // Strict mode: only items inside the folder
+      filteredItems = staleItems.filter(isInsideFolder);
+
+      // Warn about stale items outside the folder that would be included by default
+      const excludedStale = staleItems.filter((item) => !isInsideFolder(item) && isRelevant(item) && item.type !== "dependencies");
+      for (const item of excludedStale) {
+        const normalizedPath = item.path.replaceAll("\\", "/");
+        log.warn(colors.yellow(
+          `Warning: ${normalizedPath} depends on something inside "${folder}" but is outside it — skipped due to --strict-folder-boundaries. Next generate-metadata will not detect it as stale.`
+        ));
+      }
+    } else {
+      // Default: include items inside the folder and any stale importers that transitively depend on it
+      filteredItems = staleItems.filter(isRelevant);
+    }
   }
 
   // === Show stale items and confirm ===
@@ -217,28 +308,24 @@ async function generateMetadata(
   const scripts = filteredItems.filter((i) => i.type === "script");
   const flows = filteredItems.filter((i) => i.type === "flow");
   const apps = filteredItems.filter((i) => i.type === "app");
+  const deps = filteredItems.filter((i) => i.type === "dependencies");
 
   log.info("");
-  log.info(`Found ${filteredItems.length} item(s) with stale metadata:`);
+  log.info(`Found ${colors.bold(String(filteredItems.length))} item(s) with stale metadata:`);
 
-  if (scripts.length > 0) {
-    log.info(colors.gray(`  Scripts (${scripts.length}):`));
-    for (const item of scripts) {
-      log.info(colors.yellow(`    ${item.path}`));
+  const printItems = (label: string, items: StaleItem[]) => {
+    if (items.length === 0) return;
+    log.info(`  ${label} (${items.length}):`);
+    for (const item of items) {
+      const reason = item.staleReason ? colors.dim(colors.white(` — ${item.staleReason}`)) : "";
+      log.info(`    ~ ${item.path}` + reason);
     }
-  }
-  if (flows.length > 0) {
-    log.info(colors.gray(`  Flows (${flows.length}):`));
-    for (const item of flows) {
-      log.info(colors.yellow(`    ${item.path}`));
-    }
-  }
-  if (apps.length > 0) {
-    log.info(colors.gray(`  Apps (${apps.length}):`));
-    for (const item of apps) {
-      log.info(colors.yellow(`    ${item.path}`));
-    }
-  }
+  };
+
+  printItems("Workspace dependencies", deps);
+  printItems("Scripts", scripts);
+  printItems("Flows", flows);
+  printItems("Apps", apps);
 
   if (opts.dryRun) {
     return;
@@ -259,28 +346,30 @@ async function generateMetadata(
   log.info("");
 
   // === Process all stale items with progress counter ===
-  const total = filteredItems.length;
+  const mismatchedWorkspaceDeps = tree.getMismatchedWorkspaceDeps();
+  const total = filteredItems.length - deps.length;
   const maxWidth = `[${total}/${total}]`.length;
   let current = 0;
 
   const formatProgress = (n: number) => {
-    const bracket = `[${n}/${total}]`;
-    return colors.gray(bracket.padEnd(maxWidth, " "));
+    return colors.dim(colors.white(`[${n}/${total}]`.padEnd(maxWidth, " ")));
   };
 
   // Process scripts
   for (const item of scripts) {
     current++;
-    log.info(`${formatProgress(current)} script ${colors.cyan(item.path)}`);
+    log.info(`${formatProgress(current)} script ${item.path}`);
     await generateScriptMetadataInternal(
-      item.folder,
+      item.path, // originalPath with extension
       workspace,
       opts,
       false, // dryRun
-      true, // noStaleMessage - we handle output
-      rawWorkspaceDependencies,
+      true, // noStaleMessage
+      mismatchedWorkspaceDeps,
       codebases,
-      false
+      false,
+      false, // legacyBehaviour
+      tree
     );
   }
 
@@ -288,38 +377,49 @@ async function generateMetadata(
   for (const item of flows) {
     current++;
     const result = await generateFlowLockInternal(
-      item.folder,
+      item.folder.replaceAll("/", SEP),
       false, // dryRun
       workspace,
       opts,
       false,
-      true // noStaleMessage - we handle output
-    ) as FlowLocksResult | void;
-    const scriptsInfo = result?.updatedScripts?.length
-      ? `: ${colors.gray(result.updatedScripts.join(", "))}`
+      true, // noStaleMessage
+      false, // legacyBehaviour
+      tree
+    );
+    const flowResult = result as FlowLocksResult | undefined;
+    const scriptsInfo = flowResult?.updatedScripts?.length
+      ? colors.dim(colors.white(`: ${flowResult.updatedScripts.join(", ")}`))
       : "";
-    log.info(`${formatProgress(current)} flow   ${colors.cyan(item.path)}${scriptsInfo}`);
+    log.info(`${formatProgress(current)} flow   ${item.path}${scriptsInfo}`);
   }
+
   // Process apps
   for (const item of apps) {
     current++;
     const result = await generateAppLocksInternal(
-      item.folder,
+      item.folder.replaceAll("/", SEP),
       item.isRawApp!, // rawApp
       false, // dryRun
       workspace,
       opts,
       false,
-      true // noStaleMessage - we handle output
-    ) as AppLocksResult | void;
-    const scriptsInfo = result?.updatedScripts?.length
-      ? `: ${colors.gray(result.updatedScripts.join(", "))}`
+      true, // noStaleMessage
+      false, // legacyBehaviour
+      tree
+    );
+    const appResult = result as AppLocksResult | undefined;
+    const scriptsInfo = appResult?.updatedScripts?.length
+      ? colors.dim(colors.white(`: ${appResult.updatedScripts.join(", ")}`))
       : "";
-    log.info(`${formatProgress(current)} app    ${colors.cyan(item.path)}${scriptsInfo}`);
+    log.info(`${formatProgress(current)} app    ${item.path}${scriptsInfo}`);
   }
 
+  // Persist all stale workspace dep hashes (not just filtered — deps are global, not folder-scoped)
+  const allStaleDeps = staleItems.filter((i) => i.type === "dependencies");
+  await tree.persistDepsHashes(allStaleDeps.map((d) => d.path));
+
   log.info("");
-  log.info(colors.green(`Done. Updated ${total} item(s).`));
+  log.info(`Done. Updated ${colors.bold(String(total))} item(s).`);
 }
 
 const command = new Command()
@@ -332,6 +432,7 @@ const command = new Command()
   .option("--skip-scripts", "Skip processing scripts")
   .option("--skip-flows", "Skip processing flows")
   .option("--skip-apps", "Skip processing apps")
+  .option("--strict-folder-boundaries", "Only update items inside the specified folder (requires folder argument)")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which files to include"
