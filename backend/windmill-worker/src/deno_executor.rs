@@ -806,6 +806,13 @@ pub async fn start_worker(
 
     build_import_map(w_id, script_path, base_internal_url, job_dir).await?;
 
+    let import_map = format!("{job_dir}/import_map.json");
+    let reload = format!("--reload={base_internal_url}");
+    let wrapper = format!("{job_dir}/wrapper.ts");
+    let mut deno_args = vec!["run", "--no-check", "--import-map", &import_map, &reload];
+    deno_args.extend_from_slice(DENO_UNSTABLE_ARGS);
+    deno_args.extend_from_slice(&["-A", &wrapper]);
+
     handle_dedicated_process(
         &*DENO_PATH,
         job_dir,
@@ -813,15 +820,7 @@ pub async fn start_worker(
         envs,
         context,
         common_deno_proc_envs,
-        {
-            let import_map = format!("{job_dir}/import_map.json");
-            let reload = format!("--reload={base_internal_url}");
-            let wrapper = format!("{job_dir}/wrapper.ts");
-            let mut args = vec!["run", "--no-check", "--import-map", &import_map, &reload];
-            args.extend_from_slice(DENO_UNSTABLE_ARGS);
-            args.extend_from_slice(&["-A", &wrapper]);
-            args
-        },
+        deno_args,
         killpill_rx,
         job_completed_tx,
         token,
