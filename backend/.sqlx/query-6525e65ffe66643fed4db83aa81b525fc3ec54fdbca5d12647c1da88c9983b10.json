@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO usage (id, is_workspace, month_, usage)\n                        VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)\n                        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6525e65ffe66643fed4db83aa81b525fc3ec54fdbca5d12647c1da88c9983b10"
+}
