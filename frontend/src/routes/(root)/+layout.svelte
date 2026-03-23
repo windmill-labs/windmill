@@ -51,13 +51,11 @@
 				}
 			} else {
 				if (
-					!page.url.pathname.startsWith('/user/') ||
-					page.url.pathname.startsWith('/user/cli')
+					(!page.url.pathname.startsWith('/user/') || page.url.pathname.startsWith('/user/cli')) &&
+					!page.url.pathname.startsWith('/oauth/mcp_authorize')
 				) {
 					goto(
-						`/user/workspaces?rd=${encodeURIComponent(
-							page.url.href.replace(page.url.origin, '')
-						)}`
+						`/user/workspaces?rd=${encodeURIComponent(page.url.href.replace(page.url.origin, ''))}`
 					)
 				}
 				let user = await UserService.globalWhoami()

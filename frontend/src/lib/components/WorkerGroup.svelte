@@ -230,7 +230,11 @@
 
 	let workspaces: Workspace[] = $state([])
 	async function listWorkspaces() {
-		workspaces = await WorkspaceService.listWorkspacesAsSuperAdmin()
+		try {
+			workspaces = await WorkspaceService.listWorkspacesAsSuperAdmin()
+		} catch (e) {
+			console.error('Failed to list workspaces', e)
+		}
 	}
 
 	// Centralized permission logic

@@ -259,6 +259,21 @@ pub async fn prepare_checkpoint_for_resume(
             checkpoint.pending_steps = None;
             save_checkpoint(db, job_id, &checkpoint).await?;
 
+            // Update the approval step's timeline entry with duration_ms
+            let step_timeline_key = format!("_step/{}", approval_key);
+            sqlx::query(
+                "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+                    workflow_as_code_status,
+                    ARRAY[$2, 'duration_ms'],
+                    to_jsonb(EXTRACT(EPOCH FROM (now() - (workflow_as_code_status->$2->>'started_at')::timestamptz)) * 1000)
+                ) WHERE id = $1 AND workflow_as_code_status ? $2",
+            )
+            .bind(job_id)
+            .bind(&step_timeline_key)
+            .execute(db)
+            .await
+            .ok(); // best-effort
+
             tracing::info!(
                 job_id = %job_id,
                 approval_key = %approval_key,

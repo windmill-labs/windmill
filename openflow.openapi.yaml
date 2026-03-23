@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.658.0
+  version: 1.662.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -231,7 +231,8 @@ components:
           description: JavaScript expression evaluated after the module runs. Can use 'result' (step's result) or 'flow_input'. Return true to stop
         error_message:
           type: string
-          description: Custom error message shown when stopping
+          nullable: true
+          description: Custom error message when stopping with an error. Mutually exclusive with skip_if_stopped. If set to a non-empty string, the flow stops with this error. If empty string, a default error message is used. If null or omitted, no error is raised.
       required:
         - expr
 

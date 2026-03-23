@@ -379,7 +379,7 @@ async fn build_cs_proj(
             "--configuration",
             "Release",
             "-o",
-            job_dir,
+            &format!("{job_dir}/out"),
             "--no-self-contained",
             "-p:PublishSingleFile=true",
             "-p:IncludeNativeLibrariesForSelfExtract=true",
@@ -437,9 +437,9 @@ async fn build_cs_proj(
 
     let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
     #[cfg(unix)]
-    let target = format!("{job_dir}/Main");
+    let target = format!("{job_dir}/out/Main");
     #[cfg(windows)]
-    let target = format!("{job_dir}/Main.exe");
+    let target = format!("{job_dir}/out/Main.exe");
 
     match save_cache(
         &bin_path,
@@ -450,7 +450,7 @@ async fn build_cs_proj(
     .await
     {
         Err(e) => {
-            let em = format!("could not save {job_dir}/Main to C# cache: {e:?}",);
+            let em = format!("could not save {job_dir}/out/Main to C# cache: {e:?}",);
             tracing::error!(em);
             Ok(em)
         }
@@ -527,11 +527,17 @@ pub async fn handle_csharp_job(
     let cache_logs = if cache {
         #[cfg(unix)]
         {
-            let target = format!("{job_dir}/Main");
+            let out_dir = format!("{job_dir}/out");
+            std::fs::create_dir_all(&out_dir).map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "could not create output directory {out_dir}: {e:?}"
+                ))
+            })?;
+            let target = format!("{out_dir}/Main");
             let symlink = std::os::unix::fs::symlink(&bin_path, &target);
             symlink.map_err(|e| {
                 Error::ExecutionErr(format!(
-                    "could not copy cached binary from {bin_path} to {job_dir}/Main: {e:?}"
+                    "could not copy cached binary from {bin_path} to {target}: {e:?}"
                 ))
             })?;
         }
@@ -631,12 +637,12 @@ pub async fn handle_csharp_job(
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), true).await?
     } else {
         #[cfg(unix)]
-        let compiled_executable_name = "./Main".to_string();
+        let compiled_executable_name = "./out/Main".to_string();
         #[cfg(windows)]
         let compiled_executable_name = if cache {
             bin_path.to_string()
         } else {
-            format!("{job_dir}/Main.exe")
+            format!("{job_dir}/out/Main.exe")
         };
 
         let mut run_csharp = build_command_with_isolation(&compiled_executable_name, &[]);

@@ -39,7 +39,7 @@ pub struct TriggerRoute {
     pub request_type: RequestType,
     pub authentication_method: AuthenticationMethod,
     pub edited_by: String,
-    pub email: String,
+    pub permissioned_as: String,
     pub static_asset_config: Option<sqlx::types::Json<S3Object>>,
     pub is_static_website: bool,
     pub authentication_resource_path: Option<String>,
@@ -251,7 +251,7 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
                         request_type AS "request_type: _",
                         authentication_method  AS "authentication_method: _",
                         edited_by,
-                        email,
+                        permissioned_as,
                         static_asset_config AS "static_asset_config: _",
                         wrap_body,
                         raw_string,
@@ -459,7 +459,13 @@ mod tests {
 
     #[test]
     fn test_http_method_serde_roundtrip() {
-        for method in [HttpMethod::Get, HttpMethod::Post, HttpMethod::Put, HttpMethod::Delete, HttpMethod::Patch] {
+        for method in [
+            HttpMethod::Get,
+            HttpMethod::Post,
+            HttpMethod::Put,
+            HttpMethod::Delete,
+            HttpMethod::Patch,
+        ] {
             let json = serde_json::to_value(method).unwrap();
             let deserialized: HttpMethod = serde_json::from_value(json).unwrap();
             assert_eq!(method, deserialized);
@@ -487,7 +493,10 @@ mod tests {
     fn test_request_type_serialize_values() {
         assert_eq!(serde_json::to_value(RequestType::Sync).unwrap(), "sync");
         assert_eq!(serde_json::to_value(RequestType::Async).unwrap(), "async");
-        assert_eq!(serde_json::to_value(RequestType::SyncSse).unwrap(), "sync_sse");
+        assert_eq!(
+            serde_json::to_value(RequestType::SyncSse).unwrap(),
+            "sync_sse"
+        );
     }
 
     // --- AuthenticationMethod serde ---
@@ -523,8 +532,13 @@ mod tests {
     #[test]
     fn test_validate_auth_custom_script_requires_raw() {
         assert!(validate_authentication_method(AuthenticationMethod::CustomScript, None).is_err());
-        assert!(validate_authentication_method(AuthenticationMethod::CustomScript, Some(false)).is_err());
-        assert!(validate_authentication_method(AuthenticationMethod::CustomScript, Some(true)).is_ok());
+        assert!(
+            validate_authentication_method(AuthenticationMethod::CustomScript, Some(false))
+                .is_err()
+        );
+        assert!(
+            validate_authentication_method(AuthenticationMethod::CustomScript, Some(true)).is_ok()
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 #[cfg(feature = "bedrock")]
 use crate::ai::providers::bedrock::check_env_credentials;
-use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
+use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
     filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
@@ -35,7 +35,7 @@ use windmill_common::{
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
 };
-use windmill_queue::{CanceledBy, MiniPulledJob};
+use windmill_queue::{cancel_single_job, CanceledBy, MiniPulledJob};
 
 use crate::{
     ai::{
@@ -46,7 +46,7 @@ use crate::{
         types::*,
     },
     common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
-    handle_child::run_future_with_polling_update_job_poller,
+    handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
 };
 
 lazy_static::lazy_static! {
@@ -445,45 +445,102 @@ pub async fn handle_ai_agent_job(
         Some(flow_job_id)
     };
 
-    let agent_fut = run_agent(
-        db,
-        conn,
-        job,
-        flow_status_job.as_ref(),
-        Some(flow_step_id.as_str()),
-        &args,
-        &tools,
-        &mcp_clients,
-        summary.as_deref(),
-        client,
-        &mut inner_occupancy_metrics,
-        worker_dir,
-        base_internal_url,
-        worker_name,
-        hostname,
-        killpill_rx,
-        has_stream,
-        has_websearch,
-    );
+    // Create cancellation signal for graceful shutdown
+    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+    let tool_abort_handles: ToolAbortHandles = Arc::new(std::sync::Mutex::new(Vec::new()));
 
-    let result = run_future_with_polling_update_job_poller(
-        job.id,
-        job.timeout,
-        conn,
-        mem_peak,
-        canceled_by,
-        agent_fut,
-        worker_name,
-        &job.workspace_id,
-        &mut Some(occupancy_metrics),
-        Box::pin(futures::stream::once(async { 0 })),
-    )
-    .await?;
+    /// Grace period for in-flight tool calls to complete after cancellation.
+    const CANCEL_GRACE_PERIOD: std::time::Duration = std::time::Duration::from_secs(30);
+
+    let outcome = {
+        let agent_fut = run_agent(
+            db,
+            conn,
+            job,
+            flow_status_job.as_ref(),
+            Some(flow_step_id.as_str()),
+            &args,
+            &tools,
+            &mcp_clients,
+            summary.as_deref(),
+            client,
+            &mut inner_occupancy_metrics,
+            worker_dir,
+            base_internal_url,
+            worker_name,
+            hostname,
+            killpill_rx,
+            has_stream,
+            has_websearch,
+            cancel_rx,
+            tool_abort_handles.clone(),
+        );
+
+        let mut occupancy_opt = Some(occupancy_metrics);
+
+        run_future_with_polling_update_job_poller_graceful(
+            job.id,
+            job.timeout,
+            conn,
+            mem_peak,
+            canceled_by,
+            agent_fut,
+            worker_name,
+            &job.workspace_id,
+            &mut occupancy_opt,
+            Box::pin(futures::stream::once(async { 0 })),
+            cancel_tx,
+            CANCEL_GRACE_PERIOD,
+        )
+        .await?
+    };
+    // agent_fut and update_job are now dropped — borrows on mcp_clients and canceled_by released
 
     // Cleanup MCP clients
     cleanup_mcp_clients(mcp_clients).await;
 
-    Ok(result)
+    let format_cancel_info = |cb: &Option<CanceledBy>| {
+        cb.as_ref()
+            .map_or(("unknown".to_string(), "unknown".to_string()), |x| {
+                (
+                    x.username.clone().unwrap_or_default(),
+                    x.reason.clone().unwrap_or_default(),
+                )
+            })
+    };
+
+    match outcome {
+        GracefulPollOutcome::Ok(result) => Ok(result),
+        GracefulPollOutcome::Timeout(ms) => {
+            tracing::error!("AI agent timeout after {}s", ms / 1000);
+            Err(Error::ExecutionErr(format!(
+                "AI agent timeout after (>{}s)",
+                ms / 1000
+            )))
+        }
+        GracefulPollOutcome::Cancelled { canceled_by: cb } => {
+            let (by, reason) = format_cancel_info(&cb);
+            Err(Error::ExecutionErr(format!(
+                "Job cancelled by {by} (reason: {reason})"
+            )))
+        }
+        GracefulPollOutcome::CancelledTimeout { canceled_by: cb } => {
+            let (by, reason) = format_cancel_info(&cb);
+            // Abort any still-running spawned tool tasks
+            // unwrap safe: lock is only held briefly for push/drain, no panic possible inside
+            for handle in tool_abort_handles.lock().unwrap().drain(..) {
+                handle.abort();
+            }
+            // Hard timeout: clean up orphaned jobs still stuck in v2_job_queue
+            cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, cb).await;
+            Err(Error::ExecutionErr(format!(
+                "Job cancelled by {by} (reason: {reason}, timed out waiting for tool calls)"
+            )))
+        }
+        GracefulPollOutcome::AlreadyCompleted => {
+            Err(Error::AlreadyCompleted("Job already completed".to_string()))
+        }
+    }
 }
 
 #[async_recursion]
@@ -511,6 +568,12 @@ pub async fn run_agent(
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
     has_websearch: bool,
+
+    // cancellation signal from parent
+    cancel_rx: tokio::sync::watch::Receiver<bool>,
+
+    // abort handles for spawned tool tasks
+    tool_abort_handles: ToolAbortHandles,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
@@ -762,9 +825,12 @@ pub async fn run_agent(
         .map(|m| m.clamp(1, HARD_MAX_AGENT_ITERATIONS))
         .unwrap_or(DEFAULT_MAX_AGENT_ITERATIONS);
 
-
     // Main agent loop
     for i in 0..max_iterations {
+        // Check if parent was canceled — stop iterating but let current tool calls finish
+        if *cancel_rx.borrow() {
+            return Err(Error::ExecutionErr("Job cancelled".to_string()));
+        }
 
         if used_structured_output_tool {
             break;
@@ -1088,6 +1154,7 @@ pub async fn run_agent(
                     flow_context: &mut flow_context,
                     previous_result: &previous_result,
                     id_context: &id_context,
+                    tool_abort_handles: tool_abort_handles.clone(),
                 };
 
                 let (tool_messages, tool_content, tool_used_structured_output) =
@@ -1107,6 +1174,11 @@ pub async fn run_agent(
                     content = Some(tc);
                 }
                 used_structured_output_tool = tool_used_structured_output;
+
+                // Check cancellation after tool calls complete to avoid a wasted LLM call
+                if *cancel_rx.borrow() {
+                    return Err(Error::ExecutionErr("Job cancelled".to_string()));
+                }
             }
             ParsedResponse::Image { base64_data } => {
                 // For image output, upload to S3 and track in conversation
@@ -1291,4 +1363,108 @@ async fn handle_credentials_check(provider: &ProviderWithResource) -> Result<Box
     };
 
     serde_json::value::to_raw_value(&result).map_err(|e| Error::internal_err(e.to_string()))
+}
+
+/// Hard-timeout fallback: force-cancel any descendant jobs still in v2_job_queue
+/// so they don't stay as zombies.
+async fn cleanup_orphaned_tool_jobs(
+    db: &DB,
+    parent_job_id: &Uuid,
+    w_id: &str,
+    canceled_by: Option<CanceledBy>,
+) {
+    let username = canceled_by
+        .as_ref()
+        .and_then(|cb| cb.username.clone())
+        .unwrap_or_else(|| "unknown".to_string());
+    let reason = canceled_by
+        .as_ref()
+        .and_then(|cb| cb.reason.clone())
+        .unwrap_or_else(|| {
+            format!(
+                "parent AI agent {} was cancelled and tool call did not complete in time",
+                parent_job_id
+            )
+        });
+
+    // Find direct child jobs still in v2_job_queue (agent tool jobs are always direct children)
+    let orphaned_ids: Vec<Uuid> = match sqlx::query_scalar!(
+        r#"SELECT j.id FROM v2_job j
+            JOIN v2_job_queue q ON q.id = j.id
+            WHERE j.parent_job = $1 AND j.workspace_id = $2"#,
+        parent_job_id,
+        w_id,
+    )
+    .fetch_all(db)
+    .await
+    {
+        Ok(ids) => ids,
+        Err(e) => {
+            tracing::error!(
+                "Failed to find orphaned tool jobs for {}: {}",
+                parent_job_id,
+                e
+            );
+            return;
+        }
+    };
+
+    if orphaned_ids.is_empty() {
+        return;
+    }
+
+    tracing::warn!(
+        "Cleaning up {} orphaned tool jobs for cancelled AI agent {}",
+        orphaned_ids.len(),
+        parent_job_id,
+    );
+
+    for job_id in &orphaned_ids {
+        let queued_job = match windmill_queue::get_queued_job_v2(db, job_id).await {
+            Ok(Some(j)) => j,
+            Ok(None) => continue,
+            Err(e) => {
+                tracing::error!("Failed to fetch orphaned tool job {}: {}", job_id, e);
+                continue;
+            }
+        };
+
+        let tx = match db.begin().await {
+            Ok(tx) => tx,
+            Err(e) => {
+                tracing::error!(
+                    "Failed to begin transaction for orphaned job {}: {}",
+                    job_id,
+                    e
+                );
+                continue;
+            }
+        };
+
+        match cancel_single_job(
+            &username,
+            Some(reason.clone()),
+            queued_job,
+            w_id,
+            tx,
+            db,
+            true,
+        )
+        .await
+        {
+            Ok((tx, _)) => {
+                if let Err(e) = tx.commit().await {
+                    tracing::error!(
+                        "Failed to commit cancel for orphaned tool job {}: {}",
+                        job_id,
+                        e
+                    );
+                }
+            }
+            Err(e) => {
+                // warn not error: job may have completed between fetch and cancel (expected race)
+                tracing::warn!("Failed to force-cancel orphaned tool job {}: {}", job_id, e);
+            }
+        }
+    }
 }

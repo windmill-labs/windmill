@@ -409,9 +409,9 @@
 					{#if flowStore.val.on_behalf_of_email && canPreserve}
 						&rarr; <OnBehalfOfSelector
 							targetWorkspace={$workspaceStore ?? ''}
-							targetEmail={$savedOnBehalfOfEmail}
+							targetValue={$savedOnBehalfOfEmail}
 							selected={onBehalfOfChoice}
-							onSelect={(choice, email) => {
+							onSelect={(choice, details) => {
 								onBehalfOfChoice = choice
 								if (choice === 'me') {
 									flowStore.val.on_behalf_of_email = $userStore?.email
@@ -421,15 +421,15 @@
 									flowStore.val.on_behalf_of_email = $savedOnBehalfOfEmail
 									customOnBehalfOfEmail = ''
 									$preserveOnBehalfOf = true
-								} else if (choice === 'custom' && email) {
-									flowStore.val.on_behalf_of_email = email
-									customOnBehalfOfEmail = email
+								} else if (choice === 'custom' && details) {
+									flowStore.val.on_behalf_of_email = details.email
+									customOnBehalfOfEmail = details.email
 									$preserveOnBehalfOf = true
 								}
 							}}
 							kind="flow"
 							{canPreserve}
-							customEmail={customOnBehalfOfEmail}
+							customValue={customOnBehalfOfEmail}
 							isDeployment={false}
 						/>
 					{:else if flowStore.val.on_behalf_of_email && !canPreserve}
