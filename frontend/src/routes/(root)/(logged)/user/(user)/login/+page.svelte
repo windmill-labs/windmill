@@ -24,7 +24,7 @@
 	const email = page.url.searchParams.get('email') ?? ''
 	const password = page.url.searchParams.get('password') ?? ''
 	const error = page.url.searchParams.get('error') ?? undefined
-	const rdFromStorage = localStorage.getItem('rd') ?? undefined
+	const rdFromStorage = localStorage.getItem('rd') || undefined
 	if (rdFromStorage) {
 		localStorage.removeItem('rd')
 	}
