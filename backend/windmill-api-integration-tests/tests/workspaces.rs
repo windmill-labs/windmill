@@ -770,3 +770,39 @@ async fn test_get_settings_reports_instance_ai_fallback_flags(
 
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_get_copilot_info_ignores_empty_instance_ai_row(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    sqlx::query("UPDATE workspace_settings SET ai_config = NULL WHERE workspace_id = $1")
+        .bind("test-workspace")
+        .execute(&db)
+        .await?;
+    sqlx::query(
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2) \
+         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
+    )
+    .bind("ai_config")
+    .bind(json!({}))
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().get(format!("{base}/get_copilot_info")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let settings = resp.json::<serde_json::Value>().await?;
+    assert_eq!(settings["has_instance_ai_config"], false);
+    assert_eq!(settings["uses_instance_ai_config"], false);
+    assert!(settings["instance_ai_summary"].is_null());
+    assert!(settings["providers"].is_null());
+
+    Ok(())
+}

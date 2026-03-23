@@ -172,7 +172,8 @@ async fn get_copilot_info(
             .fetch_optional(&db)
             .await?;
 
-    let has_instance_ai_config = instance_ai_config.is_some();
+    let instance_ai_summary = build_instance_ai_summary(instance_ai_config.as_ref());
+    let has_instance_ai_config = instance_ai_summary.is_some();
 
     let workspace_has_config = copilot_info
         .as_ref()
@@ -185,10 +186,9 @@ async fn get_copilot_info(
             ai_config: copilot_info.unwrap().0,
             has_instance_ai_config,
             uses_instance_ai_config: false,
-            instance_ai_summary: build_instance_ai_summary(instance_ai_config.as_ref()),
+            instance_ai_summary,
         }))
     } else if let Some(instance_config) = instance_ai_config {
-        let instance_ai_summary = build_instance_ai_summary(Some(&instance_config));
         let ai_config = serde_json::from_value::<AIConfig>(instance_config).unwrap_or_default();
         let has_providers = ai_config
             .providers
@@ -197,7 +197,7 @@ async fn get_copilot_info(
             .unwrap_or(false);
         Ok(Json(CopilotInfoResponse {
             ai_config,
-            has_instance_ai_config: true,
+            has_instance_ai_config,
             uses_instance_ai_config: has_providers,
             instance_ai_summary,
         }))

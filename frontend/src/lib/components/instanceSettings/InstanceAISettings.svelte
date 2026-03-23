@@ -36,9 +36,10 @@
 	}
 
 	async function handleCustomSave(config: AIConfig) {
+		const hasProviders = Object.keys(config.providers ?? {}).length > 0
 		await SettingService.setGlobal({
 			key: 'ai_config',
-			requestBody: { value: config }
+			requestBody: { value: hasProviders ? config : null }
 		})
 		if ($workspaceStore) {
 			try {
