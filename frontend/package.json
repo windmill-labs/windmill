@@ -156,7 +156,6 @@
 		"windmill-parser-wasm-nu": "1.510.1",
 		"windmill-parser-wasm-php": "1.647.1",
 		"windmill-parser-wasm-py": "1.657.2",
-		"windmill-parser-wasm-py-imports": "file:../backend/parsers/windmill-parser-wasm/pkg-py-imports",
 		"windmill-parser-wasm-regex": "1.653.0",
 		"windmill-parser-wasm-ruby": "1.526.1",
 		"windmill-parser-wasm-rust": "1.647.1",
