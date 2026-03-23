@@ -27,6 +27,16 @@ use windmill_common::{
 };
 use windmill_parser::Typ;
 
+pub const DENO_UNSTABLE_ARGS: &[&str] = &[
+    "--unstable-unsafe-proto",
+    "--unstable-bare-node-builtins",
+    "--unstable-webgpu",
+    "--unstable-ffi",
+    "--unstable-fs",
+    "--unstable-worker-options",
+    "--unstable-http",
+];
+
 lazy_static::lazy_static! {
 
     static ref DENO_FLAGS: Option<Vec<String>> = std::env::var("DENO_FLAGS")
@@ -172,22 +182,14 @@ pub async fn generate_deno_lock(
     let mut child_cmd = Command::new(DENO_PATH.as_str());
     child_cmd
         .current_dir(job_dir)
-        .args(vec![
-            "cache",
-            "--unstable-unsafe-proto",
-            "--unstable-bare-node-builtins",
-            "--unstable-webgpu",
-            "--unstable-ffi",
-            "--unstable-fs",
-            "--unstable-worker-options",
-            "--unstable-http",
+        .args(["cache"].iter().chain(DENO_UNSTABLE_ARGS).chain(&[
             "--lock=lock.json",
             "--frozen=false",
             "--allow-import",
             "--import-map",
-            &import_map_path,
+            import_map_path.as_str(),
             "main.ts",
-        ])
+        ]))
         .envs(deno_envs)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -442,13 +444,7 @@ try {{
         args.push("--import-map");
         args.push(&import_map_path);
         args.push(&reload);
-        args.push("--unstable-unsafe-proto");
-        args.push("--unstable-bare-node-builtins");
-        args.push("--unstable-webgpu");
-        args.push("--unstable-ffi");
-        args.push("--unstable-fs");
-        args.push("--unstable-worker-options");
-        args.push("--unstable-http");
+        args.extend_from_slice(DENO_UNSTABLE_ARGS);
 
         if !*DISABLE_DENO_LOCK {
             if let Some(reqs) = requirements_o {
@@ -817,22 +813,15 @@ pub async fn start_worker(
         envs,
         context,
         common_deno_proc_envs,
-        vec![
-            "run",
-            "--no-check",
-            "--import-map",
-            &format!("{job_dir}/import_map.json"),
-            &format!("--reload={base_internal_url}"),
-            "--unstable-unsafe-proto",
-            "--unstable-bare-node-builtins",
-            "--unstable-webgpu",
-            "--unstable-ffi",
-            "--unstable-fs",
-            "--unstable-worker-options",
-            "--unstable-http",
-            "-A",
-            &format!("{job_dir}/wrapper.ts"),
-        ],
+        {
+            let import_map = format!("{job_dir}/import_map.json");
+            let reload = format!("--reload={base_internal_url}");
+            let wrapper = format!("{job_dir}/wrapper.ts");
+            let mut args = vec!["run", "--no-check", "--import-map", &import_map, &reload];
+            args.extend_from_slice(DENO_UNSTABLE_ARGS);
+            args.extend_from_slice(&["-A", &wrapper]);
+            args
+        },
         killpill_rx,
         job_completed_tx,
         token,

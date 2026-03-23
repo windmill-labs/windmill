@@ -93,6 +93,7 @@ pub use bun_executor::{
 };
 pub use deno_executor::{
     generate_deno_lock, generate_multi_script_wrapper as generate_deno_multi_script_wrapper,
+    DENO_UNSTABLE_ARGS,
 };
 pub use prepare_deps::run_prepare_deps_cli;
 
