@@ -68,7 +68,7 @@
 			{#if willChange}
 				<AlertTriangle class="w-3.5 h-3.5 text-yellow-500" />
 				<span class="text-yellow-600 dark:text-yellow-400"
-					>will change from {permissionedAs} on save</span
+					>will change from <strong>{permissionedAs}</strong> on save</span
 				>
 			{/if}
 		{:else}
@@ -76,7 +76,7 @@
 			{#if willChange}
 				<AlertTriangle class="w-3.5 h-3.5 text-yellow-500" />
 				<span class="text-yellow-600 dark:text-yellow-400"
-					>will change to {effectivePermissionedAs} on save</span
+					>will change to <strong>{effectivePermissionedAs}</strong> on save</span
 				>
 			{/if}
 		{/if}
