@@ -120,10 +120,13 @@
 			return null
 		}
 
+		// Calculate flow coordinates bounds, accounting for CSS offset and expanded subflows
 		const { minX, minY, maxX, maxY } = calculateNodesBoundsWithOffset(selectedNodes, allNodes)
 
+		// Add padding in flow coordinates
 		const padding = 4
 
+		// Return flow coordinates directly - ViewportPortal handles transformation
 		return {
 			x: minX - padding,
 			y: minY - padding,

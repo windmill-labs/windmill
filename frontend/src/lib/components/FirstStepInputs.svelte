@@ -85,6 +85,7 @@
 		>
 			<FlowModuleSchemaItemViewer
 				onclick={handleClick}
+				deletable={false}
 				id={mod.id}
 				label={mod.summary ||
 					(`path` in mod.value ? mod.value.path : undefined) ||

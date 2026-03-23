@@ -45,6 +45,11 @@ export class SelectionManager {
 			if (id !== '') {
 				return id
 			}
+		} else if (selectedNode['type'] === 'subflowBound') {
+			const id = selectedNode.id.replace(/-subflow-end$/, '')
+			if (id !== '') {
+				return id
+			}
 		}
 		return selectedNode.id
 	}
