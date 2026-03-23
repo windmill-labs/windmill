@@ -24081,7 +24081,7 @@ components:
         kind:
           type: string
           enum:
-            ["script", "flow", "app", "resource", "variable", "resource_type", "folder", "datatable", "ducklake"]
+            ["script", "flow", "app", "resource", "variable", "resource_type"]
           description: Type of the item
         path:
           type: string
@@ -24115,8 +24115,6 @@ components:
         - variables_changed
         - resource_types_changed
         - folders_changed
-        - datatables_changed
-        - ducklakes_changed
         - conflicts
       properties:
         total_diffs:
@@ -24149,12 +24147,6 @@ components:
         folders_changed:
           type: integer
           description: Number of folders with differences
-        datatables_changed:
-          type: integer
-          description: Number of datatables with differences
-        ducklakes_changed:
-          type: integer
-          description: Number of ducklakes with differences
         conflicts:
           type: integer
           description: Number of items that are both ahead and behind (conflicts)
