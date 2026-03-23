@@ -55,16 +55,16 @@
 	import { loadFlowModuleState } from '../flowStateUtils.svelte'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
 	import {
-		getGroupEditorContext,
-		type GroupedModule
-	} from '$lib/components/graph/groupEditor.svelte'
-	import {
 		GroupedModulesProxy,
-		dfsGrouped,
-		matchGroupedModuleForDfs,
-		isGroupItem,
 		type ExtendedOpenFlow
 	} from '$lib/components/graph/groupedModulesProxy.svelte'
+	import {
+		type FlowStructureNode,
+		matchStructureNode,
+		dfsStructure,
+		findInStructure,
+		moduleToStructureNode
+	} from '$lib/components/graph/flowStructure'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -136,11 +136,7 @@
 
 	// Get NoteEditor context for note position updates
 	const noteEditorContext = getNoteEditorContext()
-	const groupEditorContext = getGroupEditorContext()
-
-	const proxy = groupEditorContext
-		? new GroupedModulesProxy(flowStore as unknown as StateStore<ExtendedOpenFlow>)
-		: undefined
+	const proxy = new GroupedModulesProxy(flowStore as unknown as StateStore<ExtendedOpenFlow>)
 
 	$effect(() => {
 		if (!moveManager.movingModuleId) return
@@ -392,21 +388,38 @@
 			}
 		}
 
+		const { emptiedGroups, commit } = proxy.prepareMutation((tree) => {
+			for (const id of ids) {
+				const found = findInStructure(tree, id)
+				if (found) found.parentChildren.splice(found.index, 1)
+			}
+		})
+
 		const cb = () => {
 			push(history, flowStore.val)
+			commit()
 			for (const id of ids) {
-				removeAtId(flowStore.val.value.modules, id)
 				delete flowStateStore.val[id]
 			}
 			selectionManager.clearSelection()
 			refreshStateStore(flowStore)
 		}
 
-		if (Object.keys(allDeps).length > 0) {
-			dependents = allDeps
-			deleteCallback = cb
+		const proceed = () => {
+			if (Object.keys(allDeps).length > 0) {
+				dependents = allDeps
+				deleteCallback = cb
+			} else {
+				cb()
+			}
+		}
+
+		if (emptiedGroups.length > 0) {
+			emptyGroupsPending = emptiedGroups
+			emptyGroupsActionLabel = 'delete'
+			emptyGroupsAction = proceed
 		} else {
-			cb()
+			proceed()
 		}
 	}
 
@@ -607,8 +620,8 @@
 			{moveManager}
 			maxHeight={minHeight}
 			modules={flowStore.val.value.modules}
-			groupedModules={proxy?.items}
-			groupError={proxy?.error}
+			groupedModules={proxy.items}
+			groupError={proxy.error}
 			{noteMode}
 			notes={flowStore.val.value.notes}
 			groups={flowStore.val.value.groups}
@@ -631,20 +644,33 @@
 			chatInputEnabled={Boolean(flowStore.val.value?.chat_input_enabled)}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
-				const cb = () => {
-					push(history, flowStore.val)
-					if (id === 'preprocessor') {
+
+				if (id === 'preprocessor') {
+					const cb = () => {
+						push(history, flowStore.val)
 						selectionManager.selectId('Input')
 						flowStore.val.value.preprocessor_module = undefined
+						refreshStateStore(flowStore)
+						onDelete?.(id)
+						delete flowStateStore.val[id]
+					}
+					if (Object.keys(dependents).length > 0) {
+						deleteCallback = cb
 					} else {
-						selectNextId(id)
-						removeAtId(flowStore.val.value.modules, id)
+						cb()
 					}
-					// Proxy syncs groups automatically on rebuild; for non-proxy fallback use removeNode
-					if (!proxy) {
-						const allMods = getAllModules(flowStore.val.value.modules)
-						groupEditorContext?.groupEditor.removeNode(id, allMods)
-					}
+					return
+				}
+
+				const { emptiedGroups, commit } = proxy.prepareMutation((tree) => {
+					const found = findInStructure(tree, id)
+					if (found) found.parentChildren.splice(found.index, 1)
+				})
+
+				const cb = () => {
+					push(history, flowStore.val)
+					selectNextId(id)
+					commit()
 					refreshStateStore(flowStore)
 					onDelete?.(id)
 					delete flowStateStore.val[id]
@@ -658,14 +684,8 @@
 					}
 				}
 
-				const emptied = proxy
-					? proxy.getGroupsEmptiedBy([id])
-					: (groupEditorContext?.groupEditor.getGroupsEmptiedBy(
-							[id],
-							getAllModules(flowStore.val.value.modules)
-						) ?? [])
-				if (emptied.length > 0) {
-					emptyGroupsPending = emptied
+				if (emptiedGroups.length > 0) {
+					emptyGroupsPending = emptiedGroups
 					emptyGroupsActionLabel = 'delete'
 					emptyGroupsAction = proceed
 				} else {
@@ -681,77 +701,79 @@
 					const movedIds = moveManager.movingIds ?? [moveManager.movingModuleId]
 					const movingId = moveManager.movingModuleId
 
-					let originalModules: any[] | undefined
-					let targetModules: any[] | undefined
+					let mutated = false
+					const { emptiedGroups, commit } = proxy.prepareMutation((tree) => {
+						let originalModules: FlowStructureNode[] | undefined
+						let targetModules: FlowStructureNode[] | undefined
 
-					const items = (proxy ? proxy.items : flowStore.val.value.modules) as GroupedModule[]
-
-					if (detail.sourceId == 'Input' || detail.targetId == 'Result') {
-						targetModules = items
-					}
-					dfsGrouped(items, (item, parentArray, branches) => {
-						if (matchGroupedModuleForDfs(item, movingId)) originalModules = parentArray
-						if (detail.branch && matchGroupedModuleForDfs(item, detail.branch.rootId)) {
-							targetModules = branches[detail.branch.branch]
-						} else if (
-							matchGroupedModuleForDfs(item, detail.sourceId ?? '') ||
-							matchGroupedModuleForDfs(item, detail.targetId ?? '')
-						) {
-							targetModules = parentArray
+						if (detail.sourceId == 'Input' || detail.targetId == 'Result') {
+							targetModules = tree
 						}
+						dfsStructure(tree, (node, parentArray) => {
+							if (matchStructureNode(node, movingId)) originalModules = parentArray
+							if (detail.branch && matchStructureNode(node, detail.branch.rootId)) {
+								targetModules = node.branches[detail.branch.branch]?.children
+							} else if (
+								matchStructureNode(node, detail.sourceId ?? '') ||
+								matchStructureNode(node, detail.targetId ?? '')
+							) {
+								targetModules = parentArray
+							}
+						})
+
+						if (!originalModules || !targetModules) return
+
+						if (movedIds.length > 1) {
+							const firstIndex = originalModules.findIndex((m) =>
+								matchStructureNode(m, movedIds[0])
+							)
+							if (firstIndex < 0) return
+							const removedModules = originalModules.splice(firstIndex, movedIds.length)
+							let insertIndex = detail.index
+							if (originalModules === targetModules && firstIndex < detail.index) {
+								insertIndex -= movedIds.length
+							}
+							targetModules.splice(insertIndex, 0, ...removedModules)
+						} else {
+							const indexToRemove = originalModules.findIndex((m) =>
+								matchStructureNode(m, movingId)
+							)
+							if (indexToRemove < 0) return
+							const [removed] = originalModules.splice(indexToRemove, 1)
+							let insertIndex = detail.index
+							if (originalModules === targetModules && indexToRemove < detail.index)
+								insertIndex -= 1
+							targetModules.splice(insertIndex, 0, removed)
+						}
+						mutated = true
 					})
 
-					if (!originalModules || !targetModules) {
+					if (!mutated) {
 						moveManager.clearMoving()
 						return
 					}
 
 					const doMove = () => {
 						push(history, flowStore.val)
+						commit()
 						if (movedIds.length > 1) {
-							const firstIndex = originalModules!.findIndex((m: any) =>
-								matchGroupedModuleForDfs(m, movedIds[0])
-							)
-							const removedModules = originalModules!.splice(firstIndex, movedIds.length)
-							let insertIndex = detail.index
-							if (originalModules === targetModules && firstIndex < detail.index) {
-								insertIndex -= movedIds.length
-							}
-							targetModules!.splice(insertIndex, 0, ...removedModules)
 							selectionManager.selectByIds(movedIds)
 						} else {
-							const indexToRemove = originalModules!.findIndex((m: any) =>
-								matchGroupedModuleForDfs(m, movingId)
-							)
-							const [removed] = originalModules!.splice(indexToRemove, 1)
-							let insertIndex = detail.index
-							if (originalModules === targetModules && indexToRemove < detail.index)
-								insertIndex -= 1
-							targetModules!.splice(insertIndex, 0, removed)
 							selectionManager.selectId(movingId)
 						}
-						if (proxy) {
-							proxy.syncToStore()
-						}
 						moveManager.clearMoving()
+						refreshStateStore(flowStore)
+						dispatch('change')
 					}
 
-					const emptied = proxy
-						? proxy.getGroupsEmptiedBy(movedIds)
-						: (groupEditorContext?.groupEditor.getGroupsEmptiedBy(
-								movedIds,
-								getAllModules(flowStore.val.value.modules)
-							) ?? [])
-					if (emptied.length > 0) {
-						emptyGroupsPending = emptied
+					if (emptiedGroups.length > 0) {
+						emptyGroupsPending = emptiedGroups
 						emptyGroupsActionLabel = 'move'
 						emptyGroupsAction = doMove
 						emptyGroupsCancel = () => moveManager.clearMoving()
 					} else {
 						doMove()
 					}
-					refreshStateStore(flowStore)
-					dispatch('change')
 					return
 				}
 
@@ -778,86 +800,106 @@
 
 				push(history, flowStore.val)
 
-				// Find target array for insertion
-				let targetModules: any[] | undefined
-				const items = (proxy ? proxy.items : flowStore.val.value.modules) as GroupedModule[]
-
-				if (detail.sourceId == 'Input' || detail.targetId == 'Result' || detail.kind == 'trigger') {
-					targetModules = items
-				}
-				dfsGrouped(items, (item, parentArray, branches) => {
-					if (detail.branch && matchGroupedModuleForDfs(item, detail.branch.rootId)) {
-						targetModules = branches[detail.branch.branch]
-					} else if (
-						matchGroupedModuleForDfs(item, detail.sourceId ?? '') ||
-						matchGroupedModuleForDfs(item, detail.targetId ?? '')
-					) {
-						targetModules = parentArray
-					} else if (
-						detail.agentId &&
-						!isGroupItem(item) &&
-						(item as FlowModule).id == detail.agentId
-					) {
-						targetModules = branches[0]
-					}
-				})
-
-				if (!targetModules) {
-					targetModules = items
-				}
-
 				const isAgentInsert = !!detail.agentId
-				const index = (isAgentInsert ? targetModules?.length : detail.index) ?? 0
 				const toolKind: SpecialToolKind | 'flowmoduleTool' | undefined = isAgentInsert
 					? (SPECIAL_TOOL_KINDS as readonly string[]).includes(detail.kind)
 						? (detail.kind as SpecialToolKind)
 						: 'flowmoduleTool'
 					: undefined
 
-				await insertNewModuleAtIndex(
-					targetModules,
-					index,
+				// Agent tool inserts operate on the FlowModule's tools array directly
+				if (isAgentInsert) {
+					const agentMod = getAllModules(flowStore.val.value.modules).find(
+						(m) => m.id === detail.agentId
+					)
+					if (agentMod && (agentMod.value as any).tools) {
+						const tools = (agentMod.value as any).tools as AgentTool[]
+						await insertNewModuleAtIndex(
+							tools,
+							tools.length,
+							detail.kind as InsertKind,
+							detail.script,
+							detail.flow ? { path: detail.flow.path, summary: detail.flow.summary } : undefined,
+							detail.inlineScript,
+							toolKind
+						)
+						const id = tools[tools.length - 1].id
+						selectionManager.selectId(id)
+					}
+					refreshStateStore(flowStore)
+					dispatch('change')
+					return
+				}
+
+				// Regular module insert: create the module, then insert a leaf node via tree mutation
+				const module = await createNewModule(
 					detail.kind as InsertKind,
 					detail.script,
 					detail.flow ? { path: detail.flow.path, summary: detail.flow.summary } : undefined,
-					detail.inlineScript,
-					toolKind
+					detail.inlineScript
 				)
-				const id = (targetModules as any[])[index].id
-				selectionManager.selectId(id)
+				const index = detail.index ?? 0
+				const extraModules: FlowModule[] = [module]
 
-				if (proxy) {
-					proxy.syncToStore()
+				// For trigger inserts, also create the forloop module
+				let loopModule: FlowModule | undefined
+				if (detail.kind == 'trigger') {
+					loopModule = await createNewModule('forloop')
+					setExpr(loopModule, `results.${module.id}`)
+					extraModules.push(loopModule)
 				}
+
+				proxy.applyTreeMutation((tree) => {
+					// Find target array in the snapshot
+					let targetArray: FlowStructureNode[] | undefined
+					if (
+						detail.sourceId == 'Input' ||
+						detail.targetId == 'Result' ||
+						detail.kind == 'trigger'
+					) {
+						targetArray = tree
+					}
+					dfsStructure(tree, (node, parentArray) => {
+						if (detail.branch && matchStructureNode(node, detail.branch.rootId)) {
+							targetArray = node.branches[detail.branch.branch]?.children
+						} else if (
+							matchStructureNode(node, detail.sourceId ?? '') ||
+							matchStructureNode(node, detail.targetId ?? '')
+						) {
+							targetArray = parentArray
+						}
+					})
+					if (!targetArray) targetArray = tree
+
+					// Insert the structure node (correct kind for containers like branchone/branchall)
+					targetArray.splice(index, 0, moduleToStructureNode(module))
+
+					// For trigger: also insert the forloop node after it
+					if (loopModule) {
+						targetArray.splice(index + 1, 0, moduleToStructureNode(loopModule))
+					}
+				}, extraModules)
+
+				selectionManager.selectId(module.id)
 
 				if (detail.inlineScript?.instructions) {
 					dispatch('generateStep', {
-						moduleId: id,
+						moduleId: module.id,
 						lang: detail.inlineScript?.language,
 						instructions: detail.inlineScript?.instructions
 					})
 				}
 				if (detail.kind == 'trigger') {
-					await insertNewModuleAtIndex(
-						targetModules,
-						index + 1,
-						'forloop',
-						undefined,
-						undefined,
-						undefined
-					)
-					setExpr((targetModules as FlowModule[])[index + 1], `results.${id}`)
-					if (proxy) proxy.syncToStore()
 					setScheduledPollSchedule(triggersState, triggersCount)
 				}
 				if (detail.flow?.path) {
-					loadLastJob(detail.flow.path, id)
+					loadLastJob(detail.flow.path, module.id)
 				} else if (detail.script?.path) {
-					loadLastJob(detail.script?.path, id)
+					loadLastJob(detail.script?.path, module.id)
 				}
 
 				if (['branchone', 'branchall'].includes(detail.kind)) {
-					await addBranch((targetModules as any[])[detail.index ?? 0].id)
+					await addBranch(module.id)
 				}
 				refreshStateStore(flowStore)
 				dispatch('change')

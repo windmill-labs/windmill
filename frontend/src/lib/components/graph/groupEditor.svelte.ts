@@ -2,7 +2,7 @@ import type { FlowModule } from '$lib/gen'
 import type { StateStore } from '$lib/utils'
 import type { ExtendedOpenFlow } from '../flows/types'
 
-import { canFormValidGroup, computeGroupModuleIds, VIRTUAL_NODE_IDS } from './groupDetectionUtils'
+import { canFormValidGroup, computeGroupModuleIds } from './groupDetectionUtils'
 import type { NoteColor } from './noteColors'
 import { DEFAULT_GROUP_NOTE_COLOR, getNextAvailableColor } from './noteColors'
 import { generateId } from './util'
@@ -301,182 +301,53 @@ export const GROUP_HEADER_HEIGHT = 22
 /** Extra margin between the header and the first node */
 export const GROUP_TOP_MARGIN = 30
 
-export type GroupedModule =
-	| FlowModule
-	| {
-			type: 'group'
-			group: FlowGroup
-			modules: GroupedModule[]
-			moduleIds: string[]
-	  }
-
 export type GraphGroup = FlowGroup & {
 	moduleIds: string[]
 }
 
-export function buildGroupedModules(modules: FlowModule[], groups: GraphGroup[]): GroupedModule[] {
-	const { items, consumed } = buildGroupedModulesRecurse(modules, groups)
-	const unconsumed = groups.filter((g) => !consumed.has(g.id))
-	if (unconsumed.length > 0) {
-		console.warn(
-			'Groups with no matching modules (ill-formed):',
-			unconsumed.map((g) => g.id)
-		)
-	}
-	return items
+export type ContainerInnerArray = {
+	get: () => FlowModule[]
+	set: (v: any) => void
+	label?: string
 }
 
-/** Get inner arrays from a container FlowModule with direct get/set accessors.
- *  Safe to mutate — callers deep-copy modules before calling buildGroupedModules. */
-function getContainerInnerArrays(
-	mod: FlowModule
-): { get: () => FlowModule[]; set: (v: any) => void }[] {
+/** Get inner arrays from a container FlowModule with direct get/set accessors. */
+export function getContainerInnerArrays(mod: FlowModule): ContainerInnerArray[] {
 	const val = mod.value as any
 	if (val.type === 'forloopflow' || val.type === 'whileloopflow') {
-		return [{ get: () => val.modules, set: (v) => (val.modules = v) }]
+		return [
+			{
+				get: () => val.modules,
+				set: (v) => {
+					val.modules = v
+				}
+			}
+		]
 	} else if (val.type === 'branchone') {
 		return [
-			{ get: () => val.default, set: (v) => (val.default = v) },
-			...val.branches.map((b: any) => ({
+			{
+				get: () => val.default,
+				set: (v) => {
+					val.default = v
+				},
+				label: 'Default'
+			},
+			...val.branches.map((b: any, i: number) => ({
 				get: () => b.modules,
-				set: (v: any) => (b.modules = v)
+				set: (v: any) => {
+					b.modules = v
+				},
+				label: b.summary || `Branch ${i + 1}`
 			}))
 		]
 	} else if (val.type === 'branchall') {
-		return val.branches.map((b: any) => ({
+		return val.branches.map((b: any, i: number) => ({
 			get: () => b.modules,
-			set: (v: any) => (b.modules = v)
+			set: (v: any) => {
+				b.modules = v
+			},
+			label: b.summary || `Branch ${i + 1}`
 		}))
 	}
 	return []
-}
-
-function buildGroupedModulesRecurse(
-	modules: FlowModule[],
-	groups: GraphGroup[]
-): { items: GroupedModule[]; consumed: Set<string> } {
-	const indexMap = new Map<string, number>()
-	for (let i = 0; i < modules.length; i++) {
-		indexMap.set(modules[i].id, i)
-	}
-
-	// Reject groups that reference virtual nodes
-	for (const g of groups) {
-		if (VIRTUAL_NODE_IDS.has(g.start_id) || VIRTUAL_NODE_IDS.has(g.end_id)) {
-			throw new Error(
-				`Group '${g.id}' references virtual node: groups cannot include Input, Result, or Trigger`
-			)
-		}
-	}
-
-	// Partition: groups for this level vs rest
-	const levelGroups: GraphGroup[] = []
-	const otherGroups: GraphGroup[] = []
-	for (const g of groups) {
-		if (indexMap.has(g.start_id) && indexMap.has(g.end_id)) {
-			const s = indexMap.get(g.start_id)!
-			const e = indexMap.get(g.end_id)!
-			if (s > e) {
-				throw new Error(
-					`Group '${g.id}' has inverted range: start_id='${g.start_id}' (index ${s}) > end_id='${g.end_id}' (index ${e})`
-				)
-			}
-			levelGroups.push(g)
-		} else {
-			otherGroups.push(g)
-		}
-	}
-
-	// Validate no partial overlaps among level groups
-	for (let i = 0; i < levelGroups.length; i++) {
-		for (let j = i + 1; j < levelGroups.length; j++) {
-			const a = levelGroups[i]
-			const b = levelGroups[j]
-			const aStart = indexMap.get(a.start_id)!
-			const aEnd = indexMap.get(a.end_id)!
-			const bStart = indexMap.get(b.start_id)!
-			const bEnd = indexMap.get(b.end_id)!
-
-			if (aEnd < bStart || bEnd < aStart) continue
-			if (aStart <= bStart && bEnd <= aEnd) continue
-			if (bStart <= aStart && aEnd <= bEnd) continue
-
-			throw new Error(`Groups '${a.id}' and '${b.id}' overlap without nesting`)
-		}
-	}
-
-	// Build grouped structure for this level
-	function build(startIdx: number, endIdx: number, availableGroups: GraphGroup[]): GroupedModule[] {
-		const result: GroupedModule[] = []
-		let i = startIdx
-		while (i <= endIdx) {
-			const candidates = availableGroups.filter((g) => {
-				const gStart = indexMap.get(g.start_id)!
-				const gEnd = indexMap.get(g.end_id)!
-				return gStart === i && gEnd <= endIdx
-			})
-			candidates.sort((a, b) => {
-				const spanA = indexMap.get(a.end_id)! - indexMap.get(a.start_id)!
-				const spanB = indexMap.get(b.end_id)! - indexMap.get(b.start_id)!
-				return spanB - spanA
-			})
-
-			const group = candidates[0]
-			if (group) {
-				const gEnd = indexMap.get(group.end_id)!
-				const remaining = availableGroups.filter((g) => g.id !== group.id)
-				const innerModules = build(i, gEnd, remaining)
-
-				const moduleIds: string[] = []
-				for (let k = i; k <= gEnd; k++) {
-					moduleIds.push(modules[k].id)
-				}
-
-				result.push({
-					type: 'group',
-					group: {
-						id: group.id,
-						summary: group.summary,
-						note: group.note,
-						color: group.color,
-						collapsed_by_default: group.collapsed_by_default,
-						start_id: group.start_id,
-						end_id: group.end_id
-					},
-					modules: innerModules,
-					moduleIds
-				})
-				i = gEnd + 1
-			} else {
-				result.push(modules[i])
-				i++
-			}
-		}
-		return result
-	}
-
-	const result = build(0, modules.length - 1, levelGroups)
-
-	// Recurse into containers and groups with remaining unconsumed groups
-	const consumed = new Set(levelGroups.map((g) => g.id))
-	let remaining = otherGroups
-
-	function recurseIntoContainers(items: GroupedModule[]): void {
-		for (const item of items) {
-			if ('type' in item && item.type === 'group') {
-				recurseIntoContainers((item as any).modules)
-				continue
-			}
-			const mod = item as FlowModule
-			for (const { get, set } of getContainerInnerArrays(mod)) {
-				const inner = buildGroupedModulesRecurse(get(), remaining)
-				set(inner.items as any)
-				for (const id of inner.consumed) consumed.add(id)
-				remaining = remaining.filter((g) => !inner.consumed.has(g.id))
-			}
-		}
-	}
-	recurseIntoContainers(result)
-
-	return { items: result, consumed }
 }

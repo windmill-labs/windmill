@@ -65,13 +65,8 @@
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import GroupOverlay from './GroupOverlay.svelte'
-	import {
-		buildGroupedModules,
-		GroupDisplayState,
-		GROUP_HEADER_HEIGHT,
-		type FlowGroup,
-		type GroupedModule
-	} from './groupEditor.svelte'
+	import { GroupDisplayState, GROUP_HEADER_HEIGHT, type FlowGroup } from './groupEditor.svelte'
+	import { buildStructureTree, type FlowStructureNode } from './flowStructure'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { computeGroupModuleIds } from './groupDetectionUtils'
 	import { getAllModules } from '../flows/flowExplorer'
@@ -126,7 +121,7 @@
 	interface Props {
 		success?: boolean | undefined
 		modules?: FlowModule[] | undefined
-		groupedModules?: GroupedModule[]
+		groupedModules?: FlowStructureNode[]
 		groupError?: unknown
 		failureModule?: FlowModule | undefined
 		preprocessorModule?: FlowModule | undefined
@@ -923,8 +918,8 @@
 			return { nodes: {}, edges: [], error: groupError }
 		}
 
-		// Use provided groupedModules (from proxy) or build locally (diff mode / read-only)
-		let gm: GroupedModule[] | undefined = groupedModulesProp
+		// Use provided structure tree (from proxy) or build locally (diff mode / read-only)
+		let gm: FlowStructureNode[] | undefined = groupedModulesProp
 		if (!gm) {
 			const allGroups = groups ?? []
 			const graphGroups = allGroups.map((g) => ({
@@ -934,7 +929,7 @@
 				)
 			}))
 			try {
-				gm = buildGroupedModules(
+				gm = buildStructureTree(
 					stateSnapshot(untrack(() => effectiveModules) ?? []) as FlowModule[],
 					graphGroups
 				)

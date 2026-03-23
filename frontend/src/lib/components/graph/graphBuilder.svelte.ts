@@ -8,13 +8,12 @@ import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 import type { ModulesTestStates, ModuleTestState } from '../modulesTest.svelte'
 import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
-import { type GroupedModule } from './groupEditor.svelte'
-import { findInsertIndex, isGroupItem } from './groupedModulesProxy.svelte'
-
-/** Recursively collect FlowModules from nested groups (unwraps group wrappers only). */
-function collectLeafModules(items: GroupedModule[]): FlowModule[] {
-	return items.flatMap((m) => (isGroupItem(m) ? collectLeafModules(m.modules) : [m as FlowModule]))
-}
+import {
+	type FlowStructureNode,
+	collectLeafIds,
+	findInsertIndexByNodeId,
+	buildStructureTree
+} from './flowStructure'
 
 export type InsertKind =
 	| 'script'
@@ -390,7 +389,7 @@ export function topologicalSort(
 }
 
 export function graphBuilder(
-	groupedModules: GroupedModule[] | undefined,
+	structureTree: FlowStructureNode[],
 	modules: FlowModule[] | undefined,
 	extra: {
 		disableAi: boolean
@@ -530,7 +529,7 @@ export function graphBuilder(
 				customId?: string
 				type?: string
 				subModules?: FlowModule[]
-				currentItems?: GroupedModule[]
+				currentItems?: FlowStructureNode[]
 				disableMoveIds?: string[]
 			}
 		) {
@@ -538,7 +537,7 @@ export function graphBuilder(
 
 			let index: number
 			if (options?.currentItems) {
-				index = findInsertIndex(options.currentItems, targetId)
+				index = findInsertIndexByNodeId(options.currentItems, targetId)
 			} else {
 				const mods = options?.subModules ?? modules
 				const found = mods?.findIndex((m) => m.id === targetId) ?? -1
@@ -643,7 +642,7 @@ export function graphBuilder(
 		}
 
 		function processModules(
-			items: GroupedModule[],
+			items: FlowStructureNode[],
 			branch: { rootId: string; branch: number } | undefined,
 			beforeNode: NodeLayout,
 			nextNode: NodeLayout | undefined,
@@ -652,15 +651,18 @@ export function graphBuilder(
 			disableMoveIds: string[] = [],
 			parentIndex?: string
 		) {
-			// For subflow prefix rewriting, collect the FlowModule items
+			// For subflow prefix rewriting, update module IDs via moduleMap
 			if (prefix != undefined) {
 				items.forEach((item) => {
-					if (isGroupItem(item)) return
-					const m = item as FlowModule
-					if (!m['oid']) {
-						m['oid'] = m.id
+					if (item.kind === 'group') return
+					const m = moduleMap.get(item.id)
+					if (m) {
+						if (!m['oid']) {
+							m['oid'] = m.id
+						}
+						m.id = 'subflow:' + prefix + m['oid']
+						item.id = m.id
 					}
-					m.id = 'subflow:' + prefix + m['oid']
 				})
 			}
 			let previousId: string | undefined = undefined
@@ -675,12 +677,13 @@ export function graphBuilder(
 			} else {
 				items.forEach((item, index) => {
 					// --- Group items ---
-					if (isGroupItem(item)) {
-						const g = item.group
+					if (item.kind === 'group') {
+						const g = item.group!
 
 						if (collapsedGroupIds.has(g.id)) {
 							// Collapsed group: single node
 							const nodeId = `collapsed-group:${g.id}`
+							const leafIds = collectLeafIds(item.branches[0].children)
 							nodes.push({
 								id: nodeId,
 								data: {
@@ -689,8 +692,10 @@ export function graphBuilder(
 									note: g.note,
 									color: g.color,
 									collapsed_by_default: g.collapsed_by_default,
-									stepCount: item.moduleIds.length,
-									modules: collectLeafModules(item.modules).map((m) => moduleMap.get(m.id) ?? m),
+									stepCount: item.moduleIds?.length ?? 0,
+									modules: leafIds
+										.map((id) => moduleMap.get(id))
+										.filter((m): m is FlowModule => !!m),
 									flowModuleStates: extra.flowModuleStates,
 									flowJob: extra.flowJob,
 									isOwner: extra.isOwner,
@@ -756,7 +761,7 @@ export function graphBuilder(
 
 							// Recurse inner modules
 							processModules(
-								item.modules,
+								item.branches[0].children,
 								{ rootId: headId, branch: 0 },
 								headNode,
 								endNode,
@@ -795,7 +800,8 @@ export function graphBuilder(
 					}
 
 					// --- Regular FlowModule items ---
-					const module = item as FlowModule
+					const module = moduleMap.get(item.id)
+					if (!module) return
 					const localDisableMoveIds = [...disableMoveIds, module.id]
 
 					// Inter-module edge: connect previous → current (expanded subflows handle their own)
@@ -877,7 +883,7 @@ export function graphBuilder(
 								)
 
 								processModules(
-									branch.modules,
+									item.branches[branchIndex]?.children ?? [],
 									{ rootId: module.id, branch: branchIndex },
 									startNode,
 									endNode,
@@ -936,7 +942,7 @@ export function graphBuilder(
 						const selectedIterIndex = extra.flowModuleStates?.[module.id]?.selectedForloopIndex
 
 						processModules(
-							module.value.modules,
+							item.branches[0]?.children ?? [],
 							{ rootId: module.id, branch: 0 },
 							startNode,
 							endNode,
@@ -975,7 +981,7 @@ export function graphBuilder(
 						const selectedIterIndex = extra.flowModuleStates?.[module.id]?.selectedForloopIndex
 
 						processModules(
-							module.value.modules,
+							item.branches[0]?.children ?? [],
 							{ rootId: module.id, branch: 0 },
 							startNode,
 							endNode,
@@ -1025,7 +1031,7 @@ export function graphBuilder(
 						})
 
 						processModules(
-							module.value.default,
+							item.branches[0]?.children ?? [],
 							{ rootId: module.id, branch: 0 },
 							defaultBranch,
 							endNode,
@@ -1061,7 +1067,7 @@ export function graphBuilder(
 							})
 
 							processModules(
-								branch.modules,
+								item.branches[branchIndex + 1]?.children ?? [],
 								{ rootId: module.id, branch: branchIndex + 1 },
 								startNode,
 								endNode,
@@ -1125,7 +1131,7 @@ export function graphBuilder(
 							nodes.push(endNode)
 
 							processModules(
-								expandedMods,
+								buildStructureTree(expandedMods, []),
 								undefined,
 								startNode,
 								endNode,
@@ -1159,8 +1165,7 @@ export function graphBuilder(
 			}
 		}
 
-		// Use groupedModules if available, otherwise wrap plain modules
-		const topLevelItems: GroupedModule[] = groupedModules ?? modules
+		const topLevelItems = structureTree
 
 		if (simplifiableFlow?.simplifiedFlow === true && triggerNode) {
 			processModules(topLevelItems, undefined, triggerNode, undefined, true, undefined)
