@@ -137,67 +137,7 @@
 			failedSyncJobs = []
 			forkCreationError = ''
 
-			let gitSyncJobIds = await WorkspaceService.createWorkspaceForkGitBranch({
-				workspace: $workspaceStore!,
-				requestBody: {
-					id: prefixed_id,
-					name,
-					color: colorEnabled && workspaceColor ? workspaceColor : undefined
-				}
-			})
-
-			try {
-				await Promise.all(
-					gitSyncJobIds.map((jobId) =>
-						jobManager.runWithProgress(() => Promise.resolve(jobId), {
-							workspace: $workspaceStore,
-							timeout: 60000,
-							timeoutMessage: `Deploy fork job timed out after 60s`,
-							onProgress: (status) => {
-								if (status.status === 'failure') {
-									errorMsgs.push(status.error ?? 'Deploy fork job failed')
-									failedSyncJobs.push(jobId)
-								}
-							}
-						})
-					)
-				)
-			} catch (error) {
-				forkCreationLoading = false
-				sendUserToast(
-					`Could not fork workspace ${$workspaceStore} because branch creation failed: ${errorMsgs} - ${error}`,
-					true
-				)
-				return
-			}
-			if (errorMsgs.length != 0) {
-				forkCreationError = 'Failed to create a branch for this fork on the git sync repo(s)'
-				forkCreationLoading = false
-				sendUserToast(
-					`Could not fork workspace ${$workspaceStore} because branch creation failed: ${errorMsgs}`,
-					true
-				)
-				return
-			}
-
-			try {
-				await WorkspaceService.createWorkspaceFork({
-					workspace: $workspaceStore!,
-					requestBody: {
-						id: prefixed_id,
-						name,
-						color: colorEnabled && workspaceColor ? workspaceColor : undefined
-					}
-				})
-			} catch (e) {
-				forkCreationError = `Failed to create fork '${prefixed_id}'`
-				errorMsgs.push(e?.body ?? e ?? 'Unknown error')
-				forkCreationLoading = false
-				sendUserToast(`Could not create fork '${prefixed_id}' ${e}`, true)
-				return
-			}
-
-			// Check if any datatables need cloning
+			// Clone datatables BEFORE creating the workspace fork
 			if (forkDatatableSection) {
 				const queue = forkDatatableSection.buildCloneQueue(prefixed_id)
 				if (queue.length > 0) {
@@ -206,11 +146,75 @@
 				}
 			}
 
-			forkCreationLoading = false
-			sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
+			await completeFork(prefixed_id)
 		} else {
 			sendUserToast('No workspace selected, cannot fork non-existent workspace', true)
 		}
+	}
+
+	async function completeFork(prefixed_id: string): Promise<void> {
+		let gitSyncJobIds = await WorkspaceService.createWorkspaceForkGitBranch({
+			workspace: $workspaceStore!,
+			requestBody: {
+				id: prefixed_id,
+				name,
+				color: colorEnabled && workspaceColor ? workspaceColor : undefined
+			}
+		})
+
+		try {
+			await Promise.all(
+				gitSyncJobIds.map((jobId) =>
+					jobManager.runWithProgress(() => Promise.resolve(jobId), {
+						workspace: $workspaceStore!,
+						timeout: 60000,
+						timeoutMessage: `Deploy fork job timed out after 60s`,
+						onProgress: (status) => {
+							if (status.status === 'failure') {
+								errorMsgs.push(status.error ?? 'Deploy fork job failed')
+								failedSyncJobs.push(jobId)
+							}
+						}
+					})
+				)
+			)
+		} catch (error) {
+			forkCreationLoading = false
+			sendUserToast(
+				`Could not fork workspace ${$workspaceStore} because branch creation failed: ${errorMsgs} - ${error}`,
+				true
+			)
+			return
+		}
+		if (errorMsgs.length != 0) {
+			forkCreationError = 'Failed to create a branch for this fork on the git sync repo(s)'
+			forkCreationLoading = false
+			sendUserToast(
+				`Could not fork workspace ${$workspaceStore} because branch creation failed: ${errorMsgs}`,
+				true
+			)
+			return
+		}
+
+		try {
+			await WorkspaceService.createWorkspaceFork({
+				workspace: $workspaceStore!,
+				requestBody: {
+					id: prefixed_id,
+					name,
+					color: colorEnabled && workspaceColor ? workspaceColor : undefined
+				}
+			})
+		} catch (e) {
+			forkCreationError = `Failed to create fork '${prefixed_id}'`
+			errorMsgs.push(e?.body ?? e ?? 'Unknown error')
+			forkCreationLoading = false
+			sendUserToast(`Could not create fork '${prefixed_id}' ${e}`, true)
+			return
+		}
+
+		forkCreationLoading = false
+		sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
 	}
 
 	async function createWorkspace(): Promise<void> {
@@ -483,13 +487,7 @@
 				<ForkDatatableSection
 					bind:this={forkDatatableSection}
 					onAllDone={() => {
-						forkCreationLoading = false
-						sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
-						usersWorkspaceStore.set(undefined)
-						WorkspaceService.listUserWorkspaces().then((ws) => {
-							usersWorkspaceStore.set(ws)
-							switchWorkspace(`wm-fork-${id}`)
-						})
+						completeFork(`${WM_FORK_PREFIX}${id}`)
 					}}
 					onCanceled={() => {
 						forkCreationLoading = false
@@ -648,4 +646,3 @@
 		{/if}
 	</div>
 </div>
-
