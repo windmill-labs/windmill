@@ -343,15 +343,12 @@
 					if (saml) {
 						if (rd) {
 							try {
-								const url = new URL(saml)
-								url.searchParams.set('RelayState', rd)
-								window.location.href = url.toString()
-							} catch {
-								window.location.href = saml
+								localStorage.setItem('rd', rd)
+							} catch (e) {
+								console.error('Could not persist redirection to local storage', e)
 							}
-						} else {
-							window.location.href = saml
 						}
+						window.location.href = saml
 					} else {
 						sendUserToast('No SAML login available', true)
 					}
