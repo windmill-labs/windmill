@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO volume (workspace_id, name, size_bytes, created_by, lease_until, leased_by)\n                     VALUES ($1, $2, 0, $3, now() + interval '60 seconds', $4)\n                     ON CONFLICT (workspace_id, name) DO UPDATE\n                     SET lease_until = now() + interval '60 seconds', leased_by = $4\n                     WHERE volume.lease_until IS NULL OR volume.lease_until < now()\n                     RETURNING name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "14004a7c1641a3157eddd571fea11a1dfb1422187200119268b2342b47a960c6"
+}
