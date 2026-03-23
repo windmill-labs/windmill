@@ -19,11 +19,9 @@ const captureVersion =
 import { semver } from "bun";
 import { isBuiltin } from "module";
 let content = await fs.readFile("./out/main.js", { encoding: "utf8" });
-console.log("BUILDER_DEBUG bundled output (first 500 chars):", content.substring(0, 500));
 const imports = new Bun.Transpiler().scanImports(
   content.replaceAll("__require", "require")
 );
-console.log("BUILDER_DEBUG scanned imports:", JSON.stringify(imports));
 
 const dependencies = {};
 for (const i of imports) {
