@@ -164,6 +164,7 @@ pub struct FuturePath {
     summary: Option<String>,
     description: Option<String>,
     security_scheme: Option<SecurityScheme>,
+    args_schema: Option<Value>,
 }
 
 impl FuturePath {
@@ -174,8 +175,17 @@ impl FuturePath {
         summary: Option<String>,
         description: Option<String>,
         security_scheme: Option<SecurityScheme>,
+        args_schema: Option<Value>,
     ) -> FuturePath {
-        FuturePath { route_path, kind, request_type, summary, description, security_scheme }
+        FuturePath {
+            route_path,
+            kind,
+            request_type,
+            summary,
+            description,
+            security_scheme,
+            args_schema,
+        }
     }
 }
 
@@ -397,7 +407,21 @@ fn generate_paths(
                 );
 
                 if method != Method::GET {
-                    method_map.insert("requestBody", generate_default_request());
+                    if let Some(schema) = &path.args_schema {
+                        method_map.insert(
+                            "requestBody",
+                            serde_json::json!({
+                                "required": true,
+                                "content": {
+                                    "application/json": {
+                                        "schema": schema
+                                    }
+                                }
+                            }),
+                        );
+                    } else {
+                        method_map.insert("requestBody", generate_default_request());
+                    }
                 } else if is_webhook {
                     method_map.insert(
                         "parameters",
@@ -655,6 +679,58 @@ struct GenerateOpenAPI {
     openapi_spec_format: Format,
 }
 
+async fn get_runnable_schema(
+    db: &DB,
+    w_id: &str,
+    script_path: &str,
+    is_flow: bool,
+) -> Option<Value> {
+    if is_flow {
+        let row = sqlx::query!(
+            r#"SELECT
+                f.schema AS "schema: serde_json::Value",
+                fv.value->>'preprocessor_module' IS NOT NULL AS "has_preprocessor: bool"
+            FROM flow f
+            LEFT JOIN flow_version fv ON fv.id = f.versions[array_length(f.versions, 1)]
+                AND fv.workspace_id = f.workspace_id
+            WHERE f.path = $1 AND f.workspace_id = $2 AND NOT f.archived"#,
+            script_path,
+            w_id,
+        )
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()?;
+
+        if row.has_preprocessor.unwrap_or(false) {
+            return None;
+        }
+        row.schema
+    } else {
+        let row = sqlx::query!(
+            r#"SELECT
+                schema AS "schema: serde_json::Value",
+                has_preprocessor
+            FROM script
+            WHERE path = $1 AND workspace_id = $2
+                AND NOT archived AND NOT deleted
+            ORDER BY created_at DESC
+            LIMIT 1"#,
+            script_path,
+            w_id,
+        )
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()?;
+
+        if row.has_preprocessor.unwrap_or(false) {
+            return None;
+        }
+        row.schema
+    }
+}
+
 async fn http_routes_to_future_paths(
     db: &DB,
     user_db: UserDB,
@@ -691,6 +767,9 @@ async fn http_routes_to_future_paths(
             description: Option<String>,
             authentication_method: AuthenticationMethod,
             authentication_resource_path: Option<String>,
+            script_path: String,
+            is_flow: bool,
+            wrap_body: bool,
         }
 
         http_routes = sqlx::query_as!(
@@ -704,7 +783,10 @@ async fn http_routes_to_future_paths(
             summary,
             description,
             authentication_method AS "authentication_method: _",
-            authentication_resource_path
+            authentication_resource_path,
+            script_path,
+            is_flow,
+            wrap_body
         FROM
             http_trigger
         WHERE
@@ -764,6 +846,12 @@ async fn http_routes_to_future_paths(
             HttpMethod::Delete => Method::DELETE,
         };
 
+        let args_schema = if !http_route.wrap_body {
+            get_runnable_schema(db, w_id, &http_route.script_path, http_route.is_flow).await
+        } else {
+            None
+        };
+
         let future_path = FuturePath::new(
             route_path,
             Kind::HttpRoute(HttpRouteConfig::new(method)),
@@ -771,6 +859,7 @@ async fn http_routes_to_future_paths(
             http_route.summary,
             http_route.description,
             auth_method,
+            args_schema,
         );
 
         openapi_future_paths.push(future_path);
@@ -780,6 +869,7 @@ async fn http_routes_to_future_paths(
 }
 
 async fn webhook_to_future_paths(
+    db: &DB,
     pg_pool: &mut PgConnection,
     webhook_filters: Option<&[WebhookFilter]>,
     w_id: &str,
@@ -805,7 +895,7 @@ async fn webhook_to_future_paths(
             }
         }
 
-        #[derive(Debug, Deserialize, Clone, Hash)]
+        #[derive(Debug, Deserialize, Clone)]
         struct MinifiedWebhook {
             path: String,
             description: Option<String>,
@@ -814,7 +904,7 @@ async fn webhook_to_future_paths(
 
         let webhook_scripts = sqlx::query_as!(
             MinifiedWebhook,
-            r#"SELECT 
+            r#"SELECT
                     path,
                     summary,
                     description
@@ -833,7 +923,7 @@ async fn webhook_to_future_paths(
 
         let webhook_flows = sqlx::query_as!(
             MinifiedWebhook,
-            r#"SELECT 
+            r#"SELECT
                     path,
                     summary,
                     description
@@ -853,6 +943,7 @@ async fn webhook_to_future_paths(
         openapi_future_paths.reserve_exact(webhook_scripts.len() + webhook_flows.len());
 
         for webhook in webhook_scripts {
+            let args_schema = get_runnable_schema(db, w_id, &webhook.path, false).await;
             openapi_future_paths.push(FuturePath::new(
                 webhook.path,
                 Kind::Webhook(WebhookConfig::new(RunnableKind::Script)),
@@ -860,10 +951,12 @@ async fn webhook_to_future_paths(
                 webhook.summary,
                 webhook.description,
                 Some(SecurityScheme::BearerJwt),
+                args_schema,
             ));
         }
 
         for webhook in webhook_flows {
+            let args_schema = get_runnable_schema(db, w_id, &webhook.path, true).await;
             openapi_future_paths.push(FuturePath::new(
                 webhook.path,
                 Kind::Webhook(WebhookConfig::new(RunnableKind::Flow)),
@@ -871,6 +964,7 @@ async fn webhook_to_future_paths(
                 webhook.summary,
                 webhook.description,
                 Some(SecurityScheme::BearerJwt),
+                args_schema,
             ));
         }
     }
@@ -898,7 +992,7 @@ async fn generate_openapi_future_path(
         http_routes_to_future_paths(db, user_db, authed, &mut tx, http_route_filters, w_id).await?;
 
     openapi_future_paths
-        .append(&mut webhook_to_future_paths(&mut tx, webhook_filters, w_id).await?);
+        .append(&mut webhook_to_future_paths(db, &mut tx, webhook_filters, w_id).await?);
 
     tx.commit().await?;
 
