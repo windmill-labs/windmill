@@ -412,3 +412,24 @@ export function removeEmptyGroups(nodes: FlowStructureNode[]): FlowGroup[] {
 	}
 	return removed
 }
+
+/** Walk the structure tree to compute nesting depth for each group (O(n)). */
+export function computeGroupDepths(tree: FlowStructureNode[]): Record<string, number> {
+	const depths: Record<string, number> = {}
+	function walk(nodes: FlowStructureNode[], groupDepth: number): void {
+		for (const node of nodes) {
+			if (node.kind === 'group') {
+				depths[node.id] = groupDepth
+				for (const branch of node.branches) {
+					walk(branch.children, groupDepth + 1)
+				}
+			} else {
+				for (const branch of node.branches) {
+					walk(branch.children, groupDepth)
+				}
+			}
+		}
+	}
+	walk(tree, 0)
+	return depths
+}

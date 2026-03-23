@@ -66,7 +66,7 @@
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import GroupOverlay from './GroupOverlay.svelte'
 	import { GroupDisplayState, type FlowGroup } from './groupEditor.svelte'
-	import { buildStructureTree, type FlowStructureNode } from './flowStructure'
+	import { buildStructureTree, computeGroupDepths, type FlowStructureNode } from './flowStructure'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { computeGroupModuleIds } from './groupDetectionUtils'
 	import { getAllModules } from '../flows/flowExplorer'
@@ -81,7 +81,6 @@
 	import { compoundLayout } from './compoundLayout'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
-	import { topologicalSort } from './graphBuilder.svelte'
 	import { computeNodeExtraSpace } from './nodeExtraSpace'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { setGraphContext } from './graphContext'
@@ -643,7 +642,7 @@
 
 		// Pre-compute extra space per node for assets, AI tools, group notes, group headers
 		const nodeExtraSpace = computeNodeExtraSpace(graphNodeDeps, {
-			showAssets: $showAssets,
+			showAssets: $showAssets ?? true,
 			showNotes,
 			notes,
 			noteTextHeights,
@@ -856,13 +855,17 @@
 			showNotes,
 			collapsedGroupIds
 		)
-		return result
+		return { ...result, structureTree: gm }
 	})
 	let hideAssetsToggle = $derived(
 		$showAssets && Object.values(nodes).every((n) => n.type !== 'asset')
 	)
 	let hideNotesToggle = $derived(
 		(!notes || notes.length === 0) && !(groups ?? []).some((g) => g.note != null)
+	)
+
+	let currentGroupDepths = $derived(
+		'structureTree' in graph && graph.structureTree ? computeGroupDepths(graph.structureTree) : {}
 	)
 
 	// Track groups for re-layout when groups change
@@ -1112,6 +1115,7 @@
 				<GroupOverlay
 					allNodes={nodesWithOffset as (Node & { type: string })[]}
 					groups={groups ?? []}
+					groupDepths={currentGroupDepths}
 				/>
 
 				<!-- SelectionTool for handling selection changes and filtering -->

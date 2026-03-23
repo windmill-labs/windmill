@@ -120,6 +120,8 @@ export class GroupedModulesProxy {
 			this.#items = buildStructureTree(modules, graphGroups)
 			this.#error = undefined
 		} catch (e) {
+			// Intentionally preserve last-known-good #items so the graph
+			// can still render while the error is surfaced to the user.
 			this.#error = e
 		}
 	}

@@ -8,20 +8,18 @@
 	interface Props {
 		allNodes: (Node & { type: string })[]
 		groups: FlowGroup[]
+		groupDepths: Record<string, number>
 	}
 
-	let { allNodes, groups }: Props = $props()
+	let { allNodes, groups, groupDepths }: Props = $props()
 
 	const graphContext = getGraphContext()
-
-	// All groups for always-visible overlays
-	let allGroups = $derived(groups)
 
 	// Pre-compute bounds for all groups reactively (tracks allNodes measured changes)
 	let groupBoundsMap = $derived.by(() => {
 		const map: Record<string, { x: number; y: number; width: number; height: number } | null> = {}
 		const nodeMap = new Map(allNodes.map((n) => [n.id, n]))
-		for (const group of allGroups) {
+		for (const group of groups) {
 			if (graphContext?.groupDisplayState?.isRuntimeCollapsed(group.id)) {
 				continue
 			}
@@ -49,31 +47,6 @@
 		return map
 	})
 
-	// Compute nesting depth from visual bounds — group B is nested inside A
-	// if A's vertical extent strictly contains B's
-	let groupDepths = $derived.by(() => {
-		const depths: Record<string, number> = {}
-		for (const group of allGroups) {
-			const bounds = groupBoundsMap[group.id]
-			if (!bounds) continue
-			let depth = 0
-			const top = bounds.y
-			const bottom = bounds.y + bounds.height
-			for (const other of allGroups) {
-				if (other.id === group.id) continue
-				const ob = groupBoundsMap[other.id]
-				if (!ob) continue
-				const oTop = ob.y
-				const oBottom = ob.y + ob.height
-				if (oTop <= top && oBottom >= bottom && (oTop < top || oBottom > bottom)) {
-					depth++
-				}
-			}
-			depths[group.id] = depth
-		}
-		return depths
-	})
-
 	function getOutlineColorClass(color?: string): string {
 		const config =
 			NOTE_COLORS[(color as NoteColor) ?? NoteColor.BLUE] ?? NOTE_COLORS[NoteColor.BLUE]
@@ -98,7 +71,7 @@
 	}
 </script>
 
-{#each allGroups as group (group.id)}
+{#each groups as group (group.id)}
 	{@const bounds = groupBoundsMap[group.id]}
 	{#if bounds}
 		<ViewportPortal target="back">

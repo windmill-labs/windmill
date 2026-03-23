@@ -786,10 +786,6 @@ components:
           $ref: '#/components/schemas/InputTransform'
         squash:
           type: boolean
-        collapsed:
-          type: boolean
-          default: false
-          description: If true, this container is collapsed by default in the flow editor
       required:
         - modules
         - iterator
@@ -820,10 +816,6 @@ components:
           $ref: '#/components/schemas/InputTransform'
         squash:
           type: boolean
-        collapsed:
-          type: boolean
-          default: false
-          description: If true, this container is collapsed by default in the flow editor
       required:
         - modules
         - skip_failures
@@ -862,10 +854,6 @@ components:
           type: string
           enum:
             - branchone
-        collapsed:
-          type: boolean
-          default: false
-          description: If true, this container is collapsed by default in the flow editor
       required:
         - branches
         - default
@@ -901,10 +889,6 @@ components:
         parallel:
           type: boolean
           description: If true, all branches execute concurrently. If false, they execute sequentially
-        collapsed:
-          type: boolean
-          default: false
-          description: If true, this container is collapsed by default in the flow editor
       required:
         - branches
         - type

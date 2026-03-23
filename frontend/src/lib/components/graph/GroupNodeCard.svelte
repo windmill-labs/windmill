@@ -2,6 +2,7 @@
 	import { Group } from 'lucide-svelte'
 	import { getNodeColorClasses } from '$lib/components/graph'
 	import { NOTE_COLORS, NoteColor } from './noteColors'
+	import { NODE } from './util'
 	import { twMerge } from 'tailwind-merge'
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 	import GroupNoteArea from './GroupNoteArea.svelte'
@@ -90,7 +91,7 @@
 		'shadow-sm rounded-md overflow-clip',
 		'bg-surface-tertiary'
 	)}
-	style="width: 275px;"
+	style="width: {NODE.width}px;"
 >
 	<div
 		class={twMerge(
@@ -105,7 +106,9 @@
 		{:else}
 			<Group size={14} />
 		{/if}
-		<div class="absolute inset-x-0 flex items-center justify-center h-[34px] pointer-events-none px-8">
+		<div
+			class="absolute inset-x-0 flex items-center justify-center h-[34px] pointer-events-none px-8"
+		>
 			{#if editingSummary}
 				<TextInput
 					bind:this={textInputComponent}
