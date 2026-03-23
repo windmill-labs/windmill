@@ -10,6 +10,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import Login from '$lib/components/Login.svelte'
 	import { LogIn, AlertTriangle, ExternalLink } from 'lucide-svelte'
 	import { mergeSchema } from '$lib/common'
 	import { emptyString } from '$lib/utils'
@@ -85,6 +86,13 @@
 
 	async function loadUser() {
 		userStore.set(await getUserExt(page.params.workspace ?? ''))
+	}
+
+	async function onLoginSuccess() {
+		showLogin = false
+		error = undefined
+		await loadUser()
+		await loadData()
 	}
 
 	async function resume() {
@@ -183,10 +191,7 @@
 					<p class="text-lg">Not Authorized</p>
 				</div>
 				<p class="text-sm">{error}</p>
-				<Button href={`/user/login?${rd ? 'rd=' + encodeURIComponent(rd) : ''}`}>
-					Sign in
-					<LogIn class="w-8" size={18} />
-				</Button>
+				<Login {rd} {onLoginSuccess} />
 			{:else if error.includes('Permission denied') || error.includes('Self-approval')}
 				<div class="flex flex-row gap-4 justify-center">
 					<AlertTriangle />
@@ -295,10 +300,7 @@
 				</div>
 			{:else if !completed && !approvalInfo.can_approve}
 				{#if approvalInfo.user_auth_required && !$userStore}
-					<Button href={`/user/login?${rd ? 'rd=' + encodeURIComponent(rd) : ''}`}>
-						Sign in to approve
-						<LogIn class="w-8" size={18} />
-					</Button>
+					<Login {rd} {onLoginSuccess} />
 				{:else}
 					<p class="text-sm text-secondary">You are not authorized to approve this flow.</p>
 				{/if}
