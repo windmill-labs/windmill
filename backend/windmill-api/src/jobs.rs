@@ -2515,8 +2515,52 @@ async fn get_approval_info(
             .as_ref()
             .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
         let ac = fs.as_ref().and_then(|s| s.approval_conditions.clone());
-        // For classic flows, form/description come from the step result, not stored here
-        (None, None, ac, None)
+
+        // For classic flows, form/description come from the flow definition and step result
+        let approval_step = fs.as_ref().map(|s| (s.step as usize).saturating_sub(1));
+
+        // Fetch raw_flow to get suspend settings (form schema, hide_cancel)
+        let raw_flow: Option<FlowValue> =
+            sqlx::query_scalar("SELECT raw_flow FROM v2_job WHERE id = $1 AND workspace_id = $2")
+                .bind(&job_id)
+                .bind(&w_id)
+                .fetch_optional(&db)
+                .await?
+                .flatten()
+                .and_then(|v: serde_json::Value| serde_json::from_value(v).ok());
+
+        let suspend_module = raw_flow
+            .as_ref()
+            .and_then(|rf| approval_step.and_then(|s| rf.modules.get(s)));
+        let suspend_settings = suspend_module.and_then(|m| m.suspend.as_ref());
+
+        let form = suspend_settings
+            .and_then(|s| s.resume_form.as_ref())
+            .map(|rf| serde_json::json!(rf));
+        let hc = suspend_settings.map(|s| s.hide_cancel.unwrap_or(false));
+
+        // Fetch description and default_args from the step's completed job result
+        let step_job_id = fs
+            .as_ref()
+            .and_then(|s| approval_step.and_then(|step| s.modules.get(step)))
+            .and_then(|m| m.job());
+        let (desc, _default_args) = if let Some(sjid) = step_job_id {
+            let result: Option<serde_json::Value> = sqlx::query_scalar(
+                "SELECT result FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
+            )
+            .bind(sjid)
+            .bind(&w_id)
+            .fetch_optional(&db)
+            .await?
+            .flatten();
+            let desc = result.as_ref().and_then(|r| r.get("description").cloned());
+            let da = result.as_ref().and_then(|r| r.get("default_args").cloned());
+            (desc, da)
+        } else {
+            (None, None)
+        };
+
+        (form, desc, ac, hc)
     };
 
     let user_auth_required = approval_conditions
