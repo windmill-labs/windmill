@@ -14,6 +14,8 @@ import {
 	findInsertIndexByNodeId,
 	buildStructureTree
 } from './flowStructure'
+import type { FlowGroup } from './groupEditor.svelte'
+import { computeGroupModuleIds } from './groupDetectionUtils'
 
 export type InsertKind =
 	| 'script'
@@ -421,7 +423,7 @@ export function graphBuilder(
 	selectedId: string | undefined,
 	simplifiableFlow: SimplifiableFlow | undefined,
 	flowPathForTriggerNode: string | undefined,
-	expandedSubflows: Record<string, FlowModule[]>,
+	expandedSubflows: Record<string, { modules: FlowModule[]; groups?: FlowGroup[] }>,
 	showNotes: boolean,
 	collapsedGroupIds: Set<string>
 ): {
@@ -439,8 +441,7 @@ export function graphBuilder(
 		const nodes: NodeLayout[] = []
 		const edges: Edge[] = []
 
-		// Build a lookup map from the original reactive modules so that node data
-		// references the live module objects rather than the grouped proxy snapshots.
+		// Lookup map from module ID to the original reactive FlowModule objects.
 		const moduleMap = new Map<string, FlowModule>()
 		for (const m of getAllModules(modules, failureModule)) {
 			moduleMap.set(m.id, m)
@@ -453,12 +454,10 @@ export function graphBuilder(
 				throw new Error(`Duplicated node detected: ${module.id}`)
 			}
 
-			const originalModule = moduleMap.get(module.id) ?? module
-
 			nodes.push({
 				id: module.id,
 				data: {
-					module: originalModule,
+					module: module,
 					id: module.id,
 					parentIds: [],
 					eventHandlers: eventHandlers,
@@ -468,7 +467,7 @@ export function graphBuilder(
 					editMode: extra.editMode,
 					isOwner: extra.isOwner,
 					flowJob: extra.flowJob,
-					assets: getFlowModuleAssets(originalModule, extra.additionalAssetsMap),
+					assets: getFlowModuleAssets(module, extra.additionalAssetsMap),
 					moduleAction: extra.moduleActions?.[module.id],
 					...extraData
 				},
@@ -651,17 +650,19 @@ export function graphBuilder(
 			disableMoveIds: string[] = [],
 			parentIndex?: string
 		) {
-			// For subflow prefix rewriting, update module IDs via moduleMap
+			// For subflow prefix rewriting, clone modules into moduleMap with prefixed IDs
+			// (avoid mutating reactive originals which would trigger state_unsafe_mutation in $derived)
 			if (prefix != undefined) {
 				items.forEach((item) => {
 					if (item.kind === 'group') return
 					const m = moduleMap.get(item.id)
 					if (m) {
-						if (!m['oid']) {
-							m['oid'] = m.id
-						}
-						m.id = 'subflow:' + prefix + m['oid']
-						item.id = m.id
+						const oid = m['oid'] ?? m.id
+						const newId = 'subflow:' + prefix + oid
+						const clone = { ...m, id: newId, oid } as FlowModule & { oid: string }
+						clone['oid'] = oid
+						moduleMap.set(newId, clone)
+						item.id = newId
 					}
 				})
 			}
@@ -701,7 +702,7 @@ export function graphBuilder(
 									isOwner: extra.isOwner,
 									suspendStatus: extra.suspendStatus,
 									showNotes,
-									editMode: extra.editMode,
+									editMode: prefix == undefined && extra.editMode,
 									eventHandlers
 								},
 								type: 'collapsedGroup',
@@ -731,7 +732,7 @@ export function graphBuilder(
 									note: g.note,
 									color: g.color,
 									collapsed_by_default: g.collapsed_by_default,
-									editMode: extra.editMode,
+									editMode: prefix == undefined && extra.editMode,
 									showNotes,
 									eventHandlers
 								},
@@ -1080,9 +1081,9 @@ export function graphBuilder(
 
 						previousId = endNode.id
 					} else {
-						let expandedMods = expandedSubflows[module.id]
-						if (expandedMods) {
-							expandedMods = $state.snapshot(expandedMods)
+						const expandedData = expandedSubflows[module.id]
+						if (expandedData) {
+							const expandedMods = $state.snapshot(expandedData.modules) as FlowModule[]
 							const startId = `${module.id}`
 							const idWithoutPrefix = module.id.startsWith('subflow:')
 								? module.id.substring(8)
@@ -1130,8 +1131,19 @@ export function graphBuilder(
 
 							nodes.push(endNode)
 
+							// Register expanded subflow modules so prefix rewriting finds
+							// the inner modules (not the parent flow's modules with same IDs)
+							for (const em of getAllModules(expandedMods)) {
+								moduleMap.set(em.id, em)
+							}
+
+							const expandedGroups = (expandedData.groups ?? []).map((g) => ({
+								...g,
+								moduleIds: computeGroupModuleIds(g.start_id, g.end_id, getAllModules(expandedMods))
+							}))
+
 							processModules(
-								buildStructureTree(expandedMods, []),
+								buildStructureTree(expandedMods, expandedGroups),
 								undefined,
 								startNode,
 								endNode,

@@ -257,7 +257,7 @@
 	let retry_selected = $state('')
 	let timeout: number | undefined = undefined
 
-	let expandedSubflows: Record<string, FlowModule[]> = $state({})
+	let expandedSubflows: Record<string, { modules: FlowModule[]; groups?: any[] }> = $state({})
 
 	let selectionManager = new SelectionManager()
 
@@ -1153,7 +1153,7 @@
 
 	function allModulesForTimeline(
 		modules: FlowModule[],
-		expandedSubflows: Record<string, FlowModule[]>
+		expandedSubflows: Record<string, { modules: FlowModule[]; groups?: any[] }>
 	): FlowModuleForTimeline[] {
 		const ids = dfs(modules, (x) => ({ id: x.id, type: x.value.type }) as FlowModuleForTimeline, {
 			skipToolNodes: true
@@ -1165,7 +1165,7 @@
 		): FlowModuleForTimeline[] {
 			return ids.concat(
 				ids.flatMap(({ id }) => {
-					let fms = expandedSubflows[id]
+					let fms = expandedSubflows[id]?.modules
 					let oid = id.split(':').pop()
 					if (!oid) {
 						return []

@@ -136,7 +136,7 @@
 		workspace?: string
 		editMode?: boolean
 		allowSimplifiedPoll?: boolean
-		expandedSubflows?: Record<string, FlowModule[]>
+		expandedSubflows?: Record<string, { modules: FlowModule[]; groups?: FlowGroup[] }>
 		isOwner?: boolean
 		isRunning?: boolean
 		individualStepTests?: boolean
@@ -276,9 +276,8 @@
 		() => nodes
 	)
 
-	const groupDisplayState = $derived(
-		groupDisplayStateProp ?? new GroupDisplayState(() => groups ?? [])
-	)
+	const groupDisplayState =
+		untrack(() => groupDisplayStateProp) ?? new GroupDisplayState(() => groups ?? [])
 
 	// Runtime text height tracking for notes (not stored in FlowNote)
 	let noteTextHeights = $state<Record<string, number>>({})
@@ -325,9 +324,7 @@
 		yOffset,
 		diffManager,
 		getFlowNodes: () => currentGraphNodeDeps,
-		get groupDisplayState() {
-			return groupDisplayState
-		}
+		groupDisplayState
 	} as any)
 
 	if (triggerContext && untrack(() => allowSimplifiedPoll)) {
@@ -462,7 +459,7 @@
 		},
 		expandSubflow: async (id: string, path: string) => {
 			const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
-			expandedSubflows[id] = flow.value.modules
+			expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
 			expandedSubflows = expandedSubflows
 		},
 		minimizeSubflow: (id: string) => {
@@ -795,7 +792,9 @@
 		effectiveModuleActions
 		currentGroups
 
-		const collapsedGroupIds = new Set(groupDisplayState.getCollapsedGroups().map((g) => g.id))
+		const collapsedGroupIds = new Set(
+			allGroups.filter((g) => groupDisplayState.isRuntimeCollapsed(g.id)).map((g) => g.id)
+		)
 
 		if (groupError) {
 			return { nodes: {}, edges: [], error: groupError }
@@ -870,6 +869,13 @@
 	let currentGroupDepths = $derived(
 		'structureTree' in graph && graph.structureTree ? computeGroupDepths(graph.structureTree) : {}
 	)
+
+	// All groups including those from expanded subflows (for overlay rendering)
+	let allGroups = $derived.by(() => {
+		const base = groups ?? []
+		const subflowGroups = Object.values(expandedSubflows).flatMap((sf) => sf.groups ?? [])
+		return subflowGroups.length > 0 ? [...base, ...subflowGroups] : base
+	})
 
 	// Track groups for re-layout when groups change
 	let currentGroups = $derived(groups ?? [])
@@ -1117,7 +1123,7 @@
 
 				<GroupOverlay
 					allNodes={nodesWithOffset as (Node & { type: string })[]}
-					groups={groups ?? []}
+					groups={allGroups}
 					groupDepths={currentGroupDepths}
 				/>
 

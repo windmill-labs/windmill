@@ -223,23 +223,28 @@
 		if (!modules) return [module]
 
 		if (toolKind === 'mcpTool') {
+			// Create MCP AgentTool
 			const mcpTool = createMcpTool(module.id)
 			;(modules as AgentTool[]).splice(index, 0, mcpTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'websearchTool') {
+			// Create Websearch AgentTool
 			const websearchTool = createWebsearchTool(module.id)
 			;(modules as AgentTool[]).splice(index, 0, websearchTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'aiAgentTool') {
+			// Create AI Agent tool (nested agent)
 			const aiAgentTool = createAiAgentTool(module.id)
 			flowStateStore.val[module.id] = await loadFlowModuleState(agentToolToFlowModule(aiAgentTool))
 			;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'flowmoduleTool') {
+			// Create AgentTool from FlowModule
 			const agentTool = flowModuleToAgentTool(module)
 			;(modules as AgentTool[]).splice(index, 0, agentTool)
 			return modules as AgentTool[]
 		} else {
+			// Standard FlowModule insertion
 			modules.splice(index, 0, module)
 			return modules
 		}
