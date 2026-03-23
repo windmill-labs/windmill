@@ -204,9 +204,7 @@ async function generateMetadata(
   // degrade gracefully: locks will be generated using deployed script content only.
   try {
     await uploadScripts(tree, workspace);
-    console.log("[DEBUG] uploadScripts succeeded");
   } catch (e) {
-    console.log("[DEBUG] uploadScripts FAILED:", e);
     log.warn(colors.yellow(
       `Failed to upload scripts to temp storage (backend may be too old): ${e}. ` +
       `Locks will be generated using deployed script versions only — locally modified ` +
@@ -276,9 +274,9 @@ async function generateMetadata(
     const isRelevant = (item: StaleItem) => {
       if (isInsideFolder(item)) return true;
       if (item.type === "dependencies") return true;
-      const treePath = item.type === "script"
+      const treePath = (item.type === "script"
         ? item.path.replace(/\.[^/.]+$/, "")
-        : item.folder;
+        : item.folder).replaceAll("\\", "/");
       return touchesFolder(treePath);
     };
 

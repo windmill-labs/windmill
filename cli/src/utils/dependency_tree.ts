@@ -50,9 +50,6 @@ export async function uploadScripts(
 
   if (Object.keys(scriptHashes).length === 0 && workspaceDeps.length === 0) return;
 
-  console.log("[DEBUG uploadScripts] scriptHashes:", JSON.stringify(scriptHashes));
-  console.log("[DEBUG uploadScripts] workspaceDeps:", JSON.stringify(workspaceDeps));
-
   // Single batch query: find which scripts/deps differ from deployed versions
   const mismatched = await wmill.diffRawScriptsWithDeployed({
     workspace: workspace.workspaceId,
@@ -61,8 +58,6 @@ export async function uploadScripts(
       workspace_deps: workspaceDeps,
     },
   });
-
-  console.log("[DEBUG uploadScripts] mismatched:", JSON.stringify(mismatched));
 
   // Upload only mismatched scripts to temp storage
   for (const path of mismatched) {
@@ -80,7 +75,6 @@ export async function uploadScripts(
         workspace: workspace.workspaceId,
         requestBody: content,
       });
-      console.log(`[DEBUG uploadScripts] stored temp: ${path} -> hash=${hash}`);
       tree.setContentHash(path, hash);
     }
   }
@@ -356,9 +350,6 @@ export class DoubleLinkedDependencyTree {
         result[_path] = node.contentHash;
       }
     });
-    if (Object.keys(result).length > 0) {
-      console.log(`[DEBUG getTempScriptRefs] for ${scriptPath}:`, JSON.stringify(result));
-    }
     return result;
   }
 
