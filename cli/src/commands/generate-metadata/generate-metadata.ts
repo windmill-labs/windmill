@@ -287,8 +287,9 @@ async function generateMetadata(
       // Warn about stale items outside the folder that would be included by default
       const excludedStale = staleItems.filter((item) => !isInsideFolder(item) && isRelevant(item) && item.type !== "dependencies");
       for (const item of excludedStale) {
+        const normalizedPath = item.path.replaceAll("\\", "/");
         log.warn(colors.yellow(
-          `Warning: ${item.path} depends on something inside "${folder}" but is outside it — skipped due to --strict-folder-boundaries. Next generate-metadata will not detect it as stale.`
+          `Warning: ${normalizedPath} depends on something inside "${folder}" but is outside it — skipped due to --strict-folder-boundaries. Next generate-metadata will not detect it as stale.`
         ));
       }
     } else {
