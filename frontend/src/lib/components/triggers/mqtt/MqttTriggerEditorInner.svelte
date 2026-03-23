@@ -98,6 +98,9 @@
 	let isValid: boolean = $state(false)
 	let initialConfig: Record<string, any> | undefined = {}
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
@@ -215,6 +218,9 @@
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			activateV5Options.topic_alias_maximum = Boolean(v5_config.topic_alias_maximum)
 			activateV5Options.session_expiry_interval = Boolean(v5_config.session_expiry_interval)
+			permissionedAs = cfg?.permissioned_as
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 		} catch (error) {
 			sendUserToast(`Could not load mqtt trigger config: ${error.body}`, true)
 		}
@@ -251,7 +257,9 @@
 			is_flow,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 	}
 
@@ -382,6 +390,11 @@
 			onToggleMode={handleToggleMode}
 			{cloudDisabled}
 			{suspendedJobsModal}
+			{permissionedAs}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
 		/>
 	{/if}
 {/snippet}

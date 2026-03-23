@@ -75,6 +75,9 @@
 	let drawer = $state<Drawer | undefined>(undefined)
 	let initialConfig: NewEmailTrigger | undefined = undefined
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 
@@ -181,6 +184,9 @@
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		mode = cfg?.mode ?? 'enabled'
+		permissionedAs = cfg?.permissioned_as
+		selectedPermissionedAs = undefined
+		preservePermissionedAs = false
 	}
 
 	async function loadTrigger(defaultConfig?: Partial<EmailTrigger>): Promise<void> {
@@ -236,7 +242,9 @@
 			error_handler_path,
 			error_handler_args,
 			retry,
-			mode
+			mode,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 
 		return nCfg
@@ -415,6 +423,11 @@
 			{mode}
 			onToggleMode={handleToggleMode}
 			{suspendedJobsModal}
+			{permissionedAs}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
 		/>
 	{/if}
 {/snippet}

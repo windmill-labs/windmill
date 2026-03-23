@@ -87,6 +87,9 @@
 	let autoOffsetReset = $state('latest')
 	let autoCommit = $state(true)
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
 	let resetLoading = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
@@ -216,6 +219,9 @@
 		retry = cfg?.retry
 		filters = cfg?.filters ?? []
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		permissionedAs = cfg?.permissioned_as
+		selectedPermissionedAs = undefined
+		preservePermissionedAs = false
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -246,7 +252,9 @@
 			extra_perms: extra_perms,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 	}
 
@@ -404,6 +412,11 @@
 			onToggleMode={handleToggleMode}
 			{cloudDisabled}
 			{suspendedJobsModal}
+			{permissionedAs}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
 		/>
 	{/if}
 {/snippet}

@@ -111,6 +111,9 @@
 	let isValid = $state(true)
 	let allowSchedule = $derived(isValid && validCRON && script_path != '')
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
 
 	const saveDisabled = $derived(
 		!allowSchedule ||
@@ -507,6 +510,9 @@
 		extraPerms = cfg.extra_perms ?? {}
 		can_write = canWrite(cfg.path, cfg.extra_perms, $userStore)
 		tag = cfg.tag
+		permissionedAs = cfg.permissioned_as
+		selectedPermissionedAs = undefined
+		preservePermissionedAs = false
 
 		loading = false
 	}
@@ -605,7 +611,9 @@
 			paused_until: paused_until,
 			cron_version: cronVersion,
 			extra_perms: extraPerms,
-			dynamic_skip: dynamicSkipPath
+			dynamic_skip: dynamicSkipPath,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 	}
 
@@ -646,6 +654,11 @@
 			onToggleMode={(mode) => handleToggleEnabled(mode === 'enabled')}
 			{isDeployed}
 			disableSuspendedMode
+			{permissionedAs}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
 		>
 			{#snippet extra()}
 				{#if !drawerLoading && edit}

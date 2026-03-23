@@ -122,6 +122,9 @@
 	let drawer = $state<Drawer | undefined>(undefined)
 	let initialConfig: NewHttpTrigger | undefined = undefined
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
 	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 
@@ -315,6 +318,9 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		permissionedAs = cfg?.permissioned_as
+		selectedPermissionedAs = undefined
+		preservePermissionedAs = false
 	}
 
 	async function loadTrigger(defaultConfig?: Partial<HttpTrigger>): Promise<void> {
@@ -388,7 +394,9 @@
 			description: routeDescription,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 
 		return nCfg
@@ -945,6 +953,11 @@
 			{mode}
 			onToggleMode={handleToggleMode}
 			{suspendedJobsModal}
+			{permissionedAs}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
 		/>
 	{/if}
 {/snippet}

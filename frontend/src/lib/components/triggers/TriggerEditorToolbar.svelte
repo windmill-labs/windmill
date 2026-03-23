@@ -9,6 +9,11 @@
 	import TriggerSuspendedJobsModal from './TriggerSuspendedJobsModal.svelte'
 	import type { TriggerMode } from '$lib/gen'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
+	import OnBehalfOfSelector, {
+		type OnBehalfOfChoice,
+		type OnBehalfOfDetails
+	} from '$lib/components/OnBehalfOfSelector.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
 
 	interface Props {
 		saveDisabled: any
@@ -27,6 +32,10 @@
 		trigger?: Trigger
 		suspendedJobsModal?: TriggerSuspendedJobsModal | null
 		disableSuspendedMode?: boolean
+		/** Current permissioned_as value from the trigger (e.g., 'u/admin') */
+		permissionedAs?: string
+		/** Callback when user changes the permissioned_as selection */
+		onPermissionedAsChange?: (permissionedAs: string | undefined, preserve: boolean) => void
 	}
 
 	let {
@@ -45,10 +54,33 @@
 		cloudDisabled = false,
 		trigger,
 		suspendedJobsModal,
-		disableSuspendedMode = false
+		disableSuspendedMode = false,
+		permissionedAs,
+		onPermissionedAsChange
 	}: Props = $props()
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
+
+	const canPreserve = $derived(
+		$userStore?.is_admin || ($userStore?.groups ?? []).includes('wm_deployers')
+	)
+
+	let onBehalfOfChoice = $state<OnBehalfOfChoice>(undefined)
+	let customPermissionedAs = $state<string | undefined>(undefined)
+
+	function handleOnBehalfOfSelect(choice: OnBehalfOfChoice, details?: OnBehalfOfDetails) {
+		onBehalfOfChoice = choice
+		if (choice === 'target') {
+			customPermissionedAs = undefined
+			onPermissionedAsChange?.(permissionedAs, true)
+		} else if (choice === 'custom' && details) {
+			customPermissionedAs = details.permissionedAs
+			onPermissionedAsChange?.(details.permissionedAs, true)
+		} else {
+			customPermissionedAs = undefined
+			onPermissionedAsChange?.(undefined, false)
+		}
+	}
 </script>
 
 {#if !allowDraft}
@@ -60,6 +92,18 @@
 			{onToggleMode}
 			{suspendedJobsModal}
 			hideDropdown={disableSuspendedMode}
+		/>
+	{/if}
+	{#if edit && permissionedAs && $workspaceStore}
+		<OnBehalfOfSelector
+			targetWorkspace={$workspaceStore}
+			targetValue={permissionedAs}
+			selected={onBehalfOfChoice}
+			onSelect={handleOnBehalfOfSelect}
+			kind="trigger"
+			{canPreserve}
+			customValue={customPermissionedAs}
+			isDeployment={false}
 		/>
 	{/if}
 	{#if canSave}
@@ -102,6 +146,18 @@
 			>
 				Reset changes
 			</Button>
+		{/if}
+		{#if edit && permissionedAs && $workspaceStore}
+			<OnBehalfOfSelector
+				targetWorkspace={$workspaceStore}
+				targetValue={permissionedAs}
+				selected={onBehalfOfChoice}
+				onSelect={handleOnBehalfOfSelect}
+				kind="trigger"
+				{canPreserve}
+				customValue={customPermissionedAs}
+				isDeployment={false}
+			/>
 		{/if}
 		{#if canSave}
 			<Tooltip placement="bottom-end" disablePopup={!saveDisabled && !cloudDisabled && isDeployed}>

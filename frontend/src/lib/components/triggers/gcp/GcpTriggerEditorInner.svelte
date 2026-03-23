@@ -57,6 +57,9 @@
 	let subscription_mode: SubscriptionMode = $state('create_update')
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
 	let base_endpoint = $derived(`${window.location.origin}${base}`)
 	let auto_acknowledge_msg = $state(true)
 	let ack_deadline: number | undefined = $state()
@@ -202,6 +205,9 @@
 		auto_acknowledge_msg = cfg?.auto_acknowledge_msg ?? true
 		ack_deadline = cfg?.ack_deadline
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		permissionedAs = cfg?.permissioned_as
+		selectedPermissionedAs = undefined
+		preservePermissionedAs = false
 	}
 
 	async function updateTrigger(): Promise<void> {
@@ -246,7 +252,9 @@
 			error_handler_args,
 			retry,
 			auto_acknowledge_msg,
-			ack_deadline
+			ack_deadline,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 	}
 
@@ -358,6 +366,11 @@
 			{cloudDisabled}
 			{trigger}
 			{suspendedJobsModal}
+			{permissionedAs}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
 		/>
 	{/if}
 {/snippet}
