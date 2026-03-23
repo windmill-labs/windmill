@@ -257,6 +257,30 @@ pub struct WorkspaceSettings {
     pub public_app_execution_limit_per_minute: Option<i32>,
     pub has_instance_ai_config: bool,
     pub uses_instance_ai_config: bool,
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_ai_summary: Option<InstanceAISummary>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct InstanceAIProviderSummary {
+    pub provider: String,
+    pub models: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct InstanceAIModelSummary {
+    pub provider: String,
+    pub model: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct InstanceAISummary {
+    pub providers: Vec<InstanceAIProviderSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<InstanceAIModelSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_completion_model: Option<InstanceAIModelSummary>,
 }
 
 /// #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
@@ -624,6 +648,7 @@ async fn get_settings(
     let has_instance_ai_config = has_ai_providers(instance_ai_config.as_ref());
     settings.has_instance_ai_config = has_instance_ai_config;
     settings.uses_instance_ai_config = !has_workspace_ai_config && has_instance_ai_config;
+    settings.instance_ai_summary = build_instance_ai_summary(instance_ai_config.as_ref());
     if !authed.is_admin {
         settings.slack_oauth_client_secret = None;
     }
@@ -636,6 +661,50 @@ fn has_ai_providers(config: Option<&serde_json::Value>) -> bool {
         .and_then(|providers| providers.as_object())
         .map(|providers| !providers.is_empty())
         .unwrap_or(false)
+}
+
+pub fn build_instance_ai_summary(config: Option<&serde_json::Value>) -> Option<InstanceAISummary> {
+    let config = config?;
+    let providers = config.get("providers")?.as_object()?;
+    if providers.is_empty() {
+        return None;
+    }
+
+    let mut provider_summaries = providers
+        .iter()
+        .map(|(provider, provider_config)| InstanceAIProviderSummary {
+            provider: provider.clone(),
+            models: provider_config
+                .get("models")
+                .and_then(|models| models.as_array())
+                .map(|models| {
+                    models
+                        .iter()
+                        .filter_map(|model| model.as_str().map(ToOwned::to_owned))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
+        })
+        .collect::<Vec<_>>();
+
+    provider_summaries.sort_by(|left, right| left.provider.cmp(&right.provider));
+
+    Some(InstanceAISummary {
+        providers: provider_summaries,
+        default_model: extract_instance_ai_model_summary(config, "default_model"),
+        code_completion_model: extract_instance_ai_model_summary(config, "code_completion_model"),
+    })
+}
+
+fn extract_instance_ai_model_summary(
+    config: &serde_json::Value,
+    key: &str,
+) -> Option<InstanceAIModelSummary> {
+    let model_config = config.get(key)?.as_object()?;
+    Some(InstanceAIModelSummary {
+        provider: model_config.get("provider")?.as_str()?.to_owned(),
+        model: model_config.get("model")?.as_str()?.to_owned(),
+    })
 }
 
 #[derive(Serialize)]

@@ -8,6 +8,7 @@
 
 // Re-export everything from windmill-api-workspaces
 pub use windmill_api_workspaces::workspaces::*;
+use windmill_api_workspaces::workspaces::{build_instance_ai_summary, InstanceAISummary};
 
 use crate::ai::{invalidate_ai_request_cache_for_workspace, AIConfig};
 use crate::db::ApiAuthed;
@@ -146,6 +147,8 @@ struct CopilotInfoResponse {
     ai_config: AIConfig,
     has_instance_ai_config: bool,
     uses_instance_ai_config: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    instance_ai_summary: Option<InstanceAISummary>,
 }
 
 async fn get_copilot_info(
@@ -182,8 +185,10 @@ async fn get_copilot_info(
             ai_config: copilot_info.unwrap().0,
             has_instance_ai_config,
             uses_instance_ai_config: false,
+            instance_ai_summary: build_instance_ai_summary(instance_ai_config.as_ref()),
         }))
     } else if let Some(instance_config) = instance_ai_config {
+        let instance_ai_summary = build_instance_ai_summary(Some(&instance_config));
         let ai_config = serde_json::from_value::<AIConfig>(instance_config).unwrap_or_default();
         let has_providers = ai_config
             .providers
@@ -194,12 +199,14 @@ async fn get_copilot_info(
             ai_config,
             has_instance_ai_config: true,
             uses_instance_ai_config: has_providers,
+            instance_ai_summary,
         }))
     } else {
         Ok(Json(CopilotInfoResponse {
             ai_config: AIConfig::default(),
             has_instance_ai_config: false,
             uses_instance_ai_config: false,
+            instance_ai_summary: None,
         }))
     }
 }

@@ -740,6 +740,14 @@ async fn test_get_settings_reports_instance_ai_fallback_flags(
     let settings = resp.json::<serde_json::Value>().await?;
     assert_eq!(settings["has_instance_ai_config"], true);
     assert_eq!(settings["uses_instance_ai_config"], true);
+    assert_eq!(
+        settings["instance_ai_summary"]["providers"][0]["provider"],
+        "openai"
+    );
+    assert_eq!(
+        settings["instance_ai_summary"]["providers"][0]["models"][0],
+        "gpt-4o-mini"
+    );
 
     sqlx::query("UPDATE workspace_settings SET ai_config = $1 WHERE workspace_id = $2")
         .bind(workspace_ai_config)
@@ -755,6 +763,10 @@ async fn test_get_settings_reports_instance_ai_fallback_flags(
     let settings = resp.json::<serde_json::Value>().await?;
     assert_eq!(settings["has_instance_ai_config"], true);
     assert_eq!(settings["uses_instance_ai_config"], false);
+    assert_eq!(
+        settings["instance_ai_summary"]["providers"][0]["provider"],
+        "openai"
+    );
 
     Ok(())
 }

@@ -50,6 +50,10 @@
 	import { base } from '$lib/base'
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
+	import type {
+		GetCopilotInfoResponseWithInstanceAISummary,
+		InstanceAISummary
+	} from '$lib/components/workspaceSettings/instanceAiSummary'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
 	import VolumeStorageSettings from '$lib/components/workspaceSettings/VolumeStorageSettings.svelte'
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
@@ -112,6 +116,7 @@
 
 	let hasInstanceAiConfig = $state(false)
 	let usesInstanceAiConfig = $state(false)
+	let instanceAiSummary: InstanceAISummary | undefined = $state(undefined)
 	let aiInitialConfig: AIConfig | undefined = $state(undefined)
 	let aiSettingsComponent: AISettings | undefined = $state(undefined)
 	let hasAiSettingsChanges = $state(false)
@@ -469,7 +474,11 @@
 	}
 
 	async function loadSettings(): Promise<void> {
-		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		const settings = (await WorkspaceService.getSettings({
+			workspace: $workspaceStore!
+		})) as Awaited<ReturnType<typeof WorkspaceService.getSettings>> & {
+			instance_ai_summary?: InstanceAISummary
+		}
 		slack_team_name = settings.slack_name
 		teams_team_id = settings.teams_team_id
 		teams_team_name = settings.teams_team_name
@@ -491,6 +500,7 @@
 		aiInitialConfig = settings.ai_config ?? {}
 		hasInstanceAiConfig = settings.has_instance_ai_config ?? false
 		usesInstanceAiConfig = settings.uses_instance_ai_config ?? false
+		instanceAiSummary = settings.instance_ai_summary
 		const errorHandler = settings.error_handler as
 			| { path?: string; extra_args?: any; muted_on_cancel?: boolean; muted_on_user_path?: boolean }
 			| undefined
@@ -1767,12 +1777,16 @@ export async function main(
 								bind:hasUnsavedChanges={hasAiSettingsChanges}
 								{hasInstanceAiConfig}
 								{usesInstanceAiConfig}
+								{instanceAiSummary}
 								onSave={(copilotInfo) => {
 									if (!copilotInfo) {
 										return
 									}
-									hasInstanceAiConfig = copilotInfo.has_instance_ai_config
-									usesInstanceAiConfig = copilotInfo.uses_instance_ai_config
+									const extendedCopilotInfo =
+										copilotInfo as GetCopilotInfoResponseWithInstanceAISummary
+									hasInstanceAiConfig = extendedCopilotInfo.has_instance_ai_config
+									usesInstanceAiConfig = extendedCopilotInfo.uses_instance_ai_config
+									instanceAiSummary = extendedCopilotInfo.instance_ai_summary
 								}}
 							/>
 						{:else if tab == 'windmill_data_tables'}
