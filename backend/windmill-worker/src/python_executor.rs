@@ -1084,36 +1084,45 @@ fn python_preprocessor_spread(sig: windmill_parser::MainArgSignature, indent: &s
     }
 }
 
-/// Generate the unified multi-script wrapper for Python.
-/// Used by both dedicated workers (single script) and runner groups (multiple scripts).
-/// Protocol:
-/// Compute arg metadata JSON for a Python script.
-/// Returns a JSON string with arg names, datetime/date/bytes args, and preprocessor info.
+/// Pre-computed codegen data for a Python script.
+/// Computed in Rust from the parsed signature, then baked into the wrapper template.
 #[cfg(any(feature = "private", test))]
-pub fn compute_py_meta_json(content: &str) -> String {
-    use windmill_parser::Typ;
+pub struct PyScriptCodegen {
+    /// Python module directory dot notation (e.g., "f.my")
+    pub module_dir_dot: String,
+    /// Python module name / last path component (e.g., "script")
+    pub module_name: String,
+    /// Directory path for the module (e.g., "f/my")
+    pub dirs: String,
+    /// Inline Python code for type transforms (dates, bytes, etc.)
+    pub transforms: String,
+    /// Inline Python code for arg spread / filtering
+    pub spread: String,
+    /// Inline Python code for preprocessor arg spread (if applicable)
+    pub pre_spread: Option<String>,
+}
+
+/// Parse a Python script and compute the codegen data.
+/// This reuses the same logic that was used on main in `prepare_wrapper`.
+#[cfg(any(feature = "private", test))]
+pub fn compute_py_codegen(content: &str, script_path: &str) -> PyScriptCodegen {
+    let dirs = compute_python_module_dir(script_path);
+    let last = script_path
+        .split("/")
+        .map(|x| {
+            if x.starts_with(|x: char| x.is_ascii_digit()) {
+                format!("_{}", x)
+            } else {
+                x.to_string()
+            }
+        })
+        .last()
+        .unwrap()
+        .replace("-", "_")
+        .replace(" ", "_")
+        .to_lowercase();
 
     let sig = windmill_parser_py::parse_python_signature(content, None, false).unwrap_or_default();
-    let args: Vec<&str> = sig.args.iter().map(|a| a.name.as_str()).collect();
-    let dates: Vec<&str> = sig
-        .args
-        .iter()
-        .filter(|a| matches!(a.typ, Typ::Datetime))
-        .map(|a| a.name.as_str())
-        .collect();
-    let date_only: Vec<&str> = sig
-        .args
-        .iter()
-        .filter(|a| matches!(a.typ, Typ::Date))
-        .map(|a| a.name.as_str())
-        .collect();
-    let bytes_args: Vec<&str> = sig
-        .args
-        .iter()
-        .filter(|a| matches!(a.typ, Typ::Bytes))
-        .map(|a| a.name.as_str())
-        .collect();
-
     let pre_sig = windmill_parser_py::parse_python_signature(
         content,
         Some("preprocessor".to_string()),
@@ -1122,49 +1131,175 @@ pub fn compute_py_meta_json(content: &str) -> String {
     .ok()
     .filter(|s| !s.args.is_empty());
 
-    let mut meta = serde_json::json!({
-        "args": args,
-        "dates": dates,
-        "date_only": date_only,
-        "bytes_args": bytes_args,
-        "star_kwargs": sig.star_kwargs,
-    });
+    let init_sig = pre_sig.as_ref().unwrap_or(&sig);
 
-    if let Some(pre) = pre_sig {
-        let pre_args: Vec<&str> = pre.args.iter().map(|a| a.name.as_str()).collect();
-        let pre_dates: Vec<&str> = pre
-            .args
-            .iter()
-            .filter(|a| matches!(a.typ, Typ::Datetime))
-            .map(|a| a.name.as_str())
-            .collect();
-        meta["preprocessor_args"] = serde_json::json!(pre_args);
-        meta["preprocessor_dates"] = serde_json::json!(pre_dates);
-    }
+    let transforms = init_sig
+        .args
+        .iter()
+        .map(|x| match x.typ {
+            windmill_parser::Typ::Bytes => {
+                let name = &x.name;
+                format!(
+                    "if \"{name}\" in kwargs and kwargs[\"{name}\"] is not None:\n    \
+                                     kwargs[\"{name}\"] = base64.b64decode(kwargs[\"{name}\"])\n",
+                )
+            }
+            windmill_parser::Typ::Datetime => {
+                let name = &x.name;
+                format!(
+                    "if \"{name}\" in kwargs and kwargs[\"{name}\"] is not None:\n    \
+                                     kwargs[\"{name}\"] = datetime.fromisoformat(kwargs[\"{name}\"])\n",
+                )
+            }
+            windmill_parser::Typ::Date => {
+                let name = &x.name;
+                format!(
+                    "if \"{name}\" in kwargs and kwargs[\"{name}\"] is not None:\n    \
+                                     try:\n        \
+                                         kwargs[\"{name}\"] = date.fromisoformat(kwargs[\"{name}\"])\n    \
+                                     except ValueError:\n        \
+                                         for _fmt in (\"%d-%m-%Y\", \"%m/%d/%Y\", \"%d/%m/%Y\", \"%Y/%m/%d\"):\n            \
+                                             try:\n                \
+                                                 kwargs[\"{name}\"] = datetime.strptime(kwargs[\"{name}\"], _fmt).date()\n                \
+                                                 break\n            \
+                                             except ValueError:\n                \
+                                                 continue\n",
+                )
+            }
+            _ => "".to_string(),
+        })
+        .collect::<Vec<String>>()
+        .join("");
 
-    meta.to_string()
+    let spread = if sig.star_kwargs {
+        "args = kwargs".to_string()
+    } else {
+        sig.args
+            .into_iter()
+            .map(|x| {
+                let name = &x.name;
+                if x.default.is_none() {
+                    format!("args[\"{name}\"] = kwargs.get(\"{name}\")")
+                } else {
+                    format!(
+                        r#"args["{name}"] = kwargs.get("{name}")
+    if args["{name}"] is None:
+        del args["{name}"]"#
+                    )
+                }
+            })
+            .join("\n    ")
+    };
+
+    let pre_spread = pre_sig.map(|sig| python_preprocessor_spread(sig, "    "));
+
+    let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
+
+    PyScriptCodegen { module_dir_dot, module_name: last, dirs, transforms, spread, pre_spread }
 }
 
-///   load:<path>:<hash>              -> wm_res[loaded]:<path>
+/// Script entry for the Python unified wrapper generator.
+#[cfg(any(feature = "private", test))]
+pub struct PyScriptEntry<'a> {
+    pub original_path: &'a str,
+    pub codegen: &'a PyScriptCodegen,
+}
+
+/// Generate a wrapper for Python dedicated workers and runner groups.
+/// All scripts are baked in at codegen time with proper Python imports and inline arg handling.
+/// Protocol:
 ///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
 ///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
 ///   end                             -> exit
 #[cfg(any(feature = "private", test))]
-pub fn generate_multi_script_wrapper() -> String {
-    let postprocessor = get_result_postprocessor(false);
+pub fn generate_multi_script_wrapper(
+    scripts: &[PyScriptEntry<'_>],
+    skip_result_postprocessing: bool,
+) -> String {
+    let postprocessor = get_result_postprocessor(skip_result_postprocessing);
     let res_to_json_body = python_res_to_json_body(postprocessor);
+
+    let imports: String = scripts
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            format!(
+                "from {module_dir_dot} import {module_name} as _s{i}",
+                module_dir_dot = e.codegen.module_dir_dot,
+                module_name = e.codegen.module_name,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let mut functions = String::new();
+    let mut registrations = String::new();
+
+    for (i, entry) in scripts.iter().enumerate() {
+        let cg = entry.codegen;
+        let indented_transforms = cg
+            .transforms
+            .split('\n')
+            .map(|line| {
+                if line.is_empty() {
+                    String::new()
+                } else {
+                    format!("    {}", line)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        functions.push_str(&format!(
+            r#"
+def transform_{i}(kwargs):
+{indented_transforms}
+    args = {{{}}}
+    {spread}
+    for k, v in list(args.items()):
+        if v == '<function call>':
+            del args[k]
+    return args
+"#,
+            spread = cg.spread
+        ));
+
+        let pre_fn = if let Some(ref pre_spread) = cg.pre_spread {
+            functions.push_str(&format!(
+                r#"
+def pre_transform_{i}(kwargs):
+    pre_args = {{{}}}
+    {pre_spread}
+    for k, v in list(pre_args.items()):
+        if v == '<function call>':
+            del pre_args[k]
+    return pre_args
+"#,
+            ));
+            format!("pre_transform_{i}")
+        } else {
+            "None".to_string()
+        };
+
+        registrations.push_str(&format!(
+            "scripts[\"{path}\"] = {{ 'mod': _s{i}, 'transform': transform_{i}, 'pre_transform': {pre_fn} }}\n",
+            path = entry.original_path,
+        ));
+    }
+
     format!(
         r#"
 import json
 import sys
-import importlib.util
 import traceback
 import re
 import inspect
 import base64
 from datetime import datetime, date
 
-scripts = {{}}  # path -> {{ 'mod': module, 'meta': dict }}
+{imports}
+
+scripts = {{}}
 
 def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
@@ -1174,32 +1309,8 @@ replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\u0000|Infinity|\-Infinity)')
 
 def res_to_json(res, typ):
 {res_to_json_body}
-
-def run_maybe_async(fn, kwargs):
-    res = fn(**kwargs)
-    if inspect.isawaitable(res):
-        import asyncio
-        res = asyncio.get_event_loop().run_until_complete(res)
-    return res
-
-def apply_transforms(kwargs, meta):
-    for name in meta.get('dates', []):
-        if name in kwargs and kwargs[name] is not None:
-            kwargs[name] = datetime.fromisoformat(kwargs[name])
-    for name in meta.get('date_only', []):
-        if name in kwargs and kwargs[name] is not None:
-            try:
-                kwargs[name] = date.fromisoformat(kwargs[name])
-            except ValueError:
-                for _fmt in ("%d-%m-%Y", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"):
-                    try:
-                        kwargs[name] = datetime.strptime(kwargs[name], _fmt).date()
-                        break
-                    except ValueError:
-                        continue
-    for name in meta.get('bytes_args', []):
-        if name in kwargs and kwargs[name] is not None:
-            kwargs[name] = base64.b64decode(kwargs[name])
+{functions}
+{registrations}
 
 sys.stdout.write('start\n')
 sys.stdout.flush()
@@ -1209,39 +1320,6 @@ for line in sys.stdin:
     if line == 'end':
         break
 
-    if line.startswith('load:'):
-        # Format: load:<script_path>:<hash>:<meta_json>
-        rest = line[len('load:'):]
-        first_colon = rest.index(':')
-        script_path = rest[:first_colon]
-        after_path = rest[first_colon + 1:]
-        second_colon = after_path.find(':')
-        if second_colon >= 0:
-            hash_val = after_path[:second_colon]
-            meta_str = after_path[second_colon + 1:]
-        else:
-            hash_val = after_path
-            meta_str = ""
-        try:
-            mod_name = "scripts." + script_path.replace("/", ".")
-            file_path = "./scripts/" + script_path + "/main.py"
-            spec = importlib.util.spec_from_file_location(mod_name, file_path)
-            mod = importlib.util.module_from_spec(spec)
-            if mod_name in sys.modules:
-                del sys.modules[mod_name]
-            sys.modules[mod_name] = mod
-            spec.loader.exec_module(mod)
-            meta = json.loads(meta_str) if meta_str else {{}}
-            scripts[script_path] = {{ 'mod': mod, 'meta': meta }}
-            sys.stdout.write("wm_res[loaded]:" + script_path + "\n")
-        except BaseException as e:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb) }}, separators=(',', ':'), default=str).replace('\n', '')
-            sys.stdout.write("wm_res[error]:" + err_json + "\n")
-        sys.stdout.flush()
-        continue
-
     if line.startswith('exec_preprocess:'):
         rest = line[len('exec_preprocess:'):]
         colon_idx = rest.index(':')
@@ -1250,13 +1328,12 @@ for line in sys.stdin:
 
         entry = scripts.get(script_path)
         if not entry:
-            err_json = json.dumps({{ "message": "Script not loaded: " + script_path, "name": "Error" }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = json.dumps({{ "message": "Script not found: " + script_path, "name": "Error" }}, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
             sys.stdout.flush()
             continue
 
         mod = entry['mod']
-        meta = entry['meta']
         try:
             if not hasattr(mod, 'preprocessor') or not callable(mod.preprocessor):
                 err_json = json.dumps({{"message": "preprocessor function is missing", "name": "Error"}}, separators=(',', ':'), default=str).replace('\n', '')
@@ -1264,13 +1341,18 @@ for line in sys.stdin:
                 sys.stdout.flush()
                 continue
             kwargs = json.loads(args_json, strict=False)
-            apply_transforms(kwargs, meta)
-            preprocessed = run_maybe_async(mod.preprocessor, kwargs)
+            pre_args = entry['pre_transform'](kwargs)
+            preprocessed = mod.preprocessor(**pre_args)
+            if inspect.isawaitable(preprocessed):
+                import asyncio
+                preprocessed = asyncio.get_event_loop().run_until_complete(preprocessed)
             preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
-            main_kwargs = preprocessed if preprocessed else {{}}
-            apply_transforms(main_kwargs, meta)
-            res = run_maybe_async(mod.main, main_kwargs)
+            main_args = entry['transform'](preprocessed if preprocessed else {{}})
+            res = mod.main(**main_args)
+            if inspect.isawaitable(res):
+                import asyncio
+                res = asyncio.get_event_loop().run_until_complete(res)
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -1290,17 +1372,18 @@ for line in sys.stdin:
 
         entry = scripts.get(script_path)
         if not entry:
-            err_json = json.dumps({{ "message": "Script not loaded: " + script_path, "name": "Error" }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = json.dumps({{ "message": "Script not found: " + script_path, "name": "Error" }}, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
             sys.stdout.flush()
             continue
 
-        mod = entry['mod']
-        meta = entry['meta']
         try:
             kwargs = json.loads(args_json, strict=False)
-            apply_transforms(kwargs, meta)
-            res = run_maybe_async(mod.main, kwargs)
+            args = entry['transform'](kwargs)
+            res = entry['mod'].main(**args)
+            if inspect.isawaitable(res):
+                import asyncio
+                res = asyncio.get_event_loop().run_until_complete(res)
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -2649,13 +2732,16 @@ pub async fn start_worker(
     use crate::PyV;
     tracing::info!("script path: {}", script_path);
 
-    let safe_script_name = script_path.replace('/', "__");
-    let script_hash = format!("{}", windmill_common::utils::calculate_hash(inner_content));
+    let codegen = compute_py_codegen(inner_content, script_path);
 
-    // Write script to scripts/<safe_name>/main.py for the unified multi-script wrapper
-    let scripts_dir = format!("{job_dir}/scripts/{safe_script_name}");
-    tokio::fs::create_dir_all(&scripts_dir).await?;
-    write_file(&scripts_dir, "main.py", inner_content)?;
+    // Write script to proper module path (e.g., f/my/script.py)
+    let module_dir = format!("{}/{}", job_dir, codegen.dirs);
+    tokio::fs::create_dir_all(&module_dir).await?;
+    write_file(
+        &module_dir,
+        &format!("{}.py", codegen.module_name),
+        inner_content,
+    )?;
 
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
@@ -2702,7 +2788,9 @@ pub async fn start_worker(
     .await?;
 
     {
-        let wrapper_content = generate_multi_script_wrapper();
+        let scripts = [PyScriptEntry { original_path: script_path, codegen: &codegen }];
+        let wrapper_content =
+            generate_multi_script_wrapper(&scripts, annotations.skip_result_postprocessing);
         write_file(job_dir, "wrapper.py", &wrapper_content)?;
     }
 
@@ -2756,12 +2844,6 @@ pub async fn start_worker(
         )
         .await?;
 
-    let meta_json = compute_py_meta_json(inner_content);
-    let script_map = HashMap::from([(
-        script_path.to_string(),
-        (safe_script_name.clone(), script_hash.clone(), meta_json),
-    )]);
-
     handle_dedicated_process(
         &python_path,
         job_dir,
@@ -2779,7 +2861,6 @@ pub async fn start_worker(
         script_path,
         "python",
         client,
-        &script_map,
     )
     .await
 }
@@ -2837,69 +2918,59 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_py_meta_json_basic_args() {
+    fn test_compute_py_codegen_basic_args() {
         let code = "def main(x: str, y: int):\n    return x\n";
-        let meta: serde_json::Value = serde_json::from_str(&compute_py_meta_json(code)).unwrap();
-        assert_eq!(meta["args"], serde_json::json!(["x", "y"]));
-        assert_eq!(meta["dates"], serde_json::json!([]));
-        assert_eq!(meta["bytes_args"], serde_json::json!([]));
-        assert_eq!(meta["star_kwargs"], serde_json::json!(false));
+        let cg = compute_py_codegen(code, "f/test/script");
+        assert!(cg.spread.contains("args[\"x\"]"));
+        assert!(cg.spread.contains("args[\"y\"]"));
+        assert!(cg.transforms.is_empty());
+        assert!(cg.pre_spread.is_none());
+        assert_eq!(cg.module_name, "script");
     }
 
     #[test]
-    fn test_compute_py_meta_json_with_datetime_and_bytes() {
-        let code = "import datetime\n\ndef main(name: str, created_at: datetime.datetime, birth_date: datetime.date, file: bytes):\n    return name\n";
-        let meta: serde_json::Value = serde_json::from_str(&compute_py_meta_json(code)).unwrap();
-        assert_eq!(
-            meta["args"],
-            serde_json::json!(["name", "created_at", "birth_date", "file"])
-        );
-        assert_eq!(meta["dates"], serde_json::json!(["created_at"]));
-        assert_eq!(meta["date_only"], serde_json::json!(["birth_date"]));
-        assert_eq!(meta["bytes_args"], serde_json::json!(["file"]));
+    fn test_compute_py_codegen_with_datetime_and_bytes() {
+        let code = "import datetime\n\ndef main(name: str, created_at: datetime.datetime, file: bytes):\n    return name\n";
+        let cg = compute_py_codegen(code, "f/my/handler");
+        assert!(cg.transforms.contains("datetime.fromisoformat"));
+        assert!(cg.transforms.contains("base64.b64decode"));
+        assert!(cg.spread.contains("args[\"name\"]"));
+        assert_eq!(cg.module_dir_dot, "f.my");
+        assert_eq!(cg.module_name, "handler");
     }
 
     #[test]
-    fn test_compute_py_meta_json_with_star_kwargs() {
+    fn test_compute_py_codegen_star_kwargs() {
         let code = "def main(**kwargs):\n    return kwargs\n";
-        let meta: serde_json::Value = serde_json::from_str(&compute_py_meta_json(code)).unwrap();
-        assert_eq!(meta["star_kwargs"], serde_json::json!(true));
+        let cg = compute_py_codegen(code, "f/test/star");
+        assert_eq!(cg.spread, "args = kwargs");
     }
 
     #[test]
-    fn test_compute_py_meta_json_with_preprocessor() {
+    fn test_compute_py_codegen_with_preprocessor() {
         let code = "import datetime\n\ndef main(x: str, ts: datetime.datetime):\n    return x\n\ndef preprocessor(input: str, when: datetime.datetime):\n    return {\"x\": input, \"ts\": when}\n";
-        let meta: serde_json::Value = serde_json::from_str(&compute_py_meta_json(code)).unwrap();
-        assert_eq!(meta["args"], serde_json::json!(["x", "ts"]));
-        assert_eq!(meta["dates"], serde_json::json!(["ts"]));
-        assert_eq!(
-            meta["preprocessor_args"],
-            serde_json::json!(["input", "when"])
-        );
-        assert_eq!(meta["preprocessor_dates"], serde_json::json!(["when"]));
+        let cg = compute_py_codegen(code, "f/test/pre");
+        assert!(cg.spread.contains("args[\"x\"]"));
+        assert!(cg.pre_spread.is_some());
+        let pre = cg.pre_spread.as_ref().unwrap();
+        assert!(pre.contains("pre_args[\"input\"]"));
     }
 
     #[test]
-    fn test_compute_py_meta_json_no_args() {
-        let code = "def main():\n    return 42\n";
-        let meta: serde_json::Value = serde_json::from_str(&compute_py_meta_json(code)).unwrap();
-        assert_eq!(meta["args"], serde_json::json!([]));
-        assert_eq!(meta["dates"], serde_json::json!([]));
-        assert_eq!(meta["bytes_args"], serde_json::json!([]));
-        assert!(meta.get("preprocessor_args").is_none());
-    }
-
-    #[test]
-    fn test_python_wrapper_parses_inline_meta() {
-        let wrapper = generate_multi_script_wrapper();
-        // Verify the wrapper parses meta from the load: protocol (not from files)
-        assert!(wrapper.contains("second_colon"));
-        assert!(wrapper.contains("meta_str"));
-        assert!(wrapper.contains("apply_transforms"));
-        assert!(wrapper.contains("datetime.fromisoformat"));
-        assert!(wrapper.contains("date.fromisoformat"));
-        assert!(wrapper.contains("base64.b64decode"));
-        // Should NOT contain file-based meta reading
-        assert!(!wrapper.contains("os.path.exists(meta_path)"));
+    fn test_python_wrapper_bakes_in_args() {
+        let code = "def main(x: str, y: int):\n    return x\n";
+        let cg = compute_py_codegen(code, "f/test/script");
+        let entries = [PyScriptEntry { original_path: "f/test/script", codegen: &cg }];
+        let wrapper = generate_multi_script_wrapper(&entries, false);
+        // Verify baked-in arg filtering
+        assert!(wrapper.contains("args[\"x\"]"));
+        assert!(wrapper.contains("args[\"y\"]"));
+        // Verify <function call> sentinel removal
+        assert!(wrapper.contains("<function call>"));
+        // Verify proper Python import
+        assert!(wrapper.contains("from f.test import script as _s0"));
+        // Should NOT contain dynamic meta parsing
+        assert!(!wrapper.contains("register_script"));
+        assert!(!wrapper.contains("meta_str"));
     }
 }

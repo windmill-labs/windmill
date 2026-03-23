@@ -592,15 +592,10 @@ async fn build_import_map(
 
 #[cfg(feature = "private")]
 use crate::{dedicated_worker_oss::handle_dedicated_process, JobCompletedSender};
-/// Generate the unified multi-script wrapper for Deno.
-/// Used by both dedicated workers (single script) and runner groups (multiple scripts).
-/// Protocol:
-///   load:<path>:<hash>              -> wm_res[loaded]:<path>
-///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
-///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
-///   end                             -> exit
+/// Generate a wrapper for Deno dedicated workers and runner groups.
+/// Uses the same `TsScriptEntry` / `TsScriptCodegen` as the bun wrapper.
 #[cfg(any(feature = "private", test))]
-pub fn generate_multi_script_wrapper() -> String {
+pub fn generate_multi_script_wrapper(scripts: &[crate::bun_executor::TsScriptEntry<'_>]) -> String {
     let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
     let print_lines = if is_debug {
         r#"console.log("[debug] " + line);"#
@@ -608,126 +603,137 @@ pub fn generate_multi_script_wrapper() -> String {
         ""
     };
 
+    let imports: String = scripts
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            format!(
+                "import * as _s{i} from \"./{import_name}.ts\";",
+                import_name = e.import_name
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let mut functions = String::new();
+    let mut registrations = String::new();
+
+    for (i, entry) in scripts.iter().enumerate() {
+        let cg = entry.codegen;
+        let spread = &cg.spread;
+        let dates = &cg.date_conversions;
+
+        functions.push_str(&format!(
+            r#"
+function getArgs_{i}(line) {{
+    let {{ {spread} }} = JSON.parse(line);
+    {dates}
+    return [ {spread} ];
+}}
+"#
+        ));
+
+        let pre_fn = if let Some(ref pre_spread) = cg.preprocessor_spread {
+            let pre_dates = cg.preprocessor_date_conversions.as_deref().unwrap_or("");
+            functions.push_str(&format!(
+                r#"
+function getPreArgs_{i}(line) {{
+    let {{ {pre_spread} }} = JSON.parse(line);
+    {pre_dates}
+    return [ {pre_spread} ];
+}}
+"#
+            ));
+            format!("getPreArgs_{i}")
+        } else {
+            "null".to_string()
+        };
+
+        registrations.push_str(&format!(
+            "scripts.set(\"{path}\", {{ module: _s{i}, getArgs: getArgs_{i}, getPreArgs: {pre_fn} }});\n",
+            path = entry.original_path,
+        ));
+    }
+
     format!(
         r#"
-import {{ readLines }} from "https://deno.land/std/io/mod.ts";
+{imports}
 
-// Map of script_path -> {{ module, argNames, dateArgs, preArgNames, preDateArgs }}
+BigInt.prototype.toJSON = function () {{
+    return this.toString();
+}};
+
 const scripts = new Map();
+{functions}
+{registrations}
 
-function extractArgNames(fn) {{
-    const s = fn.toString();
-    const m = s.match(/^(?:async\s+)?function[^(]*\(([^)]*)\)/);
-    return m
-        ? m[1].split(',').map(s => s.trim().split(/[=:]/).at(0).trim()).filter(Boolean)
-        : [];
-}}
+console.log('start\n');
 
-function convertDates(parsedArgs, dateArgs) {{
-    for (const d of dateArgs) {{
-        if (parsedArgs[d] != null) {{
-            parsedArgs[d] = new Date(parsedArgs[d]);
-        }}
-    }}
-}}
+const decoder = new TextDecoder();
+for await (const chunk of Deno.stdin.readable) {{
+    const lines = decoder.decode(chunk);
+    let exit = false;
+    for (const line of lines.trim().split("\n")) {{
+        {print_lines}
 
-console.log('start');
-
-for await (const line of readLines(Deno.stdin)) {{
-    {print_lines}
-
-    if (line === "end") {{
-        Deno.exit(0);
-    }}
-
-    if (line.startsWith("load:")) {{
-        // Format: load:<scriptPath>:<hash>:<metaJson>
-        const rest = line.slice("load:".length);
-        const firstColon = rest.indexOf(":");
-        const scriptPath = rest.slice(0, firstColon);
-        const afterPath = rest.slice(firstColon + 1);
-        const secondColon = afterPath.indexOf(":");
-        const hash = secondColon >= 0 ? afterPath.slice(0, secondColon) : afterPath;
-        const metaStr = secondColon >= 0 ? afterPath.slice(secondColon + 1) : "";
-        try {{
-            const mod = await import("./scripts/" + scriptPath + "/main.ts?v=" + hash);
-
-            let argNames, dateArgs = [], preArgNames = null, preDateArgs = [];
-            if (metaStr) {{
-                const meta = JSON.parse(metaStr);
-                argNames = meta.args || extractArgNames(mod.main);
-                dateArgs = meta.dates || [];
-                preArgNames = meta.preprocessor_args || null;
-                preDateArgs = meta.preprocessor_dates || [];
-            }} else {{
-                argNames = extractArgNames(mod.main);
-                preArgNames = (mod.preprocessor && typeof mod.preprocessor === 'function')
-                    ? extractArgNames(mod.preprocessor)
-                    : null;
-            }}
-            scripts.set(scriptPath, {{ module: mod, argNames, dateArgs, preArgNames, preDateArgs }});
-            console.log("wm_res[loaded]:" + scriptPath);
-        }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
-        }}
-        continue;
-    }}
-
-    if (line.startsWith("exec_preprocess:")) {{
-        const rest = line.slice("exec_preprocess:".length);
-        const colonIdx = rest.indexOf(":");
-        const scriptPath = rest.slice(0, colonIdx);
-        const argsJson = rest.slice(colonIdx + 1);
-
-        const entry = scripts.get(scriptPath);
-        if (!entry) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not loaded: " + scriptPath, name: "Error" }}));
-            continue;
+        if (line === "end") {{
+            exit = true;
+            break;
         }}
 
-        try {{
-            if (!entry.preArgNames) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}));
+        if (line.startsWith("exec_preprocess:")) {{
+            const rest = line.slice("exec_preprocess:".length);
+            const colonIdx = rest.indexOf(":");
+            const scriptPath = rest.slice(0, colonIdx);
+            const argsJson = rest.slice(colonIdx + 1);
+
+            const entry = scripts.get(scriptPath);
+            if (!entry) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not found: " + scriptPath, name: "Error" }}) + '\n');
                 continue;
             }}
-            const parsedArgs = JSON.parse(argsJson);
-            convertDates(parsedArgs, entry.preDateArgs);
-            const preArgs = entry.preArgNames.map(name => parsedArgs[name]);
-            const preprocessedArgs = await entry.module.preprocessor(...preArgs);
-            console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value));
-            const mainParsed = preprocessedArgs ?? {{}};
-            convertDates(mainParsed, entry.dateArgs);
-            const mainArgs = entry.argNames.map(name => mainParsed[name]);
-            const res = await entry.module.main(...mainArgs);
-            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
-        }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
-        }}
-        continue;
-    }}
 
-    if (line.startsWith("exec:")) {{
-        const rest = line.slice("exec:".length);
-        const colonIdx = rest.indexOf(":");
-        const scriptPath = rest.slice(0, colonIdx);
-        const argsJson = rest.slice(colonIdx + 1);
-
-        const entry = scripts.get(scriptPath);
-        if (!entry) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not loaded: " + scriptPath, name: "Error" }}));
+            try {{
+                if (!entry.getPreArgs) {{
+                    console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}) + '\n');
+                    continue;
+                }}
+                const preArgs = entry.getPreArgs(argsJson);
+                const preprocessedArgs = await entry.module.preprocessor(...preArgs);
+                console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+                const mainArgs = entry.getArgs(JSON.stringify(preprocessedArgs ?? {{}}));
+                const res = await entry.module.main(...mainArgs);
+                console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+            }} catch (e) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}) + '\n');
+            }}
             continue;
         }}
 
-        try {{
-            const parsedArgs = JSON.parse(argsJson);
-            convertDates(parsedArgs, entry.dateArgs);
-            const args = entry.argNames.map(name => parsedArgs[name]);
-            const res = await entry.module.main(...args);
-            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
-        }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+        if (line.startsWith("exec:")) {{
+            const rest = line.slice("exec:".length);
+            const colonIdx = rest.indexOf(":");
+            const scriptPath = rest.slice(0, colonIdx);
+            const argsJson = rest.slice(colonIdx + 1);
+
+            const entry = scripts.get(scriptPath);
+            if (!entry) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not found: " + scriptPath, name: "Error" }}) + '\n');
+                continue;
+            }}
+
+            try {{
+                const args = entry.getArgs(argsJson);
+                const res = await entry.module.main(...args);
+                console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+            }} catch (e) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}) + '\n');
+            }}
+            continue;
         }}
-        continue;
+    }}
+    if (exit) {{
+        break;
     }}
 }}
 "#
@@ -759,11 +765,7 @@ pub async fn start_worker(
 
     use crate::common::build_envs_map;
 
-    let safe_script_name = script_path.replace('/', "__");
-    let script_hash = format!("{}", windmill_common::utils::calculate_hash(inner_content));
-    let script_dir = format!("{job_dir}/scripts/{safe_script_name}");
-    tokio::fs::create_dir_all(&script_dir).await?;
-    let _ = write_file(&script_dir, "main.ts", inner_content)?;
+    let _ = write_file(job_dir, "main.ts", inner_content)?;
     let common_deno_proc_envs = get_common_deno_proc_envs(
         &token,
         base_internal_url,
@@ -795,19 +797,18 @@ pub async fn start_worker(
     .await;
     let context_envs = build_envs_map(context.to_vec()).await;
 
+    let codegen = crate::bun_executor::compute_ts_codegen(inner_content);
     {
-        // let mut start = Instant::now();
-        let wrapper_content = generate_multi_script_wrapper();
+        let scripts = [crate::bun_executor::TsScriptEntry {
+            import_name: "main",
+            original_path: script_path,
+            codegen: &codegen,
+        }];
+        let wrapper_content = generate_multi_script_wrapper(&scripts);
         write_file(job_dir, "wrapper.ts", &wrapper_content)?;
     }
 
     build_import_map(w_id, script_path, base_internal_url, job_dir).await?;
-
-    let meta_json = crate::bun_executor::compute_ts_meta_json(inner_content);
-    let script_map = HashMap::from([(
-        script_path.to_string(),
-        (safe_script_name.clone(), script_hash.clone(), meta_json),
-    )]);
 
     handle_dedicated_process(
         &*DENO_PATH,
@@ -841,7 +842,6 @@ pub async fn start_worker(
         script_path,
         "deno",
         client,
-        &script_map,
     )
     .await
 }

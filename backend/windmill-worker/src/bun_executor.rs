@@ -164,15 +164,87 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
     )
 }
 
-/// Generate the unified multi-script wrapper for Bun/Node.
-/// Used by both dedicated workers (single script) and runner groups (multiple scripts).
+/// Pre-computed codegen data for a TypeScript/Bun/Deno script.
+/// Computed in Rust from the parsed signature, then baked into the wrapper template.
+#[cfg(any(feature = "private", test))]
+pub struct TsScriptCodegen {
+    pub spread: String,
+    pub date_conversions: String,
+    pub preprocessor_spread: Option<String>,
+    pub preprocessor_date_conversions: Option<String>,
+}
+
+/// Parse a TS script and compute the codegen data (arg spread, date conversions, preprocessor).
+/// This is the same logic that was used on main in `start_worker`.
+#[cfg(any(feature = "private", test))]
+pub fn compute_ts_codegen(content: &str) -> TsScriptCodegen {
+    let sig =
+        windmill_parser_ts::parse_deno_signature(content, true, false, None).unwrap_or_default();
+    let arg_names: Vec<&str> = sig.args.iter().map(|a| a.name.as_str()).collect();
+    let spread = arg_names.join(", ");
+
+    let dates = sig
+        .args
+        .iter()
+        .filter(|a| matches!(a.typ, Typ::Datetime))
+        .map(|a| {
+            format!(
+                "{name} = {name} ? new Date({name}) : undefined",
+                name = a.name
+            )
+        })
+        .join("\n    ");
+
+    let pre_sig = windmill_parser_ts::parse_deno_signature(
+        content,
+        true,
+        false,
+        Some("preprocessor".to_string()),
+    )
+    .ok()
+    .filter(|s| !s.args.is_empty());
+
+    let preprocessor_spread = pre_sig
+        .as_ref()
+        .map(|s| s.args.iter().map(|a| a.name.as_str()).join(", "));
+    let preprocessor_date_conversions = pre_sig.as_ref().map(|s| {
+        s.args
+            .iter()
+            .filter(|a| matches!(a.typ, Typ::Datetime))
+            .map(|a| {
+                format!(
+                    "{name} = {name} ? new Date({name}) : undefined",
+                    name = a.name
+                )
+            })
+            .join("\n    ")
+    });
+
+    TsScriptCodegen {
+        spread,
+        date_conversions: dates,
+        preprocessor_spread,
+        preprocessor_date_conversions,
+    }
+}
+
+/// Script entry for the unified wrapper generator.
+/// `import_name`: the file stem used in the import path (e.g., "main" → `./main.ts`, or "f__script" → `./f__script.ts`)
+#[cfg(any(feature = "private", test))]
+pub struct TsScriptEntry<'a> {
+    pub import_name: &'a str,
+    pub original_path: &'a str,
+    pub codegen: &'a TsScriptCodegen,
+}
+
+/// Generate a wrapper for dedicated workers and runner groups.
+/// All scripts are baked in at codegen time with static imports and inline arg handling.
 /// Protocol:
-///   load:<path>:<hash>:<meta_json>  -> wm_res[loaded]:<path>
 ///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
 ///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
 ///   end                             -> exit
 #[cfg(any(feature = "private", test))]
-pub fn generate_multi_script_wrapper() -> String {
+pub fn generate_multi_script_wrapper(scripts: &[TsScriptEntry<'_>], ext: &str) -> String {
     let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
     let print_lines = if is_debug {
         r#"console.log("[debug] " + line);"#
@@ -180,41 +252,71 @@ pub fn generate_multi_script_wrapper() -> String {
         ""
     };
 
+    let imports: String = scripts
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            format!(
+                "import * as _s{i} from \"./{import_name}.{ext}\";",
+                import_name = e.import_name
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Generate per-script getArgs / getPreArgs functions
+    let mut functions = String::new();
+    let mut registrations = String::new();
+
+    for (i, entry) in scripts.iter().enumerate() {
+        let cg = entry.codegen;
+        let spread = &cg.spread;
+        let dates = &cg.date_conversions;
+
+        functions.push_str(&format!(
+            r#"
+function getArgs_{i}(line) {{
+    let {{ {spread} }} = JSON.parse(line);
+    {dates}
+    return [ {spread} ];
+}}
+"#
+        ));
+
+        let pre_fn = if let Some(ref pre_spread) = cg.preprocessor_spread {
+            let pre_dates = cg.preprocessor_date_conversions.as_deref().unwrap_or("");
+            functions.push_str(&format!(
+                r#"
+function getPreArgs_{i}(line) {{
+    let {{ {pre_spread} }} = JSON.parse(line);
+    {pre_dates}
+    return [ {pre_spread} ];
+}}
+"#
+            ));
+            format!("getPreArgs_{i}")
+        } else {
+            "null".to_string()
+        };
+
+        registrations.push_str(&format!(
+            "scripts.set(\"{path}\", {{ module: _s{i}, getArgs: getArgs_{i}, getPreArgs: {pre_fn} }});\n",
+            path = entry.original_path,
+        ));
+    }
+
     format!(
         r#"
+{imports}
 import * as Readline from "node:readline"
-import * as fs from "node:fs"
 
 BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
 
-// Map of script_path -> {{ module, argNames, dateArgs, preArgNames, preDateArgs }}
 const scripts = new Map();
-
-function extractArgNames(fn) {{
-    const s = fn.toString();
-    const m = s.match(/^(?:async\s+)?function[^(]*\(([^)]*)\)/);
-    return m
-        ? m[1].split(',').map(s => s.trim().split(/[=:]/).at(0).trim()).filter(Boolean)
-        : [];
-}}
-
-function resolveMainFile(scriptDir) {{
-    for (const ext of ['ts', 'js', 'mjs']) {{
-        const p = scriptDir + '/main.' + ext;
-        if (fs.existsSync(p)) return p;
-    }}
-    return scriptDir + '/main.ts';
-}}
-
-function convertDates(parsedArgs, dateArgs) {{
-    for (const d of dateArgs) {{
-        if (parsedArgs[d] != null) {{
-            parsedArgs[d] = new Date(parsedArgs[d]);
-        }}
-    }}
-}}
+{functions}
+{registrations}
 
 console.log('start');
 
@@ -225,40 +327,6 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
         process.exit(0);
     }}
 
-    if (line.startsWith("load:")) {{
-        // Format: load:<scriptPath>:<hash>:<metaJson>
-        const rest = line.slice("load:".length);
-        const firstColon = rest.indexOf(":");
-        const scriptPath = rest.slice(0, firstColon);
-        const afterPath = rest.slice(firstColon + 1);
-        const secondColon = afterPath.indexOf(":");
-        const hash = secondColon >= 0 ? afterPath.slice(0, secondColon) : afterPath;
-        const metaStr = secondColon >= 0 ? afterPath.slice(secondColon + 1) : "";
-        try {{
-            const mainFile = resolveMainFile("./scripts/" + scriptPath);
-            const mod = await import(mainFile + "?v=" + hash);
-
-            let argNames, dateArgs = [], preArgNames = null, preDateArgs = [];
-            if (metaStr) {{
-                const meta = JSON.parse(metaStr);
-                argNames = meta.args || extractArgNames(mod.main);
-                dateArgs = meta.dates || [];
-                preArgNames = meta.preprocessor_args || null;
-                preDateArgs = meta.preprocessor_dates || [];
-            }} else {{
-                argNames = extractArgNames(mod.main);
-                preArgNames = (mod.preprocessor && typeof mod.preprocessor === 'function')
-                    ? extractArgNames(mod.preprocessor)
-                    : null;
-            }}
-            scripts.set(scriptPath, {{ module: mod, argNames, dateArgs, preArgNames, preDateArgs }});
-            console.log("wm_res[loaded]:" + scriptPath);
-        }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
-        }}
-        continue;
-    }}
-
     if (line.startsWith("exec_preprocess:")) {{
         const rest = line.slice("exec_preprocess:".length);
         const colonIdx = rest.indexOf(":");
@@ -267,28 +335,23 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
 
         const entry = scripts.get(scriptPath);
         if (!entry) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not loaded: " + scriptPath, name: "Error" }}));
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not found: " + scriptPath, name: "Error" }}));
             continue;
         }}
 
         try {{
-            if (!entry.preArgNames) {{
+            if (!entry.getPreArgs) {{
                 console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}));
                 continue;
             }}
-            const parsedArgs = JSON.parse(argsJson);
-            convertDates(parsedArgs, entry.preDateArgs);
-            const preArgs = entry.preArgNames.map(name => parsedArgs[name]);
+            const preArgs = entry.getPreArgs(argsJson);
             const preprocessedArgs = await entry.module.preprocessor(...preArgs);
             console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value));
-            // Now call main with preprocessed args
-            const mainParsed = preprocessedArgs ?? {{}};
-            convertDates(mainParsed, entry.dateArgs);
-            const mainArgs = entry.argNames.map(name => mainParsed[name]);
+            const mainArgs = entry.getArgs(JSON.stringify(preprocessedArgs ?? {{}}));
             const res = await entry.module.main(...mainArgs);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
         }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
         }}
         continue;
     }}
@@ -301,67 +364,22 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
 
         const entry = scripts.get(scriptPath);
         if (!entry) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not loaded: " + scriptPath, name: "Error" }}));
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not found: " + scriptPath, name: "Error" }}));
             continue;
         }}
 
         try {{
-            const parsedArgs = JSON.parse(argsJson);
-            convertDates(parsedArgs, entry.dateArgs);
-            const args = entry.argNames.map(name => parsedArgs[name]);
+            const args = entry.getArgs(argsJson);
             const res = await entry.module.main(...args);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
         }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
         }}
         continue;
     }}
 }}
 "#
     )
-}
-
-/// Compute arg metadata JSON for a TypeScript/Bun/Deno script.
-/// Returns a JSON string with arg names, datetime args, and preprocessor info.
-#[cfg(any(feature = "private", test))]
-pub fn compute_ts_meta_json(content: &str) -> String {
-    let sig =
-        windmill_parser_ts::parse_deno_signature(content, true, false, None).unwrap_or_default();
-    let args: Vec<&str> = sig.args.iter().map(|a| a.name.as_str()).collect();
-    let dates: Vec<&str> = sig
-        .args
-        .iter()
-        .filter(|a| matches!(a.typ, Typ::Datetime))
-        .map(|a| a.name.as_str())
-        .collect();
-
-    let pre_sig = windmill_parser_ts::parse_deno_signature(
-        content,
-        true,
-        false,
-        Some("preprocessor".to_string()),
-    )
-    .ok()
-    .filter(|s| !s.args.is_empty());
-
-    let mut meta = serde_json::json!({
-        "args": args,
-        "dates": dates,
-    });
-
-    if let Some(pre) = pre_sig {
-        let pre_args: Vec<&str> = pre.args.iter().map(|a| a.name.as_str()).collect();
-        let pre_dates: Vec<&str> = pre
-            .args
-            .iter()
-            .filter(|a| matches!(a.typ, Typ::Datetime))
-            .map(|a| a.name.as_str())
-            .collect();
-        meta["preprocessor_args"] = serde_json::json!(pre_args);
-        meta["preprocessor_dates"] = serde_json::json!(pre_dates);
-    }
-
-    meta.to_string()
 }
 
 /// Returns (package.json, bun.lock(b), is_empty, is_binary)
@@ -3486,15 +3504,8 @@ pub async fn start_worker(
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
     tracing::info!("Starting worker {w_id};{script_path} (codebase: {codebase:?}");
-    let safe_script_name = script_path.replace('/', "__");
-    let script_hash = format!("{}", windmill_common::utils::calculate_hash(inner_content));
     if !codebase.is_some() {
-        tokio::fs::create_dir_all(format!("{job_dir}/scripts/{safe_script_name}")).await?;
-        let _ = write_file(
-            &format!("{job_dir}/scripts/{safe_script_name}"),
-            "main.ts",
-            inner_content,
-        )?;
+        let _ = write_file(job_dir, "main.ts", inner_content)?;
     }
 
     let common_bun_proc_envs: HashMap<String, String> =
@@ -3683,17 +3694,20 @@ pub async fn start_worker(
     }
 
     let main_code = remove_pinned_imports(inner_content)?;
-    let script_dir = format!("{job_dir}/scripts/{safe_script_name}");
-    tokio::fs::create_dir_all(&script_dir).await?;
-    // Write main.ts to job_dir so the loader plugin can resolve relative imports
-    // (it matches ./main.ts in cwd). Also write to scripts/ subdirectory for the wrapper.
     let _ = write_file(job_dir, "main.ts", &main_code)?;
-    let _ = write_file(&script_dir, "main.ts", &main_code)?;
-    // Mark scripts dir as ESM so Node.js doesn't warn about module type
-    let _ = write_file(&script_dir, "package.json", r#"{"type":"module"}"#)?;
 
+    let codegen = compute_ts_codegen(inner_content);
+    let wrapper_ext = if annotation.nodejs { "js" } else { "ts" };
     {
-        let wrapper_content = generate_multi_script_wrapper();
+        let scripts =
+            [
+                TsScriptEntry {
+                    import_name: "main",
+                    original_path: script_path,
+                    codegen: &codegen,
+                },
+            ];
+        let wrapper_content = generate_multi_script_wrapper(&scripts, wrapper_ext);
         write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
     }
 
@@ -3718,43 +3732,6 @@ pub async fn start_worker(
     }
 
     if annotation.nodejs && !codebase.is_some() {
-        // The multi-script wrapper uses dynamic import() which Bun.build can't follow.
-        // Append a second build step to node_builder.ts that transpiles main.ts -> main.js
-        // for Node.js. We use job_dir/main.ts as entrypoint (so the loader plugin can
-        // resolve relative imports from ./main.ts) and output to scripts/{safe_name}/
-        // (where the wrapper's resolveMainFile() looks at runtime).
-        {
-            use std::io::Write;
-            let job_dir_js = job_dir.replace('\\', "/");
-            let script_dir_js = format!("{job_dir_js}/scripts/{safe_script_name}");
-            let extra_build = format!(
-                r#"
-try {{
-    await Bun.build({{
-        entrypoints: ["{job_dir_js}/main.ts"],
-        outdir: "{script_dir_js}",
-        target: "node",
-        plugins: [p],
-        external: fileNames,
-        minify: true,
-    }});
-    // Remove .ts copies so the wrapper's resolveMainFile() picks up main.js
-    const fs = await import("node:fs");
-    try {{ fs.unlinkSync("{script_dir_js}/main.ts"); }} catch(_) {{}}
-    try {{ fs.unlinkSync("{job_dir_js}/main.ts"); }} catch(_) {{}}
-}} catch(err) {{
-    console.log(err);
-    console.log("Failed to build script for node");
-    process.exit(1);
-}}
-"#
-            );
-            let mut f = std::fs::OpenOptions::new()
-                .append(true)
-                .open(format!("{job_dir}/node_builder.ts"))?;
-            f.write_all(extra_build.as_bytes())?;
-        }
-
         generate_wrapper_mjs(
             job_dir,
             w_id,
@@ -3769,12 +3746,6 @@ try {{
         )
         .await?;
     }
-
-    let meta_json = compute_ts_meta_json(inner_content);
-    let script_map = HashMap::from([(
-        script_path.to_string(),
-        (safe_script_name.clone(), script_hash.clone(), meta_json),
-    )]);
 
     if annotation.nodejs {
         let script_path = format!("{job_dir}/wrapper.mjs");
@@ -3796,7 +3767,6 @@ try {{
             &script_path,
             "nodejs",
             client,
-            &script_map,
         )
         .await
     } else {
@@ -3824,7 +3794,6 @@ try {{
             script_path,
             "bun",
             client,
-            &script_map,
         )
         .await
     }
@@ -3938,59 +3907,62 @@ lockfile-content"#;
     }
 
     #[test]
-    fn test_compute_ts_meta_json_basic_args() {
+    fn test_compute_ts_codegen_basic_args() {
         let code = r#"export function main(x: string, y: number) { return x; }"#;
-        let meta: serde_json::Value = serde_json::from_str(&compute_ts_meta_json(code)).unwrap();
-        assert_eq!(meta["args"], serde_json::json!(["x", "y"]));
-        assert_eq!(meta["dates"], serde_json::json!([]));
+        let cg = compute_ts_codegen(code);
+        assert_eq!(cg.spread, "x, y");
+        assert!(cg.date_conversions.is_empty());
+        assert!(cg.preprocessor_spread.is_none());
     }
 
     #[test]
-    fn test_compute_ts_meta_json_with_datetime() {
+    fn test_compute_ts_codegen_with_datetime() {
         let code = r#"export function main(name: string, created_at: Date, count: number) { return name; }"#;
-        let meta: serde_json::Value = serde_json::from_str(&compute_ts_meta_json(code)).unwrap();
-        assert_eq!(
-            meta["args"],
-            serde_json::json!(["name", "created_at", "count"])
-        );
-        assert_eq!(meta["dates"], serde_json::json!(["created_at"]));
+        let cg = compute_ts_codegen(code);
+        assert_eq!(cg.spread, "name, created_at, count");
+        assert!(cg.date_conversions.contains("created_at"));
+        assert!(cg.date_conversions.contains("new Date"));
     }
 
     #[test]
-    fn test_compute_ts_meta_json_with_preprocessor() {
+    fn test_compute_ts_codegen_with_preprocessor() {
         let code = r#"
 export function main(x: string, ts: Date) { return x; }
 export function preprocessor(input: string, when: Date) { return { x: input, ts: when }; }
 "#;
-        let meta: serde_json::Value = serde_json::from_str(&compute_ts_meta_json(code)).unwrap();
-        assert_eq!(meta["args"], serde_json::json!(["x", "ts"]));
-        assert_eq!(meta["dates"], serde_json::json!(["ts"]));
-        assert_eq!(
-            meta["preprocessor_args"],
-            serde_json::json!(["input", "when"])
-        );
-        assert_eq!(meta["preprocessor_dates"], serde_json::json!(["when"]));
+        let cg = compute_ts_codegen(code);
+        assert_eq!(cg.spread, "x, ts");
+        assert!(cg.date_conversions.contains("ts"));
+        assert_eq!(cg.preprocessor_spread.as_deref(), Some("input, when"));
+        assert!(cg
+            .preprocessor_date_conversions
+            .as_ref()
+            .unwrap()
+            .contains("when"));
     }
 
     #[test]
-    fn test_compute_ts_meta_json_no_args() {
+    fn test_compute_ts_codegen_no_args() {
         let code = r#"export function main() { return 42; }"#;
-        let meta: serde_json::Value = serde_json::from_str(&compute_ts_meta_json(code)).unwrap();
-        assert_eq!(meta["args"], serde_json::json!([]));
-        assert_eq!(meta["dates"], serde_json::json!([]));
-        assert!(meta.get("preprocessor_args").is_none());
+        let cg = compute_ts_codegen(code);
+        assert!(cg.spread.is_empty());
+        assert!(cg.date_conversions.is_empty());
+        assert!(cg.preprocessor_spread.is_none());
     }
 
     #[test]
-    fn test_bun_wrapper_parses_inline_meta() {
-        let wrapper = generate_multi_script_wrapper();
-        // Verify the wrapper parses meta from the load: protocol (not from files)
-        assert!(wrapper.contains("secondColon"));
-        assert!(wrapper.contains("metaStr"));
-        assert!(wrapper.contains("convertDates"));
-        assert!(wrapper.contains("dateArgs"));
-        assert!(wrapper.contains("preDateArgs"));
-        // Should NOT contain file-based meta reading
-        assert!(!wrapper.contains("readFileSync(metaPath"));
+    fn test_bun_wrapper_bakes_in_args() {
+        let code = r#"export function main(x: string, y: number) { return x; }"#;
+        let cg = compute_ts_codegen(code);
+        let entries =
+            [TsScriptEntry { import_name: "main", original_path: "test/script", codegen: &cg }];
+        let wrapper = generate_multi_script_wrapper(&entries, "ts");
+        // Verify baked-in destructuring
+        assert!(wrapper.contains("let { x, y } = JSON.parse(line)"));
+        assert!(wrapper.contains("return [ x, y ]"));
+        assert!(wrapper.contains("\"test/script\""));
+        // Should NOT contain dynamic meta parsing
+        assert!(!wrapper.contains("registerScript"));
+        assert!(!wrapper.contains("metaStr"));
     }
 }

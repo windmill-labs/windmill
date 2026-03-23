@@ -891,25 +891,34 @@ mod dedicated_worker_protocol {
     use std::process::{Command, Stdio};
     use windmill_test_utils::{parse_dedicated_worker_line, DedicatedWorkerResult};
     use windmill_worker::{
-        build_loader, generate_dedicated_worker_wrapper, LoaderMode, BUN_DEDICATED_WORKER_ARGS,
-        BUN_PATH, NODE_BIN_PATH,
+        build_loader, compute_ts_codegen, generate_multi_script_wrapper, LoaderMode, TsScriptEntry,
+        BUN_DEDICATED_WORKER_ARGS, BUN_PATH, NODE_BIN_PATH,
     };
+
+    const TEST_SCRIPT_PATH: &str = "f/test/script";
 
     /// Creates test worker files and optionally bundles for Node.js (like production)
     /// Returns the path to the wrapper file to execute
     fn create_test_worker_files(
         dir: &std::path::Path,
         script: &str,
-        arg_names: &[&str],
         bundle_for_node: bool,
     ) -> std::path::PathBuf {
         let dir_str = dir.to_str().unwrap();
+        // Write main.ts at root (like production single-script)
         std::fs::write(dir.join("main.ts"), script).unwrap();
 
+        let codegen = compute_ts_codegen(script);
+        let ext = if bundle_for_node { "js" } else { "ts" };
+        let scripts = [TsScriptEntry {
+            import_name: "main",
+            original_path: TEST_SCRIPT_PATH,
+            codegen: &codegen,
+        }];
+        let wrapper = generate_multi_script_wrapper(&scripts, ext);
+
         if bundle_for_node {
-            // For Node.js: bundle to JavaScript first (like production's build_loader with LoaderMode::Node)
-            let wrapper = generate_dedicated_worker_wrapper(arg_names, "./main.js", None, None);
-            std::fs::write(dir.join("wrapper.mjs"), wrapper).unwrap();
+            std::fs::write(dir.join("wrapper.mjs"), &wrapper).unwrap();
 
             // Use the exact same build_loader function as production
             tokio::runtime::Runtime::new()
@@ -919,7 +928,7 @@ mod dedicated_worker_protocol {
                     "http://localhost:8000",
                     "test_token",
                     "test-workspace",
-                    "f/test/script",
+                    TEST_SCRIPT_PATH,
                     LoaderMode::Node,
                 ))
                 .expect("build_loader failed");
@@ -944,10 +953,8 @@ mod dedicated_worker_protocol {
             std::fs::rename(&bundled_path, &output_path).unwrap();
             output_path
         } else {
-            // For Bun: use TypeScript directly (like production)
-            let wrapper = generate_dedicated_worker_wrapper(arg_names, "./main.ts", None, None);
             let wrapper_path = dir.join("wrapper.mjs");
-            std::fs::write(&wrapper_path, wrapper).unwrap();
+            std::fs::write(&wrapper_path, &wrapper).unwrap();
             wrapper_path
         }
     }
@@ -956,14 +963,12 @@ mod dedicated_worker_protocol {
     fn run_worker_test(
         runtime: &str,
         script: &str,
-        arg_names: &[&str],
         jobs: Vec<serde_json::Value>,
     ) -> Vec<Result<serde_json::Value, String>> {
         let temp_dir = tempfile::tempdir().unwrap();
 
         // Create files and get the wrapper path (bundled for node, raw for bun)
-        let wrapper_path =
-            create_test_worker_files(temp_dir.path(), script, arg_names, runtime == "node");
+        let wrapper_path = create_test_worker_files(temp_dir.path(), script, runtime == "node");
         let wrapper_str = wrapper_path.to_str().unwrap();
 
         // Build args matching production behavior
@@ -1007,7 +1012,8 @@ mod dedicated_worker_protocol {
         let mut results = Vec::new();
 
         for job_args in jobs {
-            writeln!(stdin, "{}", job_args.to_string()).unwrap();
+            // Protocol: exec:<script_path>:<json_args>
+            writeln!(stdin, "exec:{}:{}", TEST_SCRIPT_PATH, job_args.to_string()).unwrap();
             stdin.flush().unwrap();
 
             let mut response = String::new();
@@ -1042,12 +1048,7 @@ export function main(x: number, y: number): number {
     return x + y;
 }
 "#;
-        let results = run_worker_test(
-            "node",
-            script,
-            &["x", "y"],
-            vec![serde_json::json!({"x": 5, "y": 3})],
-        );
+        let results = run_worker_test("node", script, vec![serde_json::json!({"x": 5, "y": 3})]);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0], Ok(serde_json::json!(8)));
@@ -1061,7 +1062,7 @@ export function main(n: number): number {
 }
 "#;
         let jobs: Vec<serde_json::Value> = (1..=5).map(|i| serde_json::json!({"n": i})).collect();
-        let results = run_worker_test("node", script, &["n"], jobs);
+        let results = run_worker_test("node", script, jobs);
 
         assert_eq!(results.len(), 5);
         for (i, result) in results.iter().enumerate() {
@@ -1080,7 +1081,6 @@ export function main(msg: string): never {
         let results = run_worker_test(
             "node",
             script,
-            &["msg"],
             vec![serde_json::json!({"msg": "test error"})],
         );
 
@@ -1098,12 +1098,7 @@ export function main(x: number, y: number): number {
     return x + y;
 }
 "#;
-        let results = run_worker_test(
-            "bun",
-            script,
-            &["x", "y"],
-            vec![serde_json::json!({"x": 5, "y": 3})],
-        );
+        let results = run_worker_test("bun", script, vec![serde_json::json!({"x": 5, "y": 3})]);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0], Ok(serde_json::json!(8)));
@@ -1117,7 +1112,7 @@ export function main(n: number): number {
 }
 "#;
         let jobs: Vec<serde_json::Value> = (1..=5).map(|i| serde_json::json!({"n": i})).collect();
-        let results = run_worker_test("bun", script, &["n"], jobs);
+        let results = run_worker_test("bun", script, jobs);
 
         assert_eq!(results.len(), 5);
         for (i, result) in results.iter().enumerate() {
@@ -1136,7 +1131,6 @@ export function main(msg: string): never {
         let results = run_worker_test(
             "bun",
             script,
-            &["msg"],
             vec![serde_json::json!({"msg": "test error"})],
         );
 
