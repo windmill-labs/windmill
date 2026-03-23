@@ -15,7 +15,7 @@ use std::{
     iter::Peekable,
     str::CharIndices,
 };
-pub use windmill_parser::{Arg, MainArgSignature, ObjectType, Typ};
+pub use windmill_parser::{s3_mode_extension, Arg, MainArgSignature, ObjectType, S3ModeFormat, Typ};
 
 pub const SANITIZED_ENUM_STR: &str = "__sanitized_enum__";
 pub const SANITIZED_RAW_STRING_STR: &str = "__sanitized_raw_string__";
@@ -143,7 +143,6 @@ pub fn parse_db_resource(code: &str) -> Option<String> {
     cap.map(|x| x.get(1).map(|x| x.as_str().to_string()).unwrap())
 }
 
-pub use windmill_types::s3::{s3_mode_extension, S3ModeFormat};
 pub struct S3ModeArgs {
     pub prefix: Option<String>,
     pub storage: Option<String>,

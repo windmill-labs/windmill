@@ -190,6 +190,26 @@ export function isFolderResourcePath(p: string): boolean {
 }
 
 /**
+ * Check if a path is inside a folder-based resource, checking BOTH dotted (.flow, .app, .raw_app)
+ * and non-dotted (__flow, __app, __raw_app) formats regardless of the global nonDottedPaths setting.
+ * Use this instead of isFolderResourcePath when the config may not yet be loaded or when
+ * you need to handle mixed-format workspaces (e.g. generate-metadata scanning all files).
+ */
+export function isFolderResourcePathAnyFormat(p: string): boolean {
+  const n = normalizeSep(p);
+  for (const suffixes of [DOTTED_SUFFIXES, NON_DOTTED_SUFFIXES]) {
+    if (
+      n.includes(suffixes.flow + "/") ||
+      n.includes(suffixes.app + "/") ||
+      n.includes(suffixes.raw_app + "/")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Detect the resource type from a path, if any
  */
 export function detectFolderResourceType(p: string): FolderResourceType | null {

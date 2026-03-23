@@ -239,6 +239,9 @@ pub fn workspaced_service() -> Router {
             "/history_update/h/:hash/p/*path",
             post(update_script_history),
         )
+        // Temporary raw script storage for CLI lock generation
+        .route("/raw_temp/store", post(store_raw_script_temp))
+        .route("/raw_temp/diff", post(diff_raw_scripts_with_deployed))
 }
 
 #[derive(Serialize, FromRow)]
@@ -1614,6 +1617,9 @@ struct RawScriptByPathQuery {
     cache_key: Option<String>,
     // used specifically for python to cache folders on import success to avoid extra db calls on package fetch
     cache_folders: Option<bool>,
+    // If provided, load content from raw_script_temp table using this hash instead of deployed script.
+    // Used by CLI lock generation to resolve imports from not-yet-deployed scripts.
+    temp_script_hash: Option<String>,
 }
 
 struct StringWithLength(String);
@@ -1672,6 +1678,16 @@ async fn raw_script_by_path_internal(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
+
+    // If temp_script_hash is provided, try loading from temp storage first.
+    // This is used by CLI lock generation to resolve imports from not-yet-deployed scripts.
+    // Falls back to the normal deployed script lookup if not found in temp storage.
+    if let Some(hash) = query.temp_script_hash {
+        if let Ok(content) = windmill_common::cache::raw_script_temp::load(hash, &db).await {
+            return Ok(content);
+        }
+    }
+
     let cache_path = query
         .cache_key
         .map(|x| format!("{w_id}:{path}:{x}{}", if unpin { ":unpinned" } else { "" }));
@@ -2462,4 +2478,130 @@ async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+// ============================================================================
+// Temporary Raw Script Storage for CLI Lock Generation
+// ============================================================================
+
+/// Store raw script content temporarily for CLI lock generation.
+async fn store_raw_script_temp(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(content): Json<String>,
+) -> Result<Json<String>> {
+    check_scopes(&authed, || "scripts:write".to_string())?;
+
+    let hash = windmill_common::cache::raw_script_temp::compute_hash(&w_id, &content);
+
+    // Store to DB
+    sqlx::query!(
+        "INSERT INTO raw_script_temp (workspace_id, hash, content, created_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (workspace_id, hash) DO UPDATE SET created_at = NOW()",
+        &w_id,
+        &hash,
+        &content
+    )
+    .execute(&db)
+    .await?;
+
+    // Clean up old entries (1 week TTL)
+    sqlx::query!(
+        "DELETE FROM raw_script_temp WHERE created_at < NOW() - INTERVAL '1 week'"
+    )
+    .execute(&db)
+    .await?;
+
+    Ok(Json(hash))
+}
+
+/// Compare local script content hashes with deployed versions.
+/// Receives a map of path → SHA256(content), returns paths where the hash
+/// differs from the deployed script (or the script doesn't exist on remote).
+/// Hash comparison is done entirely in Postgres to avoid transferring content.
+#[derive(Deserialize)]
+struct WorkspaceDepDiff {
+    path: String,
+    language: ScriptLang,
+    name: Option<String>,
+    hash: String,
+}
+
+#[derive(Deserialize)]
+struct DiffRequest {
+    scripts: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    workspace_deps: Vec<WorkspaceDepDiff>,
+}
+
+async fn diff_raw_scripts_with_deployed(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<DiffRequest>,
+) -> Result<Json<Vec<String>>> {
+    check_scopes(&authed, || "scripts:read".to_string())?;
+
+    let mut matching_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut all_paths: Vec<String> = Vec::new();
+
+    // --- Scripts ---
+    if !req.scripts.is_empty() {
+        let paths: Vec<String> = req.scripts.keys().cloned().collect();
+        let hashes: Vec<String> = paths.iter().map(|p| req.scripts[p].clone()).collect();
+
+        let matching: Vec<String> = sqlx::query_scalar(
+            "SELECT local.path FROM \
+             unnest($1::text[], $2::text[]) AS local(path, hash) \
+             INNER JOIN LATERAL ( \
+               SELECT encode(sha256(convert_to(s.content, 'UTF8')), 'hex') AS deployed_hash \
+               FROM script s \
+               WHERE s.path = local.path AND s.workspace_id = $3 AND s.archived = false \
+               ORDER BY s.created_at DESC LIMIT 1 \
+             ) deployed ON deployed.deployed_hash = local.hash"
+        )
+        .bind(&paths)
+        .bind(&hashes)
+        .bind(&w_id)
+        .fetch_all(&db)
+        .await?;
+
+        matching_set.extend(matching);
+        all_paths.extend(paths);
+    }
+
+    // --- Workspace dependencies ---
+    for dep in &req.workspace_deps {
+        let matching: Option<String> = sqlx::query_scalar(
+            "SELECT $1::text \
+             WHERE EXISTS ( \
+               SELECT 1 FROM workspace_dependencies wd \
+               WHERE wd.workspace_id = $2 AND wd.archived = false \
+                 AND wd.language = $3::SCRIPT_LANG \
+                 AND wd.name IS NOT DISTINCT FROM $4 \
+                 AND encode(sha256(convert_to(wd.content, 'UTF8')), 'hex') = $5 \
+             )"
+        )
+        .bind(&dep.path)
+        .bind(&w_id)
+        .bind(dep.language.as_str())
+        .bind(&dep.name)
+        .bind(&dep.hash)
+        .fetch_optional(&db)
+        .await?;
+
+        if let Some(path) = matching {
+            matching_set.insert(path);
+        }
+        all_paths.push(dep.path.clone());
+    }
+
+    let mismatched: Vec<String> = all_paths
+        .into_iter()
+        .filter(|p| !matching_set.contains(p))
+        .collect();
+
+    Ok(Json(mismatched))
 }

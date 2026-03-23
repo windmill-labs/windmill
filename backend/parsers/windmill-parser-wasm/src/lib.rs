@@ -38,6 +38,8 @@ pub fn parse_outputs(code: &str) -> String {
     return serde_json::to_string(&r).unwrap();
 }
 
+/// Parse TypeScript imports and return raw import strings.
+/// See [`parse_ts_relative_imports`] for resolved absolute paths.
 #[cfg(feature = "ts-parser")]
 #[wasm_bindgen]
 pub fn parse_ts_imports(code: &str) -> String {
@@ -48,6 +50,15 @@ pub fn parse_ts_imports(code: &str) -> String {
         json!({"error": parsed.err().unwrap().to_string()})
     };
     return serde_json::to_string(&r).unwrap();
+}
+
+/// Parse TypeScript imports and return relative imports resolved to absolute Windmill paths.
+/// Throws JS error on parse failure.
+/// See [`parse_ts_imports`] for raw import strings.
+#[cfg(feature = "ts-parser")]
+#[wasm_bindgen]
+pub fn parse_ts_relative_imports(code: &str, path: &str) -> Result<Vec<String>, String> {
+    windmill_parser_ts::parse_relative_imports(code, path).map_err(|e| e.to_string())
 }
 
 #[cfg(feature = "bash-parser")]
@@ -212,6 +223,14 @@ pub fn parse_assets_py(code: &str) -> String {
         Ok(r) => serde_json::to_string(&r).unwrap(),
         Err(err) => format!("err: {:?}", err),
     }
+}
+
+/// Parse Python imports and return relative imports resolved to absolute Windmill paths.
+/// Throws JS error on parse failure.
+#[cfg(feature = "py-imports-parser")]
+#[wasm_bindgen]
+pub fn parse_py_relative_imports(code: &str, path: &str) -> Result<Vec<String>, String> {
+    windmill_parser_py_imports::parse_relative_imports(code, path).map_err(|e| e.to_string())
 }
 
 #[cfg(feature = "ansible-parser")]

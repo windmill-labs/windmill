@@ -24,7 +24,8 @@
  * @see test_fixtures.ts - Local file fixtures (createLocalScript, createLocalFlow, etc.)
  * @see sync_pull_push.test.ts - Local fixtures + createRemoteScript (API-based)
  *
- * This file contains: API-based creation helpers (createTestApp, createTestResource, etc.)
+ * This file contains: API-based creation helpers (createTestApp, createTestResource,
+ *   createAppWithInlineScript, createFlowWithInlineScript, etc.)
  * If you add new helpers, update cross-links in the files above.
  */
 
@@ -64,6 +65,10 @@ export interface TestBackend {
   listAllApps?(): Promise<any[]>;
   listAllResources?(): Promise<any[]>;
   listAllVariables?(): Promise<any[]>;
+
+  // Methods for creating apps and flows with custom inline scripts
+  createAppWithInlineScript?(path: string, inlineScriptContent: string, language?: string): Promise<void>;
+  createFlowWithInlineScript?(path: string, inlineScriptContent: string, language?: string): Promise<void>;
 }
 
 /**
@@ -342,6 +347,88 @@ class CargoBackendAdapter implements TestBackend {
     if (!response.ok) return [];
     return response.json();
   }
+
+  async createAppWithInlineScript(path: string, inlineScriptContent: string, language: string = "bun"): Promise<void> {
+    const response = await this.backend.apiRequest(`/api/w/${this.workspace}/apps/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path,
+        value: {
+          type: "app",
+          grid: [
+            {
+              id: "button1",
+              data: {
+                type: "buttoncomponent",
+                componentInput: {
+                  type: "runnable",
+                  runnable: {
+                    type: "runnableByName",
+                    inlineScript: {
+                      content: inlineScriptContent,
+                      language,
+                    },
+                  },
+                },
+              },
+            },
+          ],
+          hiddenInlineScripts: [],
+          css: {},
+          norefreshbar: false,
+        },
+        summary: "Test app with inline script",
+        policy: {
+          on_behalf_of: null,
+          on_behalf_of_email: null,
+          triggerables: {},
+          execution_mode: "viewer",
+        },
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to create app ${path}: ${error}`);
+    }
+    await response.text();
+  }
+
+  async createFlowWithInlineScript(path: string, inlineScriptContent: string, language: string = "bun"): Promise<void> {
+    const response = await this.backend.apiRequest(`/api/w/${this.workspace}/flows/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path,
+        summary: "Test flow with inline script",
+        description: `Flow at ${path}`,
+        value: {
+          modules: [
+            {
+              id: "a",
+              value: {
+                type: "rawscript",
+                content: inlineScriptContent,
+                language,
+                input_transforms: {},
+              },
+            },
+          ],
+        },
+        schema: {
+          $schema: "https://json-schema.org/draft/2020-12/schema",
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to create flow ${path}: ${error}`);
+    }
+    await response.text();
+  }
 }
 
 /**
@@ -578,6 +665,38 @@ export async function createNonAdminUser(
     throw new Error(`Failed to login as non-admin: ${await loginResp.text()}`);
   }
   return await loginResp.text();
+}
+
+/**
+ * Create workspace dependencies via the API (e.g. a shared package.json for bun scripts).
+ */
+export async function createRemoteWorkspaceDeps(
+  backend: TestBackend,
+  language: string,
+  content: string,
+  name?: string,
+): Promise<void> {
+  if (!backend.apiRequest) {
+    throw new Error("Backend does not support apiRequest");
+  }
+
+  const resp = await backend.apiRequest(
+    `/api/w/${backend.workspace}/workspace_dependencies/create`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspace_id: backend.workspace,
+        language,
+        content,
+        ...(name ? { name } : {}),
+      }),
+    }
+  );
+  if (!resp.ok) {
+    throw new Error(`Failed to create workspace deps (${resp.status}): ${await resp.text()}`);
+  }
+  await resp.text();
 }
 
 // Re-export for convenience
