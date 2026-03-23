@@ -1142,26 +1142,38 @@ async fn list_ducklakes(
     Ok(Json(ducklakes))
 }
 
+#[derive(Serialize)]
+struct DataTableListItem {
+    name: String,
+    resource_type: String,
+}
+
 async fn list_datatables(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<Vec<String>> {
-    let datatables = sqlx::query_scalar!(
-        r#"
-            SELECT jsonb_object_keys(ws.datatable->'datatables') AS datatable_name
-            FROM workspace_settings ws
-            WHERE ws.workspace_id = $1
-        "#,
+) -> JsonResult<Vec<DataTableListItem>> {
+    let config = sqlx::query_scalar!(
+        "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .fetch_all(&db)
-    .await?
-    .into_iter()
-    .filter_map(|s| s)
-    .collect();
+    .fetch_one(&db)
+    .await?;
 
-    Ok(Json(datatables))
+    let items: Vec<DataTableListItem> = match config {
+        Some(val) => {
+            let map: HashMap<String, DataTable> = serde_json::from_value(val).unwrap_or_default();
+            map.into_iter()
+                .map(|(name, dt)| DataTableListItem {
+                    name,
+                    resource_type: dt.database.resource_type.as_ref().to_string(),
+                })
+                .collect()
+        }
+        None => vec![],
+    };
+
+    Ok(Json(items))
 }
 
 /// Compact column representation: "type" or "type?" for nullable, with "=default" suffix if has default
@@ -1464,6 +1476,11 @@ struct ForkPgDatabaseRequest {
     source: String,
     target: String,
     fork_behavior: DataTableForkBehavior,
+    #[serde(default)]
+    target_override_dbname: Option<String>,
+    /// When true, CREATE DATABASE is run on the target server before dump/import
+    #[serde(default)]
+    create_target_db: bool,
 }
 
 async fn fork_pg_database(
@@ -1481,7 +1498,47 @@ async fn fork_pg_database(
     let schema_only = req.fork_behavior != DataTableForkBehavior::SchemaAndData || *CLOUD_HOSTED;
 
     let source_pg = resolve_pg_source(&db, &w_id, &req.source).await?;
-    let target_pg = resolve_pg_source(&db, &w_id, &req.target).await?;
+    let mut target_pg = resolve_pg_source(&db, &w_id, &req.target).await?;
+
+    if let Some(override_dbname) = &req.target_override_dbname {
+        target_pg.dbname = override_dbname.clone();
+    }
+
+    // Optionally create the target database before importing
+    if req.create_target_db {
+        let admin_pg = PgDatabase { dbname: "postgres".to_string(), ..target_pg.clone() };
+        let (client, connection) = admin_pg.connect().await?;
+        let join_handle = tokio::spawn(async move { connection.await });
+
+        let row = client
+            .query_one(
+                "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+                &[&target_pg.dbname],
+            )
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!("Failed to check database existence: {}", e))
+            })?;
+        let db_exists: bool = row.get(0);
+
+        if !db_exists {
+            client
+                .execute(&format!("CREATE DATABASE \"{}\"", &target_pg.dbname), &[])
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Failed to create database '{}': {}",
+                        target_pg.dbname, e
+                    ))
+                })?;
+        }
+
+        drop(client);
+        join_handle
+            .await
+            .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
+            .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+    }
 
     let dump = pg_dump_database(&source_pg, schema_only).await?;
     pg_import_dump(&target_pg, &dump).await?;

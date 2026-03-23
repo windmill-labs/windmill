@@ -1570,7 +1570,9 @@
 
 	let customTsTypesData = resource([() => lang], async () => {
 		if (lang !== 'typescript') return undefined
-		let datatables = await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+		let datatables = (
+			await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+		).map((d) => d.name)
 		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
 		return { datatables, ducklakes }
 	})
@@ -1912,15 +1914,12 @@
 		})
 	})
 
-	let isTsWorkerInitialized = resource(
-		[() => lang, () => initialized],
-		async () => {
-			if (lang !== 'typescript' || !initialized) return false
-			// Use the stable model URI (computed once at mount), not filePath which changes on rename
-			await waitForWorkerInitialization(uri)
-			return true
-		}
-	)
+	let isTsWorkerInitialized = resource([() => lang, () => initialized], async () => {
+		if (lang !== 'typescript' || !initialized) return false
+		// Use the stable model URI (computed once at mount), not filePath which changes on rename
+		await waitForWorkerInitialization(uri)
+		return true
+	})
 
 	// Update SQL query type information in the TypeScript worker
 	// This enables TypeScript to show proper types for SQL template literals
@@ -1939,16 +1938,9 @@
 		updateSqlQueriesInWorker(uri, $state.snapshot(preparedAssetsSqlQueries))
 	}, 250)
 
-	watch(
-		[
-			() => preparedAssetsSqlQueries,
-			() => lang,
-			() => isTsWorkerInitialized.current
-		],
-		() => {
-			handleSqlTypingInTs()
-		}
-	)
+	watch([() => preparedAssetsSqlQueries, () => lang, () => isTsWorkerInitialized.current], () => {
+		handleSqlTypingInTs()
+	})
 
 	watch([() => customTsTypesData.current], setTypescriptCustomTypes)
 </script>

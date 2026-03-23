@@ -128,7 +128,7 @@
 		() => $workspaceStore,
 		() =>
 			WorkspaceService.listDataTables({ workspace: $workspaceStore! }).then((d) =>
-				d.map((d) => ({ label: d == 'main' ? 'Main data table' : d, value: d }))
+				d.map((d) => d.name).map((d) => ({ label: d == 'main' ? 'Main data table' : d, value: d }))
 			)
 	)
 	let allVolumes = resource(
@@ -280,7 +280,8 @@
 							startIcon={{ icon: HardDriveIcon }}
 							on:click={() => volumesDrawer?.openDrawer()}
 						>
-							{allVolumes.current?.length ?? 0} {(allVolumes.current?.length ?? 0) === 1 ? 'volume' : 'volumes'}
+							{allVolumes.current?.length ?? 0}
+							{(allVolumes.current?.length ?? 0) === 1 ? 'volume' : 'volumes'}
 						</Button>
 					{/if}
 				{/snippet}
@@ -326,7 +327,8 @@
 <VolumesDrawer
 	bind:this={volumesDrawer}
 	onExplore={async (name) => {
-		const storage = (await VolumeService.getVolumeStorage({ workspace: $workspaceStore! })) ?? undefined
+		const storage =
+			(await VolumeService.getVolumeStorage({ workspace: $workspaceStore! })) ?? undefined
 		s3FilePicker?.open({ s3: `volumes/${$workspaceStore}/${name}/`, storage })
 	}}
 />
@@ -355,8 +357,8 @@
 						<Tooltip>
 							<AssetGenericIcon assetKind={asset.kind} size="16px" class="!text-secondary" />
 							{#snippet text()}
-														{formatAssetKind(asset)}
-													{/snippet}
+								{formatAssetKind(asset)}
+							{/snippet}
 						</Tooltip>
 					</Cell>
 					<Cell class="flex flex-col">
@@ -370,18 +372,14 @@
 					</Cell>
 					<Cell class="w-24">
 						{#if assetCanBeExplored(asset, asset.metadata) && !$userStore?.operator}
-							<ExploreAssetButton
-								{asset}
-								{s3FilePicker}
-								_resourceMetadata={asset.metadata}
-							/>
+							<ExploreAssetButton {asset} {s3FilePicker} _resourceMetadata={asset.metadata} />
 						{/if}
 						{#if asset.kind === 'resource' && asset.metadata === undefined}
 							<Tooltip class={'w-24 flex items-center justify-center'}>
 								<AlertTriangle size={20} class="text-orange-600 dark:text-orange-500" />
 								{#snippet text()}
-																Could not find resource
-															{/snippet}
+									Could not find resource
+								{/snippet}
 							</Tooltip>
 						{/if}
 					</Cell>

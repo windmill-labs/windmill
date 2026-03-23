@@ -26,13 +26,16 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { AI_PROVIDERS } from '$lib/components/copilot/lib'
-	import { LoaderCircle } from 'lucide-svelte'
+	import { LoaderCircle, Check, X, Loader2 } from 'lucide-svelte'
 	import PrefixedInput from '../PrefixedInput.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import { jobManager } from '$lib/services/JobManager'
 	import Alert from '../common/alert/Alert.svelte'
 	import { base } from '$lib/base'
 	import Label from '../Label.svelte'
+	import Select from '../select/Select.svelte'
+	import { resource } from 'runed'
+	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 
 	interface Props {
 		isFork?: boolean
@@ -50,6 +53,30 @@
 	let aiKey = $state('')
 	let codeCompletionEnabled = $state(true)
 	let checking = $state(false)
+
+	let allDatatables = resource([], async () =>
+		$workspaceStore
+			? WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+			: undefined
+	)
+	let datatableBehaviors: Record<string, 'schema_only' | 'schema_and_data' | 'keep_original'> =
+		$state({})
+
+	type ForkStep = {
+		label: string
+		status: 'pending' | 'running' | 'done' | 'error'
+		error?: string
+	}
+	type DatatableCloneJob = {
+		name: string
+		resourceType: string
+		behavior: 'schema_only' | 'schema_and_data'
+		steps: ForkStep[]
+	}
+	let cloneModalOpen = $state(false)
+	let currentCloneJob: DatatableCloneJob | undefined = $state(undefined)
+	let cloneQueue: DatatableCloneJob[] = $state([])
+	let cloneRunning = $state(false)
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
@@ -194,10 +221,163 @@
 				return
 			}
 
+			// Build clone queue for datatables that need cloning
+			const datatablesToClone = (allDatatables.current ?? [])
+				.filter((dt) => {
+					const behavior = datatableBehaviors[dt.name] ?? 'keep_original'
+					return behavior !== 'keep_original'
+				})
+				.map((dt) => {
+					const behavior = datatableBehaviors[dt.name] as 'schema_only' | 'schema_and_data'
+					const isInstance = dt.resource_type === 'instance'
+					const newDbName = isInstance
+						? `${prefixed_id.replace(/-/g, '_')}__${dt.name}`
+						: `${prefixed_id.replace(/-/g, '_')}__${dt.name}`
+
+					const steps: ForkStep[] = isInstance
+						? [
+								{
+									label: `CREATE DATABASE "${newDbName}" + grant permissions`,
+									status: 'pending'
+								},
+								{
+									label: `pg_dump → pg_import (${behavior === 'schema_only' ? 'schema only' : 'schema + data'})`,
+									status: 'pending'
+								}
+							]
+						: [
+								{
+									label: `CREATE DATABASE "${newDbName}" + pg_dump → pg_import (${behavior === 'schema_only' ? 'schema only' : 'schema + data'})`,
+									status: 'pending'
+								}
+							]
+
+					return {
+						name: dt.name,
+						resourceType: dt.resource_type,
+						behavior,
+						steps,
+						_newDbName: newDbName,
+						_isInstance: isInstance,
+						_sourceWorkspace: $workspaceStore!,
+						_targetWorkspace: prefixed_id
+					} as DatatableCloneJob & {
+						_newDbName: string
+						_isInstance: boolean
+						_sourceWorkspace: string
+						_targetWorkspace: string
+					}
+				})
+
+			if (datatablesToClone.length > 0) {
+				cloneQueue = datatablesToClone
+				currentCloneJob = cloneQueue[0]
+				cloneModalOpen = true
+				// Don't finish fork yet — the modal handles remaining steps
+				return
+			}
+
 			forkCreationLoading = false
 			sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
 		} else {
 			sendUserToast('No workspace selected, cannot fork non-existent workspace', true)
+		}
+	}
+
+	async function executeCloneJob(
+		job: DatatableCloneJob & {
+			_newDbName: string
+			_isInstance: boolean
+			_sourceWorkspace: string
+			_targetWorkspace: string
+		}
+	) {
+		cloneRunning = true
+		let stepIdx = 0
+
+		if (job._isInstance) {
+			// Step 1: CREATE DATABASE + grant permissions via setupCustomInstanceDb
+			job.steps[stepIdx].status = 'running'
+			try {
+				await SettingService.setupCustomInstanceDb({
+					name: job._newDbName,
+					requestBody: { tag: 'datatable' }
+				})
+				job.steps[stepIdx].status = 'done'
+			} catch (e: any) {
+				const msg = e?.body ?? e?.message ?? String(e)
+				if (msg.includes('already exists')) {
+					job.steps[stepIdx].status = 'done'
+				} else {
+					job.steps[stepIdx].status = 'error'
+					job.steps[stepIdx].error = msg
+					cloneRunning = false
+					return
+				}
+			}
+			stepIdx++
+
+			// Step 2: fork_pg_database (dump + import)
+			job.steps[stepIdx].status = 'running'
+			try {
+				await WorkspaceService.forkPgDatabase({
+					workspace: job._targetWorkspace,
+					requestBody: {
+						source: `datatable://${job.name}`,
+						target: `datatable://${job.name}`,
+						fork_behavior: job.behavior,
+						target_override_dbname: job._newDbName
+					}
+				})
+				job.steps[stepIdx].status = 'done'
+			} catch (e: any) {
+				job.steps[stepIdx].status = 'error'
+				job.steps[stepIdx].error = e?.body ?? e?.message ?? String(e)
+				cloneRunning = false
+				return
+			}
+		} else {
+			// Resource DB: CREATE DATABASE + dump/import in one call
+			job.steps[stepIdx].status = 'running'
+			try {
+				await WorkspaceService.forkPgDatabase({
+					workspace: job._targetWorkspace,
+					requestBody: {
+						source: `datatable://${job.name}`,
+						target: `datatable://${job.name}`,
+						fork_behavior: job.behavior,
+						target_override_dbname: job._newDbName,
+						create_target_db: true
+					}
+				})
+				job.steps[stepIdx].status = 'done'
+			} catch (e: any) {
+				job.steps[stepIdx].status = 'error'
+				job.steps[stepIdx].error = e?.body ?? e?.message ?? String(e)
+				cloneRunning = false
+				return
+			}
+		}
+
+		cloneRunning = false
+	}
+
+	function advanceCloneQueue() {
+		const idx = cloneQueue.indexOf(currentCloneJob!)
+		if (idx < cloneQueue.length - 1) {
+			currentCloneJob = cloneQueue[idx + 1]
+		} else {
+			// All done
+			cloneModalOpen = false
+			currentCloneJob = undefined
+			cloneQueue = []
+			forkCreationLoading = false
+			sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
+			usersWorkspaceStore.set(undefined)
+			WorkspaceService.listUserWorkspaces().then((ws) => {
+				usersWorkspaceStore.set(ws)
+				switchWorkspace(`wm-fork-${id}`)
+			})
 		}
 	}
 
@@ -467,6 +647,35 @@
 					{/if}
 				</div>
 			</Label>
+			{#if isFork && allDatatables.current && allDatatables.current.length > 0}
+				<Label label="Data table behavior">
+					<span class="text-xs text-secondary">
+						Choose how to handle each datatable when forking
+					</span>
+					<div class="border rounded-md divide-y">
+						{#each allDatatables.current as dt}
+							<div class="flex items-center gap-2 justify-between px-4 py-1.5">
+								<div class="flex flex-col">
+									<span class="text-xs font-medium">{dt.name}</span>
+									<span class="text-2xs text-tertiary">{dt.resource_type === 'instance' ? 'Instance DB' : 'Resource DB'}</span>
+								</div>
+								<Select
+									dropdownClass="max-w-96"
+									bind:value={
+										() => datatableBehaviors[dt.name] ?? 'keep_original',
+										(v) => (datatableBehaviors[dt.name] = v)
+									}
+									items={[
+										{ value: 'keep_original', label: 'Keep original' },
+										{ value: 'schema_only', label: 'Clone schema only' },
+										{ value: 'schema_and_data', label: 'Clone schema and data' }
+									]}
+								/>
+							</div>
+						{/each}
+					</div>
+				</Label>
+			{/if}
 			{#if !automateUsernameCreation}
 				<Label label="Your username in that workspace">
 					<TextInput
@@ -619,3 +828,66 @@
 		{/if}
 	</div>
 </div>
+
+{#if cloneModalOpen && currentCloneJob}
+	<ConfirmationModal
+		title="Clone datatable: {currentCloneJob.name}"
+		confirmationText={cloneRunning ? 'Running...' : currentCloneJob.steps.every(s => s.status === 'done') ? 'Next' : 'Start'}
+		open={cloneModalOpen}
+		loading={cloneRunning}
+		onConfirmed={async () => {
+			if (currentCloneJob!.steps.every(s => s.status === 'done')) {
+				advanceCloneQueue()
+			} else {
+				await executeCloneJob(currentCloneJob as any)
+			}
+		}}
+		onCanceled={() => {
+			cloneModalOpen = false
+			forkCreationLoading = false
+		}}
+	>
+		{#if currentCloneJob.behavior === 'schema_and_data'}
+			<Alert type="error" title="Heavy operation">
+				This will copy the <b>entire database</b> including all data.
+				The pg_dump output is temporarily stored on disk and may consume significant server disk space during the operation.
+			</Alert>
+		{:else}
+			<Alert type="info" title="Schema only">
+				This will copy the database schema only. All tables will be empty. This is a lightweight operation.
+			</Alert>
+		{/if}
+
+		{#if currentCloneJob.resourceType === 'instance'}
+			<p class="text-xs text-secondary mt-2">
+				This will run <code>CREATE DATABASE {currentCloneJob.steps[0]?.label.match(/"([^"]+)"/)?.[1] ?? ''}</code> on the Windmill PostgreSQL instance.
+			</p>
+		{:else}
+			<p class="text-xs text-secondary mt-2">
+				This will run <code>CREATE DATABASE</code> on the resource's PostgreSQL server.
+			</p>
+		{/if}
+
+		<div class="mt-4 flex flex-col gap-2">
+			{#each currentCloneJob.steps as step}
+				<div class="flex items-center gap-2 text-xs">
+					{#if step.status === 'done'}
+						<Check class="w-4 h-4 text-green-500" />
+					{:else if step.status === 'running'}
+						<Loader2 class="w-4 h-4 animate-spin text-blue-500" />
+					{:else if step.status === 'error'}
+						<X class="w-4 h-4 text-red-500" />
+					{:else}
+						<div class="w-4 h-4 rounded-full border border-gray-300"></div>
+					{/if}
+					<span class:text-tertiary={step.status === 'pending'} class:font-medium={step.status === 'running'}>
+						{step.label}
+					</span>
+				</div>
+				{#if step.error}
+					<p class="text-2xs text-red-500 ml-6">{step.error}</p>
+				{/if}
+			{/each}
+		</div>
+	</ConfirmationModal>
+{/if}

@@ -3333,7 +3333,14 @@ paths:
               schema:
                 type: array
                 items:
-                  type: string
+                  type: object
+                  required: [name, resource_type]
+                  properties:
+                    name:
+                      type: string
+                    resource_type:
+                      type: string
+                      enum: [postgres, instance]
 
   /w/{workspace}/workspaces/list_datatable_schemas:
     get:
@@ -3435,6 +3442,12 @@ paths:
                     - schema_only
                     - schema_and_data
                     - keep_original
+                target_override_dbname:
+                  type: string
+                  description: "Optional override for the target database name"
+                create_target_db:
+                  type: boolean
+                  description: "When true, CREATE DATABASE is run on the target server before dump/import"
       responses:
         "200":
           description: status

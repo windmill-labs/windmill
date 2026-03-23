@@ -121,9 +121,9 @@
 
 			if (datatableAsPgResource && resourceType === 'postgresql') {
 				try {
-					const datatables = await WorkspaceService.listDataTables({
+					const datatables = (await WorkspaceService.listDataTables({
 						workspace: $workspaceStore!
-					})
+					})).map(d => d.name)
 					for (const dt of datatables) {
 						nc.push({
 							value: `datatable://${dt}`,
