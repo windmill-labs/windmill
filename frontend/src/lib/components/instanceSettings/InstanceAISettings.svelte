@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { JobService, SettingService, type AIConfig } from '$lib/gen'
+	import { JobService, SettingService, WorkspaceService, type AIConfig } from '$lib/gen'
+	import { setCopilotInfo } from '$lib/aiStore'
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
@@ -39,6 +40,16 @@
 			key: 'ai_config',
 			requestBody: { value: config }
 		})
+		if ($workspaceStore) {
+			try {
+				const effectiveConfig = await WorkspaceService.getCopilotInfo({
+					workspace: $workspaceStore
+				})
+				setCopilotInfo(effectiveConfig)
+			} catch (e) {
+				console.error('Failed to refresh workspace AI state after instance save', e)
+			}
+		}
 		sendUserToast('Instance AI settings saved')
 	}
 
