@@ -4602,17 +4602,8 @@ Tell the user they can run these commands (do NOT run them yourself):
 | \`wmill app dev\` | Start dev server with live reload |
 | \`wmill app generate-agents\` | Refresh AGENTS.md and DATATABLES.md |
 | \`wmill app generate-locks\` | Generate lock files for backend runnables |
-| \`wmill sync push --extra-includes "f/<folder>/<app>.raw_app/**" --yes\` | Deploy this specific raw app to Windmill (never do a blanket \`wmill sync push\`) |
+| \`wmill sync push\` | Deploy app to Windmill |
 | \`wmill sync pull\` | Pull latest from Windmill |
-
-## Svelte 5 Event Handling
-
-When building Svelte 5 raw apps, be aware of event delegation:
-
-- The Svelte runtime version in \`node_modules/svelte\` **must match** the compiler version used by \`wmill sync push\`. If you get \`$.delegated is undefined\` errors at runtime, run \`npm install svelte@latest\` in the raw app folder and re-push.
-- \`onclick\` on \`<div>\`, \`<span>\`, and other non-interactive elements uses Svelte's event delegation system. If the runtime doesn't support it, you'll get errors.
-- \`onclick\` on \`<button>\` elements is native and generally works fine.
-- For modal overlays or click-outside patterns, prefer using \`<button>\` elements styled as overlays, or ensure the Svelte runtime is up to date.
 
 ## Best Practices
 
