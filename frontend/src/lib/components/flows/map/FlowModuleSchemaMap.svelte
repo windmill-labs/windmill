@@ -948,6 +948,17 @@
 						mod.id = newId
 					}
 				})
+				const groups = flowStore.val.value.groups
+				if (groups) {
+					for (const group of groups) {
+						if (group.start_id === id) {
+							group.start_id = newId
+						}
+						if (group.end_id === id) {
+							group.end_id = newId
+						}
+					}
+				}
 				flowStateStore.val[newId] = flowStateStore.val[id]
 				delete flowStateStore.val[id]
 				refreshStateStore(flowStore)
