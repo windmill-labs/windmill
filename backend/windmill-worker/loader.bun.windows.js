@@ -1,7 +1,5 @@
-// TODO: Add TEMP_SCRIPT_REFS support (same as loader.bun.js) so that CLI lock
-// generation can resolve imports from locally-modified scripts on Windows.
-// Without this, relative imports to not-yet-deployed scripts will 404 during
-// lock generation on Windows. See loader.bun.js lines 1-2 and 102-111.
+// Injected by backend: maps normalized paths to temp storage hashes (or null)
+const TEMP_SCRIPT_REFS = TEMP_SCRIPT_REFS_PLACEHOLDER;
 
 // Windows-specific bun loader that uses a virtual "windmill-url" namespace instead
 // of writing .url files to disk. This avoids Windows path issues (backslashes in
@@ -34,20 +32,13 @@ const p = {
 
     let cdirNodeModules = `${cdirFwd}/node_modules/`;
 
-    const cdirEscaped = cdir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const filterLoad = new RegExp(`^(?:${cdirEscaped}|${cdirFwd})[/\\\\]main\\.ts$`);
-    console.log("LOADER_DEBUG cdir:", cdir);
-    console.log("LOADER_DEBUG cdirFwd:", cdirFwd);
-    console.log("LOADER_DEBUG cdirPosix:", cdirPosix);
-    console.log("LOADER_DEBUG filterLoad:", filterLoad.toString());
-    console.log("LOADER_DEBUG filterResolve:", filterResolve.toString());
+    const filterLoad = new RegExp(`^${cdir}\/main\\.ts$`);
     const transpiler = new Bun.Transpiler({
       loader: "ts",
     });
 
     function replaceRelativeImports(code) {
       const imports = transpiler.scanImports(code);
-      console.log("LOADER_DEBUG replaceRelativeImports called, imports:", JSON.stringify(imports));
       for (const imp of imports) {
         if (imp.kind == "import-statement") {
           if (
@@ -82,20 +73,29 @@ const p = {
       const rawScriptPath = isAbsolute
         ? `${path}${endExt}`
         : `${importerPath}/../${path}${endExt}`;
-      return { path: normalizePath(rawScriptPath), namespace: "windmill-url" };
+      const normalized = normalizePath(rawScriptPath);
+      // Look up temp script hash (keys are extensionless paths)
+      const lookupPath = normalized.replace(/\.ts$/, "");
+      const hash = TEMP_SCRIPT_REFS?.[lookupPath];
+      // Encode hash in the path so onLoad can extract it and append to fetch URL
+      const resolvedPath = hash ? `${normalized}?temp_script_hash=${hash}` : normalized;
+      return { path: resolvedPath, namespace: "windmill-url" };
     }
 
     build.onLoad({ filter: filterLoad }, async (args) => {
-      console.log("LOADER_DEBUG onLoad(filterLoad) FIRED, args.path:", args.path);
       const code = readFileSync(args.path, "utf8");
       return replaceRelativeImports(code);
     });
 
     // Load windmill scripts by fetching from the API
     build.onLoad({ filter: /.*/, namespace: "windmill-url" }, async (args) => {
-      console.log("LOADER_DEBUG onLoad(windmill-url) FIRED, args.path:", args.path);
-      const path = args.path.replace(/^windmill-url:/, "");
-      const url = `${base_internal_url}/api/w/${w_id}/scripts/RAW_GET_ENDPOINT/p/${path}`;
+      // Extract temp_script_hash if embedded in the path by resolveWindmillImport
+      const [scriptPath, queryString] = args.path.replace(/^windmill-url:/, "").split("?");
+      const hashParam = queryString?.startsWith("temp_script_hash=")
+        ? queryString.replace("temp_script_hash=", "")
+        : undefined;
+      const url = `${base_internal_url}/api/w/${w_id}/scripts/RAW_GET_ENDPOINT/p/${scriptPath}`
+        + (hashParam ? `?temp_script_hash=${hashParam}` : "");
       const req = await fetch(url, {
         method: "GET",
         headers: {
@@ -116,7 +116,6 @@ const p = {
 
     // Resolve windmill script imports from the file namespace (e.g. from main.ts)
     build.onResolve({ filter: filterResolve }, (args) => {
-      console.log("LOADER_DEBUG onResolve FIRED, args.path:", args.path, "args.importer:", args.importer);
       const importerFwd = args.importer?.replace(/\\/g, "/") ?? "";
       if (importerFwd.startsWith(cdirNodeModules)) {
         return undefined;
@@ -139,7 +138,8 @@ const p = {
 
     // Resolve nested imports from within windmill-url modules
     build.onResolve({ filter: /\.ts$/, namespace: "windmill-url" }, (args) => {
-      const importer = args.importer.replace(/^windmill-url:/, "");
+      // Strip any query string from the importer path before resolving
+      const importer = args.importer.replace(/^windmill-url:/, "").split("?")[0];
       return resolveWindmillImport(importer, args.path);
     });
   },

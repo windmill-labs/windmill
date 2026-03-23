@@ -33,7 +33,7 @@ excludes: []`);
 
     await mkdir(`${tempDir}/f/test`, { recursive: true });
 
-    const scriptA = `import { helper } from "./script_b";
+    const scriptA = `import { helper } from "./script_b.ts";
 export async function main() { return helper(); }
 `;
     const scriptB = `import _ from "lodash";
@@ -71,10 +71,10 @@ excludes: []`);
 
     await mkdir(`${tempDir}/f/test`, { recursive: true });
 
-    const scriptA = `import { utilB } from "./script_b";
+    const scriptA = `import { utilB } from "./script_b.ts";
 export async function main() { return utilB(); }
 `;
-    const scriptB = `import { utilC } from "./script_c";
+    const scriptB = `import { utilC } from "./script_c.ts";
 export function utilB() { return utilC() + " B"; }
 `;
     const scriptC = `import _ from "lodash";
@@ -117,11 +117,11 @@ excludes: []`);
     await mkdir(`${tempDir}/f/test`, { recursive: true });
 
     // Circular: A imports B, B imports A, B has npm dep
-    const scriptA = `import { funcB } from "./script_b";
+    const scriptA = `import { funcB } from "./script_b.ts";
 export function funcA() { return "A"; }
 export async function main() { return funcA() + funcB(); }
 `;
-    const scriptB = `import { funcA } from "./script_a";
+    const scriptB = `import { funcA } from "./script_a.ts";
 import _ from "lodash";
 export function funcB() { return _.VERSION + funcA(); }
 `;
@@ -264,7 +264,7 @@ excludes: []`);
     await mkdir(`${tempDir}/f/test`, { recursive: true });
 
     // A imports B, C is isolated
-    const scriptA = `import { helper } from "./script_b";
+    const scriptA = `import { helper } from "./script_b.ts";
 export async function main() { return helper(); }
 `;
     const scriptB = `export function helper() { return "B"; }

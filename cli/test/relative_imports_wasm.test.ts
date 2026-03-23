@@ -154,7 +154,7 @@ const helperScript = `import _ from "lodash";
 export function helper() { return _.VERSION; }
 `;
 
-const importerScript = `import { helper } from "/f/test/helper";
+const importerScript = `import { helper } from "/f/test/helper.ts";
 export async function main() { return helper(); }
 `;
 
@@ -201,7 +201,7 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
         "f/test",
         "consumer",
         "bun",
-        `import { helper } from "./helper";\nexport async function main() { return helper(); }`
+        `import { helper } from "./helper.ts";\nexport async function main() { return helper(); }`
       );
 
       const result = await backend.runCLICommand(
@@ -341,7 +341,7 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
         "f/test",
         "consumer",
         "bun",
-        `import { helper } from "./helper";\nexport async function main() { return helper(); }`
+        `import { helper } from "./helper.ts";\nexport async function main() { return helper(); }`
       );
       await createLocalFlow(tempDir, "f/test", "my_flow", importerScript);
       await createLocalApp(tempDir, "f/test", "my_app", importerScript);
@@ -424,7 +424,7 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
         "f/test",
         "consumer",
         "bun",
-        `import { helper } from "./helper";\nexport async function main() { return helper(); }`
+        `import { helper } from "./helper.ts";\nexport async function main() { return helper(); }`
       );
 
       // Consumer is stale (new), helper is NOT stale (metadata up-to-date).
@@ -472,7 +472,7 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
         "f/test",
         "consumer",
         "bun",
-        `import { helper } from "./helper";\nexport async function main() { return helper(); }`
+        `import { helper } from "./helper.ts";\nexport async function main() { return helper(); }`
       );
 
       // Run 2: only consumer is stale (new). Helper is NOT stale.
@@ -777,7 +777,7 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
         "f/app",
         "consumer",
         "bun",
-        `import { helper } from "/f/lib/helper";\nexport async function main() { return helper(); }`
+        `import { helper } from "/f/lib/helper.ts";\nexport async function main() { return helper(); }`
       );
 
       // First: generate-metadata globally to establish baseline locks
@@ -845,7 +845,7 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
         "f/app",
         "consumer",
         "bun",
-        `import { helper } from "/f/lib/helper";\nexport async function main() { return helper(); }`
+        `import { helper } from "/f/lib/helper.ts";\nexport async function main() { return helper(); }`
       );
 
       // Establish baseline
@@ -1091,19 +1091,19 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
         tempDir,
         "f/test",
         "my_flow",
-        `import { helper } from "/f/test/helper";\nexport async function main() { return helper(); }`
+        `import { helper } from "/f/test/helper.ts";\nexport async function main() { return helper(); }`
       );
       await createLocalApp(
         tempDir,
         "f/test",
         "my_app",
-        `import { helper } from "/f/test/helper";\nexport async function main() { return helper(); }`
+        `import { helper } from "/f/test/helper.ts";\nexport async function main() { return helper(); }`
       );
       await createLocalRawApp(
         tempDir,
         "f/test",
         "my_raw_app",
-        `import { helper } from "/f/test/helper";\nexport async function main() { return helper(); }`
+        `import { helper } from "/f/test/helper.ts";\nexport async function main() { return helper(); }`
       );
 
       const result = await backend.runCLICommand(
@@ -1151,7 +1151,7 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
         "f/app",
         "consumer",
         "bun",
-        `import { utils } from "../shared/utils";\nexport async function main() { return utils(); }`
+        `import { utils } from "../shared/utils.ts";\nexport async function main() { return utils(); }`
       );
 
       const result = await backend.runCLICommand(
@@ -1195,7 +1195,7 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
         "f/chain",
         "b",
         "bun",
-        `import { c } from "./c";\nexport function b() { return c(); }`
+        `import { c } from "./c.ts";\nexport function b() { return c(); }`
       );
 
       // A imports B
@@ -1204,7 +1204,7 @@ describe(`E2E: relative import dependency propagation via generate-metadata (${n
         "f/chain",
         "a",
         "bun",
-        `import { b } from "/f/chain/b";\nexport async function main() { return b(); }`
+        `import { b } from "/f/chain/b.ts";\nexport async function main() { return b(); }`
       );
 
       // First run — establish baseline
