@@ -54,11 +54,6 @@
 {#if permissionedAs && $workspaceStore}
 	<div class="flex items-center gap-1.5 text-2xs text-tertiary">
 		<span>Permissioned as</span>
-		<span class="font-mono font-medium text-secondary">{permissionedAs}</span>
-		{#if willChange}
-			<AlertTriangle class="w-3.5 h-3.5 text-yellow-500" />
-			<span class="text-yellow-600 dark:text-yellow-400">→ {effectivePermissionedAs} on save</span>
-		{/if}
 		{#if canPreserve}
 			<OnBehalfOfSelector
 				targetWorkspace={$workspaceStore}
@@ -70,6 +65,13 @@
 				customValue={customPermissionedAs}
 				isDeployment={false}
 			/>
+		{:else}
+			<span class="font-mono font-medium text-secondary">{permissionedAs}</span>
+			{#if willChange}
+				<AlertTriangle class="w-3.5 h-3.5 text-yellow-500" />
+				<span class="text-yellow-600 dark:text-yellow-400">→ {effectivePermissionedAs} on save</span
+				>
+			{/if}
 		{/if}
 	</div>
 {/if}
