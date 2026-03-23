@@ -21,7 +21,10 @@
 		WorkspaceService,
 		SettingService,
 		type AIConfig,
-		type ErrorHandler
+		type ErrorHandler,
+		type GetCopilotInfoResponse,
+		type InstanceAISummary,
+		type GetSettingsResponse
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -50,10 +53,6 @@
 	import { base } from '$lib/base'
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
-	import type {
-		GetCopilotInfoResponseWithInstanceAISummary,
-		InstanceAISummary
-	} from '$lib/components/workspaceSettings/instanceAiSummary'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
 	import VolumeStorageSettings from '$lib/components/workspaceSettings/VolumeStorageSettings.svelte'
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
@@ -474,11 +473,9 @@
 	}
 
 	async function loadSettings(): Promise<void> {
-		const settings = (await WorkspaceService.getSettings({
+		const settings: GetSettingsResponse = await WorkspaceService.getSettings({
 			workspace: $workspaceStore!
-		})) as Awaited<ReturnType<typeof WorkspaceService.getSettings>> & {
-			instance_ai_summary?: InstanceAISummary
-		}
+		})
 		slack_team_name = settings.slack_name
 		teams_team_id = settings.teams_team_id
 		teams_team_name = settings.teams_team_name
@@ -1782,11 +1779,10 @@ export async function main(
 									if (!copilotInfo) {
 										return
 									}
-									const extendedCopilotInfo =
-										copilotInfo as GetCopilotInfoResponseWithInstanceAISummary
-									hasInstanceAiConfig = extendedCopilotInfo.has_instance_ai_config
-									usesInstanceAiConfig = extendedCopilotInfo.uses_instance_ai_config
-									instanceAiSummary = extendedCopilotInfo.instance_ai_summary
+									const effectiveCopilotInfo: GetCopilotInfoResponse = copilotInfo
+									hasInstanceAiConfig = effectiveCopilotInfo.has_instance_ai_config
+									usesInstanceAiConfig = effectiveCopilotInfo.uses_instance_ai_config
+									instanceAiSummary = effectiveCopilotInfo.instance_ai_summary
 								}}
 							/>
 						{:else if tab == 'windmill_data_tables'}

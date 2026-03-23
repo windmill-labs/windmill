@@ -2552,6 +2552,8 @@ paths:
                     type: boolean
                   uses_instance_ai_config:
                     type: boolean
+                  instance_ai_summary:
+                    $ref: "#/components/schemas/InstanceAISummary"
                 required:
                   - has_instance_ai_config
                   - uses_instance_ai_config
@@ -3225,6 +3227,8 @@ paths:
                         type: boolean
                       uses_instance_ai_config:
                         type: boolean
+                      instance_ai_summary:
+                        $ref: "#/components/schemas/InstanceAISummary"
                     required:
                       - has_instance_ai_config
                       - uses_instance_ai_config
@@ -18808,6 +18812,33 @@ components:
             type: integer
             minimum: 1
             maximum: 2000000
+
+    InstanceAIProviderSummary:
+      type: object
+      properties:
+        provider:
+          $ref: "#/components/schemas/AIProvider"
+        models:
+          type: array
+          items:
+            type: string
+      required:
+        - provider
+        - models
+
+    InstanceAISummary:
+      type: object
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/InstanceAIProviderSummary"
+        default_model:
+          $ref: "#/components/schemas/AIProviderModel"
+        code_completion_model:
+          $ref: "#/components/schemas/AIProviderModel"
+      required:
+        - providers
 
     Alert:
       type: object

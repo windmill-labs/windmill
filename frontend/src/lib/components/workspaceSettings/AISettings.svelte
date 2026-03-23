@@ -4,6 +4,8 @@
 		WorkspaceService,
 		type AIConfig,
 		type AIProvider,
+		type GetCopilotInfoResponse,
+		type InstanceAISummary
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -27,10 +29,6 @@
 	import { slide } from 'svelte/transition'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import SettingCard from '../instanceSettings/SettingCard.svelte'
-	import type {
-		GetCopilotInfoResponseWithInstanceAISummary,
-		InstanceAISummary
-	} from './instanceAiSummary'
 
 	let {
 		initialConfig = undefined,
@@ -55,7 +53,7 @@
 		usesInstanceAiConfig?: boolean
 		instanceAiSummary?: InstanceAISummary
 		customSave?: (config: AIConfig) => Promise<void>
-		onSave?: (info?: GetCopilotInfoResponseWithInstanceAISummary) => void | Promise<void>
+		onSave?: (info?: GetCopilotInfoResponse) => void | Promise<void>
 		title?: string
 		description?: string
 		link?: string
@@ -277,7 +275,7 @@
 
 	async function editCopilotConfig(): Promise<void> {
 		const config = buildConfig()
-		let effectiveConfig: GetCopilotInfoResponseWithInstanceAISummary | undefined
+		let effectiveConfig: GetCopilotInfoResponse | undefined
 
 		if (customSave) {
 			await customSave(config)
@@ -286,9 +284,9 @@
 				workspace: effectiveWorkspace,
 				requestBody: config
 			})
-			effectiveConfig = (await WorkspaceService.getCopilotInfo({
+			effectiveConfig = await WorkspaceService.getCopilotInfo({
 				workspace: effectiveWorkspace
-			})) as GetCopilotInfoResponseWithInstanceAISummary
+			})
 			setCopilotInfo(effectiveConfig)
 			sendUserToast('AI settings updated')
 		}
