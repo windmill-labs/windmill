@@ -18,7 +18,7 @@ const p = {
     // On Windows, normalize path to POSIX format to match args.path from Bun's resolver
     const cdirPosix = cdir.replace(/\\/g, "/").replace(/^[a-zA-Z]:/, "");
     const filterResolve = new RegExp(
-      `^(?!\\.\/main\\.ts)(?!${cdir}\/main\\.ts)(?!${cdirPosix}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
+      `^(?!\\.\/main\\.ts)(?!\\.\/_wm_)(?!${cdir}\/main\\.ts)(?!${cdir}\/_wm_)(?!${cdirPosix}\/main\\.ts)(?!${cdirPosix}\/_wm_)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
     );
 
     let cdirNodeModules = `${cdir}/node_modules/`;
@@ -78,15 +78,9 @@ const p = {
         return undefined;
       }
 
-      // If the path is already absolute and within our working directory, let Bun handle
-      // it natively. This avoids double-resolution issues when the plugin returns an absolute
-      // path and Bun re-invokes the resolver with that path.
-      if (args.path.startsWith(cdir + "/") || args.path.startsWith(cdirNoPrivate + "/")) {
-        return undefined;
-      }
-
-      // Check if the import resolves to a local module file (written by write_module_files
-      // or runner group script files).
+      // Check if the import resolves to a local module file (written by write_module_files).
+      // Only check relative paths — absolute/bare specifiers should fall through to the
+      // remote resolver, matching the Windows loader pattern.
       if (args.path.startsWith(".")) {
         const localPath = resolve(cdir, args.path);
         try {

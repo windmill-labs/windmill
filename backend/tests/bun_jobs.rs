@@ -1154,7 +1154,7 @@ export function main(msg: string): never {
     ) -> std::path::PathBuf {
         let mut entries_data = Vec::new();
         for (path, content) in scripts {
-            let safe_name = path.replace('/', "__");
+            let safe_name = format!("_wm_{}", path.replace('/', "__"));
             std::fs::write(dir.join(format!("{safe_name}.ts")), content).unwrap();
             entries_data.push((safe_name, path.to_string(), compute_ts_codegen(content)));
         }
@@ -1401,7 +1401,7 @@ mod dedicated_worker_protocol_deno {
     ) -> std::path::PathBuf {
         let mut entries_data = Vec::new();
         for (path, content) in scripts {
-            let safe_name = path.replace('/', "__");
+            let safe_name = format!("_wm_{}", path.replace('/', "__"));
             std::fs::write(dir.join(format!("{safe_name}.ts")), content).unwrap();
             entries_data.push((safe_name, path.to_string(), compute_ts_codegen(content)));
         }
