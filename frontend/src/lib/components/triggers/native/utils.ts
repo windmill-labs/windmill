@@ -199,7 +199,8 @@ export async function saveNativeTriggerFromCfg(
 	const requestBody: NativeTriggerData = {
 		script_path: triggerCfg.script_path,
 		is_flow: triggerCfg.is_flow,
-		service_config: triggerCfg.service_config
+		service_config: triggerCfg.service_config,
+		summary: triggerCfg.summary
 	}
 
 	const serviceName = NATIVE_TRIGGER_SERVICES[service].serviceDisplayName

@@ -11,6 +11,7 @@
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { Button } from '$lib/components/common'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { Loader2, Save } from 'lucide-svelte'
@@ -94,6 +95,7 @@
 	let initialScriptPath = $state('')
 	let fixedScriptPath = $state('')
 	let isFlow = $state(false)
+	let summary = $state('')
 	let externalId = $state<string | null>(null)
 	let can_write = $state(true)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
@@ -123,6 +125,7 @@
 		can_write = true
 		originalConfig = undefined
 		initialConfig = undefined
+		summary = ''
 	}
 
 	export function openRecreate(nativeTrigger: ExtendedNativeTrigger) {
@@ -146,6 +149,7 @@
 		can_write = true
 		originalConfig = undefined
 		initialConfig = undefined
+		summary = nativeTrigger.summary ?? ''
 	}
 
 	export async function openEdit(
@@ -182,6 +186,7 @@
 			scriptPath = fullTrigger.script_path
 			initialScriptPath = fullTrigger.script_path
 			can_write = canWrite(fullTrigger.script_path, {}, $userStore)
+			summary = fullTrigger.summary ?? ''
 			externalData = fullTrigger.external_data
 
 			// Apply default values if provided (for draft triggers)
@@ -203,7 +208,8 @@
 		return {
 			script_path: scriptPath,
 			is_flow: isFlow,
-			service_config: serviceConfig
+			service_config: serviceConfig,
+			summary: summary !== '' ? summary : undefined
 		}
 	}
 
@@ -386,6 +392,22 @@
 			{/if}
 		</div>
 		<div class="flex flex-col gap-12 mt-6">
+			<Section label="Metadata">
+				<div class="flex flex-col gap-6">
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-semibold text-emphasis">Summary</span>
+						<TextInput
+							inputProps={{
+								type: 'text',
+								placeholder: 'Short summary to be displayed when listed',
+								disabled: !can_write
+							}}
+							bind:value={summary}
+						/>
+					</label>
+				</div>
+			</Section>
+
 			{#if !hideTarget}
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-primary">

@@ -181,6 +181,7 @@ async fn create_native_trigger<T: External>(
         &external_id,
         &config,
         service_config,
+        data.summary.as_deref(),
     )
     .await?;
 
@@ -304,6 +305,7 @@ async fn update_native_trigger_handler<T: External>(
         &external_id,
         &config,
         service_config,
+        data.summary.as_deref(),
     )
     .await?;
 

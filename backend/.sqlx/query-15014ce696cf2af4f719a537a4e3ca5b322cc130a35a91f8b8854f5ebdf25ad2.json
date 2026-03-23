@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            nt.external_id,\n            nt.workspace_id,\n            nt.service_name AS \"service_name!: ServiceName\",\n            nt.script_path,\n            nt.is_flow,\n            nt.webhook_token_hash,\n            nt.service_config,\n            nt.error,\n            nt.created_at,\n            nt.updated_at\n        FROM\n            native_trigger nt\n        WHERE\n            nt.workspace_id = $1 AND\n            nt.service_name = $2 AND\n            ($5::text IS NULL OR nt.script_path = $5) AND\n            ($6::bool IS NULL OR nt.is_flow = $6) AND\n            (\n                (nt.is_flow = false AND EXISTS (\n                    SELECT 1 FROM script s\n                    WHERE s.workspace_id = nt.workspace_id\n                    AND s.path = nt.script_path\n                ))\n                OR\n                (nt.is_flow = true AND EXISTS (\n                    SELECT 1 FROM flow f\n                    WHERE f.workspace_id = nt.workspace_id\n                    AND f.path = nt.script_path\n                ))\n            )\n        LIMIT $3\n        OFFSET $4\n        ",
+  "query": "\n        SELECT\n            external_id,\n            workspace_id,\n            service_name AS \"service_name!: ServiceName\",\n            script_path,\n            is_flow,\n            webhook_token_hash,\n            service_config,\n            error,\n            created_at,\n            updated_at,\n            summary\n        FROM\n            native_trigger\n        WHERE\n            workspace_id = $1\n            AND service_name = $2\n            AND external_id = $3\n        ",
   "describe": {
     "columns": [
       {
@@ -62,6 +62,11 @@
         "ordinal": 9,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "summary",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -78,10 +83,7 @@
             }
           }
         },
-        "Int8",
-        "Int8",
-        "Text",
-        "Bool"
+        "Text"
       ]
     },
     "nullable": [
@@ -94,8 +96,9 @@
       true,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "a115d8ea786907561afdbbc07d11dc715d80b00c0e79b61b0057a3ae3886a85e"
+  "hash": "15014ce696cf2af4f719a537a4e3ca5b322cc130a35a91f8b8854f5ebdf25ad2"
 }
