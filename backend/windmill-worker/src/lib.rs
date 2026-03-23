@@ -86,18 +86,20 @@ pub use otel_tracing_proxy_ee::{load_internal_otel_exporter, DENO_OTEL_INITIALIZ
 pub use worker::*;
 
 pub use bun_executor::{
-    build_loader, compute_bundle_local_and_remote_path, compute_ts_codegen,
-    generate_multi_script_wrapper, get_common_bun_proc_envs, install_bun_lockfile,
-    prebundle_bun_script, prepare_job_dir, LoaderMode, TsScriptCodegen, TsScriptEntry,
+    build_loader, compute_bundle_local_and_remote_path, get_common_bun_proc_envs,
+    install_bun_lockfile, prebundle_bun_script, prepare_job_dir, LoaderMode,
     BUN_DEDICATED_WORKER_ARGS, RELATIVE_BUN_BUILDER, RELATIVE_BUN_LOADER,
 };
-pub use deno_executor::{
-    generate_deno_lock, generate_multi_script_wrapper as generate_deno_multi_script_wrapper,
-    DENO_UNSTABLE_ARGS,
+#[cfg(any(feature = "private", test))]
+pub use bun_executor::{
+    compute_ts_codegen, generate_multi_script_wrapper, TsScriptCodegen, TsScriptEntry,
 };
+#[cfg(any(feature = "private", test))]
+pub use deno_executor::generate_multi_script_wrapper as generate_deno_multi_script_wrapper;
+pub use deno_executor::{generate_deno_lock, DENO_UNSTABLE_ARGS};
 pub use prepare_deps::run_prepare_deps_cli;
 
-#[cfg(feature = "python")]
+#[cfg(all(feature = "python", any(feature = "private", test)))]
 pub use python_executor::{
     compute_py_codegen, generate_multi_script_wrapper as generate_py_multi_script_wrapper,
     PyScriptCodegen, PyScriptEntry,
