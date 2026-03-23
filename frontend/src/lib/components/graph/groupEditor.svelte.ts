@@ -179,7 +179,7 @@ export class GroupEditor {
 		const color = usedColors.size > 0 ? getNextAvailableColor(usedColors) : DEFAULT_GROUP_NOTE_COLOR
 
 		const newGroup: FlowGroup = {
-			id: generateId(),
+			id: generateId('group-'),
 			start_id: result.startId,
 			end_id: result.endId,
 			color

@@ -306,6 +306,6 @@ function getAllRelatedSubflowNodes(
  * Generate a random unique ID for notes
  * @returns A random string ID
  */
-export function generateId(): string {
-	return 'note-' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2)
+export function generateId(prefix: string = 'note-'): string {
+	return prefix + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2)
 }
