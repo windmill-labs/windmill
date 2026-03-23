@@ -60,6 +60,11 @@ describe('buildStructureTree', () => {
 		expect(result[1].id).toBe('c')
 	})
 
+	it('throws on duplicate group IDs', () => {
+		const groups = [makeGroup('g1', 'a', 'a', ['a']), makeGroup('g1', 'b', 'c', ['b', 'c'])]
+		expect(() => buildStructureTree(modules, groups)).toThrow(/duplicate group id.*g1/i)
+	})
+
 	it('throws on inverted range (start_id after end_id)', () => {
 		const groups = [makeGroup('g1', 'c', 'a', ['a', 'b', 'c'])]
 		expect(() => buildStructureTree(modules, groups)).toThrow(/inverted range/i)

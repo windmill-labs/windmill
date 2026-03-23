@@ -31,9 +31,21 @@
 		editor?.setCode(code)
 	}
 
+	function validateGroups(groups: { id: string }[] | undefined) {
+		if (!groups) return
+		const seen = new Set<string>()
+		for (const g of groups) {
+			if (seen.has(g.id)) {
+				throw new Error(`Duplicate group id: '${g.id}'`)
+			}
+			seen.add(g.id)
+		}
+	}
+
 	function apply() {
 		try {
 			const parsed = YAML.parse(code)
+			validateGroups(parsed.value?.groups)
 			if (parsed.summary && typeof parsed.summary === 'string') {
 				flowStore.val.summary = parsed.summary
 			}
@@ -59,7 +71,7 @@
 			initialCode = code
 			sendUserToast('Changes applied')
 		} catch (e) {
-			;(sendUserToast('Error parsing yaml: ' + e), true)
+			sendUserToast('Error parsing yaml: ' + e, true)
 		}
 	}
 
@@ -69,8 +81,12 @@
 <Drawer on:open={reload} bind:this={drawer} size="800px">
 	<DrawerContent title="OpenFlow" on:close={() => drawer?.toggleDrawer()}>
 		{#snippet actions()}
-			<Button variant="default" unifiedSize="md" disabled={!hasChanges} on:click={reload}>Reset code</Button>
-			<Button variant="accent" unifiedSize="md" disabled={!hasChanges} on:click={apply}>Apply changes</Button>
+			<Button variant="default" unifiedSize="md" disabled={!hasChanges} on:click={reload}
+				>Reset code</Button
+			>
+			<Button variant="accent" unifiedSize="md" disabled={!hasChanges} on:click={apply}
+				>Apply changes</Button
+			>
 		{/snippet}
 
 		{#if flowStore.val}

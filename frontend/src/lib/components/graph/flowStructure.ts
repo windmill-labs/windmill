@@ -76,6 +76,15 @@ function buildStructureTreeRecurse(
 		indexMap.set(modules[i].id, i)
 	}
 
+	// Reject duplicate group IDs
+	const seenGroupIds = new Set<string>()
+	for (const g of groups) {
+		if (seenGroupIds.has(g.id)) {
+			throw new Error(`Duplicate group id: '${g.id}'`)
+		}
+		seenGroupIds.add(g.id)
+	}
+
 	// Reject groups referencing virtual nodes
 	for (const g of groups) {
 		if (VIRTUAL_NODE_IDS.has(g.start_id) || VIRTUAL_NODE_IDS.has(g.end_id)) {
