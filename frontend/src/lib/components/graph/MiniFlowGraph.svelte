@@ -35,13 +35,28 @@
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
 
 	let {
-		nodes,
-		edges,
+		nodes: nodesProp,
+		edges: edgesProp,
 		width,
 		height,
 		initialViewport
-	}: { nodes: Node[]; edges: Edge[]; width: number; height: number; initialViewport?: Viewport } =
-		$props()
+	}: {
+		nodes: Node[]
+		edges: Edge[]
+		width: number
+		height: number
+		initialViewport?: Viewport
+	} = $props()
+
+	// Use $state.raw to avoid deep reactive proxies that trigger xyflow's performance warning
+	let nodes = $state.raw<Node[]>([])
+	let edges = $state.raw<Edge[]>([])
+	$effect(() => {
+		nodes = [...nodesProp]
+	})
+	$effect(() => {
+		edges = [...edgesProp]
+	})
 
 	setGraphContext({
 		selectionManager: new SelectionManager(),
