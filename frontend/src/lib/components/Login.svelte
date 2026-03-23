@@ -341,7 +341,17 @@
 				btnClasses="mt-2 w-full"
 				on:click={() => {
 					if (saml) {
-						window.location.href = saml
+						if (rd) {
+							try {
+								const url = new URL(saml)
+								url.searchParams.set('RelayState', rd)
+								window.location.href = url.toString()
+							} catch {
+								window.location.href = saml
+							}
+						} else {
+							window.location.href = saml
+						}
 					} else {
 						sendUserToast('No SAML login available', true)
 					}
