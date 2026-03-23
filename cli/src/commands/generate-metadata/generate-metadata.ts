@@ -199,8 +199,20 @@ async function generateMetadata(
   // === Propagate staleness through imports ===
   tree.propagateStaleness();
 
-  // Upload stale scripts to temp storage so the backend can resolve relative imports
-  await uploadScripts(tree, workspace);
+  // Upload stale scripts to temp storage so the backend can resolve relative imports.
+  // If this fails (e.g. backend is older and doesn't have /raw_temp endpoints),
+  // degrade gracefully: locks will be generated using deployed script content only.
+  let uploadSucceeded = false;
+  try {
+    await uploadScripts(tree, workspace);
+    uploadSucceeded = true;
+  } catch (e) {
+    log.warn(colors.yellow(
+      `Failed to upload scripts to temp storage (backend may be too old): ${e}. ` +
+      `Locks will be generated using deployed script versions only — locally modified ` +
+      `relative imports may not be reflected.`
+    ));
+  }
 
   // === Populate staleItems from tree ===
   const staleItems: StaleItem[] = [];

@@ -1,3 +1,8 @@
+// TODO: Add TEMP_SCRIPT_REFS support (same as loader.bun.js) so that CLI lock
+// generation can resolve imports from locally-modified scripts on Windows.
+// Without this, relative imports to not-yet-deployed scripts will 404 during
+// lock generation on Windows. See loader.bun.js lines 1-2 and 102-111.
+
 // Windows-specific bun loader that uses a virtual "windmill-url" namespace instead
 // of writing .url files to disk. This avoids Windows path issues (backslashes in
 // resolve(), 8.3 short filenames, drive letter prefixes). The virtual namespace
@@ -29,7 +34,8 @@ const p = {
 
     let cdirNodeModules = `${cdirFwd}/node_modules/`;
 
-    const filterLoad = new RegExp(`^${cdirFwd}\/main\\.ts$`);
+    const cdirEscaped = cdir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const filterLoad = new RegExp(`^(?:${cdirEscaped}|${cdirFwd})[/\\\\]main\\.ts$`);
     const transpiler = new Bun.Transpiler({
       loader: "ts",
     });
