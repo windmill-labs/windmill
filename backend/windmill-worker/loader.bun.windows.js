@@ -36,12 +36,18 @@ const p = {
 
     const cdirEscaped = cdir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const filterLoad = new RegExp(`^(?:${cdirEscaped}|${cdirFwd})[/\\\\]main\\.ts$`);
+    console.log("LOADER_DEBUG cdir:", cdir);
+    console.log("LOADER_DEBUG cdirFwd:", cdirFwd);
+    console.log("LOADER_DEBUG cdirPosix:", cdirPosix);
+    console.log("LOADER_DEBUG filterLoad:", filterLoad.toString());
+    console.log("LOADER_DEBUG filterResolve:", filterResolve.toString());
     const transpiler = new Bun.Transpiler({
       loader: "ts",
     });
 
     function replaceRelativeImports(code) {
       const imports = transpiler.scanImports(code);
+      console.log("LOADER_DEBUG replaceRelativeImports called, imports:", JSON.stringify(imports));
       for (const imp of imports) {
         if (imp.kind == "import-statement") {
           if (
@@ -80,12 +86,14 @@ const p = {
     }
 
     build.onLoad({ filter: filterLoad }, async (args) => {
+      console.log("LOADER_DEBUG onLoad(filterLoad) FIRED, args.path:", args.path);
       const code = readFileSync(args.path, "utf8");
       return replaceRelativeImports(code);
     });
 
     // Load windmill scripts by fetching from the API
     build.onLoad({ filter: /.*/, namespace: "windmill-url" }, async (args) => {
+      console.log("LOADER_DEBUG onLoad(windmill-url) FIRED, args.path:", args.path);
       const path = args.path.replace(/^windmill-url:/, "");
       const url = `${base_internal_url}/api/w/${w_id}/scripts/RAW_GET_ENDPOINT/p/${path}`;
       const req = await fetch(url, {
@@ -108,6 +116,7 @@ const p = {
 
     // Resolve windmill script imports from the file namespace (e.g. from main.ts)
     build.onResolve({ filter: filterResolve }, (args) => {
+      console.log("LOADER_DEBUG onResolve FIRED, args.path:", args.path, "args.importer:", args.importer);
       const importerFwd = args.importer?.replace(/\\/g, "/") ?? "";
       if (importerFwd.startsWith(cdirNodeModules)) {
         return undefined;
