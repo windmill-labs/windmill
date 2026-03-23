@@ -65,7 +65,7 @@
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import GroupOverlay from './GroupOverlay.svelte'
-	import { GroupDisplayState, GROUP_HEADER_HEIGHT, type FlowGroup } from './groupEditor.svelte'
+	import { GroupDisplayState, type FlowGroup } from './groupEditor.svelte'
 	import { buildStructureTree, type FlowStructureNode } from './flowStructure'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { computeGroupModuleIds } from './groupDetectionUtils'
@@ -81,18 +81,8 @@
 	import { compoundLayout } from './compoundLayout'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
-	import {
-		assetDisplaysAsInputInFlowGraph,
-		assetDisplaysAsOutputInFlowGraph,
-		NODE_WITH_READ_ASSET_Y_OFFSET,
-		NODE_WITH_WRITE_ASSET_Y_OFFSET
-	} from './renderers/nodes/AssetNode.svelte'
-	import {
-		AI_TOOL_BASE_OFFSET,
-		AI_TOOL_ROW_OFFSET,
-		BELOW_ADDITIONAL_OFFSET
-	} from './renderers/nodes/AIToolNode.svelte'
 	import { topologicalSort } from './graphBuilder.svelte'
+	import { computeNodeExtraSpace } from './nodeExtraSpace'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { setGraphContext } from './graphContext'
 	import { computeNoteNodes } from './noteUtils.svelte'
@@ -377,123 +367,6 @@
 		| undefined = undefined
 	let currentGraphNodeDeps: { id: string; parentIds?: string[] }[] = $state([])
 
-	const MAX_TOOLS_PER_ROW = 2
-
-	/**
-	 * Pre-compute extra top/bottom space each node needs for decorations
-	 * (assets, AI tools, group headers, group notes).
-	 */
-	function computeNodeExtraSpace(
-		graphNodes: NodeDep[]
-	): Map<string, { top: number; bottom: number; left: number; right: number }> | undefined {
-		const extraSpace = new Map<
-			string,
-			{ top: number; bottom: number; left: number; right: number }
-		>()
-
-		// 1. Assets
-		if ($showAssets) {
-			for (const node of graphNodes) {
-				const assets = node.data?.assets ?? []
-				if (!assets.length) continue
-				const hasRead = assets.some(assetDisplaysAsInputInFlowGraph)
-				const hasWrite = assets.some(assetDisplaysAsOutputInFlowGraph)
-				if (hasRead || hasWrite) {
-					const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }
-					extraSpace.set(node.id, {
-						...prev,
-						top: prev.top + (hasRead ? NODE_WITH_READ_ASSET_Y_OFFSET : 0),
-						bottom: prev.bottom + (hasWrite ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)
-					})
-				}
-			}
-		}
-
-		// 2. AI tools
-		for (const node of graphNodes) {
-			const mod = node.data?.module
-			if (!mod || mod.value?.type !== 'aiagent') continue
-
-			const agentActions = !insertable && flowModuleStates?.[node.id]?.agent_actions
-
-			if (agentActions) {
-				// Execution mode: tools below
-				const totalRows = Math.ceil(agentActions.length / MAX_TOOLS_PER_ROW)
-				const space = AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET * totalRows + BELOW_ADDITIONAL_OFFSET
-				const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }
-				extraSpace.set(node.id, { ...prev, bottom: prev.bottom + space })
-			} else {
-				// Edit mode: tools above
-				const tools = mod.value.tools ?? []
-				const totalRows = Math.ceil(tools.length / MAX_TOOLS_PER_ROW) + (insertable ? 1 : 0)
-				const space = AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET * totalRows
-				const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }
-				extraSpace.set(node.id, { ...prev, top: prev.top + space })
-			}
-		}
-
-		// Topological sort (reversed: top-of-graph first) — shared by group notes and group headers
-		const sortedNodes = topologicalSort(graphNodes).reverse()
-
-		// 3. Group notes (text above topmost node in each group note)
-		if (showNotes) {
-			const groupNotes = (notes ?? []).filter((n) => n.type === 'group')
-			if (groupNotes.length > 0) {
-				for (const groupNote of groupNotes) {
-					if (!groupNote.contained_node_ids?.length) continue
-					const topmostNodeId = sortedNodes.find((node) =>
-						groupNote.contained_node_ids?.includes(node.id)
-					)?.id
-					if (topmostNodeId) {
-						const textHeight = noteTextHeights[groupNote.id] || 60
-						const spacing = textHeight + 16 // padding
-						const prev = extraSpace.get(topmostNodeId) ?? { top: 0, bottom: 0, left: 0, right: 0 }
-						extraSpace.set(topmostNodeId, {
-							...prev,
-							top: Math.max(prev.top, spacing + prev.top)
-						})
-					}
-				}
-			}
-		}
-
-		// 4. Collapsed group nodes are taller than regular nodes (header + module icons)
-		for (const node of graphNodes) {
-			if (node.id.startsWith('collapsed-group:')) {
-				const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }
-				extraSpace.set(node.id, {
-					...prev,
-					bottom: prev.bottom + GROUP_HEADER_HEIGHT
-				})
-			}
-		}
-
-		// 5. Group nodes (expanded heads and collapsed) with notes need extra height
-		if (showNotes) {
-			const noteHeights = groupDisplayState.getNoteHeights()
-			for (const node of graphNodes) {
-				let groupId: string | undefined
-				if (node.id.startsWith('group:') && !node.id.endsWith('-end')) {
-					groupId = node.id.slice('group:'.length)
-				} else if (node.id.startsWith('collapsed-group:')) {
-					groupId = node.id.slice('collapsed-group:'.length)
-				}
-				if (groupId) {
-					const noteHeight = noteHeights[groupId]
-					if (noteHeight && noteHeight > 0) {
-						const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }
-						extraSpace.set(node.id, {
-							...prev,
-							bottom: prev.bottom + noteHeight
-						})
-					}
-				}
-			}
-		}
-
-		return extraSpace.size > 0 ? extraSpace : undefined
-	}
-
 	let lastGroupDimensions: Map<string, { width: number; height: number }> | undefined = undefined
 
 	function layoutNodes(
@@ -769,7 +642,15 @@
 		currentGraphNodeDeps = graphNodeDeps
 
 		// Pre-compute extra space per node for assets, AI tools, group notes, group headers
-		const nodeExtraSpace = computeNodeExtraSpace(graphNodeDeps)
+		const nodeExtraSpace = computeNodeExtraSpace(graphNodeDeps, {
+			showAssets: $showAssets,
+			showNotes,
+			notes,
+			noteTextHeights,
+			groupDisplayState,
+			insertable,
+			flowModuleStates
+		})
 
 		// Layout with extra space baked into sugiyama
 		let layoutedNodes = layoutNodes(graphNodeDeps, nodeExtraSpace)

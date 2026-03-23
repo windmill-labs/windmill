@@ -20,14 +20,15 @@
 	// Pre-compute bounds for all groups reactively (tracks allNodes measured changes)
 	let groupBoundsMap = $derived.by(() => {
 		const map: Record<string, { x: number; y: number; width: number; height: number } | null> = {}
+		const nodeMap = new Map(allNodes.map((n) => [n.id, n]))
 		for (const group of allGroups) {
 			if (graphContext?.groupDisplayState?.isRuntimeCollapsed(group.id)) {
 				continue
 			}
 			const headId = `group:${group.id}`
 			const endId = `group:${group.id}-end`
-			const headNode = allNodes.find((n) => n.id === headId)
-			const endNode = allNodes.find((n) => n.id === endId)
+			const headNode = nodeMap.get(headId)
+			const endNode = nodeMap.get(endId)
 
 			if (headNode && endNode) {
 				const d = headNode.data as GroupHeadN['data']
