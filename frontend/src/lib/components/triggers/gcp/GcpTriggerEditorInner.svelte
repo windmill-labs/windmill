@@ -22,6 +22,7 @@
 	import GcpTriggerEditorConfigSection from './GcpTriggerEditorConfigSection.svelte'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveGcpTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import { deepEqual } from 'fast-equals'
@@ -366,11 +367,6 @@
 			{cloudDisabled}
 			{trigger}
 			{suspendedJobsModal}
-			{permissionedAs}
-			onPermissionedAsChange={(pa, preserve) => {
-				selectedPermissionedAs = pa
-				preservePermissionedAs = preserve
-			}}
 		/>
 	{/if}
 {/snippet}
@@ -382,6 +378,15 @@
 			<p>Loading...</p>
 		</div>
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-5">
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
@@ -467,9 +472,11 @@
 
 			<Section label="Advanced" collapsable>
 				{#snippet header()}
-					<TriggerAdvancedBadges {error_handler_path} {retry} extraBadges={[
-						{ name: 'Manual Ack', active: !auto_acknowledge_msg }
-					]} />
+					<TriggerAdvancedBadges
+						{error_handler_path}
+						{retry}
+						extraBadges={[{ name: 'Manual Ack', active: !auto_acknowledge_msg }]}
+					/>
 				{/snippet}
 				<div class="flex flex-col gap-6">
 					<div class="min-h-96">

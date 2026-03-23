@@ -33,6 +33,7 @@
 	import { base } from '$lib/base'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
@@ -548,11 +549,6 @@
 			onToggleMode={handleToggleMode}
 			{suspendedJobsModal}
 			{cloudDisabled}
-			{permissionedAs}
-			onPermissionedAsChange={(pa, preserve) => {
-				selectedPermissionedAs = pa
-				preservePermissionedAs = preserve
-			}}
 		/>
 	{/if}
 {/snippet}
@@ -566,6 +562,15 @@
 			</div>
 		{/if}
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}

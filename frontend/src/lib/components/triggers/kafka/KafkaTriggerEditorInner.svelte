@@ -15,6 +15,7 @@
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveKafkaTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -412,11 +413,6 @@
 			onToggleMode={handleToggleMode}
 			{cloudDisabled}
 			{suspendedJobsModal}
-			{permissionedAs}
-			onPermissionedAsChange={(pa, preserve) => {
-				selectedPermissionedAs = pa
-				preservePermissionedAs = preserve
-			}}
 		/>
 	{/if}
 {/snippet}
@@ -427,6 +423,15 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}
@@ -544,11 +549,10 @@
 								Offsets will not be committed automatically. Use <code
 									>wmill.commit_kafka_offsets(trigger_path, topic, partition, offset)</code
 								>
-								in Python or <code
-									>wmill.commitKafkaOffsets(triggerPath, topic, partition, offset)</code
-								> in TypeScript with the values from the event payload. The consumer collects
-								all pending commits and commits the highest offset for each topic/partition
-								pair.
+								in Python or
+								<code>wmill.commitKafkaOffsets(triggerPath, topic, partition, offset)</code> in TypeScript
+								with the values from the event payload. The consumer collects all pending commits and
+								commits the highest offset for each topic/partition pair.
 							</Alert>
 						{/if}
 					</div>

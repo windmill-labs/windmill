@@ -14,6 +14,7 @@
 	import NatsTriggersConfigSection from './NatsTriggersConfigSection.svelte'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveNatsTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -374,11 +375,6 @@
 			{mode}
 			onToggleMode={handleToggleMode}
 			{suspendedJobsModal}
-			{permissionedAs}
-			onPermissionedAsChange={(pa, preserve) => {
-				selectedPermissionedAs = pa
-				preservePermissionedAs = preserve
-			}}
 		/>
 	{/if}
 {/snippet}
@@ -389,6 +385,15 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}

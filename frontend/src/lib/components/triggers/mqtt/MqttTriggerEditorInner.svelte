@@ -24,6 +24,7 @@
 	import MqttEditorConfigSection from './MqttEditorConfigSection.svelte'
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveMqttTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -390,11 +391,6 @@
 			onToggleMode={handleToggleMode}
 			{cloudDisabled}
 			{suspendedJobsModal}
-			{permissionedAs}
-			onPermissionedAsChange={(pa, preserve) => {
-				selectedPermissionedAs = pa
-				preservePermissionedAs = preserve
-			}}
 		/>
 	{/if}
 {/snippet}
@@ -405,6 +401,15 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}
@@ -484,10 +489,14 @@
 
 			<Section label="Advanced" collapsable>
 				{#snippet header()}
-					<TriggerAdvancedBadges {error_handler_path} {retry} extraBadges={[
-						{ name: 'Custom Client ID', active: !!client_id },
-						{ name: 'MQTT v3', active: client_version === 'v3' }
-					]} />
+					<TriggerAdvancedBadges
+						{error_handler_path}
+						{retry}
+						extraBadges={[
+							{ name: 'Custom Client ID', active: !!client_id },
+							{ name: 'MQTT v3', active: client_version === 'v3' }
+						]}
+					/>
 				{/snippet}
 				<div class="flex flex-col gap-6">
 					<div class="min-h-96">

@@ -38,6 +38,7 @@
 	import { handleConfigChange } from '../utils'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 
 	let {
 		useDrawer = true,
@@ -654,11 +655,6 @@
 			onToggleMode={(mode) => handleToggleEnabled(mode === 'enabled')}
 			{isDeployed}
 			disableSuspendedMode
-			{permissionedAs}
-			onPermissionedAsChange={(pa, preserve) => {
-				selectedPermissionedAs = pa
-				preservePermissionedAs = preserve
-			}}
 		>
 			{#snippet extra()}
 				{#if !drawerLoading && edit}
@@ -696,6 +692,15 @@
 		{/if}
 	{:else}
 		<div class="flex flex-col gap-8">
+			{#if edit}
+				<PermissionedAsLine
+					{permissionedAs}
+					onPermissionedAsChange={(pa, preserve) => {
+						selectedPermissionedAs = pa
+						preservePermissionedAs = preserve
+					}}
+				/>
+			{/if}
 			<Section label="Metadata">
 				<div class="flex flex-col gap-6">
 					<label class="flex flex-col gap-1">
@@ -926,12 +931,16 @@
 
 			<Section label="Advanced" collapsable>
 				{#snippet header()}
-					<TriggerAdvancedBadges error_handler_path={errorHandlerPath} {retry} extraBadges={[
-						{ name: 'Recovery Handler', active: !!recoveryHandlerPath },
-						{ name: 'Success Handler', active: !!successHandlerPath },
-						{ name: 'Dynamic Skip', active: !!dynamicSkipPath },
-						{ name: 'Custom Tag', active: !!tag }
-					]} />
+					<TriggerAdvancedBadges
+						error_handler_path={errorHandlerPath}
+						{retry}
+						extraBadges={[
+							{ name: 'Recovery Handler', active: !!recoveryHandlerPath },
+							{ name: 'Success Handler', active: !!successHandlerPath },
+							{ name: 'Dynamic Skip', active: !!dynamicSkipPath },
+							{ name: 'Custom Tag', active: !!tag }
+						]}
+					/>
 				{/snippet}
 				{@render errorHandler()}
 			</Section>

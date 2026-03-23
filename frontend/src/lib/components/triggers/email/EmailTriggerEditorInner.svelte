@@ -20,6 +20,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import EmailTriggerEditorConfigSection from './EmailTriggerEditorConfigSection.svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { getHandlerType, handleConfigChange } from '../utils'
 	import { untrack } from 'svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -312,6 +313,15 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-12">
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
@@ -423,11 +433,6 @@
 			{mode}
 			onToggleMode={handleToggleMode}
 			{suspendedJobsModal}
-			{permissionedAs}
-			onPermissionedAsChange={(pa, preserve) => {
-				selectedPermissionedAs = pa
-				preservePermissionedAs = preserve
-			}}
 		/>
 	{/if}
 {/snippet}
