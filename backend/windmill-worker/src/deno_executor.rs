@@ -547,7 +547,7 @@ try {{
     read_result(job_dir, handle_result.result_stream).await
 }
 
-async fn build_import_map(
+pub(crate) async fn build_import_map(
     w_id: &str,
     script_path: &str,
     base_internal_url: &str,

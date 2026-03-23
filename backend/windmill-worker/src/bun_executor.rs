@@ -296,7 +296,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
 }
 
 /// Returns (package.json, bun.lock(b), is_empty, is_binary)
-fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool) {
+pub(crate) fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool) {
     if let Some(index) = lockfile.find(BUN_LOCK_SPLIT) {
         // Split using "\n//bun.lock\n"
         let (before, after_with_sep) = lockfile.split_at(index);

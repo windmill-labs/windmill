@@ -1617,7 +1617,7 @@ async fn replace_pip_secret(
     }
 }
 
-async fn handle_python_deps(
+pub(crate) async fn handle_python_deps(
     job_dir: &str,
     requirements_o: Option<&String>,
     inner_content: &str,
