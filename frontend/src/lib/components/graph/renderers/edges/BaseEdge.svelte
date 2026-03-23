@@ -125,9 +125,7 @@
 			index: data.index,
 			disableMoveIds: data.disableMoveIds ?? [],
 			centerX,
-			centerY,
-			adjacencySourceId: source,
-			adjacencyTargetId: target
+			centerY
 		})
 
 		return () => moveManager.unregisterDropZone(id)

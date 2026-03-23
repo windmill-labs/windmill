@@ -18,10 +18,6 @@ export type DropZoneRegistration = {
 	disableMoveIds: string[]
 	centerX: number
 	centerY: number
-	/** Graph-level source node ID for adjacency checks (xyflow edge source) */
-	adjacencySourceId?: string
-	/** Graph-level target node ID for adjacency checks (xyflow edge target) */
-	adjacencyTargetId?: string
 }
 
 type DragInfo = {
@@ -207,12 +203,6 @@ export class MoveManager {
 
 		for (const [edgeId, zone] of this.#registeredDropZones) {
 			if (zone.disableMoveIds.includes(draggedId)) continue
-
-			// Skip edges directly adjacent to the dragged node (no-op move).
-			// Use graph-level node IDs when available (handles redirected edges near groups).
-			const adjSource = zone.adjacencySourceId ?? zone.sourceId
-			const adjTarget = zone.adjacencyTargetId ?? zone.targetId
-			if (this.draggedNodeIds.has(adjSource) || this.draggedNodeIds.has(adjTarget)) continue
 
 			const dx = Math.abs(flowPos.x - zone.centerX)
 			const dy = Math.abs(flowPos.y - zone.centerY)
