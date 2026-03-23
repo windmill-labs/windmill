@@ -111,7 +111,7 @@ export function validateCommonFields(config: Record<string, any>): Record<string
 }
 
 export function formatTriggerDisplayName(trigger: NativeTrigger): string {
-	return `${trigger.script_path} (external id: ${trigger.external_id})`
+	return `${trigger.summary ?? ''} ${trigger.script_path} (external id: ${trigger.external_id})`
 }
 
 export function getTriggerIconName(service: NativeServiceName): string {
