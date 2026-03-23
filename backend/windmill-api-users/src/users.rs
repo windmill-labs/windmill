@@ -1687,7 +1687,7 @@ async fn login(
     };
     let email_w_h: Option<(String, String, bool)> = sqlx::query_as(
         "SELECT email, password_hash, super_admin FROM password WHERE email = $1 AND login_type = \
-         'password' AND disabled = false",
+         'password'",
     )
     .bind(&email)
     .fetch_optional(&mut *tx)

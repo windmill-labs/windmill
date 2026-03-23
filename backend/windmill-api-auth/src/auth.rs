@@ -233,22 +233,6 @@ impl AuthCache {
                 .flatten();
 
                 if let Some(user) = user_o {
-                    // Check if user is disabled at the instance level
-                    if let Some(ref email) = user.1 {
-                        let is_disabled = sqlx::query_scalar!(
-                            "SELECT disabled FROM password WHERE email = $1",
-                            email
-                        )
-                        .fetch_optional(&self.db)
-                        .await
-                        .ok()
-                        .flatten()
-                        .unwrap_or(false);
-                        if is_disabled {
-                            return None;
-                        }
-                    }
-
                     let authed_o = {
                         match user {
                             (Some(owner), Some(email), super_admin, _, label) if w_id.is_some() => {

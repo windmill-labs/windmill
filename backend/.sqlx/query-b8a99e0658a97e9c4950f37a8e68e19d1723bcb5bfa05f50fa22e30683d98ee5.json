@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT disabled FROM password WHERE email = $1",
+  "query": "SELECT EXISTS(SELECT 1 FROM scim_deactivated_user WHERE email = $1)",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "disabled",
+        "name": "exists",
         "type_info": "Bool"
       }
     ],
@@ -15,8 +15,8 @@
       ]
     },
     "nullable": [
-      false
+      null
     ]
   },
-  "hash": "fc6c6310ae8ac5eb351d7e2af1678447d0aa3d143e94e49924ff7ac8b7abf924"
+  "hash": "b8a99e0658a97e9c4950f37a8e68e19d1723bcb5bfa05f50fa22e30683d98ee5"
 }

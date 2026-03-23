@@ -328,15 +328,6 @@ async fn fetch_authed_from_permissioned_as_inner(
     w_id: &str,
     conn: &mut sqlx::PgConnection,
 ) -> Result<Authed> {
-    let is_disabled = sqlx::query_scalar!("SELECT disabled FROM password WHERE email = $1", email)
-        .fetch_optional(&mut *conn)
-        .await
-        .map_err(|e| Error::internal_err(format!("fetching disabled: {e:#}")))?
-        .unwrap_or(false);
-    if is_disabled {
-        return Err(Error::NotAuthorized("User is disabled".to_string()));
-    }
-
     let is_super_admin = permissioned_as == SUPERADMIN_SYNC_EMAIL
         || email == SUPERADMIN_SECRET_EMAIL
         || email == SUPERADMIN_NOTIFICATION_EMAIL
