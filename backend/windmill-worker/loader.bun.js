@@ -78,9 +78,15 @@ const p = {
         return undefined;
       }
 
-      // Check if the import resolves to a local module file (written by write_module_files).
-      // Only check relative paths — absolute/bare specifiers should fall through to the
-      // remote resolver, matching the Windows loader pattern.
+      // If the path is already absolute and within our working directory, let Bun handle
+      // it natively. This avoids double-resolution issues when the plugin returns an absolute
+      // path and Bun re-invokes the resolver with that path.
+      if (args.path.startsWith(cdir + "/") || args.path.startsWith(cdirNoPrivate + "/")) {
+        return undefined;
+      }
+
+      // Check if the import resolves to a local module file (written by write_module_files
+      // or runner group script files).
       if (args.path.startsWith(".")) {
         const localPath = resolve(cdir, args.path);
         try {
