@@ -679,6 +679,16 @@ struct GenerateOpenAPI {
     openapi_spec_format: Format,
 }
 
+fn clean_schema_for_openapi(schema: Value) -> Value {
+    if let Value::Object(mut obj) = schema {
+        obj.remove("$schema");
+        obj.remove("order");
+        Value::Object(obj)
+    } else {
+        schema
+    }
+}
+
 async fn get_runnable_schema(
     db: &DB,
     w_id: &str,
@@ -699,13 +709,17 @@ async fn get_runnable_schema(
         )
         .fetch_optional(db)
         .await
+        .map_err(|e| {
+            tracing::warn!("Failed to fetch flow schema for {script_path}: {e}");
+            e
+        })
         .ok()
         .flatten()?;
 
         if row.has_preprocessor.unwrap_or(false) {
             return None;
         }
-        row.schema
+        row.schema.map(clean_schema_for_openapi)
     } else {
         let row = sqlx::query!(
             r#"SELECT
@@ -721,13 +735,17 @@ async fn get_runnable_schema(
         )
         .fetch_optional(db)
         .await
+        .map_err(|e| {
+            tracing::warn!("Failed to fetch script schema for {script_path}: {e}");
+            e
+        })
         .ok()
         .flatten()?;
 
         if row.has_preprocessor.unwrap_or(false) {
             return None;
         }
-        row.schema
+        row.schema.map(clean_schema_for_openapi)
     }
 }
 
