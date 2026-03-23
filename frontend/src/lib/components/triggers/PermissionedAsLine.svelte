@@ -65,6 +65,12 @@
 				customValue={customPermissionedAs}
 				isDeployment={false}
 			/>
+			{#if willChange}
+				<AlertTriangle class="w-3.5 h-3.5 text-yellow-500" />
+				<span class="text-yellow-600 dark:text-yellow-400"
+					>will change from {permissionedAs} on save</span
+				>
+			{/if}
 		{:else}
 			<span class="font-mono font-medium text-secondary">{permissionedAs}</span>
 			{#if willChange}
