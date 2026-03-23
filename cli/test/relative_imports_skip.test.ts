@@ -1,7 +1,7 @@
 /**
  * Relative Imports Tests
  *
- * E2E tests for `generate-metadata` command with relative imports:
+ * E2E tests for the `generate-metadata` command with relative imports:
  * - Lock files correctly include transitive dependencies
  * - Staleness propagates through import chains
  * - Various import patterns handled correctly
