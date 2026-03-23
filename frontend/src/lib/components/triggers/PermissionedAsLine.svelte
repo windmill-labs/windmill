@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { Alert } from '$lib/components/common'
 	import OnBehalfOfSelector, {
 		type OnBehalfOfChoice,
 		type OnBehalfOfDetails
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { AlertTriangle } from 'lucide-svelte'
 
 	interface Props {
 		/** Current permissioned_as value from the trigger (e.g., 'u/admin') */
@@ -24,7 +24,6 @@
 	let onBehalfOfChoice = $state<OnBehalfOfChoice>(undefined)
 	let customPermissionedAs = $state<string | undefined>(undefined)
 
-	// The effective value that will be saved
 	const effectivePermissionedAs = $derived.by(() => {
 		if (onBehalfOfChoice === 'target') return permissionedAs
 		if (onBehalfOfChoice === 'custom' && customPermissionedAs) return customPermissionedAs
@@ -53,29 +52,24 @@
 </script>
 
 {#if permissionedAs && $workspaceStore}
-	<Alert type={willChange ? 'warning' : 'info'} size="xs" title="Permissioned as">
-		<div class="flex items-center gap-2 flex-wrap">
-			{#if willChange}
-				<span>
-					Currently <span class="font-mono font-semibold">{permissionedAs}</span>, will change to
-					<span class="font-mono font-semibold">{effectivePermissionedAs}</span>
-					on save.
-				</span>
-			{:else}
-				<span class="font-mono font-semibold">{permissionedAs}</span>
-			{/if}
-			{#if canPreserve}
-				<OnBehalfOfSelector
-					targetWorkspace={$workspaceStore}
-					targetValue={permissionedAs}
-					selected={onBehalfOfChoice}
-					onSelect={handleSelect}
-					kind="trigger"
-					{canPreserve}
-					customValue={customPermissionedAs}
-					isDeployment={false}
-				/>
-			{/if}
-		</div>
-	</Alert>
+	<div class="flex items-center gap-1.5 text-2xs text-tertiary">
+		<span>Permissioned as</span>
+		<span class="font-mono font-medium text-secondary">{permissionedAs}</span>
+		{#if willChange}
+			<AlertTriangle class="w-3.5 h-3.5 text-yellow-500" />
+			<span class="text-yellow-600 dark:text-yellow-400">→ {effectivePermissionedAs} on save</span>
+		{/if}
+		{#if canPreserve}
+			<OnBehalfOfSelector
+				targetWorkspace={$workspaceStore}
+				targetValue={permissionedAs}
+				selected={onBehalfOfChoice}
+				onSelect={handleSelect}
+				kind="trigger"
+				{canPreserve}
+				customValue={customPermissionedAs}
+				isDeployment={false}
+			/>
+		{/if}
+	</div>
 {/if}
