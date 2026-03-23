@@ -845,21 +845,3 @@ pub async fn start_worker(
     )
     .await
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_deno_wrapper_parses_inline_meta() {
-        let wrapper = generate_multi_script_wrapper();
-        // Verify the wrapper parses meta from the load: protocol (not from files)
-        assert!(wrapper.contains("secondColon"));
-        assert!(wrapper.contains("metaStr"));
-        assert!(wrapper.contains("convertDates"));
-        assert!(wrapper.contains("dateArgs"));
-        assert!(wrapper.contains("preDateArgs"));
-        // Should NOT contain file-based meta reading
-        assert!(!wrapper.contains("readTextFileSync"));
-    }
-}

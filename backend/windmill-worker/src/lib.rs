@@ -91,8 +91,15 @@ pub use bun_executor::{
     install_bun_lockfile, prebundle_bun_script, prepare_job_dir, LoaderMode, TsScriptCodegen,
     TsScriptEntry, BUN_DEDICATED_WORKER_ARGS, RELATIVE_BUN_BUILDER, RELATIVE_BUN_LOADER,
 };
-pub use deno_executor::generate_deno_lock;
+pub use deno_executor::{
+    generate_deno_lock, generate_multi_script_wrapper as generate_deno_multi_script_wrapper,
+};
 pub use prepare_deps::run_prepare_deps_cli;
 
+#[cfg(feature = "python")]
+pub use python_executor::{
+    compute_py_codegen, generate_multi_script_wrapper as generate_py_multi_script_wrapper,
+    PyScriptCodegen, PyScriptEntry,
+};
 #[cfg(feature = "python")]
 pub use python_versions::PyV;

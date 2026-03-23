@@ -1,8 +1,226 @@
 use serde_json::json;
+#[cfg(feature = "python")]
 use sqlx::postgres::Postgres;
+#[cfg(feature = "python")]
 use sqlx::Pool;
+#[cfg(feature = "python")]
 use windmill_common::scripts::ScriptLang;
 use windmill_test_utils::*;
+
+// ============================================================================
+// Dedicated Worker Protocol Tests (Python)
+// ============================================================================
+
+#[cfg(feature = "python")]
+mod dedicated_worker_protocol_python {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command, Stdio};
+    use windmill_test_utils::{parse_dedicated_worker_line, DedicatedWorkerResult};
+    use windmill_worker::{compute_py_codegen, generate_py_multi_script_wrapper, PyScriptEntry};
+
+    struct MultiScriptJob {
+        script_path: String,
+        args: serde_json::Value,
+    }
+
+    /// Creates a multi-script Python wrapper, writes scripts to proper module paths
+    fn create_py_worker_files(
+        dir: &std::path::Path,
+        scripts: &[(&str, &str)], // (original_path, content)
+    ) -> std::path::PathBuf {
+        let mut codegens = Vec::new();
+        for (path, content) in scripts {
+            let cg = compute_py_codegen(content, path);
+            let module_dir = dir.join(&cg.dirs);
+            std::fs::create_dir_all(&module_dir).unwrap();
+            std::fs::write(module_dir.join(format!("{}.py", cg.module_name)), content).unwrap();
+            codegens.push((path.to_string(), cg));
+        }
+
+        let entries: Vec<PyScriptEntry<'_>> = codegens
+            .iter()
+            .map(|(path, cg)| PyScriptEntry { original_path: path.as_str(), codegen: cg })
+            .collect();
+
+        let wrapper = generate_py_multi_script_wrapper(&entries, false);
+        let wrapper_path = dir.join("wrapper.py");
+        std::fs::write(&wrapper_path, &wrapper).unwrap();
+        wrapper_path
+    }
+
+    fn run_py_multi_script_test(
+        scripts: &[(&str, &str)],
+        jobs: Vec<MultiScriptJob>,
+    ) -> Vec<Result<serde_json::Value, String>> {
+        let temp_dir = tempfile::tempdir().unwrap();
+        create_py_worker_files(temp_dir.path(), scripts);
+
+        let mut child = Command::new("python3")
+            .args(["-u", "-m", "wrapper"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .current_dir(temp_dir.path())
+            .spawn()
+            .expect("Failed to spawn python3 process");
+
+        let mut stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let mut reader = BufReader::new(stdout);
+
+        let mut start_line = String::new();
+        reader.read_line(&mut start_line).unwrap();
+        assert_eq!(
+            parse_dedicated_worker_line(start_line.trim()),
+            DedicatedWorkerResult::Start,
+            "Expected 'start', got: {}",
+            start_line.trim()
+        );
+
+        let mut results = Vec::new();
+        for job in &jobs {
+            writeln!(stdin, "exec:{}:{}", job.script_path, job.args.to_string()).unwrap();
+            stdin.flush().unwrap();
+
+            let mut response = String::new();
+            reader.read_line(&mut response).unwrap();
+
+            match parse_dedicated_worker_line(response.trim()) {
+                DedicatedWorkerResult::Success(value) => results.push(Ok(value)),
+                DedicatedWorkerResult::Error(err) => {
+                    let msg = err["message"]
+                        .as_str()
+                        .unwrap_or("Unknown error")
+                        .to_string();
+                    results.push(Err(msg));
+                }
+                other => panic!("Unexpected response: {:?}", other),
+            }
+        }
+
+        writeln!(stdin, "end").unwrap();
+        stdin.flush().unwrap();
+        let _ = child.wait().expect("Worker process failed to exit");
+        results
+    }
+
+    fn run_py_single_script_test(
+        script_path: &str,
+        content: &str,
+        jobs: Vec<serde_json::Value>,
+    ) -> Vec<Result<serde_json::Value, String>> {
+        run_py_multi_script_test(
+            &[(script_path, content)],
+            jobs.into_iter()
+                .map(|args| MultiScriptJob { script_path: script_path.to_string(), args })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn test_python_dedicated_worker_simple() {
+        let results = run_py_single_script_test(
+            "f/test/add",
+            "def main(a: int, b: int):\n    return a + b\n",
+            vec![serde_json::json!({"a": 3, "b": 4})],
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], Ok(serde_json::json!(7)));
+    }
+
+    #[test]
+    fn test_python_dedicated_worker_multiple_jobs() {
+        let results = run_py_single_script_test(
+            "f/test/double",
+            "def main(n: int):\n    return n * 2\n",
+            (1..=5).map(|i| serde_json::json!({"n": i})).collect(),
+        );
+        assert_eq!(results.len(), 5);
+        for (i, result) in results.iter().enumerate() {
+            assert_eq!(*result, Ok(serde_json::json!(((i + 1) * 2) as i64)));
+        }
+    }
+
+    #[test]
+    fn test_python_multi_script_routing() {
+        let results = run_py_multi_script_test(
+            &[
+                (
+                    "f/math/add",
+                    "def main(a: int, b: int):\n    return a + b\n",
+                ),
+                (
+                    "f/math/mul",
+                    "def main(x: int, y: int):\n    return x * y\n",
+                ),
+            ],
+            vec![
+                MultiScriptJob {
+                    script_path: "f/math/add".to_string(),
+                    args: serde_json::json!({"a": 3, "b": 4}),
+                },
+                MultiScriptJob {
+                    script_path: "f/math/mul".to_string(),
+                    args: serde_json::json!({"x": 5, "y": 6}),
+                },
+                MultiScriptJob {
+                    script_path: "f/math/add".to_string(),
+                    args: serde_json::json!({"a": 10, "b": 20}),
+                },
+            ],
+        );
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0], Ok(serde_json::json!(7)));
+        assert_eq!(results[1], Ok(serde_json::json!(30)));
+        assert_eq!(results[2], Ok(serde_json::json!(30)));
+    }
+
+    #[test]
+    fn test_python_multi_script_error_isolation() {
+        let results = run_py_multi_script_test(
+            &[
+                ("f/ok", "def main(x: int):\n    return x * 2\n"),
+                ("f/err", "def main(msg: str):\n    raise Exception(msg)\n"),
+            ],
+            vec![
+                MultiScriptJob {
+                    script_path: "f/ok".to_string(),
+                    args: serde_json::json!({"x": 5}),
+                },
+                MultiScriptJob {
+                    script_path: "f/err".to_string(),
+                    args: serde_json::json!({"msg": "boom"}),
+                },
+                MultiScriptJob {
+                    script_path: "f/ok".to_string(),
+                    args: serde_json::json!({"x": 10}),
+                },
+            ],
+        );
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0], Ok(serde_json::json!(10)));
+        assert!(results[1].is_err());
+        assert_eq!(results[1], Err("boom".to_string()));
+        assert_eq!(results[2], Ok(serde_json::json!(20)));
+    }
+
+    #[test]
+    fn test_python_multi_script_unknown_path() {
+        let results = run_py_multi_script_test(
+            &[("f/known", "def main(x: int):\n    return x\n")],
+            vec![MultiScriptJob {
+                script_path: "f/unknown".to_string(),
+                args: serde_json::json!({"x": 1}),
+            }],
+        );
+        assert_eq!(results.len(), 1);
+        assert!(results[0].is_err());
+        assert!(results[0]
+            .as_ref()
+            .unwrap_err()
+            .contains("Script not found"));
+    }
+}
 
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base", "lockfile_python"))]

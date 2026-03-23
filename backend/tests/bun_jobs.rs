@@ -1138,6 +1138,437 @@ export function main(msg: string): never {
         assert!(results[0].is_err());
         assert_eq!(results[0], Err("test error".to_string()));
     }
+
+    // ==================== Multi-Script (Runner Group) Tests ====================
+
+    /// Job to send to a specific script in a multi-script wrapper
+    struct MultiScriptJob {
+        script_path: String,
+        args: serde_json::Value,
+    }
+
+    /// Creates a multi-script wrapper with multiple scripts as flat files, returns the wrapper path
+    fn create_multi_script_worker_files(
+        dir: &std::path::Path,
+        scripts: &[(&str, &str)], // (original_path, script_content)
+    ) -> std::path::PathBuf {
+        let mut entries_data = Vec::new();
+        for (path, content) in scripts {
+            let safe_name = path.replace('/', "__");
+            std::fs::write(dir.join(format!("{safe_name}.ts")), content).unwrap();
+            entries_data.push((safe_name, path.to_string(), compute_ts_codegen(content)));
+        }
+
+        let entries: Vec<TsScriptEntry<'_>> = entries_data
+            .iter()
+            .map(|(safe, path, cg)| TsScriptEntry {
+                import_name: safe.as_str(),
+                original_path: path.as_str(),
+                codegen: cg,
+            })
+            .collect();
+
+        let wrapper = generate_multi_script_wrapper(&entries, "ts");
+        let wrapper_path = dir.join("wrapper.mjs");
+        std::fs::write(&wrapper_path, &wrapper).unwrap();
+        wrapper_path
+    }
+
+    /// Helper to run a multi-script dedicated worker test
+    fn run_multi_script_worker_test(
+        scripts: &[(&str, &str)],
+        jobs: Vec<MultiScriptJob>,
+    ) -> Vec<Result<serde_json::Value, String>> {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let wrapper_path = create_multi_script_worker_files(temp_dir.path(), scripts);
+        let wrapper_str = wrapper_path.to_str().unwrap();
+
+        let mut cmd_args: Vec<&str> = BUN_DEDICATED_WORKER_ARGS.to_vec();
+        cmd_args.push(wrapper_str);
+
+        let mut child = Command::new(BUN_PATH.as_str())
+            .args(cmd_args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .current_dir(temp_dir.path())
+            .spawn()
+            .expect("Failed to spawn worker process");
+
+        let mut stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let mut reader = BufReader::new(stdout);
+
+        // Wait for "start" signal
+        let mut start_line = String::new();
+        reader.read_line(&mut start_line).unwrap();
+        assert_eq!(
+            parse_dedicated_worker_line(start_line.trim()),
+            DedicatedWorkerResult::Start,
+            "Expected 'start', got: {}",
+            start_line.trim()
+        );
+
+        let mut results = Vec::new();
+
+        for job in &jobs {
+            writeln!(stdin, "exec:{}:{}", job.script_path, job.args.to_string()).unwrap();
+            stdin.flush().unwrap();
+
+            let mut response = String::new();
+            reader.read_line(&mut response).unwrap();
+
+            match parse_dedicated_worker_line(response.trim()) {
+                DedicatedWorkerResult::Success(value) => results.push(Ok(value)),
+                DedicatedWorkerResult::Error(err) => {
+                    let msg = err["message"]
+                        .as_str()
+                        .unwrap_or("Unknown error")
+                        .to_string();
+                    results.push(Err(msg));
+                }
+                other => panic!("Unexpected response: {:?}", other),
+            }
+        }
+
+        writeln!(stdin, "end").unwrap();
+        stdin.flush().unwrap();
+        let _ = child.wait().expect("Worker process failed to exit");
+
+        results
+    }
+
+    #[test]
+    fn test_multi_script_routing_basic() {
+        let script_add = r#"
+export function main(a: number, b: number): number {
+    return a + b;
+}
+"#;
+        let script_mul = r#"
+export function main(x: number, y: number): number {
+    return x * y;
+}
+"#;
+        let results = run_multi_script_worker_test(
+            &[("f/math/add", script_add), ("f/math/mul", script_mul)],
+            vec![
+                MultiScriptJob {
+                    script_path: "f/math/add".to_string(),
+                    args: serde_json::json!({"a": 3, "b": 4}),
+                },
+                MultiScriptJob {
+                    script_path: "f/math/mul".to_string(),
+                    args: serde_json::json!({"x": 5, "y": 6}),
+                },
+                // Route back to add
+                MultiScriptJob {
+                    script_path: "f/math/add".to_string(),
+                    args: serde_json::json!({"a": 10, "b": 20}),
+                },
+            ],
+        );
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0], Ok(serde_json::json!(7))); // 3 + 4
+        assert_eq!(results[1], Ok(serde_json::json!(30))); // 5 * 6
+        assert_eq!(results[2], Ok(serde_json::json!(30))); // 10 + 20
+    }
+
+    #[test]
+    fn test_multi_script_interleaved_jobs() {
+        let script_upper = r#"
+export function main(s: string): string {
+    return s.toUpperCase();
+}
+"#;
+        let script_len = r#"
+export function main(s: string): number {
+    return s.length;
+}
+"#;
+        let results = run_multi_script_worker_test(
+            &[("f/str/upper", script_upper), ("f/str/len", script_len)],
+            vec![
+                MultiScriptJob {
+                    script_path: "f/str/upper".to_string(),
+                    args: serde_json::json!({"s": "hello"}),
+                },
+                MultiScriptJob {
+                    script_path: "f/str/len".to_string(),
+                    args: serde_json::json!({"s": "hello"}),
+                },
+                MultiScriptJob {
+                    script_path: "f/str/upper".to_string(),
+                    args: serde_json::json!({"s": "world"}),
+                },
+                MultiScriptJob {
+                    script_path: "f/str/len".to_string(),
+                    args: serde_json::json!({"s": "ab"}),
+                },
+            ],
+        );
+
+        assert_eq!(results.len(), 4);
+        assert_eq!(results[0], Ok(serde_json::json!("HELLO")));
+        assert_eq!(results[1], Ok(serde_json::json!(5)));
+        assert_eq!(results[2], Ok(serde_json::json!("WORLD")));
+        assert_eq!(results[3], Ok(serde_json::json!(2)));
+    }
+
+    #[test]
+    fn test_multi_script_unknown_path_error() {
+        let script = r#"
+export function main(x: number): number {
+    return x;
+}
+"#;
+        let results = run_multi_script_worker_test(
+            &[("f/known", script)],
+            vec![MultiScriptJob {
+                script_path: "f/unknown".to_string(),
+                args: serde_json::json!({"x": 1}),
+            }],
+        );
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].is_err());
+        assert!(results[0]
+            .as_ref()
+            .unwrap_err()
+            .contains("Script not found"));
+    }
+
+    #[test]
+    fn test_multi_script_error_doesnt_break_other_scripts() {
+        let script_ok = r#"
+export function main(x: number): number {
+    return x * 2;
+}
+"#;
+        let script_err = r#"
+export function main(msg: string): never {
+    throw new Error(msg);
+}
+"#;
+        let results = run_multi_script_worker_test(
+            &[("f/ok", script_ok), ("f/err", script_err)],
+            vec![
+                MultiScriptJob {
+                    script_path: "f/ok".to_string(),
+                    args: serde_json::json!({"x": 5}),
+                },
+                MultiScriptJob {
+                    script_path: "f/err".to_string(),
+                    args: serde_json::json!({"msg": "boom"}),
+                },
+                // Should still work after error in other script
+                MultiScriptJob {
+                    script_path: "f/ok".to_string(),
+                    args: serde_json::json!({"x": 10}),
+                },
+            ],
+        );
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0], Ok(serde_json::json!(10)));
+        assert!(results[1].is_err());
+        assert_eq!(results[1], Err("boom".to_string()));
+        assert_eq!(results[2], Ok(serde_json::json!(20)));
+    }
+}
+
+// ============================================================================
+// Deno Dedicated Worker Protocol Tests
+// ============================================================================
+
+mod dedicated_worker_protocol_deno {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command, Stdio};
+    use windmill_test_utils::{parse_dedicated_worker_line, DedicatedWorkerResult};
+    use windmill_worker::{
+        compute_ts_codegen, generate_deno_multi_script_wrapper, TsScriptEntry, DENO_PATH,
+    };
+
+    struct MultiScriptJob {
+        script_path: String,
+        args: serde_json::Value,
+    }
+
+    fn create_deno_worker_files(
+        dir: &std::path::Path,
+        scripts: &[(&str, &str)],
+    ) -> std::path::PathBuf {
+        let mut entries_data = Vec::new();
+        for (path, content) in scripts {
+            let safe_name = path.replace('/', "__");
+            std::fs::write(dir.join(format!("{safe_name}.ts")), content).unwrap();
+            entries_data.push((safe_name, path.to_string(), compute_ts_codegen(content)));
+        }
+
+        let entries: Vec<TsScriptEntry<'_>> = entries_data
+            .iter()
+            .map(|(safe, path, cg)| TsScriptEntry {
+                import_name: safe.as_str(),
+                original_path: path.as_str(),
+                codegen: cg,
+            })
+            .collect();
+
+        let wrapper = generate_deno_multi_script_wrapper(&entries);
+        let wrapper_path = dir.join("wrapper.ts");
+        std::fs::write(&wrapper_path, &wrapper).unwrap();
+        wrapper_path
+    }
+
+    fn run_deno_multi_script_test(
+        scripts: &[(&str, &str)],
+        jobs: Vec<MultiScriptJob>,
+    ) -> Vec<Result<serde_json::Value, String>> {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let wrapper_path = create_deno_worker_files(temp_dir.path(), scripts);
+        let wrapper_str = wrapper_path.to_str().unwrap();
+
+        let mut child = Command::new(DENO_PATH.as_str())
+            .args([
+                "run",
+                "--no-check",
+                "--unstable-unsafe-proto",
+                "--unstable-bare-node-builtins",
+                "-A",
+                wrapper_str,
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .current_dir(temp_dir.path())
+            .spawn()
+            .expect("Failed to spawn deno process");
+
+        let mut stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let mut reader = BufReader::new(stdout);
+
+        let mut start_line = String::new();
+        reader.read_line(&mut start_line).unwrap();
+        assert_eq!(
+            parse_dedicated_worker_line(start_line.trim()),
+            DedicatedWorkerResult::Start,
+            "Expected 'start', got: {}",
+            start_line.trim()
+        );
+
+        let mut results = Vec::new();
+        for job in &jobs {
+            writeln!(stdin, "exec:{}:{}", job.script_path, job.args.to_string()).unwrap();
+            stdin.flush().unwrap();
+
+            let mut response = String::new();
+            reader.read_line(&mut response).unwrap();
+
+            match parse_dedicated_worker_line(response.trim()) {
+                DedicatedWorkerResult::Success(value) => results.push(Ok(value)),
+                DedicatedWorkerResult::Error(err) => {
+                    let msg = err["message"]
+                        .as_str()
+                        .unwrap_or("Unknown error")
+                        .to_string();
+                    results.push(Err(msg));
+                }
+                other => panic!("Unexpected response: {:?}", other),
+            }
+        }
+
+        writeln!(stdin, "end").unwrap();
+        stdin.flush().unwrap();
+        let _ = child.wait().expect("Worker process failed to exit");
+        results
+    }
+
+    #[test]
+    fn test_deno_dedicated_worker_simple() {
+        let results = run_deno_multi_script_test(
+            &[(
+                "f/test/add",
+                "export function main(a: number, b: number): number { return a + b; }",
+            )],
+            vec![MultiScriptJob {
+                script_path: "f/test/add".to_string(),
+                args: serde_json::json!({"a": 3, "b": 4}),
+            }],
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], Ok(serde_json::json!(7)));
+    }
+
+    #[test]
+    fn test_deno_multi_script_routing() {
+        let results = run_deno_multi_script_test(
+            &[
+                (
+                    "f/math/add",
+                    "export function main(a: number, b: number): number { return a + b; }",
+                ),
+                (
+                    "f/math/mul",
+                    "export function main(x: number, y: number): number { return x * y; }",
+                ),
+            ],
+            vec![
+                MultiScriptJob {
+                    script_path: "f/math/add".to_string(),
+                    args: serde_json::json!({"a": 3, "b": 4}),
+                },
+                MultiScriptJob {
+                    script_path: "f/math/mul".to_string(),
+                    args: serde_json::json!({"x": 5, "y": 6}),
+                },
+                MultiScriptJob {
+                    script_path: "f/math/add".to_string(),
+                    args: serde_json::json!({"a": 10, "b": 20}),
+                },
+            ],
+        );
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0], Ok(serde_json::json!(7)));
+        assert_eq!(results[1], Ok(serde_json::json!(30)));
+        assert_eq!(results[2], Ok(serde_json::json!(30)));
+    }
+
+    #[test]
+    fn test_deno_multi_script_error_isolation() {
+        let results = run_deno_multi_script_test(
+            &[
+                (
+                    "f/ok",
+                    "export function main(x: number): number { return x * 2; }",
+                ),
+                (
+                    "f/err",
+                    "export function main(msg: string): never { throw new Error(msg); }",
+                ),
+            ],
+            vec![
+                MultiScriptJob {
+                    script_path: "f/ok".to_string(),
+                    args: serde_json::json!({"x": 5}),
+                },
+                MultiScriptJob {
+                    script_path: "f/err".to_string(),
+                    args: serde_json::json!({"msg": "boom"}),
+                },
+                MultiScriptJob {
+                    script_path: "f/ok".to_string(),
+                    args: serde_json::json!({"x": 10}),
+                },
+            ],
+        );
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0], Ok(serde_json::json!(10)));
+        assert!(results[1].is_err());
+        assert_eq!(results[1], Err("boom".to_string()));
+        assert_eq!(results[2], Ok(serde_json::json!(20)));
+    }
 }
 
 // ============================================================================

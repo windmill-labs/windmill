@@ -3949,20 +3949,4 @@ export function preprocessor(input: string, when: Date) { return { x: input, ts:
         assert!(cg.date_conversions.is_empty());
         assert!(cg.preprocessor_spread.is_none());
     }
-
-    #[test]
-    fn test_bun_wrapper_bakes_in_args() {
-        let code = r#"export function main(x: string, y: number) { return x; }"#;
-        let cg = compute_ts_codegen(code);
-        let entries =
-            [TsScriptEntry { import_name: "main", original_path: "test/script", codegen: &cg }];
-        let wrapper = generate_multi_script_wrapper(&entries, "ts");
-        // Verify baked-in destructuring
-        assert!(wrapper.contains("let { x, y } = JSON.parse(line)"));
-        assert!(wrapper.contains("return [ x, y ]"));
-        assert!(wrapper.contains("\"test/script\""));
-        // Should NOT contain dynamic meta parsing
-        assert!(!wrapper.contains("registerScript"));
-        assert!(!wrapper.contains("metaStr"));
-    }
 }

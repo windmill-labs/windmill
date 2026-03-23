@@ -1254,7 +1254,7 @@ pub fn generate_multi_script_wrapper(
             r#"
 def transform_{i}(kwargs):
 {indented_transforms}
-    args = {{{}}}
+    args = {{{{}}}}
     {spread}
     for k, v in list(args.items()):
         if v == '<function call>':
@@ -1268,7 +1268,7 @@ def transform_{i}(kwargs):
             functions.push_str(&format!(
                 r#"
 def pre_transform_{i}(kwargs):
-    pre_args = {{{}}}
+    pre_args = {{{{}}}}
     {pre_spread}
     for k, v in list(pre_args.items()):
         if v == '<function call>':
@@ -2954,23 +2954,5 @@ mod tests {
         assert!(cg.pre_spread.is_some());
         let pre = cg.pre_spread.as_ref().unwrap();
         assert!(pre.contains("pre_args[\"input\"]"));
-    }
-
-    #[test]
-    fn test_python_wrapper_bakes_in_args() {
-        let code = "def main(x: str, y: int):\n    return x\n";
-        let cg = compute_py_codegen(code, "f/test/script");
-        let entries = [PyScriptEntry { original_path: "f/test/script", codegen: &cg }];
-        let wrapper = generate_multi_script_wrapper(&entries, false);
-        // Verify baked-in arg filtering
-        assert!(wrapper.contains("args[\"x\"]"));
-        assert!(wrapper.contains("args[\"y\"]"));
-        // Verify <function call> sentinel removal
-        assert!(wrapper.contains("<function call>"));
-        // Verify proper Python import
-        assert!(wrapper.contains("from f.test import script as _s0"));
-        // Should NOT contain dynamic meta parsing
-        assert!(!wrapper.contains("register_script"));
-        assert!(!wrapper.contains("meta_str"));
     }
 }
