@@ -22890,15 +22890,6 @@ components:
           type: string
         color:
           type: string
-        datatable_behaviors:
-          type: object
-          description: "Per-datatable fork behavior. Keys are datatable names, values are fork behaviors."
-          additionalProperties:
-            type: string
-            enum:
-              - schema_only
-              - schema_and_data
-              - keep_original
       required:
         - id
         - name

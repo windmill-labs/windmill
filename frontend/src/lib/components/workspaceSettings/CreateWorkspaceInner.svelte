@@ -32,9 +32,7 @@
 	import { jobManager } from '$lib/services/JobManager'
 	import Alert from '../common/alert/Alert.svelte'
 	import { base } from '$lib/base'
-	import { resource } from 'runed'
 	import Label from '../Label.svelte'
-	import Select from '../select/Select.svelte'
 
 	interface Props {
 		isFork?: boolean
@@ -52,16 +50,6 @@
 	let aiKey = $state('')
 	let codeCompletionEnabled = $state(true)
 	let checking = $state(false)
-
-	let allDatatables = resource([], async () =>
-		$workspaceStore
-			? WorkspaceService.listDataTables({
-					workspace: $workspaceStore ?? ''
-				})
-			: undefined
-	)
-	let datatableBehaviors: Record<string, 'schema_only' | 'schema_and_data' | 'keep_original'> =
-		$state({})
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
@@ -189,20 +177,13 @@
 				return
 			}
 
-			// Build datatable behaviors map, defaulting to keep_original
-			const behaviors: Record<string, 'schema_only' | 'schema_and_data' | 'keep_original'> = {}
-			for (const dt of allDatatables.current ?? []) {
-				behaviors[dt] = datatableBehaviors[dt] ?? 'keep_original'
-			}
-
 			try {
 				await WorkspaceService.createWorkspaceFork({
 					workspace: $workspaceStore!,
 					requestBody: {
 						id: prefixed_id,
 						name,
-						color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-						datatable_behaviors: behaviors
+						color: colorEnabled && workspaceColor ? workspaceColor : undefined
 					}
 				})
 			} catch (e) {
@@ -486,46 +467,6 @@
 					{/if}
 				</div>
 			</Label>
-			{#if isFork && allDatatables.current?.length}
-				<Label label="Data table behavior">
-					<span class="text-xs text-secondary">
-						Fork datatables to avoid changing production data while working
-					</span>
-					<div class="border rounded-md divide-y">
-						{#each allDatatables.current ?? [] as dt}
-							<div class="flex items-center gap-2 justify-between px-4 py-1.5">
-								<span class="text-xs">{dt}</span>
-								<Select
-									dropdownClass="max-w-96"
-									bind:value={
-										() => datatableBehaviors[dt] ?? 'keep_original',
-										(v) => (datatableBehaviors[dt] = v)
-									}
-									items={[
-										{
-											value: 'schema_only',
-											label: 'Clone schema only',
-											subtitle: 'Create a fork of the datatable with the same schema but no data'
-										},
-										{
-											value: 'schema_and_data',
-											label: 'Clone schema and data',
-											subtitle:
-												'Copy the database and all rows from every table. This may take a long time and use significant storage depending on the size of the source.'
-										},
-										{
-											value: 'keep_original',
-											label: 'Keep original',
-											subtitle:
-												'Share the same datatable. Edits to this datatable will also happen on the original workspace.'
-										}
-									]}
-								/>
-							</div>
-						{/each}
-					</div>
-				</Label>
-			{/if}
 			{#if !automateUsernameCreation}
 				<Label label="Your username in that workspace">
 					<TextInput
