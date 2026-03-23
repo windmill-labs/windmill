@@ -24651,6 +24651,7 @@ components:
           additionalProperties: true
         summary:
           type: string
+          nullable: true
           description: Short summary to be displayed when listed
       required:
         - script_path
