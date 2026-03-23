@@ -691,16 +691,16 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-8">
-			{#if edit}
-				<PermissionedAsLine
-					{permissionedAs}
-					onPermissionedAsChange={(pa, preserve) => {
-						selectedPermissionedAs = pa
-						preservePermissionedAs = preserve
-					}}
-				/>
-			{/if}
 			<Section label="Metadata">
 				<div class="flex flex-col gap-6">
 					<label class="flex flex-col gap-1">

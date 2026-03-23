@@ -52,7 +52,7 @@
 </script>
 
 {#if permissionedAs && $workspaceStore}
-	<div class="flex items-center gap-1.5 text-2xs text-tertiary mb-2">
+	<div class="flex items-center gap-1.5 text-2xs text-tertiary mb-4">
 		<span>Permissioned as</span>
 		{#if canPreserve}
 			<OnBehalfOfSelector
