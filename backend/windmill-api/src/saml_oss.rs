@@ -28,6 +28,11 @@ pub fn global_service() -> Router {
 }
 
 #[cfg(not(feature = "private"))]
+pub fn authed_service() -> Router {
+    Router::new()
+}
+
+#[cfg(not(feature = "private"))]
 pub async fn acs() -> String {
     // Implementation is not open source as it is a Windmill Enterprise Edition feature
     "SAML available only in enterprise version".to_string()
