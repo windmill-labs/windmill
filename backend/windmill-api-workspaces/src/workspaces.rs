@@ -5283,19 +5283,16 @@ async fn compare_workspace_settings(
             _ => true,
         };
         if has_changes {
+            // Only in source → ahead (source added after fork).
+            // Only in fork → behind (fork added it).
+            // Both exist but different → behind (fork diverged).
+            let ahead = if in_source && !in_fork { 1 } else { 0 };
+            let behind = if in_fork { 1 } else { 0 };
             diffs.push(WorkspaceDiffRow {
                 kind: "datatable".to_string(),
                 path: key.clone(),
-                ahead: if in_source && (!in_fork || has_changes) {
-                    1
-                } else {
-                    0
-                },
-                behind: if in_fork && (!in_source || has_changes) {
-                    1
-                } else {
-                    0
-                },
+                ahead,
+                behind,
                 has_changes: Some(true),
                 exists_in_source: Some(in_source),
                 exists_in_fork: Some(in_fork),
@@ -5327,19 +5324,13 @@ async fn compare_workspace_settings(
             _ => true,
         };
         if has_changes {
+            let ahead = if in_source && !in_fork { 1 } else { 0 };
+            let behind = if in_fork { 1 } else { 0 };
             diffs.push(WorkspaceDiffRow {
                 kind: "ducklake".to_string(),
                 path: key.clone(),
-                ahead: if in_source && (!in_fork || has_changes) {
-                    1
-                } else {
-                    0
-                },
-                behind: if in_fork && (!in_source || has_changes) {
-                    1
-                } else {
-                    0
-                },
+                ahead,
+                behind,
                 has_changes: Some(true),
                 exists_in_source: Some(in_source),
                 exists_in_fork: Some(in_fork),
