@@ -137,7 +137,19 @@
 		delete args['_MODULES']
 		return args
 	})
-	let schema = $derived(approvalInfo?.form_schema?.schema ?? {})
+	let rawFormSchema = $derived(approvalInfo?.form_schema?.schema ?? {})
+	let schema = $derived.by(() => {
+		if (
+			!rawFormSchema ||
+			typeof rawFormSchema !== 'object' ||
+			Object.keys(rawFormSchema).length === 0
+		)
+			return {}
+		// If the schema already has 'properties', use it as-is (classic flow format)
+		if ('properties' in rawFormSchema) return rawFormSchema
+		// Otherwise wrap as properties (WAC format: form.schema is a flat map of field definitions)
+		return { properties: rawFormSchema, order: Object.keys(rawFormSchema) }
+	})
 	let hasForm = $derived(schema && typeof schema === 'object' && Object.keys(schema).length > 0)
 	let selfApprovalDisabled = $derived(
 		approvalInfo?.approval_conditions?.self_approval_disabled ?? false

@@ -94,7 +94,8 @@
 					'mssql',
 					'graphql',
 					'duckdb',
-					'oracledb'
+					'oracledb',
+					'deno'
 				].includes(lang)
 			) {
 				return false
