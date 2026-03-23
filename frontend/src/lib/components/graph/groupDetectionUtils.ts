@@ -5,88 +5,6 @@ export const VIRTUAL_NODE_IDS = new Set(['Input', 'Result', 'Trigger'])
 
 type FlowNode = { id: string; parentIds?: string[] }
 
-export type GroupMembership = {
-	memberIds: string[]
-	valid: boolean
-	error?: string
-	/** Topo sort slice range [firstIdx, lastIdx] — used for nesting depth */
-	topoRange?: [number, number]
-	/** Nesting depth: number of other groups whose topoRange strictly contains this one */
-	depth?: number
-}
-
-/**
- * Compute the set of graph nodes that belong to a group defined by start_id and end_id.
- * Uses topological sort and slices between start and end — valid because windmill flows
- * are series-parallel (branches always converge at explicit end nodes).
- */
-export function computeGroupNodeIds(
-	startId: string,
-	endId: string,
-	flowNodes: FlowNode[]
-): GroupMembership {
-	if (startId === endId) {
-		const sorted = topologicalSort(flowNodes)
-		const idx = sorted.findIndex((n) => n.id === startId)
-		return idx !== -1
-			? { memberIds: [startId], valid: true, topoRange: [idx, idx] as [number, number] }
-			: { memberIds: [], valid: false, error: 'Start node not found' }
-	}
-
-	const sorted = topologicalSort(flowNodes)
-	// Topo sort puts bottom-of-graph nodes first, top-of-graph nodes last.
-	// start_id = top of group (visually) = topo-last, end_id = bottom (visually) = topo-first.
-	const endIdx = sorted.findIndex((n) => n.id === endId)
-
-	// If end_id is a container (branchall, forloop, etc.), its last graph node
-	// is `${endId}-end`. Use that as the actual start of the slice.
-	const endNodeId = sorted.some((n) => n.id === `${endId}-end`) ? `${endId}-end` : endId
-	let firstIdx = endNodeId === endId ? endIdx : sorted.findIndex((n) => n.id === endNodeId)
-
-	let lastIdx = sorted.findIndex((n) => n.id === startId)
-
-	if (firstIdx === -1 || lastIdx === -1) {
-		return { memberIds: [], valid: false, error: 'Start or end node not found' }
-	}
-	if (firstIdx > lastIdx) {
-		return { memberIds: [], valid: false, error: 'end_id must be topologically before start_id' }
-	}
-
-	// Extend range to fully include any groups partially within the range
-	const groupHeadIndices = new Map<string, number>()
-	const groupEndIndices = new Map<string, number>()
-	for (let i = 0; i < sorted.length; i++) {
-		const id = sorted[i].id
-		if (id.startsWith('group:') && id.endsWith('-end')) {
-			groupEndIndices.set(id.slice('group:'.length, -'-end'.length), i)
-		} else if (id.startsWith('group:')) {
-			groupHeadIndices.set(id.slice('group:'.length), i)
-		}
-	}
-
-	let changed = true
-	while (changed) {
-		changed = false
-		for (const [groupId, headIdx] of groupHeadIndices) {
-			const endIdx = groupEndIndices.get(groupId)
-			if (endIdx === undefined) continue
-			const headIn = headIdx >= firstIdx && headIdx <= lastIdx
-			const endIn = endIdx >= firstIdx && endIdx <= lastIdx
-			if (headIn !== endIn) {
-				firstIdx = Math.min(firstIdx, endIdx, headIdx)
-				lastIdx = Math.max(lastIdx, endIdx, headIdx)
-				changed = true
-			}
-		}
-	}
-
-	return {
-		memberIds: sorted.slice(firstIdx, lastIdx + 1).map((n) => n.id),
-		valid: true,
-		topoRange: [firstIdx, lastIdx] as [number, number]
-	}
-}
-
 /**
  * Compute the set of module IDs that belong to a group defined by start_id and end_id.
  * Uses the flattened module list (from getAllModules) and slices between start and end.
@@ -113,8 +31,8 @@ export function computeGroupModuleIds(
 
 /**
  * Check whether a set of selected node IDs can form a valid group.
- * Uses topologicalSort to find start (first) and end (last) of selection,
- * then validates with computeGroupNodeIds.
+ * Normalizes marker IDs (branch/forloop) to parent module IDs,
+ * then uses topologicalSort to derive start and end boundaries.
  */
 export function canFormValidGroup(
 	selectedIds: string[],
@@ -123,46 +41,46 @@ export function canFormValidGroup(
 ): { valid: true; startId: string; endId: string } | { valid: false } {
 	if (selectedIds.length === 0) return { valid: false }
 
-	const selectedSet = new Set(selectedIds)
+	// Normalize marker IDs to parent module IDs.
+	// -start (forloop head) → parent ID. -end/-branch-* → skip if parent covered, else reject.
+	const rawSet = new Set(selectedIds)
+	const normalizedIds: string[] = []
 
-	// Topological sort of the full graph, then filter to selected nodes
+	for (const id of selectedIds) {
+		const parentId = id.replace(/-(end|start|branch-.*)$/, '')
+		if (parentId === id) {
+			normalizedIds.push(id)
+			continue
+		}
+		if (id.endsWith('-start')) {
+			normalizedIds.push(parentId)
+			continue
+		}
+		// -end or -branch-*: parent must be covered (directly or via -start)
+		if (!rawSet.has(parentId) && !rawSet.has(`${parentId}-start`)) {
+			return { valid: false }
+		}
+	}
+
+	if (normalizedIds.length === 0) return { valid: false }
+	const normalizedSet = new Set(normalizedIds)
+
+	// Topo sort full graph, filter to normalized selection
 	const sorted = topologicalSort(flowNodes)
-	const selectedSorted = sorted.filter((n) => selectedSet.has(n.id))
+	const selectedSorted = sorted.filter((n) => normalizedSet.has(n.id))
 
 	if (selectedSorted.length === 0) return { valid: false }
 
-	// Reject if selection contains any virtual or excluded node
+	// Reject virtual or excluded nodes
 	if (selectedSorted.some((n) => VIRTUAL_NODE_IDS.has(n.id) || excludeIds?.has(n.id))) {
 		return { valid: false }
 	}
 
-	// Topo sort: index 0 = bottom of flow, last index = top of flow
-	// start_id = top (visually), end_id = bottom (visually)
+	// Topo order is bottom-first: first = bottom (end), last = top (start)
 	const startId = selectedSorted[selectedSorted.length - 1].id
 	const endId = selectedSorted[0].id
 
-	// Validate that the computed members match the selection
-	const membership = computeGroupNodeIds(startId, endId, flowNodes)
-	if (!membership.valid) return { valid: false }
-
-	// Check that all selected ids are in the computed members
-	const memberSet = new Set(membership.memberIds)
-	for (const id of selectedIds) {
-		if (!memberSet.has(id)) return { valid: false }
-	}
-
-	// Derive boundaries from expanded membership (which includes full groups)
-	// Filter out graph-internal marker nodes — start_id/end_id must be real module IDs
-	const realModules = membership.memberIds.filter(
-		(id) => !id.startsWith('group:') && !id.endsWith('-end')
-	)
-	if (realModules.length === 0) return { valid: false }
-
-	// memberIds are in topo order (bottom-first), so:
-	const expandedEndId = realModules[0]
-	const expandedStartId = realModules[realModules.length - 1]
-
-	return { valid: true, startId: expandedStartId, endId: expandedEndId }
+	return { valid: true, startId, endId }
 }
 
 /**
