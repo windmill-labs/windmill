@@ -263,13 +263,13 @@
 			{#each currentCloneJob.steps as step}
 				<div class="flex items-center gap-2 text-xs">
 					{#if step.status === 'done'}
-						<Check class="w-4 h-4 text-green-500" />
+						<Check class="w-4 h-4 shrink-0 text-green-500" />
 					{:else if step.status === 'running'}
-						<Loader2 class="w-4 h-4 animate-spin text-blue-500" />
+						<Loader2 class="w-4 h-4 shrink-0 animate-spin text-blue-500" />
 					{:else if step.status === 'error'}
-						<X class="w-4 h-4 text-red-500" />
+						<X class="w-4 h-4 shrink-0 text-red-500" />
 					{:else}
-						<div class="w-4 h-4 rounded-full border border-gray-300"></div>
+						<div class="w-4 h-4 shrink-0 rounded-full border border-gray-300"></div>
 					{/if}
 					<span
 						class:text-tertiary={step.status === 'pending'}
