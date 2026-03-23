@@ -204,7 +204,9 @@ async function generateMetadata(
   // degrade gracefully: locks will be generated using deployed script content only.
   try {
     await uploadScripts(tree, workspace);
+    console.log("[DEBUG] uploadScripts succeeded");
   } catch (e) {
+    console.log("[DEBUG] uploadScripts FAILED:", e);
     log.warn(colors.yellow(
       `Failed to upload scripts to temp storage (backend may be too old): ${e}. ` +
       `Locks will be generated using deployed script versions only — locally modified ` +

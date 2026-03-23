@@ -576,6 +576,23 @@ async function fetchScriptLock(
   }
 
   const extraHeaders = getHeaders();
+  const requestBody = {
+    raw_scripts: [
+      {
+        raw_code: scriptContent,
+        language: language,
+        script_path: remotePath,
+      },
+    ],
+    raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0
+      ? rawWorkspaceDependencies : null,
+    entrypoint: remotePath,
+    temp_script_refs: tempScriptRefs && Object.keys(tempScriptRefs).length > 0
+      ? tempScriptRefs : null,
+  };
+  if (requestBody.temp_script_refs) {
+    console.log(`[DEBUG fetchScriptLock] ${remotePath} temp_script_refs:`, JSON.stringify(requestBody.temp_script_refs));
+  }
   const rawResponse = await fetch(
     `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies`,
     {
@@ -585,20 +602,7 @@ async function fetchScriptLock(
         "Content-Type": "application/json",
         ...extraHeaders,
       },
-      body: JSON.stringify({
-        raw_scripts: [
-          {
-            raw_code: scriptContent,
-            language: language,
-            script_path: remotePath,
-          },
-        ],
-        raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0
-          ? rawWorkspaceDependencies : null,
-        entrypoint: remotePath,
-        temp_script_refs: tempScriptRefs && Object.keys(tempScriptRefs).length > 0
-          ? tempScriptRefs : null,
-      }),
+      body: JSON.stringify(requestBody),
     }
   );
 
@@ -607,6 +611,9 @@ async function fetchScriptLock(
     responseText = await rawResponse.text();
     const response = JSON.parse(responseText);
     const lock = response.lock;
+    if (requestBody.temp_script_refs) {
+      console.log(`[DEBUG fetchScriptLock] ${remotePath} response lock (first 200 chars):`, lock?.substring(0, 200));
+    }
     if (lock === undefined) {
       if (response?.["error"]?.["message"]) {
         throw new LockfileGenerationError(
