@@ -1463,19 +1463,27 @@ mod dedicated_worker_protocol_deno {
             writeln!(stdin, "exec:{}:{}", job.script_path, job.args.to_string()).unwrap();
             stdin.flush().unwrap();
 
-            let mut response = String::new();
-            reader.read_line(&mut response).unwrap();
-
-            match parse_dedicated_worker_line(response.trim()) {
-                DedicatedWorkerResult::Success(value) => results.push(Ok(value)),
-                DedicatedWorkerResult::Error(err) => {
-                    let msg = err["message"]
-                        .as_str()
-                        .unwrap_or("Unknown error")
-                        .to_string();
-                    results.push(Err(msg));
+            // Deno wrapper appends '\n' to console.log output, producing double newlines.
+            // Skip empty lines to find the actual response.
+            loop {
+                let mut response = String::new();
+                reader.read_line(&mut response).unwrap();
+                let trimmed = response.trim();
+                if trimmed.is_empty() {
+                    continue;
                 }
-                other => panic!("Unexpected response: {:?}", other),
+                match parse_dedicated_worker_line(trimmed) {
+                    DedicatedWorkerResult::Success(value) => results.push(Ok(value)),
+                    DedicatedWorkerResult::Error(err) => {
+                        let msg = err["message"]
+                            .as_str()
+                            .unwrap_or("Unknown error")
+                            .to_string();
+                        results.push(Err(msg));
+                    }
+                    other => panic!("Unexpected response: {:?}", other),
+                }
+                break;
             }
         }
 
