@@ -181,4 +181,4 @@ jobs:
             echo "Some tests failed"
             exit 1
           fi
-          echo " All checks passed"
+          echo "All checks passed"
