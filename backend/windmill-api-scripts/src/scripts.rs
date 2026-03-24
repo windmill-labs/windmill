@@ -2496,12 +2496,12 @@ async fn list_dedicated_with_deps(
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_as::<_, (String, ScriptLang, String)>(
-        "SELECT path, language, content FROM script
+        "SELECT DISTINCT ON (path) path, language, content FROM script
          WHERE workspace_id = $1
            AND archived = false
            AND dedicated_worker = true
            AND language = ANY($2)
-         ORDER BY created_at DESC",
+         ORDER BY path, created_at DESC",
     )
     .bind(&w_id)
     .bind(&[
@@ -2515,11 +2515,8 @@ async fn list_dedicated_with_deps(
 
     tx.commit().await?;
 
-    // Deduplicate by path (latest version first due to ORDER BY)
-    let mut seen = std::collections::HashSet::new();
     let result = rows
         .into_iter()
-        .filter(|(path, _, _)| seen.insert(path.clone()))
         .map(|(path, language, content)| {
             let dep_names =
                 windmill_common::scripts::extract_workspace_dependencies_annotated_refs(
