@@ -950,6 +950,7 @@ async fn get_otel_tracing_proxy_envs(
             TRACING_PROXY_CA_CERT_PATH.to_string(),
         ),
         ("CURL_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("GIT_SSL_CAINFO", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("DENO_CERT", TRACING_PROXY_CA_CERT_PATH.to_string()),
     ])
 }
