@@ -1694,9 +1694,9 @@ async fn check_git_sync_access(db: &DB, w_id: &str) -> Result<()> {
     .await?
     .unwrap_or(0);
 
-    if user_count > 3 {
+    if user_count > 2 {
         return Err(Error::BadRequest(
-            "Git sync is available for workspaces with up to 3 members. \
+            "Git sync is available for workspaces with up to 2 members. \
              Upgrade to Windmill Enterprise Edition for unlimited workspace members."
                 .to_string(),
         ));
@@ -1728,13 +1728,13 @@ async fn get_git_sync_enabled(
     .await?
     .unwrap_or(0);
 
-    let enabled = user_count <= 3;
+    let enabled = user_count <= 2;
     Ok(Json(serde_json::json!({
         "enabled": enabled,
         "reason": if enabled { Some("free_tier") } else { None::<&str> },
         "max_repos": if enabled { Some(1) } else { None::<i32> },
         "user_count": user_count,
-        "max_users": 3,
+        "max_users": 2,
     })))
 }
 
