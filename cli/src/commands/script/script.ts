@@ -1,7 +1,7 @@
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import { readFile, writeFile, stat } from "node:fs/promises";
+import { readFile, writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
@@ -1069,16 +1069,22 @@ async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
   }
 }
 
+const languageAliases: Record<string, ScriptLanguage> = {
+  python: "python3",
+};
+
 async function bootstrap(
   opts: GlobalOptions & { summary: string; description: string },
   scriptPath: string,
-  language: ScriptLanguage
+  language: ScriptLanguage | string
 ) {
   if (!validatePath(scriptPath)) {
     return;
   }
 
-  const scriptInitialCode = scriptBootstrapCode[language];
+  const resolvedLanguage = (languageAliases[language] ?? language) as ScriptLanguage;
+
+  const scriptInitialCode = scriptBootstrapCode[resolvedLanguage];
   if (scriptInitialCode === undefined) {
     throw new Error("Language unknown");
   }
@@ -1086,7 +1092,7 @@ async function bootstrap(
   const config = await readConfigFile();
 
   const extension = filePathExtensionFromContentType(
-    language,
+    resolvedLanguage,
     config.defaultTs
   );
   const scriptCodeFileFullPath = scriptPath + extension;
@@ -1117,6 +1123,9 @@ async function bootstrap(
     scriptMetadata as Record<string, any>,
     yamlOptions
   );
+
+  const parentDir = path.dirname(scriptCodeFileFullPath);
+  await mkdir(parentDir, { recursive: true });
 
   await writeFile(scriptCodeFileFullPath, scriptInitialCode, {
     flag: 'wx', encoding: 'utf-8',
