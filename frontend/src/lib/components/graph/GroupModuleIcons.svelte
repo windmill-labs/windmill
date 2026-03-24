@@ -7,13 +7,15 @@
 	import type { FlowNodeState } from '$lib/components/graph/util'
 	import type { GraphModuleState } from './model'
 	import type { FlowModule } from '$lib/gen'
+	import type { GraphEventHandlers } from './graphBuilder.svelte'
 
 	interface Props {
 		modules: FlowModule[]
 		flowModuleStates?: Record<string, GraphModuleState> | undefined
+		eventHandlers?: GraphEventHandlers
 	}
 
-	let { modules, flowModuleStates }: Props = $props()
+	let { modules, flowModuleStates, eventHandlers }: Props = $props()
 
 	const { selectionManager } = getGraphContext()
 
@@ -104,6 +106,7 @@
 
 	function selectModule(mod: FlowModule) {
 		selectionManager.selectId(mod.id)
+		eventHandlers?.select(mod.id)
 	}
 </script>
 
