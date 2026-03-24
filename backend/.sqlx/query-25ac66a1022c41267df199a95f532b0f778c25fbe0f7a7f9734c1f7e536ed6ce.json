@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM raw_script_temp WHERE created_at < NOW() - INTERVAL '1 week'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "25ac66a1022c41267df199a95f532b0f778c25fbe0f7a7f9734c1f7e536ed6ce"
+}

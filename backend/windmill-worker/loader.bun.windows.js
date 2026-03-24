@@ -1,3 +1,6 @@
+// Injected by backend: maps normalized paths to temp storage hashes (or null)
+const TEMP_SCRIPT_REFS = TEMP_SCRIPT_REFS_PLACEHOLDER;
+
 // Windows-specific bun loader that uses a virtual "windmill-url" namespace instead
 // of writing .url files to disk. This avoids Windows path issues (backslashes in
 // resolve(), 8.3 short filenames, drive letter prefixes). The virtual namespace
@@ -70,7 +73,13 @@ const p = {
       const rawScriptPath = isAbsolute
         ? `${path}${endExt}`
         : `${importerPath}/../${path}${endExt}`;
-      return { path: normalizePath(rawScriptPath), namespace: "windmill-url" };
+      const normalized = normalizePath(rawScriptPath);
+      // Look up temp script hash (keys are extensionless paths)
+      const lookupPath = normalized.replace(/\.ts$/, "");
+      const hash = TEMP_SCRIPT_REFS?.[lookupPath];
+      // Encode hash in the path so onLoad can extract it and append to fetch URL
+      const resolvedPath = hash ? `${normalized}?temp_script_hash=${hash}` : normalized;
+      return { path: resolvedPath, namespace: "windmill-url" };
     }
 
     build.onLoad({ filter: filterLoad }, async (args) => {
@@ -80,8 +89,13 @@ const p = {
 
     // Load windmill scripts by fetching from the API
     build.onLoad({ filter: /.*/, namespace: "windmill-url" }, async (args) => {
-      const path = args.path.replace(/^windmill-url:/, "");
-      const url = `${base_internal_url}/api/w/${w_id}/scripts/RAW_GET_ENDPOINT/p/${path}`;
+      // Extract temp_script_hash if embedded in the path by resolveWindmillImport
+      const [scriptPath, queryString] = args.path.replace(/^windmill-url:/, "").split("?");
+      const hashParam = queryString?.startsWith("temp_script_hash=")
+        ? queryString.replace("temp_script_hash=", "")
+        : undefined;
+      const url = `${base_internal_url}/api/w/${w_id}/scripts/RAW_GET_ENDPOINT/p/${scriptPath}`
+        + (hashParam ? `?temp_script_hash=${hashParam}` : "");
       const req = await fetch(url, {
         method: "GET",
         headers: {
@@ -124,7 +138,8 @@ const p = {
 
     // Resolve nested imports from within windmill-url modules
     build.onResolve({ filter: /\.ts$/, namespace: "windmill-url" }, (args) => {
-      const importer = args.importer.replace(/^windmill-url:/, "");
+      // Strip any query string from the importer path before resolving
+      const importer = args.importer.replace(/^windmill-url:/, "").split("?")[0];
       return resolveWindmillImport(importer, args.path);
     });
   },

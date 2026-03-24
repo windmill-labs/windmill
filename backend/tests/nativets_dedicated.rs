@@ -32,6 +32,7 @@ mod prewarmed_isolate_tests {
             "test-workspace",
             "f/test/script",
             LoaderMode::BrowserBundle,
+            &None,
         )
         .await
         .expect("build_loader failed");

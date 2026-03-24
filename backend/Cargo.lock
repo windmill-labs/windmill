@@ -16260,6 +16260,7 @@ dependencies = [
  "serde_json",
  "serde_yml",
  "sqlx",
+ "tracing",
  "url",
  "windmill-api-auth",
  "windmill-common",
@@ -16898,8 +16899,6 @@ dependencies = [
  "async-recursion",
  "itertools 0.14.0",
  "lazy_static",
- "malachite",
- "malachite-bigint",
  "pep440_rs",
  "phf 0.11.3",
  "regex",
@@ -16956,7 +16955,6 @@ dependencies = [
  "serde",
  "serde_json",
  "windmill-parser",
- "windmill-types",
 ]
 
 [[package]]
@@ -17465,6 +17463,7 @@ dependencies = [
  "strum 0.27.2",
  "tracing",
  "uuid",
+ "windmill-parser",
 ]
 
 [[package]]

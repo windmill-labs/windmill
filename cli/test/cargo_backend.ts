@@ -63,11 +63,11 @@ export class CargoBackend {
 
     // Determine default features based on environment
     // CI mode: minimal features (zip only)
-    // Local mode with license key: full features (zip, private, enterprise, license)
+    // Local mode with license key: full features (zip, private, enterprise, license, python)
     // Local mode without license key: zip only (EE features reject API calls without valid license)
     const isCI = process.env["CI_MINIMAL_FEATURES"] === "true";
     const hasLicenseKey = !!process.env["EE_LICENSE_KEY"];
-    const defaultFeatures = isCI ? ["zip"] : (hasLicenseKey ? ["zip", "private", "enterprise", "license"] : ["zip"]);
+    const defaultFeatures = isCI ? ["zip"] : (hasLicenseKey ? ["zip", "private", "enterprise", "license", "python"] : ["zip", "python"]);
 
     // Parse additional features from environment variable
     const envFeatures = process.env["TEST_FEATURES"]?.split(",").filter(f => f.trim()) || [];
@@ -328,6 +328,8 @@ export class CargoBackend {
       SQLX_OFFLINE: "true",
       // Disable embedding to speed up startup
       DISABLE_EMBEDDING: "true",
+      // Skip worker version check for workspace deps (workers need time to report version)
+      WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: "1",
       // Create default admin user
       CREATE_SUPERADMIN_IF_NOT_EXISTS: "1",
       SUPERADMIN_EMAIL: this.config.username,
@@ -708,6 +710,7 @@ export class CargoBackend {
       this.deleteAll("resources"),
       this.deleteAll("variables"),
       this.deleteAll("folders"),
+      this.deleteAllWorkspaceDeps(),
     ]);
 
     console.log("Workspace reset complete");
@@ -733,6 +736,28 @@ export class CargoBackend {
       }
     } catch {
       // Ignore listing failures
+    }
+  }
+
+  private async deleteAllWorkspaceDeps(): Promise<void> {
+    try {
+      const listResponse = await this.apiRequest(`/api/w/${this.config.workspace}/workspace_dependencies/list`);
+      if (!listResponse.ok) return;
+
+      const items = await listResponse.json() as { language: string; name?: string }[];
+      for (const item of items) {
+        try {
+          const nameParam = item.name ? `?name=${encodeURIComponent(item.name)}` : "";
+          await this.apiRequest(
+            `/api/w/${this.config.workspace}/workspace_dependencies/delete/${item.language}${nameParam}`,
+            { method: "POST" }
+          );
+        } catch {
+          // Ignore individual deletion failures
+        }
+      }
+    } catch {
+      // Ignore failures
     }
   }
 }

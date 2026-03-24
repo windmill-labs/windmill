@@ -710,10 +710,13 @@ pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
             cmd.args(args);
             cmd
         } else {
-            panic!(
-                "BUG: unshare isolation is enabled but UNSHARE_PATH is None. \
-                This should have been caught at worker startup."
+            tracing::error!(
+                "unshare isolation is enabled but UNSHARE_PATH is not available. \
+                Running job without isolation. Check Instance Settings > Job Isolation."
             );
+            let mut cmd = Command::new(program);
+            cmd.args(args);
+            cmd
         }
     } else {
         let mut cmd = Command::new(program);

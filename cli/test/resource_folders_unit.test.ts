@@ -15,6 +15,7 @@ import {
   isAppPath,
   isRawAppPath,
   isFolderResourcePath,
+  isFolderResourcePathAnyFormat,
   detectFolderResourceType,
   isRawAppBackendPath,
   isAppInlineScriptPath,
@@ -211,6 +212,39 @@ describe("isFolderResourcePath", () => {
   test("returns false for non-folder paths", () => {
     expect(isFolderResourcePath("f/script.ts")).toBe(false);
     expect(isFolderResourcePath("f/var.variable.yaml")).toBe(false);
+  });
+});
+
+// This is the bug that isFolderResourcePathAnyFormat fixes:
+// when nonDottedPaths is false (default), isFolderResourcePath misses non-dotted paths
+// like "f/my_raw__raw_app/backend/a.ts", causing raw app backend scripts to leak
+// into the standalone script list during generate-metadata.
+describe("isFolderResourcePathAnyFormat", () => {
+  test("detects non-dotted paths even when global setting is dotted", () => {
+    setNonDottedPaths(false);
+    expect(isFolderResourcePathAnyFormat("f/my_raw__raw_app/backend/a.ts")).toBe(true);
+    expect(isFolderResourcePathAnyFormat("f/my_flow__flow/step.ts")).toBe(true);
+    expect(isFolderResourcePathAnyFormat("f/dashboard__app/inline.ts")).toBe(true);
+  });
+
+  test("detects dotted paths even when global setting is non-dotted", () => {
+    setNonDottedPaths(true);
+    expect(isFolderResourcePathAnyFormat("f/my_raw.raw_app/backend/a.ts")).toBe(true);
+    expect(isFolderResourcePathAnyFormat("f/my_flow.flow/step.ts")).toBe(true);
+    expect(isFolderResourcePathAnyFormat("f/dashboard.app/inline.ts")).toBe(true);
+  });
+
+  test("rejects non-folder-resource paths", () => {
+    expect(isFolderResourcePathAnyFormat("f/my_script.ts")).toBe(false);
+    expect(isFolderResourcePathAnyFormat("f/var.variable.yaml")).toBe(false);
+  });
+
+  test("confirms isFolderResourcePath fails for mismatched format (the bug)", () => {
+    setNonDottedPaths(false);
+    // isFolderResourcePath misses non-dotted paths when setting is dotted
+    expect(isFolderResourcePath("f/my_raw__raw_app/backend/a.ts")).toBe(false);
+    // isFolderResourcePathAnyFormat catches it
+    expect(isFolderResourcePathAnyFormat("f/my_raw__raw_app/backend/a.ts")).toBe(true);
   });
 });
 
