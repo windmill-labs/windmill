@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.663.0](https://github.com/windmill-labs/windmill/compare/v1.662.0...v1.663.0) (2026-03-24)
+
+
+### Features
+
+* add summary field for native triggers ([#8476](https://github.com/windmill-labs/windmill/issues/8476)) ([5089a45](https://github.com/windmill-labs/windmill/commit/5089a458819abbc6f241bc354bebb91520bd1a52))
+* add typed request body to OpenAPI spec generation ([#8481](https://github.com/windmill-labs/windmill/issues/8481)) ([37ebaf4](https://github.com/windmill-labs/windmill/commit/37ebaf4d0ac342703498733f97778a552f979f6a))
+* **cli:** better stale scripts detection [#3](https://github.com/windmill-labs/windmill/issues/3) ([#8480](https://github.com/windmill-labs/windmill/issues/8480)) ([9643006](https://github.com/windmill-labs/windmill/commit/9643006f1e90b991b334bb58caf62301bc26d09d))
+* Debounce node ([#8324](https://github.com/windmill-labs/windmill/issues/8324)) ([5d1c54d](https://github.com/windmill-labs/windmill/commit/5d1c54d9b33d6ff6f2c98481a2740d1e7629cdfa))
+* surface permissioned_as selector in trigger editor UI ([#8475](https://github.com/windmill-labs/windmill/issues/8475)) ([f035b53](https://github.com/windmill-labs/windmill/commit/f035b538bbd786445526339f88be8f33a3628105))
+
+
+### Bug Fixes
+
+* clean up stale dependency map entries for renamed scripts ([#8492](https://github.com/windmill-labs/windmill/issues/8492)) ([47c0c36](https://github.com/windmill-labs/windmill/commit/47c0c363f4fc1d9af7efd07ea172e32989ce50d2))
+* **cli:** add Svelte 5 event delegation guidance and safe push to raw-app skill ([#8466](https://github.com/windmill-labs/windmill/issues/8466)) ([911df95](https://github.com/windmill-labs/windmill/commit/911df958e78d2dab9823dfa7d7e5c9824fc2d565))
+* Fix worker panic when job_isolation changed to unshare at runtime ([#8490](https://github.com/windmill-labs/windmill/issues/8490)) ([cbe47c0](https://github.com/windmill-labs/windmill/commit/cbe47c0b6c22f79452d020777e481ee26970f25b))
+* improve SQS retries ([3c8d351](https://github.com/windmill-labs/windmill/commit/3c8d351c9722a089133871019d27cf3bc3cdc159))
+* Move database manager SQL queries to backend ([#8306](https://github.com/windmill-labs/windmill/issues/8306)) ([aa30fd2](https://github.com/windmill-labs/windmill/commit/aa30fd252dcf40233d191c43a6293fb9feabf010))
+* prevent SQL injection in job query parameters ([#8494](https://github.com/windmill-labs/windmill/issues/8494)) ([54f5a19](https://github.com/windmill-labs/windmill/commit/54f5a19377e9df712e18f85f896e21b1776981ed))
+* respect NO_COLOR env variable for stdout log output ([#8483](https://github.com/windmill-labs/windmill/issues/8483)) ([f329ee7](https://github.com/windmill-labs/windmill/commit/f329ee7aaefbae0ad344743c40825440a936bd30))
+* show effective isolation level on workers page ([#8491](https://github.com/windmill-labs/windmill/issues/8491)) ([37886ed](https://github.com/windmill-labs/windmill/commit/37886edda1443293806a9b1b810196b72e076b12))
+* skip debounce arg accumulation when batch table is empty (CE) ([#8485](https://github.com/windmill-labs/windmill/issues/8485)) ([010753c](https://github.com/windmill-labs/windmill/commit/010753c73ac85237af50acadf9c08567b1bc993c))
+* stop_after_if with empty error_message prevents flow from stopping ([#8464](https://github.com/windmill-labs/windmill/issues/8464)) ([1503bf9](https://github.com/windmill-labs/windmill/commit/1503bf948e3340b8a6933d71885f8f2cb8dc1867))
+
 ## [1.662.0](https://github.com/windmill-labs/windmill/compare/v1.661.0...v1.662.0) (2026-03-20)
 
 
