@@ -87,11 +87,11 @@
 	}
 
 	function applyConfig(config: AIConfig | undefined) {
-		aiProviders = config?.providers ?? {}
+		aiProviders = clone(config?.providers ?? {})
 		defaultModel = config?.default_model?.model
 		codeCompletionModel = config?.code_completion_model?.model
-		customPrompts = config?.custom_prompts ?? {}
-		maxTokensPerModel = config?.max_tokens_per_model ?? {}
+		customPrompts = clone(config?.custom_prompts ?? {})
+		maxTokensPerModel = clone(config?.max_tokens_per_model ?? {})
 		for (const mode of ['edit', 'fix', 'gen']) {
 			if (!(mode in customPrompts)) {
 				customPrompts[mode] = ''
