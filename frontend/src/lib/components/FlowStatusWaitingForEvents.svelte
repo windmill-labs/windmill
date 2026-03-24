@@ -100,7 +100,7 @@
 				</div>
 			{/if}
 			<div>
-				<Button variant="accent" onClick={() => continu(true)} {loading} unifiedSize="md">
+				<Button variant="accent" onClick={() => continu(true)} disabled={loading} unifiedSize="md">
 					Resume
 					<Tooltip class="text-white">Resume or approve this suspended step</Tooltip>
 				</Button>
