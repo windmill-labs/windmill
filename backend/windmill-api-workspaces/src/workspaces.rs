@@ -1683,9 +1683,7 @@ fn cleanup_legacy_git_sync_settings_in_memory(
 }
 
 async fn check_git_sync_access(db: &DB, w_id: &str) -> Result<()> {
-    if windmill_common::ee_oss::get_license_plan().await
-        == windmill_common::ee_oss::LicensePlan::Enterprise
-    {
+    if !windmill_common::ee_oss::LICENSE_KEY.read().await.is_empty() {
         return Ok(());
     }
     let user_count: i64 = sqlx::query_scalar!(
@@ -1711,8 +1709,7 @@ async fn get_git_sync_enabled(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<serde_json::Value> {
-    let has_ee = windmill_common::ee_oss::get_license_plan().await
-        == windmill_common::ee_oss::LicensePlan::Enterprise;
+    let has_ee = !windmill_common::ee_oss::LICENSE_KEY.read().await.is_empty();
     if has_ee {
         return Ok(Json(serde_json::json!({
             "enabled": true,
@@ -1819,8 +1816,7 @@ async fn edit_git_sync_repository(
     // Validate the resource path format
     validate_git_repo_resource_path(&new_config.git_repo_resource_path)?;
 
-    let has_ee = windmill_common::ee_oss::get_license_plan().await
-        == windmill_common::ee_oss::LicensePlan::Enterprise;
+    let has_ee = !windmill_common::ee_oss::LICENSE_KEY.read().await.is_empty();
 
     // Promotion mode: EE only
     if !has_ee && new_config.repository.use_individual_branch.unwrap_or(false) {
