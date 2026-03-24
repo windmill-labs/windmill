@@ -14,7 +14,7 @@ import {
 	findInsertIndexByNodeId,
 	buildStructureTree
 } from './flowStructure'
-import type { FlowGroup } from './groupEditor.svelte'
+import { groupKey, type FlowGroup } from './groupEditor.svelte'
 import { computeGroupModuleIds } from './groupDetectionUtils'
 
 export type InsertKind =
@@ -680,15 +680,16 @@ export function graphBuilder(
 					// --- Group items ---
 					if (item.kind === 'group') {
 						const g = item.group!
+						const gId = item.id
 
-						if (collapsedGroupIds.has(g.id)) {
+						if (collapsedGroupIds.has(gId)) {
 							// Collapsed group: single node
-							const nodeId = `collapsed-group:${g.id}`
+							const nodeId = `collapsed-group:${gId}`
 							const leafIds = collectLeafIds(item.branches[0].children)
 							nodes.push({
 								id: nodeId,
 								data: {
-									groupId: g.id,
+									groupId: gId,
 									summary: g.summary,
 									note: g.note,
 									color: g.color,
@@ -720,14 +721,14 @@ export function graphBuilder(
 							previousId = nodeId
 						} else {
 							// Expanded group: head → recurse → end
-							const headId = `group:${g.id}`
-							const endId = `group:${g.id}-end`
+							const headId = `group:${gId}`
+							const endId = `group:${gId}-end`
 							const localDisableMoveIds = [...disableMoveIds, headId]
 
 							const headNode: NodeLayout = {
 								id: headId,
 								data: {
-									groupId: g.id,
+									groupId: gId,
 									summary: g.summary,
 									note: g.note,
 									color: g.color,
@@ -743,7 +744,7 @@ export function graphBuilder(
 							const endNode: NodeLayout = {
 								id: endId,
 								data: {
-									groupId: g.id
+									groupId: gId
 								},
 								type: 'groupEnd',
 								selectable: false
@@ -779,7 +780,7 @@ export function graphBuilder(
 						if (index === 0) {
 							addEdge(
 								beforeNode.id,
-								collapsedGroupIds.has(g.id) ? `collapsed-group:${g.id}` : `group:${g.id}`,
+								collapsedGroupIds.has(gId) ? `collapsed-group:${gId}` : `group:${gId}`,
 								undefined,
 								prefix,
 								{
@@ -1139,6 +1140,7 @@ export function graphBuilder(
 
 							const expandedGroups = (expandedData.groups ?? []).map((g) => ({
 								...g,
+								id: groupKey(g),
 								moduleIds: computeGroupModuleIds(g.start_id, g.end_id, getAllModules(expandedMods))
 							}))
 

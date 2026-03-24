@@ -58,6 +58,7 @@
 		GroupedModulesProxy,
 		type ExtendedOpenFlow
 	} from '$lib/components/graph/groupedModulesProxy.svelte'
+	import { GroupDisplayState } from '$lib/components/graph/groupEditor.svelte'
 	import {
 		type FlowStructureNode,
 		matchStructureNode,
@@ -137,6 +138,7 @@
 	// Get NoteEditor context for note position updates
 	const noteEditorContext = getNoteEditorContext()
 	const proxy = new GroupedModulesProxy(flowStore as unknown as StateStore<ExtendedOpenFlow>)
+	const groupDisplayState = new GroupDisplayState(() => flowStore.val.value?.groups ?? [])
 
 	$effect(() => {
 		if (!moveManager.movingModuleId) return
@@ -354,13 +356,12 @@
 	let deleteCallback: (() => void) | undefined = $state(undefined)
 	let dependents: Record<string, string[]> = $state({})
 
-	/** Confirmation gate for actions that would empty groups */
-	let emptyGroupsPending: import('$lib/components/graph/groupEditor.svelte').FlowGroup[] = $state(
-		[]
-	)
-	let emptyGroupsAction: (() => void) | undefined = $state(undefined)
-	let emptyGroupsCancel: (() => void) | undefined = $state(undefined)
-	let emptyGroupsActionLabel: 'delete' | 'move' = $state('delete')
+	/** Confirmation gate for actions that would empty or duplicate groups */
+	let affectedGroupsPending: import('$lib/components/graph/groupEditor.svelte').FlowGroup[] =
+		$state([])
+	let affectedGroupsAction: (() => void) | undefined = $state(undefined)
+	let affectedGroupsCancel: (() => void) | undefined = $state(undefined)
+	let affectedGroupsActionLabel: 'delete' | 'move' = $state('delete')
 
 	let graph: FlowGraphV2 | undefined = $state(undefined)
 	let noteMode = $state(false)
@@ -393,16 +394,19 @@
 			}
 		}
 
-		const { emptiedGroups, commit } = proxy.prepareMutation((tree) => {
+		const opts = { displayState: groupDisplayState }
+		const { emptiedGroups, duplicateGroups, commit } = proxy.prepareMutation((tree) => {
 			for (const id of ids) {
 				const found = findInStructure(tree, id)
 				if (found) found.parentChildren.splice(found.index, 1)
 			}
-		})
+		}, opts)
+
+		const affectedGroups = [...emptiedGroups, ...duplicateGroups]
 
 		const cb = () => {
 			push(history, flowStore.val)
-			commit()
+			commit({ removeDuplicates: duplicateGroups.length > 0 })
 			for (const id of ids) {
 				delete flowStateStore.val[id]
 			}
@@ -419,10 +423,10 @@
 			}
 		}
 
-		if (emptiedGroups.length > 0) {
-			emptyGroupsPending = emptiedGroups
-			emptyGroupsActionLabel = 'delete'
-			emptyGroupsAction = proceed
+		if (affectedGroups.length > 0) {
+			affectedGroupsPending = affectedGroups
+			affectedGroupsActionLabel = 'delete'
+			affectedGroupsAction = proceed
 		} else {
 			proceed()
 		}
@@ -563,36 +567,36 @@
 	</ConfirmationModal>
 
 	<ConfirmationModal
-		title={emptyGroupsPending.length === 1 ? 'Delete group?' : 'Delete groups?'}
-		confirmationText={emptyGroupsActionLabel === 'delete' ? 'Delete step' : 'Move step'}
-		open={emptyGroupsPending.length > 0}
+		title={affectedGroupsPending.length === 1 ? 'Remove group?' : 'Remove groups?'}
+		confirmationText={affectedGroupsActionLabel === 'delete' ? 'Delete step' : 'Move step'}
+		open={affectedGroupsPending.length > 0}
 		on:confirmed={() => {
-			emptyGroupsAction?.()
-			emptyGroupsPending = []
-			emptyGroupsAction = undefined
-			emptyGroupsCancel = undefined
+			affectedGroupsAction?.()
+			affectedGroupsPending = []
+			affectedGroupsAction = undefined
+			affectedGroupsCancel = undefined
 		}}
 		on:canceled={() => {
-			emptyGroupsCancel?.()
-			emptyGroupsPending = []
-			emptyGroupsAction = undefined
-			emptyGroupsCancel = undefined
+			affectedGroupsCancel?.()
+			affectedGroupsPending = []
+			affectedGroupsAction = undefined
+			affectedGroupsCancel = undefined
 		}}
 	>
-		{#if emptyGroupsPending.length === 1}
-			{@const group = emptyGroupsPending[0]}
+		{#if affectedGroupsPending.length === 1}
+			{@const group = affectedGroupsPending[0]}
 			<p
-				>The group{group.summary ? ` "${group.summary}"` : ''} will have no remaining steps and will
-				be deleted. Are you sure you want to {emptyGroupsActionLabel} the step?</p
+				>The group{group.summary ? ` "${group.summary}"` : ''} will be removed (empty or duplicate).
+				Are you sure you want to {affectedGroupsActionLabel} the step?</p
 			>
 		{:else}
-			<p>The following groups will have no remaining steps and will be deleted:</p>
+			<p>The following groups will be removed (empty or duplicate):</p>
 			<ul class="list-disc pl-4 mt-1">
-				{#each emptyGroupsPending as group}
-					<li>{group.summary || group.id}</li>
+				{#each affectedGroupsPending as group}
+					<li>{group.summary || `${group.start_id} → ${group.end_id}`}</li>
 				{/each}
 			</ul>
-			<p class="mt-2">Are you sure you want to {emptyGroupsActionLabel} the step?</p>
+			<p class="mt-2">Are you sure you want to {affectedGroupsActionLabel} the step?</p>
 		{/if}
 	</ConfirmationModal>
 </Portal>
@@ -633,6 +637,7 @@
 			modules={flowStore.val.value.modules}
 			groupedModules={proxy.items}
 			groupError={proxy.error}
+			{groupDisplayState}
 			{noteMode}
 			notes={flowStore.val.value.notes}
 			groups={flowStore.val.value.groups}
@@ -673,15 +678,18 @@
 					return
 				}
 
-				const { emptiedGroups, commit } = proxy.prepareMutation((tree) => {
+				const dsOpts = { displayState: groupDisplayState }
+				const { emptiedGroups, duplicateGroups, commit } = proxy.prepareMutation((tree) => {
 					const found = findInStructure(tree, id)
 					if (found) found.parentChildren.splice(found.index, 1)
-				})
+				}, dsOpts)
+
+				const affectedGroups = [...emptiedGroups, ...duplicateGroups]
 
 				const cb = () => {
 					push(history, flowStore.val)
 					selectNextId(id)
-					commit()
+					commit({ removeDuplicates: duplicateGroups.length > 0 })
 					refreshStateStore(flowStore)
 					onDelete?.(id)
 					delete flowStateStore.val[id]
@@ -695,10 +703,10 @@
 					}
 				}
 
-				if (emptiedGroups.length > 0) {
-					emptyGroupsPending = emptiedGroups
-					emptyGroupsActionLabel = 'delete'
-					emptyGroupsAction = proceed
+				if (affectedGroups.length > 0) {
+					affectedGroupsPending = affectedGroups
+					affectedGroupsActionLabel = 'delete'
+					affectedGroupsAction = proceed
 				} else {
 					proceed()
 				}
@@ -713,7 +721,8 @@
 					const movingId = moveManager.movingModuleId
 
 					let mutated = false
-					const { emptiedGroups, commit } = proxy.prepareMutation((tree) => {
+					const moveOpts = { displayState: groupDisplayState }
+					const { emptiedGroups, duplicateGroups, commit } = proxy.prepareMutation((tree) => {
 						let originalModules: FlowStructureNode[] | undefined
 						let targetModules: FlowStructureNode[] | undefined
 
@@ -757,16 +766,18 @@
 							targetModules.splice(insertIndex, 0, removed)
 						}
 						mutated = true
-					})
+					}, moveOpts)
 
 					if (!mutated) {
 						moveManager.clearMoving()
 						return
 					}
 
+					const affectedGroups = [...emptiedGroups, ...duplicateGroups]
+
 					const doMove = () => {
 						push(history, flowStore.val)
-						commit()
+						commit({ removeDuplicates: duplicateGroups.length > 0 })
 						if (movedIds.length > 1) {
 							selectionManager.selectByIds(movedIds)
 						} else {
@@ -777,11 +788,11 @@
 						dispatch('change')
 					}
 
-					if (emptiedGroups.length > 0) {
-						emptyGroupsPending = emptiedGroups
-						emptyGroupsActionLabel = 'move'
-						emptyGroupsAction = doMove
-						emptyGroupsCancel = () => moveManager.clearMoving()
+					if (affectedGroups.length > 0) {
+						affectedGroupsPending = affectedGroups
+						affectedGroupsActionLabel = 'move'
+						affectedGroupsAction = doMove
+						affectedGroupsCancel = () => moveManager.clearMoving()
 					} else {
 						doMove()
 					}
@@ -860,36 +871,39 @@
 					extraModules.push(loopModule)
 				}
 
-				proxy.applyTreeMutation((tree) => {
-					// Find target array in the snapshot
-					let targetArray: FlowStructureNode[] | undefined
-					if (
-						detail.sourceId == 'Input' ||
-						detail.targetId == 'Result' ||
-						detail.kind == 'trigger'
-					) {
-						targetArray = tree
-					}
-					dfsStructure(tree, (node, parentArray) => {
-						if (detail.branch && matchStructureNode(node, detail.branch.rootId)) {
-							targetArray = node.branches[detail.branch.branch]?.children
-						} else if (
-							matchStructureNode(node, detail.sourceId ?? '') ||
-							matchStructureNode(node, detail.targetId ?? '')
+				proxy.applyTreeMutation(
+					(tree) => {
+						// Find target array in the snapshot
+						let targetArray: FlowStructureNode[] | undefined
+						if (
+							detail.sourceId == 'Input' ||
+							detail.targetId == 'Result' ||
+							detail.kind == 'trigger'
 						) {
-							targetArray = parentArray
+							targetArray = tree
 						}
-					})
-					if (!targetArray) targetArray = tree
+						dfsStructure(tree, (node, parentArray) => {
+							if (detail.branch && matchStructureNode(node, detail.branch.rootId)) {
+								targetArray = node.branches[detail.branch.branch]?.children
+							} else if (
+								matchStructureNode(node, detail.sourceId ?? '') ||
+								matchStructureNode(node, detail.targetId ?? '')
+							) {
+								targetArray = parentArray
+							}
+						})
+						if (!targetArray) targetArray = tree
 
-					// Insert the structure node (correct kind for containers like branchone/branchall)
-					targetArray.splice(index, 0, moduleToStructureNode(module))
+						// Insert the structure node (correct kind for containers like branchone/branchall)
+						targetArray.splice(index, 0, moduleToStructureNode(module))
 
-					// For trigger: also insert the forloop node after it
-					if (loopModule) {
-						targetArray.splice(index + 1, 0, moduleToStructureNode(loopModule))
-					}
-				}, extraModules)
+						// For trigger: also insert the forloop node after it
+						if (loopModule) {
+							targetArray.splice(index + 1, 0, moduleToStructureNode(loopModule))
+						}
+					},
+					{ extraModules, displayState: groupDisplayState }
+				)
 
 				selectionManager.selectId(module.id)
 

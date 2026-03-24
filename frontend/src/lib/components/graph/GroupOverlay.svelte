@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
-	import { GROUP_HEADER_HEIGHT, type FlowGroup } from './groupEditor.svelte'
+	import { GROUP_HEADER_HEIGHT, groupKey, type FlowGroup } from './groupEditor.svelte'
 	import { getGraphContext } from './graphContext'
 	import { NoteColor, NOTE_COLORS } from './noteColors'
 	import type { GroupHeadN } from './graphBuilder.svelte'
@@ -20,11 +20,11 @@
 		const map: Record<string, { x: number; y: number; width: number; height: number } | null> = {}
 		const nodeMap = new Map(allNodes.map((n) => [n.id, n]))
 		for (const group of groups) {
-			if (graphContext?.groupDisplayState?.isRuntimeCollapsed(group.id)) {
+			if (graphContext?.groupDisplayState?.isRuntimeCollapsed(groupKey(group))) {
 				continue
 			}
-			const headId = `group:${group.id}`
-			const endId = `group:${group.id}-end`
+			const headId = `group:${groupKey(group)}`
+			const endId = `group:${groupKey(group)}-end`
 			const headNode = nodeMap.get(headId)
 			const endNode = nodeMap.get(endId)
 
@@ -34,14 +34,14 @@
 				const wrapperWidth = d.wrapperWidth ?? 275
 				const headHeight = headNode.measured?.height ?? GROUP_HEADER_HEIGHT
 				const topY = headNode.position.y + headHeight / 2
-				map[group.id] = {
+				map[groupKey(group)] = {
 					x: headCenterX - wrapperWidth / 2,
 					y: topY,
 					width: wrapperWidth,
 					height: endNode.position.y - topY
 				}
 			} else {
-				map[group.id] = null
+				map[groupKey(group)] = null
 			}
 		}
 		return map
@@ -71,19 +71,19 @@
 	}
 </script>
 
-{#each groups as group (group.id)}
-	{@const bounds = groupBoundsMap[group.id]}
+{#each groups as group (groupKey(group))}
+	{@const bounds = groupBoundsMap[groupKey(group)]}
 	{#if bounds}
 		<ViewportPortal target="back">
 			<div
 				class="absolute rounded-lg outline outline-1 -outline-offset-1 pointer-events-none {getOutlineColorClass(
 					group.color
 				)} {getBgColorClass(group.color)}"
-				class:opacity-30={isGroupDragged(group.id)}
+				class:opacity-30={isGroupDragged(groupKey(group))}
 				style:transform="translate({bounds.x}px, {bounds.y}px)"
 				style:width="{bounds.width}px"
 				style:height="{bounds.height}px"
-				style:z-index={-10 + (groupDepths[group.id] ?? 0)}
+				style:z-index={-10 + (groupDepths[groupKey(group)] ?? 0)}
 			></div>
 		</ViewportPortal>
 	{/if}

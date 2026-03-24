@@ -218,9 +218,6 @@ components:
       type: object
       description: A semantic group of flow modules for organizational purposes. Does not affect execution — modules remain in their original position in the flow. Groups provide naming and collapsibility in the editor. Members are computed dynamically from all nodes on paths between start_id and end_id.
       properties:
-        id:
-          type: string
-          description: Unique identifier for this group
         summary:
           type: string
           description: Display name for this group
@@ -241,7 +238,6 @@ components:
           type: string
           description: Color for the group in the flow editor
       required:
-        - id
         - start_id
         - end_id
 

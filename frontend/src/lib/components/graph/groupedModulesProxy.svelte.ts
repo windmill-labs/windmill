@@ -1,6 +1,6 @@
 import { untrack } from 'svelte'
 import type { FlowModule } from '$lib/gen'
-import { type FlowGroup, type GraphGroup } from './groupEditor.svelte'
+import { type FlowGroup, type GraphGroup, groupKey } from './groupEditor.svelte'
 import type { StateStore } from '$lib/utils'
 import { getAllModules } from '../flows/flowExplorer'
 import { computeGroupModuleIds } from './groupDetectionUtils'
@@ -10,6 +10,9 @@ import {
 	deriveGroupsFromStructure,
 	applyStructureToModules,
 	removeEmptyGroups,
+	findDuplicateGroups,
+	removeDuplicateGroups,
+	flattenStructureIds,
 	type FlowStructureNode
 } from './flowStructure'
 
@@ -65,22 +68,40 @@ export class GroupedModulesProxy {
 	 */
 	prepareMutation(
 		mutate: (tree: FlowStructureNode[]) => void,
-		extraModules?: FlowModule[]
-	): { emptiedGroups: FlowGroup[]; commit: () => void } {
+		opts?: {
+			extraModules?: FlowModule[]
+			displayState?: import('./groupEditor.svelte').GroupDisplayState
+		}
+	): {
+		emptiedGroups: FlowGroup[]
+		duplicateGroups: FlowGroup[]
+		commit: (commitOpts?: { removeDuplicates?: boolean }) => void
+	} {
 		const snapshot = $state.snapshot(this.#items) as FlowStructureNode[]
 		mutate(snapshot)
 
 		// Clean up empty groups and collect which ones were removed
 		const emptiedGroups = removeEmptyGroups(snapshot)
+		// Detect groups that became duplicates after the mutation
+		const duplicateGroups = findDuplicateGroups(snapshot)
 
-		const commit = () => {
+		const commit = (commitOpts?: { removeDuplicates?: boolean }) => {
+			if (commitOpts?.removeDuplicates && duplicateGroups.length > 0) {
+				removeDuplicateGroups(snapshot)
+			}
+
+			// Remap runtime state for groups whose boundaries shifted
+			if (opts?.displayState) {
+				this.#remapChangedGroupKeys(snapshot, opts.displayState)
+			}
+
 			// Build moduleMap lazily at commit time so it reflects the latest store state
 			const moduleMap = new Map<string, FlowModule>()
 			for (const m of getAllModules(this.#flowStore.val.value.modules)) {
 				moduleMap.set(m.id, m)
 			}
-			if (extraModules) {
-				for (const m of extraModules) {
+			if (opts?.extraModules) {
+				for (const m of opts.extraModules) {
 					moduleMap.set(m.id, m)
 				}
 			}
@@ -88,7 +109,7 @@ export class GroupedModulesProxy {
 			this.#flowStore.val.value.groups = deriveGroupsFromStructure(snapshot)
 		}
 
-		return { emptiedGroups, commit }
+		return { emptiedGroups, duplicateGroups, commit }
 	}
 
 	/**
@@ -98,13 +119,44 @@ export class GroupedModulesProxy {
 	 */
 	applyTreeMutation(
 		mutate: (tree: FlowStructureNode[]) => void,
-		extraModules?: FlowModule[]
+		opts?: {
+			extraModules?: FlowModule[]
+			displayState?: import('./groupEditor.svelte').GroupDisplayState
+		}
 	): void {
-		const { emptiedGroups, commit } = this.prepareMutation(mutate, extraModules)
+		const { emptiedGroups, duplicateGroups, commit } = this.prepareMutation(mutate, opts)
 		if (emptiedGroups.length > 0) {
 			console.error('applyTreeMutation: unexpected empty groups', emptiedGroups)
 		}
+		if (duplicateGroups.length > 0) {
+			console.error('applyTreeMutation: unexpected duplicate groups', duplicateGroups)
+		}
 		commit()
+	}
+
+	/** Remap runtime state for group nodes whose boundaries shifted after a mutation. */
+	#remapChangedGroupKeys(
+		snapshot: FlowStructureNode[],
+		displayState: import('./groupEditor.svelte').GroupDisplayState
+	): void {
+		const walk = (nodes: FlowStructureNode[]) => {
+			for (const node of nodes) {
+				if (node.kind === 'group') {
+					const oldKey = node.id
+					const flatIds = flattenStructureIds(node.branches[0].children)
+					const newKey = flatIds.length > 0 ? `${flatIds[0]}:${flatIds[flatIds.length - 1]}` : null
+					if (newKey && oldKey !== newKey) {
+						displayState.remapGroupKey(oldKey, newKey)
+					}
+					walk(node.branches[0].children)
+				} else {
+					for (const branch of node.branches) {
+						walk(branch.children)
+					}
+				}
+			}
+		}
+		walk(snapshot)
 	}
 
 	/** Rebuild from flowStore */
@@ -114,6 +166,7 @@ export class GroupedModulesProxy {
 		const allModules = getAllModules(modules)
 		const graphGroups: GraphGroup[] = allGroups.map((g) => ({
 			...g,
+			id: groupKey(g),
 			moduleIds: computeGroupModuleIds(g.start_id, g.end_id, allModules)
 		}))
 		try {

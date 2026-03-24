@@ -31,14 +31,15 @@
 		editor?.setCode(code)
 	}
 
-	function validateGroups(groups: { id: string }[] | undefined) {
+	function validateGroups(groups: { start_id: string; end_id: string }[] | undefined) {
 		if (!groups) return
 		const seen = new Set<string>()
 		for (const g of groups) {
-			if (seen.has(g.id)) {
-				throw new Error(`Duplicate group id: '${g.id}'`)
+			const key = `${g.start_id}:${g.end_id}`
+			if (seen.has(key)) {
+				throw new Error(`Duplicate group: '${g.start_id}' → '${g.end_id}'`)
 			}
-			seen.add(g.id)
+			seen.add(key)
 		}
 	}
 

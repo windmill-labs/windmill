@@ -16,7 +16,7 @@ export type StructureBranch = {
 }
 
 export type FlowStructureNode = {
-	/** FlowModule.id for modules, FlowGroup.id for groups */
+	/** FlowModule.id for modules, groupKey(g) for groups */
 	id: string
 	kind: 'leaf' | 'group' | ContainerKind
 	/** Only present when kind === 'group' */
@@ -165,7 +165,6 @@ function buildStructureTreeRecurse(
 					id: group.id,
 					kind: 'group',
 					group: {
-						id: group.id,
 						summary: group.summary,
 						note: group.note,
 						color: group.color,
@@ -432,4 +431,68 @@ export function computeGroupDepths(tree: FlowStructureNode[]): Record<string, nu
 	}
 	walk(tree, 0)
 	return depths
+}
+
+/**
+ * Find duplicate groups in the structure tree (same start_id:end_id after mutation).
+ * Returns the groups that should be removed (keeps the first, removes subsequent duplicates).
+ */
+export function findDuplicateGroups(nodes: FlowStructureNode[]): FlowGroup[] {
+	const duplicates: FlowGroup[] = []
+	const seen = new Set<string>()
+
+	function walk(items: FlowStructureNode[]): void {
+		for (const node of items) {
+			if (node.kind === 'group' && node.group) {
+				const flatIds = flattenStructureIds(node.branches[0].children)
+				if (flatIds.length > 0) {
+					const key = `${flatIds[0]}:${flatIds[flatIds.length - 1]}`
+					if (seen.has(key)) {
+						duplicates.push(node.group)
+					} else {
+						seen.add(key)
+					}
+				}
+				walk(node.branches[0].children)
+			} else {
+				for (const branch of node.branches) {
+					walk(branch.children)
+				}
+			}
+		}
+	}
+	walk(nodes)
+	return duplicates
+}
+
+/** Remove duplicate groups from the structure tree (keeps first occurrence). */
+export function removeDuplicateGroups(nodes: FlowStructureNode[]): FlowGroup[] {
+	const removed: FlowGroup[] = []
+	const seen = new Set<string>()
+
+	function walk(items: FlowStructureNode[]): void {
+		for (let i = items.length - 1; i >= 0; i--) {
+			const node = items[i]
+			if (node.kind === 'group' && node.group) {
+				walk(node.branches[0].children)
+				const flatIds = flattenStructureIds(node.branches[0].children)
+				if (flatIds.length > 0) {
+					const key = `${flatIds[0]}:${flatIds[flatIds.length - 1]}`
+					if (seen.has(key)) {
+						// Replace group node with its children (ungroup)
+						removed.push(node.group)
+						items.splice(i, 1, ...node.branches[0].children)
+					} else {
+						seen.add(key)
+					}
+				}
+			} else {
+				for (const branch of node.branches) {
+					walk(branch.children)
+				}
+			}
+		}
+	}
+	walk(nodes)
+	return removed
 }

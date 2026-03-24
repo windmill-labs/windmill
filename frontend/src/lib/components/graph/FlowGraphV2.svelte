@@ -65,7 +65,12 @@
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import GroupOverlay from './GroupOverlay.svelte'
-	import { GroupDisplayState, getGroupEditorContext, type FlowGroup } from './groupEditor.svelte'
+	import {
+		GroupDisplayState,
+		getGroupEditorContext,
+		groupKey,
+		type FlowGroup
+	} from './groupEditor.svelte'
 	import { buildStructureTree, computeGroupDepths, type FlowStructureNode } from './flowStructure'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { computeGroupModuleIds } from './groupDetectionUtils'
@@ -368,6 +373,7 @@
 
 	// Keep canCreateGroup in sync for consumers (SelectionBoundingBox, FlowSelectionPanel, etc.)
 	const groupEditorCtx = getGroupEditorContext()
+
 	$effect(() => {
 		if (!groupEditorCtx) return
 		const ids = selectionManager.selectedIds
@@ -802,7 +808,9 @@
 		currentGroups
 
 		const collapsedGroupIds = new Set(
-			allGroups.filter((g) => groupDisplayState.isRuntimeCollapsed(g.id)).map((g) => g.id)
+			allGroups
+				.filter((g) => groupDisplayState.isRuntimeCollapsed(groupKey(g)))
+				.map((g) => groupKey(g))
 		)
 
 		if (groupError) {
@@ -815,6 +823,7 @@
 			const allGroups = groups ?? []
 			const graphGroups = allGroups.map((g) => ({
 				...g,
+				id: groupKey(g),
 				moduleIds: untrack(() =>
 					computeGroupModuleIds(g.start_id, g.end_id, getAllModules(effectiveModules ?? []))
 				)
