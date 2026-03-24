@@ -138,7 +138,7 @@
 		delete args['_MODULES']
 		return args
 	})
-	let rawFormSchema = $derived(approvalInfo?.form_schema?.schema ?? {})
+	let rawFormSchema = $derived(approvalInfo?.form_schema?.schema ?? approvalInfo?.form_schema ?? {})
 	let schema = $derived.by(() => {
 		if (
 			!rawFormSchema ||

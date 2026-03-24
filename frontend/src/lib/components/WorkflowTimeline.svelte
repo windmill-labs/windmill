@@ -213,7 +213,7 @@
 					</div>
 				{:else if isApproval}
 					{@const selfApprovalDisabled = (v as any).self_approval_disabled === true}
-					{@const formSchema = (v as any).form?.schema}
+					{@const formSchema = (v as any).form?.schema ?? (v as any).form}
 					{@const hasForm =
 						formSchema && typeof formSchema === 'object' && Object.keys(formSchema).length > 0}
 					{@const canApprove = !isDone && jobId}
