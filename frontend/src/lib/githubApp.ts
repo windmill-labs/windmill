@@ -138,7 +138,9 @@ export async function loadGithubInstallations(
 			const ghesConfig: GetGhesConfigResponse = await GitSyncService.getGhesConfig()
 			if (ghesConfig?.base_url && ghesConfig?.app_slug) {
 				const ghesBaseUrl = ghesConfig.base_url.replace(/\/$/, '')
-				state.githubInstallationUrl = `${ghesBaseUrl}/apps/${ghesConfig.app_slug}/installations/new?state=${stateParam}`
+				// GHE uses /github-apps/ while github.com uses /apps/
+				const appsPath = ghesBaseUrl === 'https://github.com' ? 'apps' : 'github-apps'
+				state.githubInstallationUrl = `${ghesBaseUrl}/${appsPath}/${ghesConfig.app_slug}/installations/new?state=${stateParam}`
 			} else {
 				state.githubInstallationUrl = `https://github.com/apps/windmill-sync-helper/installations/new?state=${stateParam}`
 			}
