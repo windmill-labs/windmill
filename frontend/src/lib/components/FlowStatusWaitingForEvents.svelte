@@ -89,7 +89,6 @@
 				<div>
 					<Button
 						title="Cancel the step"
-						{loading}
 						iconOnly
 						startIcon={{ icon: X }}
 						variant="default"
@@ -103,9 +102,7 @@
 			<div>
 				<Button variant="accent" onClick={() => continu(true)} {loading} unifiedSize="md">
 					Resume
-					<Tooltip class="text-white">
-						Resume or approve this suspended step
-					</Tooltip>
+					<Tooltip class="text-white">Resume or approve this suspended step</Tooltip>
 				</Button>
 			</div>
 
