@@ -84,51 +84,44 @@
 		<div class="mt-2"></div>
 	{/if}
 	<div>
-		{#if isOwner}
-			<div class={twMerge('flex gap-2', light ? 'flex-col' : 'flex-row ')}>
-				{#if !hide_cancel}
-					<div>
-						<Button
-							title="Cancel the step"
-							{loading}
-							iconOnly
-							startIcon={{ icon: X }}
-							variant="default"
-							disabled={loading}
-							destructive
-							unifiedSize="md"
-							on:click={() => continu(false)}
-						/>
-					</div>
-				{/if}
+		<div class={twMerge('flex gap-2', light ? 'flex-col' : 'flex-row ')}>
+			{#if !hide_cancel}
 				<div>
-					<Button variant="accent" onClick={() => continu(true)} {loading} unifiedSize="md">
-						Resume
-						<Tooltip class="text-white">
-							Since you are an owner of this flow, you can send resume events without necessarily
-							knowing the resume id sent by the approval step
-						</Tooltip>
-					</Button>
+					<Button
+						title="Cancel the step"
+						{loading}
+						iconOnly
+						startIcon={{ icon: X }}
+						variant="default"
+						disabled={loading}
+						destructive
+						unifiedSize="md"
+						on:click={() => continu(false)}
+					/>
 				</div>
-
-				{#if job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
-					<div
-						class={twMerge(
-							'w-full border rounded-lg p-2',
-							light ? 'min-w-96 max-h-svh overflow-y-auto' : ''
-						)}
-					>
-						<SchemaForm onlyMaskPassword bind:args={default_payload} {defaultValues} {schema} />
-					</div>
-					<Tooltip>
-						The payload is optional, it is passed to the following step through the `resume`
-						variable
+			{/if}
+			<div>
+				<Button variant="accent" onClick={() => continu(true)} {loading} unifiedSize="md">
+					Resume
+					<Tooltip class="text-white">
+						Resume or approve this suspended step
 					</Tooltip>
-				{/if}
+				</Button>
 			</div>
-		{:else}
-			You cannot resume the flow yourself without receiving the resume secret since you are not an
-			owner of {job.script_path} and the approval step did not contain the resume url at key `resume`
-		{/if}
+
+			{#if job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
+				<div
+					class={twMerge(
+						'w-full border rounded-lg p-2',
+						light ? 'min-w-96 max-h-svh overflow-y-auto' : ''
+					)}
+				>
+					<SchemaForm onlyMaskPassword bind:args={default_payload} {defaultValues} {schema} />
+				</div>
+				<Tooltip>
+					The payload is optional, it is passed to the following step through the `resume` variable
+				</Tooltip>
+			{/if}
+		</div>
 	</div>
 </div>
