@@ -694,7 +694,7 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_get_settings_reports_instance_ai_fallback_flags(
+async fn test_get_copilot_settings_state_reports_instance_ai_fallback_flags(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -732,7 +732,7 @@ async fn test_get_settings_reports_instance_ai_fallback_flags(
     .execute(&db)
     .await?;
 
-    let resp = authed(client().get(format!("{base}/get_settings")))
+    let resp = authed(client().get(format!("{base}/get_copilot_settings_state")))
         .send()
         .await
         .unwrap();
@@ -755,7 +755,7 @@ async fn test_get_settings_reports_instance_ai_fallback_flags(
         .execute(&db)
         .await?;
 
-    let resp = authed(client().get(format!("{base}/get_settings")))
+    let resp = authed(client().get(format!("{base}/get_copilot_settings_state")))
         .send()
         .await
         .unwrap();
@@ -799,9 +799,6 @@ async fn test_get_copilot_info_ignores_empty_instance_ai_row(
         .unwrap();
     assert_eq!(resp.status(), 200);
     let settings = resp.json::<serde_json::Value>().await?;
-    assert_eq!(settings["has_instance_ai_config"], false);
-    assert_eq!(settings["uses_instance_ai_config"], false);
-    assert!(settings["instance_ai_summary"].is_null());
     assert!(settings["providers"].is_null());
 
     Ok(())

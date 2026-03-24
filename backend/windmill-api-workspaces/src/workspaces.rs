@@ -82,6 +82,10 @@ pub fn workspaced_service() -> Router {
         .route("/get_dependents/*imported_path", get(get_dependents))
         .route("/get_dependents_amounts", post(get_dependents_amounts))
         .route("/get_settings", get(get_settings))
+        .route(
+            "/get_copilot_settings_state",
+            get(get_copilot_settings_state),
+        )
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
         .route(
@@ -255,9 +259,12 @@ pub struct WorkspaceSettings {
     pub success_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct CopilotSettingsState {
     pub has_instance_ai_config: bool,
     pub uses_instance_ai_config: bool,
-    #[sqlx(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance_ai_summary: Option<InstanceAISummary>,
 }
@@ -588,7 +595,8 @@ async fn get_settings(
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<WorkspaceSettings> {
     let mut tx = user_db.begin(&authed).await?;
-    let settings = sqlx::query_as::<_, WorkspaceSettings>(
+    let settings = sqlx::query_as!(
+        WorkspaceSettings,
         r#"
         SELECT
             workspace_id,
@@ -621,38 +629,52 @@ async fn get_settings(
             auto_invite,
             error_handler,
             success_handler,
-            public_app_execution_limit_per_minute,
-            false as has_instance_ai_config,
-            false as uses_instance_ai_config
+            public_app_execution_limit_per_minute
         FROM
             workspace_settings
         WHERE
             workspace_id = $1
         "#,
+        &w_id
     )
-    .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
 
     let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    tx.commit().await?;
+
+    if !authed.is_admin {
+        settings.slack_oauth_client_secret = None;
+    }
+    Ok(Json(settings))
+}
+
+async fn get_copilot_settings_state(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<CopilotSettingsState> {
+    let mut tx = user_db.begin(&authed).await?;
+    let workspace_ai_config = sqlx::query_scalar!(
+        "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("getting workspace ai settings: {e:#}")))?;
+    let workspace_ai_config = not_found_if_none(workspace_ai_config, "workspace settings", &w_id)?;
     let instance_ai_config: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT value FROM global_settings WHERE name = 'ai_config'")
             .fetch_optional(&mut *tx)
             .await
             .map_err(|e| Error::internal_err(format!("getting instance ai settings: {e:#}")))?;
-
     tx.commit().await?;
 
-    let has_workspace_ai_config = has_ai_providers(settings.ai_config.as_ref());
-    let has_instance_ai_config = has_ai_providers(instance_ai_config.as_ref());
-    settings.has_instance_ai_config = has_instance_ai_config;
-    settings.uses_instance_ai_config = !has_workspace_ai_config && has_instance_ai_config;
-    settings.instance_ai_summary = build_instance_ai_summary(instance_ai_config.as_ref());
-    if !authed.is_admin {
-        settings.slack_oauth_client_secret = None;
-    }
-    Ok(Json(settings))
+    Ok(Json(build_copilot_settings_state(
+        has_ai_providers(workspace_ai_config.as_ref()),
+        instance_ai_config.as_ref(),
+    )))
 }
 
 pub fn has_ai_providers(config: Option<&serde_json::Value>) -> bool {
@@ -661,6 +683,18 @@ pub fn has_ai_providers(config: Option<&serde_json::Value>) -> bool {
         .and_then(|providers| providers.as_object())
         .map(|providers| !providers.is_empty())
         .unwrap_or(false)
+}
+
+pub fn build_copilot_settings_state(
+    has_workspace_ai_config: bool,
+    instance_ai_config: Option<&serde_json::Value>,
+) -> CopilotSettingsState {
+    let has_instance_ai_config = has_ai_providers(instance_ai_config);
+    CopilotSettingsState {
+        has_instance_ai_config,
+        uses_instance_ai_config: !has_workspace_ai_config && has_instance_ai_config,
+        instance_ai_summary: build_instance_ai_summary(instance_ai_config),
+    }
 }
 
 pub fn build_instance_ai_summary(config: Option<&serde_json::Value>) -> Option<InstanceAISummary> {

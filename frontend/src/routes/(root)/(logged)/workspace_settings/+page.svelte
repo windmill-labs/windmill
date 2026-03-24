@@ -22,6 +22,7 @@
 		SettingService,
 		type AIConfig,
 		type ErrorHandler,
+		type GetCopilotSettingsStateResponse,
 		type InstanceAISummary,
 		type GetSettingsResponse
 	} from '$lib/gen'
@@ -472,9 +473,17 @@
 	}
 
 	async function loadSettings(): Promise<void> {
-		const settings: GetSettingsResponse = await WorkspaceService.getSettings({
-			workspace: $workspaceStore!
-		})
+		const [settings, copilotSettingsState]: [
+			GetSettingsResponse,
+			GetCopilotSettingsStateResponse
+		] = await Promise.all([
+			WorkspaceService.getSettings({
+				workspace: $workspaceStore!
+			}),
+			WorkspaceService.getCopilotSettingsState({
+				workspace: $workspaceStore!
+			})
+		])
 		slack_team_name = settings.slack_name
 		teams_team_id = settings.teams_team_id
 		teams_team_name = settings.teams_team_name
@@ -494,9 +503,9 @@
 		webhook = settings.webhook
 
 		aiInitialConfig = settings.ai_config ?? {}
-		hasInstanceAiConfig = settings.has_instance_ai_config ?? false
-		usesInstanceAiConfig = settings.uses_instance_ai_config ?? false
-		instanceAiSummary = settings.instance_ai_summary
+		hasInstanceAiConfig = copilotSettingsState.has_instance_ai_config
+		usesInstanceAiConfig = copilotSettingsState.uses_instance_ai_config
+		instanceAiSummary = copilotSettingsState.instance_ai_summary
 		const errorHandler = settings.error_handler as
 			| { path?: string; extra_args?: any; muted_on_cancel?: boolean; muted_on_user_path?: boolean }
 			| undefined
@@ -1774,13 +1783,13 @@ export async function main(
 								{hasInstanceAiConfig}
 								{usesInstanceAiConfig}
 								{instanceAiSummary}
-								onSave={(copilotInfo) => {
-									if (!copilotInfo) {
+								onSave={(copilotSettingsState) => {
+									if (!copilotSettingsState) {
 										return
 									}
-									hasInstanceAiConfig = copilotInfo.has_instance_ai_config
-									usesInstanceAiConfig = copilotInfo.uses_instance_ai_config
-									instanceAiSummary = copilotInfo.instance_ai_summary
+									hasInstanceAiConfig = copilotSettingsState.has_instance_ai_config
+									usesInstanceAiConfig = copilotSettingsState.uses_instance_ai_config
+									instanceAiSummary = copilotSettingsState.instance_ai_summary
 								}}
 							/>
 						{:else if tab == 'windmill_data_tables'}

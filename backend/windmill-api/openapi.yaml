@@ -2548,15 +2548,6 @@ paths:
                   public_app_execution_limit_per_minute:
                     type: integer
                     description: Rate limit for public app executions per minute per server. NULL or 0 means disabled.
-                  has_instance_ai_config:
-                    type: boolean
-                  uses_instance_ai_config:
-                    type: boolean
-                  instance_ai_summary:
-                    $ref: "#/components/schemas/InstanceAISummary"
-                required:
-                  - has_instance_ai_config
-                  - uses_instance_ai_config
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -3200,9 +3191,49 @@ paths:
         "200":
           description: status
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                properties:
+                  effective_ai_config:
+                    $ref: "#/components/schemas/AIConfig"
+                  has_instance_ai_config:
+                    type: boolean
+                  uses_instance_ai_config:
+                    type: boolean
+                  instance_ai_summary:
+                    $ref: "#/components/schemas/InstanceAISummary"
+                required:
+                  - effective_ai_config
+                  - has_instance_ai_config
+                  - uses_instance_ai_config
+
+  /w/{workspace}/workspaces/get_copilot_settings_state:
+    get:
+      summary: get copilot settings state
+      operationId: getCopilotSettingsState
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  has_instance_ai_config:
+                    type: boolean
+                  uses_instance_ai_config:
+                    type: boolean
+                  instance_ai_summary:
+                    $ref: "#/components/schemas/InstanceAISummary"
+                required:
+                  - has_instance_ai_config
+                  - uses_instance_ai_config
 
   /w/{workspace}/workspaces/get_copilot_info:
     get:
@@ -3219,19 +3250,7 @@ paths:
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/AIConfig"
-                  - type: object
-                    properties:
-                      has_instance_ai_config:
-                        type: boolean
-                      uses_instance_ai_config:
-                        type: boolean
-                      instance_ai_summary:
-                        $ref: "#/components/schemas/InstanceAISummary"
-                    required:
-                      - has_instance_ai_config
-                      - uses_instance_ai_config
+                $ref: "#/components/schemas/AIConfig"
 
   /w/{workspace}/workspaces/edit_error_handler:
     post:

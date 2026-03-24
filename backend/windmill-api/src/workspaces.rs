@@ -8,9 +8,7 @@
 
 // Re-export everything from windmill-api-workspaces
 pub use windmill_api_workspaces::workspaces::*;
-use windmill_api_workspaces::workspaces::{
-    build_instance_ai_summary, has_ai_providers, InstanceAISummary,
-};
+use windmill_api_workspaces::workspaces::{build_copilot_settings_state, InstanceAISummary};
 
 use crate::ai::{invalidate_ai_request_cache_for_workspace, AIConfig};
 use crate::db::ApiAuthed;
@@ -27,7 +25,7 @@ use axum::{
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
-    error::{Error, JsonResult, Result},
+    error::{Error, JsonResult},
     utils::require_admin,
     DB,
 };
@@ -87,7 +85,7 @@ async fn edit_copilot_config(
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(ai_config): Json<AIConfig>,
-) -> Result<String> {
+) -> JsonResult<EditCopilotConfigResponse> {
     require_admin(is_admin, &username)?;
 
     if let Some(ref custom_prompts) = ai_config.custom_prompts {
@@ -139,13 +137,32 @@ async fn edit_copilot_config(
     )
     .await?;
 
-    Ok(format!("Edit copilot config for workspace {}", &w_id))
+    let workspace_has_config = ai_config.has_providers();
+    let instance_ai_config =
+        sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
+            .fetch_optional(&db)
+            .await?;
+    let settings_state =
+        build_copilot_settings_state(workspace_has_config, instance_ai_config.as_ref());
+    let effective_ai_config = if workspace_has_config {
+        ai_config
+    } else if let Some(instance_ai_config) = instance_ai_config {
+        serde_json::from_value::<AIConfig>(instance_ai_config).unwrap_or_default()
+    } else {
+        AIConfig::default()
+    };
+
+    Ok(Json(EditCopilotConfigResponse {
+        effective_ai_config,
+        has_instance_ai_config: settings_state.has_instance_ai_config,
+        uses_instance_ai_config: settings_state.uses_instance_ai_config,
+        instance_ai_summary: settings_state.instance_ai_summary,
+    }))
 }
 
 #[derive(Serialize)]
-struct CopilotInfoResponse {
-    #[serde(flatten)]
-    ai_config: AIConfig,
+struct EditCopilotConfigResponse {
+    effective_ai_config: AIConfig,
     has_instance_ai_config: bool,
     uses_instance_ai_config: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -155,8 +172,8 @@ struct CopilotInfoResponse {
 async fn get_copilot_info(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<CopilotInfoResponse> {
-    let copilot_info = sqlx::query_scalar!(
+) -> JsonResult<AIConfig> {
+    let workspace_ai_config = sqlx::query_scalar!(
         "SELECT ai_config as \"ai_config: sqlx::types::Json<AIConfig>\" FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
@@ -168,37 +185,18 @@ async fn get_copilot_info(
         ))
     })?;
 
-    let instance_ai_config =
+    if let Some(workspace_ai_config) = workspace_ai_config.filter(|c| c.0.has_providers()) {
+        Ok(Json(workspace_ai_config.0))
+    } else if let Some(instance_config) =
         sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
             .fetch_optional(&db)
-            .await?;
-
-    let has_instance_ai_config = has_ai_providers(instance_ai_config.as_ref());
-    let instance_ai_summary = build_instance_ai_summary(instance_ai_config.as_ref());
-    let workspace_has_config = copilot_info.as_ref().is_some_and(|c| c.0.has_providers());
-
-    if workspace_has_config {
-        Ok(Json(CopilotInfoResponse {
-            ai_config: copilot_info.unwrap().0,
-            has_instance_ai_config,
-            uses_instance_ai_config: false,
-            instance_ai_summary,
-        }))
-    } else if let Some(instance_config) = instance_ai_config {
-        let ai_config = serde_json::from_value::<AIConfig>(instance_config).unwrap_or_default();
-        Ok(Json(CopilotInfoResponse {
-            uses_instance_ai_config: ai_config.has_providers(),
-            ai_config,
-            has_instance_ai_config,
-            instance_ai_summary,
-        }))
+            .await?
+    {
+        Ok(Json(
+            serde_json::from_value::<AIConfig>(instance_config).unwrap_or_default(),
+        ))
     } else {
-        Ok(Json(CopilotInfoResponse {
-            ai_config: AIConfig::default(),
-            has_instance_ai_config: false,
-            uses_instance_ai_config: false,
-            instance_ai_summary: None,
-        }))
+        Ok(Json(AIConfig::default()))
     }
 }
 

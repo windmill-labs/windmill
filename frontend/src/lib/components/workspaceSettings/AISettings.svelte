@@ -4,7 +4,7 @@
 		WorkspaceService,
 		type AIConfig,
 		type AIProvider,
-		type GetCopilotInfoResponse,
+		type GetCopilotSettingsStateResponse,
 		type InstanceAISummary
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -55,7 +55,7 @@
 		usesInstanceAiConfig?: boolean
 		instanceAiSummary?: InstanceAISummary
 		customSave?: (config: AIConfig) => Promise<void>
-		onSave?: (info?: GetCopilotInfoResponse) => void | Promise<void>
+		onSave?: (info?: GetCopilotSettingsStateResponse) => void | Promise<void>
 		title?: string
 		description?: string
 		link?: string
@@ -279,23 +279,25 @@
 
 	async function editCopilotConfig(): Promise<void> {
 		const config = buildConfig()
-		let effectiveConfig: GetCopilotInfoResponse | undefined
+		let settingsState: GetCopilotSettingsStateResponse | undefined
 
 		if (customSave) {
 			await customSave(config)
 		} else {
-			await WorkspaceService.editCopilotConfig({
+			const response = await WorkspaceService.editCopilotConfig({
 				workspace: effectiveWorkspace,
 				requestBody: config
 			})
-			effectiveConfig = await WorkspaceService.getCopilotInfo({
-				workspace: effectiveWorkspace
-			})
-			setCopilotInfo(effectiveConfig)
+			setCopilotInfo(response.effective_ai_config)
+			settingsState = {
+				has_instance_ai_config: response.has_instance_ai_config,
+				uses_instance_ai_config: response.uses_instance_ai_config,
+				instance_ai_summary: response.instance_ai_summary
+			}
 			sendUserToast('AI settings updated')
 		}
 		storeInitialState()
-		await onSave?.(effectiveConfig)
+		await onSave?.(settingsState)
 	}
 
 	async function onAiProviderChange(provider: AIProvider) {
