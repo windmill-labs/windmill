@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.664.0](https://github.com/windmill-labs/windmill/compare/v1.663.0...v1.664.0) (2026-03-24)
+
+
+### Features
+
+* add instance-level AI settings ([#8453](https://github.com/windmill-labs/windmill/issues/8453)) ([db5e036](https://github.com/windmill-labs/windmill/commit/db5e03610da325288d53afdbca94b9cbfc7ceace))
+* add selfApproval option to WAC + inline approval buttons ([#8440](https://github.com/windmill-labs/windmill/issues/8440)) ([d578e40](https://github.com/windmill-labs/windmill/commit/d578e40101a838d3dffda14157cf72ee4d5a93c0))
+* flow group nodes with collapsible groups ([#8075](https://github.com/windmill-labs/windmill/issues/8075)) ([81eb446](https://github.com/windmill-labs/windmill/commit/81eb446eee359f44374b81320690e5345fd08c15))
+
+
+### Bug Fixes
+
+* add GIT_SSL_CAINFO to tracing proxy env vars ([#8502](https://github.com/windmill-labs/windmill/issues/8502)) ([bdfd5d5](https://github.com/windmill-labs/windmill/commit/bdfd5d57261a4bb760fc57ad41ee56aff9b9c0af))
+* create parent dirs and accept 'python' alias in script bootstrap ([#8497](https://github.com/windmill-labs/windmill/issues/8497)) ([7f27d99](https://github.com/windmill-labs/windmill/commit/7f27d996accb3c3b471d1c50df397867d89c738a))
+
 ## [1.663.0](https://github.com/windmill-labs/windmill/compare/v1.662.0...v1.663.0) (2026-03-24)
 
 
