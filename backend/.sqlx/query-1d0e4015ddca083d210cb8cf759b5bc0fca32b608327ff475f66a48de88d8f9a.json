@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO scim_deactivated_user (email, name) SELECT email, name FROM password WHERE email = $1 ON CONFLICT (email) DO UPDATE SET deactivated_at = NOW(), name = EXCLUDED.name",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1d0e4015ddca083d210cb8cf759b5bc0fca32b608327ff475f66a48de88d8f9a"
+}
