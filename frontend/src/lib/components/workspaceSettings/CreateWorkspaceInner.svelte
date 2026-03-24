@@ -239,9 +239,11 @@
 
 		for (const job of clonedJobs) {
 			if (job._isInstance) {
-				// Instance: update resource_path to the new custom instance DB name
+				// Instance: update resource_path and set forked_from
 				if (datatableConfig.datatables[job.name]) {
+					const originalPath = datatableConfig.datatables[job.name].database.resource_path
 					datatableConfig.datatables[job.name].database.resource_path = job._newDbName
+					;(datatableConfig.datatables[job.name] as any).forked_from = originalPath
 				}
 			} else {
 				// Resource: update the resource's dbname and set non_diffable

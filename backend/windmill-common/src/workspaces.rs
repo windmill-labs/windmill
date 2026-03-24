@@ -406,6 +406,8 @@ impl Default for DataTableForkBehavior {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct DataTable {
     pub database: DataTableDatabase,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
