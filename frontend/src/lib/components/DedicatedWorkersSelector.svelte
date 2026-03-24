@@ -651,23 +651,28 @@
 							<Layers size={12} class="flex-shrink-0 text-secondary" />
 							<span class="text-xs font-medium text-emphasis">Shared runner</span>
 							<span class="text-xs text-tertiary">·</span>
-							<span class="text-xs text-tertiary">{group.language}</span>
-							<span class="flex-1"></span>
 							{#if existingDeps.has(group.depName)}
-								<Badge color="indigo" small href="/workspace_settings?tab=dependencies">
+								<a
+									href="/workspace_settings?tab=dependencies"
+									target="_blank"
+									class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+								>
 									{group.depName}
-									<ExternalLink class="h-2.5 w-2.5" />
-								</Badge>
+									<ExternalLink class="h-3 w-3" />
+								</a>
 							{:else}
 								<Tooltip small>
 									Workspace dependency '{group.depName}' not found. Create it in workspace settings
 									for shared runner to work.
 								</Tooltip>
-								<Badge color="yellow" small>
-									<TriangleAlert class="h-2.5 w-2.5" />
+								<span class="text-xs flex items-center gap-1 text-yellow-600 dark:text-yellow-400">
+									<TriangleAlert class="h-3 w-3" />
 									{group.depName}
-								</Badge>
+								</span>
 							{/if}
+							<span class="text-xs text-tertiary">·</span>
+							<Badge color="blue" small>{group.language}</Badge>
+							<span class="flex-1"></span>
 						</div>
 						<div class="divide-y">
 							{#each group.tags as tag (tag)}
@@ -678,10 +683,67 @@
 					</div>
 				{/each}
 
-				<!-- Standalone scripts/flows (not in any runner group) -->
+				<!-- Standalone scripts/flows (each with its own runner header) -->
 				{#each standaloneTags as tag (tag)}
 					{@const info = selectedTagsInfo.get(tag)}
-					{@render tagRow(tag, info)}
+					<div>
+						<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary">
+							{#if info?.type === 'flow'}
+								<BarsStaggered size={12} class="flex-shrink-0 text-secondary" />
+								<span class="text-xs font-medium text-emphasis">Flow runner</span>
+							{:else}
+								<CodeXml size={12} class="flex-shrink-0 text-secondary" />
+								<span class="text-xs font-medium text-emphasis">Dedicated runner</span>
+							{/if}
+							<span class="text-xs text-tertiary">·</span>
+							{#if info?.workspaceDeps}
+								{#each info.workspaceDeps as dep}
+									{#if existingDeps.has(dep)}
+										<a
+											href="/workspace_settings?tab=dependencies"
+											target="_blank"
+											class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+										>
+											{dep}
+											<ExternalLink class="h-3 w-3" />
+										</a>
+									{:else}
+										<Tooltip small>
+											Workspace dependency '{dep}' not found. Create it in workspace settings to
+											enable shared runners.
+										</Tooltip>
+										<span
+											class="text-xs flex items-center gap-1 text-yellow-600 dark:text-yellow-400"
+										>
+											<TriangleAlert class="h-3 w-3" />
+											{dep}
+										</span>
+									{/if}
+									<span class="text-xs text-tertiary">·</span>
+								{/each}
+							{/if}
+							{#if info?.type === 'flow'}
+								<Badge color="indigo" small>
+									{info.runners?.length ?? 0} runner{(info.runners?.length ?? 0) !== 1 ? 's' : ''}
+								</Badge>
+							{:else if info?.language}
+								<Badge color="blue" small>{info.language}</Badge>
+							{/if}
+							<span class="flex-1"></span>
+							{#if !disabled}
+								<button
+									class="hover:text-red-500 transition-colors"
+									onclick={(e) => {
+										e.stopPropagation()
+										removeTag(tag)
+									}}
+								>
+									<X class="h-3 w-3" />
+								</button>
+							{/if}
+						</div>
+						{@render tagRow(tag, info)}
+					</div>
 				{/each}
 			</div>
 		</div>
