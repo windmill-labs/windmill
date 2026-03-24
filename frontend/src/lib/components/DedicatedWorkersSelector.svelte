@@ -643,7 +643,7 @@
 <div class="flex flex-col gap-3">
 	{#if selectedTags.length > 0}
 		<div class="flex flex-col gap-2">
-			<div class="border rounded-md bg-surface max-h-64 overflow-y-auto divide-y">
+			<div class="border rounded-md bg-surface divide-y">
 				<!-- Shared runner groups -->
 				{#each runnerGroups as group (`${group.depName}:${group.language}`)}
 					<div>
@@ -670,9 +670,8 @@
 									{group.depName}
 								</span>
 							{/if}
-							<span class="text-xs text-tertiary">·</span>
-							<Badge color="blue" small>{group.language}</Badge>
 							<span class="flex-1"></span>
+							<Badge color="blue" small>{group.language}</Badge>
 						</div>
 						<div class="divide-y">
 							{#each group.tags as tag (tag)}
@@ -683,66 +682,62 @@
 					</div>
 				{/each}
 
-				<!-- Standalone scripts/flows (each with its own runner header) -->
+				<!-- Standalone scripts/flows -->
 				{#each standaloneTags as tag (tag)}
 					{@const info = selectedTagsInfo.get(tag)}
-					<div>
-						<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary">
-							{#if info?.type === 'flow'}
-								<BarsStaggered size={12} class="flex-shrink-0 text-secondary" />
-								<span class="text-xs font-medium text-emphasis">Flow runner</span>
-							{:else}
-								<CodeXml size={12} class="flex-shrink-0 text-secondary" />
-								<span class="text-xs font-medium text-emphasis">Dedicated runner</span>
-							{/if}
-							<span class="text-xs text-tertiary">·</span>
-							{#if info?.workspaceDeps}
-								{#each info.workspaceDeps as dep}
-									{#if existingDeps.has(dep)}
-										<a
-											href="/workspace_settings?tab=dependencies"
-											target="_blank"
-											class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
-										>
-											{dep}
-											<ExternalLink class="h-3 w-3" />
-										</a>
-									{:else}
-										<Tooltip small>
-											Workspace dependency '{dep}' not found. Create it in workspace settings to
-											enable shared runners.
-										</Tooltip>
-										<span
-											class="text-xs flex items-center gap-1 text-yellow-600 dark:text-yellow-400"
-										>
-											<TriangleAlert class="h-3 w-3" />
-											{dep}
-										</span>
-									{/if}
-									<span class="text-xs text-tertiary">·</span>
-								{/each}
-							{/if}
-							{#if info?.type === 'flow'}
-								<Badge color="indigo" small>
-									{info.runners?.length ?? 0} runner{(info.runners?.length ?? 0) !== 1 ? 's' : ''}
-								</Badge>
-							{:else if info?.language}
-								<Badge color="blue" small>{info.language}</Badge>
-							{/if}
-							<span class="flex-1"></span>
-							{#if !disabled}
-								<button
-									class="hover:text-red-500 transition-colors"
-									onclick={(e) => {
-										e.stopPropagation()
-										removeTag(tag)
-									}}
-								>
-									<X class="h-3 w-3" />
-								</button>
-							{/if}
-						</div>
-						{@render tagRow(tag, info)}
+					<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary min-w-0">
+						{#if info?.type === 'flow'}
+							<BarsStaggered size={12} class="flex-shrink-0 text-secondary" />
+						{:else}
+							<CodeXml size={12} class="flex-shrink-0 text-secondary" />
+						{/if}
+						<span class="text-xs truncate min-w-0">{info?.path ?? tag}</span>
+						<span class="text-xs text-tertiary flex-shrink-0">({info?.workspace ?? ''})</span>
+						{#if info?.workspaceDeps}
+							{#each info.workspaceDeps as dep}
+								<span class="text-xs text-tertiary">·</span>
+								{#if existingDeps.has(dep)}
+									<a
+										href="/workspace_settings?tab=dependencies"
+										target="_blank"
+										class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+									>
+										{dep}
+										<ExternalLink class="h-3 w-3" />
+									</a>
+								{:else}
+									<Tooltip small>
+										Workspace dependency '{dep}' not found. Create it in workspace settings to
+										enable shared runners.
+									</Tooltip>
+									<span
+										class="text-xs flex items-center gap-1 text-yellow-600 dark:text-yellow-400"
+									>
+										<TriangleAlert class="h-3 w-3" />
+										{dep}
+									</span>
+								{/if}
+							{/each}
+						{/if}
+						<span class="flex-1"></span>
+						{#if info?.type === 'flow' && info.runners}
+							<Badge color="indigo" small>
+								{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
+							</Badge>
+						{:else if info?.language}
+							<Badge color="blue" small>{info.language}</Badge>
+						{/if}
+						{#if !disabled}
+							<button
+								class="hover:text-red-500 transition-colors flex-shrink-0"
+								onclick={(e) => {
+									e.stopPropagation()
+									removeTag(tag)
+								}}
+							>
+								<X class="h-3 w-3" />
+							</button>
+						{/if}
 					</div>
 				{/each}
 			</div>
