@@ -48,6 +48,7 @@ fn flow_module(id: &str, value: FlowModuleValue) -> FlowModule {
         skip_if: None,
         apply_preprocessor: None,
         pass_flow_input_directly: None,
+        debouncing: None,
     }
 }
 

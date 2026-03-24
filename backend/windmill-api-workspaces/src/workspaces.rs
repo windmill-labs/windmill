@@ -3251,10 +3251,12 @@ async fn clone_apps(
         app_id_mapping.insert(app.id, new_app_id);
     }
 
+    let mut version_id_mapping: HashMap<i64, i64> = HashMap::new();
+
     {
         // Clone app versions
         let app_versions = sqlx::query!(
-            "SELECT app_id, value, created_by, created_at, raw_app
+            "SELECT id, app_id, value, created_by, created_at, raw_app
          FROM app_version
          WHERE app_id = ANY(SELECT id FROM app WHERE workspace_id = $1)
          ORDER BY app_id, created_at",
@@ -3265,14 +3267,44 @@ async fn clone_apps(
 
         for version in app_versions {
             if let Some(&new_app_id) = app_id_mapping.get(&version.app_id) {
-                sqlx::query!(
+                let new_version_id = sqlx::query_scalar!(
                     "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
-                 VALUES ($1, $2, $3, $4, $5)",
+                 VALUES ($1, $2, $3, $4, $5) RETURNING id",
                     new_app_id,
                     version.value,
                     version.created_by,
                     version.created_at,
                     version.raw_app,
+                )
+                .fetch_one(&mut **tx)
+                .await?;
+
+                version_id_mapping.insert(version.id, new_version_id);
+            }
+        }
+    }
+
+    // Clone app bundles for raw apps
+    if !version_id_mapping.is_empty() {
+        let old_ids: Vec<i64> = version_id_mapping.keys().copied().collect();
+        let bundles = sqlx::query!(
+            "SELECT app_version_id, file_type, data FROM app_bundles
+             WHERE app_version_id = ANY($1) AND w_id = $2",
+            &old_ids,
+            source_workspace_id
+        )
+        .fetch_all(&mut **tx)
+        .await?;
+
+        for bundle in bundles {
+            if let Some(&new_version_id) = version_id_mapping.get(&bundle.app_version_id) {
+                sqlx::query!(
+                    "INSERT INTO app_bundles (app_version_id, w_id, file_type, data)
+                     VALUES ($1, $2, $3, $4)",
+                    new_version_id,
+                    target_workspace_id,
+                    bundle.file_type,
+                    bundle.data,
                 )
                 .execute(&mut **tx)
                 .await?;
@@ -4741,7 +4773,7 @@ async fn compare_workspaces(
                 compare_two_flows(&db, &source_workspace_id, &fork_workspace_id, &item.path)
                     .await?,
             ),
-            "app" => Some(
+            "app" | "raw_app" => Some(
                 compare_two_apps(&db, &source_workspace_id, &fork_workspace_id, &item.path).await?,
             ),
             "resource" => Some(
@@ -4836,7 +4868,10 @@ async fn compare_workspaces(
             .fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
         scripts_changed: visible_diffs.iter().filter(|s| s.kind == "script").count(),
         flows_changed: visible_diffs.iter().filter(|s| s.kind == "flow").count(),
-        apps_changed: visible_diffs.iter().filter(|s| s.kind == "app").count(),
+        apps_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "app" || s.kind == "raw_app")
+            .count(),
         resources_changed: visible_diffs
             .iter()
             .filter(|s| s.kind == "resource")
@@ -4945,7 +4980,7 @@ async fn query_visible_items<'c>(
                 .fetch_all(&mut **tx)
                 .await?
             }
-            "app" => {
+            "app" | "raw_app" => {
                 sqlx::query_scalar!(
                     "SELECT path FROM app
                      WHERE workspace_id = $1 AND path = ANY($2)",

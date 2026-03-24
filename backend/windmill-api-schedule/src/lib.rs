@@ -33,42 +33,22 @@ use windmill_common::{
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::schedule::push_scheduled_job;
 
-/// Resolves the email to use for a schedule based on preservation settings.
-/// When preserving, looks up the email from the provided username.
-async fn resolve_email(
-    username: Option<&String>,
-    preserve_email: Option<bool>,
-    authed: &ApiAuthed,
-    db: &DB,
-    w_id: &str,
-) -> Result<String> {
-    if let Some(username) = username {
-        if preserve_email.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
-            let email = sqlx::query_scalar!(
-                "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
-                username,
-                w_id
-            )
-            .fetch_optional(db)
-            .await?;
-            if let Some(email) = email {
-                return Ok(email);
-            }
-        }
-    }
-    Ok(authed.email.clone())
-}
-
-fn resolve_edited_by(
-    username: Option<&String>,
-    preserve_edited_by: Option<bool>,
+/// Resolves the permissioned_as value for a schedule.
+/// When preserving, uses the provided permissioned_as value directly.
+fn resolve_permissioned_as(
+    permissioned_as: Option<&String>,
+    preserve_permissioned_as: Option<bool>,
     authed: &ApiAuthed,
 ) -> String {
-    if let Some(username) = username {
-        if preserve_edited_by.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
-            return username.clone();
+    if let Some(permissioned_as) = permissioned_as {
+        if preserve_permissioned_as.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
+            return permissioned_as.clone();
         }
     }
+    windmill_common::users::username_to_permissioned_as(&authed.username)
+}
+
+fn resolve_edited_by(authed: &ApiAuthed) -> String {
     authed.username.clone()
 }
 
@@ -117,8 +97,8 @@ pub struct NewSchedule {
     pub paused_until: Option<DateTime<Utc>>,
     pub cron_version: Option<String>,
     pub dynamic_skip: Option<String>,
-    pub email: Option<String>,
-    pub preserve_email: Option<bool>,
+    pub permissioned_as: Option<String>,
+    pub preserve_permissioned_as: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -244,14 +224,26 @@ async fn create_schedule(
         validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
     }
 
-    let resolved_edited_by = resolve_edited_by(ns.email.as_ref(), ns.preserve_email, &authed);
+    let resolved_edited_by = resolve_edited_by(&authed);
+    let resolved_permissioned_as = resolve_permissioned_as(
+        ns.permissioned_as.as_ref(),
+        ns.preserve_permissioned_as,
+        &authed,
+    );
+    // email is still written for backwards compat with old workers that don't know about permissioned_as
+    let resolved_email = windmill_common::users::get_email_from_permissioned_as(
+        &resolved_permissioned_as,
+        &w_id,
+        &db,
+    )
+    .await?;
 
     let schedule = sqlx::query_as!(
         Schedule,
         r#"
         INSERT INTO schedule (
             workspace_id, path, schedule, timezone, edited_by, script_path,
-            is_flow, args, enabled, email,
+            is_flow, args, enabled, email, permissioned_as,
             on_failure, on_failure_times, on_failure_exact, on_failure_extra_args,
             on_recovery, on_recovery_times, on_recovery_extra_args,
             on_success, on_success_extra_args,
@@ -259,12 +251,12 @@ async fn create_schedule(
             tag, paused_until, cron_version, description, dynamic_skip
         ) VALUES (
             $1, $2, $3, $4, $5, $6,
-            $7, $8, $9, $10,
-            $11, $12, $13, $14,
-            $15, $16, $17,
-            $18, $19,
-            $20, $21, $22, $23,
-            $24, $25, $26, $27, $28
+            $7, $8, $9, $10, $11,
+            $12, $13, $14, $15,
+            $16, $17, $18,
+            $19, $20,
+            $21, $22, $23, $24,
+            $25, $26, $27, $28, $29
         )
         RETURNING
             workspace_id,
@@ -279,6 +271,7 @@ async fn create_schedule(
             args AS "args: _",
             extra_perms,
             email,
+            permissioned_as,
             error,
             on_failure,
             on_failure_times,
@@ -309,7 +302,8 @@ async fn create_schedule(
         to_json_raw_opt(ns.args.as_ref())
             as Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
         ns.enabled.unwrap_or(false),
-        resolve_email(ns.email.as_ref(), ns.preserve_email, &authed, &db, &w_id).await?,
+        resolved_email,
+        resolved_permissioned_as,
         ns.on_failure,
         ns.on_failure_times,
         ns.on_failure_exact,
@@ -355,8 +349,8 @@ async fn create_schedule(
     )
     .await?;
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        ns.email.as_deref(),
-        ns.preserve_email.unwrap_or(false),
+        ns.permissioned_as.as_deref(),
+        ns.preserve_permissioned_as.unwrap_or(false),
         &authed,
         &authed.username,
     ) {
@@ -421,7 +415,28 @@ async fn edit_schedule(
 
     clear_schedule(&mut tx, path, &w_id).await?;
 
-    let resolved_edited_by = resolve_edited_by(es.email.as_ref(), es.preserve_email, &authed);
+    let resolved_edited_by = resolve_edited_by(&authed);
+
+    let resolved_permissioned_as = resolve_permissioned_as(
+        es.permissioned_as.as_ref(),
+        es.preserve_permissioned_as,
+        &authed,
+    );
+
+    // email is still written for backwards compat with old workers that don't know about permissioned_as.
+    // When permissioned_as is preserved to a different user, derive email from it.
+    let resolved_email = if resolved_permissioned_as
+        != windmill_common::users::username_to_permissioned_as(&authed.username)
+    {
+        windmill_common::users::get_email_from_permissioned_as(
+            &resolved_permissioned_as,
+            &w_id,
+            &db,
+        )
+        .await?
+    } else {
+        authed.email.clone()
+    };
 
     let schedule = sqlx::query_as!(
         Schedule,
@@ -450,8 +465,9 @@ async fn edit_schedule(
             cron_version            = COALESCE($21, cron_version),
             description             = $22,
             dynamic_skip            = $23,
-            email                   = COALESCE($24, email),
-            edited_by               = $25
+            email                   = $24,
+            edited_by               = $25,
+            permissioned_as         = $26
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -466,6 +482,7 @@ async fn edit_schedule(
             args AS "args: _",
             extra_perms,
             email,
+            permissioned_as,
             error,
             on_failure,
             on_failure_times,
@@ -513,8 +530,9 @@ async fn edit_schedule(
         es.cron_version,
         es.description,
         es.dynamic_skip,
-        Some(resolve_email(es.email.as_ref(), es.preserve_email, &authed, &db, &w_id).await?),
-        resolved_edited_by
+        resolved_email,
+        resolved_edited_by,
+        resolved_permissioned_as
     )
     .fetch_one(&mut *tx)
     .await
@@ -535,9 +553,10 @@ async fn edit_schedule(
         ),
     )
     .await?;
+
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        es.email.as_deref(),
-        es.preserve_email.unwrap_or(false),
+        es.permissioned_as.as_deref(),
+        es.preserve_permissioned_as.unwrap_or(false),
         &authed,
         &authed.username,
     ) {
@@ -547,14 +566,8 @@ async fn edit_schedule(
             "schedule.on_behalf_of",
             ActionKind::Update,
             &w_id,
-            Some(path),
-            Some(
-                [
-                    ("on_behalf_of", on_behalf_of.as_str()),
-                    ("action", "update"),
-                ]
-                .into(),
-            ),
+            Some(&path.to_string()),
+            Some([("on_behalf_of", on_behalf_of.as_str()), ("action", "edit")].into()),
         )
         .await?;
     }
@@ -788,6 +801,7 @@ pub async fn set_enabled(
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
+    // email is still written for backwards compat with old workers that don't know about permissioned_as
     let schedule_o = sqlx::query_as!(
         Schedule,
         r#"
@@ -808,6 +822,7 @@ pub async fn set_enabled(
             args AS "args: _",
             extra_perms,
             email,
+            permissioned_as,
             error,
             on_failure,
             on_failure_times,
@@ -1179,8 +1194,8 @@ pub struct EditSchedule {
     pub paused_until: Option<DateTime<Utc>>,
     pub cron_version: Option<String>,
     pub dynamic_skip: Option<String>,
-    pub email: Option<String>,
-    pub preserve_email: Option<bool>,
+    pub permissioned_as: Option<String>,
+    pub preserve_permissioned_as: Option<bool>,
 }
 
 pub use windmill_queue::schedule::clear_schedule;

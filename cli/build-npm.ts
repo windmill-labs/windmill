@@ -12,6 +12,7 @@ const parserPackages = [
   "windmill-parser-wasm-yaml", "windmill-parser-wasm-csharp",
   "windmill-parser-wasm-nu", "windmill-parser-wasm-java",
   "windmill-parser-wasm-ruby",
+  "windmill-parser-wasm-py-imports",
 ];
 const parserExternals = parserPackages.flatMap(p => ["--external", p]);
 

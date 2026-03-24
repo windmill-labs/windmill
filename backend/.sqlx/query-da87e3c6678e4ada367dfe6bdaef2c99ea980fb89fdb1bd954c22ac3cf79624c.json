@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)\n                 VALUES ($1, $2, $3, $4, $5) RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Json",
+        "Varchar",
+        "Timestamptz",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "da87e3c6678e4ada367dfe6bdaef2c99ea980fb89fdb1bd954c22ac3cf79624c"
+}

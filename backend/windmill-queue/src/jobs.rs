@@ -1869,9 +1869,20 @@ pub async fn try_schedule_next_job<'c>(
         &job.workspace_id
     );
 
+    let permissioned_as = schedule.permissioned_as.clone();
+    let email = match windmill_common::users::get_email_from_permissioned_as(
+        &permissioned_as,
+        &job.workspace_id,
+        db,
+    )
+    .await
+    {
+        Ok(email) => email,
+        Err(e) => return (tx, Some(e)),
+    };
     let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
-        &windmill_common::users::username_to_permissioned_as(&schedule.edited_by),
-        &schedule.email,
+        &permissioned_as,
+        &email,
         &job.workspace_id,
         &mut *tx,
     )
@@ -3089,41 +3100,46 @@ impl PulledJobResult {
                     "Accumulated arguments from debounced jobs in batch"
                 );
 
-                let new_value = to_raw_value(&accumulated_arg);
+                // If the batch query returned no entries (e.g. CE where
+                // v2_job_debounce_batch is never populated), keep the
+                // original value unchanged instead of replacing it with [].
+                if !accumulated_arg.is_empty() {
+                    let new_value = to_raw_value(&accumulated_arg);
 
-                let original_value = j
-                    .args
-                    .as_ref()
-                    .and_then(|a| a.get(arg_name_to_accumulate))
-                    .map(|v| v.get().to_string())
-                    .unwrap_or_else(|| "null".to_string());
+                    let original_value = j
+                        .args
+                        .as_ref()
+                        .and_then(|a| a.get(arg_name_to_accumulate))
+                        .map(|v| v.get().to_string())
+                        .unwrap_or_else(|| "null".to_string());
 
-                append_logs(
-                    &j_id,
-                    &j.workspace_id,
-                    format!(
-                        "Accumulating debounced argument `{arg_name_to_accumulate}`:\n  original: {original_value}\n  accumulated: {}\n\n",
-                        &new_value
-                    ),
-                    &(db.into()),
-                )
-                .await;
-
-                j.args
-                    .get_or_insert(Json(Default::default()))
-                    .as_mut()
-                    .insert(arg_name_to_accumulate.to_owned(), new_value);
-
-                // Persist accumulated args to v2_job so that flow steps
-                // re-reading from the DB (via get_mini_pulled_job) see them
-                if let Some(ref args) = j.args {
-                    sqlx::query!(
-                        "UPDATE v2_job SET args = $2 WHERE id = $1",
-                        j_id,
-                        args as &Json<HashMap<String, Box<RawValue>>>,
+                    append_logs(
+                        &j_id,
+                        &j.workspace_id,
+                        format!(
+                            "Accumulating debounced argument `{arg_name_to_accumulate}`:\n  original: {original_value}\n  accumulated: {}\n\n",
+                            &new_value
+                        ),
+                        &(db.into()),
                     )
-                    .execute(db)
-                    .await?;
+                    .await;
+
+                    j.args
+                        .get_or_insert(Json(Default::default()))
+                        .as_mut()
+                        .insert(arg_name_to_accumulate.to_owned(), new_value);
+
+                    // Persist accumulated args to v2_job so that flow steps
+                    // re-reading from the DB (via get_mini_pulled_job) see them
+                    if let Some(ref args) = j.args {
+                        sqlx::query!(
+                            "UPDATE v2_job SET args = $2 WHERE id = $1",
+                            j_id,
+                            args as &Json<HashMap<String, Box<RawValue>>>,
+                        )
+                        .execute(db)
+                        .await?;
+                    }
                 }
             }
 
@@ -5832,7 +5848,7 @@ async fn push_inner<'c, 'd>(
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {
             AuditAuthor {
                 email: email.to_string(),
-                username: permissioned_as.trim_start_matches("u/").to_string(),
+                username: windmill_common::auth::permissioned_as_to_username(&permissioned_as),
                 username_override: Some(user.to_string()),
                 token_prefix: token_prefix.map(|s| s.to_string()),
             }
