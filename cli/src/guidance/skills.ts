@@ -32,6 +32,7 @@ export const SKILLS: SkillMetadata[] = [
   { name: "schedules", description: "MUST use when configuring schedules." },
   { name: "resources", description: "MUST use when managing resources." },
   { name: "cli-commands", description: "MUST use when using the CLI." },
+  { name: "dev-preview", description: "Use when previewing Windmill scripts/flows locally via wmill dev." },
 ];
 
 // Skill content for each skill (loaded inline for bundling)
@@ -4602,17 +4603,8 @@ Tell the user they can run these commands (do NOT run them yourself):
 | \`wmill app dev\` | Start dev server with live reload |
 | \`wmill app generate-agents\` | Refresh AGENTS.md and DATATABLES.md |
 | \`wmill app generate-locks\` | Generate lock files for backend runnables |
-| \`wmill sync push --extra-includes "f/<folder>/<app>.raw_app/**" --yes\` | Deploy this specific raw app to Windmill (never do a blanket \`wmill sync push\`) |
+| \`wmill sync push\` | Deploy app to Windmill |
 | \`wmill sync pull\` | Pull latest from Windmill |
-
-## Svelte 5 Event Handling
-
-When building Svelte 5 raw apps, be aware of event delegation:
-
-- The Svelte runtime version in \`node_modules/svelte\` **must match** the compiler version used by \`wmill sync push\`. If you get \`$.delegated is undefined\` errors at runtime, run \`npm install svelte@latest\` in the raw app folder and re-push.
-- \`onclick\` on \`<div>\`, \`<span>\`, and other non-interactive elements uses Svelte's event delegation system. If the runtime doesn't support it, you'll get errors.
-- \`onclick\` on \`<button>\` elements is native and generally works fine.
-- For modal overlays or click-outside patterns, prefer using \`<button>\` elements styled as overlays, or ensure the Svelte runtime is up to date.
 
 ## Best Practices
 
@@ -5019,6 +5011,7 @@ Launch a dev server that will spawn a webserver with HMR
 
 **Options:**
 - \`--includes <pattern...:string>\` - Filter paths givena glob pattern or path
+- \`--proxy-port <port:number>\` - Port for the localhost reverse proxy (default: 3100)
 
 ### docs
 
@@ -5478,6 +5471,50 @@ workspace related commands
 - \`workspace delete-fork <fork_name:string>\` - Delete a forked workspace and git branch
   - \`-y --yes\` - Skip confirmation prompt
 
+`,
+  "dev-preview": `---
+name: dev-preview
+description: Use when previewing Windmill scripts/flows locally via wmill dev.
+---
+
+# Dev Preview
+
+Preview Windmill scripts and flows locally via \`wmill dev\`.
+
+## Setup
+
+Start the dev server (includes a localhost reverse proxy):
+
+\`\`\`bash
+wmill dev
+\`\`\`
+
+This starts:
+- A file watcher on the local repo
+- A reverse proxy on \`localhost:3100\` forwarding to the remote Windmill instance
+- A dev WebSocket on \`/ws_dev\` for live file updates
+
+## Preview a specific file
+
+Open in browser or Claude Preview:
+
+\`\`\`
+http://localhost:3100/dev?path={wm_path}&local=true
+\`\`\`
+
+Where \`wm_path\` is the Windmill path derived from the local file:
+- **Scripts**: strip the file extension — \`u/admin/my_script.ts\` → \`u/admin/my_script\`
+- **Flows**: strip the \`.flow/\` suffix — \`f/my_flow.flow/flow.yaml\` → \`f/my_flow\`
+
+The \`path\` parameter locks the preview to that file. Other file changes are ignored.
+
+## Switch files
+
+Navigate to a new URL with a different \`path\` param.
+
+## Legacy mode
+
+Without the \`path\` parameter, the dev page shows the last-edited file (original behavior).
 `,
 };
 

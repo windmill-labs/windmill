@@ -726,6 +726,11 @@ SKILL_DEFINITIONS = [
         'description': 'MUST use when using the CLI.',
         'content_key': 'cli_commands',
     },
+    {
+        'name': 'dev-preview',
+        'description': 'Use when previewing Windmill scripts/flows locally via wmill dev.',
+        'content_key': 'dev_preview',
+    },
 ]
 
 
@@ -755,6 +760,7 @@ def generate_skills(
         'schedules': read_markdown_file(base_dir / "schedules.md"),
         'resources': read_markdown_file(base_dir / "resources.md"),
         'cli_commands': cli_commands,
+        'dev_preview': read_markdown_file(base_dir / "dev-preview.md"),
     }
 
     # CLI intro for script skills

@@ -346,6 +346,30 @@ async function initAction(opts: InitOptions) {
         log.warn(`Could not create skills: ${skillError}`);
       }
     }
+
+    // Create .claude/launch.json for Claude Preview dev server
+    try {
+      const launchJsonPath = ".claude/launch.json";
+      const launchJson = {
+        version: "0.0.1",
+        configurations: [
+          {
+            name: "windmill-dev",
+            runtimeExecutable: "wmill",
+            runtimeArgs: ["dev"],
+            port: 3100,
+          },
+        ],
+      };
+      await writeFile(launchJsonPath, JSON.stringify(launchJson, null, 2) + "\n", "utf-8");
+      log.info(colors.green("Created .claude/launch.json"));
+    } catch (launchError) {
+      if (launchError instanceof Error) {
+        log.warn(`Could not create launch.json: ${launchError.message}`);
+      } else {
+        log.warn(`Could not create launch.json: ${launchError}`);
+      }
+    }
   } catch (error) {
     if (error instanceof Error) {
       log.warn(`Could not create guidance files: ${error.message}`);

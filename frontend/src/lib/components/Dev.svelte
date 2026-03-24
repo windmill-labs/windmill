@@ -331,6 +331,9 @@
 		}
 	})
 
+	const filterPath =
+		searchParams?.get('path') ?? sessionStorage.getItem('wm_dev_watch_path') ?? undefined
+
 	function connectWs() {
 		try {
 			if (socket) {
@@ -339,9 +342,19 @@
 		} catch (e) {
 			console.error('Failed to close websocket', e)
 		}
-		const port = searchParams?.get('port') || '3001'
+		const port = searchParams?.get('port')
+		// If port is explicitly set, use legacy ws://localhost:{port}/ws
+		// Otherwise connect to same-origin /ws_dev (works through the proxy)
+		const wsUrl = port ? `ws://localhost:${port}/ws` : `ws://${location.host}/ws_dev`
 		try {
-			socket = new WebSocket(`ws://localhost:${port}/ws`)
+			socket = new WebSocket(wsUrl)
+
+			socket.addEventListener('open', () => {
+				if (filterPath) {
+					socket?.send(JSON.stringify({ type: 'setWatch', path: filterPath }))
+					sessionStorage.setItem('wm_dev_watch_path', filterPath)
+				}
+			})
 
 			// Listen for messages
 			socket.addEventListener('message', (event) => {
@@ -354,6 +367,10 @@
 					data = JSON.parse(msg)
 				} catch {
 					console.log('Received invalid JSON: ' + msg)
+					return
+				}
+				if (data.type == 'watchSet') {
+					// Confirmation from server, no action needed
 					return
 				}
 				if (data.type == 'script') {

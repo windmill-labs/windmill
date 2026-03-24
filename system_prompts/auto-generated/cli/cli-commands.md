@@ -57,6 +57,7 @@ Launch a dev server that will spawn a webserver with HMR
 
 **Options:**
 - `--includes <pattern...:string>` - Filter paths givena glob pattern or path
+- `--proxy-port <port:number>` - Port for the localhost reverse proxy (default: 3100)
 
 ### docs
 
