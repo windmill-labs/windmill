@@ -18,7 +18,7 @@
 		light?: boolean
 	}
 
-	let { isOwner, workspaceId, job, light = false }: Props = $props()
+	let { isOwner: _isOwner, workspaceId, job, light = false }: Props = $props()
 
 	let default_payload: object = $state({})
 	let description: any = $state(undefined)

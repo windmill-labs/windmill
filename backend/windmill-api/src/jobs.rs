@@ -1060,6 +1060,7 @@ impl<'a> GetQuery<'a> {
         Self { with_code: false, ..self }
     }
 
+    #[allow(dead_code)]
     fn without_flow(self) -> Self {
         Self { with_flow: false, ..self }
     }
