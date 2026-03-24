@@ -1696,8 +1696,8 @@ async fn check_git_sync_access(db: &DB, w_id: &str) -> Result<()> {
 
     if user_count > 3 {
         return Err(Error::BadRequest(
-            "Git sync is available for workspaces with up to 3 users. \
-             Upgrade to Windmill Enterprise Edition for unlimited users."
+            "Git sync is available for workspaces with up to 3 members. \
+             Upgrade to Windmill Enterprise Edition for unlimited workspace members."
                 .to_string(),
         ));
     }

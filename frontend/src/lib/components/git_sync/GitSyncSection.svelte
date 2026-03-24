@@ -110,8 +110,8 @@
 
 		<Alert type="warning" title="Git sync unavailable">
 			Git sync on the Community Edition is limited to workspaces with at most {gitSyncStatus.max_users}
-			users. Your workspace has {gitSyncStatus.user_count} users. Upgrade to the Enterprise Edition to
-			remove this limit.
+			members. Your workspace has {gitSyncStatus.user_count} members. Upgrade to the Enterprise Edition
+			to remove this limit.
 		</Alert>
 		<div class="mb-2"></div>
 	{:else if isFreeTier}
@@ -119,10 +119,10 @@
 
 		<Alert
 			type="info"
-			title="Community Edition — single repository, up to {gitSyncStatus.max_users} users"
+			title="Community Edition — single repository, up to {gitSyncStatus.max_users} workspace members"
 		>
 			Upgrade to the Enterprise Edition for multiple repositories, promotion mode, GitHub App
-			authentication, and unlimited users.
+			authentication, and unlimited workspace members.
 		</Alert>
 		<div class="mb-2"></div>
 	{/if}
