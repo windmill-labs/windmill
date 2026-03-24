@@ -97,6 +97,7 @@ flow related commands
   - `--remote` - Use deployed workspace scripts for PathScript steps instead of local files.
 - `flow generate-locks [flow:file]` - re-generate the lock files of all inline scripts of all updated flows
   - `--yes` - Skip confirmation prompt
+  - `--dry-run` - Perform a dry run without making changes
   - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
   - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which file to NOT take into account.
 - `flow new <flow_path:string>` - create a new empty flow
@@ -139,6 +140,7 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
 - `--skip-scripts` - Skip processing scripts
 - `--skip-flows` - Skip processing flows
 - `--skip-apps` - Skip processing apps
+- `--strict-folder-boundaries` - Only update items inside the specified folder (requires folder argument)
 - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which files to include
 - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which files to exclude
 
