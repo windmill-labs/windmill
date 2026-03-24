@@ -33,6 +33,7 @@
 	import { base } from '$lib/base'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
@@ -113,6 +114,9 @@
 	let basic_mode = $derived(tab === 'basic')
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
 	let creatingSlot: boolean = $state(false)
 	let creatingPublication: boolean = $state(false)
 	let pg14: boolean = $derived(postgresVersion.startsWith('14'))
@@ -318,7 +322,9 @@
 			error_handler_path,
 			error_handler_args,
 			retry,
-			mode
+			mode,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 		return cfg
 	}
@@ -339,6 +345,9 @@
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		mode = cfg?.mode ?? 'enabled'
+		permissionedAs = cfg?.permissioned_as
+		selectedPermissionedAs = undefined
+		preservePermissionedAs = false
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -553,6 +562,15 @@
 			</div>
 		{/if}
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}

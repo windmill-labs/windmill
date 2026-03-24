@@ -53,7 +53,7 @@
 
 <div style={`width: ${NODE.width}px;`} use:floatingRef>
 	<button
-		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center justify-center rounded-md drop-shadow-base {colorClasses.outline} {colorClasses.bg}"
+		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center justify-center rounded-md drop-shadow-sm {colorClasses.outline} {colorClasses.bg}"
 		style="height: {NODE.height}px"
 		onclick={() => dispatch('select')}
 	>

@@ -115,8 +115,8 @@
 								refresh?.()
 								sendUserToast('Row deleted')
 							})
-							.catch(() => {
-								sendUserToast('Error deleting row', true)
+							.catch((e) => {
+								sendUserToast(`Error deleting row: ${e?.message ?? e}`, true)
 							})
 					}
 				})

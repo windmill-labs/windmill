@@ -8,10 +8,14 @@
 
 mod mapping;
 
+#[cfg(not(target_arch = "wasm32"))]
 use async_recursion::async_recursion;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use std::{collections::HashMap, str::FromStr};
+#[cfg(not(target_arch = "wasm32"))]
+use std::str::FromStr;
+#[cfg(not(target_arch = "wasm32"))]
+use std::collections::HashMap;
 
 use mapping::{FULL_IMPORTS_MAP, SHORT_IMPORTS_MAP};
 #[cfg(not(target_arch = "wasm32"))]
@@ -24,7 +28,9 @@ use rustpython_parser::{
     text_size::TextRange,
     Parse,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use sqlx::{Pool, Postgres};
+#[cfg(not(target_arch = "wasm32"))]
 use windmill_common::{
     error::{self, to_anyhow},
     worker::{
@@ -46,10 +52,14 @@ fn replace_full_import(x: &str) -> Option<String> {
     FULL_IMPORTS_MAP.get(x).map(|x| (*x).to_owned())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 lazy_static! {
     static ref RE: Regex = Regex::new(r"^\#\s?(\S+)\s*$").unwrap();
-    static ref PIN_RE: Regex = Regex::new(r"(?:\s*#\s*(pin|repin):\s*)(\S*)").unwrap();
     static ref PKG_RE: Regex = Regex::new(r"^([^!=<>]+)(?:[!=<>]|$)").unwrap();
+}
+
+lazy_static! {
+    static ref PIN_RE: Regex = Regex::new(r"(?:\s*#\s*(pin|repin):\s*)(\S*)").unwrap();
     // Regex to properly match main function definition at line start,
     // capturing both sync and async variants
     static ref DEF_MAIN_RE: Regex = Regex::new(r"(?m)^(async\s+)?def\s+main\s*\(").unwrap();
@@ -82,7 +92,7 @@ fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<NImpo
     }
 }
 
-pub fn parse_relative_imports(code: &str, path: &str) -> error::Result<Vec<String>> {
+pub fn parse_relative_imports(code: &str, path: &str) -> anyhow::Result<Vec<String>> {
     let nimports = parse_code_for_imports(code, path)?;
     return Ok(nimports
         .into_iter()
@@ -94,7 +104,7 @@ pub fn parse_relative_imports(code: &str, path: &str) -> error::Result<Vec<Strin
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-enum NImport {
+pub enum NImport {
     // Order matters! First we want to resolve all repins
 
     // manually repinned requirement
@@ -134,6 +144,8 @@ enum NImport {
     // Relative imports
     Relative(String),
 }
+
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum NImportResolved {
     Repin { pin: ImportPin, key: String },
@@ -142,12 +154,12 @@ enum NImportResolved {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct ImportPin {
-    pkg: String,
-    path: String,
+pub struct ImportPin {
+    pub pkg: String,
+    pub path: String,
 }
 
-fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>> {
+pub fn parse_code_for_imports(code: &str, path: &str) -> anyhow::Result<Vec<NImport>> {
     // Use regex to safely find the main function definition
     let mut code = DEF_MAIN_RE
         .split(code)
@@ -175,7 +187,7 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
     let code_with_fake_main = format!("{}\n\ndef main(): pass", code);
 
     let ast = Suite::parse(&code_with_fake_main, "main.py").map_err(|e| {
-        error::Error::ExecutionErr(format!("Error parsing code for imports: {}", e.to_string()))
+        anyhow::anyhow!("Error parsing code for imports: {}", e.to_string())
     })?;
     // Note: We're still using the original code for finding pins,
     // as the TextRange values from the parsed AST would be based on code_with_fake_main
@@ -256,6 +268,7 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
     return Ok(nimports);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn parse_python_imports(
     code: &str,
     w_id: &str,
@@ -264,6 +277,7 @@ pub async fn parse_python_imports(
     version_specifiers: &mut Vec<pep440_rs::VersionSpecifier>,
     locked_v: &mut Option<pep440_rs::Version>,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<(Vec<String>, Option<String>)> {
     let mut compile_error_hint: Option<String> = None;
     let mut imports = parse_python_imports_inner(
@@ -276,6 +290,7 @@ pub async fn parse_python_imports(
         &mut None,
         locked_v,
         raw_workspace_dependencies_o,
+        temp_script_refs,
     )
     .await?
     .into_values()
@@ -313,6 +328,7 @@ pub async fn parse_python_imports(
     Ok((imports, compile_error_hint))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn extract_pkg_name(requirement: &str) -> String {
     PKG_RE
         .captures(requirement)
@@ -320,6 +336,7 @@ fn extract_pkg_name(requirement: &str) -> String {
         .unwrap_or_default()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[async_recursion]
 async fn parse_python_imports_inner(
     code: &str,
@@ -331,6 +348,7 @@ async fn parse_python_imports_inner(
     path_where_annotated_pyv: &mut Option<String>,
     locked_v: &mut Option<pep440_rs::Version>,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<HashMap<String, NImportResolved>> {
     tracing::debug!("Parsing python imports for path: {}", path);
     let PythonAnnotations { py310, py311, py312, py313, .. } = PythonAnnotations::parse(&code);
@@ -494,17 +512,37 @@ async fn parse_python_imports_inner(
     for n in nimports.into_iter() {
         let mut nested = match n {
             NImport::Relative(rpath) => {
-                let code = sqlx::query_scalar!(
-                    r#"
-                SELECT content FROM script WHERE path = $1 AND workspace_id = $2
-                AND archived = false ORDER BY created_at DESC LIMIT 1
-                "#,
-                    &rpath,
-                    w_id
-                )
-                .fetch_optional(db)
-                .await?
-                .unwrap_or_else(|| "".to_string());
+                // First try to get content from temp_script_refs cache if available
+                let code_from_cache = if let Some(hash) = temp_script_refs.as_ref().and_then(|dt| dt.get(&rpath)) {
+                    tracing::debug!("Found relative import '{}' in temp_script_refs with hash '{}'", rpath, hash);
+                    match windmill_common::cache::raw_script_temp::load(hash.clone(), db).await {
+                        Ok(content) => Some(content),
+                        Err(e) => {
+                            tracing::warn!("temp_script_refs hash '{}' not found in cache: {}, falling back to deployed script", hash, e);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+
+                // Use cached content if available, otherwise fall back to deployed script
+                let code = match code_from_cache {
+                    Some(content) => content,
+                    None => {
+                        sqlx::query_scalar!(
+                            r#"
+                        SELECT content FROM script WHERE path = $1 AND workspace_id = $2
+                        AND archived = false ORDER BY created_at DESC LIMIT 1
+                        "#,
+                            &rpath,
+                            w_id
+                        )
+                        .fetch_optional(db)
+                        .await?
+                        .unwrap_or_else(|| "".to_string())
+                    }
+                };
 
                 if already_visited.contains(&rpath) {
                     vec![]
@@ -522,6 +560,7 @@ async fn parse_python_imports_inner(
                         path_where_annotated_pyv,
                         locked_v,
                         raw_workspace_dependencies_o,
+                        temp_script_refs,
                     )
                     .await?
                     .into_values()
@@ -646,6 +685,7 @@ async fn parse_python_imports_inner(
     Ok(final_imports)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn extract_nimports_from_content(
     content: &str,
     hm: &mut HashMap<String, NImportResolved>,

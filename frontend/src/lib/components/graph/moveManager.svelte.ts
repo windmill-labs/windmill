@@ -204,9 +204,6 @@ export class MoveManager {
 		for (const [edgeId, zone] of this.#registeredDropZones) {
 			if (zone.disableMoveIds.includes(draggedId)) continue
 
-			// Skip edges adjacent to the dragged node (no-op move)
-			if (zone.sourceId === draggedId || zone.targetId === draggedId) continue
-
 			const dx = Math.abs(flowPos.x - zone.centerX)
 			const dy = Math.abs(flowPos.y - zone.centerY)
 

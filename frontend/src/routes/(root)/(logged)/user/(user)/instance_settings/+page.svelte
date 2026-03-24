@@ -143,7 +143,7 @@
 		}
 	}
 
-	const emailPattern = /^[\w-.]+@([\w-]+\.)+[\w-]{2,4}$/
+	const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 	let emailValid = $derived(emailPattern.test(newEmail))
 	let passwordValid = $derived(newPassword.length >= 2)
 	let accountFormValid = $derived(emailValid && passwordValid)

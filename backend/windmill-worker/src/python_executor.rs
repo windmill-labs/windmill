@@ -1348,6 +1348,7 @@ async fn handle_python_deps(
                         &mut version_specifiers,
                         &mut locked_v,
                         &None,
+                        &None, // temp_script_refs: only used during CLI lock generation
                     ))
                     .await?;
 

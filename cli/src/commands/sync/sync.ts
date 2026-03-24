@@ -2280,7 +2280,7 @@ export async function pull(
 
     const tracker: ChangeTracker = await buildTracker(changes);
     const rawWorkspaceDependencies: Record<string, string> =
-      await getRawWorkspaceDependencies();
+      await getRawWorkspaceDependencies(true);
 
     for (const change of tracker.scripts) {
       await generateScriptMetadataInternal(
@@ -2611,7 +2611,7 @@ export async function push(
     false, // els1 (local) is not the remote source
   );
 
-  const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
+  const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
 
   const tracker: ChangeTracker = await buildTracker(changes);
 
@@ -2657,7 +2657,7 @@ export async function push(
       true,
     );
     if (stale) {
-      staleFlows.push(stale);
+      staleFlows.push(stale as string);
     }
   }
 
@@ -2682,7 +2682,7 @@ export async function push(
       true,
     );
     if (stale) {
-      staleApps.push(stale);
+      staleApps.push(stale as string);
     }
   }
 
@@ -2697,7 +2697,7 @@ export async function push(
       true,
     );
     if (stale) {
-      staleApps.push(stale);
+      staleApps.push(stale as string);
     }
   }
 

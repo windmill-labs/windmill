@@ -32,6 +32,8 @@ export async function saveGcpTriggerFromCfg(
 			is_flow: cfg.is_flow,
 			auto_acknowledge_msg: cfg.auto_acknowledge_msg,
 			ack_deadline: cfg.ack_deadline,
+			permissioned_as: cfg.permissioned_as,
+			preserve_permissioned_as: cfg.preserve_permissioned_as,
 			...errorHandlerAndRetries
 		}
 		if (edit) {
