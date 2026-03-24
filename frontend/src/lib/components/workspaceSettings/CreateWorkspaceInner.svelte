@@ -125,9 +125,6 @@
 		} else {
 			await createWorkspace()
 		}
-
-		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		switchWorkspace(isFork ? prefixed_id : id)
 	}
 
 	async function forkWorkspace(prefixed_id: string): Promise<void> {
@@ -215,6 +212,9 @@
 
 		forkCreationLoading = false
 		sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
+
+		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		switchWorkspace(prefixed_id)
 	}
 
 	async function createWorkspace(): Promise<void> {
@@ -280,6 +280,9 @@
 						}
 					: {}
 			})
+
+			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+			switchWorkspace(id)
 		}
 
 		sendUserToast(`Created workspace id: ${id}`)
