@@ -655,7 +655,7 @@ async fn get_settings(
     Ok(Json(settings))
 }
 
-fn has_ai_providers(config: Option<&serde_json::Value>) -> bool {
+pub fn has_ai_providers(config: Option<&serde_json::Value>) -> bool {
     config
         .and_then(|value| value.get("providers"))
         .and_then(|providers| providers.as_object())
@@ -665,10 +665,10 @@ fn has_ai_providers(config: Option<&serde_json::Value>) -> bool {
 
 pub fn build_instance_ai_summary(config: Option<&serde_json::Value>) -> Option<InstanceAISummary> {
     let config = config?;
-    let providers = config.get("providers")?.as_object()?;
-    if providers.is_empty() {
+    if !has_ai_providers(Some(config)) {
         return None;
     }
+    let providers = config.get("providers")?.as_object()?;
 
     let mut provider_summaries = providers
         .iter()

@@ -8,7 +8,9 @@
 
 // Re-export everything from windmill-api-workspaces
 pub use windmill_api_workspaces::workspaces::*;
-use windmill_api_workspaces::workspaces::{build_instance_ai_summary, InstanceAISummary};
+use windmill_api_workspaces::workspaces::{
+    build_instance_ai_summary, has_ai_providers, InstanceAISummary,
+};
 
 use crate::ai::{invalidate_ai_request_cache_for_workspace, AIConfig};
 use crate::db::ApiAuthed;
@@ -35,6 +37,7 @@ use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use axum::extract::Query;
 #[cfg(feature = "enterprise")]
 use serde::Deserialize;
+use serde::Serialize;
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
 
@@ -139,8 +142,6 @@ async fn edit_copilot_config(
     Ok(format!("Edit copilot config for workspace {}", &w_id))
 }
 
-use serde::Serialize;
-
 #[derive(Serialize)]
 struct CopilotInfoResponse {
     #[serde(flatten)]
@@ -172,14 +173,9 @@ async fn get_copilot_info(
             .fetch_optional(&db)
             .await?;
 
+    let has_instance_ai_config = has_ai_providers(instance_ai_config.as_ref());
     let instance_ai_summary = build_instance_ai_summary(instance_ai_config.as_ref());
-    let has_instance_ai_config = instance_ai_summary.is_some();
-
-    let workspace_has_config = copilot_info
-        .as_ref()
-        .and_then(|c| c.0.providers.as_ref())
-        .map(|p| !p.is_empty())
-        .unwrap_or(false);
+    let workspace_has_config = copilot_info.as_ref().is_some_and(|c| c.0.has_providers());
 
     if workspace_has_config {
         Ok(Json(CopilotInfoResponse {
@@ -190,15 +186,10 @@ async fn get_copilot_info(
         }))
     } else if let Some(instance_config) = instance_ai_config {
         let ai_config = serde_json::from_value::<AIConfig>(instance_config).unwrap_or_default();
-        let has_providers = ai_config
-            .providers
-            .as_ref()
-            .map(|p| !p.is_empty())
-            .unwrap_or(false);
         Ok(Json(CopilotInfoResponse {
+            uses_instance_ai_config: ai_config.has_providers(),
             ai_config,
             has_instance_ai_config,
-            uses_instance_ai_config: has_providers,
             instance_ai_summary,
         }))
     } else {

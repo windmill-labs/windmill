@@ -521,6 +521,14 @@ pub struct AIConfig {
     pub max_tokens_per_model: Option<HashMap<String, i32>>,
 }
 
+impl AIConfig {
+    pub fn has_providers(&self) -> bool {
+        self.providers
+            .as_ref()
+            .is_some_and(|providers| !providers.is_empty())
+    }
+}
+
 /// Anthropic API version for Google Vertex AI
 const ANTHROPIC_VERSION_VERTEX: &str = "vertex-2023-10-16";
 
@@ -791,9 +799,7 @@ async fn proxy(
                         let ws_has_config = workspace_ai_config
                             .as_ref()
                             .and_then(|v| serde_json::from_value::<AIConfig>(v.clone()).ok())
-                            .and_then(|c| c.providers)
-                            .map(|p| !p.is_empty())
-                            .unwrap_or(false);
+                            .is_some_and(|config| config.has_providers());
 
                         if ws_has_config {
                             (workspace_ai_config.unwrap(), w_id.clone(), None)
