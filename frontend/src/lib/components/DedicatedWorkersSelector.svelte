@@ -24,6 +24,7 @@
 	import { untrack } from 'svelte'
 	import BarsStaggered from './icons/BarsStaggered.svelte'
 	import { parseTag } from './dedicated_worker'
+	import Tooltip from './Tooltip.svelte'
 
 	// A "Runnable" is a script or flow with dedicated_worker=true
 	interface Runnable {
@@ -534,55 +535,27 @@
 		// Only return groups with 2+ scripts
 		return Array.from(groupMap.values()).filter((g) => g.tags.length >= 2)
 	})
+
+	// Map tag → runner group it belongs to (for display in the combined list)
+	let tagRunnerGroup: Map<string, RunnerGroup> = $derived.by(() => {
+		const map = new Map<string, RunnerGroup>()
+		for (const group of runnerGroups) {
+			for (const tag of group.tags) {
+				map.set(tag, group)
+			}
+		}
+		return map
+	})
 </script>
 
 <div class="flex flex-col gap-3">
-	<!-- Shared runner groups -->
-	{#if runnerGroups.length > 0}
-		<div class="flex flex-col gap-1.5">
-			{#each runnerGroups as group}
-				<div class="border rounded-md overflow-hidden">
-					<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary">
-						<span class="text-xs font-semibold text-emphasis">Shared runner</span>
-						<span class="text-xs text-secondary">·</span>
-						{#if existingDeps.has(group.depName)}
-							<a
-								href="/workspace_settings?tab=dependencies"
-								target="_blank"
-								class="text-xs text-accent hover:underline flex items-center gap-1"
-							>
-								{group.depName}
-								<ExternalLink class="h-3 w-3" />
-							</a>
-						{:else}
-							<span class="text-xs flex items-center gap-1 text-yellow-500">
-								<TriangleAlert class="h-3 w-3" />
-								{group.depName}
-							</span>
-						{/if}
-						<span class="text-xs text-secondary">·</span>
-						<span class="text-xs text-secondary">{group.language}</span>
-					</div>
-					<div class="divide-y">
-						{#each group.tags as tag}
-							{@const info = selectedTagsInfo.get(tag)}
-							<div class="flex items-center gap-2 px-3 py-1 text-xs text-secondary">
-								<CodeXml size={12} class="flex-shrink-0 text-tertiary" />
-								<span class="truncate">{info?.path ?? tag}</span>
-							</div>
-						{/each}
-					</div>
-				</div>
-			{/each}
-		</div>
-	{/if}
-
-	<!-- Selected tags summary -->
+	<!-- Selected tags list (combined with shared runner info) -->
 	{#if selectedTags.length > 0}
 		<div class="flex flex-col gap-2">
-			<div class="border rounded-md divide-y bg-surface max-h-48 overflow-y-auto">
+			<div class="border rounded-md divide-y bg-surface max-h-64 overflow-y-auto">
 				{#each selectedTags as tag (tag)}
 					{@const info = selectedTagsInfo.get(tag)}
+					{@const group = tagRunnerGroup.get(tag)}
 					<div>
 						<div class="flex items-center">
 							{#if info?.type === 'flow' && info.runners && info.runners.length > 0}
@@ -616,21 +589,37 @@
 											<Badge color="indigo" small>
 												{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
 											</Badge>
-										{:else if info.type === 'script' && !info.workspaceDeps?.length}
+										{:else if info.type === 'script' && !group}
 											<Badge color="blue" small>1 runner</Badge>
 										{/if}
-										{#if info.workspaceDeps}
+										{#if group}
+											{#if existingDeps.has(group.depName)}
+												<Badge color="indigo" small href="/workspace_settings?tab=dependencies">
+													{group.depName}
+													<ExternalLink class="h-2.5 w-2.5" />
+												</Badge>
+											{:else}
+												<Tooltip small>
+													Workspace dependency '{group.depName}' not found. Create it in workspace
+													settings for shared runner to work.
+												</Tooltip>
+												<Badge color="yellow" small>
+													<TriangleAlert class="h-2.5 w-2.5" />
+													{group.depName}
+												</Badge>
+											{/if}
+										{:else if info.workspaceDeps}
 											{#each info.workspaceDeps as dep}
 												{#if existingDeps.has(dep)}
-													<Badge
-														color="dark-gray"
-														small
-														href="/workspace_settings?tab=dependencies"
-													>
+													<Badge color="indigo" small href="/workspace_settings?tab=dependencies">
 														{dep}
 														<ExternalLink class="h-2.5 w-2.5" />
 													</Badge>
 												{:else}
+													<Tooltip small>
+														Workspace dependency '{dep}' not found. Create it in workspace settings
+														to enable shared runners.
+													</Tooltip>
 													<Badge color="yellow" small>
 														<TriangleAlert class="h-2.5 w-2.5" />
 														{dep}
@@ -788,14 +777,15 @@
 														{runnable.runners.length}
 													</span>
 												{/if}
-												<Badge color={runnable.type === 'flow' ? 'indigo' : 'blue'} small>
-													{runnable.type === 'flow' ? 'flow' : runnable.language}
-												</Badge>
 												{#if runnable.workspaceDeps}
 													{#each runnable.workspaceDeps as dep}
 														{#if existingDeps.has(dep)}
-															<Badge color="dark-gray" small>{dep}</Badge>
+															<Badge color="indigo" small>{dep}</Badge>
 														{:else}
+															<Tooltip small>
+																Workspace dependency '{dep}' not found. Create it in workspace
+																settings to enable shared runners.
+															</Tooltip>
 															<Badge color="yellow" small>
 																<TriangleAlert class="h-2.5 w-2.5" />
 																{dep}
@@ -803,6 +793,9 @@
 														{/if}
 													{/each}
 												{/if}
+												<Badge color={runnable.type === 'flow' ? 'indigo' : 'blue'} small>
+													{runnable.type === 'flow' ? 'flow' : runnable.language}
+												</Badge>
 											</button>
 										</div>
 
