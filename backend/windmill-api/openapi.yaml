@@ -3334,13 +3334,15 @@ paths:
                 type: array
                 items:
                   type: object
-                  required: [name, resource_type]
+                  required: [name, resource_type, resource_path]
                   properties:
                     name:
                       type: string
                     resource_type:
                       type: string
                       enum: [postgres, instance]
+                    resource_path:
+                      type: string
 
   /w/{workspace}/workspaces/list_datatable_schemas:
     get:
@@ -20299,6 +20301,9 @@ components:
         resource_type:
           type: string
           description: The new resource_type to be associated with the resource
+        non_diffable:
+          type: boolean
+          description: When true, the resource is excluded from workspace diff comparisons
 
     Resource:
       type: object

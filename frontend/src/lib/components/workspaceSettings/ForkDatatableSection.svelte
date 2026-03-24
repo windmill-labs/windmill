@@ -14,6 +14,7 @@
 		_isInstance: boolean
 		_sourceWorkspace: string
 		_targetWorkspace: string
+		_resourcePath: string
 	}
 </script>
 
@@ -89,15 +90,23 @@
 					_newDbName: newDbName,
 					_isInstance: isInstance,
 					_sourceWorkspace: $workspaceStore!,
-					_targetWorkspace: targetWorkspaceId
+					_targetWorkspace: targetWorkspaceId,
+					_resourcePath: dt.resource_path
 				}
 			})
 	}
 
+	let completedJobs: DatatableCloneJob[] = $state([])
+
 	export function startCloning(queue: DatatableCloneJob[]) {
+		completedJobs = []
 		cloneQueue = queue
 		currentCloneJob = cloneQueue[0]
 		cloneModalOpen = true
+	}
+
+	export function getCompletedCloneJobs(): DatatableCloneJob[] {
+		return completedJobs
 	}
 
 	async function executeCloneJob(job: DatatableCloneJob) {
@@ -169,6 +178,9 @@
 	}
 
 	function advanceCloneQueue() {
+		if (currentCloneJob) {
+			completedJobs.push(currentCloneJob)
+		}
 		const idx = cloneQueue.indexOf(currentCloneJob!)
 		if (idx < cloneQueue.length - 1) {
 			currentCloneJob = cloneQueue[idx + 1]

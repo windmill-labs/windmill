@@ -1146,6 +1146,7 @@ async fn list_ducklakes(
 struct DataTableListItem {
     name: String,
     resource_type: String,
+    resource_path: String,
 }
 
 async fn list_datatables(
@@ -1167,6 +1168,7 @@ async fn list_datatables(
                 .map(|(name, dt)| DataTableListItem {
                     name,
                     resource_type: dt.database.resource_type.as_ref().to_string(),
+                    resource_path: dt.database.resource_path,
                 })
                 .collect()
         }

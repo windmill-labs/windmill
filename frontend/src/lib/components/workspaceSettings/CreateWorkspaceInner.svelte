@@ -210,11 +210,71 @@
 			return
 		}
 
+		// Update forked workspace settings for cloned datatables
+		if (forkDatatableSection) {
+			const clonedJobs = forkDatatableSection.getCompletedCloneJobs()
+			if (clonedJobs.length > 0) {
+				try {
+					await applyPostForkDatatableUpdates(prefixed_id, clonedJobs)
+				} catch (e: any) {
+					sendUserToast(`Warning: datatable settings update failed: ${e?.body ?? e}`, true)
+				}
+			}
+		}
+
 		forkCreationLoading = false
 		sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
 
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		switchWorkspace(prefixed_id)
+	}
+
+	async function applyPostForkDatatableUpdates(
+		forkWorkspaceId: string,
+		clonedJobs: import('./ForkDatatableSection.svelte').DatatableCloneJob[]
+	): Promise<void> {
+		// First, get the current datatable settings from the forked workspace
+		const settings = await WorkspaceService.getSettings({ workspace: forkWorkspaceId })
+		const datatableConfig = settings.datatable ?? { datatables: {} }
+
+		for (const job of clonedJobs) {
+			if (job._isInstance) {
+				// Instance: update resource_path to the new custom instance DB name
+				if (datatableConfig.datatables[job.name]) {
+					datatableConfig.datatables[job.name].database.resource_path = job._newDbName
+				}
+			} else {
+				// Resource: update the resource's dbname and set non_diffable
+				const resourcePath = job._resourcePath
+				try {
+					const res = await ResourceService.getResource({
+						workspace: forkWorkspaceId,
+						path: resourcePath
+					})
+					const value = (res.value as Record<string, any>) ?? {}
+					value.dbname = job._newDbName
+					await ResourceService.updateResource({
+						workspace: forkWorkspaceId,
+						path: resourcePath,
+						requestBody: {
+							value,
+							non_diffable: true
+						}
+					})
+				} catch (e: any) {
+					console.error(`Failed to update resource ${resourcePath}:`, e)
+				}
+			}
+		}
+
+		// Save updated datatable settings for instance-type changes
+		const hasInstanceChanges = clonedJobs.some((j) => j._isInstance)
+		if (hasInstanceChanges) {
+			await WorkspaceService.editDataTableConfig({
+				workspace: forkWorkspaceId,
+				requestBody: { settings: datatableConfig }
+			})
+		}
 	}
 
 	async function createWorkspace(): Promise<void> {
