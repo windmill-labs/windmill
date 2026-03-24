@@ -227,6 +227,8 @@
 
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		switchWorkspace(prefixed_id)
+
+		onFinish?.()
 	}
 
 	async function applyPostForkDatatableUpdates(
