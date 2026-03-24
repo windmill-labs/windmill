@@ -145,9 +145,11 @@
 		}
 	}
 
+	let cancelLoading = $state(false)
 	async function handleCancel() {
 		const ws = $workspaceStore
 		if (!ws || !jobId) return
+		cancelLoading = true
 		try {
 			await JobService.resumeSuspended({
 				workspace: ws,
@@ -157,6 +159,8 @@
 			sendUserToast('Job cancelled')
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? 'Failed to cancel', true)
+		} finally {
+			cancelLoading = false
 		}
 	}
 </script>
@@ -245,7 +249,7 @@
 										<Button
 											variant="default"
 											unifiedSize="sm"
-											disabled={approvalLoading[k]}
+											disabled={approvalLoading[k] || cancelLoading}
 											onclick={() => handleCancel()}
 										>
 											Reject

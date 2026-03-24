@@ -2238,20 +2238,7 @@ pub async fn resume_suspended_flow_as_owner(
 
 // --- New approval system endpoints ---
 
-/// Generate a stateless approval token from workspace key + job_id.
-/// This token grants access to view approval info and attempt to resume,
-/// but cannot be reversed to obtain the HMAC resume secret.
-async fn generate_approval_token(
-    db: &DB,
-    job_id: Uuid,
-    workspace_id: &str,
-) -> error::Result<String> {
-    let key = get_workspace_key(workspace_id, db).await?;
-    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
-    mac.update(job_id.as_bytes());
-    mac.update(b"approval_token");
-    Ok(hex::encode(mac.finalize().into_bytes()))
-}
+use windmill_common::variables::generate_approval_token;
 
 /// Verify an approval token against the workspace key + job_id.
 async fn validate_approval_token(
@@ -2260,7 +2247,7 @@ async fn validate_approval_token(
     job_id: Uuid,
     workspace_id: &str,
 ) -> error::Result<()> {
-    let expected = generate_approval_token(db, job_id, workspace_id).await?;
+    let expected = generate_approval_token(workspace_id, job_id, db).await?;
     if token != expected {
         return Err(Error::NotAuthorized("Invalid approval token".to_string()));
     }
@@ -2360,13 +2347,7 @@ async fn resume_suspended(
     }
 
     // Generate a unique resume_id
-    let resume_id: u32 = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        chrono::Utc::now().timestamp_nanos_opt().hash(&mut hasher);
-        job_id.hash(&mut hasher);
-        (hasher.finish() & 0xFFFF_FFFF) as u32
-    };
+    let resume_id: u32 = rand::random();
 
     // Check for duplicate
     let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM resume_job WHERE id = $1)")
@@ -3321,7 +3302,7 @@ pub async fn get_resume_urls_internal(
     let approval_target_id = get_flow_id_for_job(&db, job_id)
         .await
         .unwrap_or(target_job_id);
-    let approval_token = generate_approval_token(&db, approval_target_id, &w_id).await?;
+    let approval_token = generate_approval_token(&w_id, approval_target_id, &db).await?;
 
     let base_url_str = BASE_URL.read().await.clone();
     let base_url = base_url_str.as_str();

@@ -2720,17 +2720,10 @@ pub async fn handle_wac_v2_output(
                 key.hash(&mut hasher);
                 (hasher.finish() & 0xFFFF_FFFF) as u32
             };
-            // Generate stateless approval token (HMAC of workspace key + job_id + "approval_token")
-            let approval_token = {
-                use hmac::Mac;
-                use windmill_common::variables::get_workspace_key;
-                let wkey = get_workspace_key(&job.workspace_id, db).await?;
-                let mut mac2 = hmac::Hmac::<sha2::Sha256>::new_from_slice(wkey.as_bytes())
-                    .map_err(|e| error::Error::internal_err(format!("HMAC key error: {e}")))?;
-                mac2.update(job.id.as_bytes());
-                mac2.update(b"approval_token");
-                hex::encode(mac2.finalize().into_bytes())
-            };
+            // Generate stateless approval token using shared utility
+            let approval_token =
+                windmill_common::variables::generate_approval_token(&job.workspace_id, job.id, db)
+                    .await?;
 
             let (resume_url, cancel_url, approval_page_url) = {
                 use hmac::{Hmac, Mac};

@@ -103,6 +103,7 @@
 				}
 			})
 			sendUserToast('Flow approved')
+			pollInterval && clearInterval(pollInterval)
 			loadData()
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? 'Failed to approve', true)
@@ -124,6 +125,7 @@
 				}
 			})
 			sendUserToast('Flow denied!')
+			pollInterval && clearInterval(pollInterval)
 			loadData()
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? 'Failed to cancel', true)
