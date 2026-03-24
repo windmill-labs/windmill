@@ -4209,6 +4209,29 @@ pub async fn run_language_executor(
     modules: &Option<std::collections::HashMap<String, ScriptModule>>,
     run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
+    // Expand WM_INTERNAL_DB markers into real SQL before dispatching
+    let expanded_code: String;
+    let mut language = language;
+    let code = if let Some(ref lang) = language {
+        match windmill_common::query_builders::try_expand_internal_db_query(code, lang) {
+            Some(Ok(expanded)) => {
+                if let Some(lang_override) = expanded.language_override {
+                    language = Some(lang_override);
+                }
+                expanded_code = expanded.code;
+                &expanded_code
+            }
+            Some(Err(e)) => {
+                return Err(Error::ExecutionErr(format!(
+                    "Failed to expand WM_INTERNAL_DB marker: {}",
+                    e
+                )));
+            }
+            None => code, // Not a marker, use original code
+        }
+    } else {
+        code
+    };
     if let Some(modules) = modules {
         #[cfg(feature = "python")]
         let base_dir = if language == Some(ScriptLang::Python3) {
