@@ -24351,7 +24351,7 @@ components:
         kind:
           type: string
           enum:
-            ["script", "flow", "app", "raw_app", "resource", "variable", "resource_type"]
+            ["script", "flow", "app", "raw_app", "resource", "variable", "resource_type", "datatable_table"]
           description: Type of the item
         path:
           type: string

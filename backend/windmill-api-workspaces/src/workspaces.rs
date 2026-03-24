@@ -5044,6 +5044,14 @@ async fn compare_workspaces(
                 compare_two_folders(&db, &source_workspace_id, &fork_workspace_id, &item.path)
                     .await?,
             ),
+            "datatable_table" => {
+                // No stateless comparison yet — assume changes are real
+                Some(ItemComparison {
+                    has_changes: true,
+                    exists_in_source: true,
+                    exists_in_fork: true,
+                })
+            }
             k => {
                 tracing::error!("Received unrecognized item kind `{k}` with path: `{}` while computing diff of {fork_workspace_id} and {source_workspace_id} workspaces. Skipping this item", item.path);
                 None
@@ -5284,6 +5292,8 @@ async fn query_visible_items<'c>(
                 .fetch_all(&mut **tx)
                 .await?
             }
+            // Datatable tables are always visible (no permission gating)
+            "datatable_table" => paths_vec,
             _ => vec![], // Unknown kind
         };
 

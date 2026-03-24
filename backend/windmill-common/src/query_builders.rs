@@ -230,6 +230,12 @@ fn wrap_ducklake_query(query: &str, ducklake: &str) -> String {
     format!("{}{}{}", &query[..insert_pos], attach, &query[insert_pos..])
 }
 
+/// Describes a DDL operation that modifies a table structure.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DdlOperation {
+    pub table_name: String,
+}
+
 /// Result of expanding a WM_INTERNAL_DB marker.
 #[derive(Debug, PartialEq)]
 pub struct ExpandedQuery {
@@ -237,6 +243,8 @@ pub struct ExpandedQuery {
     /// If set, the worker should use this language instead of the original.
     /// Used when the expanded code is in a different language (e.g. BigQuery all-tables uses Bun).
     pub language_override: Option<ScriptLang>,
+    /// If set, this expansion was a DDL operation (CREATE/ALTER/DROP TABLE).
+    pub ddl_operation: Option<DdlOperation>,
 }
 
 /// Checks if a SQL script is a WM_INTERNAL_DB marker and expands it into real SQL.
@@ -279,9 +287,18 @@ pub fn try_expand_internal_db_query(
         "INSERT" => expand_insert(json_str, db_type).map(ExpandedQuery::sql),
         "UPDATE" => expand_update(json_str, db_type).map(ExpandedQuery::sql),
         // Schema DDL operations
-        "DROP_TABLE" => expand_drop_table(json_str, db_type).map(ExpandedQuery::sql),
-        "CREATE_TABLE" => expand_create_table(json_str, db_type).map(ExpandedQuery::sql),
-        "ALTER_TABLE" => expand_alter_table(json_str, db_type).map(ExpandedQuery::sql),
+        "DROP_TABLE" => {
+            let table_name = extract_ddl_table_name(json_str, "table");
+            expand_drop_table(json_str, db_type).map(|code| ExpandedQuery::ddl(code, table_name))
+        }
+        "CREATE_TABLE" => {
+            let table_name = extract_ddl_table_name(json_str, "name");
+            expand_create_table(json_str, db_type).map(|code| ExpandedQuery::ddl(code, table_name))
+        }
+        "ALTER_TABLE" => {
+            let table_name = extract_ddl_table_name(json_str, "name");
+            expand_alter_table(json_str, db_type).map(|code| ExpandedQuery::ddl(code, table_name))
+        }
         "CREATE_SCHEMA" => expand_create_schema(json_str, db_type).map(ExpandedQuery::sql),
         "DROP_SCHEMA" => expand_drop_schema(json_str, db_type).map(ExpandedQuery::sql),
         // Metadata queries
@@ -297,13 +314,26 @@ pub fn try_expand_internal_db_query(
     Some(result)
 }
 
+/// Extract the table name from a DDL JSON payload. The key varies by operation:
+/// DROP_TABLE uses "table", CREATE_TABLE and ALTER_TABLE use "name".
+fn extract_ddl_table_name(json_str: &str, key: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(json_str)
+        .ok()
+        .and_then(|v| v.get(key).and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .unwrap_or_default()
+}
+
 impl ExpandedQuery {
     fn sql(code: String) -> Self {
-        Self { code, language_override: None }
+        Self { code, language_override: None, ddl_operation: None }
+    }
+
+    fn ddl(code: String, table_name: String) -> Self {
+        Self { code, language_override: None, ddl_operation: Some(DdlOperation { table_name }) }
     }
 
     fn with_language(code: String, lang: ScriptLang) -> Self {
-        Self { code, language_override: Some(lang) }
+        Self { code, language_override: Some(lang), ddl_operation: None }
     }
 }
 
