@@ -35,7 +35,6 @@ use windmill_common::variables::{
     build_crypt, decrypt, encrypt, SECRET_SALT, WORKSPACE_CRYPT_CACHE,
 };
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
-#[cfg(feature = "enterprise")]
 use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
@@ -111,6 +110,7 @@ pub fn workspaced_service() -> Router {
         .route("/list_datatables", get(list_datatables))
         .route("/list_datatable_schemas", get(list_datatable_schemas))
         .route("/edit_datatable_config", post(edit_datatable_config))
+        .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
         .route(
@@ -1471,24 +1471,20 @@ async fn edit_datatable_config(
 
 #[derive(Deserialize)]
 pub struct EditGitSyncConfig {
-    #[cfg(feature = "enterprise")]
     pub git_sync_settings: Option<WorkspaceGitSyncSettings>,
 }
 
-#[cfg(feature = "enterprise")]
 #[derive(Deserialize, Debug)]
 pub struct EditGitSyncRepository {
     pub git_repo_resource_path: String,
     pub repository: GitRepositorySettings,
 }
 
-#[cfg(feature = "enterprise")]
 #[derive(Deserialize, Debug)]
 pub struct DeleteGitSyncRepositoryRequest {
     pub git_repo_resource_path: String,
 }
 
-#[cfg(feature = "enterprise")]
 fn validate_git_repo_resource_path(path: &str) -> Result<()> {
     // Resource paths should follow the pattern: $res:f/<folder>/<name> or $res:u/<username>/<name>
     if path.is_empty() {
@@ -1537,7 +1533,6 @@ fn validate_git_repo_resource_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "enterprise")]
 fn cleanup_legacy_git_sync_settings_in_memory(
     git_sync_settings: &mut windmill_common::workspaces::WorkspaceGitSyncSettings,
     workspace_id: &str,
@@ -1563,19 +1558,65 @@ fn cleanup_legacy_git_sync_settings_in_memory(
     }
 }
 
-#[cfg(not(feature = "enterprise"))]
-async fn edit_git_sync_config(
-    _authed: ApiAuthed,
-    Extension(_db): Extension<DB>,
-    Path(_w_id): Path<String>,
-    Json(_new_config): Json<EditGitSyncConfig>,
-) -> Result<String> {
-    return Err(Error::BadRequest(
-        "Git sync is only available on Windmill Enterprise Edition".to_string(),
-    ));
+async fn check_git_sync_access(db: &DB, w_id: &str) -> Result<()> {
+    if windmill_common::ee_oss::get_license_plan().await
+        == windmill_common::ee_oss::LicensePlan::Enterprise
+    {
+        return Ok(());
+    }
+    let user_count: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM usr WHERE workspace_id = $1 AND disabled = false",
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+
+    if user_count > 3 {
+        return Err(Error::BadRequest(
+            "Git sync is available for workspaces with up to 3 users. \
+             Upgrade to Windmill Enterprise Edition for unlimited users."
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
-#[cfg(feature = "enterprise")]
+async fn get_git_sync_enabled(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<serde_json::Value> {
+    let has_ee = windmill_common::ee_oss::get_license_plan().await
+        == windmill_common::ee_oss::LicensePlan::Enterprise;
+    if has_ee {
+        return Ok(Json(serde_json::json!({
+            "enabled": true,
+            "reason": "enterprise",
+            "max_repos": null,
+            "user_count": null,
+            "max_users": null,
+        })));
+    }
+
+    let user_count: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM usr WHERE workspace_id = $1 AND disabled = false",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    let enabled = user_count <= 3;
+    Ok(Json(serde_json::json!({
+        "enabled": enabled,
+        "reason": if enabled { Some("free_tier") } else { None::<&str> },
+        "max_repos": if enabled { Some(1) } else { None::<i32> },
+        "user_count": user_count,
+        "max_users": 3,
+    })))
+}
+
 async fn edit_git_sync_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1584,6 +1625,7 @@ async fn edit_git_sync_config(
     Json(new_config): Json<EditGitSyncConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
+    check_git_sync_access(&db, &w_id).await?;
 
     let mut tx = db.begin().await?;
 
@@ -1640,19 +1682,6 @@ async fn edit_git_sync_config(
     Ok(format!("Edit git sync config for workspace {}", &w_id))
 }
 
-#[cfg(not(feature = "enterprise"))]
-async fn edit_git_sync_repository(
-    _authed: ApiAuthed,
-    Extension(_db): Extension<DB>,
-    Path(_w_id): Path<String>,
-    Json(_new_config): Json<serde_json::Value>,
-) -> Result<String> {
-    return Err(Error::BadRequest(
-        "Git sync is only available on Windmill Enterprise Edition".to_string(),
-    ));
-}
-
-#[cfg(feature = "enterprise")]
 async fn edit_git_sync_repository(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1661,9 +1690,20 @@ async fn edit_git_sync_repository(
     Json(new_config): Json<EditGitSyncRepository>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
+    check_git_sync_access(&db, &w_id).await?;
 
     // Validate the resource path format
     validate_git_repo_resource_path(&new_config.git_repo_resource_path)?;
+
+    let has_ee = windmill_common::ee_oss::get_license_plan().await
+        == windmill_common::ee_oss::LicensePlan::Enterprise;
+
+    // Promotion mode: EE only
+    if !has_ee && new_config.repository.use_individual_branch.unwrap_or(false) {
+        return Err(Error::BadRequest(
+            "Promotion mode is an Enterprise Edition feature".to_string(),
+        ));
+    }
 
     let mut tx = db.begin().await?;
 
@@ -1685,6 +1725,19 @@ async fn edit_git_sync_repository(
     } else {
         WorkspaceGitSyncSettings::default()
     };
+
+    // Multi-repo: EE only
+    if !has_ee {
+        let is_new = !git_sync_settings
+            .repositories
+            .iter()
+            .any(|r| r.git_repo_resource_path == new_config.git_repo_resource_path);
+        if is_new && !git_sync_settings.repositories.is_empty() {
+            return Err(Error::BadRequest(
+                "Multiple git sync repositories is an Enterprise Edition feature".to_string(),
+            ));
+        }
+    }
 
     // Audit log before we move the repository
     audit_log(
@@ -1769,19 +1822,6 @@ async fn edit_git_sync_repository(
     ))
 }
 
-#[cfg(not(feature = "enterprise"))]
-async fn delete_git_sync_repository(
-    _authed: ApiAuthed,
-    Extension(_db): Extension<DB>,
-    Path(_w_id): Path<String>,
-    Json(_request): Json<serde_json::Value>,
-) -> Result<String> {
-    return Err(Error::BadRequest(
-        "Git sync is only available on Windmill Enterprise Edition".to_string(),
-    ));
-}
-
-#[cfg(feature = "enterprise")]
 async fn delete_git_sync_repository(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1790,6 +1830,7 @@ async fn delete_git_sync_repository(
     Json(request): Json<DeleteGitSyncRepositoryRequest>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
+    check_git_sync_access(&db, &w_id).await?;
 
     // For deletion, only validate that path is not empty to allow cleanup of malformed entries
     if request.git_repo_resource_path.is_empty() {

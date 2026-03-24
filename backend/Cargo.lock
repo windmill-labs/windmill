@@ -16260,6 +16260,7 @@ dependencies = [
  "serde_json",
  "serde_yml",
  "sqlx",
+ "tracing",
  "url",
  "windmill-api-auth",
  "windmill-common",
