@@ -227,6 +227,7 @@ export function calculateNodesBoundsWithOffset(
 		id: string
 		position: { x: number; y: number }
 		type: string
+		measured?: { width?: number; height?: number }
 	}>
 ): {
 	minX: number
@@ -239,11 +240,13 @@ export function calculateNodesBoundsWithOffset(
 
 	return nodesToCalculate.reduce(
 		(acc, node) => {
+			const w = node.measured?.width ?? NODE.width
+			const h = node.measured?.height ?? NODE.height
 			return {
 				minX: Math.min(acc.minX, node.position.x),
 				minY: Math.min(acc.minY, node.position.y),
-				maxX: Math.max(acc.maxX, node.position.x + NODE.width),
-				maxY: Math.max(acc.maxY, node.position.y + NODE.height)
+				maxX: Math.max(acc.maxX, node.position.x + w),
+				maxY: Math.max(acc.maxY, node.position.y + h)
 			}
 		},
 		{
@@ -267,17 +270,19 @@ function getAllRelatedSubflowNodes(
 		id: string
 		position: { x: number; y: number }
 		type: string
+		measured?: { width?: number; height?: number }
 	}>
 ): Array<{
 	id: string
 	position: { x: number; y: number }
+	measured?: { width?: number; height?: number }
 }> {
 	const relatedNodeIds = new Set<string>()
 
 	// Add original target nodes
 	targetNodeIds.forEach((id) => relatedNodeIds.add(id))
 
-	// For each target node, check if it's a subflow and find expanded nodes
+	// For each target node, check if it's a subflow or container and find child nodes
 	targetNodeIds.forEach((nodeId) => {
 		// Find nodes like "subflow:{nodeId}:*"
 		const subflowNodes = allNodes.filter(
@@ -301,6 +306,6 @@ function getAllRelatedSubflowNodes(
  * Generate a random unique ID for notes
  * @returns A random string ID
  */
-export function generateId(): string {
-	return 'note-' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2)
+export function generateId(prefix: string = 'note-'): string {
+	return prefix + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2)
 }

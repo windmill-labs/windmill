@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
 	import { calculateNodesBoundsWithOffset } from './util'
-	import { StickyNote, Move, Copy, Trash2, EllipsisVertical } from 'lucide-svelte'
+	import { Move, Copy, Trash2, EllipsisVertical, Group } from 'lucide-svelte'
 	import { Button } from '../common'
 	import DropdownV2 from '../DropdownV2.svelte'
-	import { getNoteEditorContext } from './noteEditor.svelte'
+	import { getGroupEditorContext } from './groupEditor.svelte'
 	import { getGraphContext } from './graphContext'
 	import MoveHandleButton from './MoveHandleButton.svelte'
 	import { tick } from 'svelte'
@@ -36,18 +36,19 @@
 
 	let resolvedCount = $derived(resolvedModuleIds.length)
 
-	// Get NoteEditor context for group note creation
-	const noteEditorContext = getNoteEditorContext()
+	// Get GroupEditor context for group creation
+	const groupEditorContext = getGroupEditorContext()
 	// Get Graph context for clearFlowSelection function and moveManager
 	const graphContext = getGraphContext()
 	const moveManager = graphContext?.moveManager
 
-	function handleAddGroupNote() {
-		if (selectedNodes.length > 0 && noteEditorContext?.noteEditor && graphContext) {
-			// Create the group note first
-			noteEditorContext.noteEditor.createGroupNote(selectedNodes)
+	let canCreateGroup = $derived(groupEditorContext?.canCreateGroup.val ?? false)
 
-			// Wait for next tick to ensure DOM updates
+	function handleAddGroup() {
+		if (selectedNodes.length > 0 && groupEditorContext?.groupEditor && graphContext) {
+			const flowNodes = graphContext.getFlowNodes?.() ?? []
+			groupEditorContext.groupEditor.createGroup(selectedNodes, flowNodes)
+
 			tick().then(() => {
 				graphContext?.clearFlowSelection?.()
 				graphContext?.selectionManager.clearSelection()
@@ -74,13 +75,13 @@
 			shortcut: isMac() ? '⌫' : 'Del',
 			action: () => onDeleteSelected?.()
 		},
-		...(noteEditorContext?.noteEditor
+		...(groupEditorContext?.groupEditor
 			? [
 					{
-						displayName: 'Add note',
-						icon: StickyNote,
-						separatorTop: true,
-						action: handleAddGroupNote
+						displayName: 'Create group',
+						icon: Group,
+						action: handleAddGroup,
+						disabled: !canCreateGroup
 					}
 				]
 			: [])

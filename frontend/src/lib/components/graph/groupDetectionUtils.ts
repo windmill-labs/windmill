@@ -1,7 +1,127 @@
+import { topologicalSort } from './graphBuilder.svelte'
+
+/** Node IDs synthesized by graphBuilder that are not real FlowModules */
+export const VIRTUAL_NODE_IDS = new Set(['Input', 'Result', 'Trigger'])
+
 type FlowNode = { id: string; parentIds?: string[] }
 
 /**
- * Use a simple algorithm to complete a group and split it into connected components
+ * Compute the set of module IDs that belong to a group defined by start_id and end_id.
+ * Uses the flattened module list (from getAllModules) and slices between start and end.
+ * Used for collapsed group icons, step count, and moduleToCollapsedGroup mapping.
+ */
+export function computeGroupModuleIds(
+	startId: string,
+	endId: string,
+	allModules: { id: string }[]
+): string[] {
+	if (startId === endId) {
+		return allModules.some((m) => m.id === startId) ? [startId] : []
+	}
+
+	const startIdx = allModules.findIndex((m) => m.id === startId)
+	const endIdx = allModules.findIndex((m) => m.id === endId)
+
+	if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) {
+		if (startIdx > endIdx) {
+			console.warn(
+				`computeGroupModuleIds: inverted range for group ${startId}→${endId} (${startIdx} > ${endIdx})`
+			)
+		}
+		return []
+	}
+
+	return allModules.slice(startIdx, endIdx + 1).map((m) => m.id)
+}
+
+/**
+ * Check whether a set of selected node IDs can form a valid group.
+ * Normalizes marker IDs (branch/forloop) to parent module IDs,
+ * then uses topologicalSort to derive start and end boundaries.
+ */
+export function canFormValidGroup(
+	selectedIds: string[],
+	flowNodes: FlowNode[],
+	excludeIds?: Set<string>
+): { valid: true; startId: string; endId: string } | { valid: false } {
+	if (selectedIds.length === 0) return { valid: false }
+
+	// Normalize marker IDs to parent module IDs.
+	// -start (forloop head) → parent ID. -end/-branch-* → skip if parent covered, else reject.
+	const rawSet = new Set(selectedIds)
+	const normalizedIds: string[] = []
+
+	for (const id of selectedIds) {
+		const parentId = id.replace(/-(end|start|branch-.*)$/, '')
+		if (parentId === id) {
+			normalizedIds.push(id)
+			continue
+		}
+		if (id.endsWith('-start')) {
+			normalizedIds.push(parentId)
+			continue
+		}
+		// -end or -branch-*: parent must be covered (directly or via -start)
+		if (!rawSet.has(parentId) && !rawSet.has(`${parentId}-start`)) {
+			return { valid: false }
+		}
+	}
+
+	if (normalizedIds.length === 0) return { valid: false }
+	const normalizedSet = new Set(normalizedIds)
+
+	// Topo sort full graph, filter to normalized selection.
+	// Include raw matches plus all markers (-start, -end, -branch-*) whose parent is selected.
+	const sorted = topologicalSort(flowNodes)
+	const selectedSorted = sorted.filter((n) => {
+		if (normalizedSet.has(n.id)) return true
+		const parentId = n.id.replace(/-(end|start|branch-.*)$/, '')
+		return parentId !== n.id && normalizedSet.has(parentId)
+	})
+
+	if (selectedSorted.length === 0) return { valid: false }
+
+	// Reject virtual or excluded nodes
+	if (selectedSorted.some((n) => VIRTUAL_NODE_IDS.has(n.id) || excludeIds?.has(n.id))) {
+		return { valid: false }
+	}
+
+	// Topo order is bottom-first: first = bottom (end), last = top (start).
+	// Use raw IDs for BFS traversal, normalize for the returned group boundaries.
+	const rawStartId = selectedSorted[selectedSorted.length - 1].id
+	const rawEndId = selectedSorted[0].id
+	const startId = rawStartId.replace(/-(end|start|branch-.*)$/, '')
+	const endId = rawEndId.replace(/-(end|start|branch-.*)$/, '')
+
+	// Verify all selected nodes lie between start and end in the DAG.
+	// BFS backward from rawEndId to rawStartId to collect reachable nodes.
+	// Normalize collected IDs so container markers map to their parent module.
+	const between = new Set<string>()
+	const queue = [rawEndId]
+	const visited = new Set<string>()
+	const parentMap = new Map(flowNodes.map((n) => [n.id, n.parentIds ?? []]))
+	while (queue.length > 0) {
+		const cur = queue.shift()!
+		if (visited.has(cur)) continue
+		visited.add(cur)
+		const normalized = cur.replace(/-(end|start|branch-.*)$/, '')
+		between.add(cur)
+		between.add(normalized)
+		if (cur === rawStartId) continue
+		for (const p of parentMap.get(cur) ?? []) {
+			queue.push(p)
+		}
+	}
+	if (!normalizedIds.every((id) => between.has(id))) {
+		return { valid: false }
+	}
+
+	return { valid: true, startId, endId }
+}
+
+/**
+ * Legacy utility: complete a group and split it into connected components.
+ * Still used by NoteEditor for FlowNote group notes (contained_node_ids).
  */
 export function completeAndSplitGroup(groupNodes: string[], flowNodes: FlowNode[]): string[][] {
 	if (groupNodes.length <= 1) {

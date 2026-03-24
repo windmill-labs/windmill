@@ -192,10 +192,10 @@
 		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
 	)
 
-	let isDragging = $derived(!!moveManager?.dragging)
+	let isMoving = $derived(!!moveManager?.dragging || !!moveManager?.movingModuleId)
 
 	const outputPickerVisible = $derived(
-		editMode && (isConnectingCandidate || alwaysShowOutputPicker) && !!id && !isDragging
+		editMode && (isConnectingCandidate || alwaysShowOutputPicker) && !!id && !isMoving
 	)
 
 	const icon_render = $derived(icon)
@@ -214,7 +214,7 @@
 		flowStore?.val?.value.failure_module
 	)}
 	<Drawer bind:open={editId}>
-		<DrawerContent title="Edit Step Id {id}" on:close={() => (editId = false)}>
+		<DrawerContent title="Edit step id {id}" on:close={() => (editId = false)}>
 			<div>
 				<IdEditorInput
 					buttonText="Edit Id "
@@ -285,7 +285,7 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class={classNames(
-			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-base',
+			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-sm',
 			colorClasses.bg
 		)}
 		style="width: 275px; height: 34px;"
@@ -434,11 +434,9 @@
 				{label}
 				{path}
 				{id}
-				{deletable}
 				{bold}
 				bind:editId
 				disableEditId={isMultiSelected}
-				{hover}
 				{colorClasses}
 			>
 				{#snippet icon()}
@@ -484,11 +482,10 @@
 			{/if}
 		</div>
 
-		{#if deletable && !isDragging}
+		{#if deletable && !isMoving}
 			{#if maximizeSubflow !== undefined}
 				{@render buttonMaximizeSubflow?.()}
 			{/if}
-
 			{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
 				<Popover
 					style="will-change: transform;"
@@ -569,7 +566,7 @@
 		{/if}
 	</div>
 
-	{#if editMode && enableTestRun && flowJob?.type !== 'QueuedJob' && !isDragging}
+	{#if editMode && enableTestRun && flowJob?.type !== 'QueuedJob' && !isMoving}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-1 h-9 min-w-9"
@@ -577,7 +574,7 @@
 			onmouseleave={() => (hover = false)}
 		>
 			{#if !isMultiSelected && (hover || selected || testRunDropdownOpen) && outputPickerVisible}
-				<div transition:fade={{ duration: 100 }}>
+				<div class="bg-surface rounded-md" transition:fade={{ duration: 100 }}>
 					{#if !testIsLoading}
 						<Button
 							size="xs"
