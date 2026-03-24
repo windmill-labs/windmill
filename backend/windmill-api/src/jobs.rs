@@ -2356,13 +2356,10 @@ async fn resume_suspended(
     };
 
     // Check for duplicate
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM resume_job WHERE id = $1)",
-        Uuid::from_u128(resume_job_id.as_u128() ^ resume_id as u128),
-    )
-    .fetch_one(&mut *tx)
-    .await?
-    .unwrap_or(false);
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM resume_job WHERE id = $1)")
+        .bind(Uuid::from_u128(resume_job_id.as_u128() ^ resume_id as u128))
+        .fetch_one(&mut *tx)
+        .await?;
 
     if exists {
         return Err(Error::BadRequest("Resume request already sent".to_string()));
@@ -2382,17 +2379,16 @@ async fn resume_suspended(
     .await?;
 
     if !approved {
-        sqlx::query!("UPDATE v2_job_queue SET suspend = 0 WHERE id = $1", flow.id,)
+        sqlx::query("UPDATE v2_job_queue SET suspend = 0 WHERE id = $1")
+            .bind(&flow.id)
             .execute(&mut *tx)
             .await?;
     } else if is_wac {
         if flow.suspend > 0 {
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1",
-                flow.id,
-            )
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query("UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1")
+                .bind(&flow.id)
+                .execute(&mut *tx)
+                .await?;
         }
     } else {
         resume_immediately_if_relevant(flow, resume_job_id, &mut tx).await?;
@@ -2479,17 +2475,23 @@ async fn get_approval_info(
     }
 
     // Fetch job info
-    let row = sqlx::query!(
-        r#"
-        SELECT j.id, j.runnable_path as script_path, j.permissioned_as_email as email,
-               s.flow_status, s.workflow_as_code_status
-        FROM v2_job j
-        LEFT JOIN v2_job_status s ON s.id = j.id
-        WHERE j.id = $1 AND j.workspace_id = $2
-        "#,
-        job_id,
-        w_id,
+    #[derive(sqlx::FromRow)]
+    struct ApprovalJobRow {
+        id: Uuid,
+        script_path: Option<String>,
+        email: String,
+        flow_status: Option<serde_json::Value>,
+        workflow_as_code_status: Option<serde_json::Value>,
+    }
+    let row = sqlx::query_as::<_, ApprovalJobRow>(
+        "SELECT j.id, j.runnable_path as script_path, j.permissioned_as_email as email,
+                s.flow_status, s.workflow_as_code_status
+         FROM v2_job j
+         LEFT JOIN v2_job_status s ON s.id = j.id
+         WHERE j.id = $1 AND j.workspace_id = $2",
     )
+    .bind(&job_id)
+    .bind(&w_id)
     .fetch_optional(&db)
     .await?
     .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
@@ -2615,16 +2617,16 @@ async fn get_approval_info(
     };
 
     // Get existing approvers
-    let approvers = sqlx::query!(
+    let approvers: Vec<Approval> = sqlx::query_as::<_, (i32, Option<String>)>(
         "SELECT resume_id, approver FROM resume_job WHERE flow = $1",
-        job_id,
     )
+    .bind(&job_id)
     .fetch_all(&db)
     .await?
     .into_iter()
-    .map(|x| Approval {
-        resume_id: x.resume_id as u16,
-        approver: x.approver.unwrap_or_else(|| "anonymous".to_string()),
+    .map(|(rid, approver)| Approval {
+        resume_id: rid as u16,
+        approver: approver.unwrap_or_else(|| "anonymous".to_string()),
     })
     .collect();
 

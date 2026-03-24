@@ -11,7 +11,7 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import Login from '$lib/components/Login.svelte'
-	import { LogIn, AlertTriangle, ExternalLink } from 'lucide-svelte'
+	import { AlertTriangle, ExternalLink } from 'lucide-svelte'
 	import { mergeSchema } from '$lib/common'
 	import { emptyString } from '$lib/utils'
 	import { Alert } from '$lib/components/common'
