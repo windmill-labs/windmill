@@ -411,14 +411,26 @@ class AIChatManager {
 		systemMessage?: ChatCompletionSystemMessageParam
 	}) => {
 		try {
+			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
+			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
+			// which reassigns this.tools, this.helpers, this.systemMessage mid-loop.
+			const self = this
 			const result = await runChatLoop({
 				messages,
-				systemMessage: systemMessageOverride ?? this.systemMessage,
-				tools: this.tools,
-				helpers: this.helpers,
+				get systemMessage() {
+					return systemMessageOverride ?? self.systemMessage
+				},
+				get tools() {
+					return self.tools
+				},
+				get helpers() {
+					return self.helpers
+				},
 				abortController,
 				callbacks,
-				modelProvider: getCurrentModel(),
+				get modelProvider() {
+					return getCurrentModel()
+				},
 				clients: {
 					openai: workspaceAIClients.getOpenaiClient(),
 					anthropic: workspaceAIClients.getAnthropicClient()

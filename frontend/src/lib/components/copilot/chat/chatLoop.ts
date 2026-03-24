@@ -21,6 +21,11 @@ export interface ChatClients {
 
 export interface ChatLoopConfig {
 	messages: ChatCompletionMessageParam[]
+	/**
+	 * System message, tools, helpers, and modelProvider are re-read from this config
+	 * on every iteration. Callers can use JS getters to provide dynamic values
+	 * (e.g. AIChatManager uses getters so mode changes mid-loop take effect).
+	 */
 	systemMessage: ChatCompletionSystemMessageParam
 	tools: Tool<any>[]
 	helpers: any
@@ -49,12 +54,8 @@ export interface ChatLoopResult {
 export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResult> {
 	const {
 		messages,
-		systemMessage,
-		tools,
-		helpers,
 		abortController,
 		callbacks,
-		modelProvider,
 		clients,
 		workspace,
 		maxIterations,
@@ -72,6 +73,14 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			break
 		}
 		iterations++
+
+		// Re-read these from config each iteration so that mode changes
+		// (e.g. changeModeTool in Navigator) take effect immediately.
+		// Callers can use JS getter properties to provide dynamic values.
+		const tools = config.tools
+		const helpers = config.helpers
+		const systemMessage = config.systemMessage
+		const modelProvider = config.modelProvider
 
 		if (onBeforeIteration) {
 			await onBeforeIteration(tools, helpers)
