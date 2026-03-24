@@ -3687,6 +3687,34 @@ async fn push_next_flow_job(
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
+        // Apply flow node debouncing if configured. Skip parallel steps (for-loops, branchall)
+        // where len > 1 — debouncing those would cancel sibling sub-jobs within the same run.
+        #[cfg(feature = "private")]
+        if len == 1 {
+            if let Some(ref debouncing) = module.debouncing {
+                if debouncing.debounce_delay_s.is_some_and(|d| d > 0) {
+                    let debounce_args = if let Ok(ref v) = nargs {
+                        windmill_queue::PushArgs::from(v.as_ref())
+                    } else {
+                        windmill_queue::PushArgs::from(&*EHM)
+                    };
+                    let flow_path = flow_job.runnable_path().to_string();
+                    windmill_queue::jobs_ee::maybe_debounce_flow_node(
+                        debouncing,
+                        uuid,
+                        flow_job.id,
+                        &flow_path,
+                        &module.id,
+                        &flow_job.workspace_id,
+                        &debounce_args,
+                        &mut inner_tx,
+                        &db,
+                    )
+                    .await?;
+                }
+            }
+        }
+
         if value_with_parallel.type_ == "forloopflow"
             && value_with_parallel.parallel.unwrap_or(false)
         {
