@@ -26,8 +26,10 @@
 	import { setCopilotInfo } from '$lib/aiStore'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
 	import { Settings } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 	import { slide } from 'svelte/transition'
 	import SettingsFooter from './SettingsFooter.svelte'
+	import InstanceFallbackSettings from './InstanceFallbackSettings.svelte'
 	import SettingCard from '../instanceSettings/SettingCard.svelte'
 
 	let {
@@ -77,6 +79,8 @@
 	let initialDefaultModel: string | undefined = $state(undefined)
 	let initialCustomPrompts: Record<string, string> = $state({})
 	let initialMaxTokensPerModel: Record<string, number> = $state({})
+	let initialPrompts: Record<string, string> = $state({})
+	let lastLoadedConfigKey = $state<string | undefined>(undefined)
 
 	function clone<T>(v: T): T {
 		return JSON.parse(JSON.stringify(v))
@@ -101,6 +105,7 @@
 		initialCodeCompletionModel = codeCompletionModel
 		initialCustomPrompts = clone(customPrompts)
 		initialMaxTokensPerModel = clone(maxTokensPerModel)
+		initialPrompts = clone(customPrompts)
 	}
 
 	export function loadFromConfig(config: AIConfig | undefined) {
@@ -116,11 +121,16 @@
 		maxTokensPerModel = clone(initialMaxTokensPerModel)
 	}
 
-	// Initialize from prop
-	if (initialConfig) {
-		applyConfig(initialConfig)
-		storeInitialState()
-	}
+	$effect(() => {
+		const configKey = JSON.stringify(initialConfig ?? {})
+		if (configKey === lastLoadedConfigKey) {
+			return
+		}
+		lastLoadedConfigKey = configKey
+		untrack(() => {
+			loadFromConfig(initialConfig)
+		})
+	})
 
 	// Check if openai_client_credentials_oauth resource type exists
 	async function loadOpenaiOauthFlag() {
@@ -157,7 +167,6 @@
 	)
 
 	let modalOpen = $state(false)
-	let initialPrompts = $state($state.snapshot(customPrompts))
 	let hasPromptsChanges = $derived(
 		Array.from(new Set([...Object.keys(customPrompts), ...Object.keys(initialPrompts)])).some(
 			(key) => {
@@ -174,11 +183,6 @@
 		promptScope === 'instance'
 			? 'Customize AI behavior with instance-level system prompts. These apply when a workspace uses instance AI defaults.'
 			: 'Customize AI behavior with workspace-level system prompts. These apply to all workspace members.'
-	)
-	let sortedInstanceProviders = $derived(
-		[...(instanceAiSummary?.providers ?? [])].sort((left, right) =>
-			left.provider.localeCompare(right.provider)
-		)
 	)
 	let showWorkspaceOverrideEditor = $derived(
 		!usesInstanceAiConfig || Object.keys(aiProviders).length > 0 || workspaceOverrideEditorOpened
@@ -290,7 +294,6 @@
 			setCopilotInfo(effectiveConfig)
 			sendUserToast('AI settings updated')
 		}
-		initialPrompts = { ...customPrompts }
 		storeInitialState()
 		await onSave?.(effectiveConfig)
 	}
@@ -320,10 +323,6 @@
 	}
 
 	const autocompleteModels = $derived(selectedAiModels.filter(supportsAutocomplete))
-
-	function getProviderLabel(provider: AIProvider): string {
-		return AI_PROVIDERS[provider]?.label ?? provider
-	}
 </script>
 
 <SettingsPageHeader {title} {description} {link} />
@@ -336,73 +335,11 @@
 			Instance-level AI settings are currently active. Configure workspace-specific settings below
 			to override them.
 		</div>
-		{#if instanceAiSummary}
-			<SettingCard label="Active instance AI">
-				<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
-					<p class="text-xs text-secondary">
-						This workspace is currently using the instance AI defaults shown below.
-					</p>
-
-					<div class="flex flex-col gap-3">
-						{#each sortedInstanceProviders as providerSummary}
-							<div class="rounded-md border bg-surface p-3 flex flex-col gap-2">
-								<div class="flex items-center gap-2">
-									<span class="text-xs font-medium">
-										{getProviderLabel(providerSummary.provider)}
-									</span>
-									<Badge color="blue">Instance</Badge>
-								</div>
-								<div class="flex flex-wrap gap-1">
-									{#each providerSummary.models as model}
-										<Badge color="gray">{model}</Badge>
-									{/each}
-								</div>
-							</div>
-						{/each}
-					</div>
-
-					{#if instanceAiSummary.default_model}
-						<div class="text-xs text-secondary">
-							Default chat model:
-							<span class="text-primary font-medium">{instanceAiSummary.default_model.model}</span>
-							<span class="text-tertiary">
-								({getProviderLabel(instanceAiSummary.default_model.provider)})
-							</span>
-						</div>
-					{/if}
-
-					{#if instanceAiSummary.code_completion_model}
-						<div class="text-xs text-secondary">
-							Code completion model:
-							<span class="text-primary font-medium">
-								{instanceAiSummary.code_completion_model.model}
-							</span>
-							<span class="text-tertiary">
-								({getProviderLabel(instanceAiSummary.code_completion_model.provider)})
-							</span>
-						</div>
-					{/if}
-				</div>
-			</SettingCard>
-		{/if}
-
-		<SettingCard label="Workspace override">
-			<div class="flex flex-col gap-3 p-4 rounded-md border bg-surface-tertiary">
-				<p class="text-xs text-secondary">
-					Create workspace-specific AI settings only if this workspace needs to override the
-					active instance defaults.
-				</p>
-				<div>
-					<Button
-						onclick={() => (workspaceOverrideEditorOpened = !workspaceOverrideEditorOpened)}
-						variant="default"
-						unifiedSize="sm"
-					>
-						{showWorkspaceOverrideEditor ? 'Hide override form' : 'Override for this workspace'}
-					</Button>
-				</div>
-			</div>
-		</SettingCard>
+		<InstanceFallbackSettings
+			{instanceAiSummary}
+			{showWorkspaceOverrideEditor}
+			onToggleOverride={() => (workspaceOverrideEditorOpened = !workspaceOverrideEditorOpened)}
+		/>
 	{:else if hasInstanceAiConfig && Object.keys(aiProviders).length > 0}
 		<div
 			class="p-3 border border-surface-hover bg-surface-secondary rounded-md text-xs text-secondary"

@@ -22,7 +22,6 @@
 		SettingService,
 		type AIConfig,
 		type ErrorHandler,
-		type GetCopilotInfoResponse,
 		type InstanceAISummary,
 		type GetSettingsResponse
 	} from '$lib/gen'
@@ -1779,10 +1778,9 @@ export async function main(
 									if (!copilotInfo) {
 										return
 									}
-									const effectiveCopilotInfo: GetCopilotInfoResponse = copilotInfo
-									hasInstanceAiConfig = effectiveCopilotInfo.has_instance_ai_config
-									usesInstanceAiConfig = effectiveCopilotInfo.uses_instance_ai_config
-									instanceAiSummary = effectiveCopilotInfo.instance_ai_summary
+									hasInstanceAiConfig = copilotInfo.has_instance_ai_config
+									usesInstanceAiConfig = copilotInfo.uses_instance_ai_config
+									instanceAiSummary = copilotInfo.instance_ai_summary
 								}}
 							/>
 						{:else if tab == 'windmill_data_tables'}
