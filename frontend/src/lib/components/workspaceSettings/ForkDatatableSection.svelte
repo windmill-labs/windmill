@@ -128,7 +128,7 @@
 			job.steps[stepIdx].status = 'running'
 			try {
 				await WorkspaceService.forkPgDatabase({
-					workspace: job._targetWorkspace,
+					workspace: job._sourceWorkspace,
 					requestBody: {
 						source: `datatable://${job.name}`,
 						target: `datatable://${job.name}`,
@@ -147,7 +147,7 @@
 			job.steps[stepIdx].status = 'running'
 			try {
 				await WorkspaceService.forkPgDatabase({
-					workspace: job._targetWorkspace,
+					workspace: job._sourceWorkspace,
 					requestBody: {
 						source: `datatable://${job.name}`,
 						target: `datatable://${job.name}`,
