@@ -588,154 +588,6 @@ pub(crate) async fn build_import_map(
 
 #[cfg(feature = "private")]
 use crate::{dedicated_worker_oss::handle_dedicated_process, JobCompletedSender};
-/// Generate a wrapper for Deno dedicated workers and runner groups.
-/// Uses the same `TsScriptEntry` / `TsScriptCodegen` as the bun wrapper.
-#[cfg(any(feature = "private", test))]
-pub fn generate_multi_script_wrapper(scripts: &[crate::bun_executor::TsScriptEntry<'_>]) -> String {
-    let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
-    let print_lines = if is_debug {
-        r#"console.log("[debug] " + line);"#
-    } else {
-        ""
-    };
-
-    let imports: String = scripts
-        .iter()
-        .enumerate()
-        .map(|(i, e)| {
-            format!(
-                "import * as _s{i} from \"./{import_name}.ts\";",
-                import_name = e.import_name
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let mut functions = String::new();
-    let mut registrations = String::new();
-
-    for (i, entry) in scripts.iter().enumerate() {
-        let cg = entry.codegen;
-        let spread = &cg.spread;
-        let dates = &cg.date_conversions;
-
-        functions.push_str(&format!(
-            r#"
-function getArgs_{i}(line) {{
-    let {{ {spread} }} = JSON.parse(line);
-    {dates}
-    return [ {spread} ];
-}}
-"#
-        ));
-
-        let pre_fn = if let Some(ref pre_spread) = cg.preprocessor_spread {
-            let pre_dates = cg.preprocessor_date_conversions.as_deref().unwrap_or("");
-            functions.push_str(&format!(
-                r#"
-function getPreArgs_{i}(line) {{
-    let {{ {pre_spread} }} = JSON.parse(line);
-    {pre_dates}
-    return [ {pre_spread} ];
-}}
-"#
-            ));
-            format!("getPreArgs_{i}")
-        } else {
-            "null".to_string()
-        };
-
-        registrations.push_str(&format!(
-            "scripts.set(\"{path}\", {{ module: _s{i}, getArgs: getArgs_{i}, getPreArgs: {pre_fn} }});\n",
-            path = entry.original_path,
-        ));
-    }
-
-    format!(
-        r#"
-{imports}
-
-BigInt.prototype.toJSON = function () {{
-    return this.toString();
-}};
-
-const scripts = new Map();
-{functions}
-{registrations}
-
-console.log('start\n');
-
-const decoder = new TextDecoder();
-for await (const chunk of Deno.stdin.readable) {{
-    const lines = decoder.decode(chunk);
-    let exit = false;
-    for (const line of lines.trim().split("\n")) {{
-        {print_lines}
-
-        if (line === "end") {{
-            exit = true;
-            break;
-        }}
-
-        if (line.startsWith("exec_preprocess:")) {{
-            const rest = line.slice("exec_preprocess:".length);
-            const colonIdx = rest.indexOf(":");
-            const scriptPath = rest.slice(0, colonIdx);
-            const argsJson = rest.slice(colonIdx + 1);
-
-            const entry = scripts.get(scriptPath);
-            if (!entry) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not found: " + scriptPath, name: "Error" }}) + '\n');
-                continue;
-            }}
-
-            try {{
-                if (!entry.getPreArgs) {{
-                    console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}) + '\n');
-                    continue;
-                }}
-                const preArgs = entry.getPreArgs(argsJson);
-                const preprocessedArgs = await entry.module.preprocessor(...preArgs);
-                console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
-                const mainArgs = entry.getArgs(JSON.stringify(preprocessedArgs ?? {{}}));
-                const res = await entry.module.main(...mainArgs);
-                console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
-            }} catch (e) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}) + '\n');
-            }}
-            continue;
-        }}
-
-        if (line.startsWith("exec:")) {{
-            const rest = line.slice("exec:".length);
-            const colonIdx = rest.indexOf(":");
-            const scriptPath = rest.slice(0, colonIdx);
-            const argsJson = rest.slice(colonIdx + 1);
-
-            const entry = scripts.get(scriptPath);
-            if (!entry) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not found: " + scriptPath, name: "Error" }}) + '\n');
-                continue;
-            }}
-
-            try {{
-                const args = entry.getArgs(argsJson);
-                const res = await entry.module.main(...args);
-                console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
-            }} catch (e) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}) + '\n');
-            }}
-            continue;
-        }}
-    }}
-    if (exit) {{
-        break;
-    }}
-}}
-"#
-    )
-}
-
 #[cfg(feature = "private")]
 use tokio::sync::mpsc::Receiver;
 #[cfg(feature = "private")]
@@ -793,14 +645,111 @@ pub async fn start_worker(
     .await;
     let context_envs = build_envs_map(context.to_vec()).await;
 
-    let codegen = crate::bun_executor::compute_ts_codegen(inner_content);
     {
-        let scripts = [crate::bun_executor::TsScriptEntry {
-            import_name: "main",
-            original_path: script_path,
-            codegen: &codegen,
-        }];
-        let wrapper_content = generate_multi_script_wrapper(&scripts);
+        let args = windmill_parser_ts::parse_deno_signature(inner_content, true, false, None)?.args;
+        let dates = args
+            .iter()
+            .filter_map(|x| {
+                if matches!(x.typ, Typ::Datetime) {
+                    Some(x.name.clone())
+                } else {
+                    None
+                }
+            })
+            .map(|x| format!("{x} = {x} ? new Date({x}) : undefined"))
+            .join("\n");
+
+        let spread = args.into_iter().map(|x| x.name).join(",");
+
+        let pre_spread = windmill_parser_ts::parse_deno_signature(
+            inner_content,
+            true,
+            false,
+            Some("preprocessor".to_string()),
+        )
+        .ok()
+        .filter(|sig| !sig.args.is_empty())
+        .map(|sig| sig.args.into_iter().map(|x| x.name).join(","));
+
+        let preprocessor_import = if pre_spread.is_some() {
+            r#"import { preprocessor } from "./main.ts";"#
+        } else {
+            ""
+        };
+
+        let preprocessor_logic = if let Some(ref pre_spread) = pre_spread {
+            format!(
+                r#"
+        if (line.startsWith("exec_preprocess:")) {{
+            const rest = line.slice("exec_preprocess:".length);
+            const colonIdx = rest.indexOf(":");
+            const argsJson = rest.slice(colonIdx + 1);
+            const parsedArgs = JSON.parse(argsJson);
+            if (typeof preprocessor !== 'function') {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}) + '\n');
+                continue;
+            }}
+            try {{
+                function preArgsObjToArr({{ {pre_spread} }}: any) {{
+                    return [ {pre_spread} ];
+                }}
+                const preprocessedArgs: any = await preprocessor(...preArgsObjToArr(parsedArgs));
+                console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+                let {{ {spread} }} = preprocessedArgs ?? {{}};
+                {dates}
+                let res: any = await main(...[ {spread} ]);
+                console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+            }} catch (e) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}) + '\n');
+            }}
+            continue;
+        }}"#
+            )
+        } else {
+            String::new()
+        };
+
+        let wrapper_content: String = format!(
+            r#"
+import {{ main }} from "./main.ts";
+{preprocessor_import}
+
+BigInt.prototype.toJSON = function () {{
+    return this.toString();
+}};
+
+console.log('start\n');
+
+const decoder = new TextDecoder();
+for await (const chunk of Deno.stdin.readable) {{
+    const lines = decoder.decode(chunk);
+    let exit = false;
+    for (const line of lines.trim().split("\n")) {{
+        if (line === "end") {{
+            exit = true;
+            break;
+        }}
+        {preprocessor_logic}
+        if (line.startsWith("exec:")) {{
+            const rest = line.slice("exec:".length);
+            const colonIdx = rest.indexOf(":");
+            const argsJson = rest.slice(colonIdx + 1);
+            try {{
+                let {{ {spread} }} = JSON.parse(argsJson)
+                {dates}
+                let res: any = await main(...[ {spread} ]);
+                console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+            }} catch (e) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}) + '\n');
+            }}
+        }}
+    }}
+    if (exit) {{
+        break;
+    }}
+}}
+"#,
+        );
         write_file(job_dir, "wrapper.ts", &wrapper_content)?;
     }
 
