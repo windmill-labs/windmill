@@ -65,9 +65,14 @@ export function canFormValidGroup(
 	if (normalizedIds.length === 0) return { valid: false }
 	const normalizedSet = new Set(normalizedIds)
 
-	// Topo sort full graph, filter to normalized selection
+	// Topo sort full graph, filter to normalized selection.
+	// Include raw matches plus all markers (-start, -end, -branch-*) whose parent is selected.
 	const sorted = topologicalSort(flowNodes)
-	const selectedSorted = sorted.filter((n) => normalizedSet.has(n.id))
+	const selectedSorted = sorted.filter((n) => {
+		if (normalizedSet.has(n.id)) return true
+		const parentId = n.id.replace(/-(end|start|branch-.*)$/, '')
+		return parentId !== n.id && normalizedSet.has(parentId)
+	})
 
 	if (selectedSorted.length === 0) return { valid: false }
 
@@ -76,9 +81,35 @@ export function canFormValidGroup(
 		return { valid: false }
 	}
 
-	// Topo order is bottom-first: first = bottom (end), last = top (start)
-	const startId = selectedSorted[selectedSorted.length - 1].id
-	const endId = selectedSorted[0].id
+	// Topo order is bottom-first: first = bottom (end), last = top (start).
+	// Use raw IDs for BFS traversal, normalize for the returned group boundaries.
+	const rawStartId = selectedSorted[selectedSorted.length - 1].id
+	const rawEndId = selectedSorted[0].id
+	const startId = rawStartId.replace(/-(end|start|branch-.*)$/, '')
+	const endId = rawEndId.replace(/-(end|start|branch-.*)$/, '')
+
+	// Verify all selected nodes lie between start and end in the DAG.
+	// BFS backward from rawEndId to rawStartId to collect reachable nodes.
+	// Normalize collected IDs so container markers map to their parent module.
+	const between = new Set<string>()
+	const queue = [rawEndId]
+	const visited = new Set<string>()
+	const parentMap = new Map(flowNodes.map((n) => [n.id, n.parentIds ?? []]))
+	while (queue.length > 0) {
+		const cur = queue.shift()!
+		if (visited.has(cur)) continue
+		visited.add(cur)
+		const normalized = cur.replace(/-(end|start|branch-.*)$/, '')
+		between.add(cur)
+		between.add(normalized)
+		if (cur === rawStartId) continue
+		for (const p of parentMap.get(cur) ?? []) {
+			queue.push(p)
+		}
+	}
+	if (!normalizedIds.every((id) => between.has(id))) {
+		return { valid: false }
+	}
 
 	return { valid: true, startId, endId }
 }

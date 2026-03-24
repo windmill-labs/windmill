@@ -40,9 +40,9 @@ export function buildStructureTree(
 	const { items, consumed } = buildStructureTreeRecurse(modules, groups)
 	const unconsumed = groups.filter((g) => !consumed.has(g.id))
 	if (unconsumed.length > 0) {
-		console.warn(
-			'Groups with no matching modules (ill-formed):',
-			unconsumed.map((g) => g.id)
+		throw new Error(
+			`Group(s) ${unconsumed.map((g) => `'${g.id}'`).join(', ')} could not be resolved: ` +
+				`their start/end nodes do not belong to the same branch`
 		)
 	}
 	return items

@@ -25,6 +25,16 @@ function makeModule(id: string): FlowModule {
 	} as FlowModule
 }
 
+function makeBranchAll(id: string, branchInnerIds: string[][]): FlowModule {
+	return {
+		id,
+		value: {
+			type: 'branchall',
+			branches: branchInnerIds.map((ids) => ({ modules: ids.map((iid) => makeModule(iid)) }))
+		} as any
+	} as FlowModule
+}
+
 function makeForloop(id: string, innerIds: string[]): FlowModule {
 	return {
 		id,
@@ -131,6 +141,19 @@ describe('buildStructureTree', () => {
 		expect(innerChildren).toHaveLength(2) // group + z
 		expect(innerChildren[0].kind).toBe('group')
 		expect(innerChildren[0].id).toBe('g1')
+	})
+
+	it('throws when group spans parallel branches (branchall)', () => {
+		const mods = [
+			makeModule('a'),
+			makeBranchAll('ba', [
+				['x', 'y'],
+				['p', 'q']
+			]),
+			makeModule('c')
+		]
+		const groups = [makeGroup('g1', 'x', 'q', ['x', 'q'])]
+		expect(() => buildStructureTree(mods, groups)).toThrow(/could not be resolved/)
 	})
 })
 
