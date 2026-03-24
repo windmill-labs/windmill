@@ -552,6 +552,24 @@
 	let standaloneTags: string[] = $derived(selectedTags.filter((tag) => !tagRunnerGroup.has(tag)))
 </script>
 
+{#snippet depBadge(dep: string)}
+	{#if existingDeps.has(dep)}
+		<Badge color="indigo" small href="/workspace_settings?tab=dependencies">
+			{dep}
+			<ExternalLink class="h-2.5 w-2.5" />
+		</Badge>
+	{:else}
+		<Tooltip small>
+			Workspace dependency '{dep}' not found. Create it in workspace settings to enable shared
+			runners.
+		</Tooltip>
+		<Badge color="yellow" small>
+			<TriangleAlert class="h-2.5 w-2.5" />
+			{dep}
+		</Badge>
+	{/if}
+{/snippet}
+
 {#snippet tagRow(tag: string, info: SelectedTagInfo | undefined)}
 	<div>
 		<div class="flex items-center">
@@ -579,31 +597,20 @@
 					{:else}
 						<CodeXml size={14} class="flex-shrink-0 text-secondary" />
 					{/if}
-					<span class="text-xs truncate flex-1 min-w-0">{info.path}</span>
+					<span class="text-xs truncate min-w-0">{info.path}</span>
 					<span class="text-xs text-tertiary flex-shrink-0">({info.workspace})</span>
+					<span class="flex-1"></span>
+					{#if info.workspaceDeps && !tagRunnerGroup.has(tag)}
+						{#each info.workspaceDeps as dep}
+							{@render depBadge(dep)}
+						{/each}
+					{/if}
 					{#if info.type === 'flow' && info.runners}
 						<Badge color="indigo" small>
 							{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
 						</Badge>
-					{/if}
-					{#if info.workspaceDeps && !tagRunnerGroup.has(tag)}
-						{#each info.workspaceDeps as dep}
-							{#if existingDeps.has(dep)}
-								<Badge color="indigo" small href="/workspace_settings?tab=dependencies">
-									{dep}
-									<ExternalLink class="h-2.5 w-2.5" />
-								</Badge>
-							{:else}
-								<Tooltip small>
-									Workspace dependency '{dep}' not found. Create it in workspace settings to enable
-									shared runners.
-								</Tooltip>
-								<Badge color="yellow" small>
-									<TriangleAlert class="h-2.5 w-2.5" />
-									{dep}
-								</Badge>
-							{/if}
-						{/each}
+					{:else if info.language}
+						<Badge color="blue" small>{info.language}</Badge>
 					{/if}
 				{:else}
 					<span class="text-xs text-tertiary truncate">{tag}</span>
@@ -650,27 +657,8 @@
 						<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary border-b">
 							<Layers size={12} class="flex-shrink-0 text-secondary" />
 							<span class="text-xs font-medium text-emphasis">Shared runner</span>
-							<span class="text-xs text-tertiary">·</span>
-							{#if existingDeps.has(group.depName)}
-								<a
-									href="/workspace_settings?tab=dependencies"
-									target="_blank"
-									class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
-								>
-									{group.depName}
-									<ExternalLink class="h-3 w-3" />
-								</a>
-							{:else}
-								<Tooltip small>
-									Workspace dependency '{group.depName}' not found. Create it in workspace settings
-									for shared runner to work.
-								</Tooltip>
-								<span class="text-xs flex items-center gap-1 text-yellow-600 dark:text-yellow-400">
-									<TriangleAlert class="h-3 w-3" />
-									{group.depName}
-								</span>
-							{/if}
 							<span class="flex-1"></span>
+							{@render depBadge(group.depName)}
 							<Badge color="blue" small>{group.language}</Badge>
 						</div>
 						<div class="divide-y">
@@ -693,33 +681,12 @@
 						{/if}
 						<span class="text-xs truncate min-w-0">{info?.path ?? tag}</span>
 						<span class="text-xs text-tertiary flex-shrink-0">({info?.workspace ?? ''})</span>
+						<span class="flex-1"></span>
 						{#if info?.workspaceDeps}
 							{#each info.workspaceDeps as dep}
-								<span class="text-xs text-tertiary">·</span>
-								{#if existingDeps.has(dep)}
-									<a
-										href="/workspace_settings?tab=dependencies"
-										target="_blank"
-										class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
-									>
-										{dep}
-										<ExternalLink class="h-3 w-3" />
-									</a>
-								{:else}
-									<Tooltip small>
-										Workspace dependency '{dep}' not found. Create it in workspace settings to
-										enable shared runners.
-									</Tooltip>
-									<span
-										class="text-xs flex items-center gap-1 text-yellow-600 dark:text-yellow-400"
-									>
-										<TriangleAlert class="h-3 w-3" />
-										{dep}
-									</span>
-								{/if}
+								{@render depBadge(dep)}
 							{/each}
 						{/if}
-						<span class="flex-1"></span>
 						{#if info?.type === 'flow' && info.runners}
 							<Badge color="indigo" small>
 								{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
@@ -853,18 +820,7 @@
 												{/if}
 												{#if runnable.workspaceDeps}
 													{#each runnable.workspaceDeps as dep}
-														{#if existingDeps.has(dep)}
-															<Badge color="indigo" small>{dep}</Badge>
-														{:else}
-															<Tooltip small>
-																Workspace dependency '{dep}' not found. Create it in workspace
-																settings to enable shared runners.
-															</Tooltip>
-															<Badge color="yellow" small>
-																<TriangleAlert class="h-2.5 w-2.5" />
-																{dep}
-															</Badge>
-														{/if}
+														{@render depBadge(dep)}
 													{/each}
 												{/if}
 												<Badge color={runnable.type === 'flow' ? 'indigo' : 'blue'} small>
