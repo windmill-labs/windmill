@@ -1,5 +1,6 @@
 <script lang="ts">
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
+	import { Check, X } from 'lucide-svelte'
 	import { NOTE_COLORS, NoteColor } from './noteColors'
 	import { stopPropagation, preventDefault } from 'svelte/legacy'
 
@@ -75,11 +76,15 @@
 		}
 	}
 
+	function handleCancel() {
+		editing = false
+		textContent = note
+	}
+
 	function handleKeydown(event: KeyboardEvent) {
 		event.stopPropagation()
 		if (event.key === 'Escape') {
-			editing = false
-			textContent = note
+			handleSave()
 		}
 	}
 </script>
@@ -89,8 +94,24 @@
 	bind:this={containerElement}
 	class="nodrag nopan {collapsed ? 'mx-px' : 'w-full rounded-b-md'}"
 >
-	<div class={collapsed ? '' : 'w-full rounded-b-md'}>
+	<div class={collapsed ? 'relative' : 'w-full rounded-b-md relative'}>
 		{#if editing}
+			<div class="absolute top-0 right-1 flex gap-0.5 z-10">
+				<button
+					class="p-0.5 {noteColorConfig.text} opacity-60 hover:opacity-100 cursor-pointer"
+					onpointerdown={stopPropagation(preventDefault(handleSave))}
+					title="Save (Esc)"
+				>
+					<Check size={11} />
+				</button>
+				<button
+					class="p-0.5 {noteColorConfig.text} opacity-60 hover:opacity-100 cursor-pointer"
+					onpointerdown={stopPropagation(preventDefault(handleCancel))}
+					title="Cancel"
+				>
+					<X size={11} />
+				</button>
+			</div>
 			<textarea
 				bind:this={textareaElement}
 				bind:value={textContent}

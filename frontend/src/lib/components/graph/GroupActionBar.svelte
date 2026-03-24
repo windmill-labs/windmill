@@ -11,7 +11,7 @@
 	interface Props {
 		note: string | undefined | null
 		color: string | undefined
-		collapsedByDefault: boolean
+		autocollapse: boolean
 		visible?: boolean
 		menuOpen?: boolean
 		moveManager?: MoveManager
@@ -20,14 +20,14 @@
 		onAddNote: () => void
 		onRemoveNote: () => void
 		onUpdateColor: (color: NoteColor) => void
-		onUpdateCollapsedDefault: (value: boolean) => void
+		onUpdateAutocollapse: (value: boolean) => void
 		onDeleteGroup?: () => void
 	}
 
 	let {
 		note,
 		color,
-		collapsedByDefault,
+		autocollapse,
 		visible = true,
 		menuOpen = $bindable(),
 		moveManager,
@@ -36,7 +36,7 @@
 		onAddNote,
 		onRemoveNote,
 		onUpdateColor,
-		onUpdateCollapsedDefault,
+		onUpdateAutocollapse,
 		onDeleteGroup = undefined
 	}: Props = $props()
 
@@ -57,6 +57,20 @@
 			{visible}
 			onClickMove={() => moveManager.toggleMoving(moveModuleId!)}
 		/>
+	{/if}
+	{#if note == null}
+		<button
+			class={twMerge(
+				'center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
+				visible ? 'block' : '!hidden',
+				'shadow-md rounded-md'
+			)}
+			onpointerdown={stopPropagation(preventDefault(() => {}))}
+			onclick={() => onAddNote()}
+			title="Add note"
+		>
+			<StickyNote size={12} />
+		</button>
 	{/if}
 	<DropdownV2
 		placement="bottom-end"
@@ -97,13 +111,13 @@
 					</div>
 				</div>
 
-				<!-- Collapsed by default toggle -->
+				<!-- Autocollapse toggle -->
 				<div class="px-4 py-2">
 					<Toggle
 						size="xs"
-						checked={collapsedByDefault}
-						options={{ right: 'Collapsed by default' }}
-						on:change={(e) => onUpdateCollapsedDefault(e.detail)}
+						checked={autocollapse}
+						options={{ right: 'Autocollapse' }}
+						on:change={(e) => onUpdateAutocollapse(e.detail)}
 					/>
 				</div>
 

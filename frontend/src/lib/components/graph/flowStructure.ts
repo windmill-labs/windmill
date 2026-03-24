@@ -168,7 +168,7 @@ function buildStructureTreeRecurse(
 						summary: group.summary,
 						note: group.note,
 						color: group.color,
-						collapsed_by_default: group.collapsed_by_default,
+						autocollapse: group.autocollapse,
 						start_id: group.start_id,
 						end_id: group.end_id
 					},

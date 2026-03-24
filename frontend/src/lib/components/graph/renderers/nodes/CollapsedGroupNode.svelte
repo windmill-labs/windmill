@@ -50,7 +50,7 @@
 				note={data.note}
 				color={data.color}
 				collapsed={true}
-				collapsedByDefault={data.collapsed_by_default ?? false}
+				autocollapse={data.autocollapse ?? false}
 				editMode={data.editMode}
 				showNotes={data.showNotes}
 			/>

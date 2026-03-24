@@ -14,7 +14,7 @@ import { getContext, setContext } from 'svelte'
 export type FlowGroup = {
 	summary?: string
 	note?: string
-	collapsed_by_default?: boolean
+	autocollapse?: boolean
 	start_id: string
 	end_id: string
 	color?: string
@@ -41,12 +41,12 @@ export class GroupDisplayState {
 		this.#getGroups = getGroups
 	}
 
-	/** Initialize runtime state from collapsed_by_default. Safe to call from event handlers. */
+	/** Initialize runtime state from autocollapse. Safe to call from event handlers. */
 	private ensureRuntimeInitialized(): void {
 		if (this.#runtimeInitialized) return
 		const groups = this.#getGroups()
 		this.#runtimeCollapsedIds = new Set(
-			groups.filter((g) => g.collapsed_by_default).map((g) => groupKey(g))
+			groups.filter((g) => g.autocollapse).map((g) => groupKey(g))
 		)
 		this.#runtimeInitialized = true
 	}
@@ -54,7 +54,7 @@ export class GroupDisplayState {
 	/** Check if a group is currently collapsed (runtime). Safe to call from $derived. */
 	isRuntimeCollapsed(groupId: string): boolean {
 		if (!this.#runtimeInitialized) {
-			return this.#getGroups().find((g) => groupKey(g) === groupId)?.collapsed_by_default ?? false
+			return this.#getGroups().find((g) => groupKey(g) === groupId)?.autocollapse ?? false
 		}
 		return this.#runtimeCollapsedIds.has(groupId)
 	}
@@ -113,7 +113,7 @@ export class GroupDisplayState {
 	/** Get currently collapsed groups for graph builder. Safe to call from $derived. */
 	getCollapsedGroups(): FlowGroup[] {
 		if (!this.#runtimeInitialized) {
-			return this.#getGroups().filter((g) => g.collapsed_by_default)
+			return this.#getGroups().filter((g) => g.autocollapse)
 		}
 		return this.#getGroups().filter((g) => this.#runtimeCollapsedIds.has(groupKey(g)))
 	}
@@ -242,11 +242,9 @@ export class GroupEditor {
 		this.updateNote(groupId, undefined)
 	}
 
-	updateCollapsedDefault(groupId: string, collapsed_by_default: boolean): void {
+	updateAutocollapse(groupId: string, autocollapse: boolean): void {
 		const groups = this.getGroups()
-		this.setGroups(
-			groups.map((g) => (groupKey(g) === groupId ? { ...g, collapsed_by_default } : g))
-		)
+		this.setGroups(groups.map((g) => (groupKey(g) === groupId ? { ...g, autocollapse } : g)))
 	}
 }
 

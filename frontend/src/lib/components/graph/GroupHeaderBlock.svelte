@@ -11,12 +11,12 @@
 		note?: string | null
 		color?: string
 		collapsed: boolean
-		collapsedByDefault: boolean
+		autocollapse: boolean
 		editMode: boolean
 		showNotes: boolean
 	}
 
-	let { groupId, summary, note, color, collapsed, collapsedByDefault, editMode, showNotes }: Props =
+	let { groupId, summary, note, color, collapsed, autocollapse, editMode, showNotes }: Props =
 		$props()
 
 	const groupEditorContext = getGroupEditorContext()
@@ -60,7 +60,7 @@
 		<GroupActionBar
 			{note}
 			{color}
-			{collapsedByDefault}
+			{autocollapse}
 			{visible}
 			{menuOpen}
 			{moveManager}
@@ -69,8 +69,7 @@
 			onAddNote={() => groupEditorContext?.groupEditor.addNote(groupId)}
 			onRemoveNote={() => groupEditorContext?.groupEditor.removeNote(groupId)}
 			onUpdateColor={(c) => groupEditorContext?.groupEditor.updateColor(groupId, c)}
-			onUpdateCollapsedDefault={(v) =>
-				groupEditorContext?.groupEditor.updateCollapsedDefault(groupId, v)}
+			onUpdateAutocollapse={(v) => groupEditorContext?.groupEditor.updateAutocollapse(groupId, v)}
 			onDeleteGroup={() => groupEditorContext?.groupEditor.deleteGroup(groupId)}
 		/>
 	{/if}

@@ -335,7 +335,7 @@ export type CollapsedGroupN = {
 		summary: string | undefined
 		note: string | undefined
 		color: string | undefined
-		collapsed_by_default: boolean | undefined
+		autocollapse: boolean | undefined
 		stepCount: number
 		modules: FlowModule[]
 		flowModuleStates: Record<string, GraphModuleState> | undefined
@@ -355,7 +355,7 @@ export type GroupHeadN = {
 		summary: string | undefined
 		note: string | undefined
 		color: string | undefined
-		collapsed_by_default: boolean | undefined
+		autocollapse: boolean | undefined
 		editMode: boolean
 		showNotes: boolean
 		eventHandlers: GraphEventHandlers
@@ -693,7 +693,7 @@ export function graphBuilder(
 									summary: g.summary,
 									note: g.note,
 									color: g.color,
-									collapsed_by_default: g.collapsed_by_default,
+									autocollapse: g.autocollapse,
 									stepCount: item.moduleIds?.length ?? 0,
 									modules: leafIds
 										.map((id) => moduleMap.get(id))
@@ -732,7 +732,7 @@ export function graphBuilder(
 									summary: g.summary,
 									note: g.note,
 									color: g.color,
-									collapsed_by_default: g.collapsed_by_default,
+									autocollapse: g.autocollapse,
 									editMode: prefix == undefined && extra.editMode,
 									showNotes,
 									eventHandlers

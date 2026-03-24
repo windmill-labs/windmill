@@ -224,7 +224,7 @@ components:
         note:
           type: string
           description: Markdown note shown below the group header
-        collapsed_by_default:
+        autocollapse:
           type: boolean
           default: false
           description: If true, this group is collapsed by default in the flow editor. UI hint only.
