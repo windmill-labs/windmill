@@ -14,7 +14,8 @@
 		ChevronRight,
 		CodeXml,
 		ExternalLink,
-		TriangleAlert
+		TriangleAlert,
+		Layers
 	} from 'lucide-svelte'
 	import { Button } from './common'
 	import Select from './select/Select.svelte'
@@ -536,7 +537,7 @@
 		return Array.from(groupMap.values()).filter((g) => g.tags.length >= 2)
 	})
 
-	// Map tag → runner group it belongs to (for display in the combined list)
+	// Map tag → runner group it belongs to
 	let tagRunnerGroup: Map<string, RunnerGroup> = $derived.by(() => {
 		const map = new Map<string, RunnerGroup>()
 		for (const group of runnerGroups) {
@@ -546,125 +547,139 @@
 		}
 		return map
 	})
+
+	// Tags not in any runner group (standalone dedicated workers)
+	let standaloneTags: string[] = $derived(selectedTags.filter((tag) => !tagRunnerGroup.has(tag)))
 </script>
 
+{#snippet tagRow(tag: string, info: SelectedTagInfo | undefined)}
+	<div class="border-b last:border-b-0">
+		<div class="flex items-center">
+			{#if info?.type === 'flow' && info.runners && info.runners.length > 0}
+				<button
+					class="p-2 hover:bg-surface-hover transition-colors"
+					onclick={(e) => {
+						e.stopPropagation()
+						toggleSelectedTagExpanded(tag)
+					}}
+				>
+					{#if info.expanded}
+						<ChevronDown class="h-3 w-3 text-tertiary" />
+					{:else}
+						<ChevronRight class="h-3 w-3 text-tertiary" />
+					{/if}
+				</button>
+			{:else}
+				<div class="w-7"></div>
+			{/if}
+			<div class="flex-1 flex items-center gap-2 px-2 py-1.5 min-w-0">
+				{#if info}
+					{#if info.type === 'flow'}
+						<BarsStaggered size={14} class="flex-shrink-0 text-secondary" />
+					{:else}
+						<CodeXml size={14} class="flex-shrink-0 text-secondary" />
+					{/if}
+					<span class="text-xs truncate flex-1 min-w-0">{info.path}</span>
+					<span class="text-xs text-tertiary flex-shrink-0">({info.workspace})</span>
+					{#if info.type === 'flow' && info.runners}
+						<Badge color="indigo" small>
+							{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
+						</Badge>
+					{/if}
+					{#if info.workspaceDeps && !tagRunnerGroup.has(tag)}
+						{#each info.workspaceDeps as dep}
+							{#if existingDeps.has(dep)}
+								<Badge color="indigo" small href="/workspace_settings?tab=dependencies">
+									{dep}
+									<ExternalLink class="h-2.5 w-2.5" />
+								</Badge>
+							{:else}
+								<Tooltip small>
+									Workspace dependency '{dep}' not found. Create it in workspace settings to enable
+									shared runners.
+								</Tooltip>
+								<Badge color="yellow" small>
+									<TriangleAlert class="h-2.5 w-2.5" />
+									{dep}
+								</Badge>
+							{/if}
+						{/each}
+					{/if}
+				{:else}
+					<span class="text-xs text-tertiary truncate">{tag}</span>
+				{/if}
+			</div>
+			{#if !disabled}
+				<button
+					class="p-2 hover:text-red-500 transition-colors"
+					onclick={(e) => {
+						e.stopPropagation()
+						removeTag(tag)
+					}}
+				>
+					<X class="h-3 w-3" />
+				</button>
+			{/if}
+		</div>
+
+		{#if info?.type === 'flow' && info.expanded && info.runners}
+			<div class="bg-surface-secondary border-t">
+				{#each info.runners as runner (runner.stepId)}
+					<div class="flex items-center gap-2 px-9 py-1 text-xs border-t first:border-t-0 min-w-0">
+						<span class="font-mono text-tertiary flex-shrink-0">{runner.stepId}</span>
+						{#if runner.stepSummary}
+							<span class="text-secondary truncate flex-1 min-w-0">{runner.stepSummary}</span>
+						{/if}
+						<Badge color="gray" small>
+							{runner.isInline ? runner.language : runner.scriptPath}
+						</Badge>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
 <div class="flex flex-col gap-3">
-	<!-- Selected tags list (combined with shared runner info) -->
 	{#if selectedTags.length > 0}
 		<div class="flex flex-col gap-2">
-			<div class="border rounded-md divide-y bg-surface max-h-64 overflow-y-auto">
-				{#each selectedTags as tag (tag)}
-					{@const info = selectedTagsInfo.get(tag)}
-					{@const group = tagRunnerGroup.get(tag)}
-					<div>
-						<div class="flex items-center">
-							{#if info?.type === 'flow' && info.runners && info.runners.length > 0}
-								<button
-									class="p-2 hover:bg-surface-hover transition-colors"
-									onclick={(e) => {
-										e.stopPropagation()
-										toggleSelectedTagExpanded(tag)
-									}}
-								>
-									{#if info.expanded}
-										<ChevronDown class="h-3 w-3 text-tertiary" />
-									{:else}
-										<ChevronRight class="h-3 w-3 text-tertiary" />
-									{/if}
-								</button>
+			<div class="border rounded-md bg-surface max-h-64 overflow-y-auto">
+				<!-- Shared runner groups -->
+				{#each runnerGroups as group (`${group.depName}:${group.language}`)}
+					<div class="border-b last:border-b-0">
+						<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary">
+							<Layers size={12} class="flex-shrink-0 text-secondary" />
+							<span class="text-xs font-medium text-emphasis">Shared runner</span>
+							<span class="text-xs text-tertiary">·</span>
+							<span class="text-xs text-tertiary">{group.language}</span>
+							<span class="flex-1"></span>
+							{#if existingDeps.has(group.depName)}
+								<Badge color="indigo" small href="/workspace_settings?tab=dependencies">
+									{group.depName}
+									<ExternalLink class="h-2.5 w-2.5" />
+								</Badge>
 							{:else}
-								<div class="w-7"></div>
-							{/if}
-							<div class="flex-1 flex flex-col gap-0.5 px-2 py-1.5 min-w-0">
-								<div class="flex items-center gap-2 min-w-0">
-									{#if info}
-										{#if info.type === 'flow'}
-											<BarsStaggered size={14} class="flex-shrink-0 text-secondary" />
-										{:else}
-											<CodeXml size={14} class="flex-shrink-0 text-secondary" />
-										{/if}
-										<span class="text-xs truncate flex-1 min-w-0">{info.path}</span>
-										<span class="text-xs text-tertiary flex-shrink-0">({info.workspace})</span>
-										{#if info.type === 'flow' && info.runners}
-											<Badge color="indigo" small>
-												{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
-											</Badge>
-										{:else if info.type === 'script' && !group}
-											<Badge color="blue" small>1 runner</Badge>
-										{/if}
-										{#if group}
-											{#if existingDeps.has(group.depName)}
-												<Badge color="indigo" small href="/workspace_settings?tab=dependencies">
-													{group.depName}
-													<ExternalLink class="h-2.5 w-2.5" />
-												</Badge>
-											{:else}
-												<Tooltip small>
-													Workspace dependency '{group.depName}' not found. Create it in workspace
-													settings for shared runner to work.
-												</Tooltip>
-												<Badge color="yellow" small>
-													<TriangleAlert class="h-2.5 w-2.5" />
-													{group.depName}
-												</Badge>
-											{/if}
-										{:else if info.workspaceDeps}
-											{#each info.workspaceDeps as dep}
-												{#if existingDeps.has(dep)}
-													<Badge color="indigo" small href="/workspace_settings?tab=dependencies">
-														{dep}
-														<ExternalLink class="h-2.5 w-2.5" />
-													</Badge>
-												{:else}
-													<Tooltip small>
-														Workspace dependency '{dep}' not found. Create it in workspace settings
-														to enable shared runners.
-													</Tooltip>
-													<Badge color="yellow" small>
-														<TriangleAlert class="h-2.5 w-2.5" />
-														{dep}
-													</Badge>
-												{/if}
-											{/each}
-										{/if}
-									{:else}
-										<span class="text-xs text-tertiary truncate">{tag}</span>
-									{/if}
-								</div>
-							</div>
-							{#if !disabled}
-								<button
-									class="p-2 hover:text-red-500 transition-colors"
-									onclick={(e) => {
-										e.stopPropagation()
-										removeTag(tag)
-									}}
-								>
-									<X class="h-3 w-3" />
-								</button>
+								<Tooltip small>
+									Workspace dependency '{group.depName}' not found. Create it in workspace settings
+									for shared runner to work.
+								</Tooltip>
+								<Badge color="yellow" small>
+									<TriangleAlert class="h-2.5 w-2.5" />
+									{group.depName}
+								</Badge>
 							{/if}
 						</div>
-
-						{#if info?.type === 'flow' && info.expanded && info.runners}
-							<div class="bg-surface-secondary border-t">
-								{#each info.runners as runner (runner.stepId)}
-									<div
-										class="flex items-center gap-2 px-9 py-1 text-xs border-t first:border-t-0 min-w-0"
-									>
-										<span class="font-mono text-tertiary flex-shrink-0">{runner.stepId}</span>
-										{#if runner.stepSummary}
-											<span class="text-secondary truncate flex-1 min-w-0"
-												>{runner.stepSummary}</span
-											>
-										{/if}
-										<Badge color="gray" small>
-											{runner.isInline ? runner.language : runner.scriptPath}
-										</Badge>
-									</div>
-								{/each}
-							</div>
-						{/if}
+						{#each group.tags as tag (tag)}
+							{@const info = selectedTagsInfo.get(tag)}
+							{@render tagRow(tag, info)}
+						{/each}
 					</div>
+				{/each}
+
+				<!-- Standalone scripts/flows (not in any runner group) -->
+				{#each standaloneTags as tag (tag)}
+					{@const info = selectedTagsInfo.get(tag)}
+					{@render tagRow(tag, info)}
 				{/each}
 			</div>
 		</div>
