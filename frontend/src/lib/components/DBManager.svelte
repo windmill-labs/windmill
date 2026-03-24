@@ -610,36 +610,30 @@
 						dbTableEditorState = { open: false }
 					}}
 					{dbType}
-					computePreview={({ values }) => {
+					computePreview={async ({ values }) => {
 						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
 							let diff = diffTableEditorValues(dbTableEditorAlterTableData.current, values)
-							let queries = dbSchemaOps.previewAlterSql({
-								values: diff,
-								schema: selected.schemaKey
-							})
+							let sql = await dbSchemaOps.previewAlterSql({ values: diff, schema: selected.schemaKey })
 							let alert = !dbSupportsTransactionalDdl(dbType)
 								? {
 										title: capitalize(dbType) + ' does not support transactional DDL',
 										body: 'Any of these statements failing may leave your database in an intermediate state.'
 									}
 								: undefined
-							return { sql: queries.join('\n'), ...(alert ? { alert } : {}) }
+							return { sql, ...(alert ? { alert } : {}) }
 						} else {
-							return { sql: dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey }) }
+							let sql = await dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey })
+							return { sql }
 						}
 					}}
 					computeBtnProps={({ values }) => {
 						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
 							let diff = diffTableEditorValues(dbTableEditorAlterTableData.current, values)
-							let queries = dbSchemaOps.previewAlterSql({
-								values: diff,
-								schema: selected.schemaKey
-							})
-							if (!queries.length) {
+							if (!diff.operations.length) {
 								return { text: 'No changes detected', disabled: true }
 							}
 							return {
-								text: `Alter table (${pluralize(queries.length, 'change')} detected)`
+								text: `Alter table (${pluralize(diff.operations.length, 'change')} detected)`
 							}
 						} else {
 							return { text: 'Create table' }

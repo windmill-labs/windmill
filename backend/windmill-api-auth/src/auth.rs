@@ -26,7 +26,9 @@ use tokio::sync::RwLock;
 use windmill_common::DB;
 
 use windmill_common::{
-    auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims, TOKEN_PREFIX_LEN},
+    auth::{
+        get_folders_for_user, get_groups_for_user, hash_token, safe_token_prefix, JWTAuthClaims,
+    },
     error::{Error, JsonResult},
     jwt,
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},
@@ -42,13 +44,14 @@ lazy_static::lazy_static! {
 /// Get email from a valid token, with caching.
 /// Used for WM_END_USER_EMAIL when user is authenticated but not a workspace member.
 async fn get_email_from_token(db: &DB, token: &str) -> Option<String> {
-    if let Some(cached) = TOKEN_EMAIL_CACHE.get(token) {
+    let t_hash = hash_token(token);
+    if let Some(cached) = TOKEN_EMAIL_CACHE.get(&t_hash) {
         return cached;
     }
 
     let email = sqlx::query_scalar!(
-        "SELECT email FROM token WHERE token = $1 AND (expiration > NOW() OR expiration IS NULL)",
-        token
+        "SELECT email FROM token WHERE token_hash = $1 AND (expiration > NOW() OR expiration IS NULL)",
+        t_hash
     )
     .fetch_optional(db)
     .await
@@ -56,7 +59,7 @@ async fn get_email_from_token(db: &DB, token: &str) -> Option<String> {
     .flatten()
     .flatten(); // email column is nullable, so we get Option<Option<String>>
 
-    TOKEN_EMAIL_CACHE.insert(token.to_string(), email.clone());
+    TOKEN_EMAIL_CACHE.insert(t_hash, email.clone());
     email
 }
 
@@ -75,13 +78,15 @@ pub async fn get_end_user_email(
     }
     None
 }
-// Global function to invalidate a specific token from cache
-pub fn invalidate_token_from_cache(token: &str) {
-    // Remove all cache entries for this token (across all workspaces)
-    AUTH_CACHE.retain(|(_workspace_id, cached_token), _cached_value| cached_token != token);
+// Global function to invalidate tokens from cache by prefix
+pub fn invalidate_token_from_cache(token_prefix: &str) {
+    // Remove all cache entries whose raw token starts with this prefix (across all workspaces)
+    AUTH_CACHE.retain(|(_workspace_id, cached_token), _cached_value| {
+        !cached_token.starts_with(token_prefix)
+    });
     tracing::info!(
-        "Invalidated token from auth cache: {}...",
-        &token[..token.len().min(8)]
+        "Invalidated token(s) from auth cache with prefix: {}...",
+        &token_prefix[..token_prefix.len().min(8)]
     );
 }
 
@@ -211,13 +216,14 @@ impl AuthCache {
                 }
             }
             _ => {
+                let t_hash = hash_token(token);
                 let user_o = sqlx::query!(
                     "UPDATE token SET last_used_at = now() WHERE
-                        token = $1
+                        token_hash = $1
                         AND (expiration > NOW() OR expiration IS NULL)
                         AND (workspace_id IS NULL OR workspace_id = $2)
                     RETURNING owner, email, super_admin, scopes, label",
-                    token,
+                    t_hash,
                     w_id.as_ref(),
                 )
                 .map(|x| (x.owner, x.email, x.super_admin, x.scopes, x.label))
@@ -274,9 +280,7 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
-                                            token_prefix: Some(
-                                                token[0..TOKEN_PREFIX_LEN].to_string(),
-                                            ),
+                                            token_prefix: Some(safe_token_prefix(token)),
                                         })
                                     } else {
                                         let groups = vec![name.to_string()];
@@ -291,16 +295,17 @@ impl AuthCache {
                                         .unwrap_or_default();
                                         Some(ApiAuthed {
                                             email: email,
-                                            username: format!("group-{name}"),
+                                            username: format!(
+                                                "{}{name}",
+                                                windmill_common::users::USERNAME_GROUP_PREFIX
+                                            ),
                                             is_admin: false,
                                             groups,
                                             is_operator: false,
                                             folders,
                                             scopes: None,
                                             username_override,
-                                            token_prefix: Some(
-                                                token[0..TOKEN_PREFIX_LEN].to_string(),
-                                            ),
+                                            token_prefix: Some(safe_token_prefix(token)),
                                         })
                                     }
                                 } else {
@@ -315,7 +320,7 @@ impl AuthCache {
                                         folders,
                                         scopes: None,
                                         username_override,
-                                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                                        token_prefix: Some(safe_token_prefix(token)),
                                     })
                                 }
                             }
@@ -363,9 +368,7 @@ impl AuthCache {
                                                 folders,
                                                 scopes,
                                                 username_override,
-                                                token_prefix: Some(
-                                                    token[0..TOKEN_PREFIX_LEN].to_string(),
-                                                ),
+                                                token_prefix: Some(safe_token_prefix(token)),
                                             })
                                         }
                                         None if super_admin => Some(ApiAuthed {
@@ -377,9 +380,7 @@ impl AuthCache {
                                             folders: vec![],
                                             scopes,
                                             username_override,
-                                            token_prefix: Some(
-                                                token[0..TOKEN_PREFIX_LEN].to_string(),
-                                            ),
+                                            token_prefix: Some(safe_token_prefix(token)),
                                         }),
                                         None => None,
                                     }
@@ -393,7 +394,7 @@ impl AuthCache {
                                         folders: Vec::new(),
                                         scopes,
                                         username_override,
-                                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                                        token_prefix: Some(safe_token_prefix(token)),
                                     })
                                 }
                             }
@@ -427,7 +428,7 @@ impl AuthCache {
                         folders: Vec::new(),
                         scopes: None,
                         username_override: None,
-                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                        token_prefix: Some(safe_token_prefix(token)),
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -654,7 +655,12 @@ pub async fn resolve_opt_job_authed(
                 .map(|x| x.0)
                 .unwrap_or_default();
             let path_vec: Vec<&str> = original_uri.path().split("/").collect();
-            let workspace_id = maybe_get_workspace_id_from_path(&path_vec);
+            let workspace_id = maybe_get_workspace_id_from_path(&path_vec).or_else(|| {
+                parts
+                    .extensions
+                    .get::<windmill_common::db::GatewayWorkspaceId>()
+                    .map(|g| g.0.clone())
+            });
 
             if let Some(mut opt_job_authed) =
                 cache.get_opt_job_authed(workspace_id.clone(), &token).await
@@ -717,7 +723,7 @@ fn username_override_from_label(label: Option<String>) -> Option<String> {
 #[derive(FromRow, Serialize)]
 pub struct TruncatedTokenWithEmail {
     pub label: Option<String>,
-    pub token_prefix: Option<String>,
+    pub token_prefix: String,
     pub expiration: Option<chrono::DateTime<chrono::Utc>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub last_used_at: chrono::DateTime<chrono::Utc>,
@@ -736,7 +742,7 @@ pub async fn list_tokens_internal(
             TruncatedTokenWithEmail,
             r#"
         SELECT label,
-               concat(substring(token for 10)) AS token_prefix,
+               token_prefix,
                expiration,
                created_at,
                last_used_at,
@@ -759,7 +765,7 @@ pub async fn list_tokens_internal(
             TruncatedTokenWithEmail,
             r#"
         SELECT label,
-               concat(substring(token for 10)) AS token_prefix,
+               token_prefix,
                expiration,
                created_at,
                last_used_at,

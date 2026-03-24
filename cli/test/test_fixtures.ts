@@ -8,7 +8,8 @@
  * - Local creation functions: Create fixtures AND write them to disk
  *
  * CROSS-LINKS - Related test helper locations (keep in sync when adding new helpers):
- * @see test_backend.ts - API-based creation helpers (createTestApp, createTestResource, etc.)
+ * @see test_backend.ts - API-based creation helpers (createTestApp, createTestResource,
+ *   createAppWithInlineScript, createFlowWithInlineScript, etc.)
  * @see sync_pull_push.test.ts - Local fixtures + createRemoteScript (API-based)
  *
  * This file contains: Shared local fixtures (createLocalScript, createLocalFlow, etc.)
@@ -28,6 +29,8 @@ import { writeFile, mkdir } from "node:fs/promises";
 import {
   getFolderSuffix,
   getMetadataFileName,
+  getModuleFolderSuffix,
+  getNonDottedPaths,
 } from "../src/utils/resource_folders.ts";
 
 // =============================================================================
@@ -46,7 +49,8 @@ export interface ScriptFixture {
 
 export interface FlowFixture {
   metadata: FileFixture;
-  inlineScript: FileFixture;
+  inlineScript?: FileFixture;
+  inlineLock?: FileFixture;
 }
 
 export interface AppFixture {
@@ -152,16 +156,34 @@ kind: script
  */
 export function createFlowFixture(
   name: string,
-  inlineScriptContent?: string
+  inlineScriptContent?: string,
+  language: "bun" | "python3" = "bun",
+  lockContent?: string
 ): FlowFixture {
   const flowSuffix = getFolderSuffix("flow");
   const metadataFile = getMetadataFileName("flow", "yaml");
 
-  const scriptContent =
-    inlineScriptContent ??
-    `export async function main() {\n  return "Hello from flow ${name}";\n}`;
+  const defaultContent = language === "python3"
+    ? `def main():\n    return "Hello from flow ${name}"`
+    : `export async function main() {\n  return "Hello from flow ${name}";\n}`;
 
-  return {
+  const scriptContent = inlineScriptContent ?? defaultContent;
+
+  const langMap: Record<string, string> = { bun: "bun", python3: "python3" };
+  const extMap: Record<string, string> = { bun: "ts", python3: "py" };
+
+  const ext = extMap[language];
+  // With dotted paths (.flow), inline scripts use .inline_script suffix (a.inline_script.ts)
+  // With non-dotted paths (__flow), they don't (a.ts)
+  const inlineSuffix = getNonDottedPaths() ? "" : ".inline_script";
+  const scriptFile = `a${inlineSuffix}.${ext}`;
+  const lockFile = `a${inlineSuffix}.lock`;
+
+  const lockLine = lockContent !== undefined
+    ? `\n        lock: "!inline ${lockFile}"`
+    : "";
+
+  const result: FlowFixture = {
     metadata: {
       path: `${name}${flowSuffix}/${metadataFile}`,
       content: `summary: "${name} flow"
@@ -171,9 +193,8 @@ value:
     - id: a
       value:
         type: rawscript
-        content: |
-          ${scriptContent.split("\n").join("\n          ")}
-        language: bun
+        content: "!inline ${scriptFile}"${lockLine}
+        language: ${langMap[language]}
         input_transforms: {}
 schema:
   $schema: "https://json-schema.org/draft/2020-12/schema"
@@ -183,10 +204,19 @@ schema:
 `,
     },
     inlineScript: {
-      path: `${name}${flowSuffix}/a.inline_script.ts`,
+      path: `${name}${flowSuffix}/${scriptFile}`,
       content: scriptContent,
     },
   };
+
+  if (lockContent !== undefined) {
+    result.inlineLock = {
+      path: `${name}${flowSuffix}/${lockFile}`,
+      content: lockContent,
+    };
+  }
+
+  return result;
 }
 
 // =============================================================================
@@ -210,9 +240,13 @@ schema:
  *
  * @keywords app fixture, create app, local app
  */
-export function createAppFixture(name: string): AppFixture {
+export function createAppFixture(name: string, inlineScriptContent?: string): AppFixture {
   const appSuffix = getFolderSuffix("app");
   const metadataFile = getMetadataFileName("app", "yaml");
+
+  const scriptContent = inlineScriptContent ??
+    `export async function main() {\n  return "hello from app";\n}`;
+  const indented = scriptContent.split("\n").join("\n                ");
 
   return {
     metadata: {
@@ -230,9 +264,7 @@ value:
             type: runnableByName
             inlineScript:
               content: |
-                export async function main() {
-                  return "hello from app";
-                }
+                ${indented}
               language: bun
   hiddenInlineScripts: []
   css: {}
@@ -269,9 +301,12 @@ policy:
  *
  * @keywords raw app fixture, create raw app, local raw app, react app
  */
-export function createRawAppFixture(name: string): RawAppFixture {
+export function createRawAppFixture(name: string, inlineScriptContent?: string): RawAppFixture {
   const rawAppSuffix = getFolderSuffix("raw_app");
   const metadataFile = getMetadataFileName("raw_app", "yaml");
+
+  const scriptContent = inlineScriptContent ??
+    `export async function main(x: string) {\n  return x\n}`;
 
   return {
     metadata: {
@@ -311,14 +346,15 @@ root.render(<App/>)
 }`,
     },
     inlineScript: {
-      path: `${name}${rawAppSuffix}/inline_scripts/a.inline_script.ts`,
-      content: `export async function main(x: string) {
-  return x
-}
-`,
+      path: `${name}${rawAppSuffix}/backend/a.ts`,
+      content: scriptContent + "\n",
+    },
+    inlineScriptMeta: {
+      path: `${name}${rawAppSuffix}/backend/a.yaml`,
+      content: `type: inline\n`,
     },
     inlineScriptLock: {
-      path: `${name}${rawAppSuffix}/inline_scripts/a.inline_script.lock`,
+      path: `${name}${rawAppSuffix}/backend/a.lock`,
       content: ``,
     },
   };
@@ -387,13 +423,16 @@ export async function createLocalFlow(
   tempDir: string,
   path: string,
   name: string,
-  inlineScriptContent?: string
+  inlineScriptContent?: string,
+  language: "bun" | "python3" = "bun",
+  lockContent?: string
 ): Promise<void> {
-  const fixture = createFlowFixture(name, inlineScriptContent);
+  const fixture = createFlowFixture(name, inlineScriptContent, language, lockContent);
   const flowDir = `${tempDir}/${path}/${name}${getFolderSuffix("flow")}`;
   await mkdir(flowDir, { recursive: true });
 
   for (const file of Object.values(fixture)) {
+    if (!file) continue;
     const fullPath = `${tempDir}/${path}/${file.path}`;
     await writeFile(fullPath, file.content, "utf-8");
   }
@@ -417,13 +456,15 @@ export async function createLocalFlow(
 export async function createLocalApp(
   tempDir: string,
   path: string,
-  name: string
+  name: string,
+  inlineScriptContent?: string
 ): Promise<void> {
-  const fixture = createAppFixture(name);
+  const fixture = createAppFixture(name, inlineScriptContent);
   const appDir = `${tempDir}/${path}/${name}${getFolderSuffix("app")}`;
   await mkdir(appDir, { recursive: true });
 
   for (const file of Object.values(fixture)) {
+    if (!file) continue;
     const fullPath = `${tempDir}/${path}/${file.path}`;
     await writeFile(fullPath, file.content, "utf-8");
   }
@@ -448,18 +489,78 @@ export async function createLocalApp(
 export async function createLocalRawApp(
   tempDir: string,
   path: string,
-  name: string
+  name: string,
+  inlineScriptContent?: string
 ): Promise<void> {
-  const fixture = createRawAppFixture(name);
+  const fixture = createRawAppFixture(name, inlineScriptContent);
   const rawAppSuffix = getFolderSuffix("raw_app");
   const appDir = `${tempDir}/${path}/${name}${rawAppSuffix}`;
-  await mkdir(`${appDir}/inline_scripts`, { recursive: true });
+  await mkdir(`${appDir}/backend`, { recursive: true });
 
   for (const file of Object.values(fixture)) {
     const fullPath = `${tempDir}/${path}/${file.path}`;
     const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
     await mkdir(dir, { recursive: true });
     await writeFile(fullPath, file.content, "utf-8");
+  }
+}
+
+// =============================================================================
+// Script with Modules Fixtures
+// =============================================================================
+
+export interface ModuleFile {
+  path: string;
+  content: string;
+  lock?: string;
+}
+
+/**
+ * Creates a script with module files on the local filesystem.
+ *
+ * Creates the main script, its metadata, and module files in a __mod/ folder.
+ * Optionally includes lock files for modules.
+ *
+ * @param tempDir - Base directory for the test workspace
+ * @param dir - Relative path within the workspace (e.g., "f/test")
+ * @param name - Script name (without extension)
+ * @param language - Script language (default: "bun")
+ * @param modules - Module files to create
+ *
+ * @example
+ * await createLocalScriptWithModules(tempDir, "f/test", "my_script", "bun", [
+ *   { path: "helper.ts", content: "export const x = 1;" },
+ *   { path: "utils/math.ts", content: "export function add(a, b) { return a + b; }", lock: "lodash@4.0.0\n" },
+ * ]);
+ */
+export async function createLocalScriptWithModules(
+  tempDir: string,
+  dir: string,
+  name: string,
+  language: "python3" | "deno" | "bun" | "bash" | "go" | "postgresql" = "bun",
+  modules: ModuleFile[]
+): Promise<void> {
+  // Create the main script
+  await createLocalScript(tempDir, dir, name, language);
+
+  // Create module files in __mod/ folder
+  const modSuffix = getModuleFolderSuffix();
+  const modDir = `${tempDir}/${dir}/${name}${modSuffix}`;
+
+  for (const mod of modules) {
+    const fullPath = `${modDir}/${mod.path}`;
+    const parentDir = fullPath.substring(0, fullPath.lastIndexOf("/"));
+    await mkdir(parentDir, { recursive: true });
+    await writeFile(fullPath, mod.content, "utf-8");
+
+    // Write lock file if provided
+    if (mod.lock) {
+      const baseName = mod.path.substring(0, mod.path.indexOf("."));
+      const lockPath = `${modDir}/${baseName}.lock`;
+      const lockDir = lockPath.substring(0, lockPath.lastIndexOf("/"));
+      await mkdir(lockDir, { recursive: true });
+      await writeFile(lockPath, mod.lock, "utf-8");
+    }
   }
 }
 

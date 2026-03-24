@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO sqs_trigger (\n            path, queue_url, aws_resource_path, script_path,\n            is_flow, workspace_id, edited_by, permissioned_as\n        )\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "db9957ea9b5b326c27ff62f96a3981787a91ac587b1936c774de7a2a2094bf91"
+}

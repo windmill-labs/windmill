@@ -14,12 +14,29 @@ use serde_json::Value;
 
 pub mod asset_parser;
 
+/// S3 output format for SQL queries (moved here to avoid pulling sqlx into WASM via windmill-types)
+#[derive(Clone, Copy, Debug)]
+pub enum S3ModeFormat {
+    Json,
+    Csv,
+    Parquet,
+}
+
+/// Returns the file extension for the given S3 mode format
+pub fn s3_mode_extension(format: S3ModeFormat) -> &'static str {
+    match format {
+        S3ModeFormat::Json => "json",
+        S3ModeFormat::Csv => "csv",
+        S3ModeFormat::Parquet => "parquet",
+    }
+}
+
 #[derive(Serialize, Debug, PartialEq, Default)]
 pub struct MainArgSignature {
     pub star_args: bool,
     pub star_kwargs: bool,
     pub args: Vec<Arg>,
-    pub no_main_func: Option<bool>,
+    pub auto_kind: Option<String>,
     pub has_preprocessor: Option<bool>,
 }
 

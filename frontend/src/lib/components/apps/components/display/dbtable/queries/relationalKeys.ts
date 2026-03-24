@@ -275,7 +275,7 @@ function makeSnowflakeForeignKeysQuery(tableName: string, schemaName: string): s
  * pk_database_name, pk_schema_name, pk_table_name, pk_column_name, key_sequence,
  * update_rule, delete_rule, fk_name, pk_name, deferrability
  */
-function transformSnowflakeForeignKeys(snowflakeResults: any[]): RawForeignKey[] {
+export function transformSnowflakeForeignKeys(snowflakeResults: any[]): RawForeignKey[] {
 	if (!snowflakeResults || !Array.isArray(snowflakeResults)) {
 		return []
 	}

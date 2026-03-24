@@ -9,6 +9,7 @@ import { Confirm } from "@cliffy/prompt/confirm";
 import { Table } from "@cliffy/table";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
+import * as path from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { deepEqual } from "../../utils/utils.ts";
 import * as wmill from "../../../gen/services.gen.ts";
@@ -51,13 +52,19 @@ import fs from "node:fs";
 import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
 
 import { execSync } from "node:child_process";
-import { NewScript, Script } from "../../../gen/types.gen.ts";
+import { NewScript, Script, ScriptModule } from "../../../gen/types.gen.ts";
 import {
   isRawAppBackendPath as isRawAppBackendPathInternal,
   isAppInlineScriptPath as isAppInlineScriptPathInternal,
   isFlowInlineScriptPath as isFlowInlineScriptPathInternal,
   isFlowPath,
   isAppPath,
+  isScriptModulePath,
+  buildModuleFolderPath,
+  getModuleFolderSuffix,
+  isModuleEntryPoint,
+  getScriptBasePathFromModulePath,
+  isRawAppPath,
 } from "../../utils/resource_folders.ts";
 
 export interface ScriptFile {
@@ -123,7 +130,7 @@ async function push(opts: PushOptions, filePath: string) {
     [],
     undefined,
     opts,
-    await getRawWorkspaceDependencies(),
+    await getRawWorkspaceDependencies(true),
     codebases
   );
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
@@ -188,11 +195,17 @@ export async function handleScriptMetadata(
   codebases: SyncCodebase[],
   opts: GlobalOptions
 ): Promise<boolean> {
-  if (
-    path.endsWith(".script.json") ||
+  // Flat layout: my_script.script.yaml
+  const isFlatMeta = path.endsWith(".script.json") ||
     path.endsWith(".script.yaml") ||
-    path.endsWith(".script.lock")
-  ) {
+    path.endsWith(".script.lock");
+  // Folder layout: my_script__mod/script.yaml
+  const isFolderMeta = !isFlatMeta && isScriptModulePath(path) && (
+    path.endsWith("/script.yaml") ||
+    path.endsWith("/script.json") ||
+    path.endsWith("/script.lock")
+  );
+  if (isFlatMeta || isFolderMeta) {
     const contentPath = await findContentFile(path);
     return handleFile(
       contentPath,
@@ -225,10 +238,13 @@ export async function handleFile(
   rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[]
 ): Promise<boolean> {
+  // Detect module entry point: e.g., my_script__mod/script.ts
+  const moduleEntryPoint = isModuleEntryPoint(path);
   if (
     !isAppInlineScriptPath(path) &&
     !isFlowInlineScriptPath(path) &&
     !isRawAppBackendPath(path) &&
+    (!isScriptModulePath(path) || moduleEntryPoint) &&
     exts.some((exts) => path.endsWith(exts))
   ) {
     if (alreadySynced.includes(path)) {
@@ -237,9 +253,9 @@ export async function handleFile(
     log.debug(`Processing local script ${path}`);
 
     alreadySynced.push(path);
-    const remotePath = path
-      .substring(0, path.indexOf("."))
-      .replaceAll(SEP, "/");
+    const remotePath = moduleEntryPoint
+      ? getScriptBasePathFromModulePath(path)!.replaceAll(SEP, "/")
+      : path.substring(0, path.indexOf(".")).replaceAll(SEP, "/");
 
     const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
 
@@ -391,6 +407,13 @@ export async function handleFile(
       typed.codebase = await codebase.getDigest(forceTar);
     }
 
+    // Scan for modules: folder layout (entry point inside __mod/) or flat layout
+    const scriptBasePath = moduleEntryPoint
+      ? getScriptBasePathFromModulePath(path)!
+      : path.substring(0, path.indexOf("."));
+    const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
+    const modules = await readModulesFromDisk(moduleFolderPath, opts?.defaultTs, moduleEntryPoint);
+
     const requestBodyCommon: NewScript = {
       content,
       description: typed?.description ?? "",
@@ -409,7 +432,6 @@ export async function handleFile(
       deployment_message: message,
       restart_unless_cancelled: typed?.restart_unless_cancelled,
       visible_to_runner_only: typed?.visible_to_runner_only,
-      no_main_func: typed?.no_main_func,
       has_preprocessor: typed?.has_preprocessor,
       priority: typed?.priority,
       concurrency_key: typed?.concurrency_key,
@@ -419,6 +441,7 @@ export async function handleFile(
       timeout: typed?.timeout,
       on_behalf_of_email: typed?.on_behalf_of_email,
       envs: typed?.envs,
+      modules: modules,
     };
 
     // console.log(requestBodyCommon.codebase);
@@ -449,7 +472,6 @@ export async function handleFile(
               Boolean(remote.restart_unless_cancelled) &&
             Boolean(typed.visible_to_runner_only) ==
               Boolean(remote.visible_to_runner_only) &&
-            Boolean(typed.no_main_func) == Boolean(remote.no_main_func) &&
             Boolean(typed.has_preprocessor) ==
               Boolean(remote.has_preprocessor) &&
             typed.priority == Boolean(remote.priority) &&
@@ -460,7 +482,8 @@ export async function handleFile(
             typed.debounce_delay_s == remote["debounce_delay_s"] &&
             typed.codebase == remote.codebase &&
             typed.on_behalf_of_email == remote.on_behalf_of_email &&
-            deepEqual(typed.envs, remote.envs))
+            deepEqual(typed.envs, remote.envs) &&
+            deepEqual(modules ?? null, remote.modules ?? null))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;
@@ -504,6 +527,135 @@ export async function handleFile(
     return true;
   }
   return false;
+}
+
+/**
+ * Read module files from a __mod/ directory on disk.
+ * Returns the modules record for the API, or undefined if no module folder exists.
+ */
+export async function readModulesFromDisk(
+  moduleFolderPath: string,
+  defaultTs: "bun" | "deno" | undefined,
+  folderLayout: boolean = false,
+): Promise<Record<string, ScriptModule> | undefined> {
+  if (!fs.existsSync(moduleFolderPath) || !fs.statSync(moduleFolderPath).isDirectory()) {
+    return undefined;
+  }
+
+  const modules: Record<string, ScriptModule> = {};
+
+  // In folder layout mode, skip the entry point files (script.*, script.yaml, etc.)
+  const isEntryPointFile = (name: string, isTopLevel: boolean) => {
+    if (!folderLayout || !isTopLevel) return false;
+    return (
+      name.startsWith("script.") ||
+      name === "script.lock" ||
+      name === "script.yaml" ||
+      name === "script.json"
+    );
+  };
+
+  function readDir(dirPath: string, relPrefix: string) {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      const relPath = relPrefix ? relPrefix + "/" + entry.name : entry.name;
+      const isTopLevel = relPrefix === "";
+
+      if (entry.isDirectory()) {
+        readDir(fullPath, relPath);
+      } else if (entry.isFile() && !entry.name.endsWith(".lock") && !isEntryPointFile(entry.name, isTopLevel)) {
+        // Skip lock files — they're handled as the `lock` field on ScriptModule
+        if (exts.some((ext) => entry.name.endsWith(ext))) {
+          const content = fs.readFileSync(fullPath, "utf-8");
+          const language = inferContentTypeFromFilePath(entry.name, defaultTs);
+
+          // Check for an accompanying lock file (helper.lock)
+          const baseName = entry.name.replace(/\.[^.]+$/, '');
+          const lockPath = path.join(dirPath, baseName + ".lock");
+          let lock: string | undefined;
+          if (fs.existsSync(lockPath)) {
+            lock = fs.readFileSync(lockPath, "utf-8");
+          }
+
+          modules[relPath] = {
+            content,
+            language: language as ScriptModule["language"],
+            lock: lock ?? undefined,
+          };
+        }
+      }
+    }
+  }
+
+  readDir(moduleFolderPath, "");
+
+  if (Object.keys(modules).length === 0) {
+    return undefined;
+  }
+
+  log.debug(`Found ${Object.keys(modules).length} module(s) in ${moduleFolderPath}`);
+  return modules;
+}
+
+/**
+ * Write module files to a __mod/ directory on disk during pull.
+ */
+export async function writeModulesToDisk(
+  moduleFolderPath: string,
+  modules: Record<string, ScriptModule>,
+  defaultTs: "bun" | "deno" | undefined
+): Promise<void> {
+  // Ensure the module folder exists
+  fs.mkdirSync(moduleFolderPath, { recursive: true });
+
+  // Clean up stale module files that are no longer in the modules map
+  const expectedFiles = new Set<string>();
+  for (const [relPath, mod] of Object.entries(modules)) {
+    expectedFiles.add(relPath);
+    if (mod.lock) {
+      expectedFiles.add(relPath.replace(/\.[^.]+$/, '') + ".lock");
+    }
+  }
+
+  function cleanDir(dirPath: string, relPrefix: string) {
+    if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) return;
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const relPath = relPrefix ? relPrefix + "/" + entry.name : entry.name;
+      if (entry.isDirectory()) {
+        cleanDir(path.join(dirPath, entry.name), relPath);
+        // Remove empty directories after cleaning
+        try {
+          const remaining = fs.readdirSync(path.join(dirPath, entry.name));
+          if (remaining.length === 0) {
+            fs.rmdirSync(path.join(dirPath, entry.name));
+          }
+        } catch {}
+      } else if (!expectedFiles.has(relPath)) {
+        fs.unlinkSync(path.join(dirPath, entry.name));
+      }
+    }
+  }
+  cleanDir(moduleFolderPath, "");
+
+  for (const [relPath, mod] of Object.entries(modules)) {
+    const fullPath = path.join(moduleFolderPath, relPath);
+    const dir = path.dirname(fullPath);
+    fs.mkdirSync(dir, { recursive: true });
+
+    // Write the module content
+    fs.writeFileSync(fullPath, mod.content, "utf-8");
+
+    // Write the lock file if present
+    if (mod.lock) {
+      const baseName = relPath.replace(/\.[^.]+$/, '');
+      const lockPath = path.join(moduleFolderPath, baseName + ".lock");
+      const lockDir = path.dirname(lockPath);
+      fs.mkdirSync(lockDir, { recursive: true });
+      fs.writeFileSync(lockPath, mod.lock, "utf-8");
+    }
+  }
 }
 
 async function createScript(
@@ -559,7 +711,12 @@ async function createScript(
 }
 
 export async function findContentFile(filePath: string) {
-  const candidates = filePath.endsWith("script.json")
+  // Folder layout: __mod/script.yaml -> __mod/script.ts
+  const isModuleFolderMeta =
+    filePath.endsWith("/script.yaml") || filePath.endsWith("/script.json") || filePath.endsWith("/script.lock");
+  const candidates = isModuleFolderMeta
+    ? exts.map((x) => filePath.replace(/\/script\.(yaml|json|lock)$/, "/script" + x))
+    : filePath.endsWith("script.json")
     ? exts.map((x) => filePath.replace(".script.json", x))
     : filePath.endsWith("script.lock")
     ? exts.map((x) => filePath.replace(".script.lock", x))
@@ -1004,7 +1161,7 @@ export async function generateMetadata(
   opts = await mergeConfigWithConfigFile(opts);
   const codebases = await listSyncCodebases(opts);
 
-  const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
+  const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
   if (scriptPath) {
     // read script metadata file
     await generateScriptMetadataInternal(
@@ -1027,7 +1184,10 @@ export async function generateMetadata(
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||
           ignore(p, isD) ||
           isFlowPath(p) ||
-          isAppPath(p)
+          isAppPath(p) ||
+          isRawAppPath(p) ||
+          // Skip module helper files; only entry points (script.{ext}) are processed
+          (isScriptModulePath(p) && !isModuleEntryPoint(p))
         );
       },
       false,
@@ -1115,6 +1275,13 @@ async function preview(
   const language = inferContentTypeFromFilePath(filePath, opts?.defaultTs);
   const content = await readFile(filePath, "utf-8");
   const input = opts.data ? await resolve(opts.data) : {};
+
+  // Read modules from __mod/ folder if present
+  const isFolderLayout = isModuleEntryPoint(filePath);
+  const moduleFolderPath = isFolderLayout
+    ? path.dirname(filePath)
+    : filePath.substring(0, filePath.indexOf(".")) + getModuleFolderSuffix();
+  const modules = await readModulesFromDisk(moduleFolderPath, opts?.defaultTs, isFolderLayout);
 
   // Check if this is a codebase script
   const codebase =
@@ -1275,6 +1442,7 @@ async function preview(
         path: filePath.substring(0, filePath.indexOf(".")).replaceAll(SEP, "/"),
         args: input,
         language: language as any,
+        modules: modules ?? undefined,
       },
     });
 

@@ -45,6 +45,7 @@ use windmill_common::{
         APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
         EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
+        WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
@@ -530,6 +531,7 @@ pub async fn get_global_setting(
         && key != DISABLE_HUB_SETTING
         && key != EMAIL_DOMAIN_SETTING
         && key != APP_WORKSPACED_ROUTE_SETTING
+        && key != WS_BASE_URL_SETTING
     {
         require_super_admin(&db, &authed.email).await?;
     }
@@ -581,8 +583,17 @@ pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resu
     Ok("Sent stats".to_string())
 }
 
+#[derive(serde::Serialize)]
+pub struct StatsDownload {
+    pub signature: String,
+    pub data: String,
+}
+
 #[cfg(feature = "enterprise")]
-pub async fn get_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
+pub async fn get_stats(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::JsonResult<StatsDownload> {
     require_super_admin(&db, &authed.email).await?;
     let stats = windmill_common::stats_oss::get_stats_payload(
         &db,
@@ -590,12 +601,14 @@ pub async fn get_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resul
         false,
     )
     .await?;
-    let encrypted = windmill_common::stats_oss::encrypt_stats(&stats)?;
-    Ok(encrypted)
+    let json =
+        serde_json::to_string(&stats).map_err(|e| error::Error::InternalErr(e.to_string()))?;
+    let signature = windmill_common::stats_oss::sign_stats(&json);
+    Ok(axum::Json(StatsDownload { signature, data: json }))
 }
 
 #[cfg(not(feature = "enterprise"))]
-pub async fn get_stats() -> Result<String> {
+pub async fn get_stats() -> error::JsonResult<StatsDownload> {
     Err(error::Error::BadRequest(
         "Downloading telemetry is only available on enterprise edition".to_string(),
     ))
@@ -963,8 +976,7 @@ async fn setup_custom_instance_pg_database_inner(
              GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
              ALTER DEFAULT PRIVILEGES IN SCHEMA public
                  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;
-             ALTER ROLE custom_instance_user CREATEROLE;
-             ALTER ROLE custom_instance_user REPLICATION;"
+             ALTER ROLE custom_instance_user CREATEROLE;"
         ))
         .await
         .map_err(|e| {
@@ -973,6 +985,14 @@ async fn setup_custom_instance_pg_database_inner(
                 e.to_string(),
             ))
         })?;
+
+    if let Err(e) = client
+        .batch_execute(&format!("ALTER ROLE custom_instance_user REPLICATION;"))
+        .await
+    {
+        tracing::error!("Failed to grant replication permission to custom_instance_user: {e:#}");
+    }
+
     logs.grant_permissions = "OK".to_string();
 
     drop(client); // /!\ Drop before joining to avoid deadlock

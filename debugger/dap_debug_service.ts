@@ -1069,17 +1069,24 @@ const server = Bun.serve({
 
 		// Handle WebSocket upgrade with path-based routing
 		if (server.upgrade(req, { data: { path } })) {
+			logger.info(`WS upgrade: ${path}`)
 			return undefined as unknown as Response
 		}
 
+		logger.info(`HTTP ${req.method} ${path}`)
+
 		// Health check endpoint
-		if (path === '/health') {
+		if (path === '/health' || path === '/ws_debug/health') {
 			return new Response(JSON.stringify({
 				status: 'ok',
+				service: 'debugger',
 				endpoints: ['/python', '/typescript', '/bun'],
 				nsjail: config.nsjail.enabled
 			}), {
-				headers: { 'Content-Type': 'application/json' }
+				headers: {
+					'Content-Type': 'application/json',
+					'Access-Control-Allow-Origin': '*'
+				}
 			})
 		}
 
@@ -1094,6 +1101,14 @@ const server = Bun.serve({
 			// Trim /ws_debug prefix if present (for direct access without reverse proxy stripping)
 			if (path.startsWith('/ws_debug/')) {
 				path = path.slice('/ws_debug'.length)
+			}
+
+			// Handle ping test — respond and close immediately
+			if (path === '/ping') {
+				logger.info(`WS ping test`)
+				ws.send(JSON.stringify({ type: 'pong', service: 'debugger' }))
+				ws.close()
+				return
 			}
 
 			logger.info(`New client connected: ${path}`)

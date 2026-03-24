@@ -42,6 +42,7 @@
 <script lang="ts">
 	import { ArrowRight, ClipboardCopy, Plus, Settings, X } from 'lucide-svelte'
 
+	import { copyToClipboard } from '$lib/utils'
 	import { Button } from './common'
 	import { Cell } from './table'
 	import DataTable from './table/DataTable.svelte'
@@ -51,7 +52,6 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { copyToClipboard } from '$lib/utils'
 	import { getFlatTableNamesFromSchema, type DBSchema } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import DarkModeObserver from './DarkModeObserver.svelte'
@@ -78,7 +78,7 @@
 		onConfirm: (params: { values: TableEditorValues }) => void | Promise<void>
 		computePreview: (params: {
 			values: TableEditorValues
-		}) => { sql: string; alert?: { title: string; body?: string } }
+		}) => Promise<{ sql: string; alert?: { title: string; body?: string } }>
 		computeBtnProps: (params: { values: TableEditorValues }) => { text: string; disabled?: boolean }
 	}
 
@@ -136,6 +136,8 @@
 				alert?: { title: string; body?: string }
 		  })
 		| undefined = $state()
+
+	let previewLoading = $state(false)
 
 	let darkMode = $state(false)
 
@@ -440,25 +442,34 @@
 	</div>
 	<Button
 		disabled={!!errors || btnProps.current.disabled}
-		loading={btnProps.pending}
-		on:click={() => {
-			let preview = computePreview?.({ values })
-			askingForConfirmation = {
-				onConfirm: async () => {
-					try {
-						askingForConfirmation && (askingForConfirmation.loading = true)
-						await onConfirm({ values })
-					} catch (e) {
-						let msg: string | undefined = (e as Error)?.message
-						if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
-						sendUserToast(msg, true)
-					}
-					askingForConfirmation = undefined
-				},
-				title: 'Confirm running the following:',
-				confirmationText: btnProps.current.text,
-				open: true,
-				...(preview && { codeContent: preview.sql, alert: preview.alert })
+		loading={btnProps.pending || previewLoading}
+		on:click={async () => {
+			previewLoading = true
+			try {
+				let preview = await computePreview({ values })
+				askingForConfirmation = {
+					onConfirm: async () => {
+						try {
+							askingForConfirmation && (askingForConfirmation.loading = true)
+							await onConfirm({ values })
+						} catch (e) {
+							let msg: string | undefined = (e as Error)?.message
+							if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
+							sendUserToast(msg, true)
+						}
+						askingForConfirmation = undefined
+					},
+					title: 'Confirm running the following:',
+					confirmationText: btnProps.current.text,
+					open: true,
+					...(preview && { codeContent: preview.sql, alert: preview.alert })
+				}
+			} catch (e) {
+				let msg: string | undefined = (e as Error)?.message
+				if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
+				sendUserToast(msg, true)
+			} finally {
+				previewLoading = false
 			}
 		}}
 	>
@@ -479,17 +490,15 @@
 			</Alert>
 		{/if}
 		{#if askingForConfirmation?.codeContent}
-			<div class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative">
-				<code class="whitespace-pre-wrap">
-					{askingForConfirmation.codeContent}
-				</code>
-				<Button
-					on:click={() => copyToClipboard(askingForConfirmation?.codeContent)}
-					size="xs"
-					startIcon={{ icon: ClipboardCopy }}
-					color="none"
-					wrapperClasses="absolute z-10 top-0 right-0"
-				></Button>
+			<div class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative group">
+				<button
+					class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-surface-hover"
+					onclick={() => copyToClipboard(askingForConfirmation?.codeContent)}
+					title="Copy to clipboard"
+				>
+					<ClipboardCopy size={14} />
+				</button>
+				<pre class="whitespace-pre-wrap text-sm"><code>{askingForConfirmation.codeContent}</code></pre>
 			</div>
 		{/if}
 	</ConfirmationModal>

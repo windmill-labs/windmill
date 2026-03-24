@@ -77,6 +77,7 @@ pub mod oidc_oss;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 pub mod otel_oss;
+pub mod query_builders;
 pub mod queue;
 pub mod result_stream;
 pub mod runnable_settings;
@@ -85,6 +86,7 @@ pub mod schema;
 pub mod scripts;
 pub mod secret_backend;
 pub mod server;
+pub mod ssrf;
 #[cfg(feature = "private")]
 pub mod stats_ee;
 pub mod stats_oss;

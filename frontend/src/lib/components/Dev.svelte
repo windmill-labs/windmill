@@ -145,6 +145,7 @@
 		lock?: string
 		isCodebase?: boolean
 		tag?: string
+		modules?: { [key: string]: import('$lib/gen').ScriptModule } | null
 	}
 
 	let currentScript: LastEditScript | undefined = $state(undefined)
@@ -206,7 +207,9 @@
 						done(x) {
 							loadPastTests()
 						}
-					}
+					},
+					undefined,
+					currentScript.modules
 				)
 			} else {
 				sendUserToast(`Bundle received ${lastCommandId} was obsolete, ignoring`, true)
@@ -392,7 +395,11 @@
 						currentScript.language,
 						args,
 						currentScript.tag,
-						useLock ? currentScript.lock : undefined
+						useLock ? currentScript.lock : undefined,
+						undefined,
+						undefined,
+						undefined,
+						currentScript.modules
 					)
 				}
 			}

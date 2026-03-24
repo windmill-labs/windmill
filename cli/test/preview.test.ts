@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { withTestBackend } from "./test_backend.ts";
+import { shouldSkipOnCI } from "./cargo_backend.ts";
 
 // =============================================================================
 // PREVIEW COMMAND INTEGRATION TESTS
@@ -27,6 +28,7 @@ async function createWmillConfig(
       relative_path: string;
       includes?: string[];
       format?: "cjs" | "esm";
+      customBundler?: string;
       assets?: Array<{ from: string; to: string }>;
     }>;
   }
@@ -43,6 +45,9 @@ async function createWmillConfig(
       }
       if (cb.format) {
         yamlContent += `    format: ${cb.format}\n`;
+      }
+      if (cb.customBundler) {
+        yamlContent += `    customBundler: ${JSON.stringify(cb.customBundler)}\n`;
       }
       if (cb.assets && cb.assets.length > 0) {
         yamlContent += "    assets:\n";
@@ -117,6 +122,39 @@ schema:
     name:
       type: string
       default: "World"
+  required: []
+`;
+  await writeFile(`${dir}/flow.yaml`, flowYaml, "utf-8");
+}
+
+async function createPathScriptFlow(
+  tempDir: string,
+  flowPath: string,
+  options: {
+    summary: string;
+    scriptPath: string;
+    inputTransforms?: string;
+  }
+): Promise<void> {
+  const dir = `${tempDir}/${flowPath}`;
+  await mkdir(dir, { recursive: true });
+  const inputTransforms = options.inputTransforms
+    ? `        input_transforms:\n${options.inputTransforms}`
+    : "        input_transforms: {}\n";
+
+  const flowYaml = `summary: "${options.summary}"
+description: "Test flow"
+value:
+  modules:
+    - id: "a"
+      value:
+        type: "script"
+        path: "${options.scriptPath}"
+${inputTransforms}
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
   required: []
 `;
   await writeFile(`${dir}/flow.yaml`, flowYaml, "utf-8");
@@ -360,6 +398,116 @@ schema:
 });
 
 // =============================================================================
+// SCRIPT WITH MODULES PREVIEW TESTS
+// =============================================================================
+
+test("script preview: script with modules (taskScript pattern)", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, { defaultTs: "bun" });
+
+    // Create the main script that uses taskScript to call a module
+    await createScript(
+      tempDir,
+      "f/test/wac_script.ts",
+      `import { task, taskScript, workflow } from "windmill-client";
+
+const helper = taskScript("./helper.ts");
+
+const process = task(async (x: string): Promise<string> => {
+  return \`processed: \${x}\`;
+});
+
+export const main = workflow(async (x: string = "test") => {
+  const a = await process(x);
+  const b = await helper({ a });
+  return { processed: a, helper_result: b };
+});`
+    );
+
+    // Create the module file in __mod/ folder
+    const modDir = `${tempDir}/f/test/wac_script__mod`;
+    await mkdir(modDir, { recursive: true });
+    await writeFile(
+      `${modDir}/helper.ts`,
+      `export function main(a: string): string {
+  return \`helper got: \${a}\`;
+}`,
+      "utf-8"
+    );
+
+    const result = await backend.runCLICommand(
+      ["script", "preview", "f/test/wac_script.ts"],
+      tempDir
+    );
+
+    expect(result.code).toEqual(0);
+    const output = result.stdout + result.stderr;
+    expect(output).toContain("processed: test");
+    expect(output).toContain("helper got:");
+  });
+});
+
+test("script preview: script with modules (folder layout)", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, { defaultTs: "bun" });
+
+    // Create folder layout: my_script__mod/script.ts + my_script__mod/helper.ts
+    const modDir = `${tempDir}/f/test/folder_wac__mod`;
+    await mkdir(modDir, { recursive: true });
+
+    // Entry point script
+    await writeFile(
+      `${modDir}/script.ts`,
+      `import { task, taskScript, workflow } from "windmill-client";
+
+const helper = taskScript("./helper.ts");
+
+export const main = workflow(async (name: string = "World") => {
+  const result = await helper({ name });
+  return { greeting: result };
+});`,
+      "utf-8"
+    );
+
+    // Module file
+    await writeFile(
+      `${modDir}/helper.ts`,
+      `export function main(name: string): string {
+  return \`Hello from module, \${name}!\`;
+}`,
+      "utf-8"
+    );
+
+    // Script metadata
+    await writeFile(
+      `${modDir}/script.yaml`,
+      `summary: "Folder layout WAC script"
+description: "Test"
+lock: ""
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties:
+    name:
+      type: string
+      default: "World"
+  required: []
+`,
+      "utf-8"
+    );
+
+    const result = await backend.runCLICommand(
+      ["script", "preview", `f/test/folder_wac__mod/script.ts`],
+      tempDir
+    );
+
+    expect(result.code).toEqual(0);
+    const output = result.stdout + result.stderr;
+    expect(output).toContain("Hello from module, World!");
+  });
+});
+
+// =============================================================================
 // FLOW PREVIEW TESTS
 // =============================================================================
 
@@ -381,3 +529,280 @@ test("flow preview: simple flow", async () => {
   });
 });
 
+test("flow preview: uses local PathScript by default and remote PathScript with --remote", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, { defaultTs: "bun" });
+
+    await createScript(
+      tempDir,
+      "f/test/helper_script.ts",
+      `export function main(name: string = "World") { return \`Remote script says: \${name}!\`; }`
+    );
+
+    const pushResult = await backend.runCLICommand(
+      ["script", "push", "f/test/helper_script.ts"],
+      tempDir
+    );
+    expect(pushResult.code).toEqual(0);
+
+    await writeFile(
+      `${tempDir}/f/test/helper_script.ts`,
+      `export function main(name: string = "World") { return \`Local script says: \${name}!\`; }`,
+      "utf-8"
+    );
+
+    await createPathScriptFlow(tempDir, "f/test/path_flow.flow", {
+      summary: "Flow with PathScript",
+      scriptPath: "f/test/helper_script",
+      inputTransforms: `          name:
+            type: "static"
+            value: "PathTest"
+`,
+    });
+
+    const localResult = await backend.runCLICommand(
+      ["flow", "preview", "f/test/path_flow.flow"],
+      tempDir
+    );
+
+    expect(localResult.code).toEqual(0);
+    expect(localResult.stdout + localResult.stderr).toContain(
+      "Local script says: PathTest!"
+    );
+    expect(localResult.stdout + localResult.stderr).toContain(
+      "Using local PathScript files for flow preview."
+    );
+    expect(localResult.stdout + localResult.stderr).toContain(
+      "These workspace scripts differ from the deployed version:\n- f/test/helper_script"
+    );
+
+    const remoteResult = await backend.runCLICommand(
+      ["flow", "preview", "--remote", "f/test/path_flow.flow"],
+      tempDir
+    );
+
+    expect(remoteResult.code).toEqual(0);
+    expect(remoteResult.stdout + remoteResult.stderr).toContain(
+      "Remote script says: PathTest!"
+    );
+    expect(remoteResult.stdout + remoteResult.stderr).not.toContain(
+      "Using local PathScript files for flow preview."
+    );
+  });
+});
+
+test.skipIf(shouldSkipOnCI())("flow preview: respects defaultTs when resolving local PathScripts", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, { defaultTs: "deno" });
+
+    await createScript(
+      tempDir,
+      "f/test/deno_helper.ts",
+      `export function main() { return Deno.version.deno ? "deno-runtime" : "missing"; }`
+    );
+
+    await createPathScriptFlow(tempDir, "f/test/deno_path_flow.flow", {
+      summary: "Flow with Deno PathScript",
+      scriptPath: "f/test/deno_helper",
+    });
+
+    const result = await backend.runCLICommand(
+      ["flow", "preview", "f/test/deno_path_flow.flow"],
+      tempDir
+    );
+
+    expect(result.code).toEqual(0);
+    expect(result.stdout + result.stderr).toContain("deno-runtime");
+  });
+});
+
+test("flow preview: bundles local PathScripts with local imports", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, {
+      defaultTs: "bun",
+      codebases: [{ relative_path: "f/flow_codebase", includes: ["**"] }],
+    });
+
+    await mkdir(`${tempDir}/f/flow_codebase`, { recursive: true });
+    await writeFile(
+      `${tempDir}/f/flow_codebase/helper.ts`,
+      `export function greet(name: string): string {
+  return \`Hello from local flow codebase, \${name}!\`;
+}`,
+      "utf-8"
+    );
+
+    await createScript(
+      tempDir,
+      "f/flow_codebase/main_script.ts",
+      `import { greet } from "./helper";
+
+export function main(name: string = "World") {
+  return greet(name);
+}`
+    );
+
+    await createPathScriptFlow(tempDir, "f/test/importing_path_flow.flow", {
+      summary: "Flow with imported PathScript",
+      scriptPath: "f/flow_codebase/main_script",
+      inputTransforms: `          name:
+            type: "static"
+            value: "FlowTest"
+`,
+    });
+
+    const result = await backend.runCLICommand(
+      ["flow", "preview", "f/test/importing_path_flow.flow"],
+      tempDir
+    );
+
+    expect(result.code).toEqual(0);
+    expect(result.stdout + result.stderr).toContain(
+      "Hello from local flow codebase, FlowTest!"
+    );
+  });
+});
+
+test("flow preview: customBundler handles script paths with spaces", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, {
+      defaultTs: "bun",
+      codebases: [{
+        relative_path: "f/codebase custom",
+        includes: ["f/codebase custom/**"],
+        customBundler: "cat",
+      }],
+    });
+
+    await createScript(
+      tempDir,
+      "f/codebase custom/custom bundler.ts",
+      `export function main() {
+  return "Custom bundler path with spaces";
+}`
+    );
+
+    await createPathScriptFlow(tempDir, "f/test/custom_bundler_path.flow", {
+      summary: "Flow with customBundler path",
+      scriptPath: "f/codebase custom/custom bundler",
+    });
+
+    const result = await backend.runCLICommand(
+      ["flow", "preview", "f/test/custom_bundler_path.flow"],
+      tempDir
+    );
+
+    expect(result.code).toEqual(0);
+    expect(result.stdout + result.stderr).toContain(
+      "Custom bundler path with spaces"
+    );
+  });
+});
+
+test("flow preview: warns when local PathScript is not deployed remotely", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, { defaultTs: "bun" });
+
+    await createScript(
+      tempDir,
+      "f/test/undeployed_helper.ts",
+      `export function main() { return "Local only script"; }`
+    );
+
+    await createPathScriptFlow(tempDir, "f/test/undeployed_path_flow.flow", {
+      summary: "Flow with undeployed PathScript",
+      scriptPath: "f/test/undeployed_helper",
+    });
+
+    const result = await backend.runCLICommand(
+      ["flow", "preview", "f/test/undeployed_path_flow.flow"],
+      tempDir
+    );
+
+    expect(result.code).toEqual(0);
+    expect(result.stdout + result.stderr).toContain("Local only script");
+    expect(result.stdout + result.stderr).toContain(
+      "These scripts do not exist in the workspace yet:\n- f/test/undeployed_helper"
+    );
+  });
+});
+
+test("flow preview: does not warn when local and deployed PathScripts match", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, { defaultTs: "bun" });
+
+    await createScript(
+      tempDir,
+      "f/test/matching_helper.ts",
+      `export function main() { return "Matching script"; }`
+    );
+
+    const pushResult = await backend.runCLICommand(
+      ["script", "push", "f/test/matching_helper.ts"],
+      tempDir
+    );
+    expect(pushResult.code).toEqual(0);
+
+    await createPathScriptFlow(tempDir, "f/test/matching_path_flow.flow", {
+      summary: "Flow with matching PathScript",
+      scriptPath: "f/test/matching_helper",
+    });
+
+    const result = await backend.runCLICommand(
+      ["flow", "preview", "f/test/matching_path_flow.flow"],
+      tempDir
+    );
+
+    expect(result.code).toEqual(0);
+    expect(result.stdout + result.stderr).toContain("Matching script");
+    expect(result.stdout + result.stderr).not.toContain(
+      "Using local PathScript files for flow preview."
+    );
+  });
+});
+
+test("flow preview: fails loudly for asset-backed codebase scripts", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, {
+      defaultTs: "bun",
+      codebases: [{
+        relative_path: "f/codebase_tar",
+        includes: ["**"],
+        assets: [{ from: "f/codebase_tar/data.json", to: "data.json" }],
+      }],
+    });
+
+    await mkdir(`${tempDir}/f/codebase_tar`, { recursive: true });
+    await writeFile(
+      `${tempDir}/f/codebase_tar/data.json`,
+      JSON.stringify({ message: "Hello from asset!" }),
+      "utf-8"
+    );
+
+    await createScript(
+      tempDir,
+      "f/codebase_tar/main_script.ts",
+      `import * as fs from "fs";
+
+export function main() {
+  const data = JSON.parse(fs.readFileSync("data.json", "utf-8"));
+  return data.message;
+}`
+    );
+
+    await createPathScriptFlow(tempDir, "f/test/assets_path_flow.flow", {
+      summary: "Flow with asset-backed PathScript",
+      scriptPath: "f/codebase_tar/main_script",
+    });
+
+    const localResult = await backend.runCLICommand(
+      ["flow", "preview", "f/test/assets_path_flow.flow"],
+      tempDir
+    );
+
+    expect(localResult.code).not.toEqual(0);
+    expect(localResult.stdout + localResult.stderr).toContain(
+      "requires codebase assets"
+    );
+  });
+});

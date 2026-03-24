@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.655.0
+  version: 1.662.0
   title: Windmill API
 
   contact:
@@ -1391,17 +1391,22 @@ paths:
 
   /settings/get_stats:
     get:
-      summary: get encrypted telemetry stats (EE only)
+      summary: get telemetry stats with HMAC signature (EE only)
       operationId: getStats
       tags:
         - setting
       responses:
         "200":
-          description: base64-encoded encrypted telemetry blob
+          description: telemetry stats JSON with signature
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                properties:
+                  signature:
+                    type: string
+                  data:
+                    type: string
 
   /settings/latest_key_renewal_attempt:
     get:
@@ -4556,6 +4561,107 @@ paths:
                 type: string
         "404":
           description: protection rule not found
+  /w/{workspace}/workspaces/log_chat:
+    post:
+      summary: log AI chat message
+      operationId: logAiChat
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - session_id
+                - provider
+                - model
+                - mode
+              properties:
+                session_id:
+                  type: string
+                provider:
+                  type: string
+                model:
+                  type: string
+                mode:
+                  type: string
+      responses:
+        "204":
+          description: logged
+
+  /w/{workspace}/workspaces/cloud_quotas:
+    get:
+      summary: get cloud quota usage and limits for workspace
+      operationId: getCloudQuotas
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: cloud quota usage and limits
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scripts:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  flows:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  apps:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  variables:
+                    $ref: "#/components/schemas/QuotaInfo"
+                  resources:
+                    $ref: "#/components/schemas/QuotaInfo"
+                required:
+                  - scripts
+                  - flows
+                  - apps
+                  - variables
+                  - resources
+
+  /w/{workspace}/workspaces/prune_versions:
+    post:
+      summary: prune old versions of scripts, flows, or apps
+      operationId: pruneVersions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resource_type:
+                  type: string
+                  enum:
+                    - scripts
+                    - flows
+                    - apps
+              required:
+                - resource_type
+      responses:
+        "200":
+          description: number of pruned versions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pruned:
+                    type: integer
+                required:
+                  - pruned
+
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
       summary: Set public app rate limit for this workspace
@@ -6982,6 +7088,83 @@ paths:
                   job_id:
                     type: string
                     format: uuid
+
+  /w/{workspace}/scripts/raw_temp/store:
+    post:
+      summary: store raw script content temporarily for CLI lock generation
+      operationId: storeRawScriptTemp
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: script content to store
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: hash of stored content
+          content:
+            application/json:
+              schema:
+                type: string
+
+  /w/{workspace}/scripts/raw_temp/diff:
+    post:
+      summary: diff local script hashes against deployed versions
+      operationId: diffRawScriptsWithDeployed
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: scripts and workspace deps to diff against deployed versions
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - scripts
+              properties:
+                scripts:
+                  description: map of script path to SHA256 content hash
+                  type: object
+                  additionalProperties:
+                    type: string
+                workspace_deps:
+                  description: workspace dependencies to diff
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - path
+                      - language
+                      - hash
+                    properties:
+                      path:
+                        description: CLI path (e.g. dependencies/package.json)
+                        type: string
+                      language:
+                        $ref: "#/components/schemas/ScriptLang"
+                      name:
+                        description: named workspace dependency (null for default)
+                        type: string
+                      hash:
+                        description: SHA256 content hash
+                        type: string
+      responses:
+        "200":
+          description: list of paths that differ from deployed versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/jobs/list_selected_job_groups:
     # We use post because sending a huge array as a query param can produce
@@ -14265,7 +14448,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/InstanceGroup"
+                $ref: "#/components/schemas/InstanceGroupWithWorkspaces"
 
   /groups/create:
     post:
@@ -14313,6 +14496,10 @@ paths:
               properties:
                 new_summary:
                   type: string
+                instance_role:
+                  type: string
+                  nullable: true
+                  description: "Instance-level role for group members. 'superadmin', 'devops', 'user' or empty to clear."
               required:
                 - new_summary
       responses:
@@ -18876,14 +19063,20 @@ components:
           type: boolean
         visible_to_runner_only:
           type: boolean
-        no_main_func:
-          type: boolean
+        auto_kind:
+          type: string
         codebase:
           type: string
         has_preprocessor:
           type: boolean
         on_behalf_of_email:
           type: string
+        modules:
+          type: object
+          nullable: true
+          description: "Additional script modules keyed by relative file path"
+          additionalProperties:
+            $ref: "#/components/schemas/ScriptModule"
 
       required:
         - hash
@@ -18900,7 +19093,6 @@ components:
         - language
         - kind
         - starred
-        - no_main_func
         - has_preprocessor
 
     NewScript:
@@ -18973,8 +19165,8 @@ components:
           type: integer
         visible_to_runner_only:
           type: boolean
-        no_main_func:
-          type: boolean
+        auto_kind:
+          type: string
         codebase:
           type: string
         has_preprocessor:
@@ -19002,6 +19194,12 @@ components:
               alt_access_type:
                 type: string
                 enum: [r, w, rw]
+        modules:
+          type: object
+          nullable: true
+          description: "Additional script modules keyed by relative file path"
+          additionalProperties:
+            $ref: "#/components/schemas/ScriptModule"
 
       required:
         - path
@@ -20151,8 +20349,8 @@ components:
             required:
               - name
               - typ
-        no_main_func:
-          type: boolean
+        auto_kind:
+          type: string
           nullable: true
         has_preprocessor:
           type: boolean
@@ -20163,7 +20361,7 @@ components:
         - args
         - type
         - error
-        - no_main_func
+        - auto_kind
         - has_preprocessor
 
     ScriptLang:
@@ -20195,6 +20393,23 @@ components:
           # for related places search: ADD_NEW_LANG
         ]
 
+    ScriptModule:
+      type: object
+      description: "An additional module file associated with a script"
+      properties:
+        content:
+          type: string
+          description: "The source code content of this module"
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        lock:
+          type: string
+          nullable: true
+          description: "Lock file content for this module's dependencies"
+      required:
+        - content
+        - language
+
     Preview:
       type: object
       properties:
@@ -20222,6 +20437,12 @@ components:
           type: string
         flow_path:
           type: string
+        modules:
+          type: object
+          nullable: true
+          description: "Additional script modules keyed by relative file path"
+          additionalProperties:
+            $ref: "#/components/schemas/ScriptModule"
       required:
         - args
 
@@ -20443,6 +20664,9 @@ components:
         email:
           type: string
           description: Email of the user who owns this schedule, used for permissioned_as
+        permissioned_as:
+          type: string
+          description: The user or group this schedule runs as (e.g., 'u/admin' or 'g/mygroup')
         error:
           type: string
           nullable: true
@@ -20525,6 +20749,7 @@ components:
         - is_flow
         - enabled
         - email
+        - permissioned_as
 
     ScheduleWJobs:
       allOf:
@@ -20646,12 +20871,12 @@ components:
           type: string
           nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who the scheduled jobs run as. Used during deployment to preserve the original schedule owner.
-        preserve_email:
+          description: The user or group this schedule runs as. Used during deployment to preserve the original schedule owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - schedule
@@ -20739,12 +20964,14 @@ components:
           type: string
           nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who the scheduled jobs run as. Used during deployment to preserve the original schedule owner.
-        preserve_email:
+          nullable: true
+          description: "The user or group this schedule runs as (e.g., 'u/admin' or 'g/mygroup'). Only admins and wm_deployers can set this via preserve_permissioned_as."
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          nullable: true
+          description: "If true and user is admin/wm_deployers, preserve the provided permissioned_as instead of using the deploying user's identity"
       required:
         - schedule
         - timezone
@@ -20785,9 +21012,9 @@ components:
         script_path:
           type: string
           description: Path to the script or flow to execute when triggered
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who owns this trigger, used for permissioned_as
+          description: The user or group this trigger runs as (permissioned_as)
         extra_perms:
           type: object
           description: Additional permissions for this trigger
@@ -20812,7 +21039,7 @@ components:
       required:
         - path
         - script_path
-        - email
+        - permissioned_as
         - extra_perms
         - workspace_id
         - edited_by
@@ -21101,12 +21328,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
 
       required:
         - path
@@ -21193,12 +21420,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -21361,12 +21588,12 @@ components:
         retry:
           description: Retry configuration for failed executions
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
 
       required:
         - path
@@ -21429,12 +21656,12 @@ components:
         retry:
           description: Retry configuration for failed executions
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
 
       required:
         - path
@@ -21604,12 +21831,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -21664,12 +21891,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -21806,12 +22033,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: "Retry configuration for failed executions."
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -21974,12 +22201,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - queue_url
         - aws_resource_path
@@ -22026,12 +22253,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - queue_url
         - aws_resource_path
@@ -22190,12 +22417,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -22238,12 +22465,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -22373,12 +22600,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
 
       required:
         - path
@@ -22443,12 +22670,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
 
       required:
         - path
@@ -22550,12 +22777,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
 
       required:
         - path
@@ -22605,12 +22832,12 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: Retry configuration for failed executions
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -22659,12 +22886,12 @@ components:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         mode:
           $ref: "#/components/schemas/TriggerMode"
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
 
       required:
         - path
@@ -22691,12 +22918,12 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        email:
+        permissioned_as:
           type: string
-          description: Email of the user who triggered jobs run as. Used during deployment to preserve the original trigger owner.
-        preserve_email:
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
       required:
         - path
         - script_path
@@ -22733,6 +22960,12 @@ components:
           type: array
           items:
             type: string
+        instance_role:
+          type: string
+          nullable: true
+          enum:
+            - superadmin
+            - devops
 
     InstanceGroupWithWorkspaces:
       type: object
@@ -22747,6 +22980,12 @@ components:
           type: array
           items:
             type: string
+        instance_role:
+          type: string
+          nullable: true
+          enum:
+            - superadmin
+            - devops
         workspaces:
           type: array
           items:
@@ -23030,6 +23269,9 @@ components:
           type: boolean
         first_time_user:
           type: boolean
+        role_source:
+          type: string
+          enum: ["manual", "instance_group"]
 
       required:
         - email
@@ -23037,6 +23279,7 @@ components:
         - super_admin
         - verified
         - first_time_user
+        - role_source
 
     Flow:
       allOf:
@@ -23908,6 +24151,12 @@ components:
           type: string
         external_id:
           type: string
+        instance_role:
+          type: string
+          nullable: true
+          enum:
+            - superadmin
+            - devops
       required:
         - name
 
@@ -24102,7 +24351,7 @@ components:
         kind:
           type: string
           enum:
-            ["script", "flow", "app", "resource", "variable", "resource_type"]
+            ["script", "flow", "app", "raw_app", "resource", "variable", "resource_type"]
           description: Type of the item
         path:
           type: string
@@ -24404,6 +24653,19 @@ components:
       description: Users that can bypass this ruleset
       items:
         type: string
+    QuotaInfo:
+      type: object
+      properties:
+        used:
+          type: integer
+        limit:
+          type: integer
+        prunable:
+          type: integer
+      required:
+        - used
+        - limit
+        - prunable
     NativeServiceName:
       type: string
       enum:

@@ -44,7 +44,7 @@ use windmill_common::runnable_settings::{
 };
 #[cfg(feature = "run_inline")]
 use windmill_common::runtime_assets::{register_runtime_asset, InsertRuntimeAssetParams};
-use windmill_common::scripts::ScriptRunnableSettingsInline;
+use windmill_common::scripts::{ScriptModule, ScriptRunnableSettingsInline};
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, WINDMILL_DIR};
@@ -2948,6 +2948,7 @@ struct Preview {
     lock: Option<String>,
     format: Option<String>,
     flow_path: Option<String>,
+    modules: Option<HashMap<String, ScriptModule>>,
 }
 
 #[cfg(feature = "run_inline")]
@@ -3608,6 +3609,7 @@ pub async fn run_workflow_as_code(
                 dedicated_worker: None,
                 // TODO(debouncing): enable for this mode
                 debouncing_settings: DebouncingSettings::default(),
+                modules: None,
             }),
             Some(job.tag.clone()),
             None,
@@ -4615,12 +4617,15 @@ async fn run_preview_script(
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
     let preview_args = preview.args.unwrap_or_default();
-    let flow_path_extra = preview.flow_path.map(|fp| {
-        let mut extra = HashMap::new();
-        extra.insert("_FLOW_PATH".to_string(), to_raw_value(&fp));
-        extra
-    });
-    let push_args = PushArgs { extra: flow_path_extra, args: &preview_args };
+    let mut extra = HashMap::new();
+    if let Some(fp) = &preview.flow_path {
+        extra.insert("_FLOW_PATH".to_string(), to_raw_value(fp));
+    }
+    if let Some(ref modules) = preview.modules {
+        extra.insert("_MODULES".to_string(), to_raw_value(modules));
+    }
+    let extra = if extra.is_empty() { None } else { Some(extra) };
+    let push_args = PushArgs { extra, args: &preview_args };
 
     let (uuid, tx) = push(
         &db,
@@ -4643,6 +4648,7 @@ async fn run_preview_script(
                 cache_ttl: None,
                 cache_ignore_s3_path: None,
                 dedicated_worker: preview.dedicated_worker,
+                modules: preview.modules,
             }),
         },
         push_args,
@@ -4984,6 +4990,7 @@ async fn run_bundle_preview_script(
                     dedicated_worker: preview.dedicated_worker,
                     concurrency_settings: ConcurrencySettingsWithCustom::default(),
                     debouncing_settings: DebouncingSettings::default(),
+                    modules: None,
                 }),
                 PushArgs::from(&args),
                 authed.display_username(),
@@ -5067,6 +5074,10 @@ pub struct RunDependenciesRequest {
     pub raw_workspace_dependencies: Option<RawWorkspaceDependencies>,
     #[serde(default)]
     pub raw_deps: Option<String>,
+    /// Map of script path -> content hash for resolving imports from temp storage.
+    /// Used by CLI to provide local script content during lock generation.
+    #[serde(default)]
+    pub temp_script_refs: Option<HashMap<String, String>>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -5126,6 +5137,8 @@ async fn run_dependencies_job(
     let mut hm = HashMap::new();
     req.raw_workspace_dependencies
         .map(|v| hm.insert("raw_workspace_dependencies".to_owned(), to_raw_value(&v)));
+    req.temp_script_refs
+        .map(|v| hm.insert("temp_script_refs".to_owned(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
         &db,
@@ -5176,6 +5189,8 @@ pub struct RunFlowDependenciesRequest {
     pub raw_workspace_dependencies: Option<RawWorkspaceDependencies>,
     #[serde(default)]
     pub raw_deps: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub temp_script_refs: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize)]
@@ -5218,6 +5233,10 @@ async fn run_flow_dependencies_job(
     // Add raw_workspace_dependencies to args if present
     req.raw_workspace_dependencies
         .map(|v| args_map.insert("raw_workspace_dependencies".to_string(), to_raw_value(&v)));
+
+    // Add temp_script_refs to args if present (for CLI local import resolution)
+    req.temp_script_refs
+        .map(|v| args_map.insert("temp_script_refs".to_string(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
         &db,
@@ -5777,6 +5796,7 @@ async fn run_dynamic_select(
             dedicated_worker: None,
             concurrency_settings: ConcurrencySettings::default().into(),
             debouncing_settings: DebouncingSettings::default(),
+            modules: None,
         }),
         PushArgs::from(&request.args.unwrap_or_default()),
         authed.display_username(),

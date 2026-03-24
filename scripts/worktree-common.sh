@@ -65,6 +65,11 @@ wm_copy_dependencies() {
   local repo_root=$1
   local main_repo_root=$2
 
+  if [[ -f "${main_repo_root}/backend/.env" ]]; then
+    cp "${main_repo_root}/backend/.env" "${repo_root}/backend/"
+    echo "Copied backend/.env"
+  fi
+
   if [[ -d "${main_repo_root}/frontend/node_modules" ]]; then
     cp -a "${main_repo_root}/frontend/node_modules" "${repo_root}/frontend/"
     echo "Copied frontend/node_modules (with symlinks preserved)"

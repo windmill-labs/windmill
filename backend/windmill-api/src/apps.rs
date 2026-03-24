@@ -1179,7 +1179,7 @@ async fn create_app_internal<'a>(
                 .await?;
         if nb_apps.unwrap_or(0) >= 1000 {
             return Err(Error::BadRequest(
-                    "You have reached the maximum number of apps (1000) on cloud. Contact support@windmill.dev to increase the limit"
+                    "You have reached the maximum number of apps (1000) on cloud. Check your usage in Workspace Settings > General > Cloud Quotas. Contact support@windmill.dev to increase the limit"
                         .to_string(),
                 ));
         }
@@ -2053,6 +2053,7 @@ async fn execute_component(
                 .triggerables_v2
                 .as_ref()
                 .ok_or_else(|| Error::BadRequest(format!("Policy is missing triggerables")))?;
+
             let policy_triggerables = triggerables_v2
                 .get(path) // start with `path` in case we can avoid the next` format!`.
                 .or_else(|| triggerables_v2.get(&format!("{}:{}", payload.component, &path)))

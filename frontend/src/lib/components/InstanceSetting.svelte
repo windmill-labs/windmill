@@ -23,6 +23,7 @@
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
 	import GhesAppSettings from './instanceSettings/GhesAppSettings.svelte'
+	import WsConnectivityTest from './instanceSettings/WsConnectivityTest.svelte'
 	import IndexerMemorySettings from './instanceSettings/IndexerMemorySettings.svelte'
 	import IndexerJobIndexSettings from './instanceSettings/IndexerJobIndexSettings.svelte'
 	import IndexerLogIndexSettings from './instanceSettings/IndexerLogIndexSettings.svelte'
@@ -285,12 +286,16 @@
 	{:else}
 		<SettingCard
 			label={setting.key === 'disable_stats'
-				? ($enterpriseLicense ? 'Minimal telemetry' : 'Disable telemetry')
-				: (setting.fieldType != 'smtp_connect' ? setting.label : undefined)}
+				? $enterpriseLicense
+					? 'Minimal telemetry'
+					: 'Disable telemetry'
+				: setting.fieldType != 'smtp_connect'
+					? setting.label
+					: undefined}
 			description={setting.key === 'disable_stats'
-				? ($enterpriseLicense
+				? $enterpriseLicense
 					? 'Reduces telemetry to only what is needed for license compliance (no job usage data).'
-					: 'Disables telemetry entirely.')
+					: 'Disables telemetry entirely.'
 				: setting.description}
 			ee_only={setting.ee_only}
 			tooltip={setting.tooltip}
@@ -555,10 +560,10 @@
 									options={{ right: 'Logs' }}
 								/>
 								<Toggle
-									disabled
+									disabled={!$enterpriseLicense}
 									id="metrics_enabled"
 									bind:checked={$values[setting.key].metrics_enabled}
-									options={{ right: 'Metrics (coming soon)' }}
+									options={{ right: 'Metrics' }}
 								/>
 							</div>
 
@@ -719,6 +724,8 @@
 					<SecretBackendConfig {values} disabled={loading} />
 				{:else if setting.fieldType == 'github_enterprise_app'}
 					<GhesAppSettings {values} disabled={loading || !$enterpriseLicense} />
+				{:else if setting.fieldType == 'ws_connectivity'}
+					<WsConnectivityTest {values} />
 				{/if}
 				{#if hasError}
 					<span class="text-red-600 dark:text-red-400 text-xs">

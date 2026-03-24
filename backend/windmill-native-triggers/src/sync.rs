@@ -390,6 +390,7 @@ pub async fn reconcile_with_external_state(
                     service_name,
                     &trigger.external_id,
                     external_service_config,
+                    None,
                 )
                 .await
                 {

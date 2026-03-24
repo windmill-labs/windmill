@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO raw_script_temp (workspace_id, hash, content, created_at)\n         VALUES ($1, $2, $3, NOW())\n         ON CONFLICT (workspace_id, hash) DO UPDATE SET created_at = NOW()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Bpchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2d523cd0d5b7107b15846b885fa40af492d4c8a8871cef972980150f319fe6ff"
+}

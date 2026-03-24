@@ -341,6 +341,13 @@
 				btnClasses="mt-2 w-full"
 				on:click={() => {
 					if (saml) {
+						if (rd) {
+							try {
+								localStorage.setItem('rd', rd)
+							} catch (e) {
+								console.error('Could not persist redirection to local storage', e)
+							}
+						}
 						window.location.href = saml
 					} else {
 						sendUserToast('No SAML login available', true)

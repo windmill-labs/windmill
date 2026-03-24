@@ -105,17 +105,17 @@ async function initWasmAsset() {
 
 type InferAssetsResult =
 	| {
-			status: 'ok'
-			assets: AssetWithAccessType[]
-			sql_queries?: InferAssetsSqlQueryDetails[]
-			columns?: Record<string, AssetUsageAccessType>
-	  }
+		status: 'ok'
+		assets: AssetWithAccessType[]
+		sql_queries?: InferAssetsSqlQueryDetails[]
+		columns?: Record<string, AssetUsageAccessType>
+	}
 	| {
-			status: 'error'
-			error: string
-			assets?: undefined
-			sql_queries?: undefined
-	  }
+		status: 'error'
+		error: string
+		assets?: undefined
+		sql_queries?: undefined
+	}
 
 export type InferAssetsSqlQueryDetails = {
 	query_string: string // SQL query with $1 placeholders for interpolations
@@ -236,7 +236,7 @@ export async function inferArgs(
 	schema: Schema,
 	mainOverride?: string
 ): Promise<{
-	no_main_func: boolean | null
+	auto_kind: string | null
 	has_preprocessor: boolean | null
 } | null> {
 	const lastRun = get(loadSchemaLastRun)
@@ -384,6 +384,11 @@ export async function inferArgs(
 
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
 
+		// For T | T[] detection for debouncing arg accumulation
+		if ((arg as any).otyp && (arg as any).otyp.includes('[') && (arg as any).otyp.includes('|')) {
+			schema.properties[arg.name].originalType = (arg as any).otyp
+		}
+
 		schema.properties[arg.name].default = arg.default
 
 		if (!arg.has_default && !schema.required.includes(arg.name)) {
@@ -393,7 +398,7 @@ export async function inferArgs(
 	await tick()
 
 	return {
-		no_main_func: inferedSchema.no_main_func,
+		auto_kind: inferedSchema.auto_kind,
 		has_preprocessor: inferedSchema.has_preprocessor
 	}
 }
