@@ -9,18 +9,14 @@
 use windmill_common::{scripts::ScriptHash, DB};
 
 #[cfg(feature = "private")]
-mod git_sync_ee;
+pub mod git_sync_ee;
 pub mod git_sync_oss;
 
-// Core functions: always from OSS (runtime-gated inside)
-pub use git_sync_oss::handle_deployment_metadata;
-pub use git_sync_oss::tally_deployed_object_changes;
-
-// Fork branch creation: EE override when available
 #[cfg(feature = "private")]
-pub use git_sync_ee::handle_fork_branch_creation;
+pub use git_sync_ee::{handle_deployment_metadata, handle_fork_branch_creation};
+
 #[cfg(not(feature = "private"))]
-pub use git_sync_oss::handle_fork_branch_creation;
+pub use git_sync_oss::{handle_deployment_metadata, handle_fork_branch_creation};
 
 #[derive(Clone, Debug)]
 pub enum DeployedObject {
