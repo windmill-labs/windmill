@@ -179,7 +179,7 @@
 					</MenuItem>
 				</div>
 			{/if}
-			{#if !strictWorkspaceSelect && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')}
+			{#if !strictWorkspaceSelect && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && $workspaceStore !== 'admins'}
 				<div class="py-1" role="none">
 					<MenuItem
 						class={itemClass}
