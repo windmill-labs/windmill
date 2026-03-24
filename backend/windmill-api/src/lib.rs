@@ -98,6 +98,7 @@ mod indexer_oss;
 mod inkeep_ee;
 mod inkeep_oss;
 mod integration;
+mod internal_db;
 mod live_migrations;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
@@ -554,6 +555,7 @@ pub async fn run_server(
                         .nest("/groups", groups::workspaced_service())
                         .nest("/groups_history", group_history::workspaced_service())
                         .nest("/inputs", windmill_api_inputs::workspaced_service())
+                        .nest("/internal_db", internal_db::workspaced_service())
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
@@ -638,6 +640,10 @@ pub async fn run_server(
                 .nest("/indexer", indexer_oss::management_service())
                 .nest("/mcp/w/:workspace_id/list_tools", mcp_list_tools_service)
                 .nest("/health/detailed", health::detailed_service())
+                .nest(
+                    "/saml",
+                    saml_oss::authed_service().layer(Extension(Arc::clone(&sp_extension))),
+                )
                 .nest("/mcp/gateway/oauth/server", {
                     #[cfg(feature = "mcp")]
                     {

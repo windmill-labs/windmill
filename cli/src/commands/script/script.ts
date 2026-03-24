@@ -130,7 +130,7 @@ async function push(opts: PushOptions, filePath: string) {
     [],
     undefined,
     opts,
-    await getRawWorkspaceDependencies(),
+    await getRawWorkspaceDependencies(true),
     codebases
   );
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
@@ -1161,7 +1161,7 @@ export async function generateMetadata(
   opts = await mergeConfigWithConfigFile(opts);
   const codebases = await listSyncCodebases(opts);
 
-  const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
+  const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
   if (scriptPath) {
     // read script metadata file
     await generateScriptMetadataInternal(

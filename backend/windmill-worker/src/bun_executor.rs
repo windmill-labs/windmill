@@ -206,6 +206,7 @@ pub async fn gen_bun_lockfile(
     workspace_dependencies: &WorkspaceDependenciesPrefetched,
     npm_mode: bool,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    temp_script_refs: &Option<HashMap<String, String>>,
     quiet: bool,
 ) -> Result<Option<String>> {
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
@@ -216,6 +217,11 @@ pub async fn gen_bun_lockfile(
         gen_bunfig(job_dir, job_id, w_id, db).await?;
         write_file(job_dir, "package.json", package_json_content.as_str())?;
     } else {
+        let temp_refs_json = temp_script_refs
+            .as_ref()
+            .and_then(|m| serde_json::to_string(m).ok())
+            .unwrap_or_else(|| "null".to_string());
+
         let loader = RELATIVE_BUN_LOADER
             .replace("W_ID", w_id)
             .replace("BASE_INTERNAL_URL", base_internal_url)
@@ -224,7 +230,8 @@ pub async fn gen_bun_lockfile(
                 "CURRENT_PATH",
                 &crate::common::use_flow_root_path(script_path),
             )
-            .replace("RAW_GET_ENDPOINT", "raw");
+            .replace("RAW_GET_ENDPOINT", "raw")
+            .replace("TEMP_SCRIPT_REFS_PLACEHOLDER", &temp_refs_json);
 
         write_file(
             &job_dir,
@@ -615,9 +622,15 @@ pub async fn build_loader(
     w_id: &str,
     current_path: &str,
     mode: LoaderMode,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> Result<()> {
     // Use forward slashes in JS strings to avoid backslash escape issues on Windows
     let job_dir_js = job_dir.replace('\\', "/");
+    let temp_refs_json = temp_script_refs
+        .as_ref()
+        .and_then(|m| serde_json::to_string(m).ok())
+        .unwrap_or_else(|| "null".to_string());
+
     let loader = RELATIVE_BUN_LOADER
         .replace("W_ID", w_id)
         .replace("BASE_INTERNAL_URL", base_internal_url)
@@ -626,7 +639,8 @@ pub async fn build_loader(
             "CURRENT_PATH",
             &crate::common::use_flow_root_path(current_path),
         )
-        .replace("RAW_GET_ENDPOINT", "raw_unpinned");
+        .replace("RAW_GET_ENDPOINT", "raw_unpinned")
+        .replace("TEMP_SCRIPT_REFS_PLACEHOLDER", &temp_refs_json);
 
     if mode == LoaderMode::Node {
         write_file(
@@ -924,6 +938,7 @@ pub async fn prebundle_bun_script(
     worker_name: &str,
     token: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> Result<()> {
     let (local_path, remote_path) =
         compute_bundle_local_and_remote_path(inner_content, lock, script_path, db, w_id).await;
@@ -950,6 +965,7 @@ pub async fn prebundle_bun_script(
         } else {
             LoaderMode::BunBundle
         },
+        temp_script_refs,
     )
     .await?;
 
@@ -1271,6 +1287,7 @@ pub async fn handle_bun_job(
                     workspace_dependencies,
                     annotation.npm,
                     &mut Some(occupancy_metrics),
+                    &None,
                     wac_replay_info.is_some(),
                 )
                 .await?;
@@ -1639,6 +1656,7 @@ try {{
                 } else {
                     LoaderMode::BunBundle
                 },
+                &None,
             )
             .await?;
 
@@ -1655,6 +1673,7 @@ try {{
                 } else {
                     LoaderMode::Bun
                 },
+                &None,
             )
             .await
         } else {
@@ -3358,6 +3377,7 @@ pub async fn start_worker(
             w_id,
             script_path,
             LoaderMode::BrowserBundle,
+            &None,
         )
         .await?;
         generate_bun_bundle(
@@ -3470,6 +3490,7 @@ pub async fn start_worker(
             .await?,
             annotation.npm,
             &mut None,
+            &None,
             false,
         )
         .await?;
@@ -3544,6 +3565,7 @@ pub async fn start_worker(
             } else {
                 LoaderMode::Bun
             },
+            &None,
         )
         .await?;
     }

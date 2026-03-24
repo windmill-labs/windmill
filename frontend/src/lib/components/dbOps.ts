@@ -3,29 +3,21 @@ import {
 	type ColumnDef,
 	type TableMetadata
 } from './apps/components/display/dbtable/utils'
-import { makeSelectQuery } from './apps/components/display/dbtable/queries/select'
 import { runScriptAndPollResult } from './jobs/utils'
-import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
-import { makeUpdateQuery } from './apps/components/display/dbtable/queries/update'
-import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delete'
-import { makeInsertQuery } from './apps/components/display/dbtable/queries/insert'
-import { makeDeleteTableQuery } from './apps/components/display/dbtable/queries/deleteTable'
 import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
-import { wrapDucklakeQuery } from './ducklake'
 import { assert } from '$lib/utils'
 import {
 	buildTableEditorValues,
 	type TableEditorValues
 } from './apps/components/display/dbtable/tableEditor'
+import { type AlterTableValues } from './apps/components/display/dbtable/queries/alterTable'
 import {
-	makeAlterTableQueries,
-	makeAlterTableQuery,
-	type AlterTableValues
-} from './apps/components/display/dbtable/queries/alterTable'
-import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
-import { fetchTableRelationalKeys } from './apps/components/display/dbtable/queries/relationalKeys'
+	transformForeignKeys,
+	transformSnowflakeForeignKeys,
+	type RawForeignKey
+} from './apps/components/display/dbtable/queries/relationalKeys'
 
 export type IDbTableOps = {
 	dbType: DbType
@@ -63,28 +55,35 @@ export function dbTableOpsWithPreviewScripts({
 	const dbType = getDbType(input)
 	const language = getLanguageByResourceType(dbType)
 	const dbArg = getDatabaseArg(input)
+	const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
+
+	function makeMarker(op: string, payload: Record<string, unknown>): string {
+		if (ducklake) payload.ducklake = ducklake
+		return `-- WM_INTERNAL_DB_${op} ${JSON.stringify(payload)}`
+	}
+
 	return {
 		dbType,
 		tableKey,
 		colDefs,
 		getCount: async ({ quicksearch }) => {
-			let countQuery = makeCountQuery(dbType, tableKey, undefined, colDefs)
-			if (input.type === 'ducklake') countQuery = wrapDucklakeQuery(countQuery, input.ducklake)
+			const content = makeMarker('COUNT', { table: tableKey, columnDefs: colDefs })
 			const result = await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, quicksearch }, language, content: countQuery }
+				requestBody: { args: { ...dbArg, quicksearch }, language, content }
 			})
 			const count = result?.[0].count as number
 			return count
 		},
 		getRows: async (params) => {
-			let query = makeSelectQuery(tableKey, colDefs, undefined, dbType, undefined, {
+			const content = makeMarker('SELECT', {
+				table: tableKey,
+				columnDefs: colDefs,
 				fixPgIntTypes: true
 			})
-			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
 			let items = (await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, ...params }, language, content: query }
+				requestBody: { args: { ...dbArg, ...params }, language, content }
 			})) as unknown[]
 			if (!items || !Array.isArray(items)) {
 				throw 'items is not an array'
@@ -92,31 +91,32 @@ export function dbTableOpsWithPreviewScripts({
 			return items
 		},
 		onUpdate: async ({ values }, colDef, newValue) => {
-			let updateQuery = makeUpdateQuery(tableKey, colDef, colDefs, dbType)
-			if (input.type === 'ducklake') updateQuery = wrapDucklakeQuery(updateQuery, input.ducklake)
+			const content = makeMarker('UPDATE', {
+				table: tableKey,
+				column: colDef,
+				columns: colDefs
+			})
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: {
 					args: { ...dbArg, value_to_update: newValue, ...values },
 					language,
-					content: updateQuery
+					content
 				}
 			})
 		},
 		onDelete: async ({ values }) => {
-			let deleteQuery = makeDeleteQuery(tableKey, colDefs, dbType)
-			if (input.type === 'ducklake') deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
+			const content = makeMarker('DELETE', { table: tableKey, columns: colDefs })
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, ...values }, language, content: deleteQuery }
+				requestBody: { args: { ...dbArg, ...values }, language, content }
 			})
 		},
 		onInsert: async ({ values }) => {
-			let insertQuery = makeInsertQuery(tableKey, colDefs, dbType)
-			if (input.type === 'ducklake') insertQuery = wrapDucklakeQuery(insertQuery, input.ducklake)
+			const content = makeMarker('INSERT', { table: tableKey, columns: colDefs })
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, ...values }, language, content: insertQuery }
+				requestBody: { args: { ...dbArg, ...values }, language, content }
 			})
 		}
 	}
@@ -125,9 +125,9 @@ export function dbTableOpsWithPreviewScripts({
 export type IDbSchemaOps = {
 	onDelete: (params: { tableKey: string; schema?: string }) => Promise<void>
 	onCreate: (params: { values: TableEditorValues; schema?: string }) => Promise<void>
-	previewCreateSql: (params: { values: TableEditorValues; schema?: string }) => string
+	previewCreateSql: (params: { values: TableEditorValues; schema?: string }) => Promise<string>
 	onAlter: (params: { values: AlterTableValues; schema?: string }) => Promise<void>
-	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => string[]
+	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => Promise<string>
 	onCreateSchema: (params: { schema: string }) => Promise<void>
 	onDeleteSchema: (params: { schema: string }) => Promise<void>
 	onFetchTableEditorDefinition: (params: {
@@ -147,61 +147,130 @@ export function dbSchemaOpsWithPreviewScripts({
 	const dbType = getDbType(input)
 	const dbArg = getDatabaseArg(input)
 	const language = getLanguageByResourceType(dbType)
+	const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
+
+	function makeMarker(op: string, payload: Record<string, unknown>): string {
+		if (ducklake) payload.ducklake = ducklake
+		return `-- WM_INTERNAL_DB_${op} ${JSON.stringify(payload)}`
+	}
+
 	return {
 		onDelete: async ({ tableKey, schema }) => {
-			let deleteQuery = makeDeleteTableQuery(tableKey, dbType, schema)
-			if (input.type === 'ducklake') deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
+			const content = makeMarker('DROP_TABLE', { table: tableKey, schema })
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg }, language, content: deleteQuery }
+				requestBody: { args: { ...dbArg }, language, content }
 			})
 		},
 		onCreate: async ({ values, schema }) => {
-			let query = makeCreateTableQuery(values, dbType, schema)
-			if (input?.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
+			const content = makeMarker('CREATE_TABLE', {
+				name: values.name,
+				columns: values.columns,
+				foreignKeys: values.foreignKeys,
+				schema
+			})
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: dbArg, content: query, language }
+				requestBody: { args: dbArg, content, language }
 			})
 		},
-		previewCreateSql: ({ values, schema }) => makeCreateTableQuery(values, dbType, schema),
+		previewCreateSql: async ({ values, schema }) => {
+			const content = makeMarker('CREATE_TABLE', {
+				name: values.name,
+				columns: values.columns,
+				foreignKeys: values.foreignKeys,
+				schema
+			})
+			return expandMarker(workspace, language, content)
+		},
 		onAlter: async ({ values, schema }) => {
-			let query = makeAlterTableQuery(values, dbType, schema)
-			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
+			const content = makeMarker('ALTER_TABLE', {
+				name: values.name,
+				operations: values.operations,
+				schema
+			})
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: dbArg, content: query, language }
+				requestBody: { args: dbArg, content, language }
 			})
 		},
-		previewAlterSql: ({ values, schema }) => makeAlterTableQueries(values, dbType, schema),
+		previewAlterSql: async ({ values, schema }) => {
+			const content = makeMarker('ALTER_TABLE', {
+				name: values.name,
+				operations: values.operations,
+				schema
+			})
+			return expandMarker(workspace, language, content)
+		},
 		onCreateSchema: async ({ schema }) => {
-			let createSchemaQuery = `CREATE SCHEMA ${schema};`
-			if (input.type === 'ducklake')
-				createSchemaQuery = wrapDucklakeQuery(createSchemaQuery, input.ducklake)
+			const content = makeMarker('CREATE_SCHEMA', { schema })
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg }, language, content: createSchemaQuery }
+				requestBody: { args: { ...dbArg }, language, content }
 			})
 		},
 		onDeleteSchema: async ({ schema }) => {
-			let dropSchemaQuery = `DROP SCHEMA ${schema} CASCADE;`
-			if (input.type === 'ducklake')
-				dropSchemaQuery = wrapDucklakeQuery(dropSchemaQuery, input.ducklake)
+			const content = makeMarker('DROP_SCHEMA', { schema })
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg }, language, content: dropSchemaQuery }
+				requestBody: { args: { ...dbArg }, language, content }
 			})
 		},
 		onFetchTableEditorDefinition: async ({ table, schema, colDefs }) => {
-			let { foreignKeys, pk_constraint_name } = await fetchTableRelationalKeys(
-				input,
-				dbType,
-				table,
-				schema,
-				workspace,
-				dbArg,
-				language
-			)
+			let foreignKeys: import('./apps/components/display/dbtable/tableEditor').TableEditorForeignKey[] =
+				[]
+			let pk_constraint_name: string | undefined
+
+			// Fetch foreign keys (not supported for BigQuery)
+			if (dbType !== 'bigquery') {
+				try {
+					const fkContent = makeMarker('FOREIGN_KEYS', { table, schema })
+					const fkResult = await runScriptAndPollResult({
+						workspace,
+						requestBody: { args: dbArg, content: fkContent, language }
+					})
+
+					let rawForeignKeys: RawForeignKey[]
+					if (dbType === 'snowflake') {
+						rawForeignKeys = transformSnowflakeForeignKeys(fkResult as any[])
+					} else {
+						rawForeignKeys = fkResult as RawForeignKey[]
+						if (rawForeignKeys && Array.isArray(rawForeignKeys)) {
+							rawForeignKeys = rawForeignKeys.map((fk) => {
+								const lowerFk: any = {}
+								Object.keys(fk).forEach((key) => {
+									lowerFk[key.toLowerCase()] = fk[key]
+								})
+								return lowerFk
+							})
+						}
+					}
+
+					if (rawForeignKeys && Array.isArray(rawForeignKeys)) {
+						foreignKeys = transformForeignKeys(rawForeignKeys)
+					}
+				} catch (e) {
+					console.warn('Failed to fetch foreign keys:', e)
+				}
+			}
+
+			// Fetch primary key constraint name (not supported for BigQuery/MySQL)
+			if (dbType !== 'bigquery' && dbType !== 'mysql') {
+				try {
+					const pkContent = makeMarker('PRIMARY_KEY_CONSTRAINT', { table, schema })
+					const pkResult = (await runScriptAndPollResult({
+						workspace,
+						requestBody: { args: dbArg, content: pkContent, language }
+					})) as { constraint_name?: string; CONSTRAINT_NAME?: string }[]
+
+					if (pkResult && Array.isArray(pkResult) && pkResult.length > 0) {
+						const pkRecord: any = pkResult[0]
+						pk_constraint_name = pkRecord?.constraint_name || pkRecord?.CONSTRAINT_NAME || ''
+					}
+				} catch (e) {
+					console.warn('Failed to fetch primary key constraint:', e)
+				}
+			}
 
 			return buildTableEditorValues({
 				tableName: table,
@@ -277,4 +346,17 @@ export function getDatabaseArg(input: DbInput | undefined) {
 		}
 	}
 	return {}
+}
+
+async function expandMarker(workspace: string, language: string, content: string): Promise<string> {
+	const response = await fetch(`/api/w/${workspace}/internal_db/expand_marker`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ language, content })
+	})
+	if (!response.ok) {
+		throw new Error(await response.text())
+	}
+	const result = (await response.json()) as { code: string }
+	return result.code
 }
