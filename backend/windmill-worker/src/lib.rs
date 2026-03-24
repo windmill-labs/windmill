@@ -94,6 +94,8 @@ pub use bun_executor::{
 pub use bun_executor::{
     compute_ts_codegen, generate_multi_script_wrapper, TsScriptCodegen, TsScriptEntry,
 };
+#[cfg(any(feature = "private", test))]
+pub use deno_executor::generate_dedicated_worker_wrapper as generate_deno_dedicated_worker_wrapper;
 pub use deno_executor::{generate_deno_lock, DENO_UNSTABLE_ARGS};
 pub use prepare_deps::run_prepare_deps_cli;
 

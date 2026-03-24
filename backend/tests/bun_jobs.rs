@@ -1379,6 +1379,139 @@ export function main(msg: string): never {
 }
 
 // ============================================================================
+// Deno Dedicated Worker Protocol Tests
+// ============================================================================
+
+mod dedicated_worker_protocol_deno {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command, Stdio};
+    use windmill_test_utils::{parse_dedicated_worker_line, DedicatedWorkerResult};
+    use windmill_worker::{generate_deno_dedicated_worker_wrapper, DENO_PATH};
+
+    const TEST_SCRIPT_PATH: &str = "f/test/script";
+
+    fn run_deno_worker_test(
+        script: &str,
+        jobs: Vec<serde_json::Value>,
+    ) -> Vec<Result<serde_json::Value, String>> {
+        let temp_dir = tempfile::tempdir().unwrap();
+        std::fs::write(temp_dir.path().join("main.ts"), script).unwrap();
+
+        let wrapper = generate_deno_dedicated_worker_wrapper(script).unwrap();
+        std::fs::write(temp_dir.path().join("wrapper.ts"), &wrapper).unwrap();
+
+        let mut child = Command::new(DENO_PATH.as_str())
+            .args([
+                "run",
+                "--no-check",
+                "--unstable-unsafe-proto",
+                "--unstable-bare-node-builtins",
+                "-A",
+                "wrapper.ts",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .current_dir(temp_dir.path())
+            .spawn()
+            .expect("Failed to spawn deno process");
+
+        let mut stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let mut reader = BufReader::new(stdout);
+
+        // Wait for "start" — deno outputs 'start\n' via console.log which adds
+        // its own newline, producing double newlines. Skip empty lines.
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line.trim().is_empty() {
+                continue;
+            }
+            assert_eq!(
+                parse_dedicated_worker_line(line.trim()),
+                DedicatedWorkerResult::Start,
+                "Expected 'start', got: {}",
+                line.trim()
+            );
+            break;
+        }
+
+        let mut results = Vec::new();
+        for job_args in jobs {
+            writeln!(stdin, "exec:{}:{}", TEST_SCRIPT_PATH, job_args.to_string()).unwrap();
+            stdin.flush().unwrap();
+
+            loop {
+                let mut response = String::new();
+                reader.read_line(&mut response).unwrap();
+                let trimmed = response.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                match parse_dedicated_worker_line(trimmed) {
+                    DedicatedWorkerResult::Success(value) => results.push(Ok(value)),
+                    DedicatedWorkerResult::Error(err) => {
+                        let msg = err["message"]
+                            .as_str()
+                            .unwrap_or("Unknown error")
+                            .to_string();
+                        results.push(Err(msg));
+                    }
+                    other => panic!("Unexpected response: {:?}", other),
+                }
+                break;
+            }
+        }
+
+        writeln!(stdin, "end").unwrap();
+        stdin.flush().unwrap();
+        let _ = child.wait().expect("Worker process failed to exit");
+        results
+    }
+
+    #[test]
+    fn test_deno_dedicated_worker_simple() {
+        let script = r#"
+export function main(x: number, y: number): number {
+    return x + y;
+}
+"#;
+        let results = run_deno_worker_test(script, vec![serde_json::json!({"x": 5, "y": 3})]);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], Ok(serde_json::json!(8)));
+    }
+
+    #[test]
+    fn test_deno_dedicated_worker_multiple_jobs() {
+        let script = r#"
+export function main(n: number): number {
+    return n * 2;
+}
+"#;
+        let jobs: Vec<serde_json::Value> = (1..=5).map(|i| serde_json::json!({"n": i})).collect();
+        let results = run_deno_worker_test(script, jobs);
+        assert_eq!(results.len(), 5);
+        for (i, result) in results.iter().enumerate() {
+            assert_eq!(*result, Ok(serde_json::json!(((i + 1) * 2) as i64)));
+        }
+    }
+
+    #[test]
+    fn test_deno_dedicated_worker_error() {
+        let script = r#"
+export function main(msg: string): never {
+    throw new Error(msg);
+}
+"#;
+        let results = run_deno_worker_test(script, vec![serde_json::json!({"msg": "test error"})]);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].is_err());
+        assert_eq!(results[0], Err("test error".to_string()));
+    }
+}
+
+// ============================================================================
 // Private Registry Tests
 // ============================================================================
 
