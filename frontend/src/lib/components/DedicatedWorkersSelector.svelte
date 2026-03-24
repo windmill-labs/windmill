@@ -221,12 +221,22 @@
 
 					if (parsed.type === 'script') {
 						const depInfo = depsPerWorkspace.get(parsed.workspace)?.get(parsed.path)
+						let scriptLang = depInfo?.language
+						if (!scriptLang) {
+							try {
+								const script = await ScriptService.getScriptByPath({
+									workspace: parsed.workspace,
+									path: parsed.path
+								})
+								scriptLang = script.language
+							} catch {}
+						}
 						newInfo.set(tag, {
 							tag,
 							workspace: parsed.workspace,
 							type: 'script',
 							path: parsed.path,
-							language: depInfo?.language,
+							language: scriptLang,
 							workspaceDeps: depInfo?.deps
 						})
 					} else {
@@ -600,17 +610,19 @@
 					<span class="text-xs truncate min-w-0">{info.path}</span>
 					<span class="text-xs text-tertiary flex-shrink-0">({info.workspace})</span>
 					<span class="flex-1"></span>
-					{#if info.workspaceDeps && !tagRunnerGroup.has(tag)}
-						{#each info.workspaceDeps as dep}
-							{@render depBadge(dep)}
-						{/each}
-					{/if}
-					{#if info.type === 'flow' && info.runners}
-						<Badge color="indigo" small>
-							{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
-						</Badge>
-					{:else if info.language}
-						<Badge color="blue" small>{info.language}</Badge>
+					{#if !tagRunnerGroup.has(tag)}
+						{#if info.workspaceDeps}
+							{#each info.workspaceDeps as dep}
+								{@render depBadge(dep)}
+							{/each}
+						{/if}
+						{#if info.type === 'flow' && info.runners}
+							<Badge color="indigo" small>
+								{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
+							</Badge>
+						{:else if info.language}
+							<Badge color="blue" small>{info.language}</Badge>
+						{/if}
 					{/if}
 				{:else}
 					<span class="text-xs text-tertiary truncate">{tag}</span>
