@@ -553,7 +553,7 @@
 </script>
 
 {#snippet tagRow(tag: string, info: SelectedTagInfo | undefined)}
-	<div class="border-b last:border-b-0">
+	<div>
 		<div class="flex items-center">
 			{#if info?.type === 'flow' && info.runners && info.runners.length > 0}
 				<button
@@ -643,11 +643,11 @@
 <div class="flex flex-col gap-3">
 	{#if selectedTags.length > 0}
 		<div class="flex flex-col gap-2">
-			<div class="border rounded-md bg-surface max-h-64 overflow-y-auto">
+			<div class="border rounded-md bg-surface max-h-64 overflow-y-auto divide-y">
 				<!-- Shared runner groups -->
 				{#each runnerGroups as group (`${group.depName}:${group.language}`)}
-					<div class="border-b last:border-b-0">
-						<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary">
+					<div>
+						<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary border-b">
 							<Layers size={12} class="flex-shrink-0 text-secondary" />
 							<span class="text-xs font-medium text-emphasis">Shared runner</span>
 							<span class="text-xs text-tertiary">·</span>
@@ -669,10 +669,12 @@
 								</Badge>
 							{/if}
 						</div>
-						{#each group.tags as tag (tag)}
-							{@const info = selectedTagsInfo.get(tag)}
-							{@render tagRow(tag, info)}
-						{/each}
+						<div class="divide-y">
+							{#each group.tags as tag (tag)}
+								{@const info = selectedTagsInfo.get(tag)}
+								{@render tagRow(tag, info)}
+							{/each}
+						</div>
 					</div>
 				{/each}
 
