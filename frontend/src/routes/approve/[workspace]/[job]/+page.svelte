@@ -23,7 +23,7 @@
 	import { page } from '$app/state'
 
 	$workspaceStore = page.params.workspace
-	let rd = page.url.href.replace(page.url.origin, '')
+	let rd = page.url.href
 	let token = page.url.searchParams.get('token') ?? undefined
 
 	let job: Job | undefined = $state(undefined)
@@ -86,13 +86,6 @@
 
 	async function loadUser() {
 		userStore.set(await getUserExt(page.params.workspace ?? ''))
-	}
-
-	async function onLoginSuccess() {
-		showLogin = false
-		error = undefined
-		await loadUser()
-		await loadData()
 	}
 
 	async function resume() {
@@ -191,7 +184,7 @@
 					<p class="text-lg">Not Authorized</p>
 				</div>
 				<p class="text-sm">{error}</p>
-				<Login {rd} {onLoginSuccess} />
+				<Login {rd} />
 			{:else if error.includes('Permission denied') || error.includes('Self-approval')}
 				<div class="flex flex-row gap-4 justify-center">
 					<AlertTriangle />
@@ -300,7 +293,7 @@
 				</div>
 			{:else if !completed && !approvalInfo.can_approve}
 				{#if approvalInfo.user_auth_required && !$userStore}
-					<Login {rd} {onLoginSuccess} />
+					<Login {rd} />
 				{:else}
 					<p class="text-sm text-secondary">You are not authorized to approve this flow.</p>
 				{/if}
