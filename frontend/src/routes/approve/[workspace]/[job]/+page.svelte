@@ -23,7 +23,7 @@
 	import { page } from '$app/state'
 
 	$workspaceStore = page.params.workspace
-	let rd = page.url.href
+	let rd = page.url.href.replace(page.url.origin, '')
 	let token = page.url.searchParams.get('token') ?? undefined
 
 	let job: Job | undefined = $state(undefined)
@@ -64,23 +64,25 @@
 
 	async function loadData() {
 		try {
-			const [info, jobData] = await Promise.all([
-				JobService.getApprovalInfo({
-					workspace: page.params.workspace ?? '',
-					jobId: page.params.job ?? '',
-					token
-				}),
-				JobService.getJob({
-					workspace: page.params.workspace ?? '',
-					id: page.params.job ?? ''
-				})
-			])
-			approvalInfo = info
-			job = jobData as Job
-			completed = job?.type === 'CompletedJob'
+			error = undefined
+			approvalInfo = await JobService.getApprovalInfo({
+				workspace: page.params.workspace ?? '',
+				jobId: page.params.job ?? '',
+				token
+			})
 		} catch (e: any) {
 			error = e?.body ?? e?.message ?? 'Failed to load approval info'
 			pollInterval && clearInterval(pollInterval)
+			return
+		}
+		try {
+			job = (await JobService.getJob({
+				workspace: page.params.workspace ?? '',
+				id: page.params.job ?? ''
+			})) as Job
+			completed = job?.type === 'CompletedJob'
+		} catch {
+			// Job details are optional — page works with just approvalInfo
 		}
 	}
 

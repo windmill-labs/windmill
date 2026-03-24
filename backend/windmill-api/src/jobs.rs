@@ -2303,6 +2303,18 @@ async fn resume_suspended(
     // Resolve the suspended flow (works for both WAC and classic flows)
     let (flow, resume_job_id, is_wac) = get_suspended_flow_info(job_id, &mut tx).await?;
 
+    // Verify the job belongs to this workspace
+    let job_workspace: Option<String> =
+        sqlx::query_scalar("SELECT workspace_id FROM v2_job WHERE id = $1")
+            .bind(&flow.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if job_workspace.as_deref() != Some(w_id.as_str()) {
+        return Err(Error::NotFound(
+            "Job not found in this workspace".to_string(),
+        ));
+    }
+
     // Check approval conditions
     let approval_conditions = if is_wac {
         flow.flow_status
