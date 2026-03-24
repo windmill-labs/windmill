@@ -23,6 +23,11 @@ export function computeGroupModuleIds(
 	const endIdx = allModules.findIndex((m) => m.id === endId)
 
 	if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) {
+		if (startIdx > endIdx) {
+			console.warn(
+				`computeGroupModuleIds: inverted range for group ${startId}→${endId} (${startIdx} > ${endIdx})`
+			)
+		}
 		return []
 	}
 

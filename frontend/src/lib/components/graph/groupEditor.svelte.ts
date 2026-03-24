@@ -273,7 +273,7 @@ export class GroupEditor {
 		for (const group of this.getGroups()) {
 			const memberIds = computeGroupModuleIds(group.start_id, group.end_id, allModules)
 			const remaining = memberIds.filter((id) => !nodeSet.has(id))
-			if (remaining.length < memberIds.length && remaining.length === 0) {
+			if (remaining.length === 0 && memberIds.length > 0) {
 				result.push(group)
 			}
 		}

@@ -4,6 +4,7 @@
 	import GroupModuleIcons from '../../GroupModuleIcons.svelte'
 	import GroupHeaderBlock from '../../GroupHeaderBlock.svelte'
 	import { NoteColor, NOTE_COLORS } from '../../noteColors'
+	import { NODE } from '../../util'
 	import { Hourglass } from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
@@ -41,7 +42,7 @@
 	<div class="relative">
 		<div
 			class="w-full max-w-full rounded-lg outline outline-1 -outline-offset-1 {outlineColorClass} {bgColorClass}"
-			style="width: 275px;"
+			style="width: {NODE.width}px;"
 		>
 			<GroupHeaderBlock
 				groupId={data.groupId}

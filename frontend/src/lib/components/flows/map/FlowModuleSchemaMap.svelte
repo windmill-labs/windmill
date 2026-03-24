@@ -428,6 +428,8 @@
 		}
 	}
 
+	// Operates directly on the flat module array (not the structure tree).
+	// Cloned modules are inserted after the originals, intentionally outside any group.
 	export function duplicateMultiple(ids: string[]) {
 		const locations = locateModules(ids, flowStore.val.value.modules)
 		const groups = groupByParent(locations)
