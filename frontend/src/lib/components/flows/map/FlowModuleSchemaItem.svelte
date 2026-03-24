@@ -192,10 +192,10 @@
 		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
 	)
 
-	let isDragging = $derived(!!moveManager?.dragging)
+	let isMoving = $derived(!!moveManager?.dragging || !!moveManager?.movingModuleId)
 
 	const outputPickerVisible = $derived(
-		editMode && (isConnectingCandidate || alwaysShowOutputPicker) && !!id && !isDragging
+		editMode && (isConnectingCandidate || alwaysShowOutputPicker) && !!id && !isMoving
 	)
 
 	const icon_render = $derived(icon)
@@ -482,7 +482,7 @@
 			{/if}
 		</div>
 
-		{#if deletable && !isDragging}
+		{#if deletable && !isMoving}
 			{#if maximizeSubflow !== undefined}
 				{@render buttonMaximizeSubflow?.()}
 			{/if}
@@ -566,7 +566,7 @@
 		{/if}
 	</div>
 
-	{#if editMode && enableTestRun && flowJob?.type !== 'QueuedJob' && !isDragging}
+	{#if editMode && enableTestRun && flowJob?.type !== 'QueuedJob' && !isMoving}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-1 h-9 min-w-9"
