@@ -82,6 +82,10 @@ pub fn workspaced_service() -> Router {
         .route("/get_dependents/*imported_path", get(get_dependents))
         .route("/get_dependents_amounts", post(get_dependents_amounts))
         .route("/get_settings", get(get_settings))
+        .route(
+            "/get_copilot_settings_state",
+            get(get_copilot_settings_state),
+        )
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
         .route(
@@ -255,6 +259,35 @@ pub struct WorkspaceSettings {
     pub success_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct CopilotSettingsState {
+    pub has_instance_ai_config: bool,
+    pub uses_instance_ai_config: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_ai_summary: Option<InstanceAISummary>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct InstanceAIProviderSummary {
+    pub provider: String,
+    pub models: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct InstanceAIModelSummary {
+    pub provider: String,
+    pub model: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct InstanceAISummary {
+    pub providers: Vec<InstanceAIProviderSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<InstanceAIModelSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_completion_model: Option<InstanceAIModelSummary>,
 }
 
 /// #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
@@ -608,13 +641,104 @@ async fn get_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
 
+    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
 
-    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     if !authed.is_admin {
         settings.slack_oauth_client_secret = None;
     }
     Ok(Json(settings))
+}
+
+async fn get_copilot_settings_state(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<CopilotSettingsState> {
+    let mut tx = user_db.begin(&authed).await?;
+    let workspace_ai_config = sqlx::query_scalar!(
+        "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("getting workspace ai settings: {e:#}")))?;
+    let workspace_ai_config = not_found_if_none(workspace_ai_config, "workspace settings", &w_id)?;
+    let instance_ai_config: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT value FROM global_settings WHERE name = 'ai_config'")
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| Error::internal_err(format!("getting instance ai settings: {e:#}")))?;
+    tx.commit().await?;
+
+    Ok(Json(build_copilot_settings_state(
+        has_ai_providers(workspace_ai_config.as_ref()),
+        instance_ai_config.as_ref(),
+    )))
+}
+
+pub fn has_ai_providers(config: Option<&serde_json::Value>) -> bool {
+    config
+        .and_then(|value| value.get("providers"))
+        .and_then(|providers| providers.as_object())
+        .map(|providers| !providers.is_empty())
+        .unwrap_or(false)
+}
+
+pub fn build_copilot_settings_state(
+    has_workspace_ai_config: bool,
+    instance_ai_config: Option<&serde_json::Value>,
+) -> CopilotSettingsState {
+    let has_instance_ai_config = has_ai_providers(instance_ai_config);
+    CopilotSettingsState {
+        has_instance_ai_config,
+        uses_instance_ai_config: !has_workspace_ai_config && has_instance_ai_config,
+        instance_ai_summary: build_instance_ai_summary(instance_ai_config),
+    }
+}
+
+pub fn build_instance_ai_summary(config: Option<&serde_json::Value>) -> Option<InstanceAISummary> {
+    let config = config?;
+    if !has_ai_providers(Some(config)) {
+        return None;
+    }
+    let providers = config.get("providers")?.as_object()?;
+
+    let mut provider_summaries = providers
+        .iter()
+        .map(|(provider, provider_config)| InstanceAIProviderSummary {
+            provider: provider.clone(),
+            models: provider_config
+                .get("models")
+                .and_then(|models| models.as_array())
+                .map(|models| {
+                    models
+                        .iter()
+                        .filter_map(|model| model.as_str().map(ToOwned::to_owned))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
+        })
+        .collect::<Vec<_>>();
+
+    provider_summaries.sort_by(|left, right| left.provider.cmp(&right.provider));
+
+    Some(InstanceAISummary {
+        providers: provider_summaries,
+        default_model: extract_instance_ai_model_summary(config, "default_model"),
+        code_completion_model: extract_instance_ai_model_summary(config, "code_completion_model"),
+    })
+}
+
+fn extract_instance_ai_model_summary(
+    config: &serde_json::Value,
+    key: &str,
+) -> Option<InstanceAIModelSummary> {
+    let model_config = config.get(key)?.as_object()?;
+    Some(InstanceAIModelSummary {
+        provider: model_config.get("provider")?.as_str()?.to_owned(),
+        model: model_config.get("model")?.as_str()?.to_owned(),
+    })
 }
 
 #[derive(Serialize)]

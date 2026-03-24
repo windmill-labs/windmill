@@ -42,6 +42,7 @@
 		disabled?: boolean
 		manual?: boolean
 		express?: boolean
+		workspace?: string
 	}
 
 	let {
@@ -50,8 +51,11 @@
 		isGoogleSignin = $bindable(false),
 		disabled = $bindable(false),
 		manual = $bindable(true),
-		express = false
+		express = false,
+		workspace = undefined
 	}: Props = $props()
+
+	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 
 	let isValid = $state(true)
 
@@ -214,7 +218,7 @@
 			return
 		}
 		const availableRts = await ResourceService.listResourceTypeNames({
-			workspace: $workspaceStore!
+			workspace: effectiveWorkspace
 		})
 
 		connectsManual = availableRts
@@ -316,7 +320,7 @@
 
 	async function getResourceTypeInfo() {
 		resourceTypeInfo = await ResourceService.getResourceType({
-			workspace: $workspaceStore!,
+			workspace: effectiveWorkspace,
 			path: resourceType
 		})
 		const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
@@ -419,7 +423,7 @@
 			// Check if variable paths already exist
 			if (!manual || linkedSecrets.length <= 1) {
 				const exists = await VariableService.existsVariable({
-					workspace: $workspaceStore!,
+					workspace: effectiveWorkspace,
 					path
 				})
 				if (exists) {
@@ -429,7 +433,7 @@
 				for (const secretField of linkedSecrets) {
 					const varPath = `${path}_${secretField}`
 					const exists = await VariableService.existsVariable({
-						workspace: $workspaceStore!,
+						workspace: effectiveWorkspace,
 						path: varPath
 					})
 					if (exists) {
@@ -440,7 +444,7 @@
 				}
 			}
 			let exists = await ResourceService.existsResource({
-				workspace: $workspaceStore!,
+				workspace: effectiveWorkspace,
 				path
 			})
 
@@ -478,7 +482,7 @@
 
 				account = Number(
 					await OauthService.createAccount({
-						workspace: $workspaceStore!,
+						workspace: effectiveWorkspace,
 						requestBody: accountData
 					})
 				)
@@ -492,7 +496,7 @@
 				if (typeof value == 'string' && value != '' && !value.startsWith('$var:')) {
 					savedVariableCount++
 					await VariableService.createVariable({
-						workspace: $workspaceStore!,
+						workspace: effectiveWorkspace,
 						requestBody: {
 							path,
 							value: value,
@@ -513,7 +517,7 @@
 				if (typeof v == 'string' && v != '' && !v.startsWith('$var:')) {
 					savedVariableCount++
 					await VariableService.createVariable({
-						workspace: $workspaceStore!,
+						workspace: effectiveWorkspace,
 						requestBody: {
 							path,
 							value: v,
@@ -532,7 +536,7 @@
 						const varPath = `${path}_${secretField}`
 						savedVariableCount++
 						await VariableService.createVariable({
-							workspace: $workspaceStore!,
+							workspace: effectiveWorkspace,
 							requestBody: {
 								path: varPath,
 								value: v,
@@ -549,7 +553,7 @@
 			}
 
 			await ResourceService.createResource({
-				workspace: $workspaceStore!,
+				workspace: effectiveWorkspace,
 				requestBody: {
 					resource_type: resourceType,
 					path,
