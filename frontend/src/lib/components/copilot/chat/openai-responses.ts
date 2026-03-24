@@ -121,15 +121,24 @@ function convertCompletionConfigToResponsesConfig(
 export async function getOpenAIResponsesCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
+	options?: {
+		forceModelProvider?: AIProviderModel
+		openaiClient?: OpenAI
+	}
 ) {
-	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
+	const { provider, config } = getProviderAndCompletionConfig({
+		messages,
+		stream: true,
+		tools,
+		forceModelProvider: options?.forceModelProvider
+	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
 	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
 
-	const openaiClient = workspaceAIClients.getOpenaiClient()
+	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
 
-	const runner = openaiClient.responses.stream(
+	const runner = client.responses.stream(
 		{
 			...responsesConfig,
 			input,
@@ -204,7 +213,8 @@ export async function parseOpenAIResponsesCompletion(
 	messages: ChatCompletionMessageParam[],
 	addedMessages: ChatCompletionMessageParam[],
 	tools: Tool<any>[],
-	helpers: any
+	helpers: any,
+	options?: { workspace?: string }
 ): Promise<boolean> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error: OpenAIError | ResponseErrorEvent | null = null
@@ -338,7 +348,8 @@ export async function parseOpenAIResponsesCompletion(
 				tools,
 				toolCall,
 				helpers,
-				toolCallbacks: callbacks
+				toolCallbacks: callbacks,
+				workspace: options?.workspace
 			})
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)

@@ -289,7 +289,12 @@ function getModelSpecificConfig(
 ) {
 	const defaultMaxTokens = getModelMaxTokens(modelProvider.provider, modelProvider.model)
 	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
-	const customMaxTokensStore = get(copilotInfo)?.maxTokensPerModel
+	let customMaxTokensStore: Record<string, number> | undefined
+	try {
+		customMaxTokensStore = get(copilotInfo)?.maxTokensPerModel
+	} catch {
+		// copilotInfo store may not be initialized in vitest
+	}
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
@@ -861,9 +866,16 @@ export async function getCompletion(
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
 	options?: {
 		forceCompletions?: boolean
+		forceModelProvider?: AIProviderModel
+		openaiClient?: OpenAI
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
-	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
+	const { provider, config } = getProviderAndCompletionConfig({
+		messages,
+		stream: true,
+		tools,
+		forceModelProvider: options?.forceModelProvider
+	})
 
 	// Use Responses API for OpenAI and Azure OpenAI
 	if ((provider === 'openai' || provider === 'azure_openai') && !options?.forceCompletions) {
@@ -876,8 +888,8 @@ export async function getCompletion(
 	}
 
 	// Use Completions API for other providers
-	const openaiClient = workspaceAIClients.getOpenaiClient()
-	const completion = openaiClient.chat.completions.create(config, {
+	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
+	const completion = client.chat.completions.create(config, {
 		signal: abortController.signal,
 		headers: {
 			'X-Provider': provider
@@ -906,7 +918,8 @@ export async function parseOpenAICompletion(
 	addedMessages: ChatCompletionMessageParam[],
 	tools: Tool<any>[],
 	helpers: any,
-	_abortController?: AbortController // unused, for signature compatibility with parseAnthropicCompletion
+	_abortController?: AbortController, // unused, for signature compatibility with parseAnthropicCompletion
+	options?: { workspace?: string }
 ): Promise<boolean> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 	let malformedFunctionCallError = false
@@ -1045,7 +1058,8 @@ export async function parseOpenAICompletion(
 				tools,
 				toolCall,
 				helpers,
-				toolCallbacks: callbacks
+				toolCallbacks: callbacks,
+				workspace: options?.workspace
 			})
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
