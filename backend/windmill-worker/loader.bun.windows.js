@@ -24,7 +24,7 @@ const p = {
     const cdirFwd = cdir.replace(/\\/g, "/");
     const cdirPosix = cdirFwd.replace(/^[a-zA-Z]:/, "");
     const filterResolve = new RegExp(
-      `^(?!\\.\/main\\.ts)(?!${cdirFwd}\/main\\.ts)(?!${cdirPosix}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
+      `^(?!\\.\/main\\.ts)(?!\\.\/_wm_)(?!${cdirFwd}\/main\\.ts)(?!${cdirFwd}\/_wm_)(?!${cdirPosix}\/main\\.ts)(?!${cdirPosix}\/_wm_)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
     );
 
     let cdirNodeModules = `${cdirFwd}/node_modules/`;
