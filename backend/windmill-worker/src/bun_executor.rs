@@ -3008,7 +3008,10 @@ pub fn build_nativets_env_code(
         "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
         reserved_variables
             .iter()
-            .map(|(k, v)| format!("process.env['{}'] = '{}';", k, v))
+            .map(|(k, v)| {
+                let escaped = v.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r");
+                format!("process.env['{}'] = '{}';", k, escaped)
+            })
             .collect::<Vec<String>>()
             .join("\n")
     )
