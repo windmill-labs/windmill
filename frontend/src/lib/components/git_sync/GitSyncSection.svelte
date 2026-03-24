@@ -108,17 +108,21 @@
 	{#if !gitSyncAllowed}
 		<div class="mb-2"></div>
 
-		<Alert type="warning" title="Git sync requires Enterprise Edition or ≤3 users">
-			Git sync is available for workspaces with up to {gitSyncStatus.max_users} users. Your workspace
-			has {gitSyncStatus.user_count} users. Upgrade to Enterprise Edition for unlimited git sync.
+		<Alert type="warning" title="Git sync unavailable">
+			Git sync on the Community Edition is limited to workspaces with at most {gitSyncStatus.max_users}
+			users. Your workspace has {gitSyncStatus.user_count} users. Upgrade to the Enterprise Edition to
+			remove this limit.
 		</Alert>
 		<div class="mb-2"></div>
 	{:else if isFreeTier}
 		<div class="mb-2"></div>
 
-		<Alert type="info" title="Free tier: single repository">
-			Upgrade to Enterprise for multiple repositories, promotion mode, and GitHub App
-			authentication.
+		<Alert
+			type="info"
+			title="Community Edition — single repository, up to {gitSyncStatus.max_users} users"
+		>
+			Upgrade to the Enterprise Edition for multiple repositories, promotion mode, GitHub App
+			authentication, and unlimited users.
 		</Alert>
 		<div class="mb-2"></div>
 	{/if}
