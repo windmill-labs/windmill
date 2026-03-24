@@ -783,12 +783,17 @@ async def sleep(seconds: int)
 # 
 # Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
 # 
+# Args:
+#     timeout: Approval timeout in seconds (default 1800).
+#     form: Optional form schema for the approval page.
+#     self_approval: Whether the user who triggered the flow can approve it (default True).
+# 
 # Example::
 # 
 #     urls = await step("urls", lambda: get_resume_urls())
 #     await step("notify", lambda: send_email(urls["approvalPage"]))
 #     result = await wait_for_approval(timeout=3600)
-async def wait_for_approval(timeout: int = 1800, form: dict | None = None) -> dict
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True) -> dict
 
 # Process items in parallel with optional concurrency control.
 # 

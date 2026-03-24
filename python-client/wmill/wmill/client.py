@@ -2463,7 +2463,7 @@ class WorkflowCtx:
         )
 
     async def _wait_for_approval(
-        self, timeout: int = 1800, form: dict | None = None
+        self, timeout: int = 1800, form: dict | None = None, self_approval: bool = True
     ):
         key = self._alloc_key("approval")
 
@@ -2479,6 +2479,7 @@ class WorkflowCtx:
             "key": key,
             "timeout": timeout,
             "form": form,
+            "self_approval_disabled": not self_approval,
             "steps": [],
         })
 
@@ -2762,6 +2763,7 @@ async def sleep(seconds: int):
 async def wait_for_approval(
     timeout: int = 1800,
     form: dict | None = None,
+    self_approval: bool = True,
 ) -> dict:
     """Suspend the workflow and wait for an external approval.
 
@@ -2769,6 +2771,11 @@ async def wait_for_approval(
     resume/cancel/approval URLs before calling this function.
 
     Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
+
+    Args:
+        timeout: Approval timeout in seconds (default 1800).
+        form: Optional form schema for the approval page.
+        self_approval: Whether the user who triggered the flow can approve it (default True).
 
     Example::
 
@@ -2778,7 +2785,7 @@ async def wait_for_approval(
     """
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:
-        return await ctx._wait_for_approval(timeout=timeout, form=form)
+        return await ctx._wait_for_approval(timeout=timeout, form=form, self_approval=self_approval)
     raise RuntimeError("wait_for_approval can only be called inside a @workflow")
 
 

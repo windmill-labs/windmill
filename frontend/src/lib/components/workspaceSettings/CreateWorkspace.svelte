@@ -11,7 +11,8 @@
 		VariableService,
 		WorkspaceService,
 		type AIProvider,
-		type CompletedJob
+		type CompletedJob,
+		type GetCopilotInfoResponse
 	} from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logoutKit'
@@ -52,6 +53,10 @@
 	let aiKey = $state('')
 	let codeCompletionEnabled = $state(true)
 	let checking = $state(false)
+	let createLoading = $state(false)
+	let aiSetupLoading = $state(false)
+	let creationStep = $state<'details' | 'ai'>('details')
+	let createdWorkspaceId: string | undefined = $state(undefined)
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
@@ -84,6 +89,64 @@
 	let forkCreationError = $state('')
 	let errorMsgs: string[] = $state([])
 	let failedSyncJobs: string[] = $state([])
+
+	function getErrorMessage(error: any): string {
+		return (
+			error?.body?.error?.message ||
+			error?.body?.message ||
+			(typeof error?.body === 'string' ? error.body : null) ||
+			error?.message ||
+			'Unknown error'
+		)
+	}
+
+	function hasEffectiveAi(copilotInfo: GetCopilotInfoResponse): boolean {
+		return Object.keys(copilotInfo.providers ?? {}).length > 0
+	}
+
+	async function finishWorkspaceSetup(workspaceId: string): Promise<void> {
+		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		switchWorkspace(workspaceId)
+		goto(rd ?? '/')
+	}
+
+	async function getWorkspaceUsername(workspaceId: string): Promise<string> {
+		if (!automateUsernameCreation) {
+			return username
+		}
+
+		const user = await UserService.whoami({
+			workspace: workspaceId
+		})
+		return user.username
+	}
+
+	async function maybeShowAiSetupStep(workspaceId: string): Promise<void> {
+		try {
+			const copilotInfo = await WorkspaceService.getCopilotInfo({
+				workspace: workspaceId
+			})
+
+			if (hasEffectiveAi(copilotInfo)) {
+				await finishWorkspaceSetup(workspaceId)
+				return
+			}
+		} catch (error) {
+			console.error('Failed to check effective AI configuration for new workspace', error)
+			sendUserToast(
+				'Workspace created, but Windmill AI availability could not be verified. You can configure it later in Workspace settings.',
+				true
+			)
+			await finishWorkspaceSetup(workspaceId)
+			return
+		}
+
+		createdWorkspaceId = workspaceId
+		creationStep = 'ai'
+		aiKey = ''
+		codeCompletionEnabled = true
+		selected = 'openai'
+	}
 
 	async function fetchFailedSyncJobs(jobs: string[]): Promise<CompletedJob[]> {
 		let ret: CompletedJob[] = []
@@ -188,20 +251,22 @@
 
 				forkCreationLoading = false
 				sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
+				await finishWorkspaceSetup(prefixed_id)
 			} else {
 				sendUserToast('No workspace selected, cannot fork non-existent workspace', true)
 			}
 		} else {
-			await createWorkspace()
+			createLoading = true
+			try {
+				const workspaceId = await createWorkspace()
+				await maybeShowAiSetupStep(workspaceId)
+			} finally {
+				createLoading = false
+			}
 		}
-
-		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		switchWorkspace(isFork ? prefixed_id : id)
-
-		goto(rd ?? '/')
 	}
 
-	async function createWorkspace(): Promise<void> {
+	async function createWorkspace(): Promise<string> {
 		await WorkspaceService.createWorkspace({
 			requestBody: {
 				id,
@@ -216,17 +281,23 @@
 				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted(), auto_add: autoAdd }
 			})
 		}
-		if (aiKey != '') {
-			let actualUsername = username
-			if (automateUsernameCreation) {
-				const user = await UserService.whoami({
-					workspace: id
-				})
-				actualUsername = user.username
-			}
-			let path = `u/${actualUsername}/${selected}_windmill_codegen`
+
+		sendUserToast(`Created workspace id: ${id}`)
+		return id
+	}
+
+	async function saveWorkspaceAiSetup(): Promise<void> {
+		if (!createdWorkspaceId || !aiKey) {
+			return
+		}
+
+		aiSetupLoading = true
+		try {
+			const actualUsername = await getWorkspaceUsername(createdWorkspaceId)
+			const path = `u/${actualUsername}/${selected}_windmill_codegen`
+
 			await VariableService.createVariable({
-				workspace: id,
+				workspace: createdWorkspaceId,
 				requestBody: {
 					path,
 					value: aiKey,
@@ -235,7 +306,7 @@
 				}
 			})
 			await ResourceService.createResource({
-				workspace: id,
+				workspace: createdWorkspaceId,
 				requestBody: {
 					path,
 					value: {
@@ -245,40 +316,46 @@
 				}
 			})
 			await WorkspaceService.editCopilotConfig({
-				workspace: id,
-				requestBody: aiKey
-					? {
-							providers: {
-								[selected]: {
-									resource_path: path,
-									models: [AI_PROVIDERS[selected].defaultModels[0]]
-								}
-							},
-							default_model: {
-								model: AI_PROVIDERS[selected].defaultModels[0],
-								provider: selected
-							},
-							code_completion_model: codeCompletionEnabled
-								? { model: AI_PROVIDERS[selected].defaultModels[0], provider: selected }
-								: undefined
+				workspace: createdWorkspaceId,
+				requestBody: {
+					providers: {
+						[selected]: {
+							resource_path: path,
+							models: [AI_PROVIDERS[selected].defaultModels[0]]
 						}
-					: {}
+					},
+					default_model: {
+						model: AI_PROVIDERS[selected].defaultModels[0],
+						provider: selected
+					},
+					code_completion_model: codeCompletionEnabled
+						? { model: AI_PROVIDERS[selected].defaultModels[0], provider: selected }
+						: undefined
+				}
 			})
+
+			sendUserToast('Windmill AI configured')
+			await finishWorkspaceSetup(createdWorkspaceId)
+		} catch (error) {
+			sendUserToast(`Failed to configure Windmill AI: ${getErrorMessage(error)}`, true)
+		} finally {
+			aiSetupLoading = false
 		}
-
-		sendUserToast(`Created workspace id: ${id}`)
-
-		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		switchWorkspace(id)
-
-		goto(rd ?? '/')
 	}
 
-	function handleKeyUp(event: KeyboardEvent) {
+	function handleCreateKeyUp(event: KeyboardEvent) {
 		const key = event.key
 		if (key === 'Enter') {
 			event.preventDefault()
-			createWorkspace()
+			createOrForkWorkspace()
+		}
+	}
+
+	function handleAiKeyUp(event: KeyboardEvent) {
+		const key = event.key
+		if (key === 'Enter' && aiKey) {
+			event.preventDefault()
+			saveWorkspaceAiSetup()
 		}
 	}
 
@@ -329,6 +406,9 @@
 	let operatorOnly = $state(false)
 	let autoAdd = $state(true)
 	let selected: Exclude<AIProvider, 'customai'> = $state('openai')
+	let modalTitle = $derived(
+		isFork ? 'Fork Workspace' : creationStep === 'ai' ? 'Set up Windmill AI' : 'New Workspace'
+	)
 	run(() => {
 		id = name.toLowerCase().replace(/\s/gi, '-')
 	})
@@ -344,7 +424,7 @@
 	let domain = $derived($usersWorkspaceStore?.email.split('@')[1])
 </script>
 
-<CenteredModal title="{isFork ? 'Forking' : 'New'} Workspace" centerVertically={false}>
+<CenteredModal title={modalTitle} centerVertically={false}>
 	<div class="flex flex-col gap-8">
 		{#if isFork}
 			<div class="flex flex-block gap-2">
@@ -410,88 +490,184 @@
 				{/if}
 			</Alert>
 		{/if}
-		<label class="flex flex-col gap-1">
-			{#if isFork}
-				<span class="text-xs font-semibold text-emphasis">Fork name</span>
-				<span class="text-xs text-secondary">Displayable name of the forked workspace</span>
-			{:else}
-				<span class="text-xs font-semibold text-emphasis">Workspace name</span>
-				<span class="text-xs text-secondary">Displayable name</span>
-			{/if}
-			<!-- svelte-ignore a11y_autofocus -->
-			<TextInput inputProps={{ autofocus: true }} bind:value={name} />
-		</label>
-		<label class="flex flex-col gap-1">
-			<span class="text-xs font-semibold text-emphasis">Workspace ID</span>
-			{#if isFork}
-				<span class="text-xs text-secondary"
-					>Slug to uniquely identify your fork (this will also set the branch name)</span
-				>
-			{:else}
-				<span class="text-xs text-secondary">Slug to uniquely identify your workspace</span>
-			{/if}
 
-			{#if isFork}
-				<PrefixedInput
-					prefix={WM_FORK_PREFIX}
-					type="text"
-					bind:value={id}
-					placeholder="example.com"
-					class={errorId != '' ? 'input-error' : ''}
-				/>
-			{:else}
-				<TextInput bind:value={id} error={errorId} />
-			{/if}
-			{#if errorId}
-				<span class="text-red-500 text-2xs font-normal">{errorId}</span>
-			{/if}
-		</label>
-		<label class="flex flex-col gap-1">
-			<span class="text-xs font-semibold text-emphasis">Workspace color</span>
-			<span class="text-xs text-secondary"
-				>Color to identify the current workspace in the list of workspaces</span
-			>
-			<div class="flex items-center gap-4">
-				<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
-				{#if colorEnabled}
-					<div class="flex items-center gap-1 grow">
-						<input
-							class="grow min-w-10"
-							type="color"
-							bind:value={workspaceColor}
-							disabled={!colorEnabled}
-						/>
-
-						<TextInput
-							class="w-24"
-							bind:value={workspaceColor}
-							inputProps={{ disabled: !colorEnabled }}
-						/>
-						<Button
-							on:click={generateRandomColor}
-							size="xs"
-							variant="default"
-							disabled={!colorEnabled}>Random</Button
-						>
-					</div>
-				{/if}
-			</div>
-		</label>
-		{#if !automateUsernameCreation}
+		{#if isFork || creationStep === 'details'}
 			<label class="flex flex-col gap-1">
-				<span class="text-xs font-semibold text-emphasis">Your username in that workspace</span>
-				<TextInput bind:value={username} inputProps={{ onkeyup: handleKeyUp }} error={errorUser} />
-				{#if errorUser}
-					<span class="text-red-500 text-2xs">{errorUser}</span>
+				{#if isFork}
+					<span class="text-xs font-semibold text-emphasis">Fork name</span>
+					<span class="text-xs text-secondary">Displayable name of the forked workspace</span>
+				{:else}
+					<span class="text-xs font-semibold text-emphasis">Workspace name</span>
+					<span class="text-xs text-secondary">Displayable name</span>
+				{/if}
+				<!-- svelte-ignore a11y_autofocus -->
+				<TextInput inputProps={{ autofocus: true }} bind:value={name} />
+			</label>
+			<label class="flex flex-col gap-1">
+				<span class="text-xs font-semibold text-emphasis">Workspace ID</span>
+				{#if isFork}
+					<span class="text-xs text-secondary"
+						>Slug to uniquely identify your fork (this will also set the branch name)</span
+					>
+				{:else}
+					<span class="text-xs text-secondary">Slug to uniquely identify your workspace</span>
+				{/if}
+
+				{#if isFork}
+					<PrefixedInput
+						prefix={WM_FORK_PREFIX}
+						type="text"
+						bind:value={id}
+						placeholder="example.com"
+						class={errorId != '' ? 'input-error' : ''}
+					/>
+				{:else}
+					<TextInput bind:value={id} error={errorId} />
+				{/if}
+				{#if errorId}
+					<span class="text-red-500 text-2xs font-normal">{errorId}</span>
 				{/if}
 			</label>
-		{/if}
-		{#if !isFork}
-			<div class="block">
+			<label class="flex flex-col gap-1">
+				<span class="text-xs font-semibold text-emphasis">Workspace color</span>
+				<span class="text-xs text-secondary"
+					>Color to identify the current workspace in the list of workspaces</span
+				>
+				<div class="flex items-center gap-4">
+					<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
+					{#if colorEnabled}
+						<div class="flex items-center gap-1 grow">
+							<input
+								class="grow min-w-10"
+								type="color"
+								bind:value={workspaceColor}
+								disabled={!colorEnabled}
+							/>
+
+							<TextInput
+								class="w-24"
+								bind:value={workspaceColor}
+								inputProps={{ disabled: !colorEnabled }}
+							/>
+							<Button
+								on:click={generateRandomColor}
+								size="xs"
+								variant="default"
+								disabled={!colorEnabled}>Random</Button
+							>
+						</div>
+					{/if}
+				</div>
+			</label>
+			{#if !automateUsernameCreation}
+				<label class="flex flex-col gap-1">
+					<span class="text-xs font-semibold text-emphasis">Your username in that workspace</span>
+					<TextInput
+						bind:value={username}
+						inputProps={{ onkeyup: handleCreateKeyUp }}
+						error={errorUser}
+					/>
+					{#if errorUser}
+						<span class="text-red-500 text-2xs">{errorUser}</span>
+					{/if}
+				</label>
+			{/if}
+			{#if !isFork}
+				<div class="flex flex-col gap-1">
+					<label for="auto-invite" class="text-xs font-semibold text-emphasis"
+						>{isCloudHosted()
+							? `Auto-${autoAdd ? 'add' : 'invite'} anyone from ${domain}`
+							: `Auto-${autoAdd ? 'add' : 'invite'} anyone joining the instance`}</label
+					>
+					<Toggle
+						id="auto-invite"
+						disabled={isCloudHosted() && !isDomainAllowed}
+						bind:checked={auto_invite}
+					/>
+					{#if isCloudHosted() && isDomainAllowed == false}
+						<div class="text-secondary text-2xs">{domain} domain not allowed for auto-invite</div>
+					{/if}
+
+					{#if auto_invite}
+						<div class="bg-surface-tertiary p-4 rounded-md flex flex-col gap-8">
+							<!-- svelte-ignore a11y_label_has_associated_control -->
+							{#if isCloudHosted()}
+								<label class="flex flex-col gap-1">
+									<span class="text-xs font-semibold text-emphasis">Mode</span>
+									<span class="text-xs text-secondary font-normal"
+										>Whether to invite or add users directly to the workspace.</span
+									>
+									<ToggleButtonGroup
+										selected={autoAdd ? 'add' : 'invite'}
+										on:selected={async (e) => {
+											autoAdd = e.detail === 'add'
+										}}
+									>
+										{#snippet children({ item })}
+											<ToggleButton value="invite" label="Auto-invite" {item} />
+											<ToggleButton value="add" label="Auto-add" {item} />
+										{/snippet}
+									</ToggleButtonGroup>
+								</label>
+							{/if}
+
+							<label class="font-semibold flex flex-col gap-1">
+								<span class="text-xs font-semibold text-emphasis">Role</span>
+								<span class="text-xs text-secondary font-normal">Role of the auto-invited users</span>
+								<ToggleButtonGroup
+									selected={operatorOnly ? 'operator' : 'developer'}
+									on:selected={(e) => {
+										operatorOnly = e.detail == 'operator'
+									}}
+								>
+									{#snippet children({ item })}
+										<ToggleButton value="operator" label="Operator" {item} />
+										<ToggleButton value="developer" label="Developer" {item} />
+									{/snippet}
+								</ToggleButtonGroup>
+							</label>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<div class="flex flex-wrap flex-row justify-between gap-4 pt-4">
+				<Button
+					disabled={forkCreationLoading || createLoading}
+					variant="default"
+					size="sm"
+					href="{base}/user/workspaces">&leftarrow; Back to workspaces</Button
+				>
+				{#if !forkCreationLoading}
+					<Button
+						variant="accent"
+						loading={createLoading}
+						disabled={createLoading ||
+							checking ||
+							errorId != '' ||
+							!name ||
+							(!automateUsernameCreation && (errorUser != '' || !username)) ||
+							!id}
+						on:click={createOrForkWorkspace}
+					>
+						{#if isFork}
+							Fork workspace
+						{:else}
+							Create workspace
+						{/if}
+					</Button>
+				{:else}
+					<Button variant="accent" disabled={true}>
+						<LoaderCircle class="animate-spin" /> Creating branch
+					</Button>
+				{/if}
+			</div>
+		{:else}
+			<div class="flex flex-col gap-4">
 				<div class="flex flex-col gap-1">
 					<label for="ai-key" class="flex flex-row gap-2">
 						<span class="text-xs font-semibold text-emphasis">
-							AI key for Windmill AI
+							Set up Windmill AI
 							<Tooltip>
 								Find out how it can help you <a
 									href="https://www.windmill.dev/docs/core_concepts/ai_generation"
@@ -500,10 +676,21 @@
 								>
 							</Tooltip>
 						</span>
-						<span class="text-2xs text-secondary">(optional but recommended)</span>
 					</label>
+					<span class="text-xs text-secondary">
+						Windmill AI powers the chat, code generation, flow creation, and code completion. Set
+						it up now or configure it later in Workspace settings.
+						<a
+							href="https://www.windmill.dev/docs/core_concepts/ai_generation"
+							target="_blank"
+							rel="noopener noreferrer"
+							class="underline"
+						>
+							Learn more
+						</a>
+					</span>
 
-					<ToggleButtonGroup bind:selected>
+					<ToggleButtonGroup bind:selected class="mt-4">
 						{#snippet children({ item })}
 							<ToggleButton value="openai" label="OpenAI" {item} />
 							<ToggleButton value="anthropic" label="Anthropic" {item} />
@@ -517,7 +704,7 @@
 							type="password"
 							autocomplete="new-password"
 							bind:value={aiKey}
-							onkeyup={handleKeyUp}
+							onkeyup={handleAiKeyUp}
 						/>
 						<TestAIKey
 							apiKey={aiKey}
@@ -529,7 +716,7 @@
 				</div>
 
 				{#if aiKey}
-					<div class="flex flex-col gap-2 mt-2">
+					<div class="flex flex-col gap-2">
 						<Toggle
 							disabled={!aiKey}
 							bind:checked={codeCompletionEnabled}
@@ -538,91 +725,25 @@
 					</div>
 				{/if}
 			</div>
-			<div class="flex flex-col gap-1">
-				<label for="auto-invite" class="text-xs font-semibold text-emphasis"
-					>{isCloudHosted()
-						? `Auto-${autoAdd ? 'add' : 'invite'} anyone from ${domain}`
-						: `Auto-${autoAdd ? 'add' : 'invite'} anyone joining the instance`}</label
+
+			<div class="flex flex-wrap flex-row justify-between gap-4 pt-4">
+				<Button
+					variant="default"
+					size="sm"
+					disabled={aiSetupLoading || !createdWorkspaceId}
+					on:click={() => createdWorkspaceId && finishWorkspaceSetup(createdWorkspaceId)}
 				>
-				<Toggle
-					id="auto-invite"
-					disabled={isCloudHosted() && !isDomainAllowed}
-					bind:checked={auto_invite}
-				/>
-				{#if isCloudHosted() && isDomainAllowed == false}
-					<div class="text-secondary text-2xs">{domain} domain not allowed for auto-invite</div>
-				{/if}
-
-				{#if auto_invite}
-					<div class="bg-surface-tertiary p-4 rounded-md flex flex-col gap-8">
-						<!-- svelte-ignore a11y_label_has_associated_control -->
-						{#if isCloudHosted()}
-							<label class="flex flex-col gap-1">
-								<span class="text-xs font-semibold text-emphasis">Mode</span>
-								<span class="text-xs text-secondary font-normal"
-									>Whether to invite or add users directly to the workspace.</span
-								>
-								<ToggleButtonGroup
-									selected={autoAdd ? 'add' : 'invite'}
-									on:selected={async (e) => {
-										autoAdd = e.detail === 'add'
-									}}
-								>
-									{#snippet children({ item })}
-										<ToggleButton value="invite" label="Auto-invite" {item} />
-										<ToggleButton value="add" label="Auto-add" {item} />
-									{/snippet}
-								</ToggleButtonGroup>
-							</label>
-						{/if}
-
-						<label class="font-semibold flex flex-col gap-1">
-							<span class="text-xs font-semibold text-emphasis">Role</span>
-							<span class="text-xs text-secondary font-normal">Role of the auto-invited users</span>
-							<ToggleButtonGroup
-								selected={operatorOnly ? 'operator' : 'developer'}
-								on:selected={(e) => {
-									operatorOnly = e.detail == 'operator'
-								}}
-							>
-								{#snippet children({ item })}
-									<ToggleButton value="operator" label="Operator" {item} />
-									<ToggleButton value="developer" label="Developer" {item} />
-								{/snippet}
-							</ToggleButtonGroup>
-						</label>
-					</div>
-				{/if}
-			</div>
-		{/if}
-		<div class="flex flex-wrap flex-row justify-between gap-4 pt-4">
-			<Button
-				disabled={forkCreationLoading}
-				variant="default"
-				size="sm"
-				href="{base}/user/workspaces">&leftarrow; Back to workspaces</Button
-			>
-			{#if !forkCreationLoading}
+					Skip for now
+				</Button>
 				<Button
 					variant="accent"
-					disabled={checking ||
-						errorId != '' ||
-						!name ||
-						(!automateUsernameCreation && (errorUser != '' || !username)) ||
-						!id}
-					on:click={createOrForkWorkspace}
+					loading={aiSetupLoading}
+					disabled={aiSetupLoading || !aiKey}
+					on:click={saveWorkspaceAiSetup}
 				>
-					{#if isFork}
-						Fork workspace
-					{:else}
-						Create workspace
-					{/if}
+					Set up AI
 				</Button>
-			{:else}
-				<Button variant="accent" disabled={true}>
-					<LoaderCircle class="animate-spin" /> Creating branch
-				</Button>
-			{/if}
-		</div>
+			</div>
+		{/if}
 	</div>
 </CenteredModal>

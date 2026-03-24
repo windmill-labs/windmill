@@ -286,16 +286,17 @@ pub struct FlowData {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct FlowNotes {
+pub struct FlowExtras {
     pub notes: Option<Box<RawValue>>,
+    pub groups: Option<Box<RawValue>>,
 }
 
 impl FlowData {
-    pub fn notes(&self) -> Option<FlowNotes> {
-        serde_json::from_str::<FlowNotes>(self.raw_flow.get())
+    pub fn extras(&self) -> Option<FlowExtras> {
+        serde_json::from_str::<FlowExtras>(self.raw_flow.get())
             .map_err(|e| {
-                tracing::error!("Failed to parse notes into FlowNotes: {}", e);
-                error::Error::internal_err(format!("Failed to parse notes into FlowNotes: {}", e))
+                tracing::error!("Failed to parse flow extras: {}", e);
+                error::Error::internal_err(format!("Failed to parse flow extras: {}", e))
             })
             .ok()
     }
