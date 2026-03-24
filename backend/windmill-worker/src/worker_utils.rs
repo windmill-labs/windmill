@@ -191,9 +191,17 @@ pub async fn insert_ping(
     let memory = get_memory();
 
     let job_isolation = if crate::is_sandboxing_enabled() {
-        Some("nsjail".to_string())
+        if crate::NSJAIL_AVAILABLE.is_some() {
+            Some("nsjail".to_string())
+        } else {
+            Some("none (nsjail unavailable)".to_string())
+        }
     } else if crate::is_unshare_enabled() {
-        Some("unshare".to_string())
+        if crate::UNSHARE_PATH.is_some() {
+            Some("unshare".to_string())
+        } else {
+            Some("none (unshare unavailable)".to_string())
+        }
     } else {
         Some("none".to_string())
     };
@@ -266,9 +274,17 @@ pub async fn update_worker_ping_from_job(
     let occupancy_rate_30m = occupancy.as_ref().and_then(|x| x.occupancy_rate_30m);
 
     let job_isolation = if crate::is_sandboxing_enabled() {
-        Some("nsjail".to_string())
+        if crate::NSJAIL_AVAILABLE.is_some() {
+            Some("nsjail".to_string())
+        } else {
+            Some("none (nsjail unavailable)".to_string())
+        }
     } else if crate::is_unshare_enabled() {
-        Some("unshare".to_string())
+        if crate::UNSHARE_PATH.is_some() {
+            Some("unshare".to_string())
+        } else {
+            Some("none (unshare unavailable)".to_string())
+        }
     } else {
         Some("none".to_string())
     };
