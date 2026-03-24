@@ -472,6 +472,10 @@
 		moveManager.toggleMovingMultiple(ids)
 	}
 
+	export function createGroup(ids: string[]) {
+		graph?.createGroupFromSelection(ids)
+	}
+
 	const dispatch = createEventDispatcher<{
 		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
 		change: void

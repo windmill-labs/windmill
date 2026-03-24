@@ -65,7 +65,7 @@
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
 	import GroupOverlay from './GroupOverlay.svelte'
-	import { GroupDisplayState, type FlowGroup } from './groupEditor.svelte'
+	import { GroupDisplayState, getGroupEditorContext, type FlowGroup } from './groupEditor.svelte'
 	import { buildStructureTree, computeGroupDepths, type FlowStructureNode } from './flowStructure'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { computeGroupModuleIds } from './groupDetectionUtils'
@@ -365,6 +365,15 @@
 		| [NodeDep[], Map<string, { top: number; bottom: number }> | undefined, (NodeDep & NodePos)[]]
 		| undefined = undefined
 	let currentGraphNodeDeps: { id: string; parentIds?: string[] }[] = $state([])
+
+	// Keep canCreateGroup in sync for consumers (SelectionBoundingBox, FlowSelectionPanel, etc.)
+	const groupEditorCtx = getGroupEditorContext()
+	$effect(() => {
+		if (!groupEditorCtx) return
+		const ids = selectionManager.selectedIds
+		groupEditorCtx.canCreateGroup.val =
+			ids.length >= 1 && groupEditorCtx.groupEditor.canCreateGroup(ids, currentGraphNodeDeps)
+	})
 
 	let lastGroupDimensions: Map<string, { width: number; height: number }> | undefined = undefined
 
@@ -1003,6 +1012,16 @@
 	export function enableNotes() {
 		if (!showNotes) {
 			showNotes = true
+		}
+	}
+
+	export function createGroupFromSelection(ids: string[]) {
+		if (groupEditorCtx?.groupEditor) {
+			groupEditorCtx.groupEditor.createGroup(ids, currentGraphNodeDeps)
+			tick().then(() => {
+				clearFlowSelection()
+				selectionManager.clearSelection()
+			})
 		}
 	}
 

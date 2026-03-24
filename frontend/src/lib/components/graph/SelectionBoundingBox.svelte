@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { ViewportPortal, type Node } from '@xyflow/svelte'
 	import { calculateNodesBoundsWithOffset } from './util'
-	import { StickyNote, Move, Copy, Trash2, EllipsisVertical, Group } from 'lucide-svelte'
+	import { Move, Copy, Trash2, EllipsisVertical, Group } from 'lucide-svelte'
 	import { Button } from '../common'
 	import DropdownV2 from '../DropdownV2.svelte'
-	import { getNoteEditorContext } from './noteEditor.svelte'
 	import { getGroupEditorContext } from './groupEditor.svelte'
 	import { getGraphContext } from './graphContext'
 	import MoveHandleButton from './MoveHandleButton.svelte'
@@ -37,30 +36,13 @@
 
 	let resolvedCount = $derived(resolvedModuleIds.length)
 
-	// Get NoteEditor context for group note creation
-	const noteEditorContext = getNoteEditorContext()
 	// Get GroupEditor context for group creation
 	const groupEditorContext = getGroupEditorContext()
 	// Get Graph context for clearFlowSelection function and moveManager
 	const graphContext = getGraphContext()
 	const moveManager = graphContext?.moveManager
 
-	function handleAddGroupNote() {
-		if (selectedNodes.length > 0 && noteEditorContext?.noteEditor && graphContext) {
-			noteEditorContext.noteEditor.createGroupNote(selectedNodes)
-
-			tick().then(() => {
-				graphContext?.clearFlowSelection?.()
-				graphContext?.selectionManager.clearSelection()
-			})
-		}
-	}
-
-	let canCreateGroup = $derived.by(() => {
-		if (selectedNodes.length < 1 || !groupEditorContext?.groupEditor || !graphContext) return false
-		const flowNodes = graphContext.getFlowNodes?.() ?? []
-		return groupEditorContext.groupEditor.canCreateGroup(selectedNodes, flowNodes)
-	})
+	let canCreateGroup = $derived(groupEditorContext?.canCreateGroup.val ?? false)
 
 	function handleAddGroup() {
 		if (selectedNodes.length > 0 && groupEditorContext?.groupEditor && graphContext) {
@@ -93,16 +75,6 @@
 			shortcut: isMac() ? '⌫' : 'Del',
 			action: () => onDeleteSelected?.()
 		},
-		...(noteEditorContext?.noteEditor
-			? [
-					{
-						displayName: 'Add note',
-						icon: StickyNote,
-						separatorTop: true,
-						action: handleAddGroupNote
-					}
-				]
-			: []),
 		...(groupEditorContext?.groupEditor
 			? [
 					{

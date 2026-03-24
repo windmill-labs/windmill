@@ -564,7 +564,8 @@
 
 	// Set up GroupEditor context for group editing capabilities
 	const groupEditor = new GroupEditor(flowStore)
-	setGroupEditorContext(groupEditor)
+	let canCreateGroup = $state({ val: false })
+	setGroupEditorContext(groupEditor, canCreateGroup)
 
 	let lastSent: OpenFlow | undefined = undefined
 	function updateFlow(flow: OpenFlow) {

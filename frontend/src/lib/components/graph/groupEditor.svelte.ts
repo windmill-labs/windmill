@@ -283,12 +283,16 @@ export class GroupEditor {
 
 export type GroupEditorContext = {
 	groupEditor: GroupEditor
+	canCreateGroup: StateStore<boolean>
 }
 
 const CONTEXT_KEY = 'GroupEditorContext'
 
-export function setGroupEditorContext(groupEditor: GroupEditor): void {
-	setContext<GroupEditorContext>(CONTEXT_KEY, { groupEditor })
+export function setGroupEditorContext(
+	groupEditor: GroupEditor,
+	canCreateGroup: StateStore<boolean>
+): void {
+	setContext<GroupEditorContext>(CONTEXT_KEY, { groupEditor, canCreateGroup })
 }
 
 export function getGroupEditorContext(): GroupEditorContext | undefined {
