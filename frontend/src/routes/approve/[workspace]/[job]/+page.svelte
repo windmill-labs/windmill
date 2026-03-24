@@ -295,7 +295,19 @@
 				{#if approvalInfo.user_auth_required && !$userStore}
 					<Login {rd} />
 				{:else}
-					<p class="text-sm text-secondary">You are not authorized to approve this flow.</p>
+					<div class="text-sm text-secondary space-y-1">
+						<p>You are not authorized to approve this flow.</p>
+						{#if approvalInfo.approval_conditions?.self_approval_disabled && $userStore && $userStore.email === (job as any)?.email}
+							<p class="text-yellow-600">Self-approval is disabled for this step.</p>
+						{/if}
+						{#if approvalInfo.approval_conditions?.user_groups_required?.length > 0}
+							<p
+								>Only members of the following groups can approve: <b
+									>{approvalInfo.approval_conditions.user_groups_required.join(', ')}</b
+								></p
+							>
+						{/if}
+					</div>
 				{/if}
 			{:else if completed}
 				<!-- already shown above -->
