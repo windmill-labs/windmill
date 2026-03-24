@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT fv.id FROM flow_version fv JOIN flow f ON fv.workspace_id = f.workspace_id AND fv.path = f.path WHERE fv.path = $1 AND fv.workspace_id = $2 AND f.archived = false ORDER BY fv.created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f32199588230d92d303c20a970cee5e3179753c74dde9800d49ac5ab91479bd0"
+}

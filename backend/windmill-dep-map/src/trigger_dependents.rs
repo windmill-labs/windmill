@@ -105,7 +105,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             },
 
             "flow" => match sqlx::query_scalar!(
-                "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+                "SELECT fv.id FROM flow_version fv JOIN flow f ON fv.workspace_id = f.workspace_id AND fv.path = f.path WHERE fv.path = $1 AND fv.workspace_id = $2 AND f.archived = false ORDER BY fv.created_at DESC LIMIT 1",
                 importer_path,
                 w_id
             )
