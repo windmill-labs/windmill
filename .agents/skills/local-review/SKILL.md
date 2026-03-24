@@ -1,6 +1,5 @@
 ---
 name: local-review
-user_invocable: true
 description: Code review a pull request for bugs and CLAUDE.md compliance. MUST use when asked to review code.
 ---
 

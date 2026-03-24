@@ -1,6 +1,5 @@
 ---
 name: pr
-user_invocable: true
 description: Open a draft pull request on GitHub. MUST use when you want to create/open a PR.
 ---
 
