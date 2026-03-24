@@ -1,7 +1,7 @@
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import { readFile, writeFile, stat } from "node:fs/promises";
+import { readFile, writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
@@ -1078,6 +1078,11 @@ async function bootstrap(
     return;
   }
 
+  // normalize language aliases
+  if (language === ("python" as any)) {
+    language = "python3";
+  }
+
   const scriptInitialCode = scriptBootstrapCode[language];
   if (scriptInitialCode === undefined) {
     throw new Error("Language unknown");
@@ -1117,6 +1122,9 @@ async function bootstrap(
     scriptMetadata as Record<string, any>,
     yamlOptions
   );
+
+  const parentDir = path.dirname(scriptCodeFileFullPath);
+  await mkdir(parentDir, { recursive: true });
 
   await writeFile(scriptCodeFileFullPath, scriptInitialCode, {
     flag: 'wx', encoding: 'utf-8',
