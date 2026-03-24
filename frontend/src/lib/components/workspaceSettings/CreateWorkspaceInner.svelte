@@ -245,7 +245,7 @@
 				if (datatableConfig.datatables[job.name]) {
 					const originalPath = datatableConfig.datatables[job.name].database.resource_path
 					datatableConfig.datatables[job.name].database.resource_path = job._newDbName
-					;(datatableConfig.datatables[job.name] as any).forked_from = originalPath
+					datatableConfig.datatables[job.name].forked_from = originalPath
 				}
 			} else {
 				// Resource: update the resource's dbname and set non_diffable

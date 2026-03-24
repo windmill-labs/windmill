@@ -23524,6 +23524,9 @@ components:
                     type: string
                 required:
                   - resource_type
+              forked_from:
+                type: string
+                description: Original resource_path before fork
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]
