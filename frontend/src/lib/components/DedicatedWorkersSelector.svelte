@@ -621,7 +621,7 @@
 								{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
 							</Badge>
 						{:else if info.language}
-							<Badge color="gray" small>{info.language}</Badge>
+							<Badge color="transparent" small>{info.language}</Badge>
 						{/if}
 					{/if}
 				{:else}
@@ -671,7 +671,7 @@
 							<span class="text-xs font-medium text-emphasis">Shared runner</span>
 							<span class="flex-1"></span>
 							{@render depBadge(group.depName)}
-							<Badge color="gray" small>{group.language}</Badge>
+							<Badge color="transparent" small>{group.language}</Badge>
 						</div>
 						<div class="divide-y">
 							{#each group.tags as tag (tag)}
@@ -704,7 +704,7 @@
 								{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
 							</Badge>
 						{:else if info?.language}
-							<Badge color="gray" small>{info.language}</Badge>
+							<Badge color="transparent" small>{info.language}</Badge>
 						{/if}
 						{#if !disabled}
 							<button
@@ -835,7 +835,7 @@
 														{@render depBadge(dep)}
 													{/each}
 												{/if}
-												<Badge color={runnable.type === 'flow' ? 'indigo' : 'gray'} small>
+												<Badge color={runnable.type === 'flow' ? 'indigo' : 'transparent'} small>
 													{runnable.type === 'flow' ? 'flow' : runnable.language}
 												</Badge>
 											</button>
