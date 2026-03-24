@@ -481,14 +481,15 @@ export function getLightConfig(
 	} else if (triggerType === 'email') {
 		return { local_part: trigger.local_part }
 	} else if (triggerType === 'nextcloud') {
-		return { event: trigger.service_config?.event ?? trigger.event }
+		return { event: trigger.service_config?.event ?? trigger.event, summary: trigger.summary }
 	} else if (triggerType === 'google') {
 		return {
 			trigger_type: trigger.service_config?.triggerType ?? trigger.trigger_type,
 			resource_id: trigger.service_config?.resourceId ?? trigger.resource_id,
 			resource_name: trigger.service_config?.resourceName ?? trigger.resource_name,
 			calendar_id: trigger.service_config?.calendarId ?? trigger.calendar_id,
-			calendar_name: trigger.service_config?.calendarName ?? trigger.calendar_name
+			calendar_name: trigger.service_config?.calendarName ?? trigger.calendar_name,
+			summary: trigger.summary
 		}
 	} else {
 		return undefined
@@ -524,8 +525,12 @@ export function getTriggerLabel(trigger: Trigger): string {
 		return `${config?.url}`
 	} else if (type === 'email' && config?.local_part) {
 		return `${config?.local_part}`
+	} else if (type === 'nextcloud' && config?.summary) {
+		return `${config.summary}`
 	} else if (type === 'nextcloud' && path) {
 		return `${path}`
+	} else if (type === 'google' && config?.summary) {
+		return `${config.summary}`
 	} else if (type === 'google' && path) {
 		const triggerType = config?.trigger_type ?? config?.triggerType
 		if (triggerType === 'calendar') {

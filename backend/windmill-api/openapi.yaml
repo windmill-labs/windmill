@@ -24592,6 +24592,10 @@ components:
           type: string
           nullable: true
           description: Error message if the trigger is in an error state
+        summary:
+          type: string
+          nullable: true
+          description: Short summary to be displayed when listed
       required:
         - external_id
         - workspace_id
@@ -24626,6 +24630,10 @@ components:
           type: string
           nullable: true
           description: Error message if the trigger is in an error state
+        summary:
+          type: string
+          nullable: true
+          description: Short summary to be displayed when listed
         external_data:
           type: object
           description: Configuration data from the external service
@@ -24718,6 +24726,10 @@ components:
           type: object
           description: Service-specific configuration (e.g., event types, filters)
           additionalProperties: true
+        summary:
+          type: string
+          nullable: true
+          description: Short summary to be displayed when listed
       required:
         - script_path
         - is_flow
