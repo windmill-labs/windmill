@@ -37,6 +37,8 @@ use axum::extract::Query;
 use serde::Deserialize;
 use serde::Serialize;
 #[cfg(feature = "enterprise")]
+use windmill_common::error::Result;
+#[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
 
 /// Wraps the subcrate's workspaced_service with routes that depend on windmill-api internals.

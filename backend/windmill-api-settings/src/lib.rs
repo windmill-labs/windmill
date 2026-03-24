@@ -43,7 +43,7 @@ use windmill_common::{
     error::{self, JsonResult, Result},
     get_database_url,
     global_settings::{
-        APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
+        AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
         EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
         WS_BASE_URL_SETTING,
@@ -285,7 +285,7 @@ pub async fn set_global_setting_internal(
     key: String,
     value: serde_json::Value,
 ) -> error::Result<()> {
-    let should_bump_instance_ai_revision = key == "ai_config";
+    let should_bump_instance_ai_revision = key == AI_CONFIG_SETTING;
     let value = if key == "retention_period_secs" {
         instance_config::clamp_retention_period(value)
     } else {
@@ -480,7 +480,7 @@ async fn set_instance_config(
         let ai_config_changed = settings_diff
             .upserts
             .iter()
-            .any(|(key, _)| key == "ai_config");
+            .any(|(key, _)| key == AI_CONFIG_SETTING);
 
         for (key, value) in &settings_diff.upserts {
             run_setting_pre_write_hook(&db, key, value).await?;
