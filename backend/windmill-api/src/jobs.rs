@@ -2027,10 +2027,7 @@ async fn count_completed_jobs_detail(
     if let Some(tags) = query.tags {
         sqlb.and_where_in(
             "v2_job.tag",
-            &tags
-                .split(",")
-                .map(|t| format!("'{}'", t))
-                .collect::<Vec<_>>(),
+            &tags.split(",").map(|t| quote(t)).collect::<Vec<_>>(),
         );
     }
 
