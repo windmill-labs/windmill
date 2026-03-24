@@ -3610,7 +3610,7 @@ pub async fn start_worker(
     let _ = write_file(job_dir, "main.ts", &main_code)?;
 
     let codegen = compute_ts_codegen(inner_content);
-    let wrapper_ext = if annotation.nodejs { "js" } else { "ts" };
+    let wrapper_ext = if codebase.is_some() { "js" } else { "ts" };
     {
         let scripts =
             [
