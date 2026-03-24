@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_status SET flow_status = (\n                    SELECT jsonb_set(\n                        flow_status,\n                        ARRAY['modules', (idx - 1)::text],\n                        $2::jsonb\n                    )\n                    FROM jsonb_array_elements(flow_status->'modules')\n                        WITH ORDINALITY arr(elem, idx)\n                    WHERE elem->>'id' = $3\n                    LIMIT 1\n                ) WHERE id = $1 AND (\n                    SELECT COUNT(*) FROM jsonb_array_elements(flow_status->'modules')\n                        WITH ORDINALITY arr(elem, idx)\n                    WHERE elem->>'id' = $3\n                ) > 0",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b1979a8249557d29e9055fde06191688f3ed0efd3a43e81f4ea296255248092c"
+}

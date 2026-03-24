@@ -2053,6 +2053,7 @@ async fn execute_component(
                 .triggerables_v2
                 .as_ref()
                 .ok_or_else(|| Error::BadRequest(format!("Policy is missing triggerables")))?;
+
             let policy_triggerables = triggerables_v2
                 .get(path) // start with `path` in case we can avoid the next` format!`.
                 .or_else(|| triggerables_v2.get(&format!("{}:{}", payload.component, &path)))

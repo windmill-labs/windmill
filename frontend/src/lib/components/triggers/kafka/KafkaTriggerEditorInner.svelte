@@ -15,6 +15,7 @@
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveKafkaTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -87,6 +88,9 @@
 	let autoOffsetReset = $state('latest')
 	let autoCommit = $state(true)
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
 	let resetLoading = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
@@ -216,6 +220,9 @@
 		retry = cfg?.retry
 		filters = cfg?.filters ?? []
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		permissionedAs = cfg?.permissioned_as
+		selectedPermissionedAs = undefined
+		preservePermissionedAs = false
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -246,7 +253,9 @@
 			extra_perms: extra_perms,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 	}
 
@@ -414,6 +423,15 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}
@@ -531,11 +549,10 @@
 								Offsets will not be committed automatically. Use <code
 									>wmill.commit_kafka_offsets(trigger_path, topic, partition, offset)</code
 								>
-								in Python or <code
-									>wmill.commitKafkaOffsets(triggerPath, topic, partition, offset)</code
-								> in TypeScript with the values from the event payload. The consumer collects
-								all pending commits and commits the highest offset for each topic/partition
-								pair.
+								in Python or
+								<code>wmill.commitKafkaOffsets(triggerPath, topic, partition, offset)</code> in TypeScript
+								with the values from the event payload. The consumer collects all pending commits and
+								commits the highest offset for each topic/partition pair.
 							</Alert>
 						{/if}
 					</div>

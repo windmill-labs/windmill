@@ -453,8 +453,13 @@ lazy_static::lazy_static! {
                     );
                 }
 
-                tracing::warn!(
-                    "unshare test failed: {}. Flags: {}. Set ENABLE_UNSHARE_PID=true to fail on error.",
+                tracing::error!(
+                    "unshare test command failed (exit code: {}). stderr: '{}'. flags: '{}'. \
+                    Unshare isolation will NOT be available. \
+                    If job_isolation is set to 'unshare' in Instance Settings, jobs will run without isolation. \
+                    Common causes: user namespaces disabled (sysctl kernel.unprivileged_userns_clone=0), \
+                    max_user_namespaces=0, or missing privileges (--mount-proc requires privileged mode).",
+                    output.status,
                     stderr.trim(),
                     flags
                 );
@@ -476,9 +481,15 @@ lazy_static::lazy_static! {
                 }
 
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    tracing::debug!("unshare binary not found");
+                    tracing::error!(
+                        "unshare binary not found in PATH. Unshare isolation will NOT be available. \
+                        Install the util-linux package to enable unshare isolation."
+                    );
                 } else {
-                    tracing::warn!("Failed to test unshare: {}", e);
+                    tracing::error!(
+                        "Failed to execute unshare test command: {}. Unshare isolation will NOT be available.",
+                        e
+                    );
                 }
                 None
             }
@@ -499,23 +510,27 @@ lazy_static::lazy_static! {
             },
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                tracing::warn!(
-                    "nsjail test failed: {}. \
+                tracing::error!(
+                    "nsjail test failed (exit code: {}). stderr: '{}'. path: '{}'. \
+                    Nsjail sandboxing will NOT be available. \
                     nsjail should be included in all standard windmill images. \
-                    Check that the nsjail binary is installed and working correctly.",
-                    stderr.trim()
+                    If job_isolation is set to 'nsjail_sandboxing' in Instance Settings, jobs will fail.",
+                    output.status,
+                    stderr.trim(),
+                    nsjail_path
                 );
                 None
             },
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    tracing::info!(
-                        "nsjail not found at '{}'. Sandboxing will not be available.",
+                    tracing::error!(
+                        "nsjail not found at '{}'. Nsjail sandboxing will NOT be available. \
+                        If using a custom image, ensure nsjail is installed.",
                         nsjail_path
                     );
                 } else {
-                    tracing::warn!(
-                        "Failed to test nsjail at '{}': {}.",
+                    tracing::error!(
+                        "Failed to execute nsjail test at '{}': {}. Nsjail sandboxing will NOT be available.",
                         nsjail_path,
                         e
                     );
@@ -1569,10 +1584,27 @@ pub async fn run_worker(
         );
     }
 
-    // Force UNSHARE_PATH initialization now to fail-fast if unshare doesn't work
-    // This ensures we panic at startup rather than lazily when first accessed during job execution
-    if is_unshare_enabled() || *ENABLE_UNSHARE_PID || *FAVOR_UNSHARE_PID {
-        let _ = &*UNSHARE_PATH;
+    // Force UNSHARE_PATH and NSJAIL_AVAILABLE initialization now for clear startup logging
+    let _ = &*UNSHARE_PATH;
+    let _ = &*NSJAIL_AVAILABLE;
+
+    if (is_unshare_enabled() || *FAVOR_UNSHARE_PID) && UNSHARE_PATH.is_none() {
+        tracing::error!(
+            worker = %worker_name, hostname = %hostname,
+            "Worker is configured to use unshare isolation (FAVOR_UNSHARE_PID={}, job_isolation={:?}) \
+            but unshare is NOT available. Jobs will run without isolation. \
+            See errors above for the specific reason unshare initialization failed.",
+            *FAVOR_UNSHARE_PID,
+            JobIsolationLevel::from_u8(JOB_ISOLATION.load(std::sync::atomic::Ordering::Relaxed))
+        );
+    }
+    if is_sandboxing_enabled() && NSJAIL_AVAILABLE.is_none() {
+        tracing::error!(
+            worker = %worker_name, hostname = %hostname,
+            "Worker is configured to use nsjail sandboxing but nsjail is NOT available. \
+            Jobs requiring sandboxing will fail. \
+            See errors above for the specific reason nsjail initialization failed."
+        );
     }
 
     let start_time = Instant::now();
@@ -4177,6 +4209,29 @@ pub async fn run_language_executor(
     modules: &Option<std::collections::HashMap<String, ScriptModule>>,
     run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
+    // Expand WM_INTERNAL_DB markers into real SQL before dispatching
+    let expanded_code: String;
+    let mut language = language;
+    let code = if let Some(ref lang) = language {
+        match windmill_common::query_builders::try_expand_internal_db_query(code, lang) {
+            Some(Ok(expanded)) => {
+                if let Some(lang_override) = expanded.language_override {
+                    language = Some(lang_override);
+                }
+                expanded_code = expanded.code;
+                &expanded_code
+            }
+            Some(Err(e)) => {
+                return Err(Error::ExecutionErr(format!(
+                    "Failed to expand WM_INTERNAL_DB marker: {}",
+                    e
+                )));
+            }
+            None => code, // Not a marker, use original code
+        }
+    } else {
+        code
+    };
     if let Some(modules) = modules {
         #[cfg(feature = "python")]
         let base_dir = if language == Some(ScriptLang::Python3) {
@@ -4438,7 +4493,10 @@ pub async fn run_language_executor(
             "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
             reserved_variables
                 .iter()
-                .map(|(k, v)| format!("const {} = '{}';\nprocess.env['{}'] = '{}';\n", k, v, k, v))
+                .map(|(k, v)| {
+                    let escaped = v.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r");
+                    format!("const {} = '{}';\nprocess.env['{}'] = '{}';\n", k, escaped, k, escaped)
+                })
                 .collect::<Vec<String>>()
                 .join("\n"));
 

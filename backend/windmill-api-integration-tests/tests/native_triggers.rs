@@ -422,6 +422,7 @@ async fn test_delete_integration_full_cascade(db: Pool<Postgres>) -> anyhow::Res
         "ext-1",
         &trigger_config,
         json!({"triggerType": "drive"}),
+        None,
     )
     .await?;
 
@@ -511,6 +512,7 @@ async fn test_cleanup_preserves_triggers(db: Pool<Postgres>) -> anyhow::Result<(
         "ext-1",
         &trigger_config,
         json!({"triggerType": "drive"}),
+        None,
     )
     .await?;
 
