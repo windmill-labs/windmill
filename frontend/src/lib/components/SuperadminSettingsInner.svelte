@@ -17,7 +17,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { ExternalLink, Pencil, UserMinus, UserPlus } from 'lucide-svelte'
+	import { Ban, CheckCircle2, ExternalLink, Pencil, UserMinus, UserPlus } from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -39,12 +39,14 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 	import SettingsSearchInput from './instanceSettings/SettingsSearchInput.svelte'
+	import InstanceAISettings from './instanceSettings/InstanceAISettings.svelte'
 
 	let filter = $state('')
 
 	let {
 		closeDrawer,
 		showHeaderInfo = true,
+		disableChatOffset = false,
 		yamlMode = $bindable(false),
 		hasUnsavedChanges = $bindable(false),
 		hasAnyInvalid = $bindable(false)
@@ -65,6 +67,8 @@
 	let filteredUsers: GlobalUserInfo[] = $state([])
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let deleteUserEmail: string = $state('')
+	let disableConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let disableUserEmail: string = $state('')
 	let editWrappers: Record<string, HTMLDivElement> = $state({})
 	let activeOnly = $state(false)
 
@@ -234,7 +238,9 @@
 		<div class="flex-1 min-w-0 h-full">
 			<div class="h-full overflow-auto bg-surface">
 				<div class="h-fit px-8 py-4">
-					{#if tab === 'users' && !yamlMode}
+					{#if tab === 'ai' && !yamlMode}
+						<InstanceAISettings {disableChatOffset} />
+					{:else if tab === 'users' && !yamlMode}
 						<div class="h-full">
 							{#if !automateUsernameCreation && !isCloudHosted()}
 								<div class="mb-4">
@@ -289,9 +295,9 @@
 								/><Toggle
 									bind:checked={activeOnly}
 									options={{
-										left: 'Show active users only',
+										left: 'Recently active only',
 										leftTooltip:
-											'An active user is a user who has performed at least one action in the last 30 days'
+											'Show only users who have logged in or performed an action in the last 30 days'
 									}}
 								/>
 
@@ -343,13 +349,25 @@
 									</Head>
 									<tbody>
 										{#if filteredUsers && users}
-											{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, role_source }, i (email)}
-												<tr class={i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
-													<Cell first class="max-w-[200px]"
-														><a href="mailto:{email}" title={email} class="truncate block"
-															>{email}</a
-														></Cell
-													>
+											{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, role_source, disabled }, i (email)}
+												<tr
+													class="{i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'} {disabled
+														? 'opacity-60'
+														: ''}"
+												>
+													<Cell first class="max-w-[250px]">
+														<div class="flex items-center gap-1.5">
+															<a href="mailto:{email}" title={email} class="truncate block"
+																>{email}</a
+															>
+															{#if disabled}
+																<span
+																	class="text-2xs px-1.5 py-0.5 rounded bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-300 whitespace-nowrap"
+																	>Disabled</span
+																>
+															{/if}
+														</div>
+													</Cell>
 													{#if automateUsernameCreation}
 														<Cell class="max-w-[150px]">
 															{#if username}
@@ -511,6 +529,39 @@
 																		}
 																	},
 																	{
+																		displayName: disabled ? 'Enable' : 'Disable',
+																		icon: disabled ? CheckCircle2 : Ban,
+																		action: () => {
+																			if (!disabled) {
+																				disableUserEmail = email
+																				disableConfirmedCallback = async () => {
+																					try {
+																						await UserService.globalUserUpdate({
+																							email,
+																							requestBody: { disabled: true }
+																						})
+																						sendUserToast('User disabled')
+																						listUsers(activeOnly)
+																					} catch (e) {
+																						sendUserToast('Failed to disable user', true)
+																					}
+																				}
+																			} else {
+																				UserService.globalUserUpdate({
+																					email,
+																					requestBody: { disabled: false }
+																				})
+																					.then(() => {
+																						sendUserToast('User enabled')
+																						listUsers(activeOnly)
+																					})
+																					.catch(() => {
+																						sendUserToast('Failed to enable user', true)
+																					})
+																			}
+																		}
+																	},
+																	{
 																		displayName: 'Remove',
 																		icon: UserMinus,
 																		type: 'delete',
@@ -574,6 +625,33 @@
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to remove <b>{deleteUserEmail}</b>?</span>
+		<span
+			>Are you sure you want to remove <b>{deleteUserEmail}</b>? They will be removed from all
+			workspaces and instance groups, and all their sessions and tokens will be revoked. This action
+			is irreversible. Their workspace content (scripts, flows, apps) will not be deleted.</span
+		>
+	</div>
+</ConfirmationModal>
+<ConfirmationModal
+	open={Boolean(disableConfirmedCallback)}
+	title="Disable user"
+	confirmationText="Disable"
+	on:canceled={() => {
+		disableConfirmedCallback = undefined
+		listUsers(activeOnly)
+	}}
+	on:confirmed={() => {
+		if (disableConfirmedCallback) {
+			disableConfirmedCallback()
+		}
+		disableConfirmedCallback = undefined
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span
+			>Are you sure you want to disable <b>{disableUserEmail}</b>? All their active sessions and
+			tokens will be revoked immediately. They will be unable to log in until re-enabled. Their
+			workspace memberships and content will be preserved.</span
+		>
 	</div>
 </ConfirmationModal>

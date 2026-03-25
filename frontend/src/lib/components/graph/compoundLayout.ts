@@ -1,5 +1,6 @@
 import { sugiyama, dagStratify, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
 import { NODE } from './util'
+import { GROUP_HEADER_HEIGHT } from './groupEditor.svelte'
 
 type LayoutNode = {
 	id: string
@@ -14,7 +15,7 @@ type LayoutConstants = {
 }
 
 type CompoundGroup = {
-	type: 'branch' | 'loop'
+	type: 'branch' | 'loop' | 'group'
 	headId: string
 	endId: string
 	branches: {
@@ -27,9 +28,12 @@ type LayoutResult = {
 	positions: Map<string, { x: number; y: number }>
 	bbox: { width: number; height: number }
 	contentMinX: number
+	groupDimensions?: Map<string, { width: number; height: number }>
 }
 
 const LOOP_INDENT = 25
+export const GROUP_PADDING = 16
+export const GROUP_TOP_PADDING = 32
 
 /**
  * Detect compound groups from a flat list of node IDs.
@@ -83,6 +87,18 @@ function detectGroups(
 				endId: id,
 				branches: [{ labelId: `${baseId}-start`, innerIds }]
 			})
+		} else if (baseId.startsWith('group:')) {
+			// Group pattern: group:{groupId} head + group:{groupId}-end
+			// Body is everything reachable from head to end
+			const innerIds = findInnerIds(baseId, id, nodeIds, childrenMap)
+			if (innerIds.length > 0) {
+				groups.push({
+					type: 'group',
+					headId: baseId,
+					endId: id,
+					branches: [{ labelId: innerIds[0], innerIds: innerIds.slice(1) }]
+				})
+			}
 		}
 	}
 
@@ -230,6 +246,29 @@ function runSugiyama(
  * 5. Run sugiyama on the simplified graph
  * 6. Expand wrapper positions back to absolute positions
  */
+/**
+ * Build nodeSizes map for sugiyama from nodeExtraSpace.
+ * Each node's effective height = top + NODE.height + bottom.
+ */
+function buildNodeSizes(
+	nodeIds: string[],
+	constants: LayoutConstants,
+	nodeExtraSpace?: Map<string, { top: number; bottom: number; left: number; right: number }>
+): Map<string, { width: number; height: number }> | undefined {
+	if (!nodeExtraSpace || nodeExtraSpace.size === 0) return undefined
+	const sizes = new Map<string, { width: number; height: number }>()
+	for (const id of nodeIds) {
+		const extra = nodeExtraSpace.get(id)
+		if (extra && (extra.top > 0 || extra.bottom > 0 || extra.left > 0 || extra.right > 0)) {
+			sizes.set(id, {
+				width: constants.nodeWidth + extra.left + extra.right,
+				height: constants.nodeHeight + extra.top + extra.bottom
+			})
+		}
+	}
+	return sizes.size > 0 ? sizes : undefined
+}
+
 const MAX_RECURSION_DEPTH = 50
 
 function layoutLevel(
@@ -237,7 +276,8 @@ function layoutLevel(
 	allNodes: Map<string, LayoutNode>,
 	constants: LayoutConstants,
 	childrenMap: Map<string, string[]>,
-	depth: number = 0
+	depth: number = 0,
+	nodeExtraSpace?: Map<string, { top: number; bottom: number; left: number; right: number }>
 ): LayoutResult {
 	const positions = new Map<string, { x: number; y: number }>()
 	const nodeIdSet = new Set(nodeIds)
@@ -256,8 +296,15 @@ function layoutLevel(
 			const n = allNodes.get(id)!
 			return { id, parentIds: (n.parentIds ?? []).filter((pid) => nodeIdSet.has(pid)) }
 		})
-		const result = runSugiyama(flatNodes, constants)
+		const extraSizes = buildNodeSizes(
+			flatNodes.map((n) => n.id),
+			constants,
+			nodeExtraSpace
+		)
+		const result = runSugiyama(flatNodes, constants, extraSizes)
 		for (const [id, pos] of result.positions) {
+			const extra = nodeExtraSpace?.get(id)
+			if (extra) pos.y += extra.top
 			positions.set(id, pos)
 		}
 		return { positions, bbox: { width: result.width, height: result.height }, contentMinX: 0 }
@@ -322,7 +369,14 @@ function layoutLevel(
 			const branchNodeIds = [branch.labelId, ...branch.innerIds]
 
 			// Find sub-groups within this branch
-			const result = layoutLevel(branchNodeIds, allNodes, constants, childrenMap, depth + 1)
+			const result = layoutLevel(
+				branchNodeIds,
+				allNodes,
+				constants,
+				childrenMap,
+				depth + 1,
+				nodeExtraSpace
+			)
 
 			branchLayouts.push({
 				labelId: branch.labelId,
@@ -349,6 +403,16 @@ function layoutLevel(
 			maxBranchHeight = Math.max(0, ...branchLayouts.map((bl) => bl.bbox.height))
 			// head row + branch content + end row
 			wrapperHeight = rowHeight + maxBranchHeight + rowHeight
+		} else if (group.type === 'group') {
+			// Group: body is centered with padding on all sides
+			const bodyWidth = branchLayouts[0]?.bbox.width ?? constants.nodeWidth
+			const bodyHeight = branchLayouts[0]?.bbox.height ?? 0
+			wrapperWidth = Math.max(bodyWidth + GROUP_PADDING * 2, constants.nodeWidth)
+			maxBranchHeight = bodyHeight
+			const headExtra = nodeExtraSpace?.get(group.headId)
+			const groupHeadRow = GROUP_HEADER_HEIGHT + (headExtra?.bottom ?? 0) + GROUP_TOP_PADDING
+			// head row + body + bottom padding
+			wrapperHeight = groupHeadRow + bodyHeight + GROUP_PADDING
 		} else {
 			// Loop: body is indented
 			const bodyWidth = branchLayouts[0]?.bbox.width ?? constants.nodeWidth
@@ -395,13 +459,30 @@ function layoutLevel(
 	}
 
 	// Step 5: Run sugiyama on flattened nodes
-	const sugResult = runSugiyama(flatNodes, constants, wrapperSizes)
+	// Merge wrapperSizes with nodeExtraSpace-derived sizes for non-group nodes
+	const extraSizes = buildNodeSizes(
+		flatNodes.map((n) => n.id),
+		constants,
+		nodeExtraSpace
+	)
+	const mergedSizes = new Map<string, { width: number; height: number }>()
+	if (extraSizes) {
+		for (const [id, size] of extraSizes) mergedSizes.set(id, size)
+	}
+	for (const [id, size] of wrapperSizes) mergedSizes.set(id, size)
+	const sugResult = runSugiyama(
+		flatNodes,
+		constants,
+		mergedSizes.size > 0 ? mergedSizes : undefined
+	)
 
 	// Step 6: Resolve absolute positions
 	// First, set positions for regular (non-group) nodes
+	// Apply per-node y-offset from nodeExtraSpace so decorations above have room
 	for (const [nid, pos] of sugResult.positions) {
 		if (groupByHeadId.has(nid)) continue // Handle groups separately
-		positions.set(nid, { x: pos.x, y: pos.y })
+		const extra = nodeExtraSpace?.get(nid)
+		positions.set(nid, { x: pos.x, y: pos.y + (extra?.top ?? 0) })
 	}
 
 	// Now expand group wrappers into absolute positions
@@ -411,9 +492,15 @@ function layoutLevel(
 
 		const rowHeight = constants.nodeHeight + constants.gapV
 		const isBranch = gl.group.type === 'branch'
+		const isGroup = gl.group.type === 'group'
 
 		// Position the head node at the top-center of the wrapper
-		positions.set(headId, { x: wrapperPos.x, y: wrapperPos.y })
+		// Apply extra top padding so decorations above the head node have room
+		const headExtra = nodeExtraSpace?.get(headId)
+		positions.set(headId, {
+			x: wrapperPos.x,
+			y: wrapperPos.y + (headExtra?.top ?? 0)
+		})
 
 		if (isBranch) {
 			// Reuse cached branchWidths and totalWidth
@@ -441,6 +528,26 @@ function layoutLevel(
 				x: wrapperPos.x,
 				y: wrapperPos.y + rowHeight + maxBranchHeight + constants.gapV
 			})
+		} else if (isGroup) {
+			// Group: body is centered within wrapper (no x offset)
+			const headExtra = nodeExtraSpace?.get(gl.group.headId)
+			const groupHeadRow = GROUP_HEADER_HEIGHT + (headExtra?.bottom ?? 0) + GROUP_TOP_PADDING
+			const bl = gl.branchLayouts[0]
+			if (bl) {
+				for (const [innerNodeId, innerPos] of bl.result.positions) {
+					positions.set(innerNodeId, {
+						x: wrapperPos.x + innerPos.x,
+						y: wrapperPos.y + groupHeadRow + innerPos.y
+					})
+				}
+			}
+
+			// Position end node below body
+			const bodyHeight = bl?.bbox.height ?? 0
+			positions.set(gl.group.endId, {
+				x: wrapperPos.x,
+				y: wrapperPos.y + groupHeadRow + bodyHeight + GROUP_PADDING
+			})
 		} else {
 			// Loop: position start, body, and end
 			const bl = gl.branchLayouts[0]
@@ -463,16 +570,34 @@ function layoutLevel(
 		}
 	}
 
+	// Collect group dimensions from this level and child layouts
+	const groupDimensions = new Map<string, { width: number; height: number }>()
+	for (const [headId, gl] of groupLayouts) {
+		groupDimensions.set(headId, { width: gl.wrapperWidth, height: gl.wrapperHeight })
+		// Propagate child groupDimensions from recursive branch layouts
+		for (const bl of gl.branchLayouts) {
+			if (bl.result.groupDimensions) {
+				for (const [childId, dims] of bl.result.groupDimensions) {
+					groupDimensions.set(childId, dims)
+				}
+			}
+		}
+	}
+
 	// Compute overall bbox (nodes + group wrapper extents)
 	let minX = Infinity
 	let maxX = -Infinity
 	let minY = Infinity
 	let maxY = -Infinity
-	for (const pos of positions.values()) {
-		minX = Math.min(minX, pos.x - constants.nodeWidth / 2)
-		maxX = Math.max(maxX, pos.x + constants.nodeWidth / 2)
-		minY = Math.min(minY, pos.y)
-		maxY = Math.max(maxY, pos.y + constants.nodeHeight)
+	for (const [nid, pos] of positions) {
+		// Group end nodes are zero-height markers — skip them
+		if (nid.startsWith('group:') && nid.endsWith('-end')) continue
+		const extra = nodeExtraSpace?.get(nid)
+		minX = Math.min(minX, pos.x - constants.nodeWidth / 2 - (extra?.left ?? 0))
+		maxX = Math.max(maxX, pos.x + constants.nodeWidth / 2 + (extra?.right ?? 0))
+		// Account for top decoration space above the node
+		minY = Math.min(minY, pos.y - (extra?.top ?? 0))
+		maxY = Math.max(maxY, pos.y + constants.nodeHeight + (extra?.bottom ?? 0))
 	}
 	// Account for group wrapper extents in bbox (e.g. LOOP_INDENT makes wrappers wider than nodes)
 	for (const [headId, gl] of groupLayouts) {
@@ -492,7 +617,12 @@ function layoutLevel(
 		width: Math.max(bboxWidth, constants.nodeWidth),
 		height: Math.max(bboxHeight, 0)
 	}
-	return { positions, bbox: finalBbox, contentMinX }
+	return {
+		positions,
+		bbox: finalBbox,
+		contentMinX,
+		groupDimensions: groupDimensions.size > 0 ? groupDimensions : undefined
+	}
 }
 
 /**
@@ -500,10 +630,16 @@ function layoutLevel(
  *
  * Takes the flat list of nodes and edges from graphBuilder and produces
  * absolute positions that account for compound structure (branches, loops).
+ *
+ * nodeExtraSpace: per-node top/bottom/left/right padding that should be allocated in layout.
+ * After layout, each node's y is shifted down by its top padding so decorations
+ * (assets, AI tools, group headers) have room above. Left/right padding widens the
+ * column allocated to the node so neighbors are pushed further away.
  */
 export function compoundLayout(
 	nodes: { id: string; parentIds?: string[] }[],
-	constants?: Partial<LayoutConstants>
+	constants?: Partial<LayoutConstants>,
+	nodeExtraSpace?: Map<string, { top: number; bottom: number; left: number; right: number }>
 ): LayoutResult {
 	const c: LayoutConstants = {
 		nodeWidth: constants?.nodeWidth ?? NODE.width,
@@ -528,7 +664,7 @@ export function compoundLayout(
 	}
 
 	const nodeIds = nodes.map((n) => n.id)
-	const result = layoutLevel(nodeIds, allNodes, c, childrenMap)
+	const result = layoutLevel(nodeIds, allNodes, c, childrenMap, 0, nodeExtraSpace)
 
 	// Shift positions so minX=0 (left-aligned).
 	// FlowGraphV2 centers with: xCenter = viewport/2 - bbox.width/2

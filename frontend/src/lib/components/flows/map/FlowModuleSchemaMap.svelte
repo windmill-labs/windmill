@@ -23,7 +23,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
-	import { getDependentComponents } from '../flowExplorer'
+	import { getAllModules, getDependentComponents } from '../flowExplorer'
 	import { locateModules, groupByParent } from '../multiSelectUtils'
 	import { workspaceStore } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
@@ -54,6 +54,18 @@
 	} from '../agentToolUtils'
 	import { loadFlowModuleState } from '../flowStateUtils.svelte'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
+	import {
+		GroupedModulesProxy,
+		type ExtendedOpenFlow
+	} from '$lib/components/graph/groupedModulesProxy.svelte'
+	import { GroupDisplayState } from '$lib/components/graph/groupEditor.svelte'
+	import {
+		type FlowStructureNode,
+		matchStructureNode,
+		dfsStructure,
+		findInStructure,
+		moduleToStructureNode
+	} from '$lib/components/graph/flowStructure'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -127,6 +139,8 @@
 
 	// Get NoteEditor context for note position updates
 	const noteEditorContext = getNoteEditorContext()
+	const proxy = new GroupedModulesProxy(flowStore as unknown as StateStore<ExtendedOpenFlow>)
+	const groupDisplayState = new GroupDisplayState(() => flowStore.val.value?.groups ?? [])
 
 	$effect(() => {
 		if (!moveManager.movingModuleId) return
@@ -141,16 +155,13 @@
 		return () => document.removeEventListener('keydown', onKeyDown, true)
 	})
 
-	export async function insertNewModuleAtIndex(
-		modules: FlowModule[] | AgentTool[],
-		index: number,
+	/** Create a new FlowModule without inserting it into any array */
+	async function createNewModule(
 		kind: InsertKind,
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
-		inlineScript?: InlineScript,
-		toolKind?: SpecialToolKind | 'flowmoduleTool'
-	): Promise<FlowModule[] | AgentTool[]> {
-		push(history, flowStore.val)
+		inlineScript?: InlineScript
+	): Promise<FlowModule> {
 		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
 		let state = emptyFlowModuleState()
 		flowStateStore.val[module.id] = state
@@ -198,6 +209,21 @@
 			module.stop_after_if = { skip_if_stopped: false, expr: 'true' }
 		}
 
+		return module
+	}
+
+	export async function insertNewModuleAtIndex(
+		modules: FlowModule[] | AgentTool[],
+		index: number,
+		kind: InsertKind,
+		wsScript?: { path: string; summary: string; hash: string | undefined },
+		wsFlow?: { path: string; summary: string },
+		inlineScript?: InlineScript,
+		toolKind?: SpecialToolKind | 'flowmoduleTool'
+	): Promise<FlowModule[] | AgentTool[]> {
+		push(history, flowStore.val)
+		const module = await createNewModule(kind, wsScript, wsFlow, inlineScript)
+
 		if (!modules) return [module]
 
 		if (toolKind === 'mcpTool') {
@@ -222,7 +248,7 @@
 			;(modules as AgentTool[]).splice(index, 0, agentTool)
 			return modules as AgentTool[]
 		} else {
-			// Standard FlowModule insertion (existing behavior)
+			// Standard FlowModule insertion
 			modules.splice(index, 0, module)
 			return modules
 		}
@@ -332,6 +358,13 @@
 	let deleteCallback: (() => void) | undefined = $state(undefined)
 	let dependents: Record<string, string[]> = $state({})
 
+	/** Confirmation gate for actions that would empty or duplicate groups */
+	let affectedGroupsPending: import('$lib/components/graph/groupEditor.svelte').FlowGroup[] =
+		$state([])
+	let affectedGroupsAction: (() => void) | undefined = $state(undefined)
+	let affectedGroupsCancel: (() => void) | undefined = $state(undefined)
+	let affectedGroupsActionLabel: 'delete' | 'move' = $state('delete')
+
 	let graph: FlowGraphV2 | undefined = $state(undefined)
 	let noteMode = $state(false)
 	let diffManager = $derived(getDiffManager())
@@ -363,24 +396,46 @@
 			}
 		}
 
+		const opts = { displayState: groupDisplayState }
+		const { emptiedGroups, duplicateGroups, commit } = proxy.prepareMutation((tree) => {
+			for (const id of ids) {
+				const found = findInStructure(tree, id)
+				if (found) found.parentChildren.splice(found.index, 1)
+			}
+		}, opts)
+
+		const affectedGroups = [...emptiedGroups, ...duplicateGroups]
+
 		const cb = () => {
 			push(history, flowStore.val)
+			commit({ removeDuplicates: duplicateGroups.length > 0 })
 			for (const id of ids) {
-				removeAtId(flowStore.val.value.modules, id)
 				delete flowStateStore.val[id]
 			}
 			selectionManager.clearSelection()
 			refreshStateStore(flowStore)
 		}
 
-		if (Object.keys(allDeps).length > 0) {
-			dependents = allDeps
-			deleteCallback = cb
+		const proceed = () => {
+			if (Object.keys(allDeps).length > 0) {
+				dependents = allDeps
+				deleteCallback = cb
+			} else {
+				cb()
+			}
+		}
+
+		if (affectedGroups.length > 0) {
+			affectedGroupsPending = affectedGroups
+			affectedGroupsActionLabel = 'delete'
+			affectedGroupsAction = proceed
 		} else {
-			cb()
+			proceed()
 		}
 	}
 
+	// Operates directly on the flat module array (not the structure tree).
+	// Cloned modules are inserted after the originals, intentionally outside any group.
 	export function duplicateMultiple(ids: string[]) {
 		const locations = locateModules(ids, flowStore.val.value.modules)
 		const groups = groupByParent(locations)
@@ -423,6 +478,10 @@
 
 	export function moveMultiple(ids: string[]) {
 		moveManager.toggleMovingMultiple(ids)
+	}
+
+	export function createGroup(ids: string[]) {
+		graph?.createGroupFromSelection(ids)
 	}
 
 	const dispatch = createEventDispatcher<{
@@ -508,6 +567,40 @@
 			</div>
 		{/each}
 	</ConfirmationModal>
+
+	<ConfirmationModal
+		title={affectedGroupsPending.length === 1 ? 'Remove group?' : 'Remove groups?'}
+		confirmationText={affectedGroupsActionLabel === 'delete' ? 'Delete step' : 'Move step'}
+		open={affectedGroupsPending.length > 0}
+		on:confirmed={() => {
+			affectedGroupsAction?.()
+			affectedGroupsPending = []
+			affectedGroupsAction = undefined
+			affectedGroupsCancel = undefined
+		}}
+		on:canceled={() => {
+			affectedGroupsCancel?.()
+			affectedGroupsPending = []
+			affectedGroupsAction = undefined
+			affectedGroupsCancel = undefined
+		}}
+	>
+		{#if affectedGroupsPending.length === 1}
+			{@const group = affectedGroupsPending[0]}
+			<p
+				>The group{group.summary ? ` "${group.summary}"` : ''} will be removed (empty or duplicate).
+				Are you sure you want to {affectedGroupsActionLabel} the step?</p
+			>
+		{:else}
+			<p>The following groups will be removed (empty or duplicate):</p>
+			<ul class="list-disc pl-4 mt-1">
+				{#each affectedGroupsPending as group}
+					<li>{group.summary || `${group.start_id} → ${group.end_id}`}</li>
+				{/each}
+			</ul>
+			<p class="mt-2">Are you sure you want to {affectedGroupsActionLabel} the step?</p>
+		{/if}
+	</ConfirmationModal>
 </Portal>
 <div class="flex flex-col h-full relative -pt-1" bind:clientWidth={flowPaneWidth}>
 	<div
@@ -544,8 +637,12 @@
 			{moveManager}
 			maxHeight={minHeight}
 			modules={flowStore.val.value.modules}
+			groupedModules={proxy.items}
+			groupError={proxy.error}
+			{groupDisplayState}
 			{noteMode}
 			notes={flowStore.val.value.notes}
+			groups={flowStore.val.value.groups}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
 			failureModule={flowStore.val.value?.failure_module}
 			currentInputSchema={flowStore.val.schema}
@@ -565,161 +662,274 @@
 			chatInputEnabled={Boolean(flowStore.val.value?.chat_input_enabled)}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
-				const cb = () => {
-					push(history, flowStore.val)
-					if (id === 'preprocessor') {
+
+				if (id === 'preprocessor') {
+					const cb = () => {
+						push(history, flowStore.val)
 						selectionManager.selectId('Input')
 						flowStore.val.value.preprocessor_module = undefined
-					} else {
-						selectNextId(id)
-						removeAtId(flowStore.val.value.modules, id)
+						refreshStateStore(flowStore)
+						onDelete?.(id)
+						delete flowStateStore.val[id]
 					}
+					if (Object.keys(dependents).length > 0) {
+						deleteCallback = cb
+					} else {
+						cb()
+					}
+					return
+				}
+
+				const dsOpts = { displayState: groupDisplayState }
+				const { emptiedGroups, duplicateGroups, commit } = proxy.prepareMutation((tree) => {
+					const found = findInStructure(tree, id)
+					if (found) found.parentChildren.splice(found.index, 1)
+				}, dsOpts)
+
+				const affectedGroups = [...emptiedGroups, ...duplicateGroups]
+
+				const cb = () => {
+					push(history, flowStore.val)
+					selectNextId(id)
+					commit({ removeDuplicates: duplicateGroups.length > 0 })
 					refreshStateStore(flowStore)
 					onDelete?.(id)
 					delete flowStateStore.val[id]
 				}
 
-				if (Object.keys(dependents).length > 0) {
-					deleteCallback = cb
+				const proceed = () => {
+					if (Object.keys(dependents).length > 0) {
+						deleteCallback = cb
+					} else {
+						cb()
+					}
+				}
+
+				if (affectedGroups.length > 0) {
+					affectedGroupsPending = affectedGroups
+					affectedGroupsActionLabel = 'delete'
+					affectedGroupsAction = proceed
 				} else {
-					cb()
+					proceed()
 				}
 			}}
 			onInsert={async (detail) => {
-				{
-					let originalModules
-					let targetModules
-					if (
-						detail.sourceId == 'Input' ||
-						detail.targetId == 'Result' ||
-						detail.kind == 'trigger'
-					) {
-						targetModules = flowStore.val.value.modules
+				if (!flowStore.val.value.modules || !Array.isArray(flowStore.val.value.modules)) return
+				await tick()
+
+				// --- MOVE ---
+				if (moveManager.movingModuleId) {
+					const movedIds = moveManager.movingIds ?? [moveManager.movingModuleId]
+					const movingId = moveManager.movingModuleId
+
+					let mutated = false
+					const moveOpts = { displayState: groupDisplayState }
+					const { emptiedGroups, duplicateGroups, commit } = proxy.prepareMutation((tree) => {
+						let originalModules: FlowStructureNode[] | undefined
+						let targetModules: FlowStructureNode[] | undefined
+
+						if (detail.sourceId == 'Input' || detail.targetId == 'Result') {
+							targetModules = tree
+						}
+						dfsStructure(tree, (node, parentArray) => {
+							if (matchStructureNode(node, movingId)) originalModules = parentArray
+							if (detail.branch && matchStructureNode(node, detail.branch.rootId)) {
+								targetModules = node.branches[detail.branch.branch]?.children
+							} else if (
+								matchStructureNode(node, detail.sourceId ?? '') ||
+								matchStructureNode(node, detail.targetId ?? '')
+							) {
+								targetModules = parentArray
+							}
+						})
+
+						if (!originalModules || !targetModules) return
+
+						if (movedIds.length > 1) {
+							const firstIndex = originalModules.findIndex((m) =>
+								matchStructureNode(m, movedIds[0])
+							)
+							if (firstIndex < 0) return
+							const removedModules = originalModules.splice(firstIndex, movedIds.length)
+							let insertIndex = detail.index
+							if (originalModules === targetModules && firstIndex < detail.index) {
+								insertIndex -= movedIds.length
+							}
+							targetModules.splice(insertIndex, 0, ...removedModules)
+						} else {
+							const indexToRemove = originalModules.findIndex((m) =>
+								matchStructureNode(m, movingId)
+							)
+							if (indexToRemove < 0) return
+							const [removed] = originalModules.splice(indexToRemove, 1)
+							let insertIndex = detail.index
+							if (originalModules === targetModules && indexToRemove < detail.index)
+								insertIndex -= 1
+							targetModules.splice(insertIndex, 0, removed)
+						}
+						mutated = true
+					}, moveOpts)
+
+					if (!mutated) {
+						moveManager.clearMoving()
+						return
 					}
 
-					dfs(flowStore.val.value.modules, (mod, modules, branches) => {
-						if (mod.id == moveManager.movingModuleId) {
-							originalModules = modules
-						}
-						if (detail.branch) {
-							if (mod.id == detail.branch.rootId) {
-								targetModules = branches[detail.branch.branch]
-							}
-						} else if (mod.id == detail.sourceId || mod.id == detail.targetId) {
-							targetModules = modules
-						} else if (mod.id == detail.agentId && mod.value.type === 'aiagent') {
-							targetModules = mod.value.tools
-						}
-					})
-					if (flowStore.val.value.modules && Array.isArray(flowStore.val.value.modules)) {
-						await tick()
-						if (moveManager.movingModuleId) {
-							push(history, flowStore.val)
-							if (!originalModules || !targetModules) {
-								moveManager.clearMoving()
-								return
-							}
-							if (moveManager.movingIds && moveManager.movingIds.length > 1) {
-								// Multi-move: splice out all moving modules from their parent, insert at target
-								const firstIndex = originalModules.findIndex(
-									(m) => m.id === moveManager.movingIds?.[0]
-								)
-								const removedModules = originalModules.splice(
-									firstIndex,
-									moveManager.movingIds.length
-								)
-								let insertIndex = detail.index
-								if (originalModules === targetModules && firstIndex < detail.index) {
-									insertIndex -= moveManager.movingIds.length
-								}
-								targetModules.splice(insertIndex, 0, ...removedModules)
-								selectionManager.selectByIds(removedModules.map((m) => m.id))
-							} else {
-								let indexToRemove = originalModules.findIndex(
-									(m) => moveManager.movingModuleId == m.id
-								)
-								let [removedModule] = originalModules.splice(indexToRemove, 1)
-								// When moving within the same array, removal shifts subsequent indices down by 1
-								let insertIndex = detail.index
-								if (originalModules === targetModules && indexToRemove < detail.index) {
-									insertIndex -= 1
-								}
-								targetModules.splice(insertIndex, 0, removedModule)
-								selectionManager.selectId(removedModule.id)
-							}
-							moveManager.clearMoving()
+					const affectedGroups = [...emptiedGroups, ...duplicateGroups]
+
+					const doMove = () => {
+						push(history, flowStore.val)
+						commit({ removeDuplicates: duplicateGroups.length > 0 })
+						if (movedIds.length > 1) {
+							selectionManager.selectByIds(movedIds)
 						} else {
-							if (detail.isPreprocessor) {
-								await insertNewPreprocessorModule(
-									flowStore,
-									flowStateStore,
-									detail.inlineScript,
-									detail.script
-								)
-								selectionManager.selectId('preprocessor')
-
-								if (detail.inlineScript?.instructions) {
-									dispatch('generateStep', {
-										moduleId: 'preprocessor',
-										lang: detail.inlineScript?.language,
-										instructions: detail.inlineScript?.instructions
-									})
-								}
-							} else {
-								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
-								const toolKind: SpecialToolKind | 'flowmoduleTool' | undefined = detail.agentId
-									? (SPECIAL_TOOL_KINDS as readonly string[]).includes(detail.kind)
-										? (detail.kind as SpecialToolKind)
-										: 'flowmoduleTool'
-									: undefined
-
-								await insertNewModuleAtIndex(
-									targetModules,
-									index,
-									detail.kind,
-									detail.script,
-									detail.flow,
-									detail.inlineScript,
-									toolKind
-								)
-								const id = targetModules[index].id
-								selectionManager.selectId(id)
-
-								if (detail.inlineScript?.instructions) {
-									dispatch('generateStep', {
-										moduleId: id,
-										lang: detail.inlineScript?.language,
-										instructions: detail.inlineScript?.instructions
-									})
-								}
-								if (detail.kind == 'trigger') {
-									await insertNewModuleAtIndex(
-										targetModules,
-										index + 1,
-										'forloop',
-										undefined,
-										undefined,
-										undefined
-									)
-									setExpr(targetModules[index + 1], `results.${id}`)
-									setScheduledPollSchedule(triggersState, triggersCount)
-								}
-
-								if (detail.flow?.path) {
-									loadLastJob(detail.flow.path, id)
-								} else if (detail.script?.path) {
-									loadLastJob(detail.script?.path, id)
-								}
-							}
+							selectionManager.selectId(movingId)
 						}
-
-						if (['branchone', 'branchall'].includes(detail.kind)) {
-							await addBranch(targetModules[detail.index ?? 0].id)
-						}
+						moveManager.clearMoving()
 						refreshStateStore(flowStore)
 						dispatch('change')
 					}
+
+					if (affectedGroups.length > 0) {
+						affectedGroupsPending = affectedGroups
+						affectedGroupsActionLabel = 'move'
+						affectedGroupsAction = doMove
+						affectedGroupsCancel = () => moveManager.clearMoving()
+					} else {
+						doMove()
+					}
+					return
 				}
+
+				// --- INSERT ---
+				if (detail.isPreprocessor) {
+					await insertNewPreprocessorModule(
+						flowStore,
+						flowStateStore,
+						detail.inlineScript,
+						detail.script
+					)
+					selectionManager.selectId('preprocessor')
+					if (detail.inlineScript?.instructions) {
+						dispatch('generateStep', {
+							moduleId: 'preprocessor',
+							lang: detail.inlineScript?.language,
+							instructions: detail.inlineScript?.instructions
+						})
+					}
+					refreshStateStore(flowStore)
+					dispatch('change')
+					return
+				}
+
+				push(history, flowStore.val)
+
+				const isAgentInsert = !!detail.agentId
+				const toolKind: SpecialToolKind | 'flowmoduleTool' | undefined = isAgentInsert
+					? (SPECIAL_TOOL_KINDS as readonly string[]).includes(detail.kind)
+						? (detail.kind as SpecialToolKind)
+						: 'flowmoduleTool'
+					: undefined
+
+				// Agent tool inserts operate on the FlowModule's tools array directly
+				if (isAgentInsert) {
+					const agentMod = getAllModules(flowStore.val.value.modules).find(
+						(m) => m.id === detail.agentId
+					)
+					if (agentMod && (agentMod.value as any).tools) {
+						const tools = (agentMod.value as any).tools as AgentTool[]
+						await insertNewModuleAtIndex(
+							tools,
+							tools.length,
+							detail.kind as InsertKind,
+							detail.script,
+							detail.flow ? { path: detail.flow.path, summary: detail.flow.summary } : undefined,
+							detail.inlineScript,
+							toolKind
+						)
+						const id = tools[tools.length - 1].id
+						selectionManager.selectId(id)
+					}
+					refreshStateStore(flowStore)
+					dispatch('change')
+					return
+				}
+
+				// Regular module insert: create the module, then insert a leaf node via tree mutation
+				const module = await createNewModule(
+					detail.kind as InsertKind,
+					detail.script,
+					detail.flow ? { path: detail.flow.path, summary: detail.flow.summary } : undefined,
+					detail.inlineScript
+				)
+				const index = detail.index ?? 0
+				const extraModules: FlowModule[] = [module]
+
+				// For trigger inserts, also create the forloop module
+				let loopModule: FlowModule | undefined
+				if (detail.kind == 'trigger') {
+					loopModule = await createNewModule('forloop')
+					setExpr(loopModule, `results.${module.id}`)
+					extraModules.push(loopModule)
+				}
+
+				proxy.applyTreeMutation(
+					(tree) => {
+						// Find target array in the snapshot
+						let targetArray: FlowStructureNode[] | undefined
+						if (
+							detail.sourceId == 'Input' ||
+							detail.targetId == 'Result' ||
+							detail.kind == 'trigger'
+						) {
+							targetArray = tree
+						}
+						dfsStructure(tree, (node, parentArray) => {
+							if (detail.branch && matchStructureNode(node, detail.branch.rootId)) {
+								targetArray = node.branches[detail.branch.branch]?.children
+							} else if (
+								matchStructureNode(node, detail.sourceId ?? '') ||
+								matchStructureNode(node, detail.targetId ?? '')
+							) {
+								targetArray = parentArray
+							}
+						})
+						if (!targetArray) targetArray = tree
+
+						// Insert the structure node (correct kind for containers like branchone/branchall)
+						targetArray.splice(index, 0, moduleToStructureNode(module))
+
+						// For trigger: also insert the forloop node after it
+						if (loopModule) {
+							targetArray.splice(index + 1, 0, moduleToStructureNode(loopModule))
+						}
+					},
+					{ extraModules, displayState: groupDisplayState }
+				)
+
+				selectionManager.selectId(module.id)
+
+				if (detail.inlineScript?.instructions) {
+					dispatch('generateStep', {
+						moduleId: module.id,
+						lang: detail.inlineScript?.language,
+						instructions: detail.inlineScript?.instructions
+					})
+				}
+				if (detail.kind == 'trigger') {
+					setScheduledPollSchedule(triggersState, triggersCount)
+				}
+				if (detail.flow?.path) {
+					loadLastJob(detail.flow.path, module.id)
+				} else if (detail.script?.path) {
+					loadLastJob(detail.script?.path, module.id)
+				}
+
+				if (['branchone', 'branchall'].includes(detail.kind)) {
+					await addBranch(module.id)
+				}
+				refreshStateStore(flowStore)
+				dispatch('change')
 			}}
 			onNewBranch={async (id) => {
 				if (id) {
@@ -765,6 +975,17 @@
 						mod.id = newId
 					}
 				})
+				const groups = flowStore.val.value.groups
+				if (groups) {
+					for (const group of groups) {
+						if (group.start_id === id) {
+							group.start_id = newId
+						}
+						if (group.end_id === id) {
+							group.end_id = newId
+						}
+					}
+				}
 				flowStateStore.val[newId] = flowStateStore.val[id]
 				delete flowStateStore.val[id]
 				refreshStateStore(flowStore)

@@ -388,8 +388,6 @@ pub(crate) async fn tarball_workspace(
         settings_version,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(HeaderName, String); 2], impl IntoResponse)> {
-    // require_admin(authed.is_admin, &authed.username)?;
-
     tracing::info!(
         "tarball_workspace called for workspace {}: include_workspace_dependencies={:?}, skip_variables={:?}, skip_resources={:?}",
         w_id,
@@ -1078,6 +1076,8 @@ pub(crate) async fn tarball_workspace(
     }
 
     if include_key.unwrap_or(false) {
+        require_admin(authed.is_admin, &authed.username)?;
+
         let key = sqlx::query_scalar!(
             "SELECT key FROM workspace_key WHERE workspace_id = $1",
             &w_id

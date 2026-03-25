@@ -286,16 +286,17 @@ pub struct FlowData {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct FlowNotes {
+pub struct FlowExtras {
     pub notes: Option<Box<RawValue>>,
+    pub groups: Option<Box<RawValue>>,
 }
 
 impl FlowData {
-    pub fn notes(&self) -> Option<FlowNotes> {
-        serde_json::from_str::<FlowNotes>(self.raw_flow.get())
+    pub fn extras(&self) -> Option<FlowExtras> {
+        serde_json::from_str::<FlowExtras>(self.raw_flow.get())
             .map_err(|e| {
-                tracing::error!("Failed to parse notes into FlowNotes: {}", e);
-                error::Error::internal_err(format!("Failed to parse notes into FlowNotes: {}", e))
+                tracing::error!("Failed to parse flow extras: {}", e);
+                error::Error::internal_err(format!("Failed to parse flow extras: {}", e))
             })
             .ok()
     }
@@ -991,6 +992,38 @@ pub mod workspace_dependencies {
     }
 }
 
+/// Temporary raw script content cache for CLI lock generation.
+pub mod raw_script_temp {
+    use super::*;
+    use crate::DB;
+
+    make_static! {
+        static ref CACHE: { String => String } in "raw_script_temp" <= 10000;
+    }
+
+    /// Compute hash for raw script content (includes workspace_id for isolation).
+    pub fn compute_hash(workspace_id: &str, content: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(workspace_id.as_bytes());
+        hasher.update(content.as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    /// Load content from cache, falling back to DB.
+    pub fn load(hash: String, db: &DB) -> impl Future<Output = error::Result<String>> + '_ {
+        CACHE.get_or_insert_async(hash.clone(), async move {
+            sqlx::query_scalar!(
+                "SELECT content FROM raw_script_temp WHERE hash = $1",
+                &hash
+            )
+            .fetch_optional(db)
+            .await?
+            .ok_or_else(|| error::Error::NotFound(format!("raw_script_temp hash: {}", hash)))
+        })
+    }
+}
+
 const _: () = {
     impl Import for RawFlow {
         fn import(src: &impl Storage) -> error::Result<Self> {
@@ -1183,7 +1216,8 @@ const _: () = {
         ((u8, ScriptHash), |x| format!("{:02x}-{:016x}", x.0, x.1.0)),
         (FlowNodeId, |x| format!("{:016x}", x.0)),
         (AppScriptId, |x| format!("{:016x}", x.0)),
-        ((i64, String), |x| format!("{}-{}", x.1, x.0))
+        ((i64, String), |x| format!("{}-{}", x.1, x.0)),
+        (String, |x| x.as_str())
     }
 
     #[cfg(feature = "scoped_cache")]

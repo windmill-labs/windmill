@@ -797,6 +797,7 @@
 								stepResults={getStepResults(job.workflow_as_code_status)}
 								result={job.result}
 								success={(job as any).success !== false}
+								jobId={job.id}
 							/>
 						</div>
 					</div>

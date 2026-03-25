@@ -4,7 +4,7 @@
 	import { decodeState } from '$lib/utils'
 
 	let content = localStorage.getItem('svelvet')
-	const { modules, failureModule, preprocessorModule, notes } = content
+	const { modules, failureModule, preprocessorModule, notes, groups } = content
 		? decodeState(content)
 		: { modules: [], failureModule: undefined, preprocessorModule: undefined }
 </script>
@@ -16,6 +16,7 @@
 	{failureModule}
 	{preprocessorModule}
 	{notes}
+	{groups}
 />
 <a
 	download="flow.json"

@@ -170,7 +170,9 @@ export async function saveScheduleFromCfg(
 		tag: scheduleCfg.tag,
 		paused_until: scheduleCfg.paused_until,
 		cron_version: scheduleCfg.cron_version,
-		dynamic_skip: scheduleCfg.dynamic_skip
+		dynamic_skip: scheduleCfg.dynamic_skip,
+		permissioned_as: scheduleCfg.permissioned_as,
+		preserve_permissioned_as: scheduleCfg.preserve_permissioned_as
 	}
 	try {
 		if (edit) {

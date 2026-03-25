@@ -67,7 +67,14 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	googleai: {
 		label: 'Google AI',
-		defaultModels: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemini-3-flash', 'gemini-3.1-pro', 'gemini-3.1-flash-lite']
+		defaultModels: [
+			'gemini-2.5-flash',
+			'gemini-2.5-pro',
+			'gemini-2.5-flash-lite',
+			'gemini-3-flash',
+			'gemini-3.1-pro',
+			'gemini-3.1-flash-lite'
+		]
 	},
 	groq: {
 		label: 'Groq',
@@ -289,7 +296,12 @@ function getModelSpecificConfig(
 ) {
 	const defaultMaxTokens = getModelMaxTokens(modelProvider.provider, modelProvider.model)
 	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
-	const customMaxTokensStore = get(copilotInfo)?.maxTokensPerModel
+	let customMaxTokensStore: Record<string, number> | undefined
+	try {
+		customMaxTokensStore = get(copilotInfo)?.maxTokensPerModel
+	} catch {
+		// copilotInfo store may not be initialized in vitest
+	}
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
@@ -364,38 +376,46 @@ export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCr
 	aws_bedrock: DEFAULT_COMPLETION_CONFIG
 } as const
 
+export function getAiProxyBaseURL(workspace?: string): string {
+	return workspace
+		? `${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy`
+		: `${location.origin}${OpenAPI.BASE}/ai/proxy`
+}
+
+export function createOpenAIProxyClient(baseURL: string): OpenAI {
+	return new OpenAI({
+		baseURL,
+		apiKey: 'fake-key',
+		defaultHeaders: {
+			Authorization: '' // a non empty string will be unable to access Windmill backend proxy
+		},
+		dangerouslyAllowBrowser: true
+	})
+}
+
+export function createAnthropicProxyClient(baseURL: string): Anthropic {
+	return new Anthropic({
+		baseURL,
+		apiKey: 'fake-key',
+		dangerouslyAllowBrowser: true
+	})
+}
+
 class WorkspacedAIClients {
 	private openaiClient: OpenAI | undefined
 	private anthropicClient: Anthropic | undefined
 
 	init(workspace: string) {
-		this.initOpenai(workspace)
-		this.initAnthropic(workspace)
+		this.openaiClient = this.createOpenaiClient(workspace)
+		this.anthropicClient = this.createAnthropicClient(workspace)
 	}
 
-	private getBaseURL(workspace: string) {
-		return `${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy`
+	createOpenaiClient(workspace: string): OpenAI {
+		return createOpenAIProxyClient(getAiProxyBaseURL(workspace))
 	}
 
-	private initOpenai(workspace: string) {
-		const baseURL = this.getBaseURL(workspace)
-		this.openaiClient = new OpenAI({
-			baseURL,
-			apiKey: 'fake-key',
-			defaultHeaders: {
-				Authorization: '' // a non empty string will be unable to access Windmill backend proxy
-			},
-			dangerouslyAllowBrowser: true
-		})
-	}
-
-	private initAnthropic(workspace: string) {
-		const baseURL = this.getBaseURL(workspace)
-		this.anthropicClient = new Anthropic({
-			baseURL,
-			apiKey: 'fake-key',
-			dangerouslyAllowBrowser: true
-		})
+	createAnthropicClient(workspace: string): Anthropic {
+		return createAnthropicProxyClient(getAiProxyBaseURL(workspace))
 	}
 
 	getOpenaiClient() {
@@ -417,6 +437,7 @@ export const workspaceAIClients = new WorkspacedAIClients()
 
 export async function testKey({
 	apiKey,
+	workspace,
 	resourcePath,
 	model,
 	abortController,
@@ -424,6 +445,7 @@ export async function testKey({
 	aiProvider
 }: {
 	apiKey?: string
+	workspace?: string
 	resourcePath?: string
 	model: string | undefined
 	messages: ChatCompletionMessageParam[]
@@ -443,6 +465,7 @@ export async function testKey({
 	if (aiProvider === 'anthropic') {
 		await testAnthropicKey({
 			apiKey,
+			workspace,
 			resourcePath,
 			model: modelToTest,
 			abortController,
@@ -453,6 +476,7 @@ export async function testKey({
 
 	await getNonStreamingCompletion(messages, abortController, {
 		apiKey,
+		workspace,
 		resourcePath,
 		forceModelProvider: {
 			model: modelToTest,
@@ -463,12 +487,14 @@ export async function testKey({
 
 async function testAnthropicKey({
 	apiKey,
+	workspace,
 	resourcePath,
 	model,
 	abortController,
 	messages
 }: {
 	apiKey?: string
+	workspace?: string
 	resourcePath?: string
 	model: string
 	abortController: AbortController
@@ -489,12 +515,10 @@ async function testAnthropicKey({
 	}
 
 	const anthropicClient = apiKey
-		? new Anthropic({
-				baseURL: `${location.origin}${OpenAPI.BASE}/ai/proxy`,
-				apiKey: 'fake-key',
-				dangerouslyAllowBrowser: true
-			})
-		: workspaceAIClients.getAnthropicClient()
+		? createAnthropicProxyClient(getAiProxyBaseURL())
+		: workspace
+			? workspaceAIClients.createAnthropicClient(workspace)
+			: workspaceAIClients.getAnthropicClient()
 
 	await anthropicClient.messages.create(
 		{
@@ -719,6 +743,7 @@ export async function getNonStreamingCompletion(
 	testOptions?: {
 		apiKey?: string // testing API KEY using the global ai proxy
 		resourcePath?: string // testing resource path passed as a header to the backend proxy
+		workspace?: string // use a specific workspace proxy when testing a workspace resource
 		forceModelProvider: AIProviderModel
 	}
 ) {
@@ -768,15 +793,10 @@ export async function getNonStreamingCompletion(
 		}
 	}
 	const openaiClient = testOptions?.apiKey
-		? new OpenAI({
-				baseURL: `${location.origin}${OpenAPI.BASE}/ai/proxy`,
-				apiKey: 'fake-key',
-				defaultHeaders: {
-					Authorization: '' // a non empty string will be unable to access Windmill backend proxy
-				},
-				dangerouslyAllowBrowser: true
-			})
-		: workspaceAIClients.getOpenaiClient()
+		? createOpenAIProxyClient(getAiProxyBaseURL())
+		: testOptions?.workspace
+			? workspaceAIClients.createOpenaiClient(testOptions.workspace)
+			: workspaceAIClients.getOpenaiClient()
 
 	const completion = await openaiClient.chat.completions.create(config, fetchOptions)
 	response = completion.choices?.[0]?.message.content || ''
@@ -861,9 +881,16 @@ export async function getCompletion(
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
 	options?: {
 		forceCompletions?: boolean
+		forceModelProvider?: AIProviderModel
+		openaiClient?: OpenAI
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
-	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
+	const { provider, config } = getProviderAndCompletionConfig({
+		messages,
+		stream: true,
+		tools,
+		forceModelProvider: options?.forceModelProvider
+	})
 
 	// Use Responses API for OpenAI and Azure OpenAI
 	if ((provider === 'openai' || provider === 'azure_openai') && !options?.forceCompletions) {
@@ -876,8 +903,8 @@ export async function getCompletion(
 	}
 
 	// Use Completions API for other providers
-	const openaiClient = workspaceAIClients.getOpenaiClient()
-	const completion = openaiClient.chat.completions.create(config, {
+	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
+	const completion = client.chat.completions.create(config, {
 		signal: abortController.signal,
 		headers: {
 			'X-Provider': provider
@@ -906,7 +933,8 @@ export async function parseOpenAICompletion(
 	addedMessages: ChatCompletionMessageParam[],
 	tools: Tool<any>[],
 	helpers: any,
-	_abortController?: AbortController // unused, for signature compatibility with parseAnthropicCompletion
+	_abortController?: AbortController, // unused, for signature compatibility with parseAnthropicCompletion
+	options?: { workspace?: string }
 ): Promise<boolean> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 	let malformedFunctionCallError = false
@@ -1045,7 +1073,8 @@ export async function parseOpenAICompletion(
 				tools,
 				toolCall,
 				helpers,
-				toolCallbacks: callbacks
+				toolCallbacks: callbacks,
+				workspace: options?.workspace
 			})
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)

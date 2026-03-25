@@ -48,6 +48,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
+	import FlowModuleDebounce from './FlowModuleDebounce.svelte'
 	import { type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils.svelte'
@@ -1136,6 +1137,11 @@
 													/>
 													<Tab value="sleep" active={Boolean(flowModule.sleep)} label="Sleep" />
 													<Tab
+														value="debounce"
+														active={Boolean(flowModule.debouncing?.debounce_delay_s)}
+														label="Debounce"
+													/>
+													<Tab
 														value="mock"
 														active={Boolean(flowModule.mock?.enabled)}
 														label="Mock"
@@ -1325,6 +1331,10 @@
 															previousModuleId={previousModule?.id}
 															bind:flowModule
 														/>
+													</div>
+												{:else if advancedSelected === 'debounce'}
+													<div>
+														<FlowModuleDebounce bind:flowModule {selectedId} />
 													</div>
 												{:else if advancedSelected === 'mock'}
 													<div>

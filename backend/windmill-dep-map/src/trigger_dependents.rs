@@ -68,7 +68,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
 
         let job_payload = match importer_kind.as_str() {
             "script" => match sqlx::query_scalar!(
-                "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false ORDER BY created_at DESC LIMIT 1",
+                "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1",
                 importer_path,
                 w_id
             )

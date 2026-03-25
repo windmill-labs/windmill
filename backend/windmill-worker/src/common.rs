@@ -710,10 +710,13 @@ pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
             cmd.args(args);
             cmd
         } else {
-            panic!(
-                "BUG: unshare isolation is enabled but UNSHARE_PATH is None. \
-                This should have been caught at worker startup."
+            tracing::error!(
+                "unshare isolation is enabled but UNSHARE_PATH is not available. \
+                Running job without isolation. Check Instance Settings > Job Isolation."
             );
+            let mut cmd = Command::new(program);
+            cmd.args(args);
+            cmd
         }
     } else {
         let mut cmd = Command::new(program);
@@ -998,6 +1001,14 @@ pub(crate) async fn get_workspace_s3_resource_path(
 
     if let Some(bucket) = bucket_name {
         windmill_object_store::check_bucket_workspace_restriction(bucket, workspace_id)?;
+    }
+
+    // Check Azure account name workspace restrictions
+    if let ObjectStoreResource::Azure(azure_resource) = &object_store_resource {
+        windmill_object_store::check_az_account_name_workspace_restriction(
+            &azure_resource.account_name,
+            workspace_id,
+        )?;
     }
 
     Ok(Some(object_store_resource))

@@ -438,6 +438,7 @@ async function preview(
 export async function generateLocks(
   opts: GlobalOptions & {
     yes?: boolean;
+    dryRun?: boolean;
   } & SyncOptions,
   folder: string | undefined
 ) {
@@ -488,6 +489,10 @@ export async function generateLocks(
     }
 
     if (hasAny) {
+      if (opts.dryRun) {
+        log.info(colors.gray("Dry run complete."));
+        return;
+      }
       if (
         !opts.yes &&
         !(await Confirm.prompt({
@@ -642,6 +647,7 @@ const command = new Command()
   )
   .arguments("[flow:file]")
   .option("--yes", "Skip confirmation prompt")
+  .option("--dry-run", "Perform a dry run without making changes")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
