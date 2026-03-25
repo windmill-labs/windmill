@@ -120,7 +120,7 @@
 	{:else if isFreeTier}
 		<div class="mb-2"></div>
 
-		<Alert type="warning">
+		<Alert type="warning" title="CE Limited Feature">
 			Git sync is an EE feature provided in CE for testing and hobbyist use when workspace members
 			&le; {gitSyncStatus.max_users}. Limited to a single repository. Upgrade to EE for multiple
 			repositories, promotion mode, and GitHub App authentication.
