@@ -13,8 +13,8 @@ pub struct McpToolSource {
     pub tool_name: String,
     pub resource_path: String,
 }
+use windmill_ai::ai_providers::{empty_string_as_none, AIProvider};
 use windmill_common::{
-    ai_providers::{empty_string_as_none, AIProvider},
     db::DB,
     error::Error,
     flow_status::AgentAction,
@@ -23,9 +23,9 @@ use windmill_common::{
 use windmill_parser::Typ;
 use windmill_types::s3::S3Object;
 
-// Re-export shared types from windmill_common
-pub use windmill_common::ai_providers::AIPlatform;
-pub use windmill_common::ai_types::{
+// Re-export shared types from windmill_ai
+pub use windmill_ai::ai_providers::AIPlatform;
+pub use windmill_ai::ai_types::{
     ContentPart, FileData, ImageUrlData, OpenAIContent, OpenAIMessage, ToolDef, ToolDefFunction,
     UrlCitation,
 };

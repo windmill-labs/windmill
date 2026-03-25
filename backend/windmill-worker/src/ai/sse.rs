@@ -5,9 +5,11 @@ use reqwest::Response;
 use serde::Deserialize;
 use serde_json;
 use tokio_stream::StreamExt;
-use windmill_common::{
+use windmill_ai::{
     ai_google::{parse_gemini_sse_event, GeminiUsageMetadata},
     ai_types::{ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall},
+};
+use windmill_common::{
     error::Error,
     utils::rd_string,
 };

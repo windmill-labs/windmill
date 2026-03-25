@@ -1,9 +1,8 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use windmill_common::{
-    ai_google::parse_data_url, ai_providers::AIProvider, client::AuthedClient, error::Error,
-};
+use windmill_ai::{ai_google::parse_data_url, ai_providers::AIProvider};
+use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
     image_handler::prepare_messages_for_api,

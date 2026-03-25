@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
+use windmill_ai::ai_providers::AIProvider;
+use windmill_ai::ai_types::OpenAIToolCall;
+use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
     image_handler::{prepare_messages_for_api, s3_object_to_content_part},
@@ -10,8 +12,6 @@ use crate::ai::{
     types::*,
     utils::extract_text_content,
 };
-
-use windmill_common::ai_types::OpenAIToolCall;
 
 // Responses API structures
 #[derive(Deserialize)]

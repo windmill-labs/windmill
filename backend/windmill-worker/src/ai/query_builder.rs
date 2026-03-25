@@ -15,7 +15,7 @@ use crate::{
     job_logger::append_result_stream,
 };
 
-use windmill_common::ai_types::OpenAIToolCall;
+use windmill_ai::ai_types::OpenAIToolCall;
 
 /// Arguments for building an AI request
 pub struct BuildRequestArgs<'a> {
@@ -107,7 +107,7 @@ pub trait QueryBuilder: Send + Sync {
 
 /// Factory function to create the appropriate query builder for a provider
 pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBuilder> {
-    use windmill_common::ai_providers::AIProvider;
+    use windmill_ai::ai_providers::AIProvider;
 
     match provider.kind {
         // Google AI uses the Gemini API (with platform-specific handling for Vertex AI)
