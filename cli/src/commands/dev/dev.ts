@@ -636,11 +636,12 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     const port = await getPort.default({ port: PORT });
     const url =
       `${workspace.remote}dev?workspace=${workspace.workspaceId}&local=true&wm_token=${workspace.token}` +
-      (port === PORT ? "" : `&port=${port}`);
+      (port === PORT ? "" : `&port=${port}`) +
+      (opts.path ? `&path=${opts.path}` : "");
 
     console.log(`Go to ${url}`);
     try {
-      open.openApp(open.apps.browser, { arguments: [url] }).catch((error) => {
+      open.default(url).catch((error) => {
         console.error(
           `Failed to open browser, please navigate to ${url}, error: ${error}`
         );
