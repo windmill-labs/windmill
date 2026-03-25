@@ -672,10 +672,15 @@ BigInt.prototype.toJSON = function () {{
 console.log('start\n');
 
 const decoder = new TextDecoder();
+let _buffer = "";
 for await (const chunk of Deno.stdin.readable) {{
-    const lines = decoder.decode(chunk);
+    _buffer += decoder.decode(chunk, {{ stream: true }});
+    const _parts = _buffer.split("\n");
+    _buffer = _parts.pop() ?? "";
     let exit = false;
-    for (const line of lines.trim().split("\n")) {{
+    for (const _part of _parts) {{
+        const line = _part.trim();
+        if (!line) continue;
         if (line === "end") {{
             exit = true;
             break;
