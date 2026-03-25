@@ -291,9 +291,9 @@
 								/><Toggle
 									bind:checked={activeOnly}
 									options={{
-										left: 'Show active users only',
+										left: 'Recently active only',
 										leftTooltip:
-											'An active user is a user who has performed at least one action in the last 30 days'
+											'Show only users who have logged in or performed an action in the last 30 days'
 									}}
 								/>
 
