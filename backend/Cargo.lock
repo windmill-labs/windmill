@@ -16197,6 +16197,7 @@ dependencies = [
  "aws-credential-types",
  "aws-sdk-sqs",
  "base64 0.22.1",
+ "futures",
  "rand 0.9.0",
  "rdkafka",
  "reqwest 0.13.1",
