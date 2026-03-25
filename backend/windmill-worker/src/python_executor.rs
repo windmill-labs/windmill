@@ -119,6 +119,7 @@ const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
+#[cfg(any(feature = "private", test))]
 pub fn has_relative_imports(content: &str) -> bool {
     RELATIVE_IMPORT_REGEX.is_match(content)
 }
