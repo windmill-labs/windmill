@@ -110,6 +110,9 @@
 
 	let darkModeToggle: DarkModeToggle | undefined = $state()
 	let darkMode: boolean = $state(document.documentElement.classList.contains('dark'))
+	let flowContainerWidth = $state(0)
+	let flowContainerHeight = $state(0)
+	let flowHorizontalSplit = $derived(flowContainerWidth < flowContainerHeight)
 	let modeInitialized = $state(false)
 	function initializeMode() {
 		modeInitialized = true
@@ -864,7 +867,11 @@
 		</div>
 	{:else}
 		<!-- <div class="h-full w-full grid grid-cols-2"> -->
-		<div class="h-full w-full">
+		<div
+			class="h-full w-full"
+			bind:clientWidth={flowContainerWidth}
+			bind:clientHeight={flowContainerHeight}
+		>
 			<div class="flex flex-col max-h-screen h-full relative">
 				<div class="absolute top-0 left-2">
 					<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
@@ -875,49 +882,51 @@
 					{/if}
 				</div>
 
-				<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
-					<FlowPreviewButtons
-						{suspendStatus}
-						bind:this={flowPreviewButtons}
-						{onJobDone}
-						bind:localModuleStates
-						onRunPreview={() => {
-							showJobStatus = true
-						}}
-					/>
-				</div>
-				<Splitpanes horizontal class="h-full max-h-screen grow">
+				<Splitpanes horizontal={flowHorizontalSplit} class="h-full max-h-screen grow">
 					<Pane size={67}>
-						{#if flowStore.val?.value?.modules}
-							<div id="flow-editor"></div>
-							<FlowModuleSchemaMap
-								bind:this={flowModuleSchemaMap}
-								disableAi
-								disableTutorials
-								smallErrorHandler={true}
-								disableStaticInputs
-								localModuleStates={showJobStatus ? localModuleStates : {}}
-								onTestUpTo={flowPreviewButtons?.testUpTo}
-								testModuleStates={modulesTestStates}
-								isOwner={flowPreviewContent?.getIsOwner?.()}
-								onTestFlow={flowPreviewButtons?.runPreview}
-								isRunning={flowPreviewContent?.getIsRunning?.()}
-								onCancelTestFlow={flowPreviewContent?.cancelTest}
-								onOpenPreview={flowPreviewButtons?.openPreview}
-								onHideJobStatus={resetModulesStates}
-								flowJob={job}
-								{showJobStatus}
-								onDelete={(id) => {
-									delete localModuleStates[id]
-									delete modulesTestStates.states[id]
-								}}
-								{flowHasChanged}
-								controlsPosition="bottom"
-							/>
-						{:else}
-							<div class="text-red-400 mt-20">Missing flow modules</div>
-						{/if}
-					</Pane>
+						<div class="relative h-full w-full">
+							{#if flowStore.val?.value?.modules}
+								<div id="flow-editor"></div>
+								<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
+									<FlowPreviewButtons
+										{suspendStatus}
+										bind:this={flowPreviewButtons}
+										{onJobDone}
+										bind:localModuleStates
+										onRunPreview={() => {
+											showJobStatus = true
+										}}
+									/>
+								</div>
+								<FlowModuleSchemaMap
+									bind:this={flowModuleSchemaMap}
+									disableAi
+									disableTutorials
+									smallErrorHandler={true}
+									disableStaticInputs
+									localModuleStates={showJobStatus ? localModuleStates : {}}
+									onTestUpTo={flowPreviewButtons?.testUpTo}
+									testModuleStates={modulesTestStates}
+									isOwner={flowPreviewContent?.getIsOwner?.()}
+									onTestFlow={flowPreviewButtons?.runPreview}
+									isRunning={flowPreviewContent?.getIsRunning?.()}
+									onCancelTestFlow={flowPreviewContent?.cancelTest}
+									onOpenPreview={flowPreviewButtons?.openPreview}
+									onHideJobStatus={resetModulesStates}
+									flowJob={job}
+									{showJobStatus}
+									onDelete={(id) => {
+										delete localModuleStates[id]
+										delete modulesTestStates.states[id]
+									}}
+									{flowHasChanged}
+									controlsPosition="bottom"
+								/>
+							{:else}
+								<div class="text-red-400 mt-20">Missing flow modules</div>
+							{/if}
+						</div></Pane
+					>
 					<Pane size={33}>
 						{#key reload}
 							<FlowEditorPanel

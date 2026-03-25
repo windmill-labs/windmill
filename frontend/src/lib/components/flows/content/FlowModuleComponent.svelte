@@ -812,7 +812,11 @@
 					</div>
 				{/if}
 
-				<div class="min-h-0 flex-grow" id="flow-editor-editor">
+				<div
+					class="min-h-0 flex-grow"
+					id="flow-editor-editor"
+					class:no-splitter={flowModule.value.type === 'aiagent' || noEditor}
+				>
 					<Splitpanes horizontal>
 						{#if flowModule.value.type !== 'aiagent'}
 							<Pane bind:size={editorPanelSize} minSize={10} class="relative">
@@ -1155,7 +1159,9 @@
 													<Section label="Continue on error">
 														{#snippet header()}
 															<Tooltip>
-																When enabled, the flow will continue to the next step even if this step fails (after exhausting all retries, if any). This enables to process the error in a branch one for instance.
+																When enabled, the flow will continue to the next step even if this
+																step fails (after exhausting all retries, if any). This enables to
+																process the error in a branch one for instance.
 															</Tooltip>
 														{/snippet}
 														<Toggle
@@ -1512,3 +1518,9 @@
 		<Button size="sm" on:click={confirmDebugBetaWarning}>Continue</Button>
 	{/snippet}
 </Modal>
+
+<style>
+	.no-splitter :global(.splitpanes__splitter) {
+		display: none;
+	}
+</style>
