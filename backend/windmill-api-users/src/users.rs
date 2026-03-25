@@ -1797,13 +1797,20 @@ async fn refresh_token(
         }
     }
 
-    let super_admin = sqlx::query_scalar!(
-        "SELECT super_admin FROM password WHERE email = $1 AND disabled = false",
+    let password_row = sqlx::query!(
+        "SELECT super_admin, disabled FROM password WHERE email = $1",
         &authed.email
     )
     .fetch_optional(&mut *tx)
-    .await?
-    .unwrap_or(false);
+    .await?;
+
+    if password_row.as_ref().map(|r| r.disabled).unwrap_or(false) {
+        return Err(Error::NotAuthorized(
+            "Your account has been disabled".to_string(),
+        ));
+    }
+
+    let super_admin = password_row.map(|r| r.super_admin).unwrap_or(false);
 
     let new_token = create_session_token(&authed.email, super_admin, &mut tx, cookies).await?;
 
