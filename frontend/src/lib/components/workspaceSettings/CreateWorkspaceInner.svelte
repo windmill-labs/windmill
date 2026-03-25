@@ -271,12 +271,20 @@
 				} catch (e: any) {
 					console.error(`Failed to update resource ${resourcePath}:`, e)
 				}
+
+				// Also set forked_from on the datatable config
+				if (datatableConfig.datatables[job.name]) {
+					datatableConfig.datatables[job.name].forked_from = {
+						original_name: job._resourcePath,
+						schema: job._schema ?? {}
+					}
+				}
 			}
 		}
 
-		// Save updated datatable settings for instance-type changes
-		const hasInstanceChanges = clonedJobs.some((j) => j._isInstance)
-		if (hasInstanceChanges) {
+		// Save updated datatable settings (both instance and resource changes)
+		const hasChanges = clonedJobs.length > 0
+		if (hasChanges) {
 			await WorkspaceService.editDataTableConfig({
 				workspace: forkWorkspaceId,
 				requestBody: { settings: datatableConfig }
