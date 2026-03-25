@@ -7,7 +7,7 @@ use windmill_common::{client::AuthedClient, error::Error};
 use crate::ai::{
     image_handler::prepare_messages_for_api,
     providers::other::OtherQueryBuilder,
-    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
+    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     types::*,
 };
 
@@ -130,10 +130,10 @@ impl QueryBuilder for OpenRouterQueryBuilder {
     async fn parse_streaming_response(
         &self,
         response: reqwest::Response,
-        stream_event_processor: StreamEventProcessor,
+        stream_event_sink: Box<dyn StreamEventSink>,
     ) -> Result<ParsedResponse, Error> {
         self.other_builder
-            .parse_streaming_response(response, stream_event_processor)
+            .parse_streaming_response(response, stream_event_sink)
             .await
     }
 
