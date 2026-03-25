@@ -42,11 +42,11 @@ pub mod bench;
 pub mod cache;
 pub mod client;
 pub mod db;
-pub mod db_params;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_entra_ee;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_iam_ee;
+pub mod db_params;
 #[cfg(feature = "private")]
 pub mod ee;
 pub mod ee_oss;
@@ -683,26 +683,27 @@ pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
                             .to_string(),
                     )
                 })?;
-                let client_id = var("AZURE_CLIENT_ID").map_err(|_| {
-                    Error::BadConfig(
-                        "AZURE_CLIENT_ID env var is required for Entra ID authentication"
-                            .to_string(),
-                    )
-                })?;
-                let federated_token_file =
-                    var("AZURE_FEDERATED_TOKEN_FILE").map_err(|_| {
-                        Error::BadConfig(
-                            "AZURE_FEDERATED_TOKEN_FILE env var is required for Entra ID authentication".to_string(),
-                        )
-                    })?;
-                let authority_host = var("AZURE_AUTHORITY_HOST")
-                    .unwrap_or_else(|_| "login.microsoftonline.com".to_string());
 
                 tracing::info!(
                     "entraid mode detected, generating Entra ID URL for tenant: {tenant_id}"
                 );
                 #[cfg(all(feature = "enterprise", feature = "private"))]
                 {
+                    let client_id = var("AZURE_CLIENT_ID").map_err(|_| {
+                        Error::BadConfig(
+                            "AZURE_CLIENT_ID env var is required for Entra ID authentication"
+                                .to_string(),
+                        )
+                    })?;
+                    let federated_token_file =
+                        var("AZURE_FEDERATED_TOKEN_FILE").map_err(|_| {
+                            Error::BadConfig(
+                                "AZURE_FEDERATED_TOKEN_FILE env var is required for Entra ID authentication".to_string(),
+                            )
+                        })?;
+                    let authority_host = var("AZURE_AUTHORITY_HOST")
+                        .unwrap_or_else(|_| "login.microsoftonline.com".to_string());
+
                     let entra_url = db_entra_ee::generate_database_url(
                         &url,
                         &tenant_id,
