@@ -3733,6 +3733,8 @@ paths:
                 properties:
                   default_app_path:
                     type: string
+                  default_app_raw:
+                    type: boolean
 
   /w/{workspace}/workspaces/usage:
     get:
