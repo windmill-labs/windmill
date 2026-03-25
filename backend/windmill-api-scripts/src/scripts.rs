@@ -2239,6 +2239,23 @@ async fn delete_script_by_path(
     .await?
     .unwrap_or(false);
 
+    // Capture all script versions and drafts for trashbin before deleting
+    let trash_scripts: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM script t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&db)
+    .await?;
+
+    let trash_drafts: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM draft t WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&db)
+    .await?;
+
     let script = if !draft_only {
         require_admin(authed.is_admin, &authed.username)?;
         sqlx::query_scalar!(
@@ -2259,6 +2276,22 @@ async fn delete_script_by_path(
         .await
         .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?
     };
+
+    if !trash_scripts.is_empty() {
+        let mut trash_data = serde_json::json!({"scripts": trash_scripts});
+        if !trash_drafts.is_empty() {
+            trash_data["drafts"] = serde_json::Value::Array(trash_drafts.clone());
+        }
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "script",
+            path,
+            trash_data,
+            &authed.username,
+        )
+        .await?;
+    }
 
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
@@ -2368,6 +2401,30 @@ async fn delete_scripts_bulk(
     }
 
     let mut tx = db.begin().await?;
+
+    // Capture scripts for trashbin per path before bulk delete
+    for path in &request.paths {
+        let trash_scripts: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(t) FROM script t WHERE path = $1 AND workspace_id = $2",
+        )
+        .bind(path)
+        .bind(&w_id)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        if !trash_scripts.is_empty() {
+            let trash_data = serde_json::json!({"scripts": trash_scripts});
+            windmill_common::trashbin::move_to_trash(
+                &mut *tx,
+                &w_id,
+                "script",
+                path,
+                trash_data,
+                &authed.username,
+            )
+            .await?;
+        }
+    }
 
     let mut deleted_paths = sqlx::query_scalar!(
         "DELETE FROM script WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
@@ -2508,11 +2565,9 @@ async fn store_raw_script_temp(
     .await?;
 
     // Clean up old entries (1 week TTL)
-    sqlx::query!(
-        "DELETE FROM raw_script_temp WHERE created_at < NOW() - INTERVAL '1 week'"
-    )
-    .execute(&db)
-    .await?;
+    sqlx::query!("DELETE FROM raw_script_temp WHERE created_at < NOW() - INTERVAL '1 week'")
+        .execute(&db)
+        .await?;
 
     Ok(Json(hash))
 }
@@ -2560,7 +2615,7 @@ async fn diff_raw_scripts_with_deployed(
                FROM script s \
                WHERE s.path = local.path AND s.workspace_id = $3 AND s.archived = false \
                ORDER BY s.created_at DESC LIMIT 1 \
-             ) deployed ON deployed.deployed_hash = local.hash"
+             ) deployed ON deployed.deployed_hash = local.hash",
         )
         .bind(&paths)
         .bind(&hashes)
@@ -2582,7 +2637,7 @@ async fn diff_raw_scripts_with_deployed(
                  AND wd.language = $3::SCRIPT_LANG \
                  AND wd.name IS NOT DISTINCT FROM $4 \
                  AND encode(sha256(convert_to(wd.content, 'UTF8')), 'hex') = $5 \
-             )"
+             )",
         )
         .bind(&dep.path)
         .bind(&w_id)

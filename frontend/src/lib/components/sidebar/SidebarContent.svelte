@@ -460,6 +460,14 @@
 			aiDescription: 'Button to navigate to workers'
 		},
 		{
+			label: 'Trash',
+			href: `${base}/trash`,
+			icon: Trash2,
+			disabled: $userStore?.operator,
+			aiId: 'sidebar-menu-link-trash',
+			aiDescription: 'Button to navigate to trash bin for recently deleted items'
+		},
+		{
 			label: 'Folders & Groups',
 			icon: FolderOpen,
 			aiId: 'sidebar-menu-link-folders-groups',

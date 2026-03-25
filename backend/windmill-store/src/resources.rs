@@ -877,6 +877,15 @@ async fn delete_resource(
     }
     let mut tx = user_db.begin(&authed).await?;
 
+    // Capture resource data for trashbin before deleting
+    let trash_resource: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
     // Fetch the resource value before deleting, so we can find linked $var: references
     let resource_value: Option<Option<serde_json::Value>> =
         sqlx::query_scalar("SELECT value FROM resource WHERE path = $1 AND workspace_id = $2")
@@ -884,6 +893,32 @@ async fn delete_resource(
             .bind(&w_id)
             .fetch_optional(&mut *tx)
             .await?;
+
+    // Collect all $var: paths referenced in the resource value
+    let mut linked_var_paths: Vec<String> = Vec::new();
+    if let Some(Some(ref value)) = resource_value {
+        collect_var_refs(value, &mut linked_var_paths);
+    }
+
+    // Capture linked variables for trashbin before deleting them
+    let trash_linked_vars: Vec<serde_json::Value> = if linked_var_paths.is_empty() {
+        Vec::new()
+    } else {
+        let placeholders: Vec<String> = linked_var_paths
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("${}", i + 2))
+            .collect();
+        let query = format!(
+            "SELECT to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path IN ({})",
+            placeholders.join(", ")
+        );
+        let mut q = sqlx::query_scalar::<_, serde_json::Value>(&query).bind(&w_id);
+        for var_path in &linked_var_paths {
+            q = q.bind(var_path);
+        }
+        q.fetch_all(&mut *tx).await?
+    };
 
     let deleted_path = sqlx::query_scalar!(
         "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
@@ -893,12 +928,6 @@ async fn delete_resource(
     .fetch_optional(&mut *tx)
     .await?;
     not_found_if_none(deleted_path, "Resource", &path)?;
-
-    // Collect all $var: paths referenced in the resource value
-    let mut linked_var_paths: Vec<String> = Vec::new();
-    if let Some(Some(value)) = resource_value {
-        collect_var_refs(&value, &mut linked_var_paths);
-    }
 
     // Delete linked variables that are actually referenced in the resource value
     let deleted_linked_variables: Vec<String> = if linked_var_paths.is_empty() {
@@ -919,6 +948,23 @@ async fn delete_resource(
         }
         q.fetch_all(&mut *tx).await?
     };
+
+    if let Some(res_data) = trash_resource {
+        let mut trash_data = serde_json::json!({"row": res_data});
+        if !trash_linked_vars.is_empty() {
+            trash_data["linked_variables"] = serde_json::Value::Array(trash_linked_vars);
+        }
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "resource",
+            path,
+            trash_data,
+            &authed.username,
+        )
+        .await?;
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1024,6 +1070,30 @@ async fn delete_resources_bulk(
     }
 
     let mut tx = user_db.begin(&authed).await?;
+
+    // Capture resources for trashbin per path before bulk delete
+    for path in &request.paths {
+        let trash_resource: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
+        )
+        .bind(path)
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(res_data) = trash_resource {
+            let trash_data = serde_json::json!({"row": res_data});
+            windmill_common::trashbin::move_to_trash(
+                &mut *tx,
+                &w_id,
+                "resource",
+                path,
+                trash_data,
+                &authed.username,
+            )
+            .await?;
+        }
+    }
 
     let deleted_paths = sqlx::query_scalar!(
         "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2 RETURNING path",
@@ -1527,6 +1597,15 @@ async fn delete_resource_type(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    // Capture data for trashbin before deleting
+    let trash_data: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT jsonb_build_object('row', to_jsonb(t)) FROM resource_type t WHERE name = $1 AND workspace_id = $2",
+    )
+    .bind(&name)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
     let deleted_name = sqlx::query_scalar!(
         "DELETE FROM resource_type WHERE name = $1 AND workspace_id = $2 RETURNING name",
         name,
@@ -1536,6 +1615,18 @@ async fn delete_resource_type(
     .await?;
 
     not_found_if_none(deleted_name, "ResourceType", &name)?;
+
+    if let Some(data) = trash_data {
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "resource_type",
+            &name,
+            data,
+            &authed.username,
+        )
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

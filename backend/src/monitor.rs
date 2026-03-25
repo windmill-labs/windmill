@@ -1168,6 +1168,15 @@ pub async fn delete_expired_items(db: &DB) -> () {
             tracing::error!("Error deleting custom concurrency key: {:?}", e);
         }
     }
+
+    match windmill_common::trashbin::delete_expired_trash(db).await {
+        Ok(count) => {
+            if count > 0 {
+                tracing::info!("deleted {} expired trash items", count);
+            }
+        }
+        Err(e) => tracing::error!("Error deleting expired trash items: {}", e.to_string()),
+    }
 }
 
 pub async fn check_expiring_tokens(db: &DB) {

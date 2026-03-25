@@ -1439,6 +1439,30 @@ async fn delete_app(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    // Capture all related data for trashbin before deleting (CASCADE will remove app_version, etc.)
+    let trash_app: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT to_jsonb(t) FROM app t WHERE path = $1 AND workspace_id = $2")
+            .bind(path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let trash_app_versions: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM app_version t WHERE app_id = (SELECT id FROM app WHERE path = $1 AND workspace_id = $2)",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let trash_drafts: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM draft t WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
         path,
@@ -1454,6 +1478,25 @@ async fn delete_app(
     )
     .execute(&mut *tx)
     .await?;
+
+    if let Some(app_data) = trash_app {
+        let mut trash_data = serde_json::json!({"row": app_data});
+        if !trash_app_versions.is_empty() {
+            trash_data["app_versions"] = serde_json::Value::Array(trash_app_versions);
+        }
+        if !trash_drafts.is_empty() {
+            trash_data["drafts"] = serde_json::Value::Array(trash_drafts);
+        }
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "app",
+            path,
+            trash_data,
+            &authed.username,
+        )
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

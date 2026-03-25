@@ -520,6 +520,23 @@ async fn delete_variable(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    // Capture data for trashbin before deleting
+    let trash_var: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM variable t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let trash_linked_resource: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
     sqlx::query!(
         "DELETE FROM variable WHERE path = $1 AND workspace_id = $2",
         path,
@@ -534,6 +551,23 @@ async fn delete_variable(
     )
     .fetch_optional(&mut *tx)
     .await?;
+
+    if let Some(var_data) = trash_var {
+        let mut trash_data = serde_json::json!({"row": var_data});
+        if let Some(linked) = trash_linked_resource {
+            trash_data["linked_resource"] = linked;
+        }
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "variable",
+            path,
+            trash_data,
+            &authed.username,
+        )
+        .await?;
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -632,6 +666,41 @@ async fn delete_variables_bulk(
     .await?;
 
     let mut tx = user_db.begin(&authed).await?;
+
+    // Capture variables for trashbin per path before bulk delete
+    for path in &request.paths {
+        let trash_var: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(t) FROM variable t WHERE path = $1 AND workspace_id = $2",
+        )
+        .bind(path)
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(var_data) = trash_var {
+            let trash_linked: Option<serde_json::Value> = sqlx::query_scalar(
+                "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
+            )
+            .bind(path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            let mut trash_data = serde_json::json!({"row": var_data});
+            if let Some(linked) = trash_linked {
+                trash_data["linked_resource"] = linked;
+            }
+            windmill_common::trashbin::move_to_trash(
+                &mut *tx,
+                &w_id,
+                "variable",
+                path,
+                trash_data,
+                &authed.username,
+            )
+            .await?;
+        }
+    }
 
     let deleted_paths = sqlx::query_scalar!(
         "DELETE FROM variable WHERE path = ANY($1) AND workspace_id = $2 RETURNING path",
