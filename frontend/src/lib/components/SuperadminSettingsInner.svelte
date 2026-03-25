@@ -17,7 +17,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { ExternalLink, Pencil, UserMinus, UserPlus } from 'lucide-svelte'
+	import { Ban, CheckCircle2, ExternalLink, Pencil, UserMinus, UserPlus } from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -67,7 +67,6 @@
 	let deleteUserEmail: string = $state('')
 	let disableConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let disableUserEmail: string = $state('')
-	let toggleResetKey = $state(0)
 	let editWrappers: Record<string, HTMLDivElement> = $state({})
 	let activeOnly = $state(false)
 
@@ -335,7 +334,6 @@
 											{/if}
 											<Cell head>Name</Cell>
 											<Cell head>Auth</Cell>
-											<Cell head>Enabled</Cell>
 											{#if activeOnly}
 												<Cell head>Kind</Cell>
 											{/if}
@@ -348,12 +346,24 @@
 									<tbody>
 										{#if filteredUsers && users}
 											{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, role_source, disabled }, i (email)}
-												<tr class={i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
-													<Cell first class="max-w-[200px]"
-														><a href="mailto:{email}" title={email} class="truncate block"
-															>{email}</a
-														></Cell
-													>
+												<tr
+													class="{i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'} {disabled
+														? 'opacity-60'
+														: ''}"
+												>
+													<Cell first class="max-w-[250px]">
+														<div class="flex items-center gap-1.5">
+															<a href="mailto:{email}" title={email} class="truncate block"
+																>{email}</a
+															>
+															{#if disabled}
+																<span
+																	class="text-2xs px-1.5 py-0.5 rounded bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-300 whitespace-nowrap"
+																	>Disabled</span
+																>
+															{/if}
+														</div>
+													</Cell>
 													{#if automateUsernameCreation}
 														<Cell class="max-w-[150px]">
 															{#if username}
@@ -381,42 +391,6 @@
 														><span title={login_type} class="truncate block">{login_type}</span
 														></Cell
 													>
-													<Cell>
-														{#key toggleResetKey}
-															<Toggle
-																size="xs"
-																checked={!disabled}
-																on:change={async () => {
-																	if (!disabled) {
-																		disableUserEmail = email
-																		disableConfirmedCallback = async () => {
-																			try {
-																				await UserService.globalUserUpdate({
-																					email,
-																					requestBody: { disabled: true }
-																				})
-																				sendUserToast('User disabled')
-																				listUsers(activeOnly)
-																			} catch (e) {
-																				sendUserToast('Failed to disable user', true)
-																			}
-																		}
-																	} else {
-																		try {
-																			await UserService.globalUserUpdate({
-																				email,
-																				requestBody: { disabled: false }
-																			})
-																			sendUserToast('User enabled')
-																			listUsers(activeOnly)
-																		} catch (e) {
-																			sendUserToast('Failed to enable user', true)
-																		}
-																	}
-																}}
-															/>
-														{/key}
-													</Cell>
 													{#if activeOnly}
 														<Cell>
 															{#if operator_only}
@@ -551,6 +525,39 @@
 																		}
 																	},
 																	{
+																		displayName: disabled ? 'Enable' : 'Disable',
+																		icon: disabled ? CheckCircle2 : Ban,
+																		action: () => {
+																			if (!disabled) {
+																				disableUserEmail = email
+																				disableConfirmedCallback = async () => {
+																					try {
+																						await UserService.globalUserUpdate({
+																							email,
+																							requestBody: { disabled: true }
+																						})
+																						sendUserToast('User disabled')
+																						listUsers(activeOnly)
+																					} catch (e) {
+																						sendUserToast('Failed to disable user', true)
+																					}
+																				}
+																			} else {
+																				try {
+																					UserService.globalUserUpdate({
+																						email,
+																						requestBody: { disabled: false }
+																					}).then(() => {
+																						sendUserToast('User enabled')
+																						listUsers(activeOnly)
+																					})
+																				} catch (e) {
+																					sendUserToast('Failed to enable user', true)
+																				}
+																			}
+																		}
+																	},
+																	{
 																		displayName: 'Remove',
 																		icon: UserMinus,
 																		type: 'delete',
@@ -623,7 +630,7 @@
 	confirmationText="Disable"
 	on:canceled={() => {
 		disableConfirmedCallback = undefined
-		toggleResetKey++
+		listUsers(activeOnly)
 	}}
 	on:confirmed={() => {
 		if (disableConfirmedCallback) {
