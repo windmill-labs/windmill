@@ -381,6 +381,7 @@
 														></Cell
 													>
 													<Cell>
+														{#key disabled}
 														<Toggle
 															size="xs"
 															checked={!disabled}
@@ -413,6 +414,7 @@
 																}
 															}}
 														/>
+														{/key}
 													</Cell>
 													{#if activeOnly}
 														<Cell>
