@@ -37,3 +37,11 @@ export function getFlowPrompt(): string {
     prompts.OPENFLOW_SCHEMA
   ].filter(Boolean).join('\n\n');
 }
+
+// Helper to get datatable SDK reference for app mode
+export function getDatatableSdkReference(): string {
+  return [
+    prompts.DATATABLE_SDK_TYPESCRIPT,
+    prompts.DATATABLE_SDK_PYTHON
+  ].filter(Boolean).join('\n\n');
+}

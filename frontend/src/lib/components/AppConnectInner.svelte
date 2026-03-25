@@ -1,15 +1,14 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 
-	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
 		OauthService,
 		ResourceService,
 		VariableService,
 		type TokenResponse,
-		type ResourceType,
-		JobService
+		type ResourceType
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
 	import { createEventDispatcher, onDestroy } from 'svelte'
@@ -31,9 +30,8 @@
 	import type { SchemaProperty } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
 	import TextInput from './text_input/TextInput.svelte'
-	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { pollJobResult } from './jobs/utils'
 	import { sameTopDomainOrigin } from '$lib/cookies'
+	import SyncResourceTypes from './SyncResourceTypes.svelte'
 
 	interface Props {
 		step?: number
@@ -135,6 +133,7 @@
 	let tokenUrl = $state('')
 
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
+	let resourceTypeNotFound = $state(false)
 
 	let pathError = $state('')
 
@@ -319,18 +318,24 @@
 	}
 
 	async function getResourceTypeInfo() {
-		resourceTypeInfo = await ResourceService.getResourceType({
-			workspace: effectiveWorkspace,
-			path: resourceType
-		})
-		const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
-		const newArgsKeys = Object.keys(props).filter((x) => props?.[x]?.type == 'string') ?? []
+		try {
+			resourceTypeNotFound = false
+			resourceTypeInfo = await ResourceService.getResourceType({
+				workspace: effectiveWorkspace,
+				path: resourceType
+			})
+			const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
+			const newArgsKeys = Object.keys(props).filter((x) => props?.[x]?.type == 'string') ?? []
 
-		const passwords = newArgsKeys.filter((x) => {
-			return props?.[x]?.password
-		})
-		if (linkedSecrets.length === 0) {
-			linkedSecrets = computeDefaultLinkedSecrets(resourceType, newArgsKeys, passwords)
+			const passwords = newArgsKeys.filter((x) => {
+				return props?.[x]?.password
+			})
+			if (linkedSecrets.length === 0) {
+				linkedSecrets = computeDefaultLinkedSecrets(resourceType, newArgsKeys, passwords)
+			}
+		} catch (err) {
+			resourceTypeInfo = undefined
+			resourceTypeNotFound = true
 		}
 	}
 	export async function next() {
@@ -589,23 +594,6 @@
 	let filteredConnectsManual: { key: string; img?: string; instructions: string[] }[] = $state([])
 
 	let editScopes = $state(false)
-
-	let hubRtSync = usePromise(
-		async () => {
-			let jobUuid = await JobService.runScriptByPath({
-				workspace: 'admins',
-				path: 'u/admin/hub_sync',
-				requestBody: {}
-			})
-			await pollJobResult(jobUuid, 'admins')
-			connectsManual = undefined
-			await loadResourceTypes()
-			connects = undefined
-			await loadConnects()
-			sendUserToast('Hub resource types sync completed')
-		},
-		{ loadInit: false }
-	)
 </script>
 
 {#if !express}
@@ -722,20 +710,16 @@
 				{/each}
 			{/if}
 		</div>
-		{#if $superadmin}
-			<Button
-				loading={hubRtSync.status === 'loading'}
-				onClick={() => hubRtSync.refresh()}
-				wrapperClasses="mt-6"
-			>
-				Sync resource types with Hub
-			</Button>
-			{#if hubRtSync.status === 'error'}
-				<span class="text-red-400 dark:text-red-500 text-xs">
-					Error syncing resource types : {JSON.stringify(hubRtSync.error)}
-				</span>
-			{/if}
-		{/if}
+		<div class="mt-6">
+			<SyncResourceTypes
+				onSynced={async () => {
+					connectsManual = undefined
+					await loadResourceTypes()
+					connects = undefined
+					await loadConnects()
+				}}
+			/>
+		</div>
 	{:else if step == 2 && manual}
 		<div class="flex flex-col gap-8">
 			<Path
@@ -806,6 +790,14 @@
 				{/if}
 			</div>
 
+			{#if resourceTypeNotFound}
+				<div class="flex flex-col gap-2 mb-4">
+					<p class="text-red-500 dark:text-red-400 text-xs">
+						Resource type '{resourceType}' not found in your workspace
+					</p>
+					<SyncResourceTypes onSynced={getResourceTypeInfo} />
+				</div>
+			{/if}
 			{#key resourceTypeInfo}
 				<ApiConnectForm
 					bind:linkedSecrets
@@ -815,6 +807,7 @@
 					{resourceTypeInfo}
 					bind:args
 					bind:isValid
+					onSynced={getResourceTypeInfo}
 				/>
 			{/key}
 		</div>

@@ -77,95 +77,236 @@ pub const EMPTY_FILE: &str = "<empty>";
 /// Bun args for dedicated worker (without the script path)
 pub const BUN_DEDICATED_WORKER_ARGS: &[&str] = &["run", "-i", "--prefer-offline"];
 
-/// Generate the dedicated worker wrapper content.
-/// - `arg_names`: The argument names for the main function (e.g., ["x", "y"])
-/// - `main_import`: The import path for the main module (e.g., "./main.ts")
-/// - `date_conversions`: Optional date conversion statements for Datetime args
-/// - `preprocessor_spread`: If the script has a preprocessor function, the comma-separated arg names for it
-pub fn generate_dedicated_worker_wrapper(
-    arg_names: &[&str],
-    main_import: &str,
-    date_conversions: Option<&str>,
-    preprocessor_spread: Option<&str>,
-) -> String {
-    let spread = arg_names.join(",");
-    let dates = date_conversions.unwrap_or("");
+/// Pre-computed codegen data for a TypeScript/Bun/Deno script.
+/// Computed in Rust from the parsed signature, then baked into the wrapper template.
+#[cfg(any(feature = "private", test))]
+pub struct TsScriptCodegen {
+    pub spread: String,
+    pub date_conversions: String,
+    pub preprocessor_spread: Option<String>,
+    pub preprocessor_date_conversions: Option<String>,
+}
+
+/// Parse a TS script and compute the codegen data (arg spread, date conversions, preprocessor).
+/// This is the same logic that was used on main in `start_worker`.
+#[cfg(any(feature = "private", test))]
+pub fn compute_ts_codegen(content: &str) -> TsScriptCodegen {
+    let sig =
+        windmill_parser_ts::parse_deno_signature(content, true, false, None).unwrap_or_default();
+    let arg_names: Vec<&str> = sig.args.iter().map(|a| a.name.as_str()).collect();
+    let spread = arg_names.join(", ");
+
+    let dates = sig
+        .args
+        .iter()
+        .filter(|a| matches!(a.typ, Typ::Datetime))
+        .map(|a| {
+            format!(
+                "{name} = {name} ? new Date({name}) : undefined",
+                name = a.name
+            )
+        })
+        .join("\n    ");
+
+    let pre_sig = windmill_parser_ts::parse_deno_signature(
+        content,
+        true,
+        false,
+        Some("preprocessor".to_string()),
+    )
+    .ok()
+    .filter(|s| !s.args.is_empty());
+
+    let preprocessor_spread = pre_sig
+        .as_ref()
+        .map(|s| s.args.iter().map(|a| a.name.as_str()).join(", "));
+    let preprocessor_date_conversions = pre_sig.as_ref().map(|s| {
+        s.args
+            .iter()
+            .filter(|a| matches!(a.typ, Typ::Datetime))
+            .map(|a| {
+                format!(
+                    "{name} = {name} ? new Date({name}) : undefined",
+                    name = a.name
+                )
+            })
+            .join("\n    ")
+    });
+
+    TsScriptCodegen {
+        spread,
+        date_conversions: dates,
+        preprocessor_spread,
+        preprocessor_date_conversions,
+    }
+}
+
+/// Script entry for the unified wrapper generator.
+/// `import_name`: the file stem used in the import path (e.g., "main" → `./main.ts`, or "f__script" → `./f__script.ts`)
+#[cfg(any(feature = "private", test))]
+pub struct TsScriptEntry<'a> {
+    pub import_name: &'a str,
+    pub original_path: &'a str,
+    pub codegen: &'a TsScriptCodegen,
+}
+
+/// Generate a wrapper for dedicated workers and runner groups.
+/// All scripts are baked in at codegen time with static imports and inline arg handling.
+/// Protocol:
+///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
+///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
+///   end                             -> exit
+#[cfg(any(feature = "private", test))]
+pub fn generate_multi_script_wrapper(scripts: &[TsScriptEntry<'_>], ext: &str) -> String {
     let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
     let print_lines = if is_debug {
-        r#"console.log(line);"#
+        r#"console.log("[debug] " + line);"#
     } else {
         ""
     };
 
-    let preprocessor_logic = if let Some(pre_spread) = preprocessor_spread {
-        format!(
+    let imports: String = scripts
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            format!(
+                "import * as _s{i} from \"./{import_name}.{ext}\";",
+                import_name = e.import_name
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Generate per-script getArgs / getPreArgs functions
+    let mut functions = String::new();
+    let mut registrations = String::new();
+
+    for (i, entry) in scripts.iter().enumerate() {
+        let cg = entry.codegen;
+        let spread = &cg.spread;
+        let dates = &cg.date_conversions;
+
+        functions.push_str(&format!(
             r#"
-    if (rawLine.startsWith("preprocess:")) {{
-        const preInput = rawLine.slice("preprocess:".length);
-        const parsedArgs = JSON.parse(preInput);
-        if (Main.preprocessor === undefined || typeof Main.preprocessor !== 'function') {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}));
-            continue;
-        }}
-        try {{
-            function preArgsObjToArr({{ {pre_spread} }}) {{
-                return [ {pre_spread} ];
-            }}
-            const preprocessedArgs = await Main.preprocessor(...preArgsObjToArr(parsedArgs));
-            console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value));
-            // Now call main with preprocessed args
-            const mainArgs = getArgs(JSON.stringify(preprocessedArgs ?? {{}}));
-            const res = await Main.main(...mainArgs);
-            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
-        }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: rawLine }}));
-        }}
-        continue;
-    }}"#
-        )
-    } else {
-        String::new()
-    };
+function getArgs_{i}(line) {{
+    let {{ {spread} }} = JSON.parse(line);
+    {dates}
+    return [ {spread} ];
+}}
+"#
+        ));
+
+        let pre_fn = if let Some(ref pre_spread) = cg.preprocessor_spread {
+            let pre_dates = cg.preprocessor_date_conversions.as_deref().unwrap_or("");
+            functions.push_str(&format!(
+                r#"
+function getPreArgs_{i}(line) {{
+    let {{ {pre_spread} }} = JSON.parse(line);
+    {pre_dates}
+    return [ {pre_spread} ];
+}}
+"#
+            ));
+            format!("getPreArgs_{i}")
+        } else {
+            "null".to_string()
+        };
+
+        registrations.push_str(&format!(
+            "scripts.set(\"{path}\", {{ module: _s{i}, getArgs: getArgs_{i}, getPreArgs: {pre_fn} }});\n",
+            path = entry.original_path,
+        ));
+    }
 
     format!(
         r#"
-import * as Main from "{main_import}";
+{imports}
 import * as Readline from "node:readline"
 
 BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
 
-console.log('start');
+const scripts = new Map();
+{functions}
+{registrations}
 
-function getArgs(line) {{
-    let {{ {spread} }} = JSON.parse(line)
-    {dates}
-    return [ {spread} ];
-}}
+console.log('start');
 
 for await (const line of Readline.createInterface({{ input: process.stdin }})) {{
     {print_lines}
 
-    const rawLine = line;
-    if (rawLine === "end") {{
+    if (line === "end") {{
         process.exit(0);
     }}
-    {preprocessor_logic}
-    try {{
-        const args = getArgs(rawLine);
-        const res = await Main.main(...args);
-        console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
-    }} catch (e) {{
-        console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: rawLine }}));
+
+    if (line.startsWith("exec_preprocess:")) {{
+        const rest = line.slice("exec_preprocess:".length);
+        const colonIdx = rest.indexOf(":");
+        if (colonIdx === -1) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "Malformed exec_preprocess command: missing colon separator", name: "Error" }}));
+            continue;
+        }}
+        const scriptPath = rest.slice(0, colonIdx);
+        const argsJson = rest.slice(colonIdx + 1);
+
+        const entry = scripts.get(scriptPath);
+        if (!entry) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not found: " + scriptPath, name: "Error" }}));
+            continue;
+        }}
+
+        try {{
+            if (!entry.getPreArgs) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}));
+                continue;
+            }}
+            const preArgs = entry.getPreArgs(argsJson);
+            const preprocessedArgs = await entry.module.preprocessor(...preArgs);
+            console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value));
+            const mainArgs = entry.getArgs(JSON.stringify(preprocessedArgs ?? {{}}));
+            const res = await entry.module.main(...mainArgs);
+            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
+        }} catch (e) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
+        }}
+        continue;
     }}
+
+    if (line.startsWith("exec:")) {{
+        const rest = line.slice("exec:".length);
+        const colonIdx = rest.indexOf(":");
+        if (colonIdx === -1) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "Malformed exec command: missing colon separator", name: "Error" }}));
+            continue;
+        }}
+        const scriptPath = rest.slice(0, colonIdx);
+        const argsJson = rest.slice(colonIdx + 1);
+
+        const entry = scripts.get(scriptPath);
+        if (!entry) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not found: " + scriptPath, name: "Error" }}));
+            continue;
+        }}
+
+        try {{
+            const args = entry.getArgs(argsJson);
+            const res = await entry.module.main(...args);
+            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
+        }} catch (e) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
+        }}
+        continue;
+    }}
+
+    console.error("Unknown command:", line);
 }}
 "#
     )
 }
 
 /// Returns (package.json, bun.lock(b), is_empty, is_binary)
-fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool) {
+pub(crate) fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool) {
     if let Some(index) = lockfile.find(BUN_LOCK_SPLIT) {
         // Split using "\n//bun.lock\n"
         let (before, after_with_sep) = lockfile.split_at(index);
@@ -3587,53 +3728,18 @@ pub async fn start_worker(
     let main_code = remove_pinned_imports(inner_content)?;
     let _ = write_file(job_dir, "main.ts", &main_code)?;
 
+    let codegen = compute_ts_codegen(inner_content);
+    let wrapper_ext = if codebase.is_some() { "js" } else { "ts" };
     {
-        // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(inner_content, true, false, None)?.args;
-        let dates = args
-            .iter()
-            .filter_map(|x| {
-                if matches!(x.typ, Typ::Datetime) {
-                    Some(x.name.clone())
-                } else {
-                    None
-                }
-            })
-            .map(|x| return format!("{x} = {x} ? new Date({x}) : undefined"))
-            .join("\n");
-
-        let arg_names: Vec<&str> = args.iter().map(|x| x.name.as_str()).collect();
-
-        // Parse preprocessor signature if it exists
-        let pre_spread = windmill_parser_ts::parse_deno_signature(
-            inner_content,
-            true,
-            false,
-            Some("preprocessor".to_string()),
-        )
-        .ok()
-        .filter(|sig| !sig.args.is_empty())
-        .map(|sig| sig.args.into_iter().map(|x| x.name).join(","));
-
-        // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
-        // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
-
-        let main_import = if codebase.is_some() {
-            "./main.js"
-        } else {
-            "./main.ts"
-        };
-        let dates_opt = if dates.is_empty() {
-            None
-        } else {
-            Some(dates.as_str())
-        };
-        let wrapper_content = generate_dedicated_worker_wrapper(
-            &arg_names,
-            main_import,
-            dates_opt,
-            pre_spread.as_deref(),
-        );
+        let scripts =
+            [
+                TsScriptEntry {
+                    import_name: "main",
+                    original_path: script_path,
+                    codegen: &codegen,
+                },
+            ];
+        let wrapper_content = generate_multi_script_wrapper(&scripts, wrapper_ext);
         write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
     }
 
@@ -3831,5 +3937,49 @@ lockfile-content"#;
         assert_eq!(lock, Some("lockfile-content"));
         assert!(!is_empty);
         assert!(!is_binary);
+    }
+
+    #[test]
+    fn test_compute_ts_codegen_basic_args() {
+        let code = r#"export function main(x: string, y: number) { return x; }"#;
+        let cg = compute_ts_codegen(code);
+        assert_eq!(cg.spread, "x, y");
+        assert!(cg.date_conversions.is_empty());
+        assert!(cg.preprocessor_spread.is_none());
+    }
+
+    #[test]
+    fn test_compute_ts_codegen_with_datetime() {
+        let code = r#"export function main(name: string, created_at: Date, count: number) { return name; }"#;
+        let cg = compute_ts_codegen(code);
+        assert_eq!(cg.spread, "name, created_at, count");
+        assert!(cg.date_conversions.contains("created_at"));
+        assert!(cg.date_conversions.contains("new Date"));
+    }
+
+    #[test]
+    fn test_compute_ts_codegen_with_preprocessor() {
+        let code = r#"
+export function main(x: string, ts: Date) { return x; }
+export function preprocessor(input: string, when: Date) { return { x: input, ts: when }; }
+"#;
+        let cg = compute_ts_codegen(code);
+        assert_eq!(cg.spread, "x, ts");
+        assert!(cg.date_conversions.contains("ts"));
+        assert_eq!(cg.preprocessor_spread.as_deref(), Some("input, when"));
+        assert!(cg
+            .preprocessor_date_conversions
+            .as_ref()
+            .unwrap()
+            .contains("when"));
+    }
+
+    #[test]
+    fn test_compute_ts_codegen_no_args() {
+        let code = r#"export function main() { return 42; }"#;
+        let cg = compute_ts_codegen(code);
+        assert!(cg.spread.is_empty());
+        assert!(cg.date_conversions.is_empty());
+        assert!(cg.preprocessor_spread.is_none());
     }
 }

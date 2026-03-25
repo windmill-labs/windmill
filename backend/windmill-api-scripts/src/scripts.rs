@@ -239,6 +239,7 @@ pub fn workspaced_service() -> Router {
             "/history_update/h/:hash/p/*path",
             post(update_script_history),
         )
+        .route("/list_dedicated_with_deps", get(list_dedicated_with_deps))
         // Temporary raw script storage for CLI lock generation
         .route("/raw_temp/store", post(store_raw_script_temp))
         .route("/raw_temp/diff", post(diff_raw_scripts_with_deployed))
@@ -2535,6 +2536,62 @@ async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+#[derive(Serialize)]
+struct DedicatedScriptDeps {
+    path: String,
+    language: ScriptLang,
+    workspace_dep_names: Vec<String>,
+}
+
+async fn list_dedicated_with_deps(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<DedicatedScriptDeps>> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let rows = sqlx::query!(
+        "SELECT DISTINCT ON (path) path, language AS \"language: ScriptLang\", content FROM script
+         WHERE workspace_id = $1
+           AND archived = false
+           AND dedicated_worker = true
+           AND language = ANY($2::SCRIPT_LANG[])
+         ORDER BY path, created_at DESC",
+        &w_id,
+        &[
+            ScriptLang::Python3,
+            ScriptLang::Bun,
+            ScriptLang::Bunnative,
+            ScriptLang::Deno,
+        ] as &[ScriptLang],
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    let result = rows
+        .into_iter()
+        .map(|row| {
+            let dep_names =
+                windmill_common::scripts::extract_workspace_dependencies_annotated_refs(
+                    &row.language,
+                    &row.content,
+                    &row.path,
+                )
+                .map(|refs| refs.external)
+                .unwrap_or_default();
+            DedicatedScriptDeps {
+                path: row.path,
+                language: row.language,
+                workspace_dep_names: dep_names,
+            }
+        })
+        .collect();
+
+    Ok(Json(result))
 }
 
 // ============================================================================

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only, first_time_user, role_source FROM password WHERE email = $1",
+  "query": "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only, first_time_user, role_source, disabled FROM password WHERE email = $1",
   "describe": {
     "columns": [
       {
@@ -57,6 +57,11 @@
         "ordinal": 10,
         "name": "role_source",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "disabled",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -75,8 +80,9 @@
       true,
       null,
       false,
+      false,
       false
     ]
   },
-  "hash": "65c59e224e460351c2f88261f8b1b1e7ce2bb160270b59c0f359b7952453b2b9"
+  "hash": "f0c9c54740cc1c0c2a6fa4e79d4d504b7b5cb7a39538ab9abeb44f781c711493"
 }

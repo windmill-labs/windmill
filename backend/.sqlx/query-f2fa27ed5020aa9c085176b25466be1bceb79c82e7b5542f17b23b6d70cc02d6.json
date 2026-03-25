@@ -1,0 +1,104 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT ON (path) path, language AS \"language: ScriptLang\", content FROM script\n         WHERE workspace_id = $1\n           AND archived = false\n           AND dedicated_worker = true\n           AND language = ANY($2::SCRIPT_LANG[])\n         ORDER BY path, created_at DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "language: ScriptLang",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "content",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "script_lang[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "script_lang",
+                  "kind": {
+                    "Enum": [
+                      "python3",
+                      "deno",
+                      "go",
+                      "bash",
+                      "postgresql",
+                      "nativets",
+                      "bun",
+                      "mysql",
+                      "bigquery",
+                      "snowflake",
+                      "graphql",
+                      "powershell",
+                      "mssql",
+                      "php",
+                      "bunnative",
+                      "rust",
+                      "ansible",
+                      "csharp",
+                      "oracledb",
+                      "nu",
+                      "java",
+                      "duckdb",
+                      "ruby"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f2fa27ed5020aa9c085176b25466be1bceb79c82e7b5542f17b23b6d70cc02d6"
+}
