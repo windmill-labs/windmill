@@ -1,20 +1,24 @@
 <script lang="ts">
-	import CompareWorkspaces from "$lib/components/CompareWorkspaces.svelte"
-	import { WorkspaceService, type WorkspaceComparison } from "$lib/gen"
+	import CompareWorkspaces from '$lib/components/CompareWorkspaces.svelte'
+	import DatatableSchemaDiff from '$lib/components/DatatableSchemaDiff.svelte'
+	import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
 	import { page } from '$app/state'
-	import { userWorkspaces } from "$lib/stores"
-	import { untrack } from "svelte"
-	import CenteredPage from "$lib/components/CenteredPage.svelte"
-	import PageHeader from "$lib/components/PageHeader.svelte"
+	import { userWorkspaces } from '$lib/stores'
+	import { untrack } from 'svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 
 	let comparison: WorkspaceComparison | undefined = $state(undefined)
 
-	let currentWorkspaceId: string | undefined = $state(page.url.searchParams.get('workspace_id') ?? undefined)
+	let currentWorkspaceId: string | undefined = $state(
+		page.url.searchParams.get('workspace_id') ?? undefined
+	)
 
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === currentWorkspaceId))
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
 
-	async function checkForChanges() { if (!currentWorkspaceId || !parentWorkspaceId) {
+	async function checkForChanges() {
+		if (!currentWorkspaceId || !parentWorkspaceId) {
 			return
 		}
 
@@ -41,22 +45,14 @@
 	}
 
 	$effect(() => {
-		[
-			currentWorkspaceId,
-			parentWorkspaceId,
-		];
+		;[currentWorkspaceId, parentWorkspaceId]
 
 		untrack(() => checkForChanges())
 	})
-
-
-
 </script>
-<CenteredPage>
 
-<PageHeader
-	title="Merge workspaces"
-/>
+<CenteredPage>
+	<PageHeader title="Merge workspaces" />
 	{#if currentWorkspaceId && parentWorkspaceId}
 		<!-- <WorkspaceComparisonDrawer -->
 		<!-- 	{comparison} -->
@@ -66,7 +62,8 @@
 		<!-- 		sendUserToast('Changes deployed successfully') -->
 		<!-- 	}} -->
 		<!-- /> -->
-		<CompareWorkspaces {currentWorkspaceId} {parentWorkspaceId} {comparison}/>
+		<CompareWorkspaces {currentWorkspaceId} {parentWorkspaceId} {comparison} />
+		<DatatableSchemaDiff {currentWorkspaceId} {parentWorkspaceId} />
 	{/if}
 	{#if !currentWorkspaceId}
 		No workspace selected
