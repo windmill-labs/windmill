@@ -588,6 +588,8 @@ paths:
                   type: boolean
                 name:
                   type: string
+                disabled:
+                  type: boolean
       responses:
         "200":
           description: user updated
@@ -23470,6 +23472,8 @@ components:
         role_source:
           type: string
           enum: ["manual", "instance_group"]
+        disabled:
+          type: boolean
 
       required:
         - email
@@ -23478,6 +23482,7 @@ components:
         - verified
         - first_time_user
         - role_source
+        - disabled
 
     Flow:
       allOf:
