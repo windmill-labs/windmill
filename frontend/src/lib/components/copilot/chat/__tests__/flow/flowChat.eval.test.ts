@@ -22,35 +22,60 @@ import initialTest6 from './initial/test6_initial.json'
 // @ts-ignore - JSON import
 import initialTest7 from './initial/test7_initial.json'
 import type { FlowModule } from '$lib/gen'
+import type { AIProvider } from '$lib/gen/types.gen'
 
-// Get API key from environment - tests will be skipped if not set
+// Get API keys from environment - tests will be skipped if none are set
 // @ts-ignore
-// const OPENAI_API_KEY = process.env.OPENAI_API_KEY
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY
+// @ts-ignore
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
 
-// Skip all tests if no API key is provided
-// const describeWithApiKey = OPENAI_API_KEY ? describe : describe.skip
-const describeWithApiKey = OPENROUTER_API_KEY ? describe : describe.skip
+const hasAnyKey = OPENAI_API_KEY || ANTHROPIC_API_KEY
+const describeWithApiKey = hasAnyKey ? describe : describe.skip
 
-const MODELS = ['google/gemini-2.5-flash', 'anthropic/claude-haiku-4.5', 'openai/gpt-4o']
+// Build model variants based on available keys
+interface ModelVariant {
+	model: string
+	provider: AIProvider
+	apiKey: string
+}
+
+const MODEL_VARIANTS: ModelVariant[] = [
+	...(OPENAI_API_KEY
+		? [{ model: 'gpt-4o', provider: 'openai' as AIProvider, apiKey: OPENAI_API_KEY }]
+		: []),
+	...(ANTHROPIC_API_KEY
+		? [
+				{
+					model: 'claude-haiku-4-5-20241022',
+					provider: 'anthropic' as AIProvider,
+					apiKey: ANTHROPIC_API_KEY
+				}
+			]
+		: [])
+]
 
 const VARIANTS = [
-	...MODELS.map((model) => ({
+	...MODEL_VARIANTS.map((mv) => ({
 		...BASELINE_VARIANT,
-		model,
-		name: `baseline-${model.replace('/', '-')}`
+		model: mv.model,
+		name: `baseline-${mv.provider}-${mv.model}`,
+		_provider: mv.provider,
+		_apiKey: mv.apiKey
 	})),
-	...MODELS.map((model) => ({
+	...MODEL_VARIANTS.map((mv) => ({
 		...MINIMAL_SINGLE_TOOL_VARIANT,
-		model,
-		name: `minimal-single-tool-${model.replace('/', '-')}`
+		model: mv.model,
+		name: `minimal-single-tool-${mv.provider}-${mv.model}`,
+		_provider: mv.provider,
+		_apiKey: mv.apiKey
 	}))
 ]
 
 describeWithApiKey('Flow Chat LLM Evaluation', () => {
 	const TEST_TIMEOUT = 120_000
-	if (!OPENROUTER_API_KEY) {
-		console.warn('OPENROUTER_API_KEY is not set, skipping tests')
+	if (!hasAnyKey) {
+		console.warn('No API keys set (OPENAI_API_KEY or ANTHROPIC_API_KEY), skipping tests')
 	}
 
 	it(
@@ -65,9 +90,15 @@ STEP 3: Loop on all users
 STEP 4: Do branches based on user's role, do different action based on that. Roles are admin, user, moderator
 STEP 5: Return action taken for each user
 `
-			const results = await runVariantComparison(USER_PROMPT, VARIANTS, OPENROUTER_API_KEY!, {
-				expectedFlow: expectedTest1 as ExpectedFlow
-			})
+			const results = await runVariantComparison(
+				USER_PROMPT,
+				VARIANTS,
+				VARIANTS[0]._apiKey,
+				{
+					expectedFlow: expectedTest1 as ExpectedFlow
+				},
+				VARIANTS.map((v) => ({ provider: v._provider, apiKey: v._apiKey }))
+			)
 
 			// Write results to files
 			const { summaryPath, flowPaths } = await writeFlowComparisonResults(USER_PROMPT, results)
@@ -112,9 +143,15 @@ STEP 5: Branch based on inventory - if all items available, create shipment reco
 STEP 6: Send confirmation (mock email to customer_email)
 STEP 7: Return final order summary with status
 `
-			const results = await runVariantComparison(USER_PROMPT, VARIANTS, OPENROUTER_API_KEY!, {
-				expectedFlow: expectedTest2 as ExpectedFlow
-			})
+			const results = await runVariantComparison(
+				USER_PROMPT,
+				VARIANTS,
+				VARIANTS[0]._apiKey,
+				{
+					expectedFlow: expectedTest2 as ExpectedFlow
+				},
+				VARIANTS.map((v) => ({ provider: v._provider, apiKey: v._apiKey }))
+			)
 
 			const { summaryPath, flowPaths } = await writeFlowComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
@@ -161,9 +198,15 @@ STEP 5: Branch based on quality score:
   - If score < 70: Store in quarantine and send alert
 STEP 6: Return processing report with statistics (total records, quality score, destination)
 `
-			const results = await runVariantComparison(USER_PROMPT, VARIANTS, OPENROUTER_API_KEY!, {
-				expectedFlow: expectedTest3 as ExpectedFlow
-			})
+			const results = await runVariantComparison(
+				USER_PROMPT,
+				VARIANTS,
+				VARIANTS[0]._apiKey,
+				{
+					expectedFlow: expectedTest3 as ExpectedFlow
+				},
+				VARIANTS.map((v) => ({ provider: v._provider, apiKey: v._apiKey }))
+			)
 
 			const { summaryPath, flowPaths } = await writeFlowComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
@@ -210,9 +253,15 @@ STEP 3: Use an AI agent to handle the customer query. The agent should have acce
 STEP 4: Log the interaction to audit trail (customer_id, query, response summary)
 STEP 5: Return the agent's response and any actions taken
 `
-			const results = await runVariantComparison(USER_PROMPT, VARIANTS, OPENROUTER_API_KEY!, {
-				expectedFlow: expectedTest4 as ExpectedFlow
-			})
+			const results = await runVariantComparison(
+				USER_PROMPT,
+				VARIANTS,
+				VARIANTS[0]._apiKey,
+				{
+					expectedFlow: expectedTest4 as ExpectedFlow
+				},
+				VARIANTS.map((v) => ({ provider: v._provider, apiKey: v._apiKey }))
+			)
 
 			const { summaryPath, flowPaths } = await writeFlowComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
@@ -256,11 +305,17 @@ Modify this existing flow to add error handling:
 - If validation passes, return the data for the next step
 - Update save_results to handle the validation result appropriately
 `
-			const results = await runVariantComparison(USER_PROMPT, VARIANTS, OPENROUTER_API_KEY!, {
-				initialModules: initialTest5.value.modules as FlowModule[],
-				initialSchema: initialTest5.schema,
-				expectedFlow: expectedTest5 as ExpectedFlow
-			})
+			const results = await runVariantComparison(
+				USER_PROMPT,
+				VARIANTS,
+				VARIANTS[0]._apiKey,
+				{
+					initialModules: initialTest5.value.modules as FlowModule[],
+					initialSchema: initialTest5.schema,
+					expectedFlow: expectedTest5 as ExpectedFlow
+				},
+				VARIANTS.map((v) => ({ provider: v._provider, apiKey: v._apiKey }))
+			)
 
 			const { summaryPath, flowPaths } = await writeFlowComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
@@ -302,11 +357,17 @@ Modify the order processing loop to handle different order types:
 - Move the original process_order step to the default branch for unknown order types
 - Each branch step should return the orderId, shipping cost, and shipping type
 `
-			const results = await runVariantComparison(USER_PROMPT, VARIANTS, OPENROUTER_API_KEY!, {
-				initialModules: initialTest6.value.modules as FlowModule[],
-				initialSchema: initialTest6.schema,
-				expectedFlow: expectedTest6 as ExpectedFlow
-			})
+			const results = await runVariantComparison(
+				USER_PROMPT,
+				VARIANTS,
+				VARIANTS[0]._apiKey,
+				{
+					initialModules: initialTest6.value.modules as FlowModule[],
+					initialSchema: initialTest6.schema,
+					expectedFlow: expectedTest6 as ExpectedFlow
+				},
+				VARIANTS.map((v) => ({ provider: v._provider, apiKey: v._apiKey }))
+			)
 
 			const { summaryPath, flowPaths } = await writeFlowComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)
@@ -348,11 +409,17 @@ Refactor this flow for better performance by parallelizing the enrichment steps:
 - The combine_data step should check if any enrichment used a fallback value and set a hasFallbacks flag
 - Keep get_item as the first step and return_result as the last step unchanged
 `
-			const results = await runVariantComparison(USER_PROMPT, VARIANTS, OPENROUTER_API_KEY!, {
-				initialModules: initialTest7.value.modules as FlowModule[],
-				initialSchema: initialTest7.schema,
-				expectedFlow: expectedTest7 as ExpectedFlow
-			})
+			const results = await runVariantComparison(
+				USER_PROMPT,
+				VARIANTS,
+				VARIANTS[0]._apiKey,
+				{
+					initialModules: initialTest7.value.modules as FlowModule[],
+					initialSchema: initialTest7.schema,
+					expectedFlow: expectedTest7 as ExpectedFlow
+				},
+				VARIANTS.map((v) => ({ provider: v._provider, apiKey: v._apiKey }))
+			)
 
 			const { summaryPath, flowPaths } = await writeFlowComparisonResults(USER_PROMPT, results)
 			console.log(`\nResults written to: ${summaryPath}`)

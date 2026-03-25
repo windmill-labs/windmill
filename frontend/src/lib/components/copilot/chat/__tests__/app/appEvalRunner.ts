@@ -14,6 +14,7 @@ import {
 	type VariantDefaults
 } from '../shared'
 import { writeAppComparisonResultsToFolders } from './appResultsWriter'
+import type { AIProvider } from '$lib/gen/types.gen'
 
 // Re-export for convenience
 export type { InitialApp } from './appEvalComparison'
@@ -38,6 +39,8 @@ export interface AppEvalOptions {
 	variant?: VariantConfig
 	/** Whether to evaluate the generated app with LLM. Default: true. Set to false to skip evaluation. */
 	evaluateWithLLM?: boolean
+	/** AI provider (inferred from model name if omitted) */
+	provider?: AIProvider
 }
 
 /**
@@ -49,12 +52,11 @@ const appDefaults: VariantDefaults<AppAIChatHelpers> = {
 }
 
 /**
- * Runs an app chat evaluation with real OpenAI API calls.
- * Executes tool calls using the actual app tools from core.ts or variant-configured tools.
+ * Runs an app chat evaluation using the shared chat loop (same code path as production).
  */
 export async function runAppEval(
 	userPrompt: string,
-	openaiApiKey: string,
+	apiKey: string,
 	options?: AppEvalOptions
 ): Promise<AppEvalResult> {
 	const { helpers, getFiles } = createAppEvalHelpers(
@@ -69,7 +71,7 @@ export async function runAppEval(
 		appDefaults,
 		options?.customSystemPrompt
 	)
-	const { toolDefs, tools } = resolveTools(options?.variant, appDefaults)
+	const { tools } = resolveTools(options?.variant, appDefaults)
 	const model = resolveModel(options?.variant, options?.model)
 
 	// Build user message
@@ -80,15 +82,15 @@ export async function runAppEval(
 		userPrompt,
 		systemMessage,
 		userMessage,
-		toolDefs,
 		tools,
 		helpers,
-		apiKey: openaiApiKey,
+		apiKey,
 		getOutput: getFiles,
 		options: {
 			maxIterations: options?.maxIterations,
 			model,
-			workspace: 'test-workspace'
+			workspace: 'test-workspace',
+			provider: options?.provider
 		}
 	})
 
@@ -115,20 +117,31 @@ export async function runAppEval(
 }
 
 /**
+ * Per-variant provider override.
+ */
+export interface VariantProviderOverride {
+	provider: AIProvider
+	apiKey: string
+}
+
+/**
  * Runs the same prompt against multiple variants sequentially for comparison.
- * Returns results in the same order as the input variants.
+ * Accepts optional per-variant provider/apiKey overrides.
  */
 export async function runVariantComparison(
 	userPrompt: string,
 	variants: VariantConfig[],
-	openaiApiKey: string,
-	baseOptions?: Omit<AppEvalOptions, 'variant'>
+	defaultApiKey: string,
+	baseOptions?: Omit<AppEvalOptions, 'variant'>,
+	providerOverrides?: VariantProviderOverride[]
 ): Promise<AppEvalResult[]> {
 	const results: AppEvalResult[] = await Promise.all(
-		variants.map(async (variant) => {
-			return await runAppEval(userPrompt, openaiApiKey, {
+		variants.map(async (variant, i) => {
+			const override = providerOverrides?.[i]
+			return await runAppEval(userPrompt, override?.apiKey ?? defaultApiKey, {
 				...baseOptions,
-				variant
+				variant,
+				provider: override?.provider ?? baseOptions?.provider
 			})
 		})
 	)

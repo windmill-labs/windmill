@@ -588,6 +588,8 @@ paths:
                   type: boolean
                 name:
                   type: string
+                disabled:
+                  type: boolean
       responses:
         "200":
           description: user updated
@@ -3430,6 +3432,37 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/workspaces/git_sync_enabled:
+    get:
+      summary: Check if git sync is available for this workspace
+      operationId: getGitSyncEnabled
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Git sync availability status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  reason:
+                    type: string
+                    nullable: true
+                  max_repos:
+                    type: integer
+                    nullable: true
+                  user_count:
+                    type: integer
+                    nullable: true
+                  max_users:
+                    type: integer
+                    nullable: true
+
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
       summary: edit workspace git sync settings
@@ -3702,6 +3735,8 @@ paths:
                 properties:
                   default_app_path:
                     type: string
+                  default_app_raw:
+                    type: boolean
 
   /w/{workspace}/workspaces/usage:
     get:
@@ -6906,6 +6941,60 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/scripts/list_dedicated_with_deps:
+    get:
+      summary: list dedicated worker scripts with workspace dependency annotations
+      operationId: listDedicatedWithDeps
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of dedicated scripts with their workspace dependency names
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    language:
+                      type: string
+                      enum:
+                        - python3
+                        - deno
+                        - go
+                        - bash
+                        - powershell
+                        - postgresql
+                        - mysql
+                        - bigquery
+                        - snowflake
+                        - mssql
+                        - graphql
+                        - nativets
+                        - bun
+                        - bunnative
+                        - php
+                        - rust
+                        - ansible
+                        - csharp
+                        - oracledb
+                        - duckdb
+                        - java
+                        - ruby
+                    workspace_dep_names:
+                      type: array
+                      items:
+                        type: string
+                  required:
+                    - path
+                    - language
+                    - workspace_dep_names
 
   /w/{workspace}/scripts/raw/p/{path}:
     get:
@@ -10608,6 +10697,10 @@ paths:
           schema:
             type: boolean
         - name: no_logs
+          in: query
+          schema:
+            type: boolean
+        - name: fast
           in: query
           schema:
             type: boolean
@@ -17427,6 +17520,27 @@ paths:
                     description: count of log lines that matched the query per hostname
                     type: object
 
+  /srch/index/storage/disk:
+    get:
+      summary: Get index disk storage sizes from the indexer.
+      operationId: getIndexDiskStorageSizes
+      tags:
+        - indexSearch
+      responses:
+        "200":
+          description: disk storage sizes for each index
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_index_disk_size_bytes:
+                    type: integer
+                    nullable: true
+                  log_index_disk_size_bytes:
+                    type: integer
+                    nullable: true
+
   /indexer/delete/{idx_name}:
     delete:
       summary: Clear an index and restart the indexer.
@@ -23358,6 +23472,8 @@ components:
         role_source:
           type: string
           enum: ["manual", "instance_group"]
+        disabled:
+          type: boolean
 
       required:
         - email
@@ -23366,6 +23482,7 @@ components:
         - verified
         - first_time_user
         - role_source
+        - disabled
 
     Flow:
       allOf:
