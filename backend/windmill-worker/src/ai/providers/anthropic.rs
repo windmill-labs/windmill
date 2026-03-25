@@ -93,6 +93,8 @@ pub enum AnthropicRequestContent {
     },
     #[serde(rename = "image")]
     Image { source: AnthropicImageSource },
+    #[serde(rename = "document")]
+    Document { source: AnthropicImageSource },
     #[serde(rename = "tool_use")]
     ToolUse { id: String, name: String, input: Box<RawValue> },
     #[serde(rename = "tool_result")]
@@ -270,15 +272,24 @@ fn convert_content_to_anthropic(content: &Option<OpenAIContent>) -> Vec<Anthropi
                         }
                     }
                     ContentPart::ImageUrl { image_url } => {
-                        // Handle base64 images
                         if let Some((media_type, data)) = parse_data_url(&image_url.url) {
-                            result.push(AnthropicRequestContent::Image {
-                                source: AnthropicImageSource {
-                                    r#type: "base64".to_string(),
-                                    media_type,
-                                    data,
-                                },
-                            });
+                            if media_type == "application/pdf" {
+                                result.push(AnthropicRequestContent::Document {
+                                    source: AnthropicImageSource {
+                                        r#type: "base64".to_string(),
+                                        media_type,
+                                        data,
+                                    },
+                                });
+                            } else {
+                                result.push(AnthropicRequestContent::Image {
+                                    source: AnthropicImageSource {
+                                        r#type: "base64".to_string(),
+                                        media_type,
+                                        data,
+                                    },
+                                });
+                            }
                         }
                     }
                     ContentPart::S3Object { .. } => {

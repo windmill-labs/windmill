@@ -11,6 +11,7 @@ use crate::ai::{
     utils::extract_text_content,
 };
 
+use windmill_common::ai_google::parse_data_url;
 use windmill_common::ai_types::OpenAIToolCall;
 
 // Responses API structures
@@ -103,6 +104,8 @@ pub enum ImageGenerationContent {
     InputText { text: String },
     #[serde(rename = "input_image")]
     InputImage { image_url: String },
+    #[serde(rename = "input_file")]
+    InputFile { filename: String, file_data: String },
 }
 
 /// Output content for assistant messages in Responses API
@@ -236,9 +239,22 @@ fn convert_content_to_responses_format(
                         Some(ImageGenerationContent::InputText { text: text.clone() })
                     }
                     ContentPart::ImageUrl { image_url } => {
-                        Some(ImageGenerationContent::InputImage {
-                            image_url: image_url.url.clone(),
-                        })
+                        if let Some((media_type, _)) = parse_data_url(&image_url.url) {
+                            if media_type == "application/pdf" {
+                                Some(ImageGenerationContent::InputFile {
+                                    filename: "document.pdf".to_string(),
+                                    file_data: image_url.url.clone(),
+                                })
+                            } else {
+                                Some(ImageGenerationContent::InputImage {
+                                    image_url: image_url.url.clone(),
+                                })
+                            }
+                        } else {
+                            Some(ImageGenerationContent::InputImage {
+                                image_url: image_url.url.clone(),
+                            })
+                        }
                     }
                     // S3 objects should have been resolved earlier, but handle gracefully
                     ContentPart::S3Object { .. } => None,
@@ -421,15 +437,29 @@ impl OpenAIQueryBuilder {
         let mut content =
             vec![ImageGenerationContent::InputText { text: args.user_message.to_string() }];
 
-        // Add images if provided
-        if let Some(images) = args.images {
-            for image in images.iter() {
-                if !image.s3.is_empty() {
-                    let (mime_type, image_bytes) =
-                        download_and_encode_s3_image(image, client, workspace_id).await?;
-                    content.push(ImageGenerationContent::InputImage {
-                        image_url: format!("data:{};base64,{}", mime_type, image_bytes),
-                    });
+        // Add attachments (images, PDFs, etc.) if provided
+        if let Some(attachments) = args.attachments {
+            for attachment in attachments.iter() {
+                if !attachment.s3.is_empty() {
+                    let (mime_type, file_bytes) =
+                        download_and_encode_s3_image(attachment, client, workspace_id).await?;
+                    let data_url = format!("data:{};base64,{}", mime_type, file_bytes);
+                    if mime_type == "application/pdf" {
+                        let filename = attachment
+                            .s3
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or("document.pdf")
+                            .to_string();
+                        content.push(ImageGenerationContent::InputFile {
+                            filename,
+                            file_data: data_url,
+                        });
+                    } else {
+                        content.push(ImageGenerationContent::InputImage {
+                            image_url: data_url,
+                        });
+                    }
                 }
             }
         }

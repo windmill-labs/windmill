@@ -725,13 +725,13 @@ pub async fn run_agent(
         }
     }
 
-    // Add user images if provided
-    if let Some(ref user_images) = args.user_images {
-        if !user_images.is_empty() {
+    // Add user attachments (images, PDFs, etc.) if provided
+    if let Some(ref user_attachments) = args.user_attachments {
+        if !user_attachments.is_empty() {
             let mut parts = vec![];
-            for image in user_images.iter() {
-                if !image.s3.is_empty() {
-                    parts.push(ContentPart::S3Object { s3_object: image.clone() });
+            for attachment in user_attachments.iter() {
+                if !attachment.s3.is_empty() {
+                    parts.push(ContentPart::S3Object { s3_object: attachment.clone() });
                 }
             }
             messages.push(OpenAIMessage {
@@ -882,7 +882,7 @@ pub async fn run_agent(
                 output_type,
                 system_prompt: args.system_prompt.as_deref(),
                 user_message: args.user_message.as_deref().unwrap_or(""),
-                images: args.user_images.as_deref(),
+                attachments: args.user_attachments.as_deref(),
                 has_websearch,
             };
 
