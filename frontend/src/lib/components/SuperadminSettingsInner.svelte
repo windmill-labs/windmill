@@ -332,6 +332,7 @@
 											{/if}
 											<Cell head>Name</Cell>
 											<Cell head>Auth</Cell>
+											<Cell head>Enabled</Cell>
 											{#if activeOnly}
 												<Cell head>Kind</Cell>
 											{/if}
@@ -343,7 +344,7 @@
 									</Head>
 									<tbody>
 										{#if filteredUsers && users}
-											{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, role_source }, i (email)}
+											{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, role_source, disabled }, i (email)}
 												<tr class={i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
 													<Cell first class="max-w-[200px]"
 														><a href="mailto:{email}" title={email} class="truncate block"
@@ -377,6 +378,26 @@
 														><span title={login_type} class="truncate block">{login_type}</span
 														></Cell
 													>
+													<Cell>
+														<Toggle
+															size="xs"
+															checked={!disabled}
+															on:change={async () => {
+																try {
+																	await UserService.globalUserUpdate({
+																		email,
+																		requestBody: {
+																			disabled: !disabled
+																		}
+																	})
+																	sendUserToast(disabled ? 'User enabled' : 'User disabled')
+																	listUsers(activeOnly)
+																} catch (e) {
+																	sendUserToast('Failed to update user', true)
+																}
+															}}
+														/>
+													</Cell>
 													{#if activeOnly}
 														<Cell>
 															{#if operator_only}
