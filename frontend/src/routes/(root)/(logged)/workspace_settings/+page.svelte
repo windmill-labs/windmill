@@ -36,7 +36,7 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
-	import { Slack } from 'lucide-svelte'
+	import { Slack, Trash2 } from 'lucide-svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -56,6 +56,7 @@
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
 	import VolumeStorageSettings from '$lib/components/workspaceSettings/VolumeStorageSettings.svelte'
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
+	import TrashDrawer from '$lib/components/settings/TrashDrawer.svelte'
 	import { untrack } from 'svelte'
 	import { getHandlerType } from '$lib/components/triggers/utils'
 	import DucklakeSettings, {
@@ -75,6 +76,7 @@
 	import WorkspaceRulesets from '$lib/components/workspaceSettings/WorkspaceRulesets.svelte'
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
 
+	let trashDrawer: TrashDrawer | undefined = $state()
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
 	let teamsInitialPath: string = $state('')
@@ -473,17 +475,15 @@
 	}
 
 	async function loadSettings(): Promise<void> {
-		const [settings, copilotSettingsState]: [
-			GetSettingsResponse,
-			GetCopilotSettingsStateResponse
-		] = await Promise.all([
-			WorkspaceService.getSettings({
-				workspace: $workspaceStore!
-			}),
-			WorkspaceService.getCopilotSettingsState({
-				workspace: $workspaceStore!
-			})
-		])
+		const [settings, copilotSettingsState]: [GetSettingsResponse, GetCopilotSettingsStateResponse] =
+			await Promise.all([
+				WorkspaceService.getSettings({
+					workspace: $workspaceStore!
+				}),
+				WorkspaceService.getCopilotSettingsState({
+					workspace: $workspaceStore!
+				})
+			])
 		slack_team_name = settings.slack_name
 		teams_team_id = settings.teams_team_id
 		teams_team_name = settings.teams_team_name
@@ -1193,6 +1193,12 @@
 					label: 'Encryption',
 					aiId: 'workspace-settings-encryption',
 					aiDescription: 'Encryption workspace settings'
+				},
+				{
+					id: 'trash',
+					label: 'Trash',
+					aiId: 'workspace-settings-trash',
+					aiDescription: 'Trash bin for recently deleted items'
 				}
 			]
 		}
@@ -1927,6 +1933,19 @@ export async function main(
 								saveLabel="Save & Re-encrypt workspace"
 								disabled={!!encryptionKeyValidationError || workspaceReencryptionInProgress}
 							/>
+						{:else if tab == 'trash'}
+							<SettingsPageHeader
+								title="Trash"
+								description="Recently deleted items are kept for 3 days before being permanently removed. You can restore or permanently delete them here."
+							/>
+							<Button
+								startIcon={{ icon: Trash2 }}
+								variant="default"
+								class="mt-4"
+								onclick={() => trashDrawer?.open()}
+							>
+								Open Trash
+							</Button>
 						{/if}
 					</div>
 				</div>
@@ -1939,6 +1958,8 @@ export async function main(
 		</div>
 	{/if}
 </CenteredPage>
+
+<TrashDrawer bind:this={trashDrawer} />
 
 <UnsavedConfirmationModal
 	getInitialAndModifiedValues={getAllUnsavedChanges}

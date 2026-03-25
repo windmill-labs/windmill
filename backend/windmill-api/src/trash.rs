@@ -31,11 +31,12 @@ struct ListTrashQuery {
 }
 
 async fn list_trash(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(query): Query<ListTrashQuery>,
 ) -> Result<Json<Vec<TrashItem>>> {
+    require_admin(authed.is_admin, &authed.username)?;
     let items = trashbin::list_trash(
         &db,
         &w_id,
@@ -48,10 +49,11 @@ async fn list_trash(
 }
 
 async fn get_trash_item(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<Json<TrashItemWithData>> {
+    require_admin(authed.is_admin, &authed.username)?;
     let item = trashbin::get_trash_item(&db, &w_id, id).await?;
     Ok(Json(item))
 }
@@ -62,6 +64,7 @@ async fn restore_trash_item(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
     let item = trashbin::get_trash_item(&db, &w_id, id).await?;
     let mut tx = user_db.begin(&authed).await?;
 
@@ -72,9 +75,6 @@ async fn restore_trash_item(
         "schedule" => restore_schedule(&mut tx, &item).await?,
         "variable" => restore_variable(&mut tx, &item).await?,
         "resource" => restore_resource(&mut tx, &item).await?,
-        "resource_type" => restore_resource_type(&mut tx, &item).await?,
-        "folder" => restore_folder(&mut tx, &item).await?,
-        "group" => restore_group(&mut tx, &item).await?,
         kind if kind.ends_with("_trigger") => restore_trigger(&mut tx, &item).await?,
         _ => {
             return Err(Error::BadRequest(format!(
@@ -456,127 +456,6 @@ async fn restore_resource(tx: &mut sqlx::PgConnection, item: &TrashItemWithData)
                  ON CONFLICT DO NOTHING",
             )
             .bind(var)
-            .execute(&mut *tx)
-            .await?;
-        }
-    }
-
-    Ok(())
-}
-
-async fn restore_resource_type(
-    tx: &mut sqlx::PgConnection,
-    item: &TrashItemWithData,
-) -> Result<()> {
-    let data = &item.item_data;
-
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND workspace_id = $2)",
-        &item.item_path,
-        &item.workspace_id,
-    )
-    .fetch_one(&mut *tx)
-    .await?
-    .unwrap_or(false);
-
-    if exists {
-        return Err(Error::BadRequest(format!(
-            "A resource type already exists with name '{}'",
-            item.item_path
-        )));
-    }
-
-    let row = data
-        .get("row")
-        .ok_or_else(|| Error::internal_err("Invalid trash data for resource_type"))?;
-
-    sqlx::query(
-        "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at,
-         created_by, format_extension, is_fileset)
-         SELECT * FROM jsonb_populate_record(null::resource_type, $1)",
-    )
-    .bind(row)
-    .execute(&mut *tx)
-    .await?;
-
-    Ok(())
-}
-
-async fn restore_folder(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) -> Result<()> {
-    let data = &item.item_data;
-
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM folder WHERE name = $1 AND workspace_id = $2)",
-        &item.item_path,
-        &item.workspace_id,
-    )
-    .fetch_one(&mut *tx)
-    .await?
-    .unwrap_or(false);
-
-    if exists {
-        return Err(Error::BadRequest(format!(
-            "A folder already exists with name '{}'",
-            item.item_path
-        )));
-    }
-
-    let row = data
-        .get("row")
-        .ok_or_else(|| Error::internal_err("Invalid trash data for folder"))?;
-
-    sqlx::query(
-        "INSERT INTO folder (name, workspace_id, display_name, owners, extra_perms, summary,
-         edited_at, created_by)
-         SELECT * FROM jsonb_populate_record(null::folder, $1)",
-    )
-    .bind(row)
-    .execute(&mut *tx)
-    .await?;
-
-    Ok(())
-}
-
-async fn restore_group(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) -> Result<()> {
-    let data = &item.item_data;
-
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM group_ WHERE name = $1 AND workspace_id = $2)",
-        &item.item_path,
-        &item.workspace_id,
-    )
-    .fetch_one(&mut *tx)
-    .await?
-    .unwrap_or(false);
-
-    if exists {
-        return Err(Error::BadRequest(format!(
-            "A group already exists with name '{}'",
-            item.item_path
-        )));
-    }
-
-    let row = data
-        .get("row")
-        .ok_or_else(|| Error::internal_err("Invalid trash data for group"))?;
-
-    sqlx::query(
-        "INSERT INTO group_ (workspace_id, name, summary, extra_perms)
-         SELECT * FROM jsonb_populate_record(null::group_, $1)",
-    )
-    .bind(row)
-    .execute(&mut *tx)
-    .await?;
-
-    // Restore group memberships
-    if let Some(members) = data.get("members").and_then(|v| v.as_array()) {
-        for member in members {
-            sqlx::query(
-                "INSERT INTO usr_to_group (workspace_id, group_, usr)
-                 SELECT * FROM jsonb_populate_record(null::usr_to_group, $1)
-                 ON CONFLICT DO NOTHING",
-            )
-            .bind(member)
             .execute(&mut *tx)
             .await?;
         }

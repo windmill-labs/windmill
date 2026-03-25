@@ -642,23 +642,6 @@ async fn delete_group(
     }
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
-    // Capture data for trashbin before deleting
-    let trash_group: Option<serde_json::Value> = sqlx::query_scalar(
-        "SELECT to_jsonb(t) FROM group_ t WHERE name = $1 AND workspace_id = $2",
-    )
-    .bind(&name)
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    let trash_members: Vec<serde_json::Value> = sqlx::query_scalar(
-        "SELECT to_jsonb(t) FROM usr_to_group t WHERE group_ = $1 AND workspace_id = $2",
-    )
-    .bind(&name)
-    .bind(&w_id)
-    .fetch_all(&mut *tx)
-    .await?;
-
     sqlx::query!(
         "DELETE FROM usr_to_group WHERE group_ = $1 AND workspace_id = $2",
         name,
@@ -673,22 +656,6 @@ async fn delete_group(
     )
     .execute(&mut *tx)
     .await?;
-
-    if let Some(group_data) = trash_group {
-        let mut trash_data = serde_json::json!({"row": group_data});
-        if !trash_members.is_empty() {
-            trash_data["members"] = serde_json::Value::Array(trash_members);
-        }
-        windmill_common::trashbin::move_to_trash(
-            &mut *tx,
-            &w_id,
-            "group",
-            &name,
-            trash_data,
-            &authed.username,
-        )
-        .await?;
-    }
 
     audit_log(
         &mut *tx,

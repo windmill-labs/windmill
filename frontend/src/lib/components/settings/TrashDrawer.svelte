@@ -1,14 +1,11 @@
 <script lang="ts">
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import PageHeader from '$lib/components/PageHeader.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import Row from '$lib/components/table/Row.svelte'
-	import Select from '$lib/components/select/Select.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { type TrashItem, TrashService } from '$lib/services/trashService'
 	import {
@@ -20,32 +17,14 @@
 		Clock,
 		Variable,
 		Database,
-		FolderOpen,
-		Users,
-		Zap,
-		RefreshCw
+		Zap
 	} from 'lucide-svelte'
-	import { untrack } from 'svelte'
 
+	let drawer: Drawer | undefined = $state()
 	let items: TrashItem[] | undefined = $state(undefined)
-	let kindFilter: string | undefined = $state(undefined)
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let deleteOpen = $derived(Boolean(deleteConfirmedCallback))
 	let emptyConfirmOpen = $state(false)
-
-	const kindOptions = [
-		{ label: 'All types', value: undefined },
-		{ label: 'Scripts', value: 'script' },
-		{ label: 'Flows', value: 'flow' },
-		{ label: 'Apps', value: 'app' },
-		{ label: 'Schedules', value: 'schedule' },
-		{ label: 'Variables', value: 'variable' },
-		{ label: 'Resources', value: 'resource' },
-		{ label: 'Resource Types', value: 'resource_type' },
-		{ label: 'Folders', value: 'folder' },
-		{ label: 'Groups', value: 'group' },
-		{ label: 'Triggers', value: 'trigger' }
-	]
 
 	function getKindIcon(kind: string) {
 		if (kind === 'script') return FileCode2
@@ -54,9 +33,6 @@
 		if (kind === 'schedule') return Clock
 		if (kind === 'variable') return Variable
 		if (kind === 'resource') return Database
-		if (kind === 'resource_type') return Database
-		if (kind === 'folder') return FolderOpen
-		if (kind === 'group') return Users
 		if (kind.endsWith('_trigger')) return Zap
 		return Trash2
 	}
@@ -68,9 +44,6 @@
 		if (kind === 'schedule') return 'Schedule'
 		if (kind === 'variable') return 'Variable'
 		if (kind === 'resource') return 'Resource'
-		if (kind === 'resource_type') return 'Resource Type'
-		if (kind === 'folder') return 'Folder'
-		if (kind === 'group') return 'Group'
 		if (kind.endsWith('_trigger')) {
 			return (
 				kind
@@ -111,8 +84,7 @@
 
 	async function loadItems() {
 		items = await TrashService.listTrash({
-			workspace: $workspaceStore!,
-			itemKind: kindFilter
+			workspace: $workspaceStore!
 		})
 	}
 
@@ -152,97 +124,81 @@
 		}
 	}
 
-	$effect(() => {
-		kindFilter
-		untrack(() => loadItems())
-	})
+	export function open() {
+		items = undefined
+		drawer?.openDrawer()
+		loadItems()
+	}
 </script>
 
-<CenteredPage>
-	<PageHeader title="Trash">
-		<div class="flex flex-row gap-2 items-center">
-			<Select
-				items={kindOptions}
-				bind:value={kindFilter}
-				placeholder="Filter by type"
-				clearable
-				size="sm"
-			/>
-			<Button startIcon={{ icon: RefreshCw }} variant="default" size="xs" onclick={loadItems}>
-				Refresh
-			</Button>
-			{#if $userStore?.is_admin}
-				<Button
-					startIcon={{ icon: Trash2 }}
-					variant="default"
-					size="xs"
-					onclick={() => {
-						emptyConfirmOpen = true
-					}}
-					disabled={!items || items.length === 0}
-				>
-					Empty Trash
-				</Button>
-			{/if}
-		</div>
-	</PageHeader>
-
-	{#if items === undefined}
-		<Skeleton layout={[20, 8, 8, 8, 8]} />
-	{:else if items.length === 0}
-		<div class="flex flex-col items-center justify-center py-16 text-tertiary">
-			<Trash2 size={48} class="mb-4 opacity-50" />
-			<p class="text-lg">Trash is empty</p>
-			<p class="text-sm mt-1"
-				>Deleted items will appear here for 3 days before being permanently removed.</p
+<Drawer bind:this={drawer} size="900px">
+	<DrawerContent title="Trash" on:close={drawer?.closeDrawer}>
+		{#snippet actions()}
+			<Button
+				startIcon={{ icon: Trash2 }}
+				variant="default"
+				size="xs"
+				onclick={() => {
+					emptyConfirmOpen = true
+				}}
+				disabled={!items || items.length === 0}
 			>
-		</div>
-	{:else}
-		<DataTable size="sm">
-			{#snippet head()}
-				<Head>
-					<tr>
-						<Cell head first>Type</Cell>
-						<Cell head>Path</Cell>
-						<Cell head>Deleted by</Cell>
-						<Cell head>Deleted</Cell>
-						<Cell head>Expires</Cell>
-						<Cell head last>Actions</Cell>
-					</tr>
-				</Head>
-			{/snippet}
-			{#each items as item (item.id)}
-				{@const Icon = getKindIcon(item.item_kind)}
-				<Row>
-					<Cell first>
-						<div class="flex items-center gap-2">
-							<Icon size={14} />
-							<span class="text-xs">{getKindLabel(item.item_kind)}</span>
-						</div>
-					</Cell>
-					<Cell>
-						<span class="font-mono text-xs">{item.item_path}</span>
-					</Cell>
-					<Cell>
-						<span class="text-xs">{item.deleted_by}</span>
-					</Cell>
-					<Cell>
-						<span class="text-xs text-tertiary">{timeAgo(item.deleted_at)}</span>
-					</Cell>
-					<Cell>
-						<span class="text-xs text-tertiary">{timeRemaining(item.expires_at)}</span>
-					</Cell>
-					<Cell last>
-						<div class="flex gap-1">
-							<Button
-								startIcon={{ icon: RotateCcw }}
-								variant="default"
-								size="xs2"
-								onclick={() => restoreItem(item)}
-							>
-								Restore
-							</Button>
-							{#if $userStore?.is_admin}
+				Empty Trash
+			</Button>
+		{/snippet}
+		{#if items === undefined}
+			<Skeleton layout={[20, 8, 8, 8]} />
+		{:else if items.length === 0}
+			<div class="flex flex-col items-center justify-center py-16 text-tertiary">
+				<Trash2 size={48} class="mb-4 opacity-50" />
+				<p class="text-lg">Trash is empty</p>
+				<p class="text-sm mt-1">Deleted items appear here for 3 days before permanent removal.</p>
+			</div>
+		{:else}
+			<DataTable size="sm">
+				{#snippet head()}
+					<Head>
+						<tr>
+							<Cell head first>Type</Cell>
+							<Cell head>Path</Cell>
+							<Cell head>Deleted by</Cell>
+							<Cell head>Deleted</Cell>
+							<Cell head>Expires</Cell>
+							<Cell head last>Actions</Cell>
+						</tr>
+					</Head>
+				{/snippet}
+				{#each items as item (item.id)}
+					{@const Icon = getKindIcon(item.item_kind)}
+					<Row>
+						<Cell first>
+							<div class="flex items-center gap-2">
+								<Icon size={14} />
+								<span class="text-xs">{getKindLabel(item.item_kind)}</span>
+							</div>
+						</Cell>
+						<Cell>
+							<span class="font-mono text-xs">{item.item_path}</span>
+						</Cell>
+						<Cell>
+							<span class="text-xs">{item.deleted_by}</span>
+						</Cell>
+						<Cell>
+							<span class="text-xs text-tertiary">{timeAgo(item.deleted_at)}</span>
+						</Cell>
+						<Cell>
+							<span class="text-xs text-tertiary">{timeRemaining(item.expires_at)}</span>
+						</Cell>
+						<Cell last>
+							<div class="flex gap-1">
+								<Button
+									startIcon={{ icon: RotateCcw }}
+									variant="default"
+									size="xs2"
+									onclick={() => restoreItem(item)}
+								>
+									Restore
+								</Button>
 								<Button
 									startIcon={{ icon: Trash2 }}
 									variant="default"
@@ -253,14 +209,14 @@
 								>
 									Delete
 								</Button>
-							{/if}
-						</div>
-					</Cell>
-				</Row>
-			{/each}
-		</DataTable>
-	{/if}
-</CenteredPage>
+							</div>
+						</Cell>
+					</Row>
+				{/each}
+			</DataTable>
+		{/if}
+	</DrawerContent>
+</Drawer>
 
 <ConfirmationModal
 	open={deleteOpen}

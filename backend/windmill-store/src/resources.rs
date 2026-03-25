@@ -1597,15 +1597,6 @@ async fn delete_resource_type(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    // Capture data for trashbin before deleting
-    let trash_data: Option<serde_json::Value> = sqlx::query_scalar(
-        "SELECT jsonb_build_object('row', to_jsonb(t)) FROM resource_type t WHERE name = $1 AND workspace_id = $2",
-    )
-    .bind(&name)
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-
     let deleted_name = sqlx::query_scalar!(
         "DELETE FROM resource_type WHERE name = $1 AND workspace_id = $2 RETURNING name",
         name,
@@ -1615,18 +1606,6 @@ async fn delete_resource_type(
     .await?;
 
     not_found_if_none(deleted_name, "ResourceType", &name)?;
-
-    if let Some(data) = trash_data {
-        windmill_common::trashbin::move_to_trash(
-            &mut *tx,
-            &w_id,
-            "resource_type",
-            &name,
-            data,
-            &authed.username,
-        )
-        .await?;
-    }
 
     audit_log(
         &mut *tx,

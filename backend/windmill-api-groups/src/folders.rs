@@ -650,15 +650,6 @@ async fn delete_folder(
 
     not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;
 
-    // Capture data for trashbin before deleting
-    let trash_data: Option<serde_json::Value> = sqlx::query_scalar(
-        "SELECT jsonb_build_object('row', to_jsonb(t)) FROM folder t WHERE name = $1 AND workspace_id = $2",
-    )
-    .bind(&name)
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-
     let del = sqlx::query_scalar!(
         "DELETE FROM folder WHERE name = $1 AND workspace_id = $2 RETURNING 1",
         name,
@@ -673,18 +664,6 @@ async fn delete_folder(
             "Not authorized to delete folder {}",
             name
         )));
-    }
-
-    if let Some(data) = trash_data {
-        windmill_common::trashbin::move_to_trash(
-            &mut *tx,
-            &w_id,
-            "folder",
-            &name,
-            data,
-            &authed.username,
-        )
-        .await?;
     }
 
     audit_log(
