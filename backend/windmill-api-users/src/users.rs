@@ -1687,7 +1687,7 @@ async fn login(
     };
     let email_w_h: Option<(String, String, bool)> = sqlx::query_as(
         "SELECT email, password_hash, super_admin FROM password WHERE email = $1 AND login_type = \
-         'password'",
+         'password' AND disabled = false",
     )
     .bind(&email)
     .fetch_optional(&mut *tx)
@@ -1776,7 +1776,7 @@ async fn refresh_token(
     }
 
     let super_admin = sqlx::query_scalar!(
-        "SELECT super_admin FROM password WHERE email = $1",
+        "SELECT super_admin FROM password WHERE email = $1 AND disabled = false",
         &authed.email
     )
     .fetch_optional(&mut *tx)

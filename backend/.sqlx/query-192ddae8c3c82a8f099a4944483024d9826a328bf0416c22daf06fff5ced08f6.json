@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM scim_deactivated_user WHERE email = $1",
+  "query": "DELETE FROM token WHERE email = $1",
   "describe": {
     "columns": [],
     "parameters": {
@@ -10,5 +10,5 @@
     },
     "nullable": []
   },
-  "hash": "c8b50b6ff9e73844e14fc36f01c324415093cd5c904cba0825c69afd37d1eeb5"
+  "hash": "192ddae8c3c82a8f099a4944483024d9826a328bf0416c22daf06fff5ced08f6"
 }

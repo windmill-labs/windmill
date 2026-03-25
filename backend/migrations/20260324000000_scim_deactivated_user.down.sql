@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS scim_deactivated_user;
+ALTER TABLE password DROP COLUMN IF EXISTS disabled;
