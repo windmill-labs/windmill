@@ -17460,6 +17460,27 @@ paths:
                     description: count of log lines that matched the query per hostname
                     type: object
 
+  /srch/index/storage/disk:
+    get:
+      summary: Get index disk storage sizes from the indexer.
+      operationId: getIndexDiskStorageSizes
+      tags:
+        - indexSearch
+      responses:
+        "200":
+          description: disk storage sizes for each index
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_index_disk_size_bytes:
+                    type: integer
+                    nullable: true
+                  log_index_disk_size_bytes:
+                    type: integer
+                    nullable: true
+
   /indexer/delete/{idx_name}:
     delete:
       summary: Clear an index and restart the indexer.
