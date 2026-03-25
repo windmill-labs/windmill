@@ -1124,6 +1124,59 @@ struct CachedResourceType {
     description: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+struct HubResourceTypeRaw {
+    id: i64,
+    name: String,
+    schema: Option<String>,
+    app: String,
+    description: Option<String>,
+}
+
+async fn fetch_resource_types_from_hub() -> error::Result<Vec<CachedResourceType>> {
+    let response = HTTP_CLIENT
+        .get(format!(
+            "{}/resource_types/list",
+            windmill_common::DEFAULT_HUB_BASE_URL
+        ))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| error::Error::InternalErr(format!("Failed to fetch from hub: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(error::Error::InternalErr(format!(
+            "Hub returned status {}",
+            response.status()
+        )));
+    }
+
+    let raw_types: Vec<HubResourceTypeRaw> = response
+        .json()
+        .await
+        .map_err(|e| error::Error::InternalErr(format!("Failed to parse hub response: {}", e)))?;
+
+    Ok(raw_types
+        .into_iter()
+        .filter_map(|rt| {
+            let schema = match rt.schema {
+                Some(s) => match serde_json::from_str(&s) {
+                    Ok(v) => Some(v),
+                    Err(_) => return None,
+                },
+                None => None,
+            };
+            Some(CachedResourceType {
+                id: rt.id,
+                name: rt.name,
+                schema,
+                app: rt.app,
+                description: rt.description,
+            })
+        })
+        .collect())
+}
+
 async fn sync_cached_resource_types(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -1133,16 +1186,12 @@ async fn sync_cached_resource_types(
     use windmill_common::worker::HUB_RT_CACHE_DIR;
     let cache_path = format!("{}/resource_types.json", *HUB_RT_CACHE_DIR);
 
-    let content = tokio::fs::read_to_string(&cache_path).await.map_err(|e| {
-        error::Error::NotFound(format!(
-            "No cached resource types found at {}: {}",
-            cache_path, e
-        ))
-    })?;
-
-    let cached_types: Vec<CachedResourceType> = serde_json::from_str(&content).map_err(|e| {
-        error::Error::InternalErr(format!("Failed to parse cached resource types: {}", e))
-    })?;
+    let cached_types = match tokio::fs::read_to_string(&cache_path).await {
+        Ok(content) => serde_json::from_str::<Vec<CachedResourceType>>(&content).map_err(|e| {
+            error::Error::InternalErr(format!("Failed to parse cached resource types: {}", e))
+        })?,
+        Err(_) => fetch_resource_types_from_hub().await?,
+    };
 
     let mut synced_count = 0;
 

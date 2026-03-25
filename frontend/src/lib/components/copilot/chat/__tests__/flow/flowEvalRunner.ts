@@ -1,4 +1,5 @@
 import type { FlowModule } from '$lib/gen'
+import type { AIProvider } from '$lib/gen/types.gen'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { flowTools, prepareFlowSystemMessage, prepareFlowUserMessage, type FlowAIChatHelpers } from '../../flow/core'
 import { createFlowEvalHelpers } from './flowEvalHelpers'
@@ -38,6 +39,8 @@ export interface FlowEvalOptions {
 	maxIterations?: number
 	variant?: VariantConfig
 	expectedFlow?: ExpectedFlow
+	/** AI provider (inferred from model name if omitted) */
+	provider?: AIProvider
 }
 
 /**
@@ -49,12 +52,11 @@ const flowDefaults: VariantDefaults<FlowAIChatHelpers> = {
 }
 
 /**
- * Runs a flow chat evaluation with real OpenAI API calls.
- * Executes tool calls using the actual flowTools from core.ts or variant-configured tools.
+ * Runs a flow chat evaluation using the shared chat loop (same code path as production).
  */
 export async function runFlowEval(
 	userPrompt: string,
-	openaiApiKey: string,
+	apiKey: string,
 	options?: FlowEvalOptions
 ): Promise<FlowEvalResult> {
 	const { helpers, getFlow } = createFlowEvalHelpers(
@@ -65,7 +67,7 @@ export async function runFlowEval(
 	// Resolve variant configuration
 	const variantName = options?.variant?.name ?? 'baseline'
 	const systemMessage = resolveSystemPrompt(options?.variant, flowDefaults, options?.customSystemPrompt)
-	const { toolDefs, tools } = resolveTools(options?.variant, flowDefaults)
+	const { tools } = resolveTools(options?.variant, flowDefaults)
 	const model = resolveModel(options?.variant, options?.model)
 
 	// Build user message
@@ -76,15 +78,15 @@ export async function runFlowEval(
 		userPrompt,
 		systemMessage,
 		userMessage,
-		toolDefs,
 		tools,
 		helpers,
-		apiKey: openaiApiKey,
+		apiKey,
 		getOutput: getFlow,
 		options: {
 			maxIterations: options?.maxIterations,
 			model,
-			workspace: 'test-workspace'
+			workspace: 'test-workspace',
+			provider: options?.provider
 		}
 	})
 
@@ -112,20 +114,31 @@ export async function runFlowEval(
 }
 
 /**
+ * Per-variant provider override.
+ */
+export interface VariantProviderOverride {
+	provider: AIProvider
+	apiKey: string
+}
+
+/**
  * Runs the same prompt against multiple variants sequentially for comparison.
- * Returns results in the same order as the input variants.
+ * Accepts optional per-variant provider/apiKey overrides.
  */
 export async function runVariantComparison(
 	userPrompt: string,
 	variants: VariantConfig[],
-	openaiApiKey: string,
-	baseOptions?: Omit<FlowEvalOptions, 'variant'>
+	defaultApiKey: string,
+	baseOptions?: Omit<FlowEvalOptions, 'variant'>,
+	providerOverrides?: VariantProviderOverride[]
 ): Promise<FlowEvalResult[]> {
 	const results: FlowEvalResult[] = await Promise.all(
-		variants.map(async (variant) => {
-			return await runFlowEval(userPrompt, openaiApiKey, {
+		variants.map(async (variant, i) => {
+			const override = providerOverrides?.[i]
+			return await runFlowEval(userPrompt, override?.apiKey ?? defaultApiKey, {
 				...baseOptions,
-				variant
+				variant,
+				provider: override?.provider ?? baseOptions?.provider
 			})
 		})
 	)

@@ -16434,6 +16434,7 @@ dependencies = [
  "windmill-common",
  "windmill-dep-map",
  "windmill-git-sync",
+ "windmill-object-store",
  "windmill-queue",
  "windmill-types",
 ]

@@ -3474,6 +3474,11 @@ async fn clone_apps(
         .fetch_all(&mut **tx)
         .await?;
 
+        let mut cloned_from_db: std::collections::HashSet<(i64, String)> = HashSet::new();
+        for bundle in &bundles {
+            cloned_from_db.insert((bundle.app_version_id, bundle.file_type.clone()));
+        }
+
         for bundle in bundles {
             if let Some(&new_version_id) = version_id_mapping.get(&bundle.app_version_id) {
                 sqlx::query!(
@@ -3486,6 +3491,66 @@ async fn clone_apps(
                 )
                 .execute(&mut **tx)
                 .await?;
+            }
+        }
+
+        // Clone bundles from S3 for versions not found in DB
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        {
+            let object_store = windmill_object_store::get_object_store().await;
+            if let Some(os) = object_store {
+                for (&old_version_id, &new_version_id) in &version_id_mapping {
+                    for file_type in &["js", "css"] {
+                        if cloned_from_db.contains(&(old_version_id, file_type.to_string())) {
+                            continue;
+                        }
+                        let src_path = format!(
+                            "/app_bundles/{}/{}.{}",
+                            source_workspace_id, old_version_id, file_type
+                        );
+                        let get_result = os
+                            .get(&windmill_object_store::object_store_reexports::Path::from(
+                                src_path,
+                            ))
+                            .await;
+                        match get_result {
+                            Ok(result) => {
+                                let data = result.bytes().await.map_err(
+                                    windmill_object_store::object_store_error_to_error,
+                                )?;
+                                let dst_path = format!(
+                                    "/app_bundles/{}/{}.{}",
+                                    target_workspace_id, new_version_id, file_type
+                                );
+                                os.put(
+                                    &windmill_object_store::object_store_reexports::Path::from(
+                                        dst_path.clone(),
+                                    ),
+                                    data.into(),
+                                )
+                                .await
+                                .map_err(
+                                    windmill_object_store::object_store_error_to_error,
+                                )?;
+                                tracing::info!(
+                                    "Cloned app bundle from S3: {}.{} -> {}.{}",
+                                    old_version_id,
+                                    file_type,
+                                    new_version_id,
+                                    file_type
+                                );
+                            }
+                            Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound { .. }) => {
+                                // No bundle in S3 for this version/type, skip
+                            }
+                            Err(e) => {
+                                return Err(
+                                    windmill_object_store::object_store_error_to_error(e),
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
     }
