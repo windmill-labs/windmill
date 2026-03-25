@@ -791,7 +791,12 @@
 			</div>
 
 			{#if resourceTypeNotFound}
-				<SyncResourceTypes onSynced={getResourceTypeInfo} />
+				<div class="flex flex-col gap-2 mb-4">
+					<p class="text-red-500 dark:text-red-400 text-xs">
+						Resource type '{resourceType}' not found in your workspace
+					</p>
+					<SyncResourceTypes onSynced={getResourceTypeInfo} />
+				</div>
 			{/if}
 			{#key resourceTypeInfo}
 				<ApiConnectForm
