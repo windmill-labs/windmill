@@ -89,7 +89,7 @@
 		link="https://www.windmill.dev/docs/advanced/git_sync"
 	>
 		{#snippet actions()}
-			{#if gitSyncAllowed && gitSyncContext.repositories != undefined}
+			{#if (gitSyncAllowed || gitSyncStatus.user_count != null) && gitSyncContext?.repositories != undefined}
 				<Button
 					variant="accent"
 					target="_blank"
@@ -108,9 +108,10 @@
 	{#if !gitSyncAllowed}
 		<div class="mb-2"></div>
 
-		<Alert type="warning" title="Git sync unavailable">
+		<Alert type="warning" title="Git sync disabled">
 			Git sync is an EE feature provided in CE only when workspace members &le;
-			{gitSyncStatus.max_users}. Your workspace has {gitSyncStatus.user_count} members.
+			{gitSyncStatus.max_users}. Your workspace has {gitSyncStatus.user_count} members. Settings below
+			are preserved but sync is inactive until membership is reduced or you upgrade to EE.
 		</Alert>
 		<div class="mb-2"></div>
 	{:else if isFreeTier}
@@ -123,7 +124,7 @@
 		</Alert>
 		<div class="mb-2"></div>
 	{/if}
-	{#if gitSyncAllowed && gitSyncContext.repositories != undefined}
+	{#if (gitSyncAllowed || gitSyncStatus.user_count != null) && gitSyncContext?.repositories != undefined}
 		<!-- Primary Sync Repository -->
 		<div class="space-y-6 pt-6">
 			<GitSyncRepositoryCard
