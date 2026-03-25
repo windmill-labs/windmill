@@ -65,6 +65,8 @@
 	let filteredUsers: GlobalUserInfo[] = $state([])
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let deleteUserEmail: string = $state('')
+	let disableConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let disableUserEmail: string = $state('')
 	let editWrappers: Record<string, HTMLDivElement> = $state({})
 	let activeOnly = $state(false)
 
@@ -383,17 +385,31 @@
 															size="xs"
 															checked={!disabled}
 															on:change={async () => {
-																try {
-																	await UserService.globalUserUpdate({
-																		email,
-																		requestBody: {
-																			disabled: !disabled
+																if (!disabled) {
+																	disableUserEmail = email
+																	disableConfirmedCallback = async () => {
+																		try {
+																			await UserService.globalUserUpdate({
+																				email,
+																				requestBody: { disabled: true }
+																			})
+																			sendUserToast('User disabled')
+																			listUsers(activeOnly)
+																		} catch (e) {
+																			sendUserToast('Failed to disable user', true)
 																		}
-																	})
-																	sendUserToast(disabled ? 'User enabled' : 'User disabled')
-																	listUsers(activeOnly)
-																} catch (e) {
-																	sendUserToast('Failed to update user', true)
+																	}
+																} else {
+																	try {
+																		await UserService.globalUserUpdate({
+																			email,
+																			requestBody: { disabled: false }
+																		})
+																		sendUserToast('User enabled')
+																		listUsers(activeOnly)
+																	} catch (e) {
+																		sendUserToast('Failed to enable user', true)
+																	}
 																}
 															}}
 														/>
@@ -596,5 +612,27 @@
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to remove <b>{deleteUserEmail}</b>?</span>
+	</div>
+</ConfirmationModal>
+<ConfirmationModal
+	open={Boolean(disableConfirmedCallback)}
+	title="Disable user"
+	confirmationText="Disable"
+	on:canceled={() => {
+		disableConfirmedCallback = undefined
+		listUsers(activeOnly)
+	}}
+	on:confirmed={() => {
+		if (disableConfirmedCallback) {
+			disableConfirmedCallback()
+		}
+		disableConfirmedCallback = undefined
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span
+			>Are you sure you want to disable <b>{disableUserEmail}</b>? They will be immediately logged
+			out and unable to log in.</span
+		>
 	</div>
 </ConfirmationModal>
