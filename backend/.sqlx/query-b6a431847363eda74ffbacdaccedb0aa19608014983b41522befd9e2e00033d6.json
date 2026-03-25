@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT resume_id, approver\n                FROM resume_job\n                WHERE job = $1\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resume_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "approver",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "b6a431847363eda74ffbacdaccedb0aa19608014983b41522befd9e2e00033d6"
+}

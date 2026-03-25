@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT j.id AS \"id!\", COALESCE(s.flow_status, s.workflow_as_code_status) as flow_status, q.suspend AS \"suspend!\", j.runnable_path as script_path, j.permissioned_as_email as email\n            FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_status s USING (id)\n            WHERE j.id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "flow_status",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "suspend!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "5c6e158aee5db3c4bf41a0aedfa5d6c73f5e04ebfd8703dc631bc49f2e797dd4"
+}

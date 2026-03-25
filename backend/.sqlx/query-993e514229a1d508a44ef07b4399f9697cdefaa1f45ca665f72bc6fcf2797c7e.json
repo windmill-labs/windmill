@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT resource_path FROM workspace_integrations WHERE workspace_id = $1 AND service_name = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resource_path",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "native_trigger_service",
+            "kind": {
+              "Enum": [
+                "nextcloud",
+                "google"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "993e514229a1d508a44ef07b4399f9697cdefaa1f45ca665f72bc6fcf2797c7e"
+}
