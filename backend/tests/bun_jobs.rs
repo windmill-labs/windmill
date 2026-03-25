@@ -1831,18 +1831,9 @@ export function main(x: number): number {
         );
     }
 
-    #[test]
-    fn test_deno_exec_preprocess_missing_preprocessor() {
-        let script = r#"
-export function main(x: number): number { return x; }
-"#;
-        let results = run_deno_raw_protocol_test(
-            script,
-            vec![("exec_preprocess", serde_json::json!({"x": 5}))],
-        );
-        assert_eq!(results.len(), 1);
-        assert!(matches!(results[0], DedicatedWorkerResult::Error(_)));
-    }
+    // Note: no "missing preprocessor" test for Deno because the wrapper only generates
+    // the exec_preprocess handler when the script actually has a preprocessor function.
+    // Without one, exec_preprocess messages are unrecognized (by design — Rust never sends them).
 
     // ==================== Argument Transformation Tests ====================
 
