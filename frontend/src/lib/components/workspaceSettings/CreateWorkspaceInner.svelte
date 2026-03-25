@@ -241,11 +241,14 @@
 
 		for (const job of clonedJobs) {
 			if (job._isInstance) {
-				// Instance: update resource_path and set forked_from
+				// Instance: update resource_path and set forked_from with schema snapshot
 				if (datatableConfig.datatables[job.name]) {
 					const originalPath = datatableConfig.datatables[job.name].database.resource_path
 					datatableConfig.datatables[job.name].database.resource_path = job._newDbName
-					datatableConfig.datatables[job.name].forked_from = originalPath
+					datatableConfig.datatables[job.name].forked_from = {
+						original_name: originalPath,
+						schema: job._schema ?? {}
+					}
 				}
 			} else {
 				// Resource: update the resource's dbname and set non_diffable

@@ -15,6 +15,7 @@
 		_sourceWorkspace: string
 		_targetWorkspace: string
 		_resourcePath: string
+		_schema?: Record<string, Record<string, any>>
 	}
 </script>
 
@@ -73,11 +74,19 @@
 							{
 								label: `pg_dump → pg_import (${behavior === 'schema_only' ? 'schema only' : 'schema + data'})`,
 								status: 'pending'
+							},
+							{
+								label: 'Snapshot schema',
+								status: 'pending'
 							}
 						]
 					: [
 							{
 								label: `CREATE DATABASE "${newDbName}" + pg_dump → pg_import (${behavior === 'schema_only' ? 'schema only' : 'schema + data'})`,
+								status: 'pending'
+							},
+							{
+								label: 'Snapshot schema',
 								status: 'pending'
 							}
 						]
@@ -172,6 +181,22 @@
 				cloneRunning = false
 				return
 			}
+		}
+		stepIdx++
+
+		// Final step: snapshot the schema from the source datatable
+		job.steps[stepIdx].status = 'running'
+		try {
+			const schema = await WorkspaceService.getDatatableFullSchema({
+				workspace: job._sourceWorkspace,
+				requestBody: { source: `datatable://${job.name}` }
+			})
+			job._schema = schema
+			job.steps[stepIdx].status = 'done'
+		} catch (e: any) {
+			// Non-fatal: schema snapshot is best-effort
+			job.steps[stepIdx].status = 'done'
+			job.steps[stepIdx].error = `Warning: ${e?.body ?? e?.message ?? String(e)}`
 		}
 
 		cloneRunning = false

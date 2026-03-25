@@ -3491,6 +3491,82 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/get_datatable_full_schema:
+    post:
+      summary: get the full schema of a datatable database as TableEditorValues
+      operationId: getDatatableFullSchema
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source]
+              properties:
+                source:
+                  type: string
+                  description: "Source datatable, e.g. 'datatable://main'"
+      responses:
+        "200":
+          description: "Schema as { schema_name: { table_name: TableEditorValues } }"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    required: [name, columns, foreign_keys]
+                    properties:
+                      name:
+                        type: string
+                      columns:
+                        type: array
+                        items:
+                          type: object
+                          required: [name, datatype]
+                          properties:
+                            name:
+                              type: string
+                            datatype:
+                              type: string
+                            primary_key:
+                              type: boolean
+                            default_value:
+                              type: string
+                            nullable:
+                              type: boolean
+                      foreign_keys:
+                        type: array
+                        items:
+                          type: object
+                          required: [columns, on_delete, on_update]
+                          properties:
+                            target_table:
+                              type: string
+                            columns:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  source_column:
+                                    type: string
+                                  target_column:
+                                    type: string
+                            on_delete:
+                              type: string
+                            on_update:
+                              type: string
+                            fk_constraint_name:
+                              type: string
+                      pk_constraint_name:
+                        type: string
+
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
       summary: edit workspace git sync settings
@@ -23768,8 +23844,14 @@ components:
                 required:
                   - resource_type
               forked_from:
-                type: string
-                description: Original resource_path before fork
+                type: object
+                description: Fork origin info with schema snapshot
+                properties:
+                  original_name:
+                    type: string
+                  schema:
+                    type: object
+                    additionalProperties: true
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]
