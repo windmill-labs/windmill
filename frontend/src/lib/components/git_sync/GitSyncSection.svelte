@@ -42,6 +42,9 @@
 
 	const gitSyncAllowed = $derived(gitSyncStatus.enabled)
 	const isFreeTier = $derived(gitSyncAllowed && !$enterpriseLicense)
+	const hasConfiguredRepos = $derived(
+		gitSyncContext?.repositories?.some((r) => r.git_repo_resource_path) ?? false
+	)
 
 	// Load settings when workspace context changes
 	$effect(() => {
@@ -108,7 +111,7 @@
 	{#if !gitSyncAllowed}
 		<div class="mb-2"></div>
 
-		<Alert type="warning" title="Git sync disabled">
+		<Alert type={hasConfiguredRepos ? 'error' : 'warning'} title="Git sync disabled">
 			Git sync is an EE feature provided in CE only when workspace members &le;
 			{gitSyncStatus.max_users}. Your workspace has {gitSyncStatus.user_count} members. Settings below
 			are preserved but sync is inactive until membership is reduced or you upgrade to EE.
