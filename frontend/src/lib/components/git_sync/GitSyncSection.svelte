@@ -109,15 +109,17 @@
 		<div class="mb-2"></div>
 
 		<Alert type="warning" title="Git sync unavailable">
-			Git sync is an EE feature provided in CE only when workspace members &le; {gitSyncStatus.max_users}.
-			Your workspace has {gitSyncStatus.user_count} members.
+			Git sync is an EE feature provided in CE only when workspace members &le;
+			{gitSyncStatus.max_users}. Your workspace has {gitSyncStatus.user_count} members.
 		</Alert>
 		<div class="mb-2"></div>
 	{:else if isFreeTier}
 		<div class="mb-2"></div>
 
 		<Alert type="warning">
-			Git sync is an EE feature provided in CE only when workspace members &le; {gitSyncStatus.max_users}.
+			Git sync is an EE feature provided in CE only when workspace members &le;
+			{gitSyncStatus.max_users}. Limited to a single repository. Upgrade to EE for multiple
+			repositories, promotion mode, and GitHub App authentication.
 		</Alert>
 		<div class="mb-2"></div>
 	{/if}
