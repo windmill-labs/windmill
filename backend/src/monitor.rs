@@ -3413,7 +3413,17 @@ pub async fn reload_http_route_workspaced_route_setting(conn: &DB) -> error::Res
 
     let mut l = HTTP_ROUTE_WORKSPACED_ROUTE.write().await;
 
-    *l = ws_route;
+    if *l != ws_route {
+        *l = ws_route;
+        drop(l);
+        // Bump the HTTP trigger version so the route cache is rebuilt with
+        // the updated workspaced_route behavior on the next request.
+        sqlx::query!("SELECT nextval('http_trigger_version_seq')")
+            .fetch_one(conn)
+            .await?;
+    } else {
+        *l = ws_route;
+    }
     Ok(())
 }
 
