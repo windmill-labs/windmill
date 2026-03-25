@@ -23,6 +23,7 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(not(feature = "private"))]
+#[derive(PartialEq, Eq)]
 pub enum LicensePlan {
     Community,
     Pro,

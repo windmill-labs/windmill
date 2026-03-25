@@ -3430,6 +3430,37 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/workspaces/git_sync_enabled:
+    get:
+      summary: Check if git sync is available for this workspace
+      operationId: getGitSyncEnabled
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Git sync availability status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  reason:
+                    type: string
+                    nullable: true
+                  max_repos:
+                    type: integer
+                    nullable: true
+                  user_count:
+                    type: integer
+                    nullable: true
+                  max_users:
+                    type: integer
+                    nullable: true
+
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
       summary: edit workspace git sync settings
