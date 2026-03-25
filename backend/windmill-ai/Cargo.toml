@@ -7,6 +7,7 @@ edition.workspace = true
 [features]
 default = []
 bedrock = ["dep:aws-sdk-bedrockruntime", "dep:aws-credential-types", "dep:aws-smithy-types", "dep:aws-config"]
+mcp = ["dep:windmill-mcp"]
 
 [lib]
 name = "windmill_ai"
@@ -15,6 +16,8 @@ path = "src/lib.rs"
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
 windmill-types.workspace = true
+windmill-parser.workspace = true
+windmill-mcp = { workspace = true, optional = true }
 
 serde.workspace = true
 serde_json.workspace = true
