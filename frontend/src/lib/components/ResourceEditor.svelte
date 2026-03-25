@@ -25,6 +25,7 @@
 	import Button from './common/button/Button.svelte'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceGen from './copilot/ResourceGen.svelte'
+	import SyncResourceTypes from './SyncResourceTypes.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -347,10 +348,13 @@
 					<input type="text" disabled value={rawCode} />
 				{:else}
 					{#if !viewJsonSchema}
-						<p class="italic text-secondary text-xs mb-4">
-							No corresponding resource type found in your workspace for {resource_type}. Define the
-							value in JSON directly
-						</p>
+						<div class="flex flex-col gap-2 mb-4">
+							<p class="text-red-500 dark:text-red-400 text-xs">
+								Resource type '{resource_type}' not found in your workspace
+							</p>
+							<SyncResourceTypes onSynced={loadResourceType} />
+							<p class="italic text-secondary text-xs"> Define the value in JSON directly </p>
+						</div>
 					{/if}
 
 					{#if !emptyString(jsonError)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"

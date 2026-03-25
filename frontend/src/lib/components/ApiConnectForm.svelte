@@ -16,6 +16,7 @@
 	import BedrockCredentialsCheck from './BedrockCredentialsCheck.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import ResourceGen from './copilot/ResourceGen.svelte'
+	import SyncResourceTypes from './SyncResourceTypes.svelte'
 
 	interface Props {
 		resourceType: string
@@ -25,6 +26,7 @@
 		isValid?: boolean
 		linkedSecretCandidates?: string[] | undefined
 		description?: string | undefined
+		onSynced?: () => void
 	}
 
 	let {
@@ -34,7 +36,8 @@
 		linkedSecrets = $bindable([]),
 		isValid = $bindable(true),
 		linkedSecretCandidates = undefined,
-		description = $bindable(undefined)
+		description = $bindable(undefined),
+		onSynced = undefined
 	}: Props = $props()
 
 	let schema = $state(emptySchema())
@@ -227,6 +230,7 @@
 		>No corresponding resource type found in your workspace for {resourceType}. Define the value in
 		JSON directly</p
 	>
+	<SyncResourceTypes {onSynced} />
 {/if}
 {#if notFound || viewJsonSchema}
 	{#if !emptyString(error)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
