@@ -67,6 +67,7 @@
 	let deleteUserEmail: string = $state('')
 	let disableConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let disableUserEmail: string = $state('')
+	let toggleResetKey = $state(0)
 	let editWrappers: Record<string, HTMLDivElement> = $state({})
 	let activeOnly = $state(false)
 
@@ -381,39 +382,39 @@
 														></Cell
 													>
 													<Cell>
-														{#key disabled}
-														<Toggle
-															size="xs"
-															checked={!disabled}
-															on:change={async () => {
-																if (!disabled) {
-																	disableUserEmail = email
-																	disableConfirmedCallback = async () => {
+														{#key toggleResetKey}
+															<Toggle
+																size="xs"
+																checked={!disabled}
+																on:change={async () => {
+																	if (!disabled) {
+																		disableUserEmail = email
+																		disableConfirmedCallback = async () => {
+																			try {
+																				await UserService.globalUserUpdate({
+																					email,
+																					requestBody: { disabled: true }
+																				})
+																				sendUserToast('User disabled')
+																				listUsers(activeOnly)
+																			} catch (e) {
+																				sendUserToast('Failed to disable user', true)
+																			}
+																		}
+																	} else {
 																		try {
 																			await UserService.globalUserUpdate({
 																				email,
-																				requestBody: { disabled: true }
+																				requestBody: { disabled: false }
 																			})
-																			sendUserToast('User disabled')
+																			sendUserToast('User enabled')
 																			listUsers(activeOnly)
 																		} catch (e) {
-																			sendUserToast('Failed to disable user', true)
+																			sendUserToast('Failed to enable user', true)
 																		}
 																	}
-																} else {
-																	try {
-																		await UserService.globalUserUpdate({
-																			email,
-																			requestBody: { disabled: false }
-																		})
-																		sendUserToast('User enabled')
-																		listUsers(activeOnly)
-																	} catch (e) {
-																		sendUserToast('Failed to enable user', true)
-																	}
-																}
-															}}
-														/>
+																}}
+															/>
 														{/key}
 													</Cell>
 													{#if activeOnly}
@@ -622,7 +623,7 @@
 	confirmationText="Disable"
 	on:canceled={() => {
 		disableConfirmedCallback = undefined
-		listUsers(activeOnly)
+		toggleResetKey++
 	}}
 	on:confirmed={() => {
 		if (disableConfirmedCallback) {
