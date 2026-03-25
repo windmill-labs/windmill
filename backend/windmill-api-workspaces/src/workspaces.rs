@@ -1682,24 +1682,35 @@ fn cleanup_legacy_git_sync_settings_in_memory(
     }
 }
 
-async fn check_git_sync_access(db: &DB, w_id: &str) -> Result<()> {
-    if !windmill_common::ee_oss::LICENSE_KEY.read().await.is_empty() {
-        return Ok(());
-    }
-    let user_count: i64 = sqlx::query_scalar!(
+const CE_GIT_SYNC_MAX_USERS: i64 = 2;
+
+async fn has_valid_ee_license() -> bool {
+    let key = windmill_common::ee_oss::LICENSE_KEY.read().await;
+    let valid = windmill_common::ee_oss::LICENSE_KEY_VALID.read().await;
+    !key.is_empty() && *valid
+}
+
+async fn get_workspace_member_count(db: &DB, w_id: &str) -> Result<i64> {
+    Ok(sqlx::query_scalar!(
         "SELECT COUNT(*) FROM usr WHERE workspace_id = $1 AND disabled = false",
         w_id
     )
     .fetch_one(db)
     .await?
-    .unwrap_or(0);
+    .unwrap_or(0))
+}
 
-    if user_count > 2 {
-        return Err(Error::BadRequest(
-            "Git sync is available for workspaces with up to 2 members. \
-             Upgrade to Windmill Enterprise Edition for unlimited workspace members."
-                .to_string(),
-        ));
+async fn check_git_sync_access(db: &DB, w_id: &str) -> Result<()> {
+    if has_valid_ee_license().await {
+        return Ok(());
+    }
+    let user_count = get_workspace_member_count(db, w_id).await?;
+    if user_count > CE_GIT_SYNC_MAX_USERS {
+        return Err(Error::BadRequest(format!(
+            "Git sync is available for workspaces with up to {} members. \
+             Upgrade to Windmill Enterprise Edition for unlimited workspace members.",
+            CE_GIT_SYNC_MAX_USERS
+        )));
     }
     Ok(())
 }
@@ -1709,8 +1720,7 @@ async fn get_git_sync_enabled(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<serde_json::Value> {
-    let has_ee = !windmill_common::ee_oss::LICENSE_KEY.read().await.is_empty();
-    if has_ee {
+    if has_valid_ee_license().await {
         return Ok(Json(serde_json::json!({
             "enabled": true,
             "reason": "enterprise",
@@ -1720,21 +1730,14 @@ async fn get_git_sync_enabled(
         })));
     }
 
-    let user_count: i64 = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM usr WHERE workspace_id = $1 AND disabled = false",
-        &w_id
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(0);
-
-    let enabled = user_count <= 2;
+    let user_count = get_workspace_member_count(&db, &w_id).await?;
+    let enabled = user_count <= CE_GIT_SYNC_MAX_USERS;
     Ok(Json(serde_json::json!({
         "enabled": enabled,
         "reason": if enabled { Some("free_tier") } else { None::<&str> },
         "max_repos": if enabled { Some(1) } else { None::<i32> },
         "user_count": user_count,
-        "max_users": 2,
+        "max_users": CE_GIT_SYNC_MAX_USERS,
     })))
 }
 
@@ -1816,7 +1819,7 @@ async fn edit_git_sync_repository(
     // Validate the resource path format
     validate_git_repo_resource_path(&new_config.git_repo_resource_path)?;
 
-    let has_ee = !windmill_common::ee_oss::LICENSE_KEY.read().await.is_empty();
+    let has_ee = has_valid_ee_license().await;
 
     // Promotion mode: EE only
     if !has_ee && new_config.repository.use_individual_branch.unwrap_or(false) {
@@ -1950,9 +1953,8 @@ async fn delete_git_sync_repository(
     Json(request): Json<DeleteGitSyncRepositoryRequest>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
-    check_git_sync_access(&db, &w_id).await?;
 
-    // For deletion, only validate that path is not empty to allow cleanup of malformed entries
+    // No check_git_sync_access here — admins should always be able to delete/clean up repos
     if request.git_repo_resource_path.is_empty() {
         return Err(Error::BadRequest(
             "Resource path cannot be empty".to_string(),
