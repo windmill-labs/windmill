@@ -965,6 +965,7 @@ async fn get_otel_tracing_proxy_envs(
             TRACING_PROXY_CA_CERT_PATH.to_string(),
         ),
         ("CURL_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("GIT_SSL_CAINFO", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("DENO_CERT", TRACING_PROXY_CA_CERT_PATH.to_string()),
     ])
 }
@@ -4493,7 +4494,10 @@ pub async fn run_language_executor(
             "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
             reserved_variables
                 .iter()
-                .map(|(k, v)| format!("const {} = '{}';\nprocess.env['{}'] = '{}';\n", k, v, k, v))
+                .map(|(k, v)| {
+                    let escaped = v.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r");
+                    format!("const {} = '{}';\nprocess.env['{}'] = '{}';\n", k, escaped, k, escaped)
+                })
                 .collect::<Vec<String>>()
                 .join("\n"));
 

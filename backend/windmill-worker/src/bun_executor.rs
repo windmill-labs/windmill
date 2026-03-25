@@ -1635,7 +1635,7 @@ async function run() {{
                 return {{ type: "inline_checkpoint", key: dispatch.key, result: dispatch.result ?? null, started_at: dispatch.started_at, duration_ms: dispatch.duration_ms }};
             }}
             if (dispatch.mode === "approval") {{
-                return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form }};
+                return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form, self_approval_disabled: dispatch.self_approval_disabled }};
             }}
             if (dispatch.mode === "sleep") {{
                 return {{ type: "sleep", key: dispatch.key, seconds: dispatch.seconds }};
@@ -2765,7 +2765,7 @@ pub async fn handle_wac_v2_output(
                 job.id, num_steps
             )))
         }
-        WacOutput::Approval { key, timeout, form } => {
+        WacOutput::Approval { key, timeout, form, self_approval_disabled } => {
             let db = match conn {
                 Connection::Sql(db) => db,
                 _ => {
@@ -2807,11 +2807,91 @@ pub async fn handle_wac_v2_output(
             .await
             .map_err(|e| error::Error::internal_err(format!("Failed to save checkpoint: {e}")))?;
 
+            // Store approval_conditions in flow_status for resume endpoint auth checks
+            let sad = self_approval_disabled.unwrap_or(false);
+            if sad {
+                #[cfg(not(feature = "enterprise"))]
+                return Err(error::Error::ExecutionErr(
+                    "Disabling self-approval is an enterprise only feature".to_string(),
+                ));
+
+                #[cfg(feature = "enterprise")]
+                {
+                    use windmill_common::flow_status::ApprovalConditions;
+                    let approval_conditions = ApprovalConditions {
+                        user_auth_required: true,
+                        user_groups_required: vec![],
+                        self_approval_disabled: true,
+                    };
+                    sqlx::query(
+                        "UPDATE v2_job_status SET flow_status = JSONB_SET(
+                        COALESCE(flow_status, '{}'::jsonb),
+                        '{approval_conditions}',
+                        $2::jsonb
+                    ) WHERE id = $1",
+                    )
+                    .bind(&job.id)
+                    .bind(&serde_json::json!(approval_conditions))
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        error::Error::internal_err(format!(
+                            "Failed to save approval conditions: {e}"
+                        ))
+                    })?;
+                }
+            }
+
+            // Generate resume URLs for the inline approval buttons.
+            // Use a hash of the step key as resume_id so each waitForApproval()
+            // in the same workflow gets a unique resume_job record.
+            let resume_id: u32 = {
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                key.hash(&mut hasher);
+                (hasher.finish() & 0xFFFF_FFFF) as u32
+            };
+            // Generate stateless approval token using shared utility
+            let approval_token =
+                windmill_common::variables::generate_approval_token(&job.workspace_id, job.id, db)
+                    .await?;
+
+            let (resume_url, cancel_url, approval_page_url) = {
+                use hmac::{Hmac, Mac};
+                use sha2::Sha256;
+                use windmill_common::variables::get_workspace_key;
+
+                let wkey = get_workspace_key(&job.workspace_id, db).await?;
+                let mut mac = Hmac::<Sha256>::new_from_slice(wkey.as_bytes())
+                    .map_err(|e| error::Error::internal_err(format!("HMAC key error: {e}")))?;
+                mac.update(job.id.as_bytes());
+                mac.update(resume_id.to_be_bytes().as_ref());
+                let signature = hex::encode(mac.finalize().into_bytes());
+
+                let base_url = windmill_common::BASE_URL.read().await.clone();
+                let w_id = &job.workspace_id;
+                let job_id = &job.id;
+
+                let resume = format!(
+                    "{base_url}/api/w/{w_id}/jobs_u/resume/{job_id}/{resume_id}/{signature}"
+                );
+                let cancel = format!(
+                    "{base_url}/api/w/{w_id}/jobs_u/cancel/{job_id}/{resume_id}/{signature}"
+                );
+                let approval_page =
+                    format!("{base_url}/approve/{w_id}/{job_id}?token={approval_token}");
+                (resume, cancel, approval_page)
+            };
+
             // Store approval form metadata for the approval page endpoint
             let approval_meta = serde_json::json!({
                 "key": key,
                 "form": form,
                 "timeout": timeout_secs as u32,
+                "self_approval_disabled": sad,
+                "resume": resume_url,
+                "cancel": cancel_url,
+                "approvalPage": approval_page_url,
             });
             sqlx::query(
                 "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
@@ -2836,6 +2916,11 @@ pub async fn handle_wac_v2_output(
                     "started_at": &now_str,
                     "name": key,
                     "approval": true,
+                    "self_approval_disabled": sad,
+                    "form": form,
+                    "resume": &resume_url,
+                    "cancel": &cancel_url,
+                    "approvalPage": &approval_page_url,
                 });
                 let step_timeline_key = format!("_step/{}", key);
                 sqlx::query(
@@ -3139,7 +3224,10 @@ pub fn build_nativets_env_code(
         "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
         reserved_variables
             .iter()
-            .map(|(k, v)| format!("process.env['{}'] = '{}';", k, v))
+            .map(|(k, v)| {
+                let escaped = v.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r");
+                format!("process.env['{}'] = '{}';", k, escaped)
+            })
             .collect::<Vec<String>>()
             .join("\n")
     )

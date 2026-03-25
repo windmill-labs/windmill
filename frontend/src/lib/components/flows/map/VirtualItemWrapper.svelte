@@ -46,7 +46,7 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class={classNames(
-			'w-full flex relative rounded-md drop-shadow-base',
+			'w-full flex relative rounded-md drop-shadow-sm',
 			colorClasses.bg,
 			onTop ? 'z-[901]' : '',
 			className

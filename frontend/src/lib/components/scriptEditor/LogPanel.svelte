@@ -158,6 +158,7 @@
 								result={previewJob?.result}
 								success={previewJob?.success !== false}
 								autoExpandResult
+								jobId={previewJob?.id}
 							/>
 						</div>
 					{:else}

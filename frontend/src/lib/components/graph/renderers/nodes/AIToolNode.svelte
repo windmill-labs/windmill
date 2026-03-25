@@ -75,7 +75,6 @@
 	): {
 		toolNodes: (Node & NodeLayout)[]
 		toolEdges: Edge[]
-		newNodePositions: Record<string, { x: number; y: number }>
 	} {
 		if (
 			computeAIToolNodesCache &&
@@ -87,14 +86,6 @@
 
 		const allToolNodes: (Node & NodeLayout)[] = []
 		const allToolEdges: Edge[] = []
-
-		const yPosMap: Record<
-			number,
-			{
-				rows: number
-				placement: 'above' | 'below'
-			}
-		> = {}
 
 		for (const node of nodes) {
 			if (node.type !== 'module' || node.data.module.value.type !== 'aiagent') continue
@@ -154,17 +145,6 @@
 			}
 
 			const totalRows = Math.ceil(tools.length / MAX_TOOLS_PER_ROW) + (insertable ? 1 : 0) // + 1 for add tool node when insertable
-			if (agentActions) {
-				yPosMap[node.position.y] = {
-					rows: totalRows,
-					placement: 'below'
-				}
-			} else {
-				yPosMap[node.position.y] = {
-					rows: totalRows,
-					placement: 'above'
-				}
-			}
 
 			const siblingNames = tools.map((t) => t.name)
 			const toolNodes: (Node & AiToolN)[] = tools.map((tool, i) => {
@@ -236,36 +216,9 @@
 			}
 		}
 
-		const sortedNewNodes = nodes
-			.filter((n) => n.type !== 'asset')
-			.map((n) => ({ id: n.id, position: $state.snapshot(n.position) }))
-			.sort((a, b) => a.position.y - b.position.y)
-		let currentYOffset = 0
-		let prevYPos = NaN
-		for (const node of sortedNewNodes) {
-			if (node.position.y !== prevYPos) {
-				// if agent actions, we need to shift the node above
-				if (yPosMap[prevYPos]?.placement === 'below') {
-					currentYOffset += AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET * yPosMap[prevYPos].rows
-				}
-				if (yPosMap[node.position.y]?.placement === 'above') {
-					currentYOffset += AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET * yPosMap[node.position.y].rows
-				}
-
-				prevYPos = node.position.y
-			}
-
-			node.position.y += currentYOffset
-		}
-
 		let ret: ReturnType<typeof computeAIToolNodes> = {
 			toolNodes: allToolNodes,
-			toolEdges: allToolEdges,
-			newNodePositions: Object.fromEntries(
-				sortedNewNodes.map((n) => {
-					return [n.id, n.position]
-				})
-			)
+			toolEdges: allToolEdges
 		}
 
 		computeAIToolNodesCache = {

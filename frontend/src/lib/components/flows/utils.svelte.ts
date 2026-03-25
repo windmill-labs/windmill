@@ -72,11 +72,17 @@ export function evalValue(
 	return v
 }
 
+/** Ensure modules comes first and groups last in the value object for readable YAML export. */
+function reorderFlowValue(value: ExtendedOpenFlow['value']): ExtendedOpenFlow['value'] {
+	const { modules, groups, ...rest } = value
+	return { modules, ...rest, ...(groups != null ? { groups } : {}) }
+}
+
 export function filteredContentForExport(flow: ExtendedOpenFlow) {
 	let o = {
 		summary: flow.summary,
 		description: flow.description,
-		value: flow.value,
+		value: reorderFlowValue(flow.value),
 		schema: flow.schema
 	}
 	if (flow.dedicated_worker) {

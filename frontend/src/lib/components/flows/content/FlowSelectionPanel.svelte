@@ -3,8 +3,8 @@
 	import type { SelectionManager } from '$lib/components/graph/selectionUtils.svelte'
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
-	import { StickyNote, Move, Copy, Trash2 } from 'lucide-svelte'
+	import { getGroupEditorContext } from '$lib/components/graph/groupEditor.svelte'
+	import { Group, Move, Copy, Trash2 } from 'lucide-svelte'
 	import type { Item } from '$lib/utils'
 
 	interface Props {
@@ -13,6 +13,7 @@
 		onDeleteSelected?: () => void
 		onDuplicateSelected?: () => void
 		onMoveSelected?: () => void
+		onCreateGroup?: () => void
 		canMoveSelected?: boolean
 		resolvedCount?: number
 	}
@@ -22,18 +23,14 @@
 		onDeleteSelected,
 		onDuplicateSelected,
 		onMoveSelected,
+		onCreateGroup,
 		canMoveSelected = false,
 		resolvedCount = 0
 	}: Props = $props()
 
-	const noteEditorContext = getNoteEditorContext()
+	const groupEditorContext = getGroupEditorContext()
 
-	function addGroupNote() {
-		if (selectionManager.selectedIds.length > 0 && noteEditorContext?.noteEditor) {
-			// Create the group note
-			noteEditorContext.noteEditor.createGroupNote(selectionManager.selectedIds)
-		}
-	}
+	let canCreateGroup = $derived(groupEditorContext?.canCreateGroup.val ?? false)
 
 	let menuItems: Item[] = $derived([
 		{
@@ -60,11 +57,11 @@
 	{#snippet action()}
 		<div class="flex gap-1 items-center">
 			<Button
-				onClick={addGroupNote}
-				disabled={!noteEditorContext?.noteEditor || selectionManager.selectedIds.length === 0}
-				startIcon={{ icon: StickyNote }}
+				onClick={() => onCreateGroup?.()}
+				disabled={!canCreateGroup}
+				startIcon={{ icon: Group }}
 			>
-				Create group note
+				Create group
 			</Button>
 			{#if resolvedCount > 0}
 				<DropdownV2 items={menuItems} />

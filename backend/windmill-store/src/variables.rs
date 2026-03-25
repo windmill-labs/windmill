@@ -133,21 +133,12 @@ async fn list_variables(
         ])
         .left()
         .join("account")
-        .on(&format!(
-            "variable.account = account.id AND account.workspace_id = '{}'",
-            w_id
-        ))
+        .on("variable.account = account.id AND account.workspace_id = ?".bind(&w_id))
         .left()
         .join("resource")
-        .on(&format!(
-            "resource.path = variable.path AND resource.workspace_id = '{}'",
-            w_id
-        ))
+        .on("resource.path = variable.path AND resource.workspace_id = ?".bind(&w_id))
         .and_where("variable.workspace_id = ?".bind(&w_id))
-        .and_where(&format!(
-            "variable.path NOT LIKE 'u/' || '{}' || '/secret_arg/%'",
-            authed.username
-        ))
+        .and_where("variable.path NOT LIKE 'u/' || ? || '/secret_arg/%'".bind(&authed.username))
         .order_by("path", false)
         .limit(per_page)
         .offset(offset)

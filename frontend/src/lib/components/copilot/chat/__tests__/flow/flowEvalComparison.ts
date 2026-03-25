@@ -59,14 +59,10 @@ export async function evaluateFlowComparison(
 	expectedFlow: ExpectedFlow,
 	userPrompt: string
 ): Promise<EvaluationResult> {
-	// @ts-ignore
-	const apiKey = process.env.OPENROUTER_API_KEY
-
 	return evaluateWithLLM({
 		userPrompt,
 		generatedOutput: generatedFlow,
 		expectedOutput: expectedFlow,
-		evaluatorSystemPrompt: FLOW_EVALUATOR_SYSTEM_PROMPT,
-		apiKey
+		evaluatorSystemPrompt: FLOW_EVALUATOR_SYSTEM_PROMPT
 	})
 }
