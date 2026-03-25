@@ -28,12 +28,9 @@ import { replaceInlineScripts, replaceAllPathScriptsWithLocal } from "../../../w
 import { extractInlineScripts, extractCurrentMapping } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { parseMetadataFile } from "../../utils/metadata.ts";
 import {
-  getFolderSuffix,
-  getFolderSuffixWithSep,
   getMetadataFileName,
   extractFolderPath,
   getNonDottedPaths,
-  hasFolderSuffix,
   loadNonDottedPathsSetting,
 } from "../../utils/resource_folders.ts";
 import * as path from "node:path";
@@ -122,7 +119,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     // Need to init nonDottedPaths before checking suffix
     await loadNonDottedPathsSetting();
 
-    if (hasFolderSuffix(cwdBasename, "flow")) {
+    if (cwdBasename.endsWith(".flow") || cwdBasename.endsWith("__flow")) {
       GLOBAL_CONFIG_OPT.noCdToRoot = true;
 
       // Find workspace root
@@ -141,10 +138,14 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
 
       if (workspaceRoot) {
         const relPath = path.relative(workspaceRoot, cwd).replaceAll("\\", "/");
-        const flowSuffix = getFolderSuffix("flow");
-        opts.path = relPath.endsWith(flowSuffix)
-          ? relPath.slice(0, -flowSuffix.length)
-          : relPath;
+        // Strip whichever flow suffix is actually present (dotted or non-dotted)
+        if (relPath.endsWith(".flow")) {
+          opts.path = relPath.slice(0, -".flow".length);
+        } else if (relPath.endsWith("__flow")) {
+          opts.path = relPath.slice(0, -"__flow".length);
+        } else {
+          opts.path = relPath;
+        }
         opts.proxyPort = opts.proxyPort ?? 3100;
         log.info(`Detected flow folder, path: ${opts.path}`);
         process.chdir(workspaceRoot);
@@ -189,12 +190,13 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     });
   }
 
-  const flowFolderSuffix = getFolderSuffixWithSep("flow");
   const flowMetadataFile = getMetadataFileName("flow", "yaml");
   async function loadPaths(pathsToLoad: string[]) {
     const paths = pathsToLoad.filter((path) =>
       exts.some(
-        (ext) => path.endsWith(ext) || path.endsWith(flowFolderSuffix + flowMetadataFile)
+        (ext) => path.endsWith(ext)
+          || path.endsWith(".flow/" + flowMetadataFile)
+          || path.endsWith("__flow/" + flowMetadataFile)
       )
     );
     if (paths.length == 0) {
@@ -203,10 +205,27 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     const nativePath = (await realpath(paths[0])).replace(base + SEP, "");
     const cpath = nativePath.replaceAll("\\", "/");
     if (!ignore(nativePath, false)) {
-      const typ = getTypeStrFromPath(cpath);
+      let typ = getTypeStrFromPath(cpath);
+      // If a script file is inside a flow folder, treat it as a flow change
+      // (handles both .flow/ and __flow/ regardless of nonDottedPaths setting)
+      if (typ === "script" && (cpath.includes(".flow/") || cpath.includes("__flow/"))) {
+        typ = "flow";
+      }
       log.info("Detected change in " + cpath + " (" + typ + ")");
       if (typ == "flow") {
-        const localPath = extractFolderPath(cpath, "flow")!;
+        // Try extractFolderPath, fallback to manual extraction for mixed suffix cases
+        let localPath = extractFolderPath(cpath, "flow");
+        if (!localPath) {
+          // extractFolderPath only checks the configured suffix; try both manually
+          for (const suffix of [".flow/", "__flow/"]) {
+            const idx = cpath.indexOf(suffix);
+            if (idx !== -1) {
+              localPath = cpath.substring(0, idx) + suffix;
+              break;
+            }
+          }
+        }
+        if (!localPath) return;
         const localFlow = (await yamlParseFile(
           localPath + "flow.yaml"
         )) as FlowFile;
@@ -227,10 +246,13 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
         });
         await replaceAllPathScriptsWithLocal(localFlow.value, localScriptReader, log);
         tagReplacedPathScripts(localFlow);
-        const flowSuffix = getFolderSuffix("flow");
-        const wmFlowPath = localPath.endsWith(flowSuffix + "/")
-          ? localPath.slice(0, -(flowSuffix.length + 1))
-          : localPath.replace(/\/$/, "");
+        // Strip whichever flow suffix is present (dotted or non-dotted)
+        let wmFlowPath = localPath.replace(/\/$/, "");
+        if (wmFlowPath.endsWith(".flow")) {
+          wmFlowPath = wmFlowPath.slice(0, -".flow".length);
+        } else if (wmFlowPath.endsWith("__flow")) {
+          wmFlowPath = wmFlowPath.slice(0, -"__flow".length);
+        }
         currentLastEdit = {
           type: "flow",
           flow: localFlow,
@@ -284,10 +306,12 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
 
   // Normalize a windmill path by stripping any trailing flow/app suffix
   function normalizeWmPath(p: string): string {
-    const flowSuffix = getFolderSuffix("flow");
     let result = p.replace(/\/$/, "");
-    if (result.endsWith(flowSuffix)) {
-      result = result.slice(0, -flowSuffix.length);
+    // Strip whichever flow suffix is present (dotted or non-dotted)
+    if (result.endsWith(".flow")) {
+      result = result.slice(0, -".flow".length);
+    } else if (result.endsWith("__flow")) {
+      result = result.slice(0, -"__flow".length);
     }
     return result;
   }
@@ -295,11 +319,20 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
   // Load a resource by its windmill path (e.g., "u/admin/my_script" or "f/my_flow")
   async function loadWmPath(wmPath: string): Promise<LastEditScript | LastEditFlow | undefined> {
     wmPath = normalizeWmPath(wmPath);
-    // Try as flow
-    const flowDir = wmPath + getFolderSuffix("flow") + "/";
-    const flowYaml = flowDir + "flow.yaml";
+    // Try as flow — check both dotted and non-dotted suffixes
+    let flowDir: string | undefined;
+    let flowYaml: string | undefined;
+    for (const suffix of [".flow", "__flow"]) {
+      const candidate = wmPath + suffix + "/";
+      try {
+        await access(candidate + "flow.yaml");
+        flowDir = candidate;
+        flowYaml = candidate + "flow.yaml";
+        break;
+      } catch {}
+    }
     try {
-      await access(flowYaml);
+      if (!flowDir || !flowYaml) throw new Error("not a flow");
       const localFlow = (await yamlParseFile(flowYaml)) as FlowFile;
       await replaceInlineScripts(
         localFlow.value.modules,

@@ -399,6 +399,49 @@ async function initAction(opts: InitOptions) {
     );
   }
 
+  // Generate .claude/launch.json for each raw_app folder
+  try {
+    const rawAppSuffix = nonDottedPaths ? "__raw_app" : ".raw_app";
+    const appLaunchJson = JSON.stringify({
+      version: "0.0.1",
+      configurations: [{
+        name: "windmill",
+        runtimeExecutable: "bash",
+        runtimeArgs: ["-c", "wmill app dev --no-open --port ${PORT:-4000}"],
+        port: 4000,
+        autoPort: true,
+      }],
+    }, null, 2) + "\n";
+
+    let appCount = 0;
+    async function scanForApps(dir: string) {
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+        const fullPath = join(dir, entry.name);
+        if (entry.name.endsWith(rawAppSuffix)) {
+          const claudeDir = join(fullPath, ".claude");
+          const launchPath = join(claudeDir, "launch.json");
+          mkdirSync(claudeDir, { recursive: true });
+          writeFileSync(launchPath, appLaunchJson, "utf-8");
+          appCount++;
+        } else {
+          await scanForApps(fullPath);
+        }
+      }
+    }
+
+    await scanForApps(".");
+    if (appCount > 0) {
+      log.info(colors.green(`Created .claude/launch.json for ${appCount} raw app folder(s)`));
+    }
+  } catch (error) {
+    log.warn(
+      `Could not scan for raw app folders: ${error instanceof Error ? error.message : error}`
+    );
+  }
+
   // Generate resource type namespace
   try {
     await generateRTNamespace(opts as GlobalOptions);

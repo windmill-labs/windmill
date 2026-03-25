@@ -2346,6 +2346,46 @@ export async function pull(
       log.warn(`Could not scan for flow folders: ${error instanceof Error ? error.message : error}`);
     }
 
+    // Generate .claude/launch.json for all raw_app folders
+    try {
+      const rawAppSuffix = getFolderSuffix("raw_app");
+      const appLaunchJson = JSON.stringify({
+        version: "0.0.1",
+        configurations: [{
+          name: "windmill",
+          runtimeExecutable: "bash",
+          runtimeArgs: ["-c", "wmill app dev --no-open --port ${PORT:-4000}"],
+          port: 4000,
+          autoPort: true,
+        }],
+      }, null, 2) + "\n";
+
+      let appLaunchCount = 0;
+      async function scanForApps(dir: string) {
+        const entries = await readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+          const fullPath = path.join(dir, entry.name);
+          if (entry.name.endsWith(rawAppSuffix)) {
+            const claudeDir = path.join(fullPath, ".claude");
+            mkdirSync(claudeDir, { recursive: true });
+            writeFileSync(path.join(claudeDir, "launch.json"), appLaunchJson, "utf-8");
+            appLaunchCount++;
+          } else {
+            await scanForApps(fullPath);
+          }
+        }
+      }
+
+      await scanForApps(".");
+      if (appLaunchCount > 0) {
+        log.info(colors.green(`Created .claude/launch.json for ${appLaunchCount} raw app folder(s)`));
+      }
+    } catch (error) {
+      log.warn(`Could not scan for raw app folders: ${error instanceof Error ? error.message : error}`);
+    }
+
     if (tracker.apps.length > 0) {
       log.info(
         colors.gray(
