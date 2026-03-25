@@ -795,14 +795,19 @@
 					{#each forkedDatatables as dt}
 						<div class="flex items-center justify-between px-4 py-2">
 							<div class="flex flex-col">
-								<span class="text-xs font-medium">{dt.name}</span>
-								<span class="text-2xs text-tertiary">
-									dbname: {dt.resourceType === 'instance'
+								<span class="text-xs font-medium text-secondary">{dt.name}</span>
+								<span class="text-3xs text-hint">
+									{dt.resourceType === 'instance'
 										? dt.resourcePath
 										: `${$workspaceStore?.replace(/-/g, '_')}__${dt.name}`}
 								</span>
 							</div>
-							<Toggle bind:checked={dt.dropOnDelete} options={{ right: 'Drop database' }} />
+							<Toggle
+								class="shrink-0"
+								size="xs"
+								bind:checked={dt.dropOnDelete}
+								options={{ right: 'Drop database' }}
+							/>
 						</div>
 					{/each}
 				</div>
