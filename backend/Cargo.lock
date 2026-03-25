@@ -16386,6 +16386,7 @@ dependencies = [
  "tokio",
  "tower-cookies",
  "tracing",
+ "url",
  "windmill-api-auth",
  "windmill-audit",
  "windmill-common",
