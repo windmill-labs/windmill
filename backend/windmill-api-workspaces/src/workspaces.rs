@@ -1684,27 +1684,21 @@ fn cleanup_legacy_git_sync_settings_in_memory(
 
 const CE_GIT_SYNC_MAX_USERS: i64 = 2;
 
-async fn has_valid_ee_license() -> bool {
-    let key = windmill_common::ee_oss::LICENSE_KEY.read().await;
-    let valid = windmill_common::ee_oss::LICENSE_KEY_VALID.read().await;
-    !key.is_empty() && *valid
+#[cfg(feature = "enterprise")]
+async fn check_git_sync_access(_db: &DB, _w_id: &str) -> Result<()> {
+    Ok(())
 }
 
-async fn get_workspace_member_count(db: &DB, w_id: &str) -> Result<i64> {
-    Ok(sqlx::query_scalar!(
+#[cfg(not(feature = "enterprise"))]
+async fn check_git_sync_access(db: &DB, w_id: &str) -> Result<()> {
+    let user_count: i64 = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM usr WHERE workspace_id = $1 AND disabled = false",
         w_id
     )
     .fetch_one(db)
     .await?
-    .unwrap_or(0))
-}
+    .unwrap_or(0);
 
-async fn check_git_sync_access(db: &DB, w_id: &str) -> Result<()> {
-    if has_valid_ee_license().await {
-        return Ok(());
-    }
-    let user_count = get_workspace_member_count(db, w_id).await?;
     if user_count > CE_GIT_SYNC_MAX_USERS {
         return Err(Error::BadRequest(format!(
             "Git sync is available for workspaces with up to {} members. \
@@ -1715,22 +1709,35 @@ async fn check_git_sync_access(db: &DB, w_id: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "enterprise")]
+async fn get_git_sync_enabled(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Path(_w_id): Path<String>,
+) -> JsonResult<serde_json::Value> {
+    Ok(Json(serde_json::json!({
+        "enabled": true,
+        "reason": "enterprise",
+        "max_repos": null,
+        "user_count": null,
+        "max_users": null,
+    })))
+}
+
+#[cfg(not(feature = "enterprise"))]
 async fn get_git_sync_enabled(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<serde_json::Value> {
-    if has_valid_ee_license().await {
-        return Ok(Json(serde_json::json!({
-            "enabled": true,
-            "reason": "enterprise",
-            "max_repos": null,
-            "user_count": null,
-            "max_users": null,
-        })));
-    }
+    let user_count: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM usr WHERE workspace_id = $1 AND disabled = false",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
 
-    let user_count = get_workspace_member_count(&db, &w_id).await?;
     let enabled = user_count <= CE_GIT_SYNC_MAX_USERS;
     Ok(Json(serde_json::json!({
         "enabled": enabled,
@@ -1819,10 +1826,9 @@ async fn edit_git_sync_repository(
     // Validate the resource path format
     validate_git_repo_resource_path(&new_config.git_repo_resource_path)?;
 
-    let has_ee = has_valid_ee_license().await;
-
     // Promotion mode: EE only
-    if !has_ee && new_config.repository.use_individual_branch.unwrap_or(false) {
+    #[cfg(not(feature = "enterprise"))]
+    if new_config.repository.use_individual_branch.unwrap_or(false) {
         return Err(Error::BadRequest(
             "Promotion mode is an Enterprise Edition feature".to_string(),
         ));
@@ -1850,7 +1856,8 @@ async fn edit_git_sync_repository(
     };
 
     // Multi-repo: EE only
-    if !has_ee {
+    #[cfg(not(feature = "enterprise"))]
+    {
         let is_new = !git_sync_settings
             .repositories
             .iter()
