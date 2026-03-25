@@ -2233,22 +2233,29 @@ async fn edit_default_app(
 #[derive(Serialize)]
 struct WorkspaceDefaultApp {
     pub default_app_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_app_raw: Option<bool>,
 }
 async fn get_default_app(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<WorkspaceDefaultApp> {
-    let mut tx = db.begin().await?;
-    let default_app_path = sqlx::query_scalar!(
-        "SELECT default_app FROM workspace_settings WHERE workspace_id = $1",
+    let row = sqlx::query!(
+        "SELECT ws.default_app AS default_app_path, av.raw_app AS \"default_app_raw: Option<bool>\"
+         FROM workspace_settings ws
+         LEFT JOIN app ON app.path = ws.default_app AND app.workspace_id = ws.workspace_id
+         LEFT JOIN app_version av ON av.id = app.versions[array_upper(app.versions, 1)]
+         WHERE ws.workspace_id = $1",
         &w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&db)
     .await
     .map_err(|err| Error::internal_err(format!("getting default_app: {err}")))?;
-    tx.commit().await?;
 
-    Ok(Json(WorkspaceDefaultApp { default_app_path }))
+    Ok(Json(WorkspaceDefaultApp {
+        default_app_path: row.default_app_path,
+        default_app_raw: row.default_app_raw,
+    }))
 }
 
 async fn edit_error_handler(
