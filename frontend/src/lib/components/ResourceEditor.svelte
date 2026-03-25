@@ -25,6 +25,7 @@
 	import Button from './common/button/Button.svelte'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceGen from './copilot/ResourceGen.svelte'
+	import SyncResourceTypes from './SyncResourceTypes.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -351,6 +352,7 @@
 							No corresponding resource type found in your workspace for {resource_type}. Define the
 							value in JSON directly
 						</p>
+						<SyncResourceTypes onSynced={loadResourceType} />
 					{/if}
 
 					{#if !emptyString(jsonError)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
