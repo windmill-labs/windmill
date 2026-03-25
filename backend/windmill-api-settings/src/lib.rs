@@ -37,8 +37,8 @@ use serde::{Deserialize, Serialize};
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use windmill_common::secret_backend::{SecretMigrationReport, VaultSettings};
+use windmill_ai::ai_cache::bump_instance_ai_config_revision;
 use windmill_common::{
-    ai_cache::bump_instance_ai_config_revision,
     email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
     get_database_url,

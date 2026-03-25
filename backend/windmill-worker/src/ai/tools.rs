@@ -20,7 +20,7 @@ use mappable_rc::Marc;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
-use windmill_common::ai_types::OpenAIToolCall;
+use windmill_ai::ai_types::OpenAIToolCall;
 use windmill_common::jobs::JobPayload;
 
 #[cfg(feature = "mcp")]

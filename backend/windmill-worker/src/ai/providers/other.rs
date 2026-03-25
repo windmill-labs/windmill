@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use serde::Serialize;
 use serde_json;
-use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
+use windmill_ai::ai_providers::AIProvider;
+use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
     image_handler::prepare_messages_for_api,

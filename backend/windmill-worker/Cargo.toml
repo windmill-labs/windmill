@@ -38,9 +38,10 @@ java = ["dep:windmill-parser-java"]
 ruby = ["dep:windmill-parser-ruby"]
 duckdb = ["dep:libloading"]
 quickjs = ["windmill-jseval/quickjs"]
-bedrock = ["dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config", "dep:aws-credential-types", "dep:aws-smithy-types"]
+bedrock = ["windmill-ai/bedrock", "dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config", "dep:aws-credential-types", "dep:aws-smithy-types"]
 
 [dependencies]
+windmill-ai = { workspace = true, default-features = false }
 windmill-queue.workspace = true
 windmill-dep-map.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.

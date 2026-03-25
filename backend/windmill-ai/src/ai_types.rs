@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
-use crate::flow_status::AgentAction;
+use windmill_common::flow_status::AgentAction;
 use windmill_types::s3::S3Object;
 
 // ============================================================================

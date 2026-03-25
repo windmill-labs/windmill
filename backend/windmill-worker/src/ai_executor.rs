@@ -20,8 +20,8 @@ use windmill_mcp::McpClient;
 
 #[cfg(not(feature = "mcp"))]
 use crate::ai::tools::McpClientStub as McpClient;
+use windmill_ai::ai_providers::AIProvider;
 use windmill_common::{
-    ai_providers::AIProvider,
     cache,
     client::AuthedClient,
     db::DB,
@@ -864,7 +864,7 @@ pub async fn run_agent(
                 let region = args
                     .provider
                     .get_region()
-                    .unwrap_or(windmill_common::ai_providers::USE_ENV_REGION);
+                    .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
                 // Use Bedrock SDK via dedicated query builder
                 crate::ai::providers::bedrock::BedrockQueryBuilder::default()
                     .execute_request(

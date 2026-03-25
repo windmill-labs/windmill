@@ -27,12 +27,6 @@ use scripts::ScriptLang;
 use sqlx::{Acquire, Postgres};
 
 pub mod agent_workers;
-#[cfg(feature = "bedrock")]
-pub mod ai_bedrock;
-pub mod ai_cache;
-pub mod ai_google;
-pub mod ai_providers;
-pub mod ai_types;
 pub mod apps;
 pub mod assets;
 pub mod audit;
