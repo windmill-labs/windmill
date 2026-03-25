@@ -112,17 +112,17 @@
 		<div class="mb-2"></div>
 
 		<Alert type={hasConfiguredRepos ? 'error' : 'warning'} title="Git sync disabled">
-			Git sync is an EE feature provided in CE only when workspace members &le;
-			{gitSyncStatus.max_users}. Your workspace has {gitSyncStatus.user_count} members. Settings below
-			are preserved but sync is inactive until membership is reduced or you upgrade to EE.
+			Git sync is an EE feature provided in CE for testing and hobbyist use when workspace members
+			&le; {gitSyncStatus.max_users}. Your workspace has {gitSyncStatus.user_count} members. Settings
+			below are preserved but sync is inactive until membership is reduced or you upgrade to EE.
 		</Alert>
 		<div class="mb-2"></div>
 	{:else if isFreeTier}
 		<div class="mb-2"></div>
 
 		<Alert type="warning">
-			Git sync is an EE feature provided in CE only when workspace members &le;
-			{gitSyncStatus.max_users}. Limited to a single repository. Upgrade to EE for multiple
+			Git sync is an EE feature provided in CE for testing and hobbyist use when workspace members
+			&le; {gitSyncStatus.max_users}. Limited to a single repository. Upgrade to EE for multiple
 			repositories, promotion mode, and GitHub App authentication.
 		</Alert>
 		<div class="mb-2"></div>
