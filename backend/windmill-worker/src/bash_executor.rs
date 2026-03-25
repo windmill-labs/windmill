@@ -180,6 +180,17 @@ exit $exit_status
     let _ = write_file(job_dir, "result.out", "")?;
     let _ = write_file(job_dir, "result2.out", "")?;
 
+    // Forward DOCKER_HOST to the bash script when in docker mode so the docker CLI
+    // connects to the right daemon (e.g. a dind sidecar instead of /var/run/docker.sock)
+    let docker_envs: Vec<(&str, String)> = if annotation.docker {
+        ["DOCKER_HOST", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"]
+            .iter()
+            .filter_map(|k| std::env::var(k).ok().map(|v| (*k, v)))
+            .collect()
+    } else {
+        vec![]
+    };
+
     // Check if this is a regular job (not init or periodic script)
     // Init/periodic scripts need full system access without isolation
     let is_regular_job = job
@@ -225,6 +236,7 @@ exit $exit_status
             )
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
+            .envs(docker_envs.iter().cloned())
             .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -255,6 +267,7 @@ exit $exit_status
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
+            .envs(docker_envs.iter().cloned())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -338,6 +351,19 @@ async fn rm_container(client: &bollard::Docker, container_id: &str) {
 }
 
 #[cfg(feature = "dind")]
+/// Connect to the Docker daemon, respecting DOCKER_HOST if set (e.g. for dind sidecar),
+/// otherwise falling back to the default unix socket at /var/run/docker.sock.
+fn connect_docker() -> Result<bollard::Docker, bollard::errors::Error> {
+    if std::env::var("DOCKER_HOST").is_ok() {
+        // DOCKER_HOST is set — use it (e.g. tcp://dind:2375 for docker-in-docker)
+        bollard::Docker::connect_with_defaults()
+    } else {
+        // No DOCKER_HOST — use the unix socket (backward compatible default)
+        bollard::Docker::connect_with_unix_defaults()
+    }
+}
+
+#[cfg(feature = "dind")]
 async fn handle_docker_job(
     job_id: Uuid,
     workspace_id: &str,
@@ -351,7 +377,7 @@ async fn handle_docker_job(
 ) -> Result<Box<RawValue>, Error> {
     use crate::job_logger::append_logs_with_compaction;
 
-    let client = bollard::Docker::connect_with_unix_defaults().map_err(to_anyhow)?;
+    let client = connect_docker().map_err(to_anyhow)?;
 
     let container_id = job_id.to_string();
     let inspected = client.inspect_container(&container_id, None).await;
@@ -396,7 +422,7 @@ async fn handle_docker_job(
     let workspace_id2 = workspace_id.to_string();
     let mut killpill_rx = killpill_rx.resubscribe();
     let logs = tokio::spawn(async move {
-        let client = bollard::Docker::connect_with_unix_defaults().map_err(to_anyhow);
+        let client = connect_docker().map_err(to_anyhow);
         if let Ok(client) = client {
             let mut log_stream = client.logs(
                 &ncontainer_id,
@@ -464,7 +490,7 @@ async fn handle_docker_job(
         }
     });
 
-    let mem_client = bollard::Docker::connect_with_unix_defaults().map_err(to_anyhow);
+    let mem_client = connect_docker().map_err(to_anyhow);
     let ncontainer_id = container_id.clone();
     let result = run_future_with_polling_update_job_poller(
         job_id,
