@@ -1042,27 +1042,7 @@ async fn drop_custom_instance_pg_database(
         )));
     }
 
-    // Terminate all connections to the database before dropping
-    sqlx::query(&format!(
-        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{dbname}' AND pid <> pg_backend_pid()"
-    ))
-    .execute(&db)
-    .await?;
-
-    sqlx::query(&format!("DROP DATABASE \"{dbname}\""))
-        .execute(&db)
-        .await
-        .map_err(|e| {
-            error::Error::ExecutionErr(format!("Failed to drop database '{}': {}", dbname, e))
-        })?;
-
-    // Remove from global_settings
-    sqlx::query!(
-        r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
-        dbname
-    )
-    .execute(&db)
-    .await?;
+    windmill_common::drop_custom_instance_database(&db, dbname).await;
 
     Ok(format!("Database '{}' dropped successfully", dbname))
 }

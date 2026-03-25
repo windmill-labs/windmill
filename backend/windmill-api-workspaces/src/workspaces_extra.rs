@@ -899,15 +899,7 @@ async fn drop_forked_datatable_databases(
         if dt.database.resource_type
             == windmill_common::workspaces::DataTableCatalogResourceType::Instance
         {
-            match sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", db_to_drop))
-                .execute(db)
-                .await
-            {
-                Ok(_) => tracing::info!("Dropped instance database '{}'", db_to_drop),
-                Err(e) => {
-                    tracing::error!("Failed to drop instance database '{}': {}", db_to_drop, e)
-                }
-            }
+            windmill_common::drop_custom_instance_database(db, db_to_drop).await;
         } else if let Some(original_resource) = forked_from.get("original_resource") {
             let pg = match serde_json::from_value::<PgDatabase>(original_resource.clone()) {
                 Ok(pg) => pg,

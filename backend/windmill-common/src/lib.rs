@@ -552,6 +552,44 @@ impl PgDatabase {
     }
 }
 
+/// Drop a custom instance database: terminate connections, DROP DATABASE, remove from global_settings.
+/// Non-fatal variant that logs errors instead of returning them.
+pub async fn drop_custom_instance_database(db: &DB, dbname: &str) {
+    // Terminate active connections
+    if let Err(e) = sqlx::query(&format!(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}' AND pid <> pg_backend_pid()",
+        dbname.replace('\'', "''")
+    ))
+    .execute(db)
+    .await
+    {
+        tracing::warn!("Failed to terminate connections to '{}': {}", dbname, e);
+    }
+
+    // Drop the database
+    match sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", dbname))
+        .execute(db)
+        .await
+    {
+        Ok(_) => tracing::info!("Dropped instance database '{}'", dbname),
+        Err(e) => {
+            tracing::error!("Failed to drop instance database '{}': {}", dbname, e);
+            return;
+        }
+    }
+
+    // Remove from global_settings
+    if let Err(e) = sqlx::query!(
+        r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
+        dbname
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Failed to remove '{}' from global_settings: {}", dbname, e);
+    }
+}
+
 #[derive(Clone)]
 pub enum DatabaseUrl {
     #[cfg(all(feature = "enterprise", feature = "private"))]
