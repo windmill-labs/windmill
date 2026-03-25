@@ -547,17 +547,17 @@
 																					}
 																				}
 																			} else {
-																				try {
-																					UserService.globalUserUpdate({
-																						email,
-																						requestBody: { disabled: false }
-																					}).then(() => {
+																				UserService.globalUserUpdate({
+																					email,
+																					requestBody: { disabled: false }
+																				})
+																					.then(() => {
 																						sendUserToast('User enabled')
 																						listUsers(activeOnly)
 																					})
-																				} catch (e) {
-																					sendUserToast('Failed to enable user', true)
-																				}
+																					.catch(() => {
+																						sendUserToast('Failed to enable user', true)
+																					})
 																			}
 																		}
 																	},
