@@ -1505,6 +1505,46 @@ export function main(x: number): number {
         assert!(matches!(results[0], DedicatedWorkerResult::Error(_)));
     }
 
+    #[test]
+    fn test_bun_exec_preprocess_then_exec() {
+        let script = r#"
+export function preprocessor(x: number) {
+    return { x: x * 2 };
+}
+export function main(x: number): number {
+    return x + 100;
+}
+"#;
+        let results = run_raw_protocol_test(
+            &[("f/test/mixed", script)],
+            vec![
+                ProtocolCmd::ExecPreprocess {
+                    path: "f/test/mixed".to_string(),
+                    args: serde_json::json!({"x": 5}),
+                },
+                ProtocolCmd::Exec {
+                    path: "f/test/mixed".to_string(),
+                    args: serde_json::json!({"x": 7}),
+                },
+            ],
+        );
+        // preprocess: preprocessor(5) => {"x":10}, main(10) => 110
+        // exec: main(7) => 107
+        assert_eq!(results.len(), 3);
+        assert_eq!(
+            results[0],
+            DedicatedWorkerResult::PreprocessedArgs(serde_json::json!({"x": 10}))
+        );
+        assert_eq!(
+            results[1],
+            DedicatedWorkerResult::Success(serde_json::json!(110))
+        );
+        assert_eq!(
+            results[2],
+            DedicatedWorkerResult::Success(serde_json::json!(107))
+        );
+    }
+
     // ==================== Argument Transformation Tests ====================
 
     #[test]
