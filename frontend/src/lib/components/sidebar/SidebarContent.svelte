@@ -797,7 +797,9 @@
 							<div class="flex flex-col">
 								<span class="text-xs font-medium">{dt.name}</span>
 								<span class="text-2xs text-tertiary">
-									{dt.resourceType === 'instance' ? 'Instance' : 'Resource'} DB: {dt.resourcePath}
+									dbname: {dt.resourceType === 'instance'
+										? dt.resourcePath
+										: `${$workspaceStore?.replace(/-/g, '_')}__${dt.name}`}
 								</span>
 							</div>
 							<Toggle bind:checked={dt.dropOnDelete} options={{ right: 'Drop database' }} />
