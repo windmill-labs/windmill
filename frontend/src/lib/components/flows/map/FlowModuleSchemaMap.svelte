@@ -83,6 +83,7 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
+		controlsPosition?: 'top' | 'bottom'
 	}
 
 	let {
@@ -112,6 +113,7 @@
 		showJobStatus = false,
 		suspendStatus = $bindable({ val: {} }),
 		onDelete,
+		controlsPosition = 'top',
 		flowHasChanged
 	}: Props = $props()
 
@@ -633,7 +635,9 @@
 								targetModules.splice(insertIndex, 0, ...removedModules)
 								selectionManager.selectByIds(removedModules.map((m) => m.id))
 							} else {
-								let indexToRemove = originalModules.findIndex((m) => moveManager.movingModuleId == m.id)
+								let indexToRemove = originalModules.findIndex(
+									(m) => moveManager.movingModuleId == m.id
+								)
 								let [removedModule] = originalModules.splice(indexToRemove, 1)
 								// When moving within the same array, removal shifts subsequent indices down by 1
 								let insertIndex = detail.index
@@ -821,6 +825,7 @@
 			{onCancelTestFlow}
 			{onOpenPreview}
 			{onHideJobStatus}
+			{controlsPosition}
 			exitNoteMode={() => (noteMode = false)}
 			onNotePositionUpdate={(noteId, position) => {
 				// Update note position via NoteEditor context in edit mode

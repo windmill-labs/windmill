@@ -178,6 +178,7 @@
 		diffBeforeFlow?: OpenFlow
 		currentInputSchema?: Record<string, any>
 		markRemovedAsShadowed?: boolean
+		controlsPosition?: 'top' | 'bottom'
 	}
 
 	let {
@@ -245,7 +246,8 @@
 		onDeleteMultiple = undefined,
 		onDuplicateMultiple = undefined,
 		onMoveMultiple = undefined,
-		movingIds = undefined
+		movingIds = undefined,
+		controlsPosition = 'top'
 	}: Props = $props()
 
 	// Initialize note manager with fine-grained reactivity
@@ -1017,7 +1019,7 @@
 					</div>
 				{:else}
 					<Controls
-						position="top-right"
+						position={controlsPosition === 'bottom' ? 'bottom-right' : 'top-right'}
 						orientation="horizontal"
 						showLock={false}
 						fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'note') }}
@@ -1080,7 +1082,7 @@
 					</Controls>
 
 					<Controls
-						position="top-left"
+						position={controlsPosition === 'bottom' ? 'bottom-left' : 'top-left'}
 						orientation="vertical"
 						showLock={false}
 						showZoom={false}

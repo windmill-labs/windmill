@@ -4,7 +4,7 @@ import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { Table } from "@cliffy/table";
 import * as log from "../../core/log.ts";
-import { sep as SEP } from "node:path";
+import { sep as SEP, join as pathJoin } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
@@ -536,6 +536,25 @@ export function bootstrap(
 
   const flowYamlPath = `${flowDirFullPath}/flow.yaml`;
   writeFileSync(flowYamlPath, newFlowDefinitionYaml, { flag: "wx", encoding: "utf-8" });
+
+  // Generate .claude/launch.json for Claude Code preview
+  const claudeDir = pathJoin(flowDirFullPath, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  const launchJson = {
+    version: "0.0.1",
+    configurations: [{
+      name: "windmill",
+      runtimeExecutable: "bash",
+      runtimeArgs: ["-c", "wmill dev --proxy-port ${PORT:-4000}"],
+      port: 4000,
+      autoPort: true,
+    }],
+  };
+  writeFileSync(
+    pathJoin(claudeDir, "launch.json"),
+    JSON.stringify(launchJson, null, 2) + "\n",
+    "utf-8",
+  );
 }
 
 const command = new Command()

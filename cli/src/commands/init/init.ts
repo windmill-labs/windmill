@@ -1,4 +1,6 @@
-import { stat, writeFile, rm, mkdir } from "node:fs/promises";
+import { stat, writeFile, rm, mkdir, readdir } from "node:fs/promises";
+import { join } from "node:path";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
@@ -352,6 +354,49 @@ async function initAction(opts: InitOptions) {
     } else {
       log.warn(`Could not create guidance files: ${error}`);
     }
+  }
+
+  // Generate .claude/launch.json for each flow folder
+  try {
+    const flowSuffix = nonDottedPaths ? "__flow" : ".flow";
+    const flowLaunchJson = JSON.stringify({
+      version: "0.0.1",
+      configurations: [{
+        name: "windmill",
+        runtimeExecutable: "bash",
+        runtimeArgs: ["-c", "wmill dev --proxy-port ${PORT:-4000}"],
+        port: 4000,
+        autoPort: true,
+      }],
+    }, null, 2) + "\n";
+
+    let flowCount = 0;
+    async function scanForFlows(dir: string) {
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+        const fullPath = join(dir, entry.name);
+        if (entry.name.endsWith(flowSuffix)) {
+          const claudeDir = join(fullPath, ".claude");
+          const launchPath = join(claudeDir, "launch.json");
+          mkdirSync(claudeDir, { recursive: true });
+          writeFileSync(launchPath, flowLaunchJson, "utf-8");
+          flowCount++;
+        } else {
+          await scanForFlows(fullPath);
+        }
+      }
+    }
+
+    await scanForFlows(".");
+    if (flowCount > 0) {
+      log.info(colors.green(`Created .claude/launch.json for ${flowCount} flow folder(s)`));
+    }
+  } catch (error) {
+    log.warn(
+      `Could not scan for flow folders: ${error instanceof Error ? error.message : error}`
+    );
   }
 
   // Generate resource type namespace
