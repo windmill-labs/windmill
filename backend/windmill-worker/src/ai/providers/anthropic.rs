@@ -6,7 +6,7 @@ use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
     image_handler::prepare_messages_for_api,
-    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
+    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{AnthropicSSEParser, SSEParser},
     types::*,
     utils::{extract_text_content, should_use_structured_output_tool},
@@ -535,9 +535,9 @@ impl QueryBuilder for AnthropicQueryBuilder {
     async fn parse_streaming_response(
         &self,
         response: reqwest::Response,
-        stream_event_processor: StreamEventProcessor,
+        stream_event_sink: Box<dyn StreamEventSink>,
     ) -> Result<ParsedResponse, Error> {
-        let mut anthropic_sse_parser = AnthropicSSEParser::new(stream_event_processor);
+        let mut anthropic_sse_parser = AnthropicSSEParser::new(stream_event_sink);
         anthropic_sse_parser.parse_events(response).await?;
 
         let AnthropicSSEParser {

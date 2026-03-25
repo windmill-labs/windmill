@@ -1,4 +1,4 @@
-use crate::ai::query_builder::StreamEventProcessor;
+use crate::ai::query_builder::{StreamEventProcessor, StreamEventSink};
 use crate::ai::types::McpToolSource;
 use crate::ai::types::*;
 use crate::ai::utils::{

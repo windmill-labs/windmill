@@ -15840,11 +15840,13 @@ dependencies = [
 name = "windmill-ai"
 version = "1.664.0"
 dependencies = [
+ "async-trait",
  "aws-config",
  "aws-credential-types",
  "aws-sdk-bedrockruntime",
  "aws-smithy-types",
  "lazy_static",
+ "reqwest 0.13.1",
  "serde",
  "serde_json",
  "sqlx",

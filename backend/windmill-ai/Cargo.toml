@@ -19,6 +19,8 @@ windmill-types.workspace = true
 windmill-parser.workspace = true
 windmill-mcp = { workspace = true, optional = true }
 
+async-trait.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx = { workspace = true, features = ["postgres"] }

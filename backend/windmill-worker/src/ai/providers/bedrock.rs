@@ -8,7 +8,7 @@
 
 use crate::ai::{
     image_handler::prepare_messages_for_api,
-    query_builder::{ParsedResponse, StreamEventProcessor},
+    query_builder::{ParsedResponse, StreamEventSink},
     types::StreamingEvent,
     types::TokenUsage,
     types::{OpenAIMessage, ToolDef},
@@ -43,7 +43,7 @@ impl BedrockQueryBuilder {
         max_tokens: Option<u32>,
         api_key: &str,
         region: &str,
-        stream_event_processor: Option<StreamEventProcessor>,
+        stream_event_sink: Option<Box<dyn StreamEventSink>>,
         client: &AuthedClient,
         workspace_id: &str,
         structured_output_tool_name: Option<&str>,
@@ -86,7 +86,7 @@ impl BedrockQueryBuilder {
             system_prompts,
             inference_config,
             tool_config,
-            stream_event_processor,
+            stream_event_sink,
         )
         .await
     }
@@ -100,7 +100,7 @@ impl BedrockQueryBuilder {
         system_prompts: Vec<aws_sdk_bedrockruntime::types::SystemContentBlock>,
         inference_config: Option<aws_sdk_bedrockruntime::types::InferenceConfiguration>,
         tool_config: Option<aws_sdk_bedrockruntime::types::ToolConfiguration>,
-        stream_event_processor: Option<StreamEventProcessor>,
+        stream_event_sink: Option<Box<dyn StreamEventSink>>,
     ) -> Result<ParsedResponse, Error> {
         tracing::debug!(
             "Worker Bedrock: executing converse_stream, messages={}, system_prompts={}, has_tools={}",
@@ -159,7 +159,7 @@ impl BedrockQueryBuilder {
                     // Handle text delta using shared parser
                     if let Some(text_delta) = bedrock_stream_event_to_text(&event) {
                         accumulated_text.push_str(&text_delta);
-                        if let Some(processor) = stream_event_processor.as_ref() {
+                        if let Some(processor) = stream_event_sink.as_ref() {
                             processor
                                 .send(
                                     StreamingEvent::TokenDelta { content: text_delta },
@@ -214,7 +214,7 @@ impl BedrockQueryBuilder {
         }
 
         // Send tool call events to stream processor
-        if let Some(processor) = stream_event_processor.as_ref() {
+        if let Some(processor) = stream_event_sink.as_ref() {
             for tool_call in accumulated_tool_calls.values() {
                 processor
                     .send(
