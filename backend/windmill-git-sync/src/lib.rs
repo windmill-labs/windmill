@@ -43,7 +43,6 @@ pub enum DeployedObject {
     Settings { setting_type: String },
     Key { key_type: String },
     WorkspaceDependencies { path: String },
-    DatatableTable { datatable_name: String, table_name: String },
 }
 
 impl DeployedObject {
@@ -72,9 +71,6 @@ impl DeployedObject {
             DeployedObject::Settings { .. } => "settings.yaml".to_string(),
             DeployedObject::Key { .. } => "encryption_key.yaml".to_string(),
             DeployedObject::WorkspaceDependencies { path, .. } => path.to_owned(),
-            DeployedObject::DatatableTable { datatable_name, table_name } => {
-                format!("{datatable_name}/{table_name}")
-            }
         }
     }
 
@@ -85,8 +81,7 @@ impl DeployedObject {
             | Self::ResourceType { .. }
             | Self::Settings { .. }
             | Self::Key { .. }
-            | Self::WorkspaceDependencies { .. }
-            | Self::DatatableTable { .. } => true,
+            | Self::WorkspaceDependencies { .. } => true,
             _ => false,
         }
     }
@@ -116,7 +111,6 @@ impl DeployedObject {
             DeployedObject::Settings { .. } => None,
             DeployedObject::Key { .. } => None,
             DeployedObject::WorkspaceDependencies { .. } => None,
-            DeployedObject::DatatableTable { .. } => None,
         }
     }
 
@@ -145,7 +139,6 @@ impl DeployedObject {
             DeployedObject::Settings { .. } => "settings",
             DeployedObject::Key { .. } => "key",
             DeployedObject::WorkspaceDependencies { .. } => "workspace_dependencies",
-            DeployedObject::DatatableTable { .. } => "datatable_table",
         }
         .to_string()
     }
@@ -279,10 +272,7 @@ mod tests {
             path: "f/folder/script".to_string(),
             parent_path: Some("f/folder/old_script".to_string()),
         };
-        assert_eq!(
-            obj.get_parent_path(),
-            Some("f/folder/old_script".to_string())
-        );
+        assert_eq!(obj.get_parent_path(), Some("f/folder/old_script".to_string()));
     }
 
     #[test]
@@ -323,13 +313,21 @@ mod tests {
 
     #[test]
     fn test_get_kind_flow() {
-        let obj = DeployedObject::Flow { path: "test".to_string(), parent_path: None, version: 1 };
+        let obj = DeployedObject::Flow {
+            path: "test".to_string(),
+            parent_path: None,
+            version: 1,
+        };
         assert_eq!(obj.get_kind(), "flow");
     }
 
     #[test]
     fn test_get_kind_app() {
-        let obj = DeployedObject::App { path: "test".to_string(), version: 1, parent_path: None };
+        let obj = DeployedObject::App {
+            path: "test".to_string(),
+            version: 1,
+            parent_path: None,
+        };
         assert_eq!(obj.get_kind(), "app");
     }
 
@@ -348,8 +346,7 @@ mod tests {
             "http_trigger"
         );
         assert_eq!(
-            DeployedObject::WebsocketTrigger { path: "t".to_string(), parent_path: None }
-                .get_kind(),
+            DeployedObject::WebsocketTrigger { path: "t".to_string(), parent_path: None }.get_kind(),
             "websocket_trigger"
         );
         assert_eq!(

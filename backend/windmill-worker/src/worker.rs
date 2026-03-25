@@ -4212,14 +4212,12 @@ pub async fn run_language_executor(
     // Expand WM_INTERNAL_DB markers into real SQL before dispatching
     let expanded_code: String;
     let mut language = language;
-    let mut ddl_operation: Option<windmill_common::query_builders::DdlOperation> = None;
     let code = if let Some(ref lang) = language {
         match windmill_common::query_builders::try_expand_internal_db_query(code, lang) {
             Some(Ok(expanded)) => {
                 if let Some(lang_override) = expanded.language_override {
                     language = Some(lang_override);
                 }
-                ddl_operation = expanded.ddl_operation;
                 expanded_code = expanded.code;
                 &expanded_code
             }
@@ -4234,40 +4232,6 @@ pub async fn run_language_executor(
     } else {
         code
     };
-
-    // Tally datatable table DDL change for workspace diff tracking
-    if let Some(ref ddl_op) = ddl_operation {
-        if let Connection::Sql(ref db) = conn {
-            // Extract datatable name from the "database" arg (e.g. "datatable://main")
-            let datatable_name = job
-                .args
-                .as_ref()
-                .and_then(|args| args.get("database"))
-                .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
-                .and_then(|s| s.strip_prefix("datatable://").map(|n| n.to_string()));
-
-            if let Some(dt_name) = datatable_name {
-                if let Err(e) = windmill_git_sync::handle_deployment_metadata(
-                    &job.permissioned_as_email,
-                    &job.created_by,
-                    db,
-                    &job.workspace_id,
-                    windmill_git_sync::DeployedObject::DatatableTable {
-                        datatable_name: dt_name,
-                        table_name: ddl_op.table_name.clone(),
-                    },
-                    None,
-                    true,
-                    None,
-                )
-                .await
-                {
-                    tracing::error!(%e, "error handling datatable DDL deployment metadata");
-                }
-            }
-        }
-    }
-
     if let Some(modules) = modules {
         #[cfg(feature = "python")]
         let base_dir = if language == Some(ScriptLang::Python3) {
