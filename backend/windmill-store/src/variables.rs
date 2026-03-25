@@ -1046,6 +1046,10 @@ pub async fn get_value_internal<'a>(
         variable.value
     };
 
+    if variable.is_secret && !r.is_empty() {
+        windmill_common::sensitive_log_masks::register_secret_for_all_running_jobs(&r);
+    }
+
     // Cache the result when explicitly allowed and caching appropriate
     if allow_cache {
         cache_variable(&w_id, &path, db_with_opt_authed.email(), r.clone());

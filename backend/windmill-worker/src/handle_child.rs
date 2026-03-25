@@ -438,6 +438,12 @@ pub async fn write_lines(
                     if line.is_empty() {
                         continue;
                     }
+                    let line = match windmill_common::sensitive_log_masks::mask_sensitive_values(
+                        &job_id, &line,
+                    ) {
+                        std::borrow::Cow::Owned(masked) => masked,
+                        std::borrow::Cow::Borrowed(_) => line,
+                    };
                     if *OTEL_JOB_LOGS {
                         if let Some(otel_suffix) = line.strip_prefix(OTEL_PREFIX) {
                             tracing::event!(tracing::Level::INFO, otel_suffix);

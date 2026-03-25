@@ -286,6 +286,14 @@ pub async fn transform_json_value(
                     )
                     .await?;
                     decrypt(&mc, encrypted.to_string()).and_then(|x| {
+                        // Register decrypted value for log masking
+                        if let serde_json::Value::String(ref s) =
+                            serde_json::from_str::<serde_json::Value>(&x).unwrap_or_default()
+                        {
+                            windmill_common::sensitive_log_masks::register_secret_for_job(
+                                job.id, s,
+                            );
+                        }
                         serde_json::from_str(&x).map_err(|e| {
                             Error::internal_err(format!(
                                 "Failed to decrypt '$encrypted:' value: {e}"
