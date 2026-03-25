@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -17,10 +17,11 @@
 		Clock,
 		Variable,
 		Database,
-		Zap
+		Zap,
+		RefreshCw
 	} from 'lucide-svelte'
+	import { untrack } from 'svelte'
 
-	let drawer: Drawer | undefined = $state()
 	let items: TrashItem[] | undefined = $state(undefined)
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let deleteOpen = $derived(Boolean(deleteConfirmedCallback))
@@ -124,99 +125,98 @@
 		}
 	}
 
-	export function open() {
-		items = undefined
-		drawer?.openDrawer()
-		loadItems()
-	}
+	$effect(() => {
+		$workspaceStore
+		untrack(() => loadItems())
+	})
 </script>
 
-<Drawer bind:this={drawer} size="900px">
-	<DrawerContent title="Trash" on:close={drawer?.closeDrawer}>
-		{#snippet actions()}
-			<Button
-				startIcon={{ icon: Trash2 }}
-				variant="default"
-				size="xs"
-				onclick={() => {
-					emptyConfirmOpen = true
-				}}
-				disabled={!items || items.length === 0}
-			>
-				Empty Trash
-			</Button>
+<div class="flex justify-end mb-4 gap-2">
+	<Button startIcon={{ icon: RefreshCw }} variant="default" size="xs" onclick={loadItems}>
+		Refresh
+	</Button>
+	<Button
+		startIcon={{ icon: Trash2 }}
+		variant="default"
+		size="xs"
+		onclick={() => {
+			emptyConfirmOpen = true
+		}}
+		disabled={!items || items.length === 0}
+	>
+		Empty Trashbin
+	</Button>
+</div>
+
+{#if items === undefined}
+	<Skeleton layout={[20, 8, 8, 8]} />
+{:else if items.length === 0}
+	<div class="flex flex-col items-center justify-center py-12 text-tertiary">
+		<Trash2 size={40} class="mb-3 opacity-50" />
+		<p class="text-base">Trashbin is empty</p>
+		<p class="text-sm mt-1">No recently deleted items.</p>
+	</div>
+{:else}
+	<DataTable size="sm">
+		{#snippet head()}
+			<Head>
+				<tr>
+					<Cell head first>Type</Cell>
+					<Cell head>Path</Cell>
+					<Cell head>Deleted by</Cell>
+					<Cell head>Deleted</Cell>
+					<Cell head>Expires</Cell>
+					<Cell head last>Actions</Cell>
+				</tr>
+			</Head>
 		{/snippet}
-		{#if items === undefined}
-			<Skeleton layout={[20, 8, 8, 8]} />
-		{:else if items.length === 0}
-			<div class="flex flex-col items-center justify-center py-16 text-tertiary">
-				<Trash2 size={48} class="mb-4 opacity-50" />
-				<p class="text-lg">Trash is empty</p>
-				<p class="text-sm mt-1">Deleted items appear here for 3 days before permanent removal.</p>
-			</div>
-		{:else}
-			<DataTable size="sm">
-				{#snippet head()}
-					<Head>
-						<tr>
-							<Cell head first>Type</Cell>
-							<Cell head>Path</Cell>
-							<Cell head>Deleted by</Cell>
-							<Cell head>Deleted</Cell>
-							<Cell head>Expires</Cell>
-							<Cell head last>Actions</Cell>
-						</tr>
-					</Head>
-				{/snippet}
-				{#each items as item (item.id)}
-					{@const Icon = getKindIcon(item.item_kind)}
-					<Row>
-						<Cell first>
-							<div class="flex items-center gap-2">
-								<Icon size={14} />
-								<span class="text-xs">{getKindLabel(item.item_kind)}</span>
-							</div>
-						</Cell>
-						<Cell>
-							<span class="font-mono text-xs">{item.item_path}</span>
-						</Cell>
-						<Cell>
-							<span class="text-xs">{item.deleted_by}</span>
-						</Cell>
-						<Cell>
-							<span class="text-xs text-tertiary">{timeAgo(item.deleted_at)}</span>
-						</Cell>
-						<Cell>
-							<span class="text-xs text-tertiary">{timeRemaining(item.expires_at)}</span>
-						</Cell>
-						<Cell last>
-							<div class="flex gap-1">
-								<Button
-									startIcon={{ icon: RotateCcw }}
-									variant="default"
-									size="xs2"
-									onclick={() => restoreItem(item)}
-								>
-									Restore
-								</Button>
-								<Button
-									startIcon={{ icon: Trash2 }}
-									variant="default"
-									size="xs2"
-									onclick={() => {
-										deleteConfirmedCallback = () => permanentlyDelete(item)
-									}}
-								>
-									Delete
-								</Button>
-							</div>
-						</Cell>
-					</Row>
-				{/each}
-			</DataTable>
-		{/if}
-	</DrawerContent>
-</Drawer>
+		{#each items as item (item.id)}
+			{@const Icon = getKindIcon(item.item_kind)}
+			<Row>
+				<Cell first>
+					<div class="flex items-center gap-2">
+						<Icon size={14} />
+						<span class="text-xs">{getKindLabel(item.item_kind)}</span>
+					</div>
+				</Cell>
+				<Cell>
+					<span class="font-mono text-xs">{item.item_path}</span>
+				</Cell>
+				<Cell>
+					<span class="text-xs">{item.deleted_by}</span>
+				</Cell>
+				<Cell>
+					<span class="text-xs text-tertiary">{timeAgo(item.deleted_at)}</span>
+				</Cell>
+				<Cell>
+					<span class="text-xs text-tertiary">{timeRemaining(item.expires_at)}</span>
+				</Cell>
+				<Cell last>
+					<div class="flex gap-1">
+						<Button
+							startIcon={{ icon: RotateCcw }}
+							variant="default"
+							size="xs2"
+							onclick={() => restoreItem(item)}
+						>
+							Restore
+						</Button>
+						<Button
+							startIcon={{ icon: Trash2 }}
+							variant="default"
+							size="xs2"
+							onclick={() => {
+								deleteConfirmedCallback = () => permanentlyDelete(item)
+							}}
+						>
+							Delete
+						</Button>
+					</div>
+				</Cell>
+			</Row>
+		{/each}
+	</DataTable>
+{/if}
 
 <ConfirmationModal
 	open={deleteOpen}
@@ -237,8 +237,8 @@
 
 <ConfirmationModal
 	open={emptyConfirmOpen}
-	title="Empty trash"
-	confirmationText="Empty trash"
+	title="Empty trashbin"
+	confirmationText="Empty trashbin"
 	on:canceled={() => {
 		emptyConfirmOpen = false
 	}}
@@ -247,5 +247,5 @@
 		emptyConfirmOpen = false
 	}}
 >
-	<p>All items in the trash will be permanently deleted. This action cannot be undone.</p>
+	<p>All items in the trashbin will be permanently deleted. This action cannot be undone.</p>
 </ConfirmationModal>

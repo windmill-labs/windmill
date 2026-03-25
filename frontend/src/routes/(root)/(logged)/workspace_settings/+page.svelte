@@ -36,7 +36,7 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
-	import { Slack, Trash2 } from 'lucide-svelte'
+	import { Slack } from 'lucide-svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -56,7 +56,7 @@
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
 	import VolumeStorageSettings from '$lib/components/workspaceSettings/VolumeStorageSettings.svelte'
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
-	import TrashDrawer from '$lib/components/settings/TrashDrawer.svelte'
+	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
 	import { getHandlerType } from '$lib/components/triggers/utils'
 	import DucklakeSettings, {
@@ -76,7 +76,6 @@
 	import WorkspaceRulesets from '$lib/components/workspaceSettings/WorkspaceRulesets.svelte'
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
 
-	let trashDrawer: TrashDrawer | undefined = $state()
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
 	let teamsInitialPath: string = $state('')
@@ -1195,10 +1194,10 @@
 					aiDescription: 'Encryption workspace settings'
 				},
 				{
-					id: 'trash',
-					label: 'Trash',
-					aiId: 'workspace-settings-trash',
-					aiDescription: 'Trash bin for recently deleted items'
+					id: 'trashbin',
+					label: 'Trashbin',
+					aiId: 'workspace-settings-trashbin',
+					aiDescription: 'Trashbin for recently deleted items'
 				}
 			]
 		}
@@ -1933,19 +1932,14 @@ export async function main(
 								saveLabel="Save & Re-encrypt workspace"
 								disabled={!!encryptionKeyValidationError || workspaceReencryptionInProgress}
 							/>
-						{:else if tab == 'trash'}
+						{:else if tab == 'trashbin'}
 							<SettingsPageHeader
-								title="Trash"
-								description="Recently deleted items are kept for 3 days before being permanently removed. You can restore or permanently delete them here."
+								title="Trashbin"
+								description="When scripts, flows, apps, resources, variables, schedules, or triggers are deleted, they are moved to the trashbin and kept for 3 days before being permanently removed. Admins can restore or permanently delete items from here."
 							/>
-							<Button
-								startIcon={{ icon: Trash2 }}
-								variant="default"
-								class="mt-4"
-								onclick={() => trashDrawer?.open()}
-							>
-								Open Trash
-							</Button>
+							<div class="mt-4">
+								<Trashbin />
+							</div>
 						{/if}
 					</div>
 				</div>
@@ -1958,8 +1952,6 @@ export async function main(
 		</div>
 	{/if}
 </CenteredPage>
-
-<TrashDrawer bind:this={trashDrawer} />
 
 <UnsavedConfirmationModal
 	getInitialAndModifiedValues={getAllUnsavedChanges}

@@ -152,27 +152,17 @@ async fn restore_script(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) -
         .ok_or_else(|| Error::internal_err("Invalid trash data for script"))?;
 
     for script in scripts {
-        sqlx::query(
-            "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description,
-             content, created_by, created_at, archived, schema, deleted, is_template, extra_perms,
-             lock, lock_error_logs, language, kind, tag, draft_only, envs, concurrent_limit,
-             concurrency_time_window_s, cache_ttl, dedicated_worker, ws_error_handler_muted,
-             priority, timeout, delete_after_use, restart_unless_cancelled, concurrency_key,
-             visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email,
-             schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path)
-             SELECT * FROM jsonb_populate_record(null::script, $1)",
-        )
-        .bind(script)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("INSERT INTO script SELECT * FROM jsonb_populate_record(null::script, $1)")
+            .bind(script)
+            .execute(&mut *tx)
+            .await?;
     }
 
     // Restore drafts if present
     if let Some(drafts) = data.get("drafts").and_then(|v| v.as_array()) {
         for draft in drafts {
             sqlx::query(
-                "INSERT INTO draft (workspace_id, path, typ, value, created_at)
-                 SELECT * FROM jsonb_populate_record(null::draft, $1)
+                "INSERT INTO draft SELECT * FROM jsonb_populate_record(null::draft, $1)
                  ON CONFLICT DO NOTHING",
             )
             .bind(draft)
@@ -207,23 +197,16 @@ async fn restore_flow(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) -> 
         .get("row")
         .ok_or_else(|| Error::internal_err("Invalid trash data for flow"))?;
 
-    sqlx::query(
-        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at,
-         archived, schema, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted,
-         dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions,
-         on_behalf_of_email, lock_error_logs)
-         SELECT * FROM jsonb_populate_record(null::flow, $1)",
-    )
-    .bind(row)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query("INSERT INTO flow SELECT * FROM jsonb_populate_record(null::flow, $1)")
+        .bind(row)
+        .execute(&mut *tx)
+        .await?;
 
     // Restore flow_versions
     if let Some(versions) = data.get("flow_versions").and_then(|v| v.as_array()) {
         for version in versions {
             sqlx::query(
-                "INSERT INTO flow_version (id, workspace_id, path, value, schema, created_by, created_at)
-                 SELECT * FROM jsonb_populate_record(null::flow_version, $1)
+                "INSERT INTO flow_version SELECT * FROM jsonb_populate_record(null::flow_version, $1)
                  ON CONFLICT DO NOTHING",
             )
             .bind(version)
@@ -236,8 +219,7 @@ async fn restore_flow(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) -> 
     if let Some(nodes) = data.get("flow_nodes").and_then(|v| v.as_array()) {
         for node in nodes {
             sqlx::query(
-                "INSERT INTO flow_node (id, workspace_id, hash, path, lock, code, flow, hash_v2)
-                 SELECT * FROM jsonb_populate_record(null::flow_node, $1)
+                "INSERT INTO flow_node SELECT * FROM jsonb_populate_record(null::flow_node, $1)
                  ON CONFLICT DO NOTHING",
             )
             .bind(node)
@@ -250,8 +232,7 @@ async fn restore_flow(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) -> 
     if let Some(drafts) = data.get("drafts").and_then(|v| v.as_array()) {
         for draft in drafts {
             sqlx::query(
-                "INSERT INTO draft (workspace_id, path, typ, value, created_at)
-                 SELECT * FROM jsonb_populate_record(null::draft, $1)
+                "INSERT INTO draft SELECT * FROM jsonb_populate_record(null::draft, $1)
                  ON CONFLICT DO NOTHING",
             )
             .bind(draft)
@@ -286,12 +267,11 @@ async fn restore_app(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) -> R
         .get("row")
         .ok_or_else(|| Error::internal_err("Invalid trash data for app"))?;
 
-    // Restore app_versions first (app references them)
+    // Restore app_versions first (app references them via FK)
     if let Some(versions) = data.get("app_versions").and_then(|v| v.as_array()) {
         for version in versions {
             sqlx::query(
-                "INSERT INTO app_version (id, app_id, value, created_by, created_at, raw_app)
-                 SELECT * FROM jsonb_populate_record(null::app_version, $1)
+                "INSERT INTO app_version SELECT * FROM jsonb_populate_record(null::app_version, $1)
                  ON CONFLICT DO NOTHING",
             )
             .bind(version)
@@ -300,20 +280,16 @@ async fn restore_app(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) -> R
         }
     }
 
-    sqlx::query(
-        "INSERT INTO app (id, workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path)
-         SELECT * FROM jsonb_populate_record(null::app, $1)",
-    )
-    .bind(row)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query("INSERT INTO app SELECT * FROM jsonb_populate_record(null::app, $1)")
+        .bind(row)
+        .execute(&mut *tx)
+        .await?;
 
     // Restore drafts
     if let Some(drafts) = data.get("drafts").and_then(|v| v.as_array()) {
         for draft in drafts {
             sqlx::query(
-                "INSERT INTO draft (workspace_id, path, typ, value, created_at)
-                 SELECT * FROM jsonb_populate_record(null::draft, $1)
+                "INSERT INTO draft SELECT * FROM jsonb_populate_record(null::draft, $1)
                  ON CONFLICT DO NOTHING",
             )
             .bind(draft)
@@ -348,18 +324,10 @@ async fn restore_schedule(tx: &mut sqlx::PgConnection, item: &TrashItemWithData)
         .get("row")
         .ok_or_else(|| Error::internal_err("Invalid trash data for schedule"))?;
 
-    sqlx::query(
-        "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, enabled,
-         script_path, args, extra_perms, is_flow, email, error, timezone, on_failure,
-         on_recovery, on_failure_times, on_failure_exact, on_failure_extra_args,
-         on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry, summary,
-         no_flow_overlap, tag, paused_until, on_success, on_success_extra_args, cron_version,
-         description, dynamic_skip)
-         SELECT * FROM jsonb_populate_record(null::schedule, $1)",
-    )
-    .bind(row)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query("INSERT INTO schedule SELECT * FROM jsonb_populate_record(null::schedule, $1)")
+        .bind(row)
+        .execute(&mut *tx)
+        .await?;
 
     Ok(())
 }
@@ -387,22 +355,16 @@ async fn restore_variable(tx: &mut sqlx::PgConnection, item: &TrashItemWithData)
         .get("row")
         .ok_or_else(|| Error::internal_err("Invalid trash data for variable"))?;
 
-    sqlx::query(
-        "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms,
-         account, is_oauth, expires_at)
-         SELECT * FROM jsonb_populate_record(null::variable, $1)",
-    )
-    .bind(row)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query("INSERT INTO variable SELECT * FROM jsonb_populate_record(null::variable, $1)")
+        .bind(row)
+        .execute(&mut *tx)
+        .await?;
 
     // Restore linked resource if present
     if let Some(linked_resource) = data.get("linked_resource") {
         if !linked_resource.is_null() {
             sqlx::query(
-                "INSERT INTO resource (workspace_id, path, value, description, resource_type,
-                 extra_perms, edited_at, created_by)
-                 SELECT * FROM jsonb_populate_record(null::resource, $1)
+                "INSERT INTO resource SELECT * FROM jsonb_populate_record(null::resource, $1)
                  ON CONFLICT DO NOTHING",
             )
             .bind(linked_resource)
@@ -437,22 +399,16 @@ async fn restore_resource(tx: &mut sqlx::PgConnection, item: &TrashItemWithData)
         .get("row")
         .ok_or_else(|| Error::internal_err("Invalid trash data for resource"))?;
 
-    sqlx::query(
-        "INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms,
-         edited_at, created_by)
-         SELECT * FROM jsonb_populate_record(null::resource, $1)",
-    )
-    .bind(row)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query("INSERT INTO resource SELECT * FROM jsonb_populate_record(null::resource, $1)")
+        .bind(row)
+        .execute(&mut *tx)
+        .await?;
 
     // Restore linked variables if present
     if let Some(linked_vars) = data.get("linked_variables").and_then(|v| v.as_array()) {
         for var in linked_vars {
             sqlx::query(
-                "INSERT INTO variable (workspace_id, path, value, is_secret, description,
-                 extra_perms, account, is_oauth, expires_at)
-                 SELECT * FROM jsonb_populate_record(null::variable, $1)
+                "INSERT INTO variable SELECT * FROM jsonb_populate_record(null::variable, $1)
                  ON CONFLICT DO NOTHING",
             )
             .bind(var)
