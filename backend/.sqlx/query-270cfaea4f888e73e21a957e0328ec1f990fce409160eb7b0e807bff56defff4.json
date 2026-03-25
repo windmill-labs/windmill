@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT created_by, permissioned_as, permissioned_as_email\n           FROM v2_job\n           WHERE workspace_id = 'test-workspace'\n             AND trigger_kind = 'schedule'\n             AND trigger = $1\n           ORDER BY created_at DESC\n           LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "permissioned_as",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "permissioned_as_email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "270cfaea4f888e73e21a957e0328ec1f990fce409160eb7b0e807bff56defff4"
+}
