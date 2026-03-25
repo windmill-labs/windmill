@@ -1682,6 +1682,7 @@ fn cleanup_legacy_git_sync_settings_in_memory(
     }
 }
 
+#[cfg(not(feature = "enterprise"))]
 const CE_GIT_SYNC_MAX_USERS: i64 = 2;
 
 #[cfg(feature = "enterprise")]
