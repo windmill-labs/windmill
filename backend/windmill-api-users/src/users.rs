@@ -1448,6 +1448,9 @@ async fn delete_user(
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
+    sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_delete)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
         .execute(&mut *tx)
         .await?;

@@ -625,7 +625,11 @@
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to remove <b>{deleteUserEmail}</b>?</span>
+		<span
+			>Are you sure you want to remove <b>{deleteUserEmail}</b>? They will be removed from all
+			workspaces and instance groups, and all their sessions and tokens will be revoked. This action
+			is irreversible. Their workspace content (scripts, flows, apps) will not be deleted.</span
+		>
 	</div>
 </ConfirmationModal>
 <ConfirmationModal
@@ -647,7 +651,7 @@
 		<span
 			>Are you sure you want to disable <b>{disableUserEmail}</b>? All their active sessions and
 			tokens will be revoked immediately. They will be unable to log in until re-enabled. Their
-			content (scripts, flows, apps) will not be affected.</span
+			workspace memberships and content will be preserved.</span
 		>
 	</div>
 </ConfirmationModal>
