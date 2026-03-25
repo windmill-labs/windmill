@@ -55,6 +55,7 @@ pub async fn connect_db(
         };
         if needs_token_refresh {
             let pool2 = pool.clone();
+            let database_url2 = database_url.clone();
             tokio::spawn(async move {
                 loop {
                     tokio::select! {
@@ -62,6 +63,14 @@ pub async fn connect_db(
                             break;
                         }
                         _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {
+                            let needs_refresh = match &database_url2 {
+                                DatabaseUrl::IamRds(url_lock) => url_lock.read().await.needs_refresh(),
+                                DatabaseUrl::EntraId(url_lock) => url_lock.read().await.needs_refresh(),
+                                DatabaseUrl::Static(_) => false,
+                            };
+                            if !needs_refresh {
+                                continue;
+                            }
                             let new_url = tokio::time::timeout(
                                 std::time::Duration::from_secs(10),
                                 get_database_url(),
