@@ -25,6 +25,8 @@ use windmill_common::{
     auth::is_super_admin_email,
     error::{Error, Result},
     utils::require_admin,
+    workspaces::DataTable,
+    PgDatabase,
 };
 use windmill_queue::schedule::{get_schedule_opt, push_scheduled_job};
 
@@ -660,11 +662,18 @@ pub(crate) struct DeleteWorkspaceQuery {
     pub(crate) only_delete_forks: Option<bool>,
 }
 
+#[derive(Deserialize, Default)]
+pub(crate) struct DeleteWorkspaceBody {
+    #[serde(default)]
+    pub(crate) drop_datatable_databases: Option<Vec<String>>,
+}
+
 pub(crate) async fn delete_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     authed: ApiAuthed,
     Query(dwq): Query<DeleteWorkspaceQuery>,
+    body: Option<Json<DeleteWorkspaceBody>>,
 ) -> Result<String> {
     let w_id = match w_id.as_str() {
         "starter" => Err(Error::BadRequest(
@@ -685,6 +694,105 @@ pub(crate) async fn delete_workspace(
     let mut tx = db.begin().await?;
     if !(w_id.starts_with(WM_FORK_PREFIX) && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
         require_super_admin(&db, &authed.email).await?;
+    }
+
+    // Drop forked datatable databases if requested
+    let drop_dbs = body
+        .and_then(|b| b.0.drop_datatable_databases)
+        .unwrap_or_default();
+
+    if !drop_dbs.is_empty() {
+        let datatable_config = sqlx::query_scalar!(
+            "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+
+        if let Some(config) = datatable_config {
+            let datatables: HashMap<String, DataTable> =
+                serde_json::from_value(config).unwrap_or_default();
+
+            for dt_name in &drop_dbs {
+                let dt = match datatables.get(dt_name) {
+                    Some(dt) => dt,
+                    None => continue,
+                };
+                let forked_from = match &dt.forked_from {
+                    Some(v) => v,
+                    None => continue,
+                };
+                let db_to_drop = &dt.database.resource_path;
+
+                if dt.database.resource_type
+                    == windmill_common::workspaces::DataTableCatalogResourceType::Instance
+                {
+                    // Instance DB: drop on the Windmill PG instance
+                    if let Err(e) =
+                        sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", db_to_drop))
+                            .execute(&db)
+                            .await
+                    {
+                        tracing::error!("Failed to drop instance database '{}': {}", db_to_drop, e);
+                    } else {
+                        tracing::info!("Dropped instance database '{}'", db_to_drop);
+                    }
+                } else {
+                    // Resource DB: connect to the original resource and DROP DATABASE
+                    if let Some(original_resource) = forked_from.get("original_resource") {
+                        match serde_json::from_value::<PgDatabase>(original_resource.clone()) {
+                            Ok(pg) => {
+                                let admin_pg = PgDatabase { dbname: "postgres".to_string(), ..pg };
+                                match admin_pg.connect().await {
+                                    Ok((client, connection)) => {
+                                        let join_handle =
+                                            tokio::spawn(async move { connection.await });
+                                        if let Err(e) = client
+                                            .execute(
+                                                &format!(
+                                                    "DROP DATABASE IF EXISTS \"{}\"",
+                                                    db_to_drop
+                                                ),
+                                                &[],
+                                            )
+                                            .await
+                                        {
+                                            tracing::error!(
+                                                "Failed to drop resource database '{}': {}",
+                                                db_to_drop,
+                                                e
+                                            );
+                                        } else {
+                                            tracing::info!(
+                                                "Dropped resource database '{}'",
+                                                db_to_drop
+                                            );
+                                        }
+                                        drop(client);
+                                        let _ = join_handle.await;
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            "Failed to connect to drop resource database '{}': {}",
+                                            db_to_drop,
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    "Failed to parse original_resource for '{}': {}",
+                                    dt_name,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     sqlx::query!("DELETE FROM ai_agent_memory WHERE workspace_id = $1", &w_id)

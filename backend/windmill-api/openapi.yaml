@@ -2223,6 +2223,18 @@ paths:
           required: false
           schema:
             type: boolean
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                drop_datatable_databases:
+                  type: array
+                  items:
+                    type: string
+                  description: "List of datatable names whose forked databases should be dropped"
       responses:
         "200":
           description: status
