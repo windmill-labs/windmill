@@ -153,7 +153,7 @@ sqs_trigger: path(char), queue_url(char), aws_resource_path(char), message_attri
   FK: (workspace_id) -> workspace(id)
 trashbin: id(bigint), workspace_id(char), item_kind(char), item_path(char), item_data(jsonb), deleted_by(char), deleted_at(ts), expires_at(ts)
   FK: (workspace_id) -> workspace(id)
-  INDEX: idx_trashbin_workspace_expires (workspace_id, expires_at), idx_trashbin_workspace_kind (workspace_id, item_kind)
+  INDEX: idx_trashbin_expires_at (expires_at), idx_trashbin_workspace_kind (workspace_id, item_kind)
 token: token_hash(char), token_prefix(char), token(char), label(char), expiration(ts), workspace_id(char), owner(char), email(char), super_admin(bool), created_at(ts), last_used_at(ts), scopes(text[]), job(uuid)
   FK: (workspace_id) -> workspace(id)
 token_expiry_notification: token_hash(char), expiration(ts)
