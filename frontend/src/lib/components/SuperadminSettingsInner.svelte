@@ -39,12 +39,14 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 	import SettingsSearchInput from './instanceSettings/SettingsSearchInput.svelte'
+	import InstanceAISettings from './instanceSettings/InstanceAISettings.svelte'
 
 	let filter = $state('')
 
 	let {
 		closeDrawer,
 		showHeaderInfo = true,
+		disableChatOffset = false,
 		yamlMode = $bindable(false),
 		hasUnsavedChanges = $bindable(false),
 		hasAnyInvalid = $bindable(false)
@@ -236,7 +238,9 @@
 		<div class="flex-1 min-w-0 h-full">
 			<div class="h-full overflow-auto bg-surface">
 				<div class="h-fit px-8 py-4">
-					{#if tab === 'users' && !yamlMode}
+					{#if tab === 'ai' && !yamlMode}
+						<InstanceAISettings {disableChatOffset} />
+					{:else if tab === 'users' && !yamlMode}
 						<div class="h-full">
 							{#if !automateUsernameCreation && !isCloudHosted()}
 								<div class="mb-4">

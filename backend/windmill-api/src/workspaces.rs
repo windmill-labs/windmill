@@ -8,8 +8,9 @@
 
 // Re-export everything from windmill-api-workspaces
 pub use windmill_api_workspaces::workspaces::*;
+use windmill_api_workspaces::workspaces::{build_copilot_settings_state, InstanceAISummary};
 
-use crate::ai::{AIConfig, AI_REQUEST_CACHE};
+use crate::ai::{invalidate_ai_request_cache_for_workspace, AIConfig};
 use crate::db::ApiAuthed;
 use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
@@ -24,7 +25,7 @@ use axum::{
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
-    error::{Error, JsonResult, Result},
+    error::{Error, JsonResult},
     utils::require_admin,
     DB,
 };
@@ -34,6 +35,9 @@ use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use axum::extract::Query;
 #[cfg(feature = "enterprise")]
 use serde::Deserialize;
+use serde::Serialize;
+#[cfg(feature = "enterprise")]
+use windmill_common::error::Result;
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
 
@@ -83,7 +87,7 @@ async fn edit_copilot_config(
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(ai_config): Json<AIConfig>,
-) -> Result<String> {
+) -> JsonResult<EditCopilotConfigResponse> {
     require_admin(is_admin, &username)?;
 
     if let Some(ref custom_prompts) = ai_config.custom_prompts {
@@ -109,11 +113,7 @@ async fn edit_copilot_config(
     .execute(&mut *tx)
     .await?;
 
-    if let Some(ref providers) = ai_config.providers {
-        for provider in providers.keys() {
-            AI_REQUEST_CACHE.remove(&(w_id.clone(), provider.clone()));
-        }
-    }
+    invalidate_ai_request_cache_for_workspace(&w_id);
 
     audit_log(
         &mut *tx,
@@ -139,37 +139,66 @@ async fn edit_copilot_config(
     )
     .await?;
 
-    Ok(format!("Edit copilot config for workspace {}", &w_id))
+    let workspace_has_config = ai_config.has_providers();
+    let instance_ai_config =
+        sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
+            .fetch_optional(&db)
+            .await?;
+    let settings_state =
+        build_copilot_settings_state(workspace_has_config, instance_ai_config.as_ref());
+    let effective_ai_config = if workspace_has_config {
+        ai_config
+    } else if let Some(instance_ai_config) = instance_ai_config {
+        serde_json::from_value::<AIConfig>(instance_ai_config).unwrap_or_default()
+    } else {
+        AIConfig::default()
+    };
+
+    Ok(Json(EditCopilotConfigResponse {
+        effective_ai_config,
+        has_instance_ai_config: settings_state.has_instance_ai_config,
+        uses_instance_ai_config: settings_state.uses_instance_ai_config,
+        instance_ai_summary: settings_state.instance_ai_summary,
+    }))
+}
+
+#[derive(Serialize)]
+struct EditCopilotConfigResponse {
+    effective_ai_config: AIConfig,
+    has_instance_ai_config: bool,
+    uses_instance_ai_config: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    instance_ai_summary: Option<InstanceAISummary>,
 }
 
 async fn get_copilot_info(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<AIConfig> {
-    let mut tx = db.begin().await?;
-    let copilot_info = sqlx::query_scalar!(
+    let workspace_ai_config = sqlx::query_scalar!(
         "SELECT ai_config as \"ai_config: sqlx::types::Json<AIConfig>\" FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&db)
     .await
     .map_err(|e| {
         Error::internal_err(format!(
             "getting ai config: {e:#}"
         ))
     })?;
-    tx.commit().await?;
 
-    if let Some(sqlx::types::Json(copilot_info)) = copilot_info {
-        Ok(Json(copilot_info))
+    if let Some(workspace_ai_config) = workspace_ai_config.filter(|c| c.0.has_providers()) {
+        Ok(Json(workspace_ai_config.0))
+    } else if let Some(instance_config) =
+        sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
+            .fetch_optional(&db)
+            .await?
+    {
+        Ok(Json(
+            serde_json::from_value::<AIConfig>(instance_config).unwrap_or_default(),
+        ))
     } else {
-        Ok(Json(AIConfig {
-            providers: None,
-            default_model: None,
-            code_completion_model: None,
-            custom_prompts: None,
-            max_tokens_per_model: None,
-        }))
+        Ok(Json(AIConfig::default()))
     }
 }
 

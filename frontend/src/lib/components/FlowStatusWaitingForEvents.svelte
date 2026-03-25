@@ -18,11 +18,9 @@
 		light?: boolean
 	}
 
-	let { isOwner, workspaceId, job, light = false }: Props = $props()
+	let { isOwner: _isOwner, workspaceId, job, light = false }: Props = $props()
 
 	let default_payload: object = $state({})
-	let resumeUrl: string | undefined = $state(undefined)
-	let cancelUrl: string | undefined = $state(undefined)
 	let description: any = $state(undefined)
 	let hide_cancel = $state(false)
 
@@ -49,8 +47,6 @@
 		defaultValues = JSON.parse(JSON.stringify(args))
 		default_payload = args
 
-		resumeUrl = job_result?.['resume']
-		cancelUrl = job_result?.['cancel']
 		hide_cancel = job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel ?? false
 		schema = mergeSchema(
 			job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? {},
@@ -61,61 +57,19 @@
 	let loading = $state(false)
 	async function continu(approve: boolean) {
 		loading = true
-		if ((resumeUrl && approve) || (cancelUrl && !approve)) {
-			let split = (approve ? resumeUrl : cancelUrl)!.split('/')
-			let signatureUrl = split.pop() ?? ''
-			const regex = /([^?]+)(?:\?[^=]+=(\w+))?/
-
-			const matches = signatureUrl.match(regex)
-
-			const signature = matches?.[1]
-			if (!signature) {
-				sendUserToast(`Could not parse signature: ${signatureUrl}`, true)
-				return
-			}
-			const approver = matches?.[2] || undefined
-
-			let resumeId = -1
-			let parsedResumeId = split.pop() ?? ''
-			try {
-				resumeId = new Number(parsedResumeId).valueOf()
-			} catch (e) {
-				console.error(`Could not parse resume id: ${parsedResumeId}`)
-			}
-			let jobId = split.pop() ?? ''
-			if (approve) {
-				await JobService.resumeSuspendedJobPost({
-					workspace: workspaceId ?? $workspaceStore ?? '',
-					id: jobId,
-					requestBody: default_payload as any,
-					resumeId,
-					signature,
-					approver
-				})
-			} else {
-				await JobService.cancelSuspendedJobPost({
-					workspace: workspaceId ?? $workspaceStore ?? '',
-					id: jobId,
-					resumeId,
-					signature,
-					approver,
-					requestBody: {}
-				})
-			}
-		} else {
-			if (approve) {
-				await JobService.resumeSuspendedFlowAsOwner({
-					workspace: workspaceId ?? $workspaceStore ?? '',
-					id: job?.id ?? '',
-					requestBody: default_payload as any
-				})
-			} else {
-				await JobService.cancelQueuedJob({
-					workspace: workspaceId ?? $workspaceStore ?? '',
-					id: job?.id ?? '',
-					requestBody: {}
-				})
-			}
+		try {
+			await JobService.resumeSuspended({
+				workspace: workspaceId ?? $workspaceStore ?? '',
+				jobId: job?.id ?? '',
+				requestBody: {
+					payload: approve ? (default_payload as any) : undefined,
+					approved: approve
+				}
+			})
+		} catch (e: any) {
+			sendUserToast(e?.body ?? e?.message ?? 'Failed', true)
+		} finally {
+			loading = false
 		}
 	}
 	let approvalStep = $derived((job?.flow_status?.step ?? 1) - 1)
@@ -130,51 +84,41 @@
 		<div class="mt-2"></div>
 	{/if}
 	<div>
-		{#if isOwner || resumeUrl}
-			<div class={twMerge('flex gap-2', light ? 'flex-col' : 'flex-row ')}>
-				{#if !hide_cancel}
-					<div>
-						<Button
-							title="Cancel the step"
-							{loading}
-							iconOnly
-							startIcon={{ icon: X }}
-							variant="default"
-							disabled={!cancelUrl}
-							destructive
-							unifiedSize="md"
-							on:click={() => continu(false)}
-						/>
-					</div>
-				{/if}
+		<div class={twMerge('flex gap-2', light ? 'flex-col' : 'flex-row ')}>
+			{#if !hide_cancel}
 				<div>
-					<Button variant="accent" onClick={() => continu(true)} {loading} unifiedSize="md">
-						Resume
-						<Tooltip class="text-white">
-							Since you are an owner of this flow, you can send resume events without necessarily
-							knowing the resume id sent by the approval step
-						</Tooltip>
-					</Button>
+					<Button
+						title="Cancel the step"
+						iconOnly
+						startIcon={{ icon: X }}
+						variant="default"
+						disabled={loading}
+						destructive
+						unifiedSize="md"
+						on:click={() => continu(false)}
+					/>
 				</div>
-
-				{#if job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
-					<div
-						class={twMerge(
-							'w-full border rounded-lg p-2',
-							light ? 'min-w-96 max-h-svh overflow-y-auto' : ''
-						)}
-					>
-						<SchemaForm onlyMaskPassword bind:args={default_payload} {defaultValues} {schema} />
-					</div>
-					<Tooltip>
-						The payload is optional, it is passed to the following step through the `resume`
-						variable
-					</Tooltip>
-				{/if}
+			{/if}
+			<div>
+				<Button variant="accent" onClick={() => continu(true)} disabled={loading} unifiedSize="md">
+					Resume
+					<Tooltip class="text-white">Resume or approve this suspended step</Tooltip>
+				</Button>
 			</div>
-		{:else}
-			You cannot resume the flow yourself without receiving the resume secret since you are not an
-			owner of {job.script_path} and the approval step did not contain the resume url at key `resume`
-		{/if}
+
+			{#if job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
+				<div
+					class={twMerge(
+						'w-full border rounded-lg p-2',
+						light ? 'min-w-96 max-h-svh overflow-y-auto' : ''
+					)}
+				>
+					<SchemaForm onlyMaskPassword bind:args={default_payload} {defaultValues} {schema} />
+				</div>
+				<Tooltip>
+					The payload is optional, it is passed to the following step through the `resume` variable
+				</Tooltip>
+			{/if}
+		</div>
 	</div>
 </div>

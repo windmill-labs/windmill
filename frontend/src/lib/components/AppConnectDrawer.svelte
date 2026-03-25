@@ -10,9 +10,11 @@
 
 	interface Props {
 		expressOAuthSetup?: boolean
+		workspace?: string
+		disableChatOffset?: boolean
 	}
 
-	let { expressOAuthSetup = false }: Props = $props()
+	let { expressOAuthSetup = false, workspace = undefined, disableChatOffset = false }: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
 	let resourceType = $state('')
@@ -50,6 +52,7 @@
 		dispatch('close')
 	}}
 	size="800px"
+	{disableChatOffset}
 >
 	<DrawerContent
 		title="Add a resource"
@@ -68,6 +71,7 @@
 			on:close={drawer?.closeDrawer}
 			on:refresh
 			express={expressOAuthSetup}
+			{workspace}
 		/>
 		{#snippet actions()}
 			<div class="flex gap-1">
