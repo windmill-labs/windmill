@@ -631,8 +631,9 @@
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span
-			>Are you sure you want to disable <b>{disableUserEmail}</b>? They will be immediately logged
-			out and unable to log in.</span
+			>Are you sure you want to disable <b>{disableUserEmail}</b>? All their active sessions and
+			tokens will be revoked immediately. They will be unable to log in until re-enabled. Their
+			content (scripts, flows, apps) will not be affected.</span
 		>
 	</div>
 </ConfirmationModal>
