@@ -15852,6 +15852,8 @@ dependencies = [
  "tracing",
  "uuid",
  "windmill-common",
+ "windmill-mcp",
+ "windmill-parser",
  "windmill-types",
 ]
 
