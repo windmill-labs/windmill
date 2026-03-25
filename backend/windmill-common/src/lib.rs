@@ -42,6 +42,9 @@ pub mod bench;
 pub mod cache;
 pub mod client;
 pub mod db;
+pub mod db_params;
+#[cfg(all(feature = "enterprise", feature = "private"))]
+mod db_entra_ee;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_iam_ee;
 #[cfg(feature = "private")]
@@ -559,12 +562,14 @@ impl PgDatabase {
 pub enum DatabaseUrl {
     #[cfg(all(feature = "enterprise", feature = "private"))]
     IamRds(std::sync::Arc<tokio::sync::RwLock<db_iam_ee::IamRdsUrl>>),
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    EntraId(std::sync::Arc<tokio::sync::RwLock<db_entra_ee::EntraIdUrl>>),
     Static(String),
 }
 
 impl DatabaseUrl {
     /// Get the database URL as a string.
-    /// Note: For IAM RDS, this returns the original URL (for metadata extraction).
+    /// For token-based auth, this returns the original URL (for metadata extraction).
     /// For actual database connections, use connect_options() instead.
     pub async fn as_str(&self) -> String {
         match self {
@@ -573,19 +578,29 @@ impl DatabaseUrl {
                 let guard = rds_url.read().await;
                 guard.as_str().to_string()
             }
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            DatabaseUrl::EntraId(entra_url) => {
+                let guard = entra_url.read().await;
+                guard.as_str().to_string()
+            }
             DatabaseUrl::Static(url) => url.clone(),
         }
     }
 
     /// Get PgConnectOptions for this database URL.
-    /// For IAM RDS, this returns options built directly from the token to avoid double-encoding
-    /// issues with temporary credentials (IRSA/Pod Identity).
+    /// For token-based auth (IAM RDS, Entra ID), this returns options built directly from the
+    /// token to avoid double-encoding issues with temporary credentials.
     /// For static URLs, this parses the URL string.
     pub async fn connect_options(&self) -> Result<sqlx::postgres::PgConnectOptions, Error> {
         match self {
             #[cfg(all(feature = "enterprise", feature = "private"))]
             DatabaseUrl::IamRds(rds_url) => {
                 let guard = rds_url.read().await;
+                Ok(guard.connect_options())
+            }
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            DatabaseUrl::EntraId(entra_url) => {
+                let guard = entra_url.read().await;
                 Ok(guard.connect_options())
             }
             DatabaseUrl::Static(url) => sqlx::postgres::PgConnectOptions::from_str(url)
@@ -597,6 +612,8 @@ impl DatabaseUrl {
         match self {
             #[cfg(all(feature = "enterprise", feature = "private"))]
             DatabaseUrl::IamRds(rds_url) => rds_url.write().await.refresh().await,
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            DatabaseUrl::EntraId(entra_url) => entra_url.write().await.refresh().await,
             DatabaseUrl::Static(_) => Ok(()),
         }
     }
@@ -627,7 +644,9 @@ pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
 
             let parsed_url = url::Url::parse(&url)?;
 
-            if parsed_url.password().is_some_and(|x| x == "iamrds") {
+            let password = parsed_url.password().unwrap_or_default();
+
+            if password == "iamrds" {
                 let region = var("AWS_REGION").map_err(|_| {
                     Error::BadConfig(
                         "AWS_REGION env var is required for IAM RDS authentication".to_string(),
@@ -657,6 +676,59 @@ pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
                         "IAM RDS authentication is not enabled in OSS mode".to_string(),
                     ));
                 }
+            } else if password == "entraid" {
+                let tenant_id = var("AZURE_TENANT_ID").map_err(|_| {
+                    Error::BadConfig(
+                        "AZURE_TENANT_ID env var is required for Entra ID authentication"
+                            .to_string(),
+                    )
+                })?;
+                let client_id = var("AZURE_CLIENT_ID").map_err(|_| {
+                    Error::BadConfig(
+                        "AZURE_CLIENT_ID env var is required for Entra ID authentication"
+                            .to_string(),
+                    )
+                })?;
+                let federated_token_file =
+                    var("AZURE_FEDERATED_TOKEN_FILE").map_err(|_| {
+                        Error::BadConfig(
+                            "AZURE_FEDERATED_TOKEN_FILE env var is required for Entra ID authentication".to_string(),
+                        )
+                    })?;
+                let authority_host = var("AZURE_AUTHORITY_HOST")
+                    .unwrap_or_else(|_| "login.microsoftonline.com".to_string());
+
+                tracing::info!(
+                    "entraid mode detected, generating Entra ID URL for tenant: {tenant_id}"
+                );
+                #[cfg(all(feature = "enterprise", feature = "private"))]
+                {
+                    let entra_url = db_entra_ee::generate_database_url(
+                        &url,
+                        &tenant_id,
+                        &client_id,
+                        &federated_token_file,
+                        &authority_host,
+                    )
+                    .await
+                    .map_err(|e| {
+                        Error::InternalErr(format!(
+                            "Failed to generate Entra ID database URL: {}",
+                            e
+                        ))
+                    })?;
+                    tracing::info!("Entra ID URL generated successfully");
+                    Ok::<DatabaseUrl, Error>(DatabaseUrl::EntraId(std::sync::Arc::new(
+                        tokio::sync::RwLock::new(entra_url),
+                    )))
+                }
+
+                #[cfg(not(all(feature = "enterprise", feature = "private")))]
+                {
+                    return Err(Error::BadConfig(
+                        "Entra ID authentication is not enabled in OSS mode".to_string(),
+                    ));
+                }
             } else {
                 Ok::<DatabaseUrl, Error>(DatabaseUrl::Static(url.to_string()))
             }
@@ -665,26 +737,42 @@ pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
 
     // Check if we need to refresh and do so if necessary
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    if let DatabaseUrl::IamRds(ref rds_url_lock) = database_url {
-        // Check if refresh is needed
-        let needs_refresh = {
-            let read_guard = rds_url_lock.read().await;
-            read_guard.needs_refresh()
+    {
+        let needs_refresh_result = match database_url {
+            DatabaseUrl::IamRds(ref url_lock) => {
+                let guard = url_lock.read().await;
+                Some((guard.needs_refresh(), "IAM"))
+            }
+            DatabaseUrl::EntraId(ref url_lock) => {
+                let guard = url_lock.read().await;
+                Some((guard.needs_refresh(), "Entra ID"))
+            }
+            DatabaseUrl::Static(_) => None,
         };
 
-        // If refresh is needed, acquire write lock and refresh
-        if needs_refresh {
-            let mut write_guard = rds_url_lock.write().await;
-            // Double-check after acquiring write lock (another task might have refreshed)
-            if write_guard.needs_refresh() {
-                write_guard.refresh().await.map_err(|e| {
-                    Error::InternalErr(format!("Failed to refresh IAM token: {}", e))
-                })?;
+        if let Some((true, label)) = needs_refresh_result {
+            match database_url {
+                DatabaseUrl::IamRds(ref url_lock) => {
+                    let mut write_guard = url_lock.write().await;
+                    if write_guard.needs_refresh() {
+                        write_guard.refresh().await.map_err(|e| {
+                            Error::InternalErr(format!("Failed to refresh {} token: {}", label, e))
+                        })?;
+                    }
+                }
+                DatabaseUrl::EntraId(ref url_lock) => {
+                    let mut write_guard = url_lock.write().await;
+                    if write_guard.needs_refresh() {
+                        write_guard.refresh().await.map_err(|e| {
+                            Error::InternalErr(format!("Failed to refresh {} token: {}", label, e))
+                        })?;
+                    }
+                }
+                DatabaseUrl::Static(_) => {}
             }
         }
     }
 
-    // Return the URL string
     Ok(database_url.clone())
 }
 

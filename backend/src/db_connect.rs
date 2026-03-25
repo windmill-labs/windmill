@@ -41,50 +41,65 @@ pub async fn connect_db(
     };
 
     let pool = connect(database_url.clone(), max_connections, worker_mode).await?;
+
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    let pool2 = pool.clone();
-    #[cfg(all(feature = "enterprise", feature = "private"))]
-    if let DatabaseUrl::IamRds(database_url) = database_url {
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = killpill_rx.recv() => {
-                        break;
-                    }
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {
-                        let needs_refresh = {
-                            let read_guard = database_url.read().await;
-                            read_guard.needs_refresh()
-                        };
-                        if needs_refresh {
-                            let new_url = tokio::time::timeout(std::time::Duration::from_secs(10), get_database_url()).await;
+    {
+        let needs_token_refresh = matches!(
+            database_url,
+            DatabaseUrl::IamRds(_) | DatabaseUrl::EntraId(_)
+        );
+        let label = match &database_url {
+            DatabaseUrl::IamRds(_) => "IAM RDS",
+            DatabaseUrl::EntraId(_) => "Entra ID",
+            DatabaseUrl::Static(_) => "",
+        };
+        if needs_token_refresh {
+            let pool2 = pool.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = killpill_rx.recv() => {
+                            break;
+                        }
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {
+                            let new_url = tokio::time::timeout(
+                                std::time::Duration::from_secs(10),
+                                get_database_url(),
+                            )
+                            .await;
                             match new_url {
                                 Ok(Ok(new_url)) => {
                                     match new_url.connect_options().await {
                                         Ok(connect_options) => {
                                             pool2.set_connect_options(connect_options);
-                                            tracing::info!("Refreshed IAM RDS URL successfully");
+                                            tracing::info!("Refreshed {label} URL successfully");
                                         }
                                         Err(e) => {
-                                            tracing::error!("Error getting IAM RDS connect options, retrying in 10s: {}", e);
+                                            tracing::error!(
+                                                "Error getting {label} connect options, retrying in 10s: {e}"
+                                            );
                                             continue;
                                         }
                                     }
                                 }
                                 Ok(Err(e)) => {
-                                    tracing::error!("Error refreshing IAM RDS URL, trying again in 10s: {}", e);
+                                    tracing::error!(
+                                        "Error refreshing {label} URL, trying again in 10s: {e}"
+                                    );
                                     continue;
                                 }
                                 Err(e) => {
-                                    tracing::error!("Timeout after 10s refreshing IAM RDS URL, trying again in 10 seconds: {}", e);
+                                    tracing::error!(
+                                        "Timeout after 10s refreshing {label} URL, trying again in 10s: {e}"
+                                    );
                                     continue;
                                 }
                             }
                         }
                     }
                 }
-            }
-        });
+            });
+        }
     }
 
     Ok(pool)
