@@ -1674,8 +1674,8 @@ async fn get_datatable_full_schema(
                 ns_ref.nspname AS ref_schema,
                 c_ref.relname AS ref_table,
                 att_ref.attname AS ref_column,
-                con.confdeltype AS on_delete,
-                con.confupdtype AS on_update
+                con.confdeltype::text AS on_delete,
+                con.confupdtype::text AS on_update
             FROM pg_catalog.pg_constraint con
             JOIN pg_catalog.pg_class c ON con.conrelid = c.oid
             JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid
