@@ -6940,6 +6940,60 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/scripts/list_dedicated_with_deps:
+    get:
+      summary: list dedicated worker scripts with workspace dependency annotations
+      operationId: listDedicatedWithDeps
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of dedicated scripts with their workspace dependency names
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    language:
+                      type: string
+                      enum:
+                        - python3
+                        - deno
+                        - go
+                        - bash
+                        - powershell
+                        - postgresql
+                        - mysql
+                        - bigquery
+                        - snowflake
+                        - mssql
+                        - graphql
+                        - nativets
+                        - bun
+                        - bunnative
+                        - php
+                        - rust
+                        - ansible
+                        - csharp
+                        - oracledb
+                        - duckdb
+                        - java
+                        - ruby
+                    workspace_dep_names:
+                      type: array
+                      items:
+                        type: string
+                  required:
+                    - path
+                    - language
+                    - workspace_dep_names
+
   /w/{workspace}/scripts/raw/p/{path}:
     get:
       summary: raw script by path
