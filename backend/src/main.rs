@@ -1816,6 +1816,18 @@ async fn process_notify_event(
                     if let Err(e) = reload_http_route_workspaced_route_setting(db).await {
                         tracing::error!(error = %e, "Could not reload http route workspaced route setting");
                     }
+                    #[cfg(feature = "http_trigger")]
+                    match windmill_api::triggers::http::refresh_routers(db).await {
+                        Ok((true, _)) => {
+                            tracing::info!(
+                                "Refreshed HTTP routers (http workspaced route setting change)"
+                            );
+                        }
+                        Err(err) => {
+                            tracing::error!("Error refreshing HTTP routers (http workspaced route setting change): {err:#}");
+                        }
+                        _ => {}
+                    }
                 }
                 OTEL_SETTING => {
                     tracing::info!("OTEL setting changed, restarting");
