@@ -45,7 +45,6 @@ description: MUST use when writing Bash scripts.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -111,7 +110,6 @@ description: MUST use when writing BigQuery queries.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -139,7 +137,6 @@ description: MUST use when writing Bun/TypeScript scripts.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -805,7 +802,6 @@ description: MUST use when writing Bun Native scripts.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -1469,7 +1465,6 @@ description: MUST use when writing C# scripts.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -1527,7 +1522,6 @@ description: MUST use when writing Deno/TypeScript scripts.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -2197,7 +2191,6 @@ description: MUST use when writing DuckDB queries.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -2265,7 +2258,6 @@ description: MUST use when writing Go scripts.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -2340,7 +2332,6 @@ description: MUST use when writing GraphQL queries.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -2402,7 +2393,6 @@ description: MUST use when writing Java scripts.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -2457,7 +2447,6 @@ description: MUST use when writing MS SQL Server queries.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -2485,7 +2474,6 @@ description: MUST use when writing MySQL queries.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -2513,7 +2501,6 @@ description: MUST use when writing Native TypeScript scripts.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -3144,7 +3131,6 @@ description: MUST use when writing PHP scripts.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -3218,7 +3204,6 @@ description: MUST use when writing PostgreSQL queries.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -3246,7 +3231,6 @@ description: MUST use when writing PowerShell scripts.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -3318,7 +3302,6 @@ description: MUST use when writing Python scripts.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -4140,7 +4123,6 @@ description: MUST use when writing Rust scripts.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -4232,7 +4214,6 @@ description: MUST use when writing Snowflake queries.
 
 Place scripts in a folder. After writing, tell the user they can run:
 - \`wmill script generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill script preview <path>\` - Test the script locally without deploying (pass inputs with \`-d '{...}'\`)
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -4264,14 +4245,9 @@ Create a folder ending with \`{{FLOW_SUFFIX}}\` and add a \`flow.yaml\` file wit
 For rawscript modules, use \`!inline path/to/script.ts\` for the content key. {{INLINE_SCRIPT_NAMING}}
 After writing, tell the user they can run:
 - \`wmill flow generate-locks <path_to_flow_folder> --yes\` - Generate lock files for the specific flow you modified (e.g. \`wmill flow generate-locks f/my_folder/my_flow{{FLOW_SUFFIX}} --yes\`)
-- \`wmill flow preview <flow_path>\` - Test the flow locally without deploying (pass inputs with \`-d '{...}'\`). Uses local PathScript files by default.
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
-
-## Local Development
-
-Each flow folder has a \`.claude/launch.json\` (auto-generated by \`wmill init\` or \`wmill sync pull\`) for Claude Code preview. Run \`wmill dev --proxy-port 4000\` from inside a flow folder to start a reverse proxy with live preview and round-trip editing (changes in the browser are written back to local files).
 
 ## OpenFlow Schema
 
@@ -4642,10 +4618,6 @@ Tell the user they can run these commands (do NOT run them yourself):
 4. **Use descriptive IDs** - \`get_user.ts\` not \`a.ts\`
 5. **Always whitelist tables** - add to \`data.tables\` before querying
 6. **Generate locks** - tell the user to run \`wmill app generate-locks\` after adding/modifying backend runnables
-
-## Local Development
-
-Each raw app folder has a \`.claude/launch.json\` (auto-generated by \`wmill init\`, \`wmill sync pull\`, or \`wmill app new\`) for Claude Code preview. Run \`wmill app dev\` from inside the app folder to start a dev server with live reload and hot module replacement.
 `,
   "triggers": `---
 name: triggers
@@ -5039,15 +5011,12 @@ workspace dependencies related commands
 
 ### dev
 
-Launch a dev server that watches local files and serves them to a browser preview at \`/dev?workspace=...&local=true&wm_token=...\`. Supports round-trip editing for flows (changes in the browser are written back to disk).
+Launch a dev server that will spawn a webserver with HMR
 
 **Options:**
-- \`--includes <pattern...:string>\` - Filter paths given a glob pattern or path
-- \`--path <path:string>\` - Watch a specific windmill path (e.g., \`u/admin/my_script\` or \`f/my_flow\`). If omitted and the cwd is inside a flow folder, the flow path is auto-detected.
-- \`--proxy-port <port:number>\` - Start a localhost reverse proxy on this port that forwards to the remote Windmill server with \`/dev\` path and auth params injected. Used by \`.claude/launch.json\` for Claude Code preview.
-
-**Flow development with proxy (Claude Code):**
-Each flow folder has a \`.claude/launch.json\` (auto-generated by \`wmill init\` or \`wmill sync pull\`) that runs \`wmill dev --proxy-port \${PORT:-4000}\`. When launched from inside a flow folder, the flow path is auto-detected and the proxy URL includes the correct \`path\` param.
+- \`--includes <pattern...:string>\` - Filter paths givena glob pattern or path
+- \`--proxy-port <port:number>\` - Port for a localhost reverse proxy to the remote Windmill server
+- \`--path <path:string>\` - Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)
 
 ### docs
 

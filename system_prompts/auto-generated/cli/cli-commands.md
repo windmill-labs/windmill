@@ -57,6 +57,8 @@ Launch a dev server that will spawn a webserver with HMR
 
 **Options:**
 - `--includes <pattern...:string>` - Filter paths givena glob pattern or path
+- `--proxy-port <port:number>` - Port for a localhost reverse proxy to the remote Windmill server
+- `--path <path:string>` - Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)
 
 ### docs
 
