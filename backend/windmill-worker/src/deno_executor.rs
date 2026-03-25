@@ -630,6 +630,10 @@ pub fn generate_dedicated_worker_wrapper(inner_content: &str) -> Result<String> 
         if (line.startsWith("exec_preprocess:")) {{
             const rest = line.slice("exec_preprocess:".length);
             const colonIdx = rest.indexOf(":");
+            if (colonIdx === -1) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: "Malformed exec_preprocess command: missing colon separator", name: "Error" }}) + '\n');
+                continue;
+            }}
             const argsJson = rest.slice(colonIdx + 1);
             const parsedArgs = JSON.parse(argsJson);
             if (typeof preprocessor !== 'function') {{
@@ -680,6 +684,10 @@ for await (const chunk of Deno.stdin.readable) {{
         if (line.startsWith("exec:")) {{
             const rest = line.slice("exec:".length);
             const colonIdx = rest.indexOf(":");
+            if (colonIdx === -1) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: "Malformed exec command: missing colon separator", name: "Error" }}) + '\n');
+                continue;
+            }}
             const argsJson = rest.slice(colonIdx + 1);
             try {{
                 let {{ {spread} }} = JSON.parse(argsJson)
@@ -689,7 +697,9 @@ for await (const chunk of Deno.stdin.readable) {{
             }} catch (e) {{
                 console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}) + '\n');
             }}
+            continue;
         }}
+        console.error("Unknown command:", line);
     }}
     if (exit) {{
         break;

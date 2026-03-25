@@ -1377,6 +1377,177 @@ export function main(msg: string): never {
         assert_eq!(results[1], Err("boom".to_string()));
         assert_eq!(results[2], Ok(serde_json::json!(20)));
     }
+
+    // ==================== exec_preprocess Tests ====================
+
+    /// Raw protocol command to send to a dedicated worker
+    enum ProtocolCmd {
+        Exec { path: String, args: serde_json::Value },
+        ExecPreprocess { path: String, args: serde_json::Value },
+    }
+
+    /// Run a multi-script worker test with raw protocol commands, returning all protocol lines
+    fn run_raw_protocol_test(
+        scripts: &[(&str, &str)],
+        commands: Vec<ProtocolCmd>,
+    ) -> Vec<DedicatedWorkerResult> {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let wrapper_path = create_multi_script_worker_files(temp_dir.path(), scripts);
+        let wrapper_str = wrapper_path.to_str().unwrap();
+
+        let mut cmd_args: Vec<&str> = BUN_DEDICATED_WORKER_ARGS.to_vec();
+        cmd_args.push(wrapper_str);
+
+        let mut child = Command::new(BUN_PATH.as_str())
+            .args(cmd_args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .current_dir(temp_dir.path())
+            .spawn()
+            .expect("Failed to spawn worker process");
+
+        let mut stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let mut reader = BufReader::new(stdout);
+
+        let mut start_line = String::new();
+        reader.read_line(&mut start_line).unwrap();
+        assert_eq!(
+            parse_dedicated_worker_line(start_line.trim()),
+            DedicatedWorkerResult::Start,
+        );
+
+        let mut results = Vec::new();
+
+        for cmd in &commands {
+            let line = match cmd {
+                ProtocolCmd::Exec { path, args } => format!("exec:{}:{}", path, args),
+                ProtocolCmd::ExecPreprocess { path, args } => {
+                    format!("exec_preprocess:{}:{}", path, args)
+                }
+            };
+            writeln!(stdin, "{}", line).unwrap();
+            stdin.flush().unwrap();
+
+            // exec_preprocess produces 2 response lines (preprocessed_args + success/error)
+            // exec produces 1 response line (success/error)
+            let expected_lines = match cmd {
+                ProtocolCmd::ExecPreprocess { .. } => 2,
+                ProtocolCmd::Exec { .. } => 1,
+            };
+
+            for _ in 0..expected_lines {
+                let mut response = String::new();
+                reader.read_line(&mut response).unwrap();
+                let parsed = parse_dedicated_worker_line(response.trim());
+                // If it's an error, stop reading more lines for this command
+                if matches!(parsed, DedicatedWorkerResult::Error(_)) {
+                    results.push(parsed);
+                    break;
+                }
+                results.push(parsed);
+            }
+        }
+
+        writeln!(stdin, "end").unwrap();
+        stdin.flush().unwrap();
+        let _ = child.wait().expect("Worker process failed to exit");
+
+        results
+    }
+
+    #[test]
+    fn test_bun_exec_preprocess() {
+        let script = r#"
+export function preprocessor(x: number) {
+    return { x: x * 10 };
+}
+export function main(x: number): number {
+    return x + 1;
+}
+"#;
+        let results = run_raw_protocol_test(
+            &[("f/test/pre", script)],
+            vec![ProtocolCmd::ExecPreprocess {
+                path: "f/test/pre".to_string(),
+                args: serde_json::json!({"x": 5}),
+            }],
+        );
+        // Should get preprocessed_args then success
+        assert_eq!(results.len(), 2);
+        assert_eq!(
+            results[0],
+            DedicatedWorkerResult::PreprocessedArgs(serde_json::json!({"x": 50}))
+        );
+        // main(50) => 51
+        assert_eq!(
+            results[1],
+            DedicatedWorkerResult::Success(serde_json::json!(51))
+        );
+    }
+
+    #[test]
+    fn test_bun_exec_preprocess_missing_preprocessor() {
+        let script = r#"
+export function main(x: number): number {
+    return x;
+}
+"#;
+        let results = run_raw_protocol_test(
+            &[("f/test/nopre", script)],
+            vec![ProtocolCmd::ExecPreprocess {
+                path: "f/test/nopre".to_string(),
+                args: serde_json::json!({"x": 5}),
+            }],
+        );
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0], DedicatedWorkerResult::Error(_)));
+    }
+
+    // ==================== Argument Transformation Tests ====================
+
+    #[test]
+    fn test_bun_date_arg_transformation() {
+        let script = r#"
+export function main(d: Date): string {
+    return d instanceof Date ? d.toISOString() : typeof d;
+}
+"#;
+        let results = run_worker_test(
+            "bun",
+            script,
+            vec![serde_json::json!({"d": "2024-01-15T10:30:00.000Z"})],
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0],
+            Ok(serde_json::json!("2024-01-15T10:30:00.000Z"))
+        );
+    }
+
+    #[test]
+    fn test_bun_null_and_undefined_args() {
+        let script = r#"
+export function main(x?: number): string {
+    return x === null ? "null" : x === undefined ? "undefined" : String(x);
+}
+"#;
+        let results = run_worker_test(
+            "bun",
+            script,
+            vec![
+                serde_json::json!({"x": null}),
+                serde_json::json!({"x": 42}),
+                serde_json::json!({}),
+            ],
+        );
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0], Ok(serde_json::json!("null")));
+        assert_eq!(results[1], Ok(serde_json::json!("42")));
+        // Missing arg should be undefined
+        assert_eq!(results[2], Ok(serde_json::json!("undefined")));
+    }
 }
 
 // ============================================================================
@@ -1509,6 +1680,148 @@ export function main(msg: string): never {
         assert_eq!(results.len(), 1);
         assert!(results[0].is_err());
         assert_eq!(results[0], Err("test error".to_string()));
+    }
+
+    // ==================== exec_preprocess Tests ====================
+
+    /// Run a raw deno protocol test, reading all output lines per command
+    fn run_deno_raw_protocol_test(
+        script: &str,
+        commands: Vec<(&str, serde_json::Value)>, // ("exec" or "exec_preprocess", args)
+    ) -> Vec<DedicatedWorkerResult> {
+        let temp_dir = tempfile::tempdir().unwrap();
+        std::fs::write(temp_dir.path().join("main.ts"), script).unwrap();
+
+        let wrapper = generate_deno_dedicated_worker_wrapper(script).unwrap();
+        std::fs::write(temp_dir.path().join("wrapper.ts"), &wrapper).unwrap();
+
+        let mut child = Command::new(DENO_PATH.as_str())
+            .args([
+                "run",
+                "--no-check",
+                "--unstable-unsafe-proto",
+                "--unstable-bare-node-builtins",
+                "-A",
+                "wrapper.ts",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .current_dir(temp_dir.path())
+            .spawn()
+            .expect("Failed to spawn deno process");
+
+        let mut stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let mut reader = BufReader::new(stdout);
+
+        // Wait for start, skip empty lines
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line.trim().is_empty() {
+                continue;
+            }
+            assert_eq!(
+                parse_dedicated_worker_line(line.trim()),
+                DedicatedWorkerResult::Start,
+            );
+            break;
+        }
+
+        let mut results = Vec::new();
+
+        for (cmd, args) in &commands {
+            writeln!(stdin, "{}:{}:{}", cmd, TEST_SCRIPT_PATH, args).unwrap();
+            stdin.flush().unwrap();
+
+            let expected_lines = if *cmd == "exec_preprocess" { 2 } else { 1 };
+
+            for _ in 0..expected_lines {
+                loop {
+                    let mut response = String::new();
+                    reader.read_line(&mut response).unwrap();
+                    if response.trim().is_empty() {
+                        continue;
+                    }
+                    let parsed = parse_dedicated_worker_line(response.trim());
+                    if matches!(parsed, DedicatedWorkerResult::Error(_)) {
+                        results.push(parsed);
+                        break;
+                    }
+                    results.push(parsed);
+                    break;
+                }
+                // If last result was an error, don't read more lines for this command
+                if matches!(results.last(), Some(DedicatedWorkerResult::Error(_))) {
+                    break;
+                }
+            }
+        }
+
+        writeln!(stdin, "end").unwrap();
+        stdin.flush().unwrap();
+        let _ = child.wait().expect("Worker process failed to exit");
+
+        results
+    }
+
+    #[test]
+    fn test_deno_exec_preprocess() {
+        let script = r#"
+export function preprocessor(x: number) {
+    return { x: x * 10 };
+}
+export function main(x: number): number {
+    return x + 1;
+}
+"#;
+        let results = run_deno_raw_protocol_test(
+            script,
+            vec![("exec_preprocess", serde_json::json!({"x": 5}))],
+        );
+        assert_eq!(results.len(), 2);
+        assert_eq!(
+            results[0],
+            DedicatedWorkerResult::PreprocessedArgs(serde_json::json!({"x": 50}))
+        );
+        assert_eq!(
+            results[1],
+            DedicatedWorkerResult::Success(serde_json::json!(51))
+        );
+    }
+
+    #[test]
+    fn test_deno_exec_preprocess_missing_preprocessor() {
+        let script = r#"
+export function main(x: number): number { return x; }
+"#;
+        let results = run_deno_raw_protocol_test(
+            script,
+            vec![("exec_preprocess", serde_json::json!({"x": 5}))],
+        );
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0], DedicatedWorkerResult::Error(_)));
+    }
+
+    // ==================== Argument Transformation Tests ====================
+
+    #[test]
+    fn test_deno_date_arg_transformation() {
+        let script = r#"
+export function main(d: Date): string {
+    return d instanceof Date ? d.toISOString() : typeof d;
+}
+"#;
+        let results = run_deno_worker_test(
+            script,
+            vec![serde_json::json!({"d": "2024-01-15T10:30:00.000Z"})],
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0],
+            Ok(serde_json::json!("2024-01-15T10:30:00.000Z"))
+        );
     }
 }
 

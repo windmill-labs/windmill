@@ -117,7 +117,11 @@ async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<Pipt
 
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
-const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
+pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
+
+pub fn has_relative_imports(content: &str) -> bool {
+    RELATIVE_IMPORT_REGEX.is_match(content)
+}
 
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use crate::global_cache::pull_from_tar;
@@ -1215,6 +1219,7 @@ pub struct PyScriptEntry<'a> {
 pub fn generate_multi_script_wrapper(
     scripts: &[PyScriptEntry<'_>],
     skip_result_postprocessing: bool,
+    any_relative_imports: bool,
 ) -> String {
     let postprocessor = get_result_postprocessor(skip_result_postprocessing);
     let res_to_json_body = python_res_to_json_body(postprocessor);
@@ -1287,15 +1292,21 @@ def pre_transform_{i}(kwargs):
         ));
     }
 
+    let import_loader = if any_relative_imports {
+        "import loader"
+    } else {
+        ""
+    };
+
     format!(
         r#"
 import json
 import sys
 import traceback
 import re
-import inspect
 import base64
 from datetime import datetime, date
+{import_loader}
 
 {imports}
 
@@ -1321,20 +1332,20 @@ for line in sys.stdin:
         break
 
     if line.startswith('exec_preprocess:'):
-        rest = line[len('exec_preprocess:'):]
-        colon_idx = rest.index(':')
-        script_path = rest[:colon_idx]
-        args_json = rest[colon_idx + 1:]
-
-        entry = scripts.get(script_path)
-        if not entry:
-            err_json = json.dumps({{ "message": "Script not found: " + script_path, "name": "Error" }}, separators=(',', ':'), default=str).replace('\n', '')
-            sys.stdout.write("wm_res[error]:" + err_json + "\n")
-            sys.stdout.flush()
-            continue
-
-        mod = entry['mod']
         try:
+            rest = line[len('exec_preprocess:'):]
+            colon_idx = rest.index(':')
+            script_path = rest[:colon_idx]
+            args_json = rest[colon_idx + 1:]
+
+            entry = scripts.get(script_path)
+            if not entry:
+                err_json = json.dumps({{ "message": "Script not found: " + script_path, "name": "Error" }}, separators=(',', ':'), default=str).replace('\n', '')
+                sys.stdout.write("wm_res[error]:" + err_json + "\n")
+                sys.stdout.flush()
+                continue
+
+            mod = entry['mod']
             if not hasattr(mod, 'preprocessor') or not callable(mod.preprocessor):
                 err_json = json.dumps({{"message": "preprocessor function is missing", "name": "Error"}}, separators=(',', ':'), default=str).replace('\n', '')
                 sys.stdout.write("wm_res[error]:" + err_json + "\n")
@@ -1343,16 +1354,10 @@ for line in sys.stdin:
             kwargs = json.loads(args_json, strict=False)
             pre_args = entry['pre_transform'](kwargs)
             preprocessed = mod.preprocessor(**pre_args)
-            if inspect.isawaitable(preprocessed):
-                import asyncio
-                preprocessed = asyncio.get_event_loop().run_until_complete(preprocessed)
             preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
             main_args = entry['transform'](preprocessed if preprocessed else {{}})
             res = mod.main(**main_args)
-            if inspect.isawaitable(res):
-                import asyncio
-                res = asyncio.get_event_loop().run_until_complete(res)
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -1365,25 +1370,22 @@ for line in sys.stdin:
         continue
 
     if line.startswith('exec:'):
-        rest = line[len('exec:'):]
-        colon_idx = rest.index(':')
-        script_path = rest[:colon_idx]
-        args_json = rest[colon_idx + 1:]
-
-        entry = scripts.get(script_path)
-        if not entry:
-            err_json = json.dumps({{ "message": "Script not found: " + script_path, "name": "Error" }}, separators=(',', ':'), default=str).replace('\n', '')
-            sys.stdout.write("wm_res[error]:" + err_json + "\n")
-            sys.stdout.flush()
-            continue
-
         try:
+            rest = line[len('exec:'):]
+            colon_idx = rest.index(':')
+            script_path = rest[:colon_idx]
+            args_json = rest[colon_idx + 1:]
+
+            entry = scripts.get(script_path)
+            if not entry:
+                err_json = json.dumps({{ "message": "Script not found: " + script_path, "name": "Error" }}, separators=(',', ':'), default=str).replace('\n', '')
+                sys.stdout.write("wm_res[error]:" + err_json + "\n")
+                sys.stdout.flush()
+                continue
+
             kwargs = json.loads(args_json, strict=False)
             args = entry['transform'](kwargs)
             res = entry['mod'].main(**args)
-            if inspect.isawaitable(res):
-                import asyncio
-                res = asyncio.get_event_loop().run_until_complete(res)
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -1394,6 +1396,8 @@ for line in sys.stdin:
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
+
+    sys.stderr.write("Unknown command: " + line + "\n")
 "#
     )
 }
@@ -2744,6 +2748,11 @@ pub async fn start_worker(
         inner_content,
     )?;
 
+    let any_relative_imports = RELATIVE_IMPORT_REGEX.is_match(inner_content);
+    if any_relative_imports {
+        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER)?;
+    }
+
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
     let context = variables::get_reserved_variables(
@@ -2790,8 +2799,11 @@ pub async fn start_worker(
 
     {
         let scripts = [PyScriptEntry { original_path: script_path, codegen: &codegen }];
-        let wrapper_content =
-            generate_multi_script_wrapper(&scripts, annotations.skip_result_postprocessing);
+        let wrapper_content = generate_multi_script_wrapper(
+            &scripts,
+            annotations.skip_result_postprocessing,
+            any_relative_imports,
+        );
         write_file(job_dir, "wrapper.py", &wrapper_content)?;
     }
 

@@ -243,6 +243,10 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
     if (line.startsWith("exec_preprocess:")) {{
         const rest = line.slice("exec_preprocess:".length);
         const colonIdx = rest.indexOf(":");
+        if (colonIdx === -1) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "Malformed exec_preprocess command: missing colon separator", name: "Error" }}));
+            continue;
+        }}
         const scriptPath = rest.slice(0, colonIdx);
         const argsJson = rest.slice(colonIdx + 1);
 
@@ -272,6 +276,10 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
     if (line.startsWith("exec:")) {{
         const rest = line.slice("exec:".length);
         const colonIdx = rest.indexOf(":");
+        if (colonIdx === -1) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "Malformed exec command: missing colon separator", name: "Error" }}));
+            continue;
+        }}
         const scriptPath = rest.slice(0, colonIdx);
         const argsJson = rest.slice(colonIdx + 1);
 
@@ -290,6 +298,8 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
         }}
         continue;
     }}
+
+    console.error("Unknown command:", line);
 }}
 "#
     )
