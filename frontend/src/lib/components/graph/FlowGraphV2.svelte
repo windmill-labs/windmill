@@ -673,7 +673,8 @@
 		} else {
 			const minY = Math.min(...nodes.map((n) => n.position.y))
 			const maxBottom = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100))
-			height = Math.max(maxBottom - minY, minHeight)
+			const computed = maxBottom - minY
+			height = Math.max(Math.min(computed, maxHeight ?? computed), minHeight)
 		}
 	}
 
