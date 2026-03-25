@@ -109,20 +109,15 @@
 		<div class="mb-2"></div>
 
 		<Alert type="warning" title="Git sync unavailable">
-			Git sync on the Community Edition is limited to workspaces with at most {gitSyncStatus.max_users}
-			members. Your workspace has {gitSyncStatus.user_count} members. Upgrade to the Enterprise Edition
-			to remove this limit.
+			Git sync is an EE feature provided in CE only when workspace members &le; {gitSyncStatus.max_users}.
+			Your workspace has {gitSyncStatus.user_count} members.
 		</Alert>
 		<div class="mb-2"></div>
 	{:else if isFreeTier}
 		<div class="mb-2"></div>
 
-		<Alert
-			type="info"
-			title="Community Edition — single repository, up to {gitSyncStatus.max_users} workspace members"
-		>
-			Upgrade to the Enterprise Edition for multiple repositories, promotion mode, GitHub App
-			authentication, and unlimited workspace members.
+		<Alert type="warning">
+			Git sync is an EE feature provided in CE only when workspace members &le; {gitSyncStatus.max_users}.
 		</Alert>
 		<div class="mb-2"></div>
 	{/if}
