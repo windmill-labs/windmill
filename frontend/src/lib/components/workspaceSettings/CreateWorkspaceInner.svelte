@@ -243,28 +243,29 @@
 			if (job._isInstance) {
 				// Instance: update resource_path and set forked_from with schema snapshot
 				if (datatableConfig.datatables[job.name]) {
-					const originalPath = datatableConfig.datatables[job.name].database.resource_path
+					const originalDbname = datatableConfig.datatables[job.name].database.resource_path
 					datatableConfig.datatables[job.name].database.resource_path = job._newDbName
 					datatableConfig.datatables[job.name].forked_from = {
-						original_name: originalPath,
+						original_dbname: originalDbname,
 						schema: job._schema ?? {}
 					}
 				}
 			} else {
 				// Resource: update the resource's dbname and set non_diffable
 				const resourcePath = job._resourcePath
+				let originalResource: Record<string, any> | undefined
 				try {
 					const res = await ResourceService.getResource({
 						workspace: forkWorkspaceId,
 						path: resourcePath
 					})
-					const value = (res.value as Record<string, any>) ?? {}
-					value.dbname = job._newDbName
+					originalResource = (res.value as Record<string, any>) ?? {}
+					const updatedValue = { ...originalResource, dbname: job._newDbName }
 					await ResourceService.updateResource({
 						workspace: forkWorkspaceId,
 						path: resourcePath,
 						requestBody: {
-							value,
+							value: updatedValue,
 							non_diffable: true
 						}
 					})
@@ -275,7 +276,7 @@
 				// Also set forked_from on the datatable config
 				if (datatableConfig.datatables[job.name]) {
 					datatableConfig.datatables[job.name].forked_from = {
-						original_name: job._resourcePath,
+						original_resource: originalResource ?? {},
 						schema: job._schema ?? {}
 					}
 				}
