@@ -35,7 +35,6 @@ use windmill_common::variables::{
     build_crypt, decrypt, encrypt, SECRET_SALT, WORKSPACE_CRYPT_CACHE,
 };
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
-#[cfg(feature = "enterprise")]
 use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
@@ -82,6 +81,10 @@ pub fn workspaced_service() -> Router {
         .route("/get_dependents/*imported_path", get(get_dependents))
         .route("/get_dependents_amounts", post(get_dependents_amounts))
         .route("/get_settings", get(get_settings))
+        .route(
+            "/get_copilot_settings_state",
+            get(get_copilot_settings_state),
+        )
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
         .route(
@@ -111,6 +114,7 @@ pub fn workspaced_service() -> Router {
         .route("/list_datatables", get(list_datatables))
         .route("/list_datatable_schemas", get(list_datatable_schemas))
         .route("/edit_datatable_config", post(edit_datatable_config))
+        .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
         .route(
@@ -255,6 +259,35 @@ pub struct WorkspaceSettings {
     pub success_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct CopilotSettingsState {
+    pub has_instance_ai_config: bool,
+    pub uses_instance_ai_config: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_ai_summary: Option<InstanceAISummary>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct InstanceAIProviderSummary {
+    pub provider: String,
+    pub models: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct InstanceAIModelSummary {
+    pub provider: String,
+    pub model: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct InstanceAISummary {
+    pub providers: Vec<InstanceAIProviderSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<InstanceAIModelSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_completion_model: Option<InstanceAIModelSummary>,
 }
 
 /// #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
@@ -608,13 +641,104 @@ async fn get_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
 
+    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
 
-    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     if !authed.is_admin {
         settings.slack_oauth_client_secret = None;
     }
     Ok(Json(settings))
+}
+
+async fn get_copilot_settings_state(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<CopilotSettingsState> {
+    let mut tx = user_db.begin(&authed).await?;
+    let workspace_ai_config = sqlx::query_scalar!(
+        "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("getting workspace ai settings: {e:#}")))?;
+    let workspace_ai_config = not_found_if_none(workspace_ai_config, "workspace settings", &w_id)?;
+    let instance_ai_config: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT value FROM global_settings WHERE name = 'ai_config'")
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| Error::internal_err(format!("getting instance ai settings: {e:#}")))?;
+    tx.commit().await?;
+
+    Ok(Json(build_copilot_settings_state(
+        has_ai_providers(workspace_ai_config.as_ref()),
+        instance_ai_config.as_ref(),
+    )))
+}
+
+pub fn has_ai_providers(config: Option<&serde_json::Value>) -> bool {
+    config
+        .and_then(|value| value.get("providers"))
+        .and_then(|providers| providers.as_object())
+        .map(|providers| !providers.is_empty())
+        .unwrap_or(false)
+}
+
+pub fn build_copilot_settings_state(
+    has_workspace_ai_config: bool,
+    instance_ai_config: Option<&serde_json::Value>,
+) -> CopilotSettingsState {
+    let has_instance_ai_config = has_ai_providers(instance_ai_config);
+    CopilotSettingsState {
+        has_instance_ai_config,
+        uses_instance_ai_config: !has_workspace_ai_config && has_instance_ai_config,
+        instance_ai_summary: build_instance_ai_summary(instance_ai_config),
+    }
+}
+
+pub fn build_instance_ai_summary(config: Option<&serde_json::Value>) -> Option<InstanceAISummary> {
+    let config = config?;
+    if !has_ai_providers(Some(config)) {
+        return None;
+    }
+    let providers = config.get("providers")?.as_object()?;
+
+    let mut provider_summaries = providers
+        .iter()
+        .map(|(provider, provider_config)| InstanceAIProviderSummary {
+            provider: provider.clone(),
+            models: provider_config
+                .get("models")
+                .and_then(|models| models.as_array())
+                .map(|models| {
+                    models
+                        .iter()
+                        .filter_map(|model| model.as_str().map(ToOwned::to_owned))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
+        })
+        .collect::<Vec<_>>();
+
+    provider_summaries.sort_by(|left, right| left.provider.cmp(&right.provider));
+
+    Some(InstanceAISummary {
+        providers: provider_summaries,
+        default_model: extract_instance_ai_model_summary(config, "default_model"),
+        code_completion_model: extract_instance_ai_model_summary(config, "code_completion_model"),
+    })
+}
+
+fn extract_instance_ai_model_summary(
+    config: &serde_json::Value,
+    key: &str,
+) -> Option<InstanceAIModelSummary> {
+    let model_config = config.get(key)?.as_object()?;
+    Some(InstanceAIModelSummary {
+        provider: model_config.get("provider")?.as_str()?.to_owned(),
+        model: model_config.get("model")?.as_str()?.to_owned(),
+    })
 }
 
 #[derive(Serialize)]
@@ -1471,24 +1595,20 @@ async fn edit_datatable_config(
 
 #[derive(Deserialize)]
 pub struct EditGitSyncConfig {
-    #[cfg(feature = "enterprise")]
     pub git_sync_settings: Option<WorkspaceGitSyncSettings>,
 }
 
-#[cfg(feature = "enterprise")]
 #[derive(Deserialize, Debug)]
 pub struct EditGitSyncRepository {
     pub git_repo_resource_path: String,
     pub repository: GitRepositorySettings,
 }
 
-#[cfg(feature = "enterprise")]
 #[derive(Deserialize, Debug)]
 pub struct DeleteGitSyncRepositoryRequest {
     pub git_repo_resource_path: String,
 }
 
-#[cfg(feature = "enterprise")]
 fn validate_git_repo_resource_path(path: &str) -> Result<()> {
     // Resource paths should follow the pattern: $res:f/<folder>/<name> or $res:u/<username>/<name>
     if path.is_empty() {
@@ -1537,7 +1657,6 @@ fn validate_git_repo_resource_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "enterprise")]
 fn cleanup_legacy_git_sync_settings_in_memory(
     git_sync_settings: &mut windmill_common::workspaces::WorkspaceGitSyncSettings,
     workspace_id: &str,
@@ -1564,18 +1683,72 @@ fn cleanup_legacy_git_sync_settings_in_memory(
 }
 
 #[cfg(not(feature = "enterprise"))]
-async fn edit_git_sync_config(
-    _authed: ApiAuthed,
-    Extension(_db): Extension<DB>,
-    Path(_w_id): Path<String>,
-    Json(_new_config): Json<EditGitSyncConfig>,
-) -> Result<String> {
-    return Err(Error::BadRequest(
-        "Git sync is only available on Windmill Enterprise Edition".to_string(),
-    ));
+const CE_GIT_SYNC_MAX_USERS: i64 = 2;
+
+#[cfg(feature = "enterprise")]
+async fn check_git_sync_access(_db: &DB, _w_id: &str) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn check_git_sync_access(db: &DB, w_id: &str) -> Result<()> {
+    let user_count: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM usr WHERE workspace_id = $1 AND disabled = false",
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+
+    if user_count > CE_GIT_SYNC_MAX_USERS {
+        return Err(Error::BadRequest(format!(
+            "Git sync is available for workspaces with up to {} members. \
+             Upgrade to Windmill Enterprise Edition for unlimited workspace members.",
+            CE_GIT_SYNC_MAX_USERS
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(feature = "enterprise")]
+async fn get_git_sync_enabled(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Path(_w_id): Path<String>,
+) -> JsonResult<serde_json::Value> {
+    Ok(Json(serde_json::json!({
+        "enabled": true,
+        "reason": "enterprise",
+        "max_repos": null,
+        "user_count": null,
+        "max_users": null,
+    })))
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn get_git_sync_enabled(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<serde_json::Value> {
+    let user_count: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM usr WHERE workspace_id = $1 AND disabled = false",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    let enabled = user_count <= CE_GIT_SYNC_MAX_USERS;
+    Ok(Json(serde_json::json!({
+        "enabled": enabled,
+        "reason": if enabled { Some("free_tier") } else { None::<&str> },
+        "max_repos": if enabled { Some(1) } else { None::<i32> },
+        "user_count": user_count,
+        "max_users": CE_GIT_SYNC_MAX_USERS,
+    })))
+}
+
 async fn edit_git_sync_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1584,6 +1757,7 @@ async fn edit_git_sync_config(
     Json(new_config): Json<EditGitSyncConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
+    check_git_sync_access(&db, &w_id).await?;
 
     let mut tx = db.begin().await?;
 
@@ -1640,19 +1814,6 @@ async fn edit_git_sync_config(
     Ok(format!("Edit git sync config for workspace {}", &w_id))
 }
 
-#[cfg(not(feature = "enterprise"))]
-async fn edit_git_sync_repository(
-    _authed: ApiAuthed,
-    Extension(_db): Extension<DB>,
-    Path(_w_id): Path<String>,
-    Json(_new_config): Json<serde_json::Value>,
-) -> Result<String> {
-    return Err(Error::BadRequest(
-        "Git sync is only available on Windmill Enterprise Edition".to_string(),
-    ));
-}
-
-#[cfg(feature = "enterprise")]
 async fn edit_git_sync_repository(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1661,9 +1822,18 @@ async fn edit_git_sync_repository(
     Json(new_config): Json<EditGitSyncRepository>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
+    check_git_sync_access(&db, &w_id).await?;
 
     // Validate the resource path format
     validate_git_repo_resource_path(&new_config.git_repo_resource_path)?;
+
+    // Promotion mode: EE only
+    #[cfg(not(feature = "enterprise"))]
+    if new_config.repository.use_individual_branch.unwrap_or(false) {
+        return Err(Error::BadRequest(
+            "Promotion mode is an Enterprise Edition feature".to_string(),
+        ));
+    }
 
     let mut tx = db.begin().await?;
 
@@ -1685,6 +1855,20 @@ async fn edit_git_sync_repository(
     } else {
         WorkspaceGitSyncSettings::default()
     };
+
+    // Multi-repo: EE only
+    #[cfg(not(feature = "enterprise"))]
+    {
+        let is_new = !git_sync_settings
+            .repositories
+            .iter()
+            .any(|r| r.git_repo_resource_path == new_config.git_repo_resource_path);
+        if is_new && !git_sync_settings.repositories.is_empty() {
+            return Err(Error::BadRequest(
+                "Multiple git sync repositories is an Enterprise Edition feature".to_string(),
+            ));
+        }
+    }
 
     // Audit log before we move the repository
     audit_log(
@@ -1769,19 +1953,6 @@ async fn edit_git_sync_repository(
     ))
 }
 
-#[cfg(not(feature = "enterprise"))]
-async fn delete_git_sync_repository(
-    _authed: ApiAuthed,
-    Extension(_db): Extension<DB>,
-    Path(_w_id): Path<String>,
-    Json(_request): Json<serde_json::Value>,
-) -> Result<String> {
-    return Err(Error::BadRequest(
-        "Git sync is only available on Windmill Enterprise Edition".to_string(),
-    ));
-}
-
-#[cfg(feature = "enterprise")]
 async fn delete_git_sync_repository(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1791,7 +1962,7 @@ async fn delete_git_sync_repository(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
-    // For deletion, only validate that path is not empty to allow cleanup of malformed entries
+    // No check_git_sync_access here — admins should always be able to delete/clean up repos
     if request.git_repo_resource_path.is_empty() {
         return Err(Error::BadRequest(
             "Resource path cannot be empty".to_string(),
@@ -2109,22 +2280,29 @@ async fn edit_default_app(
 #[derive(Serialize)]
 struct WorkspaceDefaultApp {
     pub default_app_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_app_raw: Option<bool>,
 }
 async fn get_default_app(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<WorkspaceDefaultApp> {
-    let mut tx = db.begin().await?;
-    let default_app_path = sqlx::query_scalar!(
-        "SELECT default_app FROM workspace_settings WHERE workspace_id = $1",
+    let row = sqlx::query!(
+        "SELECT ws.default_app AS default_app_path, av.raw_app AS \"default_app_raw: Option<bool>\"
+         FROM workspace_settings ws
+         LEFT JOIN app ON app.path = ws.default_app AND app.workspace_id = ws.workspace_id
+         LEFT JOIN app_version av ON av.id = app.versions[array_upper(app.versions, 1)]
+         WHERE ws.workspace_id = $1",
         &w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&db)
     .await
     .map_err(|err| Error::internal_err(format!("getting default_app: {err}")))?;
-    tx.commit().await?;
 
-    Ok(Json(WorkspaceDefaultApp { default_app_path }))
+    Ok(Json(WorkspaceDefaultApp {
+        default_app_path: row.default_app_path,
+        default_app_raw: row.default_app_raw,
+    }))
 }
 
 async fn edit_error_handler(
@@ -3296,6 +3474,11 @@ async fn clone_apps(
         .fetch_all(&mut **tx)
         .await?;
 
+        let mut cloned_from_db: std::collections::HashSet<(i64, String)> = HashSet::new();
+        for bundle in &bundles {
+            cloned_from_db.insert((bundle.app_version_id, bundle.file_type.clone()));
+        }
+
         for bundle in bundles {
             if let Some(&new_version_id) = version_id_mapping.get(&bundle.app_version_id) {
                 sqlx::query!(
@@ -3308,6 +3491,66 @@ async fn clone_apps(
                 )
                 .execute(&mut **tx)
                 .await?;
+            }
+        }
+
+        // Clone bundles from S3 for versions not found in DB
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        {
+            let object_store = windmill_object_store::get_object_store().await;
+            if let Some(os) = object_store {
+                for (&old_version_id, &new_version_id) in &version_id_mapping {
+                    for file_type in &["js", "css"] {
+                        if cloned_from_db.contains(&(old_version_id, file_type.to_string())) {
+                            continue;
+                        }
+                        let src_path = format!(
+                            "/app_bundles/{}/{}.{}",
+                            source_workspace_id, old_version_id, file_type
+                        );
+                        let get_result = os
+                            .get(&windmill_object_store::object_store_reexports::Path::from(
+                                src_path,
+                            ))
+                            .await;
+                        match get_result {
+                            Ok(result) => {
+                                let data = result.bytes().await.map_err(
+                                    windmill_object_store::object_store_error_to_error,
+                                )?;
+                                let dst_path = format!(
+                                    "/app_bundles/{}/{}.{}",
+                                    target_workspace_id, new_version_id, file_type
+                                );
+                                os.put(
+                                    &windmill_object_store::object_store_reexports::Path::from(
+                                        dst_path.clone(),
+                                    ),
+                                    data.into(),
+                                )
+                                .await
+                                .map_err(
+                                    windmill_object_store::object_store_error_to_error,
+                                )?;
+                                tracing::info!(
+                                    "Cloned app bundle from S3: {}.{} -> {}.{}",
+                                    old_version_id,
+                                    file_type,
+                                    new_version_id,
+                                    file_type
+                                );
+                            }
+                            Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound { .. }) => {
+                                // No bundle in S3 for this version/type, skip
+                            }
+                            Err(e) => {
+                                return Err(
+                                    windmill_object_store::object_store_error_to_error(e),
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
     }

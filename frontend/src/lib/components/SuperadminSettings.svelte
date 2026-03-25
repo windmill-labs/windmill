@@ -146,6 +146,7 @@
 			bind:this={innerComponent}
 			closeDrawer={handleClose}
 			showHeaderInfo={false}
+			{disableChatOffset}
 			bind:yamlMode
 			bind:hasUnsavedChanges
 			bind:hasAnyInvalid

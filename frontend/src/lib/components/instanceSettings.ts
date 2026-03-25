@@ -833,6 +833,17 @@ export const instanceSettingsNavigationGroups = [
 		]
 	},
 	{
+		title: 'AI',
+		items: [
+			{
+				id: 'ai',
+				label: 'AI',
+				aiId: 'instance-settings-ai',
+				aiDescription: 'Instance AI settings (providers, models, prompts)'
+			}
+		]
+	},
+	{
 		title: 'Advanced',
 		items: [
 			{
@@ -873,6 +884,7 @@ export const instanceSettingsNavigationGroups = [
 
 export const tabToCategoryMap: Record<string, string> = {
 	general: 'Core',
+	ai: 'AI',
 	sso: 'Auth/OAuth/SAML',
 	oauth: 'Auth/OAuth/SAML',
 	scim_saml: 'Auth/OAuth/SAML',
@@ -907,6 +919,7 @@ export const setupNavigationGroups = instanceSettingsNavigationGroups
 
 export const categoryToTabMap: Record<string, string> = {
 	Core: 'general',
+	AI: 'ai',
 	SMTP: 'smtp',
 	'Auth/OAuth/SAML': 'sso',
 	Registries: 'registries',

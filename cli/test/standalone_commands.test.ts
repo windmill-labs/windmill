@@ -409,6 +409,63 @@ describe("script bootstrap command", () => {
     });
   });
 
+  test("accepts 'python' as alias for python3", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        `defaultTs: bun\nincludes:\n  - "**"\nexcludes: []\n`,
+        "utf-8"
+      );
+
+      await mkdir(join(tempDir, "f", "test"), { recursive: true });
+
+      const result = await backend.runCLICommand(
+        ["script", "bootstrap", "f/test/py_alias_script", "python"],
+        tempDir
+      );
+
+      expect(result.code).toEqual(0);
+
+      const codeStat = await stat(join(tempDir, "f/test/py_alias_script.py"));
+      expect(codeStat.isFile()).toBe(true);
+
+      const metaStat = await stat(
+        join(tempDir, "f/test/py_alias_script.script.yaml")
+      );
+      expect(metaStat.isFile()).toBe(true);
+    });
+  });
+
+  test("creates parent directories automatically", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        `defaultTs: bun\nincludes:\n  - "**"\nexcludes: []\n`,
+        "utf-8"
+      );
+
+      // Do NOT pre-create f/test — bootstrap should create it
+      const result = await backend.runCLICommand(
+        ["script", "bootstrap", "f/test/auto_dir_script", "bun"],
+        tempDir
+      );
+
+      expect(result.code).toEqual(0);
+
+      const codeStat = await stat(join(tempDir, "f/test/auto_dir_script.ts"));
+      expect(codeStat.isFile()).toBe(true);
+
+      const metaStat = await stat(
+        join(tempDir, "f/test/auto_dir_script.script.yaml")
+      );
+      expect(metaStat.isFile()).toBe(true);
+    });
+  });
+
   test("creates Go script files", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);

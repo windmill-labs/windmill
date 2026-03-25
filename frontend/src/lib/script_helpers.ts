@@ -1601,7 +1601,7 @@ export function canHaveApproval(language: SupportedLanguage | undefined): boolea
 		return false
 	}
 
-	return ['python3', 'bun', 'deno'].includes(language)
+	return ['python3', 'bun'].includes(language)
 }
 
 export function canHaveFailure(language: SupportedLanguage | undefined): boolean {

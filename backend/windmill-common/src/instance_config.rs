@@ -353,6 +353,13 @@ pub struct GlobalSettings {
         std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
     >,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
+    pub ai_config: Option<serde_json::Value>,
+
     /// Catch-all for settings not yet covered by typed fields.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,

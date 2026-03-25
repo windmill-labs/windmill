@@ -62,8 +62,8 @@
 					onCancel: () => {
 						sendUserToast('Error deleting row', true)
 					},
-					onError: () => {
-						sendUserToast('Error updating row', true)
+					onError: (e) => {
+						sendUserToast(`Error deleting row: ${e?.message ?? e}`, true)
 					}
 				}
 			)

@@ -104,7 +104,7 @@ use windmill_worker::{
     CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION,
     KEEP_JOB_DIR, MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY,
     NSJAIL_AVAILABLE, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UV_INDEX_STRATEGY,
+    PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UNSHARE_PATH, UV_INDEX_STRATEGY,
     WORKSPACE_REGISTRIES,
 };
 
@@ -1709,6 +1709,12 @@ pub async fn reload_job_isolation_setting(conn: &Connection) {
         tracing::error!(
             "job_isolation is set to nsjail_sandboxing but nsjail is not available on this worker. \
             All jobs will fail until nsjail is installed or the setting is changed."
+        );
+    }
+    if value == JobIsolationLevel::Unshare && UNSHARE_PATH.is_none() {
+        tracing::error!(
+            "job_isolation is set to unshare but the unshare binary is not available on this worker. \
+            Jobs will run without isolation until unshare is installed or the setting is changed."
         );
     }
 }

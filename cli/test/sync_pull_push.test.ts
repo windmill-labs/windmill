@@ -6,7 +6,8 @@
  *
  * CROSS-LINKS - Related test helper locations (keep in sync when adding new helpers):
  * @see test_fixtures.ts - Shared local fixtures (prefer using this module for new tests)
- * @see test_backend.ts - API-based creation helpers (createTestApp, createTestResource, etc.)
+ * @see test_backend.ts - API-based creation helpers (createTestApp, createTestResource,
+ *   createAppWithInlineScript, createFlowWithInlineScript, etc.)
  *
  * This file contains: Local fixtures (should migrate to test_fixtures.ts) + createRemoteScript
  * If you add new helpers, update cross-links in the files above.

@@ -117,7 +117,12 @@ async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<Pipt
 
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
-const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
+pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
+
+#[cfg(any(feature = "private", test))]
+pub fn has_relative_imports(content: &str) -> bool {
+    RELATIVE_IMPORT_REGEX.is_match(content)
+}
 
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use crate::global_cache::pull_from_tar;
@@ -1084,6 +1089,320 @@ fn python_preprocessor_spread(sig: windmill_parser::MainArgSignature, indent: &s
     }
 }
 
+/// Pre-computed codegen data for a Python script.
+/// Computed in Rust from the parsed signature, then baked into the wrapper template.
+#[cfg(any(feature = "private", test))]
+pub struct PyScriptCodegen {
+    /// Python module directory dot notation (e.g., "f.my")
+    pub module_dir_dot: String,
+    /// Python module name / last path component (e.g., "script")
+    pub module_name: String,
+    /// Directory path for the module (e.g., "f/my")
+    pub dirs: String,
+    /// Inline Python code for type transforms (dates, bytes, etc.)
+    pub transforms: String,
+    /// Inline Python code for arg spread / filtering
+    pub spread: String,
+    /// Inline Python code for preprocessor arg spread (if applicable)
+    pub pre_spread: Option<String>,
+}
+
+/// Parse a Python script and compute the codegen data.
+/// This reuses the same logic that was used on main in `prepare_wrapper`.
+#[cfg(any(feature = "private", test))]
+pub fn compute_py_codegen(content: &str, script_path: &str) -> PyScriptCodegen {
+    let dirs = compute_python_module_dir(script_path);
+    let last = script_path
+        .split("/")
+        .map(|x| {
+            if x.starts_with(|x: char| x.is_ascii_digit()) {
+                format!("_{}", x)
+            } else {
+                x.to_string()
+            }
+        })
+        .last()
+        .unwrap()
+        .replace("-", "_")
+        .replace(" ", "_")
+        .to_lowercase();
+
+    let sig = windmill_parser_py::parse_python_signature(content, None, false).unwrap_or_default();
+    let pre_sig = windmill_parser_py::parse_python_signature(
+        content,
+        Some("preprocessor".to_string()),
+        false,
+    )
+    .ok()
+    .filter(|s| !s.args.is_empty());
+
+    let init_sig = pre_sig.as_ref().unwrap_or(&sig);
+
+    let transforms = init_sig
+        .args
+        .iter()
+        .map(|x| match x.typ {
+            windmill_parser::Typ::Bytes => {
+                let name = &x.name;
+                format!(
+                    "if \"{name}\" in kwargs and kwargs[\"{name}\"] is not None:\n    \
+                                     kwargs[\"{name}\"] = base64.b64decode(kwargs[\"{name}\"])\n",
+                )
+            }
+            windmill_parser::Typ::Datetime => {
+                let name = &x.name;
+                format!(
+                    "if \"{name}\" in kwargs and kwargs[\"{name}\"] is not None:\n    \
+                                     kwargs[\"{name}\"] = datetime.fromisoformat(kwargs[\"{name}\"])\n",
+                )
+            }
+            windmill_parser::Typ::Date => {
+                let name = &x.name;
+                format!(
+                    "if \"{name}\" in kwargs and kwargs[\"{name}\"] is not None:\n    \
+                                     try:\n        \
+                                         kwargs[\"{name}\"] = date.fromisoformat(kwargs[\"{name}\"])\n    \
+                                     except ValueError:\n        \
+                                         for _fmt in (\"%d-%m-%Y\", \"%m/%d/%Y\", \"%d/%m/%Y\", \"%Y/%m/%d\"):\n            \
+                                             try:\n                \
+                                                 kwargs[\"{name}\"] = datetime.strptime(kwargs[\"{name}\"], _fmt).date()\n                \
+                                                 break\n            \
+                                             except ValueError:\n                \
+                                                 continue\n",
+                )
+            }
+            _ => "".to_string(),
+        })
+        .collect::<Vec<String>>()
+        .join("");
+
+    let spread = if sig.star_kwargs {
+        "args = kwargs".to_string()
+    } else {
+        sig.args
+            .into_iter()
+            .map(|x| {
+                let name = &x.name;
+                if x.default.is_none() {
+                    format!("args[\"{name}\"] = kwargs.get(\"{name}\")")
+                } else {
+                    format!(
+                        r#"args["{name}"] = kwargs.get("{name}")
+    if args["{name}"] is None:
+        del args["{name}"]"#
+                    )
+                }
+            })
+            .join("\n    ")
+    };
+
+    let pre_spread = pre_sig.map(|sig| python_preprocessor_spread(sig, "    "));
+
+    let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
+
+    PyScriptCodegen { module_dir_dot, module_name: last, dirs, transforms, spread, pre_spread }
+}
+
+/// Script entry for the Python unified wrapper generator.
+#[cfg(any(feature = "private", test))]
+pub struct PyScriptEntry<'a> {
+    pub original_path: &'a str,
+    pub codegen: &'a PyScriptCodegen,
+}
+
+/// Generate a wrapper for Python dedicated workers and runner groups.
+/// All scripts are baked in at codegen time with proper Python imports and inline arg handling.
+/// Protocol:
+///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
+///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
+///   end                             -> exit
+#[cfg(any(feature = "private", test))]
+pub fn generate_multi_script_wrapper(
+    scripts: &[PyScriptEntry<'_>],
+    skip_result_postprocessing: bool,
+    any_relative_imports: bool,
+) -> String {
+    let postprocessor = get_result_postprocessor(skip_result_postprocessing);
+    let res_to_json_body = python_res_to_json_body(postprocessor);
+
+    let imports: String = scripts
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            format!(
+                "from {module_dir_dot} import {module_name} as _s{i}",
+                module_dir_dot = e.codegen.module_dir_dot,
+                module_name = e.codegen.module_name,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let mut functions = String::new();
+    let mut registrations = String::new();
+
+    for (i, entry) in scripts.iter().enumerate() {
+        let cg = entry.codegen;
+        let indented_transforms = cg
+            .transforms
+            .split('\n')
+            .map(|line| {
+                if line.is_empty() {
+                    String::new()
+                } else {
+                    format!("    {}", line)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        functions.push_str(&format!(
+            r#"
+def transform_{i}(kwargs):
+{indented_transforms}
+    args = dict()
+    {spread}
+    for k, v in list(args.items()):
+        if v == '<function call>':
+            del args[k]
+    return args
+"#,
+            spread = cg.spread
+        ));
+
+        let pre_fn = if let Some(ref pre_spread) = cg.pre_spread {
+            functions.push_str(&format!(
+                r#"
+def pre_transform_{i}(kwargs):
+    pre_args = dict()
+    {pre_spread}
+    for k, v in list(pre_args.items()):
+        if v == '<function call>':
+            del pre_args[k]
+    return pre_args
+"#,
+            ));
+            format!("pre_transform_{i}")
+        } else {
+            "None".to_string()
+        };
+
+        registrations.push_str(&format!(
+            "scripts[\"{path}\"] = {{ 'mod': _s{i}, 'transform': transform_{i}, 'pre_transform': {pre_fn} }}\n",
+            path = entry.original_path,
+        ));
+    }
+
+    let import_loader = if any_relative_imports {
+        "import loader"
+    } else {
+        ""
+    };
+
+    format!(
+        r#"
+import json
+import sys
+import traceback
+import re
+import base64
+from datetime import datetime, date
+{import_loader}
+
+{imports}
+
+scripts = {{}}
+
+def to_b_64(v: bytes):
+    b64 = base64.b64encode(v)
+    return b64.decode('ascii')
+
+replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\u0000|Infinity|\-Infinity)')
+
+def res_to_json(res, typ):
+{res_to_json_body}
+{functions}
+{registrations}
+
+sys.stdout.write('start\n')
+sys.stdout.flush()
+
+for line in sys.stdin:
+    line = line.strip()
+    if line == 'end':
+        break
+
+    if line.startswith('exec_preprocess:'):
+        try:
+            rest = line[len('exec_preprocess:'):]
+            colon_idx = rest.index(':')
+            script_path = rest[:colon_idx]
+            args_json = rest[colon_idx + 1:]
+
+            entry = scripts.get(script_path)
+            if not entry:
+                err_json = json.dumps({{ "message": "Script not found: " + script_path, "name": "Error" }}, separators=(',', ':'), default=str).replace('\n', '')
+                sys.stdout.write("wm_res[error]:" + err_json + "\n")
+                sys.stdout.flush()
+                continue
+
+            mod = entry['mod']
+            if not hasattr(mod, 'preprocessor') or not callable(mod.preprocessor):
+                err_json = json.dumps({{"message": "preprocessor function is missing", "name": "Error"}}, separators=(',', ':'), default=str).replace('\n', '')
+                sys.stdout.write("wm_res[error]:" + err_json + "\n")
+                sys.stdout.flush()
+                continue
+            kwargs = json.loads(args_json, strict=False)
+            pre_args = entry['pre_transform'](kwargs)
+            preprocessed = mod.preprocessor(**pre_args)
+            preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
+            main_args = entry['transform'](preprocessed if preprocessed else {{}})
+            res = mod.main(**main_args)
+            typ = type(res)
+            res_json = res_to_json(res, typ)
+            sys.stdout.write("wm_res[success]:" + res_json + "\n")
+        except BaseException as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            tb = traceback.format_tb(exc_traceback)
+            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+        sys.stdout.flush()
+        continue
+
+    if line.startswith('exec:'):
+        try:
+            rest = line[len('exec:'):]
+            colon_idx = rest.index(':')
+            script_path = rest[:colon_idx]
+            args_json = rest[colon_idx + 1:]
+
+            entry = scripts.get(script_path)
+            if not entry:
+                err_json = json.dumps({{ "message": "Script not found: " + script_path, "name": "Error" }}, separators=(',', ':'), default=str).replace('\n', '')
+                sys.stdout.write("wm_res[error]:" + err_json + "\n")
+                sys.stdout.flush()
+                continue
+
+            kwargs = json.loads(args_json, strict=False)
+            args = entry['transform'](kwargs)
+            res = entry['mod'].main(**args)
+            typ = type(res)
+            res_json = res_to_json(res, typ)
+            sys.stdout.write("wm_res[success]:" + res_json + "\n")
+        except BaseException as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            tb = traceback.format_tb(exc_traceback)
+            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+        sys.stdout.flush()
+        continue
+
+    sys.stderr.write("Unknown command: " + line + "\n")
+"#
+    )
+}
+
 async fn prepare_wrapper(
     job_dir: &str,
     job_flow_step_id: Option<&str>,
@@ -1303,7 +1622,7 @@ async fn replace_pip_secret(
     }
 }
 
-async fn handle_python_deps(
+pub(crate) async fn handle_python_deps(
     job_dir: &str,
     requirements_o: Option<&String>,
     inner_content: &str,
@@ -1348,6 +1667,7 @@ async fn handle_python_deps(
                         &mut version_specifiers,
                         &mut locked_v,
                         &None,
+                        &None, // temp_script_refs: only used during CLI lock generation
                     ))
                     .await?;
 
@@ -2418,6 +2738,22 @@ pub async fn start_worker(
     use crate::PyV;
     tracing::info!("script path: {}", script_path);
 
+    let codegen = compute_py_codegen(inner_content, script_path);
+
+    // Write script to proper module path (e.g., f/my/script.py)
+    let module_dir = format!("{}/{}", job_dir, codegen.dirs);
+    tokio::fs::create_dir_all(&module_dir).await?;
+    write_file(
+        &module_dir,
+        &format!("{}.py", codegen.module_name),
+        inner_content,
+    )?;
+
+    let any_relative_imports = RELATIVE_IMPORT_REGEX.is_match(inner_content);
+    if any_relative_imports {
+        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER)?;
+    }
+
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
     let context = variables::get_reserved_variables(
@@ -2462,122 +2798,12 @@ pub async fn start_worker(
     )
     .await?;
 
-    let (
-        import_loader,
-        import_base64,
-        import_datetime,
-        module_dir_dot,
-        _dirs,
-        last,
-        transforms,
-        spread,
-        _,
-        _,
-    ) = prepare_wrapper(job_dir, None, None, None, inner_content, script_path).await?;
-
-    // Parse preprocessor signature if the script has one
-    let pre_spread = windmill_parser_py::parse_python_signature(
-        inner_content,
-        Some("preprocessor".to_string()),
-        false,
-    )
-    .ok()
-    .filter(|sig| !sig.args.is_empty())
-    .map(|sig| python_preprocessor_spread(sig, "            "));
-
     {
-        let postprocessor = get_result_postprocessor(annotations.skip_result_postprocessing);
-        let indented_transforms = transforms
-            .lines()
-            .map(|x| format!("    {}", x))
-            .collect::<Vec<String>>()
-            .join("\n");
-
-        let preprocessor_logic = if let Some(ref pre_spread) = pre_spread {
-            format!(
-                r#"
-    if line.startswith('preprocess:'):
-        pre_input = line[len('preprocess:'):]
-        kwargs = json.loads(pre_input, strict=False)
-        if not hasattr(inner_script, 'preprocessor') or not callable(inner_script.preprocessor):
-            err_json = json.dumps({{"message": "preprocessor function is missing", "name": "Error"}}, separators=(',', ':'), default=str).replace('\n', '')
-            sys.stdout.write("wm_res[error]:" + err_json + "\n")
-            sys.stdout.flush()
-            continue
-        try:
-            pre_args = {{}}
-            {pre_spread}
-            for k, v in list(pre_args.items()):
-                if v == '<function call>':
-                    del pre_args[k]
-            preprocessed_kwargs = inner_script.preprocessor(**pre_args)
-            preprocessed_json = json.dumps(preprocessed_kwargs, separators=(',', ':'), default=str).replace('\n', '')
-            sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
-            transform_and_run(preprocessed_kwargs)
-        except BaseException as e:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', '')
-            sys.stdout.write("wm_res[error]:" + err_json + "\n")
-        sys.stdout.flush()
-        continue
-"#
-            )
-        } else {
-            String::new()
-        };
-
-        let res_to_json_body = python_res_to_json_body(postprocessor);
-        let wrapper_content: String = format!(
-            r#"
-import json
-{import_loader}
-{import_base64}
-{import_datetime}
-import traceback
-import sys
-from {module_dir_dot} import {last} as inner_script
-import re
-
-
-def to_b_64(v: bytes):
-    import base64
-    b64 = base64.b64encode(v)
-    return b64.decode('ascii')
-
-def res_to_json(res, typ):
-{res_to_json_body}
-
-def transform_and_run(kwargs):
-    args = {{}}
-{indented_transforms}
-    {spread}
-    for k, v in list(args.items()):
-        if v == '<function call>':
-            del args[k]
-    res = inner_script.main(**args)
-    typ = type(res)
-    res_json = res_to_json(res, typ)
-    sys.stdout.write("wm_res[success]:" + res_json + "\n")
-
-replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\u0000|Infinity|\-Infinity)')
-sys.stdout.write('start\n')
-
-for line in sys.stdin:
-    if line == 'end\n':
-        break
-    line = line.strip()
-    {preprocessor_logic}
-    kwargs = json.loads(line, strict=False)
-    try:
-        transform_and_run(kwargs)
-    except BaseException as e:
-        exc_type, exc_value, exc_traceback = sys.exc_info()
-        tb = traceback.format_tb(exc_traceback)
-        err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', '')
-        sys.stdout.write("wm_res[error]:" + err_json + "\n")
-    sys.stdout.flush()
-"#,
+        let scripts = [PyScriptEntry { original_path: script_path, codegen: &codegen }];
+        let wrapper_content = generate_multi_script_wrapper(
+            &scripts,
+            annotations.skip_result_postprocessing,
+            any_relative_imports,
         );
         write_file(job_dir, "wrapper.py", &wrapper_content)?;
     }
@@ -2631,6 +2857,7 @@ for line in sys.stdin:
             &mut None,
         )
         .await?;
+
     handle_dedicated_process(
         &python_path,
         job_dir,
@@ -2702,5 +2929,44 @@ mod tests {
     fn test_compute_python_module_dir_at_replaced() {
         // @ is replaced with .
         assert_eq!(compute_python_module_dir("u/@admin/script"), "u/.admin");
+    }
+
+    #[test]
+    fn test_compute_py_codegen_basic_args() {
+        let code = "def main(x: str, y: int):\n    return x\n";
+        let cg = compute_py_codegen(code, "f/test/script");
+        assert!(cg.spread.contains("args[\"x\"]"));
+        assert!(cg.spread.contains("args[\"y\"]"));
+        assert!(cg.transforms.is_empty());
+        assert!(cg.pre_spread.is_none());
+        assert_eq!(cg.module_name, "script");
+    }
+
+    #[test]
+    fn test_compute_py_codegen_with_datetime_and_bytes() {
+        let code = "import datetime\n\ndef main(name: str, created_at: datetime.datetime, file: bytes):\n    return name\n";
+        let cg = compute_py_codegen(code, "f/my/handler");
+        assert!(cg.transforms.contains("datetime.fromisoformat"));
+        assert!(cg.transforms.contains("base64.b64decode"));
+        assert!(cg.spread.contains("args[\"name\"]"));
+        assert_eq!(cg.module_dir_dot, "f.my");
+        assert_eq!(cg.module_name, "handler");
+    }
+
+    #[test]
+    fn test_compute_py_codegen_star_kwargs() {
+        let code = "def main(**kwargs):\n    return kwargs\n";
+        let cg = compute_py_codegen(code, "f/test/star");
+        assert_eq!(cg.spread, "args = kwargs");
+    }
+
+    #[test]
+    fn test_compute_py_codegen_with_preprocessor() {
+        let code = "import datetime\n\ndef main(x: str, ts: datetime.datetime):\n    return x\n\ndef preprocessor(input: str, when: datetime.datetime):\n    return {\"x\": input, \"ts\": when}\n";
+        let cg = compute_py_codegen(code, "f/test/pre");
+        assert!(cg.spread.contains("args[\"x\"]"));
+        assert!(cg.pre_spread.is_some());
+        let pre = cg.pre_spread.as_ref().unwrap();
+        assert!(pre.contains("pre_args[\"input\"]"));
     }
 }

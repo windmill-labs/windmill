@@ -40,6 +40,7 @@ java-parser = [ "dep:windmill-parser-java"]
 ruby-parser = [ "dep:windmill-parser-ruby"]
 wac-parser = [ "dep:windmill-parser-wac"]
 asset-parser = [ "dep:windmill-parser-ts-asset", "dep:windmill-parser-py-asset", "dep:windmill-parser-sql-asset"]
+py-imports-parser = [ "dep:windmill-parser-py-imports"]
 
 [dependencies]
 anyhow.workspace = true
@@ -61,6 +62,7 @@ windmill-parser-wac = { workspace = true, optional = true }
 windmill-parser-ts-asset = { workspace = true, optional = true }
 windmill-parser-py-asset = { workspace = true, optional = true }
 windmill-parser-sql-asset = { workspace = true, optional = true }
+windmill-parser-py-imports = { workspace = true, optional = true }
 wasm-bindgen.workspace = true
 
 serde_json.workspace = true

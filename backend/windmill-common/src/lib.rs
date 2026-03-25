@@ -29,6 +29,7 @@ use sqlx::{Acquire, Postgres};
 pub mod agent_workers;
 #[cfg(feature = "bedrock")]
 pub mod ai_bedrock;
+pub mod ai_cache;
 pub mod ai_google;
 pub mod ai_providers;
 pub mod ai_types;
@@ -77,6 +78,7 @@ pub mod oidc_oss;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 pub mod otel_oss;
+pub mod query_builders;
 pub mod queue;
 pub mod result_stream;
 pub mod runnable_settings;

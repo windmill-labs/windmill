@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.662.0
+  version: 1.664.0
   title: Windmill API
 
   contact:
@@ -3191,9 +3191,49 @@ paths:
         "200":
           description: status
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                properties:
+                  effective_ai_config:
+                    $ref: "#/components/schemas/AIConfig"
+                  has_instance_ai_config:
+                    type: boolean
+                  uses_instance_ai_config:
+                    type: boolean
+                  instance_ai_summary:
+                    $ref: "#/components/schemas/InstanceAISummary"
+                required:
+                  - effective_ai_config
+                  - has_instance_ai_config
+                  - uses_instance_ai_config
+
+  /w/{workspace}/workspaces/get_copilot_settings_state:
+    get:
+      summary: get copilot settings state
+      operationId: getCopilotSettingsState
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  has_instance_ai_config:
+                    type: boolean
+                  uses_instance_ai_config:
+                    type: boolean
+                  instance_ai_summary:
+                    $ref: "#/components/schemas/InstanceAISummary"
+                required:
+                  - has_instance_ai_config
+                  - uses_instance_ai_config
 
   /w/{workspace}/workspaces/get_copilot_info:
     get:
@@ -3389,6 +3429,37 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/workspaces/git_sync_enabled:
+    get:
+      summary: Check if git sync is available for this workspace
+      operationId: getGitSyncEnabled
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Git sync availability status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  reason:
+                    type: string
+                    nullable: true
+                  max_repos:
+                    type: integer
+                    nullable: true
+                  user_count:
+                    type: integer
+                    nullable: true
+                  max_users:
+                    type: integer
+                    nullable: true
 
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
@@ -3662,6 +3733,8 @@ paths:
                 properties:
                   default_app_path:
                     type: string
+                  default_app_raw:
+                    type: boolean
 
   /w/{workspace}/workspaces/usage:
     get:
@@ -6867,6 +6940,60 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/scripts/list_dedicated_with_deps:
+    get:
+      summary: list dedicated worker scripts with workspace dependency annotations
+      operationId: listDedicatedWithDeps
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of dedicated scripts with their workspace dependency names
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    language:
+                      type: string
+                      enum:
+                        - python3
+                        - deno
+                        - go
+                        - bash
+                        - powershell
+                        - postgresql
+                        - mysql
+                        - bigquery
+                        - snowflake
+                        - mssql
+                        - graphql
+                        - nativets
+                        - bun
+                        - bunnative
+                        - php
+                        - rust
+                        - ansible
+                        - csharp
+                        - oracledb
+                        - duckdb
+                        - java
+                        - ruby
+                    workspace_dep_names:
+                      type: array
+                      items:
+                        type: string
+                  required:
+                    - path
+                    - language
+                    - workspace_dep_names
+
   /w/{workspace}/scripts/raw/p/{path}:
     get:
       summary: raw script by path
@@ -6987,6 +7114,83 @@ paths:
                   job_id:
                     type: string
                     format: uuid
+
+  /w/{workspace}/scripts/raw_temp/store:
+    post:
+      summary: store raw script content temporarily for CLI lock generation
+      operationId: storeRawScriptTemp
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: script content to store
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: hash of stored content
+          content:
+            application/json:
+              schema:
+                type: string
+
+  /w/{workspace}/scripts/raw_temp/diff:
+    post:
+      summary: diff local script hashes against deployed versions
+      operationId: diffRawScriptsWithDeployed
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: scripts and workspace deps to diff against deployed versions
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - scripts
+              properties:
+                scripts:
+                  description: map of script path to SHA256 content hash
+                  type: object
+                  additionalProperties:
+                    type: string
+                workspace_deps:
+                  description: workspace dependencies to diff
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - path
+                      - language
+                      - hash
+                    properties:
+                      path:
+                        description: CLI path (e.g. dependencies/package.json)
+                        type: string
+                      language:
+                        $ref: "#/components/schemas/ScriptLang"
+                      name:
+                        description: named workspace dependency (null for default)
+                        type: string
+                      hash:
+                        description: SHA256 content hash
+                        type: string
+      responses:
+        "200":
+          description: list of paths that differ from deployed versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/jobs/list_selected_job_groups:
     # We use post because sending a huge array as a query param can produce
@@ -10494,6 +10698,10 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: fast
+          in: query
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -10970,6 +11178,129 @@ paths:
       responses:
         "200":
           description: Interactive slack approval message sent successfully
+
+  /w/{workspace}/jobs_u/flow/resume_suspended/{job_id}:
+    post:
+      summary: resume or cancel a suspended flow/WAC job
+      description: >
+        Resume or cancel a suspended flow/WAC job. Uses approval rules to
+        determine authorization. Either a valid approval_token or an
+        authenticated session is required.
+      operationId: resumeSuspended
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                payload:
+                  description: payload to send to the resumed job
+                approval_token:
+                  type: string
+                  description: approval token for unauthenticated access
+                approved:
+                  type: boolean
+                  description: whether to approve (true) or cancel (false) the job
+                  default: true
+      responses:
+        "201":
+          description: job resumed
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs_u/flow/approval_info/{job_id}:
+    get:
+      summary: get approval info for a suspended flow/WAC job
+      description: >
+        Get approval info for a suspended flow/WAC job. Returns form schema,
+        approval rules, and whether the current user can approve. Either a
+        valid token query parameter or an authenticated session is required.
+      operationId: getApprovalInfo
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: token
+          in: query
+          required: false
+          schema:
+            type: string
+          description: approval token for unauthenticated access
+      responses:
+        "200":
+          description: approval info
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - flow_id
+                  - can_approve
+                  - user_auth_required
+                  - approvers
+                properties:
+                  flow_id:
+                    type: string
+                    format: uuid
+                  form_schema:
+                    description: form schema for the approval step
+                  description:
+                    description: description of the approval step
+                  approval_conditions:
+                    type: object
+                    properties:
+                      user_auth_required:
+                        type: boolean
+                      user_groups_required:
+                        type: array
+                        items:
+                          type: string
+                      self_approval_disabled:
+                        type: boolean
+                    required:
+                      - user_auth_required
+                      - user_groups_required
+                      - self_approval_disabled
+                  can_approve:
+                    type: boolean
+                    description: whether the current user/token holder can approve
+                  user_auth_required:
+                    type: boolean
+                    description: whether user authentication is required to approve
+                  hide_cancel:
+                    type: boolean
+                    description: whether to hide the cancel button in the UI
+                  approvers:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - resume_id
+                        - approver
+                      properties:
+                        resume_id:
+                          type: integer
+                        approver:
+                          type: string
 
   /w/{workspace}/jobs_u/resume/{id}/{resume_id}/{signature}:
     get:
@@ -17187,6 +17518,27 @@ paths:
                     description: count of log lines that matched the query per hostname
                     type: object
 
+  /srch/index/storage/disk:
+    get:
+      summary: Get index disk storage sizes from the indexer.
+      operationId: getIndexDiskStorageSizes
+      tags:
+        - indexSearch
+      responses:
+        "200":
+          description: disk storage sizes for each index
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_index_disk_size_bytes:
+                    type: integer
+                    nullable: true
+                  log_index_disk_size_bytes:
+                    type: integer
+                    nullable: true
+
   /indexer/delete/{idx_name}:
     delete:
       summary: Clear an index and restart the indexer.
@@ -18714,6 +19066,33 @@ components:
             type: integer
             minimum: 1
             maximum: 2000000
+
+    InstanceAIProviderSummary:
+      type: object
+      properties:
+        provider:
+          $ref: "#/components/schemas/AIProvider"
+        models:
+          type: array
+          items:
+            type: string
+      required:
+        - provider
+        - models
+
+    InstanceAISummary:
+      type: object
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/InstanceAIProviderSummary"
+        default_model:
+          $ref: "#/components/schemas/AIProviderModel"
+        code_completion_model:
+          $ref: "#/components/schemas/AIProviderModel"
+      required:
+        - providers
 
     Alert:
       type: object
@@ -24515,6 +24894,10 @@ components:
           type: string
           nullable: true
           description: Error message if the trigger is in an error state
+        summary:
+          type: string
+          nullable: true
+          description: Short summary to be displayed when listed
       required:
         - external_id
         - workspace_id
@@ -24549,6 +24932,10 @@ components:
           type: string
           nullable: true
           description: Error message if the trigger is in an error state
+        summary:
+          type: string
+          nullable: true
+          description: Short summary to be displayed when listed
         external_data:
           type: object
           description: Configuration data from the external service
@@ -24641,6 +25028,10 @@ components:
           type: object
           description: Service-specific configuration (e.g., event types, filters)
           additionalProperties: true
+        summary:
+          type: string
+          nullable: true
+          description: Short summary to be displayed when listed
       required:
         - script_path
         - is_flow

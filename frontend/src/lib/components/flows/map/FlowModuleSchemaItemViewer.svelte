@@ -2,8 +2,6 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import type { FlowNodeColorClasses } from '$lib/components/graph'
-	import { Pencil } from 'lucide-svelte'
-	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 
 	let iconWidth: number = $state(0)
@@ -12,11 +10,9 @@
 		label?: string
 		path?: string
 		id?: string
-		deletable?: boolean
 		bold?: boolean
 		editId?: boolean
 		disableEditId?: boolean
-		hover?: boolean
 		colorClasses?: FlowNodeColorClasses
 		icon?: import('svelte').Snippet
 		onclick?: () => void
@@ -26,11 +22,9 @@
 		label = '',
 		path = '',
 		id = '',
-		deletable = false,
 		bold = false,
 		editId = $bindable(false),
 		disableEditId = false,
-		hover = false,
 		colorClasses,
 		icon,
 		onclick
@@ -87,11 +81,6 @@
 						}}
 			>
 				<span class="max-w-full text-2xs truncate flex items-center">
-					{#if !disableEditId && (editId || (hover && deletable))}
-						<span transition:slide={{ axis: 'x', duration: 100 }}>
-							<Pencil size={10} class="mr-1" />
-						</span>
-					{/if}
 					<span class="max-w-12 truncate">
 						{id}
 					</span>

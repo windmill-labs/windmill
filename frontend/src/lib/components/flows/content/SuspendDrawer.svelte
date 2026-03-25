@@ -39,27 +39,9 @@
 				render a cancel button, providing the operator with an option to cancel the step. e.g:
 				<Tabs selected="bun" class="pt-4">
 					<Tab value="bun" label="TypeScript (Bun)" />
-					<Tab value="deno" label="TypeScript (Deno)" />
 					<Tab value="python" label="Python" />
 
 					{#snippet content()}
-						<TabContent value="deno" class="p-2">
-							<HighlightCode
-								language={'deno'}
-								code={`import * as wmill from "npm:windmill-client@^1.158.2"
-    
-export async function main() {
-    const urls = await wmill.getResumeUrls("approver1")
-
-    return {
-        resume: urls['resume'],
-        cancel: urls['cancel'], 
-        default_args: {}, // optional, see below
-        enums: {} // optional, see below
-    }
-}`}
-							/>
-						</TabContent>
 						<TabContent value="bun" class="p-2">
 							<HighlightCode
 								language={'deno'}

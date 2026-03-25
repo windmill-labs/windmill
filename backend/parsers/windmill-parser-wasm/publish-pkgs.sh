@@ -36,3 +36,6 @@ popd
 
 pushd "pkg-asset" && npm publish ${args}
 popd
+
+pushd "pkg-py-imports" && npm publish ${args}
+popd

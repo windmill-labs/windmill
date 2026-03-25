@@ -117,7 +117,7 @@
 			ulClass
 		)}
 	>
-		{#each processedItems ?? [] as item, itemIndex (item.value)}
+		{#each processedItems ?? [] as item, itemIndex}
 			{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
 				<li
 					class={twMerge(

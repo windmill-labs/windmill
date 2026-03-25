@@ -98,20 +98,31 @@
 										{@html trigger.marked}
 									</span>
 								{:else}
-									{trigger.script_path}
+									{trigger.summary || trigger.script_path}
 								{/if}
 							</div>
+							{#if trigger.summary}
+								<div class="text-secondary text-xs truncate text-left font-normal">
+									{trigger.script_path}
+								</div>
+							{/if}
 							{#if service === 'google'}
 								{@const triggerType = trigger.service_config?.triggerType}
 								{@const resourceName = trigger.service_config?.resourceName}
 								{@const calendarName = trigger.service_config?.calendarName}
-								<div class="text-secondary text-xs truncate text-left font-normal flex items-center gap-1 mb-0.5">
+								<div
+									class="text-secondary text-xs truncate text-left font-normal flex items-center gap-1 mb-0.5"
+								>
 									{#if triggerType === 'calendar'}
 										<GoogleCalendarIcon height="12px" width="12px" />
 										Calendar: {calendarName || trigger.service_config?.calendarId || ''}
 									{:else}
 										<GoogleDriveIcon height="12px" width="12px" />
-										Drive: {resourceName ? resourceName : trigger.service_config?.resourceId ? trigger.service_config.resourceId : 'All changes'}
+										Drive: {resourceName
+											? resourceName
+											: trigger.service_config?.resourceId
+												? trigger.service_config.resourceId
+												: 'All changes'}
 									{/if}
 								</div>
 							{/if}

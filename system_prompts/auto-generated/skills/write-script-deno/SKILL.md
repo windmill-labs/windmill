@@ -614,7 +614,7 @@ workflow<T>(fn: (...args: any[]) => Promise<T>): void
  * await step("notify", () => sendEmail(urls.approvalPage));
  * const { value, approver } = await waitForApproval({ timeout: 3600 });
  */
-waitForApproval(options?: { timeout?: number; form?: object; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
 
 /**
  * Process items in parallel with optional concurrency control.

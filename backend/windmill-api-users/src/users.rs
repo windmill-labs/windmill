@@ -49,13 +49,13 @@ use windmill_common::users::truncate_token;
 use windmill_common::users::COOKIE_NAME;
 use windmill_common::utils::paginate;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::BASE_URL;
 use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user},
     db::UserDB,
     error::{self, Error, JsonResult, Result},
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
+use windmill_common::{BASE_URL, HUB_BASE_URL};
 use windmill_git_sync::handle_deployment_metadata;
 
 const COOKIE_PATH: &str = "/";
@@ -577,10 +577,42 @@ async fn logout(
     }
     tx.commit().await?;
     if let Some(rd) = rd {
-        Ok((StatusCode::TEMPORARY_REDIRECT, [(LOCATION, rd)]).into_response())
+        if is_valid_logout_redirect(&rd).await {
+            Ok((StatusCode::TEMPORARY_REDIRECT, [(LOCATION, rd)]).into_response())
+        } else {
+            tracing::warn!("Blocked logout redirect to non-whitelisted URL: {}", rd);
+            Ok((StatusCode::OK, "logged out successfully".to_string()).into_response())
+        }
     } else {
         Ok((StatusCode::OK, "logged out successfully".to_string()).into_response())
     }
+}
+
+async fn is_valid_logout_redirect(rd: &str) -> bool {
+    // Allow relative paths (same-origin redirects)
+    if rd.starts_with('/') && !rd.starts_with("//") {
+        return true;
+    }
+    let parsed = match url::Url::parse(rd) {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+    let host: &str = match parsed.host_str() {
+        Some(h) => h,
+        None => return false,
+    };
+    if host == "windmill.dev" || host.ends_with(".windmill.dev") {
+        return true;
+    }
+    let hub_url = HUB_BASE_URL.read().await.clone();
+    if let Ok(hub_parsed) = url::Url::parse(&hub_url) {
+        if let Some(hub_host) = hub_parsed.host_str() {
+            if host == hub_host {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 async fn whoami(

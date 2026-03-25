@@ -417,12 +417,14 @@ export async function processToolCall<T>({
 	tools,
 	toolCall,
 	helpers,
-	toolCallbacks
+	toolCallbacks,
+	workspace
 }: {
 	tools: Tool<T>[]
 	toolCall: ChatCompletionMessageFunctionToolCall
 	helpers: T
 	toolCallbacks: ToolCallbacks
+	workspace?: string
 }): Promise<ChatCompletionMessageParam> {
 	try {
 		const args = JSON.parse(toolCall.function.arguments || '{}')
@@ -472,7 +474,7 @@ export async function processToolCall<T>({
 				tools,
 				functionName: toolCall.function.name,
 				args,
-				workspace: get(workspaceStore) ?? '',
+				workspace: workspace ?? get(workspaceStore) ?? '',
 				helpers,
 				toolCallbacks,
 				toolId: toolCall.id

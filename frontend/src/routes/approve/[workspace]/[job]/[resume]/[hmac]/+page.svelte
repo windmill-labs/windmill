@@ -307,6 +307,7 @@
 					earlyStop={job.raw_flow?.skip_expr !== undefined}
 					cache={job.raw_flow?.cache_ttl !== undefined}
 					modules={job.raw_flow?.modules}
+					groups={job.raw_flow?.groups}
 					failureModule={job.raw_flow?.failure_module}
 					preprocessorModule={job.raw_flow?.preprocessor_module}
 					notSelectable

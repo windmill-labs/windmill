@@ -36,9 +36,10 @@ use windmill_common::ee_oss::{
 
 use windmill_common::{
     agent_workers::AgentConfig,
+    ai_cache::bump_instance_ai_config_revision,
     global_settings::{
-        APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING,
-        BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
         CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
@@ -312,6 +313,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                     "cache_init",
                     "",
                     &mut None,
+                    &None,
                 )
                 .await
                 {
@@ -1828,6 +1830,10 @@ async fn process_notify_event(
                         }
                         _ => {}
                     }
+                }
+                AI_CONFIG_SETTING => {
+                    tracing::info!("AI config setting changed, bumping instance AI cache revision");
+                    bump_instance_ai_config_revision();
                 }
                 OTEL_SETTING => {
                     tracing::info!("OTEL setting changed, restarting");

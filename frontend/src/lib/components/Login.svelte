@@ -164,7 +164,8 @@
 						workspace: $workspaceStore!
 					})
 					if (!emptyString(defaultApp.default_app_path)) {
-						goto(`/apps/get/${defaultApp.default_app_path}`)
+						const prefix = defaultApp.default_app_raw ? '/apps_raw/get' : '/apps/get'
+						goto(`${prefix}/${defaultApp.default_app_path}`)
 					} else {
 						goto(rd ?? '/')
 					}
@@ -341,6 +342,13 @@
 				btnClasses="mt-2 w-full"
 				on:click={() => {
 					if (saml) {
+						if (rd) {
+							try {
+								localStorage.setItem('rd', rd)
+							} catch (e) {
+								console.error('Could not persist redirection to local storage', e)
+							}
+						}
 						window.location.href = saml
 					} else {
 						sendUserToast('No SAML login available', true)

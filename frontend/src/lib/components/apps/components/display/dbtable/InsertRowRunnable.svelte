@@ -59,8 +59,8 @@
 				onCancel: () => {
 					sendUserToast('Error inserting row', true)
 				},
-				onError: () => {
-					sendUserToast('Error inserting row', true)
+				onError: (e) => {
+					sendUserToast(`Error inserting row: ${e?.message ?? e}`, true)
 				}
 			})
 		}

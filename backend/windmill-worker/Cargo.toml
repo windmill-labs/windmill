@@ -110,6 +110,7 @@ gcp_auth = { workspace = true, optional = true }
 rust_decimal.workspace = true
 jsonwebtoken.workspace = true
 sha2.workspace = true
+hmac.workspace = true
 pem = { workspace = true, optional = true }
 urlencoding.workspace = true
 nix.workspace = true
