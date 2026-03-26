@@ -22,8 +22,6 @@ export interface ConfigOption {
   // --- Non-schema metadata (stripped when generating schema) ---
   name: string;
   default: string;
-  /** Override type display in reference table (e.g., "Codebase[]" instead of "array") */
-  typeLabel?: string;
 
   // --- Template rendering hints (also stripped) ---
   section?: string;
@@ -38,7 +36,7 @@ export interface ConfigOption {
 
 /** Keys to strip from ConfigOption entries when generating JSON Schema. */
 const NON_SCHEMA_KEYS = new Set([
-  "name", "default", "typeLabel",
+  "name", "default",
   "section", "sectionNote", "commented", "templateValue",
   "example", "hidden", "inlineComment", "groupNote",
 ]);
@@ -81,11 +79,11 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
   // ── Core ──────────────────────────────────────────────────────────────
   { name: "defaultTs", type: "string", enum: ["bun", "deno"], default: "bun", description: "Default TypeScript runtime for new scripts" },
   { name: "includes", type: "array", items: { type: "string" }, default: '["f/**"]', description: "Glob patterns for files to include in sync",
-    typeLabel: "string[]", templateValue: '\n  - "f/**"' },
+    templateValue: '\n  - "f/**"' },
   { name: "extraIncludes", type: "array", items: { type: "string" }, default: "[]", description: "Additional glob patterns merged with includes (useful in branch overrides)",
-    typeLabel: "string[]", commented: true },
+    commented: true },
   { name: "excludes", type: "array", items: { type: "string" }, default: "[]", description: "Glob patterns for files to exclude from sync",
-    typeLabel: "string[]" },
+ },
 
   // ── What to sync ──────────────────────────────────────────────────────
   { name: "skipVariables", type: "boolean", default: "false", description: "Skip syncing variables",
@@ -115,7 +113,7 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
 
   // ── Sync behavior ─────────────────────────────────────────────────────
   { name: "parallel", type: "integer", default: "(unset)", description: "Number of parallel operations during sync",
-    typeLabel: "number", section: "Sync behavior", commented: true, templateValue: "4" },
+    section: "Sync behavior", commented: true, templateValue: "4" },
   { name: "locksRequired", type: "boolean", default: "false", description: "Require lock files for all scripts",
     commented: true, templateValue: "true" },
   { name: "lint", type: "boolean", default: "false", description: "Run linting before push",
@@ -132,7 +130,6 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
 
   // ── Codebase bundling ─────────────────────────────────────────────────
   { name: "codebases", type: "array", default: "[]", description: "Codebase bundling configurations for shared libraries",
-    typeLabel: "Codebase[]",
     items: {
       type: "object",
       properties: {
@@ -175,16 +172,16 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
   },
   // Sub-fields for reference table display only
   { name: "codebases[].relative_path", type: "string", default: "(required)", description: "Path to the codebase directory", hidden: true },
-  { name: "codebases[].includes", type: "array", items: { type: "string" }, default: "(all files)", description: "Glob patterns for files to include in bundle", typeLabel: "string[]", hidden: true },
-  { name: "codebases[].excludes", type: "array", items: { type: "string" }, default: "[]", description: "Glob patterns for files to exclude from bundle", typeLabel: "string[]", hidden: true },
+  { name: "codebases[].includes", type: "array", items: { type: "string" }, default: "(all files)", description: "Glob patterns for files to include in bundle", hidden: true },
+  { name: "codebases[].excludes", type: "array", items: { type: "string" }, default: "[]", description: "Glob patterns for files to exclude from bundle", hidden: true },
   { name: "codebases[].format", type: "string", enum: ["cjs", "esm"], default: "(unset)", description: "Bundle output format", hidden: true },
-  { name: "codebases[].external", type: "array", items: { type: "string" }, default: "[]", description: "Dependencies to leave unbundled (externals)", typeLabel: "string[]", hidden: true },
-  { name: "codebases[].assets", type: "array", default: "[]", description: "Static files to copy into the bundle", typeLabel: "{from, to}[]", hidden: true },
+  { name: "codebases[].external", type: "array", items: { type: "string" }, default: "[]", description: "Dependencies to leave unbundled (externals)", hidden: true },
+  { name: "codebases[].assets", type: "array", default: "[]", description: "Static files to copy into the bundle", hidden: true },
   { name: "codebases[].customBundler", type: "string", default: "(unset)", description: "Path to a custom bundler script (replaces esbuild)", hidden: true },
-  { name: "codebases[].inject", type: "array", items: { type: "string" }, default: "[]", description: "Files to inject into every entry point", typeLabel: "string[]", hidden: true },
-  { name: "codebases[].define", type: "object", additionalProperties: { type: "string" }, default: "{}", description: "Compile-time constant definitions", typeLabel: "Record<string, string>", hidden: true },
-  { name: "codebases[].banner", type: "object", additionalProperties: { type: "string" }, default: "{}", description: "Text to prepend to output files by type", typeLabel: "Record<string, string>", hidden: true },
-  { name: "codebases[].loader", type: "object", additionalProperties: { type: "string" }, default: "{}", description: "esbuild loader overrides by extension", typeLabel: "Record<string, string>", hidden: true },
+  { name: "codebases[].inject", type: "array", items: { type: "string" }, default: "[]", description: "Files to inject into every entry point", hidden: true },
+  { name: "codebases[].define", type: "object", additionalProperties: { type: "string" }, default: "{}", description: "Compile-time constant definitions", hidden: true },
+  { name: "codebases[].banner", type: "object", additionalProperties: { type: "string" }, default: "{}", description: "Text to prepend to output files by type", hidden: true },
+  { name: "codebases[].loader", type: "object", additionalProperties: { type: "string" }, default: "{}", description: "esbuild loader overrides by extension", hidden: true },
 
   // ── Git branches ──────────────────────────────────────────────────────
   { name: "gitBranches", type: "object", default: "{}", description: "Map git branches to workspaces and per-branch sync overrides",
@@ -223,24 +220,24 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
   // Sub-fields for reference table display only
   { name: "gitBranches.<branch>.baseUrl", type: "string", default: "(unset)", description: "Windmill instance URL for this branch", hidden: true },
   { name: "gitBranches.<branch>.workspaceId", type: "string", default: "(unset)", description: "Workspace ID to sync with for this branch", hidden: true },
-  { name: "gitBranches.<branch>.overrides", type: "object", default: "{}", description: "Override any top-level sync option for this branch", typeLabel: "Partial<SyncOptions>", hidden: true },
-  { name: "gitBranches.<branch>.promotionOverrides", type: "object", default: "{}", description: "Overrides applied when using --promotion flag", typeLabel: "Partial<SyncOptions>", hidden: true },
+  { name: "gitBranches.<branch>.overrides", type: "object", default: "{}", description: "Override any top-level sync option for this branch", hidden: true },
+  { name: "gitBranches.<branch>.promotionOverrides", type: "object", default: "{}", description: "Overrides applied when using --promotion flag", hidden: true },
   { name: "gitBranches.<branch>.specificItems", type: "object", default: "(unset)", description: "Only sync specific items on this branch", hidden: true },
-  { name: "gitBranches.<branch>.specificItems.variables", type: "array", items: { type: "string" }, default: "[]", description: "Specific variable paths to sync", typeLabel: "string[]", hidden: true },
-  { name: "gitBranches.<branch>.specificItems.resources", type: "array", items: { type: "string" }, default: "[]", description: "Specific resource paths to sync", typeLabel: "string[]", hidden: true },
-  { name: "gitBranches.<branch>.specificItems.triggers", type: "array", items: { type: "string" }, default: "[]", description: "Specific trigger paths to sync", typeLabel: "string[]", hidden: true },
-  { name: "gitBranches.<branch>.specificItems.folders", type: "array", items: { type: "string" }, default: "[]", description: "Specific folder paths to sync", typeLabel: "string[]", hidden: true },
+  { name: "gitBranches.<branch>.specificItems.variables", type: "array", items: { type: "string" }, default: "[]", description: "Specific variable paths to sync", hidden: true },
+  { name: "gitBranches.<branch>.specificItems.resources", type: "array", items: { type: "string" }, default: "[]", description: "Specific resource paths to sync", hidden: true },
+  { name: "gitBranches.<branch>.specificItems.triggers", type: "array", items: { type: "string" }, default: "[]", description: "Specific trigger paths to sync", hidden: true },
+  { name: "gitBranches.<branch>.specificItems.folders", type: "array", items: { type: "string" }, default: "[]", description: "Specific folder paths to sync", hidden: true },
   { name: "gitBranches.<branch>.specificItems.settings", type: "boolean", default: "false", description: "Whether to sync settings for this branch", hidden: true },
   { name: "gitBranches.commonSpecificItems", type: "object", default: "(unset)", description: "Specific items shared across all branches", hidden: true },
-  { name: "gitBranches.commonSpecificItems.variables", type: "array", items: { type: "string" }, default: "[]", description: "Variable paths shared across all branches", typeLabel: "string[]", hidden: true },
-  { name: "gitBranches.commonSpecificItems.resources", type: "array", items: { type: "string" }, default: "[]", description: "Resource paths shared across all branches", typeLabel: "string[]", hidden: true },
-  { name: "gitBranches.commonSpecificItems.triggers", type: "array", items: { type: "string" }, default: "[]", description: "Trigger paths shared across all branches", typeLabel: "string[]", hidden: true },
-  { name: "gitBranches.commonSpecificItems.folders", type: "array", items: { type: "string" }, default: "[]", description: "Folder paths shared across all branches", typeLabel: "string[]", hidden: true },
+  { name: "gitBranches.commonSpecificItems.variables", type: "array", items: { type: "string" }, default: "[]", description: "Variable paths shared across all branches", hidden: true },
+  { name: "gitBranches.commonSpecificItems.resources", type: "array", items: { type: "string" }, default: "[]", description: "Resource paths shared across all branches", hidden: true },
+  { name: "gitBranches.commonSpecificItems.triggers", type: "array", items: { type: "string" }, default: "[]", description: "Trigger paths shared across all branches", hidden: true },
+  { name: "gitBranches.commonSpecificItems.folders", type: "array", items: { type: "string" }, default: "[]", description: "Folder paths shared across all branches", hidden: true },
   { name: "gitBranches.commonSpecificItems.settings", type: "boolean", default: "false", description: "Whether to sync settings across all branches", hidden: true },
   { name: "environments", type: "object", default: "-", description: "Alias for gitBranches — use if you prefer environment-based terminology",
     properties: { commonSpecificItems: SPECIFIC_ITEMS_SCHEMA },
     additionalProperties: BRANCH_CONFIG_SCHEMA,
-    typeLabel: "(alias)", hidden: true },
+    hidden: true },
 ];
 
 // ─── Template generator ─────────────────────────────────────────────────────
@@ -304,14 +301,6 @@ export function generateCommentedTemplate(branchName?: string): string {
 
 // ─── Reference formatters ───────────────────────────────────────────────────
 
-/** Human-readable type for the reference table. */
-function displayType(opt: ConfigOption): string {
-  if (opt.typeLabel) return opt.typeLabel;
-  if (opt.enum) return opt.enum.map((v) => `"${v}"`).join(" | ");
-  if (opt.type === "array" && opt.items?.type === "string") return "string[]";
-  return opt.type;
-}
-
 export function formatConfigReference(): string {
   const nameWidth = 48;
   const descWidth = 70;
@@ -349,7 +338,7 @@ export function formatConfigReference(): string {
 
 export function formatConfigReferenceJson(): string {
   const clean = CONFIG_REFERENCE.map((opt) => ({
-    name: opt.name, type: displayType(opt), default: opt.default, description: opt.description,
+    name: opt.name, type: opt.type, default: opt.default, description: opt.description,
   }));
   return JSON.stringify(clean, null, 2);
 }
