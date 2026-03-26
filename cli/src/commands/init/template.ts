@@ -57,6 +57,12 @@ skipWorkspaceDependencies: false
 # Handle secrets as plain text (not recommended for production)
 # plainSecrets: false
 
+# Branch name to use promotion overrides from during sync
+# promotion: staging
+
+# Skip validation that current git branch matches a configured branch
+# skipBranchValidation: false
+
 # Use non-dotted path convention: __flow, __app, __raw_app instead of .flow, .app, .raw_app
 nonDottedPaths: true
 
@@ -164,6 +170,8 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
   { name: "lint", type: "boolean", default: "false", description: "Run linting before push" },
   { name: "plainSecrets", type: "boolean", default: "false", description: "Handle secrets as plain text (not recommended)" },
   { name: "message", type: "string", default: "(unset)", description: "Default commit message for sync operations" },
+  { name: "promotion", type: "string", default: "(unset)", description: "Branch name to use promotion overrides from during sync" },
+  { name: "skipBranchValidation", type: "boolean", default: "false", description: "Skip validation that current git branch matches a configured branch" },
 
   // Codebases
   { name: "codebases", type: "Codebase[]", default: "[]", description: "Codebase bundling configurations for shared libraries" },
@@ -192,6 +200,11 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
   { name: "gitBranches.<branch>.specificItems.folders", type: "string[]", default: "[]", description: "Specific folder paths to sync" },
   { name: "gitBranches.<branch>.specificItems.settings", type: "boolean", default: "false", description: "Whether to sync settings for this branch" },
   { name: "gitBranches.commonSpecificItems", type: "object", default: "(unset)", description: "Specific items shared across all branches" },
+  { name: "gitBranches.commonSpecificItems.variables", type: "string[]", default: "[]", description: "Variable paths shared across all branches" },
+  { name: "gitBranches.commonSpecificItems.resources", type: "string[]", default: "[]", description: "Resource paths shared across all branches" },
+  { name: "gitBranches.commonSpecificItems.triggers", type: "string[]", default: "[]", description: "Trigger paths shared across all branches" },
+  { name: "gitBranches.commonSpecificItems.folders", type: "string[]", default: "[]", description: "Folder paths shared across all branches" },
+  { name: "gitBranches.commonSpecificItems.settings", type: "boolean", default: "false", description: "Whether to sync settings across all branches" },
   { name: "environments", type: "(alias)", default: "-", description: "Alias for gitBranches — use if you prefer environment-based terminology" },
 ];
 
