@@ -73,7 +73,7 @@
 		<!-- Select all row -->
 		<div class="px-4 py-2 flex items-center justify-between">
 			<div
-				class="flex items-center gap-2 text-secondary text-sm"
+				class="flex items-center gap-2 text-secondary text-xs"
 				class:opacity-50={!hasSelectableItems}
 			>
 				<input
@@ -149,7 +149,7 @@
 
 	<!-- Footer -->
 	{#if footer}
-		<div class="p-4 bg-surface">
+		<div class="p-4">
 			{@render footer()}
 		</div>
 	{/if}

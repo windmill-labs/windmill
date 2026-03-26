@@ -1,6 +1,5 @@
 <script lang="ts">
 	import CompareWorkspaces from '$lib/components/CompareWorkspaces.svelte'
-	import DatatableSchemaDiff from '$lib/components/DatatableSchemaDiff.svelte'
 	import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
 	import { page } from '$app/state'
 	import { userWorkspaces } from '$lib/stores'
@@ -63,7 +62,6 @@
 		<!-- 	}} -->
 		<!-- /> -->
 		<CompareWorkspaces {currentWorkspaceId} {parentWorkspaceId} {comparison} />
-		<DatatableSchemaDiff {currentWorkspaceId} {parentWorkspaceId} />
 	{/if}
 	{#if !currentWorkspaceId}
 		No workspace selected
