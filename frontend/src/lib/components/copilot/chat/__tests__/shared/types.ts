@@ -1,4 +1,5 @@
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
+import type { AIProvider } from '$lib/gen/types.gen'
 
 /**
  * Token usage tracking for LLM calls.
@@ -83,6 +84,8 @@ export interface EvalRunnerOptions {
 	model?: string
 	/** Workspace ID for tool calls */
 	workspace?: string
+	/** AI provider (inferred from model name if omitted) */
+	provider?: AIProvider
 }
 
 /**

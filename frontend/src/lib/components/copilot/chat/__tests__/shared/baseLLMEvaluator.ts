@@ -1,4 +1,4 @@
-import OpenAI from 'openai'
+import Anthropic from '@anthropic-ai/sdk'
 import type { EvaluationResult } from './types'
 
 /**
@@ -13,9 +13,9 @@ export interface EvaluateParams {
 	expectedOutput: unknown
 	/** Domain-specific system prompt for the evaluator */
 	evaluatorSystemPrompt: string
-	/** API key for OpenRouter */
-	apiKey: string
-	/** Model to use for evaluation (default: 'anthropic/claude-sonnet-4.5') */
+	/** Anthropic API key for evaluation */
+	apiKey?: string
+	/** Model to use for evaluation (default: 'claude-sonnet-4-5-20250514') */
 	model?: string
 }
 
@@ -41,10 +41,7 @@ Score guidelines:
 
 /**
  * Evaluates how well a generated output matches an expected output using an LLM.
- * Returns a resemblance score (0-100), a qualitative statement, and any missing requirements.
- *
- * @param params Evaluation parameters including prompts, outputs, and API configuration
- * @returns Evaluation result with score, statement, and missing requirements
+ * Uses Anthropic API directly instead of OpenRouter.
  */
 export async function evaluateWithLLM(params: EvaluateParams): Promise<EvaluationResult> {
 	const {
@@ -53,10 +50,21 @@ export async function evaluateWithLLM(params: EvaluateParams): Promise<Evaluatio
 		expectedOutput,
 		evaluatorSystemPrompt,
 		apiKey,
-		model = 'anthropic/claude-sonnet-4.5'
+		model = 'claude-sonnet-4-5-20250514'
 	} = params
 
-	const client = new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey })
+	// @ts-ignore - process.env
+	const anthropicKey = apiKey ?? process.env.ANTHROPIC_API_KEY
+	if (!anthropicKey) {
+		return {
+			success: false,
+			resemblanceScore: 0,
+			statement: 'No API key available for evaluation',
+			error: 'ANTHROPIC_API_KEY not set and no apiKey provided'
+		}
+	}
+
+	const client = new Anthropic({ apiKey: anthropicKey })
 
 	const userMessage = `## User's Original Request
 ${userPrompt}
@@ -76,16 +84,18 @@ Please evaluate how well the generated output:
 2. Matches the structure and logic of the expected reference output`
 
 	try {
-		const response = await client.chat.completions.create({
+		const response = await client.messages.create({
 			model,
+			max_tokens: 2048,
+			system: evaluatorSystemPrompt,
 			messages: [
-				{ role: 'system', content: evaluatorSystemPrompt },
 				{ role: 'user', content: userMessage }
 			],
 			temperature: 0
 		})
 
-		const content = response.choices[0]?.message?.content
+		const textBlock = response.content.find((block) => block.type === 'text')
+		const content = textBlock?.text
 		if (!content) {
 			return {
 				success: false,
@@ -98,7 +108,6 @@ Please evaluate how well the generated output:
 		// Parse JSON response - handle potential markdown code blocks
 		let jsonContent = content.trim()
 		if (jsonContent.startsWith('```')) {
-			// Remove markdown code block wrapper
 			jsonContent = jsonContent.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
 		}
 

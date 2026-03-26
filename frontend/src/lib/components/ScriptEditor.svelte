@@ -67,6 +67,7 @@
 		getDebugFileExtension,
 		fetchContextualVariables,
 		signDebugRequest,
+		signMultiplayerRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
 	import { SvelteSet } from 'svelte/reactivity'
@@ -1111,6 +1112,15 @@
 			return
 		}
 
+		let token: string | undefined
+		try {
+			token = await signMultiplayerRequest($workspaceStore ?? '')
+		} catch (e) {
+			console.error('Failed to sign multiplayer request:', e)
+			sendUserToast('Failed to authorize multiplayer session', true)
+			return
+		}
+
 		const ydoc = new Y.Doc()
 		if (wsProvider) {
 			wsProvider.destroy()
@@ -1121,7 +1131,7 @@
 			buildWsUrl('/ws_mp/'),
 			$workspaceStore + '/' + (path ?? 'no-room-name'),
 			ydoc,
-			{ connect: false }
+			{ connect: false, params: { token } }
 		)
 
 		wsProvider.on('sync', (isSynced: boolean) => {

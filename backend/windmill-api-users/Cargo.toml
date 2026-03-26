@@ -34,3 +34,4 @@ time.workspace = true
 tokio.workspace = true
 tower-cookies.workspace = true
 tracing.workspace = true
+url.workspace = true
