@@ -149,6 +149,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 	import YAML from 'yaml'
+	import DrawerContent from './common/drawer/DrawerContent.svelte'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -260,7 +261,6 @@
 		// behind = parent changed → migration runs on fork to update
 		const sourceSchema = direction === 'ahead' ? diff.forkSchema : diff.parentSchema
 		migrationSql = generateMigrationSql(change, sourceSchema)
-		console.log('migrationSql', migrationSql)
 		drawerOpen = true
 	}
 
@@ -437,57 +437,50 @@
 			drawerDirection === 'ahead'
 				? `Deploy to ${parentWorkspaceId}`
 				: `Update ${currentWorkspaceId}`}
-		<div class="flex flex-col h-full">
-			<div class="flex items-center justify-between px-4 py-3 border-b">
-				<h3 class="text-sm font-semibold">
-					{drawerChange.schemaName}.{drawerChange.tableName}
-				</h3>
-				<span class="text-2xs text-tertiary">
-					{drawerDirection === 'ahead' ? 'Fork → Parent' : 'Parent → Fork'}
-				</span>
-			</div>
-
-			<!-- Diff section -->
-			<div class="border-b" style="height: 45%;">
-				<div class="px-4 py-1.5 text-2xs font-semibold text-secondary border-b">
-					Schema diff (parent ↔ fork)
-				</div>
-				<div class="h-[calc(100%-28px)]">
-					{#await import('$lib/components/DiffEditor.svelte')}
-						<div class="flex items-center justify-center h-full">
-							<Loader2 class="w-5 h-5 animate-spin" />
-						</div>
-					{:then Module}
-						<Module.default
-							open={true}
-							automaticLayout
-							className="h-full"
-							defaultLang="yaml"
-							defaultOriginal={yaml.original}
-							defaultModified={yaml.modified}
-							readOnly
-						/>
-					{/await}
-				</div>
-			</div>
-
-			<!-- SQL migration section -->
-			<div class="flex flex-col grow overflow-hidden">
-				<div class="px-4 py-1.5 text-2xs font-semibold text-secondary border-b">
-					SQL migration
-				</div>
-				<div class="grow">
-					<SimpleEditor lang="sql" bind:code={migrationSql} automaticLayout />
-				</div>
-			</div>
-
-			<!-- Action bar -->
-			<div class="flex items-center justify-end gap-2 px-4 py-3 border-t">
+		<DrawerContent
+			title="{drawerChange.schemaName}.{drawerChange.tableName} ({drawerDirection === 'ahead'
+				? 'Fork → Parent'
+				: 'Parent → Fork'})"
+		>
+			{#snippet actions()}
 				<Button variant="default" onclick={() => (drawerOpen = false)}>Cancel</Button>
 				<Button variant="accent" loading={migrationRunning} onclick={runMigration}>
 					{targetLabel}
 				</Button>
+			{/snippet}
+			<div class="flex flex-col h-full">
+				<!-- Diff section -->
+				<div style="height: 45%;">
+					<div class="py-1.5 text-2xs font-semibold text-secondary">
+						Schema diff (parent ↔ fork)
+					</div>
+					<div class="h-[calc(100%-28px)] border rounded-md overflow-clip">
+						{#await import('$lib/components/DiffEditor.svelte')}
+							<div class="flex items-center justify-center h-full">
+								<Loader2 class="w-5 h-5 animate-spin" />
+							</div>
+						{:then Module}
+							<Module.default
+								open={true}
+								automaticLayout
+								className="h-full"
+								defaultLang="yaml"
+								defaultOriginal={yaml.original}
+								defaultModified={yaml.modified}
+								readOnly
+							/>
+						{/await}
+					</div>
+				</div>
+
+				<!-- SQL migration section -->
+				<div class="flex flex-col grow overflow-hidden mt-4">
+					<div class="py-1.5 text-2xs font-semibold text-secondary"> SQL migration </div>
+					<div class="grow overflow-clip rounded-md border">
+						<SimpleEditor class="h-full" lang="sql" bind:code={migrationSql} />
+					</div>
+				</div>
 			</div>
-		</div>
+		</DrawerContent>
 	{/if}
 </Drawer>
