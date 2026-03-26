@@ -155,7 +155,8 @@ async fn restore_script(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) -
         sqlx::query("INSERT INTO script SELECT * FROM jsonb_populate_record(null::script, $1)")
             .bind(script)
             .execute(&mut *tx)
-            .await?;
+            .await
+            .map_err(|e| Error::internal_err(format!("restoring script: {e:#}")))?;
     }
 
     // Restore drafts if present
@@ -267,7 +268,14 @@ async fn restore_app(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) -> R
         .get("row")
         .ok_or_else(|| Error::internal_err("Invalid trash data for app"))?;
 
-    // Restore app_versions first (app references them via FK)
+    // Insert app first (app_version has FK to app.id)
+    sqlx::query("INSERT INTO app SELECT * FROM jsonb_populate_record(null::app, $1)")
+        .bind(row)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| Error::internal_err(format!("restoring app row: {e:#}")))?;
+
+    // Then restore app_versions
     if let Some(versions) = data.get("app_versions").and_then(|v| v.as_array()) {
         for version in versions {
             sqlx::query(
@@ -276,14 +284,10 @@ async fn restore_app(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) -> R
             )
             .bind(version)
             .execute(&mut *tx)
-            .await?;
+            .await
+            .map_err(|e| Error::internal_err(format!("restoring app_version: {e:#}")))?;
         }
     }
-
-    sqlx::query("INSERT INTO app SELECT * FROM jsonb_populate_record(null::app, $1)")
-        .bind(row)
-        .execute(&mut *tx)
-        .await?;
 
     // Restore drafts
     if let Some(drafts) = data.get("drafts").and_then(|v| v.as_array()) {
