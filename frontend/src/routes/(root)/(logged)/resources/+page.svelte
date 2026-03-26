@@ -30,13 +30,14 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
-	import { FolderService, OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
 	import {
-		enterpriseLicense,
-		userStore,
-		workspaceStore,
-		userWorkspaces
-	} from '$lib/stores'
+		FolderService,
+		OauthService,
+		ResourceService,
+		WorkspaceService,
+		type ListableResource
+	} from '$lib/gen'
+	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		canWrite,
@@ -151,7 +152,12 @@
 	let folderPresets = $derived([
 		...folders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
 		...(resourcesFilterSchema.user_folders_only
-			? [{ name: resourcesFilterSchema.user_folders_only.label ?? '?', value: 'user_folders_only:\\ true' }]
+			? [
+					{
+						name: resourcesFilterSchema.user_folders_only.label ?? '?',
+						value: 'user_folders_only:\\ true'
+					}
+				]
 			: [])
 	])
 
@@ -577,6 +583,7 @@
 	open={Boolean(deleteConfirmedCallback)}
 	title="Remove resource"
 	confirmationText="Remove"
+	trashbin
 	on:canceled={() => {
 		deleteConfirmedCallback = undefined
 	}}
