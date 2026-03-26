@@ -244,7 +244,6 @@
 								<HighlightCode
 									language={recording.language as Script['language']}
 									code={recording.code}
-									lines
 									className="text-2xs"
 								/>
 							</div>
