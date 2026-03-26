@@ -41,15 +41,9 @@ pub use quick_cache::sync::Cache;
 #[cfg(not(feature = "scoped_cache"))]
 lazy_static! {
     /// Cache directory for windmill server/worker(s).
-    /// 1. If `XDG_CACHE_HOME` is set, use `"${XDG_CACHE_HOME}/windmill"`.
-    /// 2. If `HOME` is set, use `"${HOME}/.cache/windmill"`.
-    /// 3. Otherwise, use `"{std::env::temp_dir()}/windmill/cache"`.
+    /// Lives under `WINDMILL_DIR` (default `/tmp/windmill`) as `cache_db/`.
     pub static ref CACHE_PATH: PathBuf = {
-        std::env::var("XDG_CACHE_HOME")
-            .map(PathBuf::from)
-            .or_else(|_| std::env::var("HOME").map(|home| PathBuf::from(home).join(".cache")))
-            .map(|cache| cache.join("windmill"))
-            .unwrap_or_else(|_| std::env::temp_dir().join("windmill/cache"))
+        PathBuf::from(&*crate::worker::WINDMILL_DIR).join("cache_db")
     };
 }
 
