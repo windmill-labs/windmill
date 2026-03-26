@@ -1123,3 +1123,40 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn flow_value_ignores_notes_and_groups() {
+        // FlowValue should parse successfully even when notes/groups are present —
+        // it just ignores them (they're not its fields).
+        let input = json!({
+            "modules": [],
+            "notes": [{"id": "n1", "text": "hello", "color": "yellow", "type": "free"}],
+            "groups": [{"start_id": "a", "end_id": "b", "summary": "grp"}]
+        });
+        let val: FlowValue = serde_json::from_value(input).unwrap();
+        assert_eq!(val.modules.len(), 0);
+
+        // Round-trip through FlowValue drops notes/groups (by design)
+        let output = serde_json::to_string(&val).unwrap();
+        assert!(!output.contains("notes"));
+        assert!(!output.contains("groups"));
+    }
+
+    #[test]
+    fn flow_value_parses_modules() {
+        let input = json!({
+            "modules": [{
+                "id": "a",
+                "value": {"type": "identity"}
+            }],
+            "notes": [{"id": "n1", "text": "t", "color": "blue", "type": "free"}]
+        });
+        let val: FlowValue = serde_json::from_value(input).unwrap();
+        assert_eq!(val.modules.len(), 1);
+    }
+}
