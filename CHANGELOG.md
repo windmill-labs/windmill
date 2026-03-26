@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.666.0](https://github.com/windmill-labs/windmill/compare/v1.665.0...v1.666.0) (2026-03-26)
+
+
+### Features
+
+* add PDF input support to AI agent ([#8525](https://github.com/windmill-labs/windmill/issues/8525)) ([e44504c](https://github.com/windmill-labs/windmill/commit/e44504c6e93e7a4ee94ced03ab626b79a4fd0754))
+
+
+### Bug Fixes
+
+* add relative imports to the dependency list in deploymentUI ([#8548](https://github.com/windmill-labs/windmill/issues/8548)) ([d760ea5](https://github.com/windmill-labs/windmill/commit/d760ea5eaf4dc33007f1fd3e5e07b86925a0aa11))
+* filter null entries in FileUpload initialValue to prevent s3 access error ([#8544](https://github.com/windmill-labs/windmill/issues/8544)) ([1a73012](https://github.com/windmill-labs/windmill/commit/1a73012e0737a6ebea8307013dc0f79982269d91))
+* pass pre-bound TcpListener to run_server to fix Windows CI test race ([#8542](https://github.com/windmill-labs/windmill/issues/8542)) ([d7f4b95](https://github.com/windmill-labs/windmill/commit/d7f4b950ce6e966ed1b410e03d48fe96bc036e73))
+* resolve parent_hash race condition in sync push with auto_parent ([#8545](https://github.com/windmill-labs/windmill/issues/8545)) ([71549c3](https://github.com/windmill-labs/windmill/commit/71549c3db053bcc209c7065ac8cd42f1e8047cc3))
+* upload_s3_file not working in VS Code extension ([#8547](https://github.com/windmill-labs/windmill/issues/8547)) ([1fa4d91](https://github.com/windmill-labs/windmill/commit/1fa4d919b30ac9eff2d1789fba2695450ba115e7))
+
 ## [1.665.0](https://github.com/windmill-labs/windmill/compare/v1.664.0...v1.665.0) (2026-03-26)
 
 
