@@ -3,7 +3,7 @@ import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import * as log from "../../core/log.ts";
-import { stringify as yamlStringify } from "yaml";
+import { readFileSync } from "node:fs";
 import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
@@ -104,26 +104,25 @@ async function initAction(opts: InitOptions) {
                 default: true,
               })))
           ) {
-            // Update the config with workspace binding
-            const currentConfig = await import("../../core/conf.ts").then((m) =>
-              m.readConfigFile()
-            );
-            if (!currentConfig.gitBranches) {
-              currentConfig.gitBranches = {};
-            }
-            if (!currentConfig.gitBranches[currentBranch]) {
-              currentConfig.gitBranches[currentBranch] = { overrides: {} };
-            }
-
+            // Update the config with workspace binding, preserving YAML comments
+            // by doing targeted string replacements on the template we just wrote
             log.info(
               `binding branch ${currentBranch} to workspace ${activeWorkspace.name} on ${activeWorkspace.remote}`
             );
-            currentConfig.gitBranches[currentBranch].baseUrl =
-              activeWorkspace.remote;
-            currentConfig.gitBranches[currentBranch].workspaceId =
-              activeWorkspace.workspaceId;
 
-            await writeFile("wmill.yaml", yamlStringify(currentConfig), "utf-8");
+            let yaml = readFileSync("wmill.yaml", "utf-8");
+
+            // Uncomment and set baseUrl/workspaceId under the current branch
+            yaml = yaml.replace(
+              /^(\s*)# baseUrl:.*$/m,
+              `$1baseUrl: ${activeWorkspace.remote}`
+            );
+            yaml = yaml.replace(
+              /^(\s*)# workspaceId:.*$/m,
+              `$1workspaceId: ${activeWorkspace.workspaceId}`
+            );
+
+            await writeFile("wmill.yaml", yaml, "utf-8");
 
             log.info(
               colors.green(
