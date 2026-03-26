@@ -70,12 +70,7 @@
 				<p class="text-xs text-secondary mb-2">
 					Upload a recording JSON file to replay a flow or script execution offline.
 				</p>
-				<FileInput
-					accept=".json"
-					convertTo="text"
-					class="w-full"
-					on:change={handleFileChange}
-				>
+				<FileInput accept=".json" convertTo="text" class="w-full" on:change={handleFileChange}>
 					Drag and drop a recording file
 				</FileInput>
 			</div>

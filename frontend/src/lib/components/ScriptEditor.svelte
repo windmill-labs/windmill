@@ -631,6 +631,10 @@
 	}
 
 	export async function runTest() {
+		// Discard any previous recording when running a normal test
+		if (!scriptRecording.active) {
+			lastRecording = undefined
+		}
 		// Not defined if JobProgressBar not loaded
 		jobProgressBar?.reset()
 		// Flush module edits back to modules map before running preview
@@ -1520,16 +1524,7 @@
 									displayName: 'Test & record',
 									icon: Disc,
 									action: () => recordAndTest()
-								},
-								...(lastRecording
-									? [
-											{
-												displayName: 'Download recording',
-												icon: Download,
-												action: () => downloadRecording()
-											}
-										]
-									: [])
+								}
 							]}
 						/>
 					</div>

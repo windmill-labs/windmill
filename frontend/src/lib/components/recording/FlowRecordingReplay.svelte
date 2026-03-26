@@ -2,7 +2,8 @@
 	import type { Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
-	import FlowViewer from '$lib/components/FlowViewer.svelte'
+	import FlowViewer, { type TabValue } from '$lib/components/FlowViewer.svelte'
+	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import FlowExecutionStatus from '$lib/components/runs/FlowExecutionStatus.svelte'
 	import { setActiveReplay } from './flowRecording.svelte'
@@ -13,21 +14,30 @@
 	import { InfoIcon, LogOut, Play, Square } from 'lucide-svelte'
 	import { onDestroy } from 'svelte'
 
-	interface Props {
-		recording: FlowRecording
-	}
-
-	let { recording }: Props = $props()
-
 	type ReplayState = 'loaded' | 'playing'
 
-	let replayState: ReplayState = $state('loaded')
+	interface Props {
+		recording: FlowRecording
+		selectedTab?: TabValue
+		replayState?: ReplayState
+		hideControls?: boolean
+		hideTabs?: boolean
+	}
+
+	let {
+		recording,
+		selectedTab = $bindable<TabValue>('ui'),
+		replayState = $bindable<ReplayState>('loaded'),
+		hideControls = false,
+		hideTabs = false
+	}: Props = $props()
+
 	let rootJobId: string | undefined = $state(undefined)
 	let rootInitialJob: Job | undefined = $state(undefined)
 	let job: Job | undefined = $state(undefined)
 	let done = $derived((job as any)?.type === 'CompletedJob')
 
-	function stop() {
+	export function stop() {
 		setActiveReplay(undefined)
 		job = undefined
 		initRecording()
@@ -36,10 +46,7 @@
 	function findRootJobId(data: FlowRecording): string | undefined {
 		for (const [id, recorded] of Object.entries(data.jobs)) {
 			const j = recorded.initial_job
-			if (
-				(j.job_kind === 'flow' || j.job_kind === 'flowpreview') &&
-				!j.parent_job
-			) {
+			if ((j.job_kind === 'flow' || j.job_kind === 'flowpreview') && !j.parent_job) {
 				return id
 			}
 		}
@@ -81,9 +88,7 @@
 			for (const mod of fs.modules) {
 				const durations = mod.flow_jobs_duration
 				if (durations?.started_at) {
-					durations.started_at = durations.started_at.map(
-						(d: string) => offsetDate(d) ?? d
-					)
+					durations.started_at = durations.started_at.map((d: string) => offsetDate(d) ?? d)
 				}
 			}
 		}
@@ -145,22 +150,27 @@
 		// Push the root's completed event to fire after all sub-job events
 		let completedIdx = -1
 		for (let i = rootEvents.length - 1; i >= 0; i--) {
-			if (rootEvents[i].data.completed) { completedIdx = i; break }
+			if (rootEvents[i].data.completed) {
+				completedIdx = i
+				break
+			}
 		}
 		if (completedIdx >= 0 && rootEvents[completedIdx].t < maxSubJobT) {
 			rootEvents[completedIdx].t = maxSubJobT + 50
 		}
 	}
 
-	function startReplay() {
+	export function startReplay() {
+		if (!rootJobId) return
 		// JSON round-trip to unwrap reactive proxies and strip non-cloneable properties
 		const snapshot = JSON.parse(JSON.stringify(recording)) as FlowRecording
-		fixEventOrdering(snapshot, rootJobId!)
-		rebaseTimestamps(snapshot, rootJobId!)
+		fixEventOrdering(snapshot, rootJobId)
+		rebaseTimestamps(snapshot, rootJobId)
 		setActiveReplay(snapshot)
-		rootInitialJob = buildInitialJob(snapshot, rootJobId!)
+		rootInitialJob = buildInitialJob(snapshot, rootJobId)
 		job = undefined
 		replayState = 'playing'
+		selectedTab = 'ui'
 	}
 
 	onDestroy(() => {
@@ -177,53 +187,81 @@
 			</p>
 		</div>
 	</div>
-{:else if replayState === 'loaded'}
+{:else}
 	<div class="flex flex-col gap-4">
-		<div class="flex items-center justify-between">
-			<div class="flex items-center gap-2">
-				<h2 class="text-lg font-semibold text-emphasis">{recording.flow_path}</h2>
-				<Tooltip placement="bottom">
-					<InfoIcon size={16} class="text-tertiary" />
-					{#snippet text()}
-												<span class="text-2xs" >
-							Recorded {new Date(recording.recorded_at).toLocaleString()} &mdash;
-							{(recording.total_duration_ms / 1000).toFixed(1)}s
-						</span>
-											{/snippet}
-				</Tooltip>
+		{#if !hideControls}
+			<div class="flex items-center justify-between">
+				<div class="flex items-center gap-2">
+					<h2 class="text-lg font-semibold text-emphasis">
+						{replayState === 'playing' ? 'Replaying: ' : ''}{recording.flow_path}
+					</h2>
+					<Tooltip placement="bottom">
+						<InfoIcon size={16} class="text-tertiary" />
+						{#snippet text()}
+							<span class="text-2xs">
+								Recorded {new Date(recording.recorded_at).toLocaleString()} &mdash;
+								{(recording.total_duration_ms / 1000).toFixed(1)}s
+							</span>
+						{/snippet}
+					</Tooltip>
+				</div>
+				{#if replayState === 'loaded'}
+					<Button variant="contained" color="blue" onclick={startReplay} startIcon={{ icon: Play }}>
+						Play
+					</Button>
+				{:else}
+					<Button
+						variant="border"
+						size="xs"
+						onclick={stop}
+						startIcon={{ icon: done ? LogOut : Square }}
+					>
+						{done ? 'Exit' : 'Stop'}
+					</Button>
+				{/if}
 			</div>
-			<Button variant="contained" color="blue" on:click={startReplay} startIcon={{ icon: Play }}>
-				Play
-			</Button>
-		</div>
-		<FlowViewer flow={recording.flow} noSummary noInput hideDefaultInputs showStepHint />
-	</div>
-{:else if replayState === 'playing' && rootJobId}
-	<div class="flex flex-col gap-4">
-		<div class="flex items-center justify-between">
-			<h2 class="text-lg font-semibold text-emphasis">Replaying: {recording.flow_path}</h2>
-			<Button variant="border" size="xs" on:click={stop} startIcon={{ icon: done ? LogOut : Square }}>
-				{done ? 'Exit' : 'Stop'}
-			</Button>
-		</div>
-		<FlowProgressBar {job} slim textPosition="bottom" showStepId />
-		{#if job}
-			<FlowExecutionStatus
-				{job}
-				workspaceId={$workspaceStore}
-				isOwner={false}
-				innerModules={job?.flow_status?.modules}
-				suspendStatus={{ val: {} }}
-			/>
 		{/if}
-		<FlowStatusViewer
-			jobId={rootJobId}
-			initialJob={rootInitialJob}
-			bind:job
-			workspaceId={$workspaceStore}
-			wideResults
-			showLogsWithResult
-			hideFlowResult={!done}
-		/>
+
+		<FlowViewer
+			flow={recording.flow}
+			noSummary
+			noInput
+			hideDefaultInputs
+			showStepHint={replayState === 'loaded'}
+			bind:selectedTab
+			{hideTabs}
+			initTab="ui"
+		>
+			{#snippet graphContent()}
+				{#if replayState === 'playing' && rootJobId}
+					<div class="flex flex-col gap-4">
+						<FlowProgressBar {job} slim textPosition="bottom" showStepId />
+						{#if job}
+							<FlowExecutionStatus
+								{job}
+								workspaceId={$workspaceStore}
+								isOwner={false}
+								innerModules={job?.flow_status?.modules}
+								suspendStatus={{ val: {} }}
+							/>
+						{/if}
+						<FlowStatusViewer
+							jobId={rootJobId}
+							initialJob={rootInitialJob}
+							bind:job
+							workspaceId={$workspaceStore}
+							wideResults
+							showLogsWithResult
+							hideFlowResult={!done}
+						/>
+					</div>
+				{:else}
+					<div class="flow-root w-full pb-4">
+						<p class="text-2xs text-tertiary py-1">Click on a step to see its details</p>
+						<FlowGraphViewer hideDefaultInputs flow={recording.flow} overflowAuto />
+					</div>
+				{/if}
+			{/snippet}
+		</FlowViewer>
 	</div>
 {/if}
