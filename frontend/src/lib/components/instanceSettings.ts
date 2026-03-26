@@ -51,6 +51,8 @@ export interface Setting {
 		| 'otel'
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
+		| 'github_enterprise_app'
+		| 'ws_connectivity'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -85,7 +87,8 @@ const indexerSettingsSchema = z
 		refresh_index_period: positiveNumber.optional(),
 		max_indexed_job_log_size: positiveNumber.optional(),
 		commit_log_max_batch_size: positiveNumber.optional(),
-		refresh_log_index_period: positiveNumber.optional()
+		refresh_log_index_period: positiveNumber.optional(),
+		max_index_time_window_secs: positiveNumber.optional()
 	})
 	.passthrough()
 
@@ -189,6 +192,16 @@ export const settings: Record<string, Setting[]> = {
 				'When enabled apps will be accessible at /a/{workspace_id}/{custom_path} instead of /a/{custom_path} allowing you to define same custom path for apps in different workspace without conflict',
 			key: 'app_workspaced_route',
 			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Audit log retention (days)',
+			key: 'audit_log_retention_days',
+			description: 'How long to keep audit log entries in the database. Default: 365 days.',
+			fieldType: 'number',
+			placeholder: '365',
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
@@ -464,7 +477,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Nuget Config',
-			description: 'Write a nuget.config file to set custom package sources and credentials',
+			description:
+				'Write a nuget.config file to set custom package sources and credentials. Use <clear /> inside <packageSources> to remove default sources and only use your custom ones',
 			key: 'nuget_config',
 			fieldType: 'codearea',
 			codeAreaLang: 'xml',
@@ -597,6 +611,17 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		}
 	],
+	Webhooks: [
+		{
+			label: 'Instance Events Webhook',
+			description:
+				'URL to receive POST requests for instance events (user added, OAuth signup, user invited/added/joined workspace).',
+			key: 'instance_events_webhook',
+			fieldType: 'text',
+			placeholder: 'https://example.com/webhook',
+			storage: 'setting'
+		}
+	],
 	'OTEL/Prom': [
 		{
 			label: 'OpenTelemetry',
@@ -637,11 +662,10 @@ export const settings: Record<string, Setting[]> = {
 
 	Telemetry: [
 		{
-			label: 'Disable telemetry',
+			label: 'Minimal telemetry',
 			key: 'disable_stats',
 			fieldType: 'boolean',
-			storage: 'setting',
-			hiddenInEe: true
+			storage: 'setting'
 		}
 	],
 	'Secret Storage': [
@@ -653,6 +677,40 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'secret_backend',
 			storage: 'setting',
 			ee_only: 'HashiCorp Vault integration is an Enterprise Edition feature'
+		}
+	],
+	'GitHub Enterprise App': [
+		{
+			label: 'GitHub Enterprise App',
+			description:
+				'Configure a self-managed GitHub App for GitHub Enterprise Server (or any GitHub instance) to enable git sync without stats.windmill.dev.',
+			key: 'github_enterprise_app',
+			fieldType: 'github_enterprise_app',
+			storage: 'setting',
+			ee_only: '',
+			error:
+				'When self-managed mode is enabled, Base URL, App ID, App Slug, and Private Key are required.',
+			isValid: (v: any) => {
+				if (!v?.self_managed) return true
+				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.private_key)
+			}
+		}
+	],
+	WebSocket: [
+		{
+			label: 'WebSocket connectivity',
+			description:
+				'Test connectivity to multiplayer, LSP, and debugger WebSocket services. Enable custom URL override for deployments where WebSocket traffic routes to a different host.',
+			key: 'ws_base_url',
+			fieldType: 'ws_connectivity',
+			storage: 'setting',
+			requiresReloadOnChange: true,
+			isValid: (value: string | undefined) =>
+				!value ||
+				(value.startsWith('ws') &&
+					value.includes('://') &&
+					!value.endsWith('/') &&
+					!value.endsWith(' '))
 		}
 	]
 }
@@ -743,6 +801,12 @@ export const instanceSettingsNavigationGroups = [
 				isEE: true
 			},
 			{
+				id: 'webhooks',
+				label: 'Webhooks',
+				aiId: 'instance-settings-webhooks',
+				aiDescription: 'Instance events webhook settings'
+			},
+			{
 				id: 'otel_prom',
 				label: 'OTEL/Prometheus',
 				aiId: 'instance-settings-otel-prom',
@@ -759,8 +823,26 @@ export const instanceSettingsNavigationGroups = [
 		]
 	},
 	{
+		title: 'AI',
+		items: [
+			{
+				id: 'ai',
+				label: 'AI',
+				aiId: 'instance-settings-ai',
+				aiDescription: 'Instance AI settings (providers, models, prompts)'
+			}
+		]
+	},
+	{
 		title: 'Advanced',
 		items: [
+			{
+				id: 'github_enterprise_app',
+				label: 'GitHub Enterprise App',
+				aiId: 'instance-settings-github-enterprise-app',
+				aiDescription: 'Self-managed GitHub App for GitHub Enterprise Server git sync',
+				isEE: true
+			},
 			{
 				id: 'private_hub',
 				label: 'Private Hub',
@@ -779,6 +861,12 @@ export const instanceSettingsNavigationGroups = [
 				label: 'Secret Storage',
 				aiId: 'instance-settings-secret-storage',
 				aiDescription: 'Instance secret storage settings'
+			},
+			{
+				id: 'websocket',
+				label: 'WebSocket',
+				aiId: 'instance-settings-websocket',
+				aiDescription: 'WebSocket connectivity test and URL override'
 			}
 		]
 	}
@@ -786,19 +874,23 @@ export const instanceSettingsNavigationGroups = [
 
 export const tabToCategoryMap: Record<string, string> = {
 	general: 'Core',
+	ai: 'AI',
 	sso: 'Auth/OAuth/SAML',
 	oauth: 'Auth/OAuth/SAML',
 	scim_saml: 'Auth/OAuth/SAML',
 	smtp: 'SMTP',
 	registries: 'Registries',
 	alerts: 'Alerts',
+	webhooks: 'Webhooks',
 	otel_prom: 'OTEL/Prom',
 	indexer: 'Indexer',
 	telemetry: 'Telemetry',
 	secret_storage: 'Secret Storage',
 	object_storage: 'Object Storage',
 	jobs: 'Jobs',
-	private_hub: 'Private Hub'
+	private_hub: 'Private Hub',
+	github_enterprise_app: 'GitHub Enterprise App',
+	websocket: 'WebSocket'
 }
 
 export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
@@ -817,17 +909,21 @@ export const setupNavigationGroups = instanceSettingsNavigationGroups
 
 export const categoryToTabMap: Record<string, string> = {
 	Core: 'general',
+	AI: 'ai',
 	SMTP: 'smtp',
 	'Auth/OAuth/SAML': 'sso',
 	Registries: 'registries',
 	Alerts: 'alerts',
+	Webhooks: 'webhooks',
 	'OTEL/Prom': 'otel_prom',
 	Indexer: 'indexer',
 	Telemetry: 'telemetry',
 	'Secret Storage': 'secret_storage',
 	'Object Storage': 'object_storage',
 	Jobs: 'jobs',
-	'Private Hub': 'private_hub'
+	'Private Hub': 'private_hub',
+	'GitHub Enterprise App': 'github_enterprise_app',
+	WebSocket: 'websocket'
 }
 
 export interface SearchableSettingItem {
@@ -910,3 +1006,8 @@ export function buildSearchableSettingItems(
 
 	return items
 }
+
+/** Registry settings that support per-workspace overrides. Excludes instance_python_version and uv_index_strategy which are instance-wide only. */
+export const WORKSPACE_REGISTRY_SETTINGS: Setting[] = settings['Registries'].filter(
+	(s) => s.key !== 'instance_python_version' && s.key !== 'uv_index_strategy'
+)

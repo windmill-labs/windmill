@@ -3,6 +3,7 @@ name: "{LANG} run script"
 mode: ONCE
 hostname: "{LANG}"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 disable_rl: true
 
@@ -140,6 +141,13 @@ mount {
     dst: "/tmp/{LANG}/args.json"
     is_bind: true
     rw: true
+}
+
+mount {
+    src: "{JOB_DIR}/checkpoint.json"
+    dst: "/tmp/{LANG}/checkpoint.json"
+    is_bind: true
+    mandatory: false
 }
 
 mount {

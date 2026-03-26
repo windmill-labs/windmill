@@ -71,7 +71,7 @@ impl TriggerCrud for PostgresTrigger {
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
-        let resolved_email = trigger.base.resolve_email(authed, db, w_id).await?;
+        let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let Self::TriggerConfigRequest {
             postgres_resource_path,
             publication_name,
@@ -122,7 +122,7 @@ impl TriggerCrud for PostgresTrigger {
                 is_flow,
                 mode,
                 edited_by,
-                email,
+                permissioned_as,
                 edited_at,
                 error_handler_path,
                 error_handler_args,
@@ -140,7 +140,7 @@ impl TriggerCrud for PostgresTrigger {
             trigger.base.is_flow,
             trigger.base.mode() as _,
             &resolved_edited_by,
-            resolved_email,
+            resolved_permissioned_as,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _
@@ -160,7 +160,7 @@ impl TriggerCrud for PostgresTrigger {
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
-        let resolved_email = trigger.base.resolve_email(authed, db, w_id).await?;
+        let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let Self::TriggerConfigRequest {
             replication_slot_name,
             publication_name,
@@ -223,7 +223,7 @@ impl TriggerCrud for PostgresTrigger {
                 path = $5,
                 is_flow = $6,
                 edited_by = $7,
-                email = $8,
+                permissioned_as = $8,
                 edited_at = now(),
                 server_id = NULL,
                 error = NULL,
@@ -240,7 +240,7 @@ impl TriggerCrud for PostgresTrigger {
             trigger.base.path,
             trigger.base.is_flow,
             &resolved_edited_by,
-            resolved_email,
+            resolved_permissioned_as,
             w_id,
             path,
             trigger.error_handling.error_handler_path,

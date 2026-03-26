@@ -12,7 +12,7 @@ use crate::{
     error,
     flows::{FlowNodeId, FlowValue},
     schema::SchemaValidator,
-    scripts::{ScriptHash, ScriptLang},
+    scripts::{ScriptHash, ScriptLang, ScriptModule},
 };
 use anyhow::anyhow;
 use serde_json::value::to_raw_value;
@@ -286,16 +286,17 @@ pub struct FlowData {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct FlowNotes {
+pub struct FlowExtras {
     pub notes: Option<Box<RawValue>>,
+    pub groups: Option<Box<RawValue>>,
 }
 
 impl FlowData {
-    pub fn notes(&self) -> Option<FlowNotes> {
-        serde_json::from_str::<FlowNotes>(self.raw_flow.get())
+    pub fn extras(&self) -> Option<FlowExtras> {
+        serde_json::from_str::<FlowExtras>(self.raw_flow.get())
             .map_err(|e| {
-                tracing::error!("Failed to parse notes into FlowNotes: {}", e);
-                error::Error::internal_err(format!("Failed to parse notes into FlowNotes: {}", e))
+                tracing::error!("Failed to parse flow extras: {}", e);
+                error::Error::internal_err(format!("Failed to parse flow extras: {}", e))
             })
             .ok()
     }
@@ -335,6 +336,7 @@ impl FlowData {
 pub struct ScriptData {
     pub lock: Option<String>,
     pub code: String,
+    pub modules: Option<std::collections::HashMap<String, ScriptModule>>,
 }
 
 #[derive(Debug, Clone)]
@@ -357,6 +359,7 @@ pub struct RawScript {
     pub content: String,
     pub lock: Option<String>,
     pub meta: Option<ScriptMetadata>,
+    pub modules: Option<std::collections::HashMap<String, ScriptModule>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -364,17 +367,28 @@ pub struct RawScriptApi {
     pub content: String,
     pub lock: Option<String>,
     pub meta: Option<ScriptMetadata>,
+    pub modules: Option<std::collections::HashMap<String, ScriptModule>>,
 }
 
 impl From<RawScript> for RawScriptApi {
     fn from(value: RawScript) -> Self {
-        RawScriptApi { content: value.content, lock: value.lock, meta: value.meta }
+        RawScriptApi {
+            content: value.content,
+            lock: value.lock,
+            meta: value.meta,
+            modules: value.modules,
+        }
     }
 }
 
 impl From<RawScriptApi> for RawScript {
     fn from(value: RawScriptApi) -> Self {
-        RawScript { content: value.content, lock: value.lock, meta: value.meta }
+        RawScript {
+            content: value.content,
+            lock: value.lock,
+            meta: value.meta,
+            modules: value.modules,
+        }
     }
 }
 
@@ -632,7 +646,8 @@ pub mod script {
                 schema AS \"schema: String\", \
                 schema_validation AS \"schema_validation: bool\", \
                 codebase LIKE '%.tar' as use_tar, \
-                codebase LIKE '%.esm%' as is_esm \
+                codebase LIKE '%.esm%' as is_esm, \
+                modules AS \"modules: serde_json::Value\" \
             FROM script WHERE hash = $1 LIMIT 1",
             hash.0
         )
@@ -644,6 +659,7 @@ pub mod script {
             Ok(RawScript {
                 content: r.content,
                 lock: r.lock,
+                modules: r.modules.and_then(|v| serde_json::from_value(v).ok()),
                 meta: Some(ScriptMetadata {
                     language: r.language,
                     envs: r.envs,
@@ -822,6 +838,7 @@ pub mod job {
                 _ => Ok(RawData::Script(Arc::new(ScriptData {
                     code: code.unwrap_or_default(),
                     lock,
+                    modules: None,
                 }))),
             })
         };
@@ -975,6 +992,38 @@ pub mod workspace_dependencies {
     }
 }
 
+/// Temporary raw script content cache for CLI lock generation.
+pub mod raw_script_temp {
+    use super::*;
+    use crate::DB;
+
+    make_static! {
+        static ref CACHE: { String => String } in "raw_script_temp" <= 10000;
+    }
+
+    /// Compute hash for raw script content (includes workspace_id for isolation).
+    pub fn compute_hash(workspace_id: &str, content: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(workspace_id.as_bytes());
+        hasher.update(content.as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    /// Load content from cache, falling back to DB.
+    pub fn load(hash: String, db: &DB) -> impl Future<Output = error::Result<String>> + '_ {
+        CACHE.get_or_insert_async(hash.clone(), async move {
+            sqlx::query_scalar!(
+                "SELECT content FROM raw_script_temp WHERE hash = $1",
+                &hash
+            )
+            .fetch_optional(db)
+            .await?
+            .ok_or_else(|| error::Error::NotFound(format!("raw_script_temp hash: {}", hash)))
+        })
+    }
+}
+
 const _: () = {
     impl Import for RawFlow {
         fn import(src: &impl Storage) -> error::Result<Self> {
@@ -999,7 +1048,7 @@ const _: () = {
             let content = src.get_utf8("code.txt")?;
             let lock = src.get_utf8("lock.txt").ok();
             let meta = src.get_json("info.json").ok();
-            Ok(Self { content, lock, meta })
+            Ok(Self { content, lock, meta, modules: None })
         }
     }
 
@@ -1007,7 +1056,7 @@ const _: () = {
         type Untrusted = RawScript;
 
         fn resolve(src: Self::Untrusted) -> error::Result<Self> {
-            Ok(ScriptData { code: src.content, lock: src.lock })
+            Ok(ScriptData { code: src.content, lock: src.lock, modules: src.modules })
         }
 
         fn export(&self, dst: &impl Storage) -> error::Result<()> {
@@ -1033,7 +1082,11 @@ const _: () = {
                 return Err(error::Error::internal_err("Invalid script src".to_string()));
             };
             Ok(ScriptFull {
-                data: Arc::new(ScriptData { code: src.content, lock: src.lock }),
+                data: Arc::new(ScriptData {
+                    code: src.content,
+                    lock: src.lock,
+                    modules: src.modules,
+                }),
                 meta: Arc::new(meta),
             })
         }
@@ -1063,7 +1116,11 @@ const _: () = {
                     FlowData::from_raw(flow).map(Arc::new).map(Self::Flow)
                 }
                 RawNode { raw_code: Some(code), raw_lock: lock, .. } => {
-                    Ok(Self::Script(Arc::new(ScriptData { code, lock })))
+                    Ok(Self::Script(Arc::new(ScriptData {
+                        code,
+                        lock,
+                        modules: None,
+                    })))
                 }
                 _ => Err(error::Error::internal_err(
                     "Invalid raw data src".to_string(),
@@ -1159,7 +1216,8 @@ const _: () = {
         ((u8, ScriptHash), |x| format!("{:02x}-{:016x}", x.0, x.1.0)),
         (FlowNodeId, |x| format!("{:016x}", x.0)),
         (AppScriptId, |x| format!("{:016x}", x.0)),
-        ((i64, String), |x| format!("{}-{}", x.1, x.0))
+        ((i64, String), |x| format!("{}-{}", x.1, x.0)),
+        (String, |x| x.as_str())
     }
 
     #[cfg(feature = "scoped_cache")]

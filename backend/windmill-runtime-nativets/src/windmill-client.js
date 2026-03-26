@@ -259,8 +259,8 @@ var $Script = {
     visible_to_runner_only: {
       type: "boolean",
     },
-    no_main_func: {
-      type: "boolean",
+    auto_kind: {
+      type: "string",
     },
     codebase: {
       type: "string",
@@ -281,7 +281,7 @@ var $Script = {
     "language",
     "kind",
     "starred",
-    "no_main_func",
+    "auto_kind",
   ],
 };
 var $NewScript = {
@@ -381,8 +381,8 @@ var $NewScript = {
     visible_to_runner_only: {
       type: "boolean",
     },
-    no_main_func: {
-      type: "boolean",
+    auto_kind: {
+      type: "string",
     },
     codebase: {
       type: "string",

@@ -37,7 +37,7 @@
 	{/if}
 	<Popover
 		style="width: {(len / total) * 100}%"
-		class="h-5 {gray
+		class="h-5 relative {gray
 			? 'bg-gray-300 dark:bg-gray-600'
 			: running
 				? 'bg-blue-400/90'
@@ -53,7 +53,16 @@
 			>
 		{/snippet}
 		{#if len > 0}
-			<span class={len / total < 0.09 ? '-ml-14 text-primary font-mono' : 'font-mono'}
+			{@const narrow = len / total < 0.09}
+			{@const endPos =
+				started_at != undefined && min != undefined ? (started_at - min + len) / total : 1}
+			{@const nearStart = endPos < 0.15}
+			<span
+				class={narrow
+					? nearStart
+						? 'absolute left-full ml-2 text-primary font-mono'
+						: 'absolute right-full mr-1 text-primary font-mono'
+					: 'font-mono'}
 				>{#if len}{msToSec(len, 1)}s{/if}</span
 			>
 		{/if}

@@ -44,13 +44,23 @@ pub struct EnvRefWrapper {
 ///
 /// `Literal` serializes back to a plain JSON string, preserving backwards
 /// compatibility with existing consumers.
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone)]
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum StringOrSecretRef {
     Literal(String),
     SecretRef(SecretKeyRefWrapper),
     EnvRef(EnvRefWrapper),
+}
+
+impl fmt::Debug for StringOrSecretRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Literal(_) => f.write_str("Literal(****)"),
+            Self::SecretRef(w) => f.debug_tuple("SecretRef").field(w).finish(),
+            Self::EnvRef(w) => f.debug_tuple("EnvRef").field(w).finish(),
+        }
+    }
 }
 
 impl StringOrSecretRef {
@@ -235,6 +245,8 @@ pub struct GlobalSettings {
 
     // String settings
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub email_domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hub_base_url: Option<String>,
@@ -249,31 +261,33 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub saml_metadata: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_events_webhook: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub openai_azure_base_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_keep_alive_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance_python_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pip_index_url: Option<String>,
+    pub pip_index_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pip_extra_index_url: Option<String>,
+    pub pip_extra_index_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub npm_config_registry: Option<String>,
+    pub npm_config_registry: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub bunfig_install_scopes: Option<String>,
+    pub bunfig_install_scopes: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub npmrc: Option<String>,
+    pub npmrc: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub nuget_config: Option<String>,
+    pub nuget_config: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub maven_repos: Option<String>,
+    pub maven_repos: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ruby_repos: Option<String>,
+    pub ruby_repos: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub powershell_repo_url: Option<String>,
+    pub powershell_repo_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub powershell_repo_pat: Option<String>,
+    pub powershell_repo_pat: Option<StringOrSecretRef>,
 
     // Array settings
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -326,6 +340,23 @@ pub struct GlobalSettings {
         schemars(schema_with = "opaque_json_schema")
     )]
     pub teams: Option<serde_json::Value>,
+
+    // Workspace-specific registry overrides
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
+    pub workspace_registries: Option<
+        std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+    >,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
+    pub ai_config: Option<serde_json::Value>,
 
     /// Catch-all for settings not yet covered by typed fields.
     #[serde(flatten)]
@@ -855,6 +886,7 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "maven_repos",
     "ruby_repos",
     "powershell_repo_pat",
+    "workspace_registries",
 ];
 
 /// Object-valued settings that contain sensitive sub-fields.
@@ -924,7 +956,7 @@ fn redact_string(s: &str) -> String {
     }
 }
 
-fn format_setting_value(key: &str, value: &serde_json::Value) -> String {
+pub fn format_setting_value(key: &str, value: &serde_json::Value) -> String {
     if SENSITIVE_SETTINGS.contains(&key) {
         return match value {
             serde_json::Value::String(s) => format!("\"{}\"", redact_string(s)),
@@ -2207,6 +2239,25 @@ mod tests {
 
         let v: StringOrSecretRef = String::from("world").into();
         assert_eq!(v, *"world");
+    }
+
+    #[test]
+    fn string_or_secret_ref_debug_masks_literal() {
+        let v = StringOrSecretRef::Literal("super-secret-value".to_string());
+        let debug = format!("{v:?}");
+        assert_eq!(debug, "Literal(****)");
+        assert!(!debug.contains("super-secret-value"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_oauth_secrets() {
+        let val = serde_json::json!({
+            "google": {"id": "client-id", "secret": "my-super-secret-12345"}
+        });
+        let formatted = format_setting_value("oauths", &val);
+        assert!(!formatted.contains("my-super-secret-12345"));
+        assert!(formatted.contains("client-id"));
+        assert!(formatted.contains("****"));
     }
 
     #[test]

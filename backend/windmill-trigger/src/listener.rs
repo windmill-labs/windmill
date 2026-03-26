@@ -15,12 +15,13 @@ use serde_json::value::RawValue;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Row};
 use tokio::sync::RwLock;
-use windmill_api_auth::{fetch_api_authed, ApiAuthed};
+use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     error::{Error, Result},
     jobs::JobTriggerKind,
     triggers::{TriggerKind, TriggerMetadata},
     utils::report_critical_error,
+    worker::to_raw_value,
     DB, INSTANCE_NAME,
 };
 
@@ -61,7 +62,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "script_path",
             "is_flow",
             "edited_by",
-            "email",
+            "permissioned_as",
             "edited_at",
             "extra_perms",
             "mode",
@@ -97,8 +98,8 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 path: trigger.base.path,
                 workspace_id: trigger.base.workspace_id,
                 is_flow: trigger.base.is_flow,
-                username: trigger.base.edited_by,
-                email: trigger.base.email,
+                edited_by: trigger.base.edited_by,
+                permissioned_as: trigger.base.permissioned_as,
                 script_path: trigger.base.script_path,
                 trigger_config: trigger.config,
                 error_handling: Some(trigger.error_handling),
@@ -119,7 +120,6 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "is_flow",
             "workspace_id",
             "owner AS username",
-            "email",
             "trigger_config",
         ];
 
@@ -143,17 +143,21 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
 
         let captures = captures
             .into_iter()
-            .map(|capture| ListeningTrigger {
-                username: capture.username,
-                path: capture.path,
-                workspace_id: capture.workspace_id,
-                script_path: "".to_string(),
-                email: capture.email,
-                trigger_config: capture.trigger_config,
-                trigger_mode: false,
-                is_flow: capture.is_flow,
-                error_handling: None,
-                suspended_mode: false,
+            .map(|capture| {
+                let permissioned_as =
+                    windmill_common::users::username_to_permissioned_as(&capture.username);
+                ListeningTrigger {
+                    edited_by: capture.username,
+                    path: capture.path,
+                    workspace_id: capture.workspace_id,
+                    script_path: "".to_string(),
+                    permissioned_as,
+                    trigger_config: capture.trigger_config,
+                    trigger_mode: false,
+                    is_flow: capture.is_flow,
+                    error_handling: None,
+                    suspended_mode: false,
+                }
             })
             .collect_vec();
 
@@ -467,9 +471,13 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         db: &DB,
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
         payload: Self::Payload,
-        trigger_info: HashMap<String, Box<RawValue>>,
+        mut trigger_info: HashMap<String, Box<RawValue>>,
         _extra: Option<Self::Extra>,
     ) -> Result<()> {
+        trigger_info.insert(
+            "trigger_path".to_string(),
+            to_raw_value(&listening_trigger.path),
+        );
         let args = Self::build_job_args(
             &listening_trigger.script_path,
             listening_trigger.is_flow,
@@ -552,6 +560,11 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             return Ok(());
         }
 
+        let mut trigger_info = trigger_info;
+        trigger_info.insert(
+            "trigger_path".to_string(),
+            to_raw_value(&listening_trigger.path),
+        );
         let (main_args, preprocessor_args) = Self::build_capture_payloads(&payload, trigger_info);
         if let Err(err) = insert_capture_payload(
             db,
@@ -561,7 +574,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             &Self::TRIGGER_KIND,
             main_args,
             preprocessor_args,
-            &listening_trigger.username,
+            &listening_trigger.edited_by,
         )
         .await
         {
@@ -782,7 +795,6 @@ where
     is_flow: bool,
     workspace_id: String,
     username: String,
-    email: String,
     #[serde(flatten)]
     trigger_config: T,
 }
@@ -800,7 +812,6 @@ where
             is_flow: row.try_get("is_flow")?,
             workspace_id: row.try_get("workspace_id")?,
             username: row.try_get("username")?,
-            email: row.try_get("email")?,
             trigger_config,
         })
     }
@@ -811,8 +822,8 @@ pub struct ListeningTrigger<T> {
     pub path: String,
     pub is_flow: bool,
     pub workspace_id: String,
-    pub username: String,
-    pub email: String,
+    pub edited_by: String,
+    pub permissioned_as: String,
     pub trigger_config: T,
     pub script_path: String,
     pub trigger_mode: bool,
@@ -821,13 +832,19 @@ pub struct ListeningTrigger<T> {
 }
 
 impl<T> ListeningTrigger<T> {
-    pub async fn authed(&self, db: &DB, username: &str) -> Result<ApiAuthed> {
-        fetch_api_authed(
-            self.username.clone(),
-            self.email.clone(),
+    pub async fn authed(&self, db: &DB, trigger_kind: &str) -> Result<ApiAuthed> {
+        let email = windmill_common::users::get_email_from_permissioned_as(
+            &self.permissioned_as,
             &self.workspace_id,
             db,
-            Some(format!("{}-{}", username, self.path)),
+        )
+        .await?;
+        windmill_api_auth::fetch_api_authed_from_permissioned_as(
+            self.permissioned_as.clone(),
+            email,
+            &self.workspace_id,
+            db,
+            Some(format!("{}-{}", trigger_kind, self.path)),
         )
         .await
     }

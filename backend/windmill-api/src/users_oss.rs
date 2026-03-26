@@ -38,7 +38,7 @@ pub async fn create_user(
     mut _nu: NewUser,
 ) -> Result<(StatusCode, String)> {
     Err(Error::internal_err(
-        "Not implemented in Windmill's Open Source repository".to_string(),
+        "User creation is not implemented in the open-source version.".to_string(),
     ))
 }
 

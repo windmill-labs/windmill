@@ -56,6 +56,7 @@ impl PrewarmedIsolate {
         js_code: String,
         ann: NativeAnnotation,
         arg_names: Vec<String>,
+        entrypoint: Option<String>,
     ) -> Self {
         let (args_tx, args_rx) = tokio::sync::oneshot::channel::<String>();
         let (result_tx, result_rx) = tokio::sync::oneshot::channel::<PrewarmedResult>();
@@ -98,7 +99,7 @@ impl PrewarmedIsolate {
                 });
 
                 let exec_result = tokio::select! {
-                    r = execute_main(&mut js_runtime, None, false, None) => r,
+                    r = execute_main(&mut js_runtime, entrypoint.as_deref(), false, None) => r,
                     _ = memory_limit_rx.recv() => {
                         Err(ExecuteError::Script("Memory limit reached, killing isolate".to_string()))
                     }

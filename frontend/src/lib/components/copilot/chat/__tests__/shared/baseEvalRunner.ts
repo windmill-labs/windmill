@@ -1,8 +1,14 @@
-import OpenAI, { APIError } from 'openai'
-import type { ChatCompletionMessageParam, ChatCompletionSystemMessageParam } from 'openai/resources/chat/completions.mjs'
-import type { ChatCompletionTool } from 'openai/resources/chat/completions.mjs'
+import OpenAI from 'openai'
+import Anthropic from '@anthropic-ai/sdk'
+import type {
+	ChatCompletionMessageParam,
+	ChatCompletionSystemMessageParam
+} from 'openai/resources/chat/completions.mjs'
+import type { AIProvider, AIProviderModel } from '$lib/gen/types.gen'
 import type { TokenUsage, ToolCallDetail, EvalRunnerOptions } from './types'
 import type { Tool } from './baseVariants'
+import { runChatLoop, type ChatClients } from '../../chatLoop'
+import type { Tool as ProductionTool, ToolCallbacks } from '../../shared'
 
 /**
  * Result from a single eval run (before domain-specific evaluation).
@@ -29,13 +35,13 @@ export interface RunEvalParams<THelpers, TOutput> {
 	systemMessage: ChatCompletionSystemMessageParam
 	/** User message for the LLM */
 	userMessage: ChatCompletionMessageParam
-	/** Tool definitions for the LLM API */
-	toolDefs: ChatCompletionTool[]
+	/** Tool definitions for the LLM API (unused — derived from tools) */
+	toolDefs?: unknown
 	/** Full tool implementations for execution */
 	tools: Tool<THelpers>[]
 	/** Domain-specific helpers for tool execution */
 	helpers: THelpers
-	/** API key for OpenRouter */
+	/** API key for the provider */
 	apiKey: string
 	/** Function to get the current output state */
 	getOutput: () => TOutput
@@ -44,10 +50,37 @@ export interface RunEvalParams<THelpers, TOutput> {
 }
 
 /**
- * Runs a generic evaluation with real LLM API calls.
- * Executes tool calls in a loop until the LLM stops calling tools.
- *
- * This is the core execution loop shared across all chat eval tests.
+ * Creates SDK clients for the given provider.
+ */
+function createEvalClients(provider: AIProvider, apiKey: string): ChatClients {
+	if (provider === 'anthropic') {
+		return {
+			openai: new OpenAI({ apiKey: 'unused' }),
+			anthropic: new Anthropic({ apiKey })
+		}
+	}
+	return {
+		openai: new OpenAI({ apiKey }),
+		anthropic: new Anthropic({ apiKey: 'unused' })
+	}
+}
+
+/**
+ * Resolves model string to AIProviderModel.
+ */
+function resolveModelProvider(
+	model: string,
+	provider?: AIProvider
+): AIProviderModel {
+	if (provider) return { provider, model }
+	if (model.startsWith('claude')) return { provider: 'anthropic', model }
+	if (model.startsWith('gpt') || model.startsWith('o')) return { provider: 'openai', model }
+	return { provider: 'openai', model }
+}
+
+/**
+ * Runs a generic evaluation using the shared chat loop (same code path as production).
+ * Uses streaming via real provider SDKs instead of OpenRouter non-streaming.
  */
 export async function runEval<THelpers, TOutput>(
 	params: RunEvalParams<THelpers, TOutput>
@@ -55,7 +88,6 @@ export async function runEval<THelpers, TOutput>(
 	const {
 		systemMessage,
 		userMessage,
-		toolDefs,
 		tools,
 		helpers,
 		apiKey,
@@ -63,134 +95,82 @@ export async function runEval<THelpers, TOutput>(
 		options
 	} = params
 
-	const client = new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey })
 	const model = options?.model ?? 'gpt-4o'
 	const maxIterations = options?.maxIterations ?? 20
 	const workspace = options?.workspace ?? 'test-workspace'
+	const provider = options?.provider
 
-	const messages: ChatCompletionMessageParam[] = [systemMessage, userMessage]
-	const totalTokens: TokenUsage = { prompt: 0, completion: 0, total: 0 }
+	const modelProvider = resolveModelProvider(model, provider)
+	const clients = createEvalClients(modelProvider.provider, apiKey)
+
+	const messages: ChatCompletionMessageParam[] = [userMessage]
 	let toolCallsCount = 0
 	const toolsCalled: string[] = []
 	const toolCallDetails: ToolCallDetail[] = []
-	let iterations = 0
 
-	// No-op tool callbacks for eval
-	const toolCallbacks = {
+	// Wrap tools to intercept fn calls for tracking.
+	// Cast to ProductionTool since the eval Tool has a narrower toolCallbacks type
+	// but the actual callbacks passed at runtime will satisfy both interfaces.
+	const wrappedTools = tools.map((tool) => ({
+		...tool,
+		fn: async (p: any) => {
+			toolCallsCount++
+			toolsCalled.push(tool.def.function.name)
+			try {
+				const args =
+					typeof p.args === 'string' ? JSON.parse(p.args) : p.args
+				toolCallDetails.push({ name: tool.def.function.name, arguments: args })
+			} catch {
+				toolCallDetails.push({
+					name: tool.def.function.name,
+					arguments: p.args
+				})
+			}
+			return tool.fn(p)
+		}
+	})) as ProductionTool<THelpers>[]
+
+	// No-op callbacks for eval
+	const callbacks: ToolCallbacks & {
+		onNewToken: (token: string) => void
+		onMessageEnd: () => void
+	} = {
 		setToolStatus: () => {},
-		removeToolStatus: () => {}
+		removeToolStatus: () => {},
+		onNewToken: () => {},
+		onMessageEnd: () => {}
 	}
 
+	const abortController = new AbortController()
+
 	try {
-		// Tool resolution loop
-		while (iterations < maxIterations) {
-			iterations++
-
-			const response = await client.chat.completions.create({
-				model,
-				messages,
-				tools: toolDefs,
-				temperature: 0
-			})
-
-			// Track token usage
-			if (response.usage) {
-				totalTokens.prompt += response.usage.prompt_tokens
-				totalTokens.completion += response.usage.completion_tokens
-				totalTokens.total += response.usage.total_tokens
-			}
-
-			if (!response.choices.length) {
-				throw new Error('No response from API')
-			}
-
-			const choice = response.choices[0]
-			const assistantMessage = choice.message
-
-			// Add assistant message to history
-			messages.push(assistantMessage)
-
-			// If no tool calls, we're done
-			if (!assistantMessage.tool_calls?.length) {
-				break
-			}
-
-			// Execute each tool call
-			for (const toolCall of assistantMessage.tool_calls) {
-				toolCallsCount++
-
-				// Type guard: only handle function tool calls
-				if (toolCall.type !== 'function') {
-					messages.push({
-						role: 'tool',
-						tool_call_id: toolCall.id,
-						content: `Unsupported tool type: ${toolCall.type}`
-					})
-					continue
-				}
-
-				toolsCalled.push(toolCall.function.name)
-
-				const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
-				if (!tool) {
-					messages.push({
-						role: 'tool',
-						tool_call_id: toolCall.id,
-						content: `Unknown tool: ${toolCall.function.name}`
-					})
-					continue
-				}
-
-				try {
-					const args = JSON.parse(toolCall.function.arguments)
-					toolCallDetails.push({ name: toolCall.function.name, arguments: args })
-					const result = await tool.fn({
-						args,
-						workspace,
-						helpers,
-						toolCallbacks,
-						toolId: toolCall.id
-					})
-					messages.push({
-						role: 'tool',
-						tool_call_id: toolCall.id,
-						content: result
-					})
-				} catch (err) {
-					const errorMessage = err instanceof Error ? err.message : String(err)
-					messages.push({
-						role: 'tool',
-						tool_call_id: toolCall.id,
-						content: `Error: ${errorMessage}`
-					})
-				}
-			}
-		}
+		const result = await runChatLoop({
+			messages,
+			systemMessage,
+			tools: wrappedTools,
+			helpers,
+			abortController,
+			callbacks,
+			modelProvider,
+			clients,
+			workspace,
+			maxIterations,
+			skipResponsesApi: modelProvider.provider !== 'openai' && modelProvider.provider !== 'azure_openai'
+		})
 
 		return {
 			success: true,
 			output: getOutput(),
-			tokenUsage: totalTokens,
+			tokenUsage: { prompt: 0, completion: 0, total: 0 },
 			toolCallsCount,
 			toolsCalled,
 			toolCallDetails,
-			iterations,
+			iterations: Math.max(1, result.addedMessages.filter((m) => m.role === 'assistant').length),
 			messages
 		}
 	} catch (err) {
-		// Build detailed error message
 		let errorMessage: string
-		if (err instanceof APIError) {
-			const details: string[] = [`${err.status} ${err.message}`]
-			if (err.code) details.push(`Code: ${err.code}`)
-			if (err.type) details.push(`Type: ${err.type}`)
-			if (err.param) details.push(`Param: ${err.param}`)
-			if (err.requestID) details.push(`Request ID: ${err.requestID}`)
-			if (err.error && typeof err.error === 'object') {
-				details.push(`Response: ${JSON.stringify(err.error, null, 2)}`)
-			}
-			errorMessage = details.join('\n')
-		} else if (err instanceof Error) {
+		if (err instanceof Error) {
 			errorMessage = err.stack ?? err.message
 		} else {
 			errorMessage = String(err)
@@ -200,11 +180,11 @@ export async function runEval<THelpers, TOutput>(
 			success: false,
 			output: getOutput(),
 			error: errorMessage,
-			tokenUsage: totalTokens,
+			tokenUsage: { prompt: 0, completion: 0, total: 0 },
 			toolCallsCount,
 			toolsCalled,
 			toolCallDetails,
-			iterations,
+			iterations: 0,
 			messages
 		}
 	}

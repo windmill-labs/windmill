@@ -39,6 +39,7 @@ fn nativets_code(content: &str) -> JobPayload {
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
+        modules: None,
     })
 }
 

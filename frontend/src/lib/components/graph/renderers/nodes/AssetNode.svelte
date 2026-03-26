@@ -11,7 +11,7 @@
 	let computeAssetNodesCache: [NodeDep[], ReturnType<typeof computeAssetNodes>] | undefined
 
 	type NodeDep = {
-		data: object & { assets?: AssetWithAltAccessType[] | undefined; offset?: number }
+		data: object & { assets?: AssetWithAltAccessType[] | undefined }
 		id: string
 		position: { x: number; y: number }
 	}
@@ -19,8 +19,6 @@
 	export function computeAssetNodes(nodes: NodeDep[]): {
 		newAssetNodes: (Node & NodeLayout)[]
 		newAssetEdges: Edge[]
-		// Nodes need to be offset on the y axis to make space for the asset nodes
-		newNodePositions: Record<string, { x: number; y: number }>
 	} {
 		if (computeAssetNodesCache && deepEqual(nodes, computeAssetNodesCache[0])) {
 			return computeAssetNodesCache[1]
@@ -29,8 +27,6 @@
 		const ASSETS_OVERFLOWED_NODE_WIDTH = 25
 		const allAssetNodes: (Node & NodeLayout)[] = []
 		const allAssetEdges: Edge[] = []
-
-		const yPosMap: Record<number, { r?: true; w?: true }> = {}
 
 		for (const node of nodes) {
 			const assets = node.data.assets ?? []
@@ -46,13 +42,6 @@
 
 			const overflowedInputAssets = inputAssets.slice(3)
 			const overflowedOutputAssets = outputAssets.slice(3)
-
-			// This allows calculating which nodes to offset on the y axis to
-			// make space for the asset nodes
-			if (inputAssets.length || outputAssets.length)
-				yPosMap[node.position.y] = yPosMap[node.position.y] ?? {}
-			if (inputAssets.length) yPosMap[node.position.y].r = true
-			if (outputAssets.length) yPosMap[node.position.y].w = true
 
 			// All asset nodes displayed on top
 			const inputAssetNodes: (Node & AssetN)[] = displayedInputAssets.map((asset, i) => {
@@ -78,14 +67,13 @@
 					width: inputAssetWidth,
 					position: {
 						x:
-							(node.data.offset ?? 0) +
-							(displayedInputAssets.length === 1
+							displayedInputAssets.length === 1
 								? (NODE.width - inputAssetWidth) / 2 - 10 // Ensure we see the edge
 								: (inputAssetWidth + inputAssetXGap) * (i - displayedInputAssets.length / 2) +
 									(NODE.width + inputAssetXGap) / 2 +
 									(overflowedInputAssets.length
 										? (-ASSETS_OVERFLOWED_NODE_WIDTH - inputAssetXGap) / 2
-										: 0)),
+										: 0),
 						y: READ_ASSET_Y_OFFSET
 					},
 					selectable: false
@@ -116,14 +104,13 @@
 					width: outputAssetWidth,
 					position: {
 						x:
-							(node.data.offset ?? 0) +
-							(displayedOutputAssets.length === 1
+							displayedOutputAssets.length === 1
 								? (NODE.width - outputAssetWidth) / 2 - 10 // Ensure we see the edge
 								: (outputAssetWidth + outputAssetXGap) * (i - displayedOutputAssets.length / 2) +
 									(NODE.width + outputAssetXGap) / 2 +
 									(overflowedOutputAssets.length
 										? (-ASSETS_OVERFLOWED_NODE_WIDTH - outputAssetXGap) / 2
-										: 0)),
+										: 0),
 						y: WRITE_ASSET_Y_OFFSET
 					},
 					selectable: false
@@ -157,7 +144,7 @@
 					parentId: node.id,
 					width: ASSETS_OVERFLOWED_NODE_WIDTH,
 					position: {
-						x: (node.data.offset ?? 0) + MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
+						x: MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
 						y: READ_ASSET_Y_OFFSET
 					}
 				} satisfies Node & AssetsOverflowedN)
@@ -176,7 +163,7 @@
 					parentId: node.id,
 					width: ASSETS_OVERFLOWED_NODE_WIDTH,
 					position: {
-						x: (node.data.offset ?? 0) + MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
+						x: MAX_ASSET_ROW_WIDTH - ASSETS_OVERFLOWED_NODE_WIDTH - 14,
 						y: WRITE_ASSET_Y_OFFSET
 					}
 				} satisfies Node & AssetsOverflowedN)
@@ -189,26 +176,9 @@
 			})
 		}
 
-		// Shift all nodes to make space for the new asset nodes
-		const sortedNewNodes = nodes
-			.map((n) => ({ position: { ...n.position }, id: n.id }))
-			.sort((a, b) => a.position.y - b.position.y)
-
-		let currentYOffset = 0
-		let prevYPos = NaN
-		for (const node of sortedNewNodes) {
-			if (node.position.y !== prevYPos) {
-				if (yPosMap[prevYPos]?.w) currentYOffset += NODE_WITH_WRITE_ASSET_Y_OFFSET
-				if (yPosMap[node.position.y]?.r) currentYOffset += NODE_WITH_READ_ASSET_Y_OFFSET
-				prevYPos = node.position.y
-			}
-			node.position.y += currentYOffset
-		}
-
 		let ret: ReturnType<typeof computeAssetNodes> = {
 			newAssetNodes: allAssetNodes,
-			newAssetEdges: allAssetEdges,
-			newNodePositions: Object.fromEntries(sortedNewNodes.map((n) => [n.id, n.position]))
+			newAssetEdges: allAssetEdges
 		}
 		computeAssetNodesCache = [clone(nodes), ret]
 		return ret

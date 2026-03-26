@@ -89,14 +89,20 @@ struct ScriptMetadata {
     pub restart_unless_cancelled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visible_to_runner_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub no_main_func: Option<bool>,
+    // auto_kind is intentionally excluded from export — it is auto-detected by the
+    // parser at deploy time from the script content (workflow/task patterns for "wac",
+    // no main function for "lib").
+    #[serde(skip_serializing)]
+    #[allow(dead_code)]
+    pub auto_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codebase: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modules: Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
     #[serde(flatten)]
     pub concurrency_settings: ConcurrencySettings,
     #[serde(flatten)]
@@ -204,6 +210,7 @@ where
                     "updated_by",
                     "edited_at",
                     "edited_by",
+                    "permissioned_as",
                     "archived",
                     "has_draft",
                     "error",
@@ -282,6 +289,14 @@ struct SimplifiedSettings {
     color: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_settings: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    datatable: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slack_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slack_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slack_command_script: Option<String>,
 }
 
 // V1 format: Legacy flat format for backward compatibility (matches main branch exactly)
@@ -316,6 +331,14 @@ struct SimplifiedSettingsLegacy {
     color: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_settings: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    datatable: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slack_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slack_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slack_command_script: Option<String>,
 }
 
 // Internal struct for querying database
@@ -335,6 +358,10 @@ struct SettingsRow {
     mute_critical_alerts: Option<bool>,
     color: Option<String>,
     operator_settings: Option<serde_json::Value>,
+    datatable: Option<Value>,
+    slack_team_id: Option<String>,
+    slack_name: Option<String>,
+    slack_command_script: Option<String>,
 }
 
 pub(crate) async fn tarball_workspace(
@@ -361,8 +388,6 @@ pub(crate) async fn tarball_workspace(
         settings_version,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(HeaderName, String); 2], impl IntoResponse)> {
-    // require_admin(authed.is_admin, &authed.username)?;
-
     tracing::info!(
         "tarball_workspace called for workspace {}: include_workspace_dependencies={:?}, skip_variables={:?}, skip_resources={:?}",
         w_id,
@@ -483,10 +508,11 @@ pub(crate) async fn tarball_workspace(
                 delete_after_use: script.delete_after_use,
                 restart_unless_cancelled: script.restart_unless_cancelled,
                 visible_to_runner_only: script.visible_to_runner_only,
-                no_main_func: script.no_main_func,
+                auto_kind: script.auto_kind,
                 codebase: script.codebase,
                 has_preprocessor: script.has_preprocessor,
                 on_behalf_of_email: script.on_behalf_of_email,
+                modules: script.modules,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive
@@ -814,7 +840,7 @@ pub(crate) async fn tarball_workspace(
                     let trigger_str = &to_string_without_metadata(
                         &trigger,
                         false,
-                        Some(vec!["webhook_token_prefix"]),
+                        Some(vec!["webhook_token_hash"]),
                     )
                     .unwrap();
                     archive
@@ -939,7 +965,11 @@ pub(crate) async fn tarball_workspace(
                  workspace.name as name,
                  mute_critical_alerts,
                  color,
-                 operator_settings
+                 operator_settings,
+                 datatable,
+                 slack_team_id,
+                 slack_name,
+                 slack_command_script
              FROM workspace_settings
              LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
              WHERE workspace_id = $1"#,
@@ -965,6 +995,10 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color.clone(),
                 operator_settings: row.operator_settings.clone(),
+                datatable: row.datatable.clone(),
+                slack_team_id: row.slack_team_id.clone(),
+                slack_name: row.slack_name.clone(),
+                slack_command_script: row.slack_command_script.clone(),
             };
             serde_json::to_value(settings)
                 .map(|v| serde_json::to_string_pretty(&v).ok())
@@ -1024,6 +1058,10 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color,
                 operator_settings: row.operator_settings,
+                datatable: row.datatable,
+                slack_team_id: row.slack_team_id,
+                slack_name: row.slack_name,
+                slack_command_script: row.slack_command_script,
             };
             serde_json::to_value(settings)
                 .map(|v| serde_json::to_string_pretty(&v).ok())
@@ -1038,6 +1076,8 @@ pub(crate) async fn tarball_workspace(
     }
 
     if include_key.unwrap_or(false) {
+        require_admin(authed.is_admin, &authed.username)?;
+
         let key = sqlx::query_scalar!(
             "SELECT key FROM workspace_key WHERE workspace_id = $1",
             &w_id

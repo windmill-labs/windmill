@@ -3,6 +3,7 @@ name: "csharp run script"
 mode: ONCE
 hostname: "csharp"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 disable_rl: true
 
@@ -65,7 +66,7 @@ mount {
 
 
 mount {
-    src: "{JOB_DIR}/Main"
+    src: "{JOB_DIR}/out/Main"
     dst: "/tmp/main"
     is_bind: true
     mandatory: false

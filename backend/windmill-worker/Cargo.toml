@@ -110,6 +110,7 @@ gcp_auth = { workspace = true, optional = true }
 rust_decimal.workspace = true
 jsonwebtoken.workspace = true
 sha2.workspace = true
+hmac.workspace = true
 pem = { workspace = true, optional = true }
 urlencoding.workspace = true
 nix.workspace = true
@@ -142,6 +143,9 @@ hyper-http-proxy = { workspace = true, optional = true }
 hyper-tls = { workspace = true, optional = true }
 hyper-util = { workspace = true, optional = true }
 rcgen = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [build-dependencies]
 libffi-sys = { workspace = true, optional = true }

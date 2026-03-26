@@ -110,7 +110,7 @@
 	const u32Max = 4294967295
 </script>
 
-<div class="h-full flex flex-col gap-4">
+<div class="flex flex-col gap-4">
 	<ToggleButtonGroup
 		bind:selected={delayType}
 		class={`${disabled ? 'disabled' : ''}`}
@@ -216,6 +216,7 @@
 		</Section>
 	{/if}
 
+	{#if delayType === 'constant' || delayType === 'exponential'}
 	<div class="flex h-[calc(100%-22px)]">
 		<div class="w-1/2 h-full overflow-auto pr-2">
 			{#if delayType === 'constant'}
@@ -296,66 +297,65 @@
 		</div>
 		<div class="w-1/2 h-full overflow-auto pl-2">
 			{#if true}
-				{@const { attempts: cAttempts, seconds: cSeconds } = flowModuleRetry?.constant || {}}
-				{@const {
-					attempts: eAttempts,
-					seconds: eSeconds,
-					multiplier,
-					random_factor
-				} = flowModuleRetry?.exponential || {}}
-				{@const cArray = Array.from({ length: Math.min(cAttempts || 0, 100) }, () => cSeconds)}
-				{@const eArray = Array.from(
-					{ length: Math.min(eAttempts || 0, 100) },
-					(_, i) => (multiplier || 0) * (eSeconds || 0) ** (i + cArray.length + 1)
-				)}
-				{@const array = [...cArray, ...eArray]}
-				<div class="bg-surface-secondary border rounded px-4 py-2">
-					<div class="text-xs font-medium mb-2">Retry attempts</div>
-					{#if array.length > 0}
-						<table class="text-xs">
-							<thead>
+			{@const { attempts: cAttempts, seconds: cSeconds } = flowModuleRetry?.constant || {}}
+			{@const {
+				attempts: eAttempts,
+				seconds: eSeconds,
+				multiplier,
+				random_factor
+			} = flowModuleRetry?.exponential || {}}
+			{@const cArray = Array.from({ length: Math.min(cAttempts || 0, 100) }, () => cSeconds)}
+			{@const eArray = Array.from(
+				{ length: Math.min(eAttempts || 0, 100) },
+				(_, i) => (multiplier || 0) * (eSeconds || 0) ** (i + cArray.length + 1)
+			)}
+			{@const array = [...cArray, ...eArray]}
+			<div class="bg-surface-secondary border rounded px-4 py-2">
+				<div class="text-xs font-medium mb-2">Retry attempts</div>
+				{#if array.length > 0}
+					<table class="text-xs">
+						<thead>
+							<tr>
+								<td class="font-semibold pr-1 pb-1">1:</td>
+								<td class="pb-1"
+									>After {array[0]} second{array[0] === 1 ? '' : 's'}
+									{#if (random_factor ?? 0) > 0}(+/- {((array[0] ?? 0) * (random_factor ?? 0)) /
+											100}
+										seconds){/if}</td
+								>
+							</tr>
+						</thead>
+						<tbody>
+							{#each array.slice(1, 100) as delay, i}
+								{@const index = i + 2}
 								<tr>
-									<td class="font-semibold pr-1 pb-1">1:</td>
-									<td class="pb-1"
-										>After {array[0]} second{array[0] === 1 ? '' : 's'}
-										{#if (random_factor ?? 0) > 0}(+/- {((array[0] ?? 0) * (random_factor ?? 0)) /
+									<td class="font-semibold pr-1 align-top">{index}:</td>
+									<td class="pb-1 whitespace-nowrap">
+										{delay} second{delay === 1 ? '' : 's'}
+										{#if (random_factor ?? 0) > 0}(+/- {((delay ?? 0) * (random_factor ?? 0)) /
 												100}
-											seconds){/if}</td
-									>
+											seconds){/if}
+										after attempt #{index - 1}
+										{#if i > cArray.length - 2}
+											<span class="text-gray-400 pl-2">
+												({multiplier} * {eSeconds}<sup>{index}</sup>)
+											</span>
+										{/if}
+									</td>
 								</tr>
-							</thead>
-							<tbody>
-								{#each array.slice(1, 100) as delay, i}
-									{@const index = i + 2}
-									<tr>
-										<td class="font-semibold pr-1 align-top">{index}:</td>
-										<td class="pb-1 whitespace-nowrap">
-											{delay} second{delay === 1 ? '' : 's'}
-											{#if (random_factor ?? 0) > 0}(+/- {((delay ?? 0) * (random_factor ?? 0)) /
-													100}
-												seconds){/if}
-											after attempt #{index - 1}
-											{#if i > cArray.length - 2}
-												<span class="text-gray-400 pl-2">
-													({multiplier} * {eSeconds}<sup>{index}</sup>)
-												</span>
-											{/if}
-										</td>
-									</tr>
-								{/each}
-								{#if (cAttempts ?? 0) > 100 || (eAttempts ?? 0) > 100}
-									<tr>
-										<td class="font-semibold pr-1 align-top">...</td>
-										<td class="pb-1">...</td>
-									</tr>
-								{/if}
-							</tbody>
-						</table>
-					{:else}
-						<div class="text-xs">No retries</div>
-					{/if}
-				</div>
+							{/each}
+							{#if (cAttempts ?? 0) > 100 || (eAttempts ?? 0) > 100}
+								<tr>
+									<td class="font-semibold pr-1 align-top">...</td>
+									<td class="pb-1">...</td>
+								</tr>
+							{/if}
+						</tbody>
+					</table>
+				{/if}
+			</div>
 			{/if}
 		</div>
 	</div>
+	{/if}
 </div>

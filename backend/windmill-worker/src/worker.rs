@@ -20,10 +20,16 @@ use windmill_common::jobs::InlineScriptTarget;
 use windmill_common::jobs::RunInlineScriptFnParams;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
+use windmill_common::otel_oss::{
+    otel_incr_worker_execution_count, otel_incr_worker_started,
+    otel_record_worker_execution_duration, otel_record_worker_pull_duration, otel_set_worker_busy,
+    otel_set_worker_uptime,
+};
 use windmill_common::runtime_assets::init_runtime_asset_loop;
 use windmill_common::runtime_assets::register_runtime_asset;
 use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
+use windmill_common::scripts::ScriptModule;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
 use windmill_common::worker::error_to_value;
@@ -303,7 +309,7 @@ pub struct PowershellRepo {
 
 lazy_static::lazy_static! {
 
-    pub static ref SLEEP_QUEUE: u64 = std::env::var("SLEEP_QUEUE")
+    static ref SLEEP_QUEUE_BASE: u64 = std::env::var("SLEEP_QUEUE")
     .ok()
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or_else(|| {
@@ -447,8 +453,13 @@ lazy_static::lazy_static! {
                     );
                 }
 
-                tracing::warn!(
-                    "unshare test failed: {}. Flags: {}. Set ENABLE_UNSHARE_PID=true to fail on error.",
+                tracing::error!(
+                    "unshare test command failed (exit code: {}). stderr: '{}'. flags: '{}'. \
+                    Unshare isolation will NOT be available. \
+                    If job_isolation is set to 'unshare' in Instance Settings, jobs will run without isolation. \
+                    Common causes: user namespaces disabled (sysctl kernel.unprivileged_userns_clone=0), \
+                    max_user_namespaces=0, or missing privileges (--mount-proc requires privileged mode).",
+                    output.status,
                     stderr.trim(),
                     flags
                 );
@@ -470,9 +481,15 @@ lazy_static::lazy_static! {
                 }
 
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    tracing::debug!("unshare binary not found");
+                    tracing::error!(
+                        "unshare binary not found in PATH. Unshare isolation will NOT be available. \
+                        Install the util-linux package to enable unshare isolation."
+                    );
                 } else {
-                    tracing::warn!("Failed to test unshare: {}", e);
+                    tracing::error!(
+                        "Failed to execute unshare test command: {}. Unshare isolation will NOT be available.",
+                        e
+                    );
                 }
                 None
             }
@@ -493,23 +510,27 @@ lazy_static::lazy_static! {
             },
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                tracing::warn!(
-                    "nsjail test failed: {}. \
+                tracing::error!(
+                    "nsjail test failed (exit code: {}). stderr: '{}'. path: '{}'. \
+                    Nsjail sandboxing will NOT be available. \
                     nsjail should be included in all standard windmill images. \
-                    Check that the nsjail binary is installed and working correctly.",
-                    stderr.trim()
+                    If job_isolation is set to 'nsjail_sandboxing' in Instance Settings, jobs will fail.",
+                    output.status,
+                    stderr.trim(),
+                    nsjail_path
                 );
                 None
             },
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    tracing::info!(
-                        "nsjail not found at '{}'. Sandboxing will not be available.",
+                    tracing::error!(
+                        "nsjail not found at '{}'. Nsjail sandboxing will NOT be available. \
+                        If using a custom image, ensure nsjail is installed.",
                         nsjail_path
                     );
                 } else {
-                    tracing::warn!(
-                        "Failed to test nsjail at '{}': {}.",
+                    tracing::error!(
+                        "Failed to execute nsjail test at '{}': {}. Nsjail sandboxing will NOT be available.",
                         nsjail_path,
                         e
                     );
@@ -602,6 +623,8 @@ lazy_static::lazy_static! {
     pub static ref RUBY_REPOS: Arc<RwLock<Option<Vec<url::Url>>>> = Arc::new(RwLock::new(None));
     pub static ref CARGO_REGISTRIES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
+    pub static ref WORKSPACE_REGISTRIES: Arc<RwLock<Option<WorkspaceRegistryMap>>> = Arc::new(RwLock::new(None));
+
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref UV_INDEX_STRATEGY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
@@ -646,6 +669,17 @@ lazy_static::lazy_static! {
 
     pub static ref FLOW_RUNNER_RUNNING: Mutex<bool> = Mutex::new(false);
 }
+
+pub fn sleep_queue() -> u64 {
+    if NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed) {
+        300
+    } else {
+        *SLEEP_QUEUE_BASE
+    }
+}
+
+pub type WorkspaceRegistryMap =
+    std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>;
 
 type Envs = Vec<(String, String)>;
 
@@ -708,6 +742,117 @@ pub async fn read_ee_registry<T>(
     value
 }
 
+/// Like `read_ee_registry`, but first checks for a workspace-specific override.
+/// If the workspace has an override for `setting_key`, that value is used instead of `global_value`.
+pub async fn read_ee_registry_with_workspace_override(
+    global_value: Option<String>,
+    setting_key: &str,
+    display_name: &str,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> Option<String> {
+    let ws_value = {
+        let registries = WORKSPACE_REGISTRIES.read().await;
+        registries
+            .as_ref()
+            .and_then(|m| m.get(w_id))
+            .and_then(|ws| ws.get(setting_key))
+            .and_then(|v| match v {
+                serde_json::Value::String(s) => Some(s.clone()),
+                _ => None,
+            })
+    };
+    let value = ws_value.or(global_value);
+    read_ee_registry(value, display_name, job_id, w_id, conn).await
+}
+
+/// Like `read_ee_registry_with_workspace_override`, but for `bool` values.
+pub async fn read_ee_registry_bool_with_workspace_override(
+    global_value: bool,
+    setting_key: &str,
+    display_name: &str,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> bool {
+    let ws_value = {
+        let registries = WORKSPACE_REGISTRIES.read().await;
+        registries
+            .as_ref()
+            .and_then(|m| m.get(w_id))
+            .and_then(|ws| ws.get(setting_key))
+            .and_then(|v| v.as_bool())
+    };
+    let value = ws_value.unwrap_or(global_value);
+    if !cfg!(feature = "enterprise") && value {
+        append_logs(
+            job_id,
+            w_id,
+            format!("Private registry ({display_name}) configuration ignored: this feature requires Windmill Enterprise Edition\n"),
+            conn,
+        )
+        .await;
+        return false;
+    }
+    value
+}
+
+/// Like `read_ee_registry_with_workspace_override`, but for `Vec<url::Url>` values (e.g. ruby_repos).
+pub async fn read_ee_registry_url_list_with_workspace_override(
+    global_value: Option<Vec<url::Url>>,
+    setting_key: &str,
+    display_name: &str,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> Option<Vec<url::Url>> {
+    let ws_value = {
+        let registries = WORKSPACE_REGISTRIES.read().await;
+        registries
+            .as_ref()
+            .and_then(|m| m.get(w_id))
+            .and_then(|ws| ws.get(setting_key))
+            .and_then(|v| match v {
+                serde_json::Value::String(s) => {
+                    let urls: Vec<url::Url> = s
+                        .split(|c: char| c == ',' || c.is_whitespace())
+                        .filter(|s| !s.is_empty())
+                        .filter_map(|s| url::Url::parse(s).ok())
+                        .collect();
+                    if urls.is_empty() {
+                        None
+                    } else {
+                        Some(urls)
+                    }
+                }
+                _ => None,
+            })
+    };
+    let value = ws_value.or(global_value);
+    read_ee_registry(value, display_name, job_id, w_id, conn).await
+}
+
+/// Returns a cache key suffix for workspace-specific registry overrides.
+/// If the workspace has any registry overrides, returns `":ws:<w_id>"` to namespace
+/// the resolution cache. Otherwise returns empty string.
+///
+/// Called on every job's cache lookup path. When no workspace overrides are
+/// configured (the common case), this returns `""` with zero allocation —
+/// the RwLock read is uncontended and costs only nanoseconds.
+pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
+    let registries = WORKSPACE_REGISTRIES.read().await;
+    let has_overrides = registries
+        .as_ref()
+        .and_then(|m| m.get(w_id))
+        .map_or(false, |ws| !ws.is_empty());
+    if has_overrides {
+        format!(":ws:{w_id}")
+    } else {
+        String::new()
+    }
+}
+
 pub fn is_sandboxing_enabled() -> bool {
     if !*DISABLE_NSJAIL {
         return true;
@@ -740,26 +885,69 @@ pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
     }
 }
 
+/// Get OTEL trace context environment variables for a job (TRACEPARENT, OTEL_TRACE_ID, OTEL_SPAN_ID).
+/// Returns an empty vec when OTEL tracing is not enabled or on non-enterprise builds.
+pub fn get_otel_context_envs(job_id: &uuid::Uuid) -> Vec<(&'static str, String)> {
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    if windmill_common::OTEL_TRACING_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+        let trace_id = format!("{:032x}", job_id.as_u128());
+        let span_id = format!("{:016x}", job_id.as_u64_pair().1);
+        let traceparent = format!("00-{}-{}-01", trace_id, span_id);
+        return vec![
+            ("TRACEPARENT", traceparent),
+            ("OTEL_TRACE_ID", trace_id),
+            ("OTEL_SPAN_ID", span_id),
+        ];
+    }
+    let _ = job_id;
+    vec![]
+}
+
 /// Get proxy environment variables for job execution for a specific language.
 /// When OTEL tracing proxy is enabled for this language, routes all traffic through the proxy.
 /// Otherwise, uses the standard HTTP_PROXY/HTTPS_PROXY from environment.
 pub async fn get_proxy_envs_for_lang(
     lang: &ScriptLang,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
 ) -> anyhow::Result<Vec<(&'static str, String)>> {
+    #[allow(unused_mut)]
+    let mut envs;
     #[cfg(all(feature = "private", feature = "enterprise"))]
     if is_otel_tracing_proxy_enabled_for_lang(lang).await {
-        return get_otel_tracing_proxy_envs().await;
+        envs = get_otel_tracing_proxy_envs(job_id, w_id, conn).await?;
+    } else {
+        envs = PROXY_ENVS.clone();
     }
-    let _ = lang;
-    Ok(PROXY_ENVS.clone())
+    #[cfg(not(all(feature = "private", feature = "enterprise")))]
+    {
+        let _ = (lang, w_id, conn);
+        envs = PROXY_ENVS.clone();
+    }
+    envs.extend(get_otel_context_envs(job_id));
+    Ok(envs)
 }
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
-async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, String)>> {
-    let port = crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
+async fn get_otel_tracing_proxy_envs(
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> anyhow::Result<Vec<(&'static str, String)>> {
+    let port = match *crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
         .read()
         .await
-        .ok_or_else(|| anyhow::anyhow!("OTEL tracing proxy port not initialized"))?;
+    {
+        Some(p) => p,
+        None => {
+            let reason = "OTEL tracing proxy is enabled but not available (not initialized yet, or NUM_WORKERS > 1). \
+                This job's HTTP requests will not be traced.";
+            tracing::warn!("{}", reason);
+            append_logs(job_id, w_id, format!("\n[warning] {reason}\n"), conn).await;
+            return Ok(PROXY_ENVS.clone());
+        }
+    };
     let proxy_url = format!("http://127.0.0.1:{}", port);
     Ok(vec![
         ("HTTP_PROXY", proxy_url.clone()),
@@ -777,6 +965,7 @@ async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, Stri
             TRACING_PROXY_CA_CERT_PATH.to_string(),
         ),
         ("CURL_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("GIT_SSL_CAINFO", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("DENO_CERT", TRACING_PROXY_CA_CERT_PATH.to_string()),
     ])
 }
@@ -844,6 +1033,19 @@ impl JobCompletedSender {
     pub fn is_sql(&self) -> bool {
         matches!(self, Self::Sql(_))
     }
+
+    pub fn set_worker_killpill(&mut self, killpill_tx: KillpillSender) {
+        if let Self::Sql(sql) = self {
+            sql.worker_killpill_tx = Some(killpill_tx);
+        }
+    }
+
+    pub fn send_worker_killpill(&self) {
+        if let Self::Sql(SqlJobCompletedSender { worker_killpill_tx: Some(killpill_tx), .. }) = self
+        {
+            killpill_tx.send();
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -851,6 +1053,7 @@ pub struct SqlJobCompletedSender {
     sender: flume::Sender<SendResult>,
     unbounded_sender: flume::Sender<SendResult>,
     killpill_tx: broadcast::Sender<()>,
+    worker_killpill_tx: Option<KillpillSender>,
 }
 
 pub struct JobCompletedReceiver {
@@ -875,7 +1078,12 @@ impl JobCompletedSender {
         let (unbounded_sender, unbounded_rx) = flume::unbounded::<SendResult>();
         let (killpill_tx, killpill_rx) = broadcast::channel::<()>(10);
         (
-            Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, killpill_tx }),
+            Self::Sql(SqlJobCompletedSender {
+                sender,
+                unbounded_sender,
+                killpill_tx,
+                worker_killpill_tx: None,
+            }),
             JobCompletedReceiver { bounded_rx: receiver, killpill_rx, unbounded_rx },
         )
     }
@@ -1330,7 +1538,7 @@ fn start_interactive_worker_shell(
                         {
                             Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION)
                         }
-                        _ => Duration::from_millis(*SLEEP_QUEUE * 10),
+                        _ => Duration::from_millis(sleep_queue() * 10),
                     };
                     tokio::select! {
                         _ = tokio::time::sleep(nap_time) => {
@@ -1343,7 +1551,7 @@ fn start_interactive_worker_shell(
 
                 Err(err) => {
                     tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
-                    tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 20)).await;
+                    tokio::time::sleep(Duration::from_millis(sleep_queue() * 20)).await;
                 }
             };
         }
@@ -1377,10 +1585,27 @@ pub async fn run_worker(
         );
     }
 
-    // Force UNSHARE_PATH initialization now to fail-fast if unshare doesn't work
-    // This ensures we panic at startup rather than lazily when first accessed during job execution
-    if is_unshare_enabled() || *ENABLE_UNSHARE_PID || *FAVOR_UNSHARE_PID {
-        let _ = &*UNSHARE_PATH;
+    // Force UNSHARE_PATH and NSJAIL_AVAILABLE initialization now for clear startup logging
+    let _ = &*UNSHARE_PATH;
+    let _ = &*NSJAIL_AVAILABLE;
+
+    if (is_unshare_enabled() || *FAVOR_UNSHARE_PID) && UNSHARE_PATH.is_none() {
+        tracing::error!(
+            worker = %worker_name, hostname = %hostname,
+            "Worker is configured to use unshare isolation (FAVOR_UNSHARE_PID={}, job_isolation={:?}) \
+            but unshare is NOT available. Jobs will run without isolation. \
+            See errors above for the specific reason unshare initialization failed.",
+            *FAVOR_UNSHARE_PID,
+            JobIsolationLevel::from_u8(JOB_ISOLATION.load(std::sync::atomic::Ordering::Relaxed))
+        );
+    }
+    if is_sandboxing_enabled() && NSJAIL_AVAILABLE.is_none() {
+        tracing::error!(
+            worker = %worker_name, hostname = %hostname,
+            "Worker is configured to use nsjail sandboxing but nsjail is NOT available. \
+            Jobs requiring sandboxing will fail. \
+            See errors above for the specific reason nsjail initialization failed."
+        );
     }
 
     let start_time = Instant::now();
@@ -1389,7 +1614,7 @@ pub async fn run_worker(
     tracing::debug!(worker = %worker_name, hostname = %hostname, worker_dir = %worker_dir, "Creating worker dir");
 
     #[cfg(feature = "python")]
-    {
+    if !NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed) {
         let (conn, worker_name, hostname, worker_dir) = (
             conn.clone(),
             worker_name.clone(),
@@ -1669,9 +1894,12 @@ pub async fn run_worker(
         ws.inc();
     }
 
+    otel_incr_worker_started();
+
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<SameWorkerPayload>(5);
 
-    let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
+    let (mut job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
+    job_completed_tx.set_worker_killpill(killpill_tx.clone());
 
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
@@ -1878,6 +2106,8 @@ pub async fn run_worker(
             tracing::debug!(worker = %worker_name, hostname = %hostname, "set worker busy to 0");
         }
 
+        otel_set_worker_busy(&worker_name, 0);
+
         occupancy_metrics.running_job_started_at = None;
 
         #[cfg(feature = "prometheus")]
@@ -1889,6 +2119,8 @@ pub async fn run_worker(
             );
             tracing::debug!(worker = %worker_name, hostname = %hostname, "set uptime metric");
         }
+
+        otel_set_worker_uptime(&worker_name, start_time.elapsed().as_secs_f64());
 
         if last_ping.elapsed().as_secs() > NUM_SECS_PING {
             let read_cgroups =
@@ -1992,6 +2224,7 @@ pub async fn run_worker(
             }
         }
 
+        let mut was_suspended_job = false;
         let next_job = {
             // println!("2: {:?}",  instant.elapsed());
             #[cfg(feature = "benchmark")]
@@ -2075,7 +2308,9 @@ pub async fn run_worker(
 
                         let suspend_first = suspend_first_success
                             || rand::random::<f64>() < likelihood_of_suspend
-                            || last_suspend_first.elapsed().as_secs_f64() > 5.0;
+                            || last_suspend_first.elapsed().as_secs_f64() > 5.0
+                            || crate::result_processor::WAC_SUSPEND_READY
+                                .swap(false, Ordering::Relaxed);
 
                         if suspend_first {
                             last_suspend_first = Instant::now();
@@ -2148,6 +2383,7 @@ pub async fn run_worker(
                             }
                         }
 
+                        was_suspended_job = job.as_ref().is_ok_and(|j| j.suspended);
                         if let Ok(j) = job.as_ref() {
                             let suspend_success = j.suspended;
                             if suspend_first {
@@ -2174,6 +2410,12 @@ pub async fn run_worker(
                                     wp.observe(duration_pull_s);
                                 }
                             }
+
+                            otel_record_worker_pull_duration(
+                                &worker_name,
+                                j.job.is_some(),
+                                duration_pull_s,
+                            );
                         }
                         match job {
                             Ok(pulled_job_result) => match pulled_job_result.to_pulled_job() {
@@ -2217,6 +2459,8 @@ pub async fn run_worker(
                     wb.set(1);
                     tracing::debug!("set worker busy to 1");
                 }
+
+                otel_set_worker_busy(&worker_name, 1);
 
                 occupancy_metrics.running_job_started_at = Some(Instant::now());
 
@@ -2365,7 +2609,9 @@ pub async fn run_worker(
                         .expect("send job completed END");
                     add_time!(bench, "sent job completed");
                 } else {
-                    add_outstanding_wait_time(&conn, &job, *OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
+                    if !was_suspended_job {
+                        add_outstanding_wait_time(&conn, &job, *OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
+                    }
 
                     #[cfg(feature = "prometheus")]
                     register_metric(
@@ -2386,10 +2632,7 @@ pub async fn run_worker(
                     )
                     .await;
 
-                    // counter.add(
-                    //     1,
-                    //     worker_resource
-                    // );
+                    otel_incr_worker_execution_count(&job.tag);
 
                     #[cfg(feature = "prometheus")]
                     let _timer = register_metric(
@@ -2410,6 +2653,8 @@ pub async fn run_worker(
                         |c| c.start_timer(),
                     )
                     .await;
+
+                    let otel_execution_start = Instant::now();
 
                     let job_root = job
                         .flow_innermost_root_job
@@ -2473,7 +2718,6 @@ pub async fn run_worker(
                         create_directory_async(target).await;
                     }
 
-                    #[cfg(feature = "prometheus")]
                     let tag = job.tag.clone();
 
                     let is_init_script: bool = job.tag.as_str() == INIT_SCRIPT_TAG;
@@ -2621,6 +2865,11 @@ pub async fn run_worker(
                         .await;
                     }
 
+                    otel_record_worker_execution_duration(
+                        &tag,
+                        otel_execution_start.elapsed().as_secs_f64(),
+                    );
+
                     if !KEEP_JOB_DIR.load(Ordering::Relaxed) && !(is_flow && same_worker) {
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
                     }
@@ -2656,7 +2905,7 @@ pub async fn run_worker(
                     None
                 };
 
-                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
+                tokio::time::sleep(Duration::from_millis(sleep_queue())).await;
 
                 #[cfg(feature = "benchmark")]
                 {
@@ -2677,7 +2926,7 @@ pub async fn run_worker(
             }
             Err(err) => {
                 tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
-                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE * 5)).await;
+                tokio::time::sleep(Duration::from_millis(sleep_queue() * 5)).await;
             }
         };
     }
@@ -3235,10 +3484,22 @@ pub async fn handle_queued_job(
             "none"
         };
 
-        logs.push_str(&format!(
-            "job={} {}={} worker={} hostname={} isolation={}\n",
-            &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname, isolation_label
-        ));
+        // Skip verbose job header for WAC v2 replays (checkpoint has completed steps)
+        let is_wac_replay = if let Connection::Sql(db) = conn {
+            crate::wac_executor::load_checkpoint(db, &job.id)
+                .await
+                .map(|c| !c.completed_steps.is_empty())
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        if !is_wac_replay {
+            logs.push_str(&format!(
+                "job={} {}={} worker={} hostname={} isolation={}\n",
+                &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname, isolation_label
+            ));
+        }
 
         if *NO_LOGS_AT_ALL {
             logs.push_str("Logs are fully disabled for this worker\n");
@@ -3485,6 +3746,13 @@ pub async fn handle_queued_job(
         {
             return Ok(false);
         }
+        if result
+            .as_ref()
+            .is_err_and(|err| matches!(err, &Error::WacSuspended(_)))
+        {
+            // WAC v2 job suspended while waiting for child jobs — don't complete it
+            return Ok(true);
+        }
         process_result(
             cjob,
             result.map(|x| Arc::new(x)),
@@ -3538,6 +3806,7 @@ pub struct ContentReqLangEnvs {
     pub envs: Option<Vec<String>>,
     pub codebase: Option<String>,
     pub schema: Option<String>,
+    pub modules: Option<std::collections::HashMap<String, ScriptModule>>,
 }
 
 pub async fn get_hub_script_content_and_requirements(
@@ -3557,6 +3826,7 @@ pub async fn get_hub_script_content_and_requirements(
         envs: None,
         codebase: None,
         schema: Some(script.schema.get().to_string()),
+        modules: None,
     })
 }
 
@@ -3577,6 +3847,7 @@ pub async fn get_script_content_by_hash(
             Some(_) => Some(script_hash.to_string()),
         },
         schema: None,
+        modules: data.modules.clone(),
     })
 }
 
@@ -3706,7 +3977,7 @@ async fn handle_code_execution_job(
 
     // Box::pin the script fetching match to prevent large enum on stack
     let (
-        ScriptData { code, lock },
+        ScriptData { code, lock, modules: modules_from_data },
         ScriptMetadata { language, envs, codebase, schema_validator, schema },
     ) = match job.kind {
         JobKind::Preview => {
@@ -3731,14 +4002,14 @@ async fn handle_code_execution_job(
             }
         }
         JobKind::Script_Hub => {
-            let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
+            let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema, .. } =
                 Box::pin(get_hub_script_content_and_requirements(
                     job.runnable_path.as_ref(),
                     conn.as_sql(),
                 ))
                 .await?;
 
-            data = ScriptData { code: content, lock: lockfile };
+            data = ScriptData { code: content, lock: lockfile, modules: None };
             metadata = ScriptMetadata { language, envs, codebase, schema, schema_validator: None };
             (&data, &metadata)
         }
@@ -3783,13 +4054,20 @@ async fn handle_code_execution_job(
                     .as_ref()
                     .ok_or_else(|| Error::internal_err("expected script path".to_string()))?;
                 if script_path.starts_with("hub/") {
-                    let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
-                        Box::pin(get_hub_script_content_and_requirements(
-                            Some(script_path),
-                            conn.as_sql(),
-                        ))
-                        .await?;
-                    data = ScriptData { code: content, lock: lockfile };
+                    let ContentReqLangEnvs {
+                        content,
+                        lockfile,
+                        language,
+                        envs,
+                        codebase,
+                        schema,
+                        ..
+                    } = Box::pin(get_hub_script_content_and_requirements(
+                        Some(script_path),
+                        conn.as_sql(),
+                    ))
+                    .await?;
+                    data = ScriptData { code: content, lock: lockfile, modules: None };
                     metadata =
                         ScriptMetadata { language, envs, codebase, schema, schema_validator: None };
                     (&data, &metadata)
@@ -3819,6 +4097,16 @@ async fn handle_code_execution_job(
             "handle_code_execution_job should never be reachable with a non-code execution job"
         ),
     };
+
+    // For preview jobs, extract modules from args._MODULES if not already set
+    let modules = modules_from_data.clone().or_else(|| {
+        job.args.as_ref().and_then(|args| {
+            args.get("_MODULES").and_then(|raw| {
+                serde_json::from_str::<std::collections::HashMap<String, ScriptModule>>(raw.get())
+                    .ok()
+            })
+        })
+    });
 
     try_validate_schema(
         job,
@@ -3853,9 +4141,48 @@ async fn handle_code_execution_job(
         envs,
         codebase,
         lock,
+        &modules,
         false,
     )
     .await
+}
+
+pub async fn write_module_files(
+    job_dir: &str,
+    modules: &std::collections::HashMap<String, ScriptModule>,
+    base_dir: Option<&str>,
+) -> error::Result<()> {
+    for (relpath, module) in modules {
+        // Reject path traversal attempts in module paths
+        if relpath.contains("..") {
+            tracing::warn!("Skipping module with path traversal: {relpath}");
+            continue;
+        }
+        let full_path = match base_dir {
+            Some(dir) => format!("{}/{}/{}", job_dir, dir, relpath),
+            None => format!("{}/{}", job_dir, relpath),
+        };
+        if let Some(parent) = std::path::Path::new(&full_path).parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        // For Python modules, create __init__.py in each intermediate directory
+        // between base_dir and the module's parent so that relative imports work.
+        if let Some(dir) = base_dir {
+            let rel = std::path::Path::new(relpath);
+            let base = std::path::Path::new(job_dir).join(dir);
+            let mut current = base.clone();
+            for component in rel.parent().into_iter().flat_map(|p| p.components()) {
+                current = current.join(component);
+                let init_py = current.join("__init__.py");
+                if !init_py.exists() {
+                    tokio::fs::write(&init_py, "").await?;
+                }
+            }
+        }
+        tracing::debug!("Writing module file: {full_path}");
+        tokio::fs::write(&full_path, &module.content).await?;
+    }
+    Ok(())
 }
 
 pub async fn run_language_executor(
@@ -3880,10 +4207,49 @@ pub async fn run_language_executor(
     envs: &Option<Vec<String>>,
     codebase: &Option<String>,
     lock: &Option<String>,
+    modules: &Option<std::collections::HashMap<String, ScriptModule>>,
     run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
+    // Expand WM_INTERNAL_DB markers into real SQL before dispatching
+    let expanded_code: String;
+    let mut language = language;
+    let code = if let Some(ref lang) = language {
+        match windmill_common::query_builders::try_expand_internal_db_query(code, lang) {
+            Some(Ok(expanded)) => {
+                if let Some(lang_override) = expanded.language_override {
+                    language = Some(lang_override);
+                }
+                expanded_code = expanded.code;
+                &expanded_code
+            }
+            Some(Err(e)) => {
+                return Err(Error::ExecutionErr(format!(
+                    "Failed to expand WM_INTERNAL_DB marker: {}",
+                    e
+                )));
+            }
+            None => code, // Not a marker, use original code
+        }
+    } else {
+        code
+    };
+    if let Some(modules) = modules {
+        #[cfg(feature = "python")]
+        let base_dir = if language == Some(ScriptLang::Python3) {
+            let script_path = crate::common::use_flow_root_path(job.runnable_path());
+            Some(crate::python_executor::compute_python_module_dir(
+                &script_path,
+            ))
+        } else {
+            None
+        };
+        #[cfg(not(feature = "python"))]
+        let base_dir: Option<String> = None;
+        write_module_files(job_dir, modules, base_dir.as_deref()).await?;
+    }
+
     if language == Some(ScriptLang::Postgresql) {
-        return do_postgresql(
+        return Box::pin(do_postgresql(
             job,
             &client,
             &code,
@@ -3895,7 +4261,7 @@ pub async fn run_language_executor(
             occupancy_metrics,
             parent_runnable_path,
             run_inline,
-        )
+        ))
         .await;
     } else if language == Some(ScriptLang::Mysql) {
         #[cfg(not(feature = "mysql"))]
@@ -3910,7 +4276,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_mysql(
+            return Box::pin(do_mysql(
                 job,
                 &client,
                 &code,
@@ -3921,7 +4287,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Bigquery) {
@@ -3947,7 +4313,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_bigquery(
+            return Box::pin(do_bigquery(
                 job,
                 &client,
                 &code,
@@ -3958,7 +4324,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Snowflake) {
@@ -3976,7 +4342,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_snowflake(
+            return Box::pin(do_snowflake(
                 job,
                 &client,
                 &code,
@@ -3987,7 +4353,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Mssql) {
@@ -4013,7 +4379,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_mssql(
+            return Box::pin(do_mssql(
                 job,
                 &client,
                 &code,
@@ -4024,7 +4390,7 @@ pub async fn run_language_executor(
                 occupancy_metrics,
                 job_dir,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::OracleDB) {
@@ -4050,7 +4416,7 @@ pub async fn run_language_executor(
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
-            return do_oracledb(
+            return Box::pin(do_oracledb(
                 job,
                 &client,
                 &code,
@@ -4061,7 +4427,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::DuckDb) {
@@ -4075,7 +4441,7 @@ pub async fn run_language_executor(
 
         #[cfg(feature = "duckdb")]
         {
-            return do_duckdb(
+            return Box::pin(do_duckdb(
                 job,
                 &client,
                 &code,
@@ -4087,7 +4453,7 @@ pub async fn run_language_executor(
                 occupancy_metrics,
                 parent_runnable_path,
                 run_inline,
-            )
+            ))
             .await;
         }
     } else if language == Some(ScriptLang::Graphql) {
@@ -4096,7 +4462,7 @@ pub async fn run_language_executor(
                 "Inline execution is not yet supported for this language".to_string(),
             ));
         }
-        return do_graphql(
+        return Box::pin(do_graphql(
             job,
             &client,
             &code,
@@ -4105,7 +4471,7 @@ pub async fn run_language_executor(
             canceled_by,
             worker_name,
             occupancy_metrics,
-        )
+        ))
         .await;
     } else if language == Some(ScriptLang::Nativets) {
         if run_inline {
@@ -4128,11 +4494,14 @@ pub async fn run_language_executor(
             "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
             reserved_variables
                 .iter()
-                .map(|(k, v)| format!("const {} = '{}';\nprocess.env['{}'] = '{}';\n", k, v, k, v))
+                .map(|(k, v)| {
+                    let escaped = v.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r");
+                    format!("const {} = '{}';\nprocess.env['{}'] = '{}';\n", k, escaped, k, escaped)
+                })
                 .collect::<Vec<String>>()
                 .join("\n"));
 
-        let result = do_nativets(
+        let result = Box::pin(do_nativets(
             job,
             &client,
             env_code,
@@ -4143,7 +4512,7 @@ pub async fn run_language_executor(
             worker_name,
             occupancy_metrics,
             has_stream,
-        )
+        ))
         .await?;
         return Ok(result);
     }
@@ -4355,6 +4724,7 @@ mount {{
                     occupancy_metrics,
                     precomputed_agent_info,
                     has_stream,
+                    modules,
                 ))
                 .await
             }
@@ -4418,6 +4788,7 @@ mount {{
                 occupancy_metrics,
                 precomputed_agent_info,
                 has_stream,
+                modules,
             ))
             .await
         }
@@ -4484,7 +4855,17 @@ mount {{
                     "Inline execution is not yet supported for this language".to_string(),
                 ));
             }
+            let maybe_lock = resolve_maybe_lock(
+                &lock,
+                &code,
+                language,
+                &job.workspace_id,
+                job.runnable_path(),
+                conn.clone(),
+            )
+            .await?;
             Box::pin(handle_powershell_job(
+                maybe_lock,
                 mem_peak,
                 canceled_by,
                 job,
@@ -4920,6 +5301,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &None,
                     &None,
                     &None,
+                    &None,
                     true,
                 )
                 .await
@@ -5000,6 +5382,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &content_info.envs,
                     &content_info.codebase,
                     &content_info.lockfile,
+                    &content_info.modules,
                     true,
                 )
                 .await

@@ -118,6 +118,18 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
+# Split debug info into a separate file, then strip the binary.
+# The .debug file can be extracted as a CI artifact for production debugging.
+# The debuglink allows gdb to auto-discover the debug file when placed next to the binary.
+RUN objcopy --only-keep-debug /windmill/target/release/windmill /windmill/target/release/windmill.debug \
+    && strip /windmill/target/release/windmill \
+    && objcopy --add-gnu-debuglink=/windmill/target/release/windmill.debug /windmill/target/release/windmill
+
+# Standalone stage for extracting the .debug file without including it in the final image.
+# Build with: docker build --target debuginfo --output type=local,dest=./out .
+FROM scratch AS debuginfo
+COPY --from=builder /windmill/target/release/windmill.debug /windmill.debug
+
 FROM ${DEBIAN_IMAGE}
 
 ARG TARGETPLATFORM
@@ -268,11 +280,11 @@ RUN bun install -g windmill-cli \
 RUN curl -fsSL https://claude.ai/install.sh | bash \
     && cp /root/.local/share/claude/versions/* /usr/bin/claude
 
-COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
-COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
+COPY --from=php:8.3.30-cli-bookworm /usr/local/bin/php /usr/bin/php
+COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
 
 # add the docker client to call docker from a worker if enabled
-COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
+COPY --from=docker:29-dind /usr/local/bin/docker /usr/local/bin/
 
 ENV RUSTUP_HOME="/tmp/windmill/cache/rustup"
 ENV CARGO_HOME="/tmp/windmill/cache/cargo"

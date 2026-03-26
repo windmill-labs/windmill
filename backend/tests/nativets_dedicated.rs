@@ -32,6 +32,7 @@ mod prewarmed_isolate_tests {
             "test-workspace",
             "f/test/script",
             LoaderMode::BrowserBundle,
+            &None,
         )
         .await
         .expect("build_loader failed");
@@ -80,8 +81,13 @@ mod prewarmed_isolate_tests {
         let mut results = Vec::new();
 
         for job_args in &jobs {
-            let mut isolate =
-                PrewarmedIsolate::spawn("".to_string(), js.clone(), ann.clone(), arg_names.clone());
+            let mut isolate = PrewarmedIsolate::spawn(
+                "".to_string(),
+                js.clone(),
+                ann.clone(),
+                arg_names.clone(),
+                None,
+            );
             isolate.wait_ready().await.expect("isolate failed to warm");
 
             let args = serde_json::to_string(job_args).unwrap();
@@ -180,8 +186,13 @@ export function main(n: number): number {
         let ann = default_annotation();
 
         // Pre-warm first isolate
-        let mut warm =
-            PrewarmedIsolate::spawn("".to_string(), js.clone(), ann.clone(), arg_names.clone());
+        let mut warm = PrewarmedIsolate::spawn(
+            "".to_string(),
+            js.clone(),
+            ann.clone(),
+            arg_names.clone(),
+            None,
+        );
         warm.wait_ready()
             .await
             .expect("first isolate failed to warm");
@@ -193,8 +204,13 @@ export function main(n: number): number {
             let executing = warm.start_execution(args);
 
             // Pipeline: start pre-warming next isolate while current one runs
-            warm =
-                PrewarmedIsolate::spawn("".to_string(), js.clone(), ann.clone(), arg_names.clone());
+            warm = PrewarmedIsolate::spawn(
+                "".to_string(),
+                js.clone(),
+                ann.clone(),
+                arg_names.clone(),
+                None,
+            );
 
             let prewarmed_result = executing.wait().await.expect("isolate execution failed");
             match prewarmed_result.result {

@@ -101,9 +101,7 @@
 	)
 	let canMoveSelected = $derived(
 		resolvedModuleIds.length > 0 &&
-			areContiguousSiblings(
-				locateModules(resolvedModuleIds, flowStore.val.value.modules ?? [])
-			)
+			areContiguousSiblings(locateModules(resolvedModuleIds, flowStore.val.value.modules ?? []))
 	)
 </script>
 
@@ -114,6 +112,7 @@
 		onDeleteSelected={() => flowModuleSchemaMap?.deleteMultiple(resolvedModuleIds)}
 		onDuplicateSelected={() => flowModuleSchemaMap?.duplicateMultiple(resolvedModuleIds)}
 		onMoveSelected={() => flowModuleSchemaMap?.moveMultiple(resolvedModuleIds)}
+		onCreateGroup={() => flowModuleSchemaMap?.createGroup(selectionManager.selectedIds)}
 		{canMoveSelected}
 		resolvedCount={resolvedModuleIds.length}
 	/>

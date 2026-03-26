@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -9,20 +10,24 @@
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2 } from 'lucide-svelte'
+	import { Loader2, RotateCcw } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveKafkaTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import TriggerFilters from '../TriggerFilters.svelte'
+	import Select from '$lib/components/select/Select.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -80,7 +85,13 @@
 	let kafkaCfgValid = $state(false)
 	let kafkaResourcePath = $state('')
 	let kafkaCfg: Record<string, any> = $state({})
+	let autoOffsetReset = $state('latest')
+	let autoCommit = $state(true)
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
+	let resetLoading = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
@@ -90,6 +101,7 @@
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
+	let resetConfirmOpen = $state(false)
 
 	const isValid = $derived(
 		!!kafkaResourcePath &&
@@ -166,6 +178,8 @@
 				group_id: nDefaultValues?.group_id ?? '',
 				topics: nDefaultValues?.topics ?? ['']
 			}
+			autoOffsetReset = nDefaultValues?.auto_offset_reset ?? 'latest'
+			autoCommit = nDefaultValues?.auto_commit ?? true
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
@@ -196,6 +210,8 @@
 			group_id: cfg?.group_id,
 			topics: cfg?.topics
 		}
+		autoOffsetReset = cfg?.auto_offset_reset ?? 'latest'
+		autoCommit = cfg?.auto_commit ?? true
 		mode = cfg?.mode ?? 'enabled'
 		extra_perms = cfg?.extra_perms
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
@@ -204,6 +220,9 @@
 		retry = cfg?.retry
 		filters = cfg?.filters ?? []
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		permissionedAs = cfg?.permissioned_as
+		selectedPermissionedAs = undefined
+		preservePermissionedAs = false
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -228,11 +247,15 @@
 			group_id: kafkaCfg.group_id,
 			topics: kafkaCfg.topics,
 			filters,
+			auto_offset_reset: autoOffsetReset,
+			auto_commit: autoCommit,
 			mode,
 			extra_perms: extra_perms,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 	}
 
@@ -267,6 +290,24 @@
 		}
 	}
 
+	async function resetOffsets() {
+		resetLoading = true
+		try {
+			await KafkaTriggerService.resetKafkaOffsets({
+				workspace: $workspaceStore!,
+				path: initialPath
+			})
+			sendUserToast(
+				'Offset reset triggered. The consumer will restart and re-read from the beginning.'
+			)
+		} catch (error) {
+			sendUserToast(error.body || error.message, true)
+		} finally {
+			resetLoading = false
+			resetConfirmOpen = false
+		}
+	}
+
 	async function handleToggleMode(newMode: TriggerMode) {
 		mode = newMode
 		if (!trigger?.draftConfig) {
@@ -295,6 +336,18 @@
 		}
 	})
 </script>
+
+<ConfirmationModal
+	title="Reset consumer offset"
+	confirmationText="Reset"
+	open={resetConfirmOpen}
+	loading={resetLoading}
+	onConfirmed={resetOffsets}
+	onCanceled={() => (resetConfirmOpen = false)}
+>
+	This will re-process all messages from the beginning of the topic. The consumer will restart
+	automatically.
+</ConfirmationModal>
 
 {#if mode === 'suspended'}
 	<TriggerSuspendedJobsModal
@@ -370,6 +423,15 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}
@@ -444,10 +506,79 @@
 				showTestingBadge={isEditor}
 			/>
 
-			<TriggerFilters bind:filters disabled={!can_write} />
-
 			<Section label="Advanced" collapsable>
-				<div class="flex flex-col gap-4">
+				{#snippet header()}
+					<TriggerAdvancedBadges
+						{error_handler_path}
+						{retry}
+						extraBadges={[
+							{ name: 'Earliest offset', active: autoOffsetReset !== 'latest' },
+							{ name: 'Manual commit', active: !autoCommit },
+							{ name: 'Filters', active: filters.length > 0 }
+						]}
+					/>
+				{/snippet}
+				<div class="flex flex-col gap-6">
+					<Label label="Initial offset">
+						{#snippet header()}
+							<span class="text-2xs text-tertiary ml-2">
+								Only applies when no committed offset exists
+							</span>
+						{/snippet}
+						<Select
+							items={[
+								{ label: 'Latest (new messages only)', value: 'latest' },
+								{ label: 'Earliest (from beginning)', value: 'earliest' }
+							]}
+							bind:value={autoOffsetReset}
+							disabled={!can_write}
+						/>
+					</Label>
+
+					<div class="flex flex-col gap-2">
+						<Label label="Auto-commit offsets">
+							{#snippet header()}
+								<span class="text-2xs text-tertiary ml-2">
+									Automatically commit offsets after receiving each message
+								</span>
+							{/snippet}
+							<Toggle bind:checked={autoCommit} disabled={!can_write} />
+						</Label>
+						{#if !autoCommit}
+							<Alert title="Manual commit mode" type="info" size="xs">
+								Offsets will not be committed automatically. Use <code
+									>wmill.commit_kafka_offsets(trigger_path, topic, partition, offset)</code
+								>
+								in Python or
+								<code>wmill.commitKafkaOffsets(triggerPath, topic, partition, offset)</code> in TypeScript
+								with the values from the event payload. The consumer collects all pending commits and
+								commits the highest offset for each topic/partition pair.
+							</Alert>
+						{/if}
+					</div>
+
+					{#if edit && can_write}
+						<Label label="Consumer offset">
+							{#snippet header()}
+								<span class="text-2xs text-tertiary ml-2">
+									Force re-read all messages from the beginning
+								</span>
+							{/snippet}
+							<Button
+								variant="default"
+								size="xs"
+								startIcon={{ icon: RotateCcw }}
+								disabled={resetLoading}
+								loading={resetLoading}
+								onclick={() => (resetConfirmOpen = true)}
+							>
+								Reset offset to earliest
+							</Button>
+						</Label>
+					{/if}
+
+					<TriggerFilters bind:filters disabled={!can_write} />
+
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
 							<Tab value="error_handler" label="Error Handler" />
@@ -467,6 +598,7 @@
 					</div>
 				</div>
 			</Section>
+			<div class="pb-8" />
 		</div>
 	{/if}
 {/snippet}

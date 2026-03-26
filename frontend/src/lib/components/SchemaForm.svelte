@@ -16,7 +16,11 @@
 	import ArgInput from './ArgInput.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { deepEqual } from 'fast-equals'
-	import { dragHandleZone, type Options as DndOptions } from '@windmill-labs/svelte-dnd-action'
+	import {
+		dragHandleZone,
+		SHADOW_ITEM_MARKER_PROPERTY_NAME,
+		type Options as DndOptions
+	} from '@windmill-labs/svelte-dnd-action'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
 	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
@@ -34,7 +38,7 @@
 		defaultValues?: Record<string, any>
 		shouldHideNoInputs?: boolean
 		compact?: boolean
-		linkedSecret?: string | undefined
+		linkedSecrets?: string[]
 		linkedSecretCandidates?: string[] | undefined
 		noVariablePicker?: boolean
 		flexWrap?: boolean
@@ -86,7 +90,7 @@
 		defaultValues = {},
 		shouldHideNoInputs = false,
 		compact = false,
-		linkedSecret = $bindable(undefined),
+		linkedSecrets = $bindable([]),
 		linkedSecretCandidates = undefined,
 		noVariablePicker = false,
 		flexWrap = false,
@@ -295,7 +299,9 @@
 				class={twMerge(
 					typeof diff[argName] === 'object' &&
 						diff[argName].diff !== 'same' &&
-						'bg-red-300 dark:bg-red-800 rounded-md'
+						'bg-red-300 dark:bg-red-800 rounded-md',
+					item[SHADOW_ITEM_MARKER_PROPERTY_NAME] &&
+						'!visible border-2 border-dashed border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 rounded-md [&>*]:invisible'
 				)}
 				innerClass="w-full"
 			>
@@ -333,7 +339,7 @@
 								{variableEditor}
 								{itemPicker}
 								{pickForField}
-								password={linkedSecret == argName}
+								password={linkedSecrets.includes(argName)}
 								extra={formerProperty}
 								{showSchemaExplorer}
 								simpleTooltip={schemaFieldTooltip[argName]}
@@ -398,22 +404,24 @@
 									customErrorMessage={prop?.customErrorMessage}
 									bind:properties={
 										() => prop?.properties,
-										(v) => { if (prop) prop.properties = v }
+										(v) => {
+											if (prop) prop.properties = v
+										}
 									}
 									bind:order={
 										() => prop?.order,
-										(v) => { if (prop) prop.order = v }
+										(v) => {
+											if (prop) prop.order = v
+										}
 									}
 									nestedRequired={prop?.required}
 									itemsType={prop?.items}
-									disabled={disabledArgs.includes(argName) ||
-										disabled ||
-										prop?.disabled}
+									disabled={disabledArgs.includes(argName) || disabled || prop?.disabled}
 									{compact}
 									{variableEditor}
 									{itemPicker}
 									bind:pickForField
-									password={linkedSecret == argName}
+									password={linkedSecrets.includes(argName)}
 									extra={prop}
 									{showSchemaExplorer}
 									simpleTooltip={schemaFieldTooltip[argName]}
@@ -440,12 +448,14 @@
 										{#if linkedSecretCandidates?.includes(argName)}
 											<div class="relative">
 												<ToggleButtonGroup
-													selected={linkedSecret == argName ? 'secret' : 'inlined'}
+													selected={linkedSecrets.includes(argName) ? 'secret' : 'inlined'}
 													on:selected={(e) => {
 														if (e.detail === 'secret') {
-															linkedSecret = argName
-														} else if (linkedSecret == argName) {
-															linkedSecret = undefined
+															if (!linkedSecrets.includes(argName)) {
+																linkedSecrets = [...linkedSecrets, argName]
+															}
+														} else {
+															linkedSecrets = linkedSecrets.filter((s) => s !== argName)
 														}
 													}}
 												>

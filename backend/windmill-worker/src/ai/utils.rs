@@ -731,16 +731,3 @@ pub fn extract_text_content(content: &OpenAIContent) -> String {
             .join(""),
     }
 }
-
-/// Parse a data URL to extract media type and base64 data
-/// Format: data:mime_type;base64,data
-/// Returns (media_type, data) tuple if successful
-pub fn parse_data_url(url: &str) -> Option<(String, String)> {
-    if !url.starts_with("data:") {
-        return None;
-    }
-    let rest = url.strip_prefix("data:")?;
-    let (header, data) = rest.split_once(",")?;
-    let media_type = header.strip_suffix(";base64")?;
-    Some((media_type.to_string(), data.to_string()))
-}

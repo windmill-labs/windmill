@@ -214,12 +214,9 @@ async fn test_capture_delete(db: Pool<Postgres>) -> anyhow::Result<()> {
         .execute(&db)
         .await?;
 
-    let count = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM capture WHERE id = $1",
-        id,
-    )
-    .fetch_one(&db)
-    .await?;
+    let count = sqlx::query_scalar!("SELECT COUNT(*) FROM capture WHERE id = $1", id,)
+        .fetch_one(&db)
+        .await?;
 
     assert_eq!(count, Some(0));
 
@@ -385,7 +382,10 @@ async fn test_capture_api_list_captures(db: Pool<Postgres>) -> anyhow::Result<()
         .send()
         .await?;
 
-    assert!(response.status().is_success(), "list captures should succeed");
+    assert!(
+        response.status().is_success(),
+        "list captures should succeed"
+    );
 
     let captures: Vec<CaptureResponse> = response.json().await?;
     assert_eq!(captures.len(), 3);
@@ -480,12 +480,9 @@ async fn test_capture_api_delete(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     assert!(response.status().is_success(), "delete should succeed");
 
-    let count = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM capture WHERE id = $1",
-        id,
-    )
-    .fetch_one(&db)
-    .await?;
+    let count = sqlx::query_scalar!("SELECT COUNT(*) FROM capture WHERE id = $1", id,)
+        .fetch_one(&db)
+        .await?;
 
     assert_eq!(count, Some(0));
 
@@ -560,7 +557,7 @@ async fn test_http_trigger_insert_and_query(db: Pool<Postgres>) -> anyhow::Resul
         r#"
         INSERT INTO http_trigger (
             path, route_path, route_path_key, script_path, is_flow,
-            workspace_id, edited_by, email, http_method,
+            workspace_id, edited_by, permissioned_as, http_method,
             authentication_method, is_static_website, workspaced_route,
             wrap_body, raw_string
         )
@@ -574,7 +571,7 @@ async fn test_http_trigger_insert_and_query(db: Pool<Postgres>) -> anyhow::Resul
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
         "post" as _,
         "none" as _,
         false,
@@ -618,7 +615,7 @@ async fn test_http_trigger_multiple_methods(db: Pool<Postgres>) -> anyhow::Resul
             r#"
             INSERT INTO http_trigger (
                 path, route_path, route_path_key, script_path, is_flow,
-                workspace_id, edited_by, email, http_method,
+                workspace_id, edited_by, permissioned_as, http_method,
                 authentication_method, is_static_website, workspaced_route,
                 wrap_body, raw_string
             )
@@ -632,7 +629,7 @@ async fn test_http_trigger_multiple_methods(db: Pool<Postgres>) -> anyhow::Resul
             false,
             "test-workspace",
             "test-user",
-            "test@windmill.dev",
+            "u/test-user",
             *method as _,
             "none" as _,
             false,
@@ -665,7 +662,7 @@ async fn test_http_trigger_authentication_methods(db: Pool<Postgres>) -> anyhow:
             r#"
             INSERT INTO http_trigger (
                 path, route_path, route_path_key, script_path, is_flow,
-                workspace_id, edited_by, email, http_method,
+                workspace_id, edited_by, permissioned_as, http_method,
                 authentication_method, is_static_website, workspaced_route,
                 wrap_body, raw_string
             )
@@ -679,7 +676,7 @@ async fn test_http_trigger_authentication_methods(db: Pool<Postgres>) -> anyhow:
             false,
             "test-workspace",
             "test-user",
-            "test@windmill.dev",
+            "u/test-user",
             "get" as _,
             *auth as _,
             false,
@@ -713,7 +710,7 @@ async fn test_http_trigger_update(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO http_trigger (
             path, route_path, route_path_key, script_path, is_flow,
-            workspace_id, edited_by, email, http_method,
+            workspace_id, edited_by, permissioned_as, http_method,
             authentication_method, is_static_website, workspaced_route,
             wrap_body, raw_string
         )
@@ -727,7 +724,7 @@ async fn test_http_trigger_update(db: Pool<Postgres>) -> anyhow::Result<()> {
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
         "get" as _,
         "none" as _,
         false,
@@ -766,7 +763,7 @@ async fn test_http_trigger_delete(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO http_trigger (
             path, route_path, route_path_key, script_path, is_flow,
-            workspace_id, edited_by, email, http_method,
+            workspace_id, edited_by, permissioned_as, http_method,
             authentication_method, is_static_website, workspaced_route,
             wrap_body, raw_string
         )
@@ -780,7 +777,7 @@ async fn test_http_trigger_delete(db: Pool<Postgres>) -> anyhow::Result<()> {
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
         "get" as _,
         "none" as _,
         false,
@@ -821,7 +818,7 @@ async fn test_http_trigger_mode_filtering(db: Pool<Postgres>) -> anyhow::Result<
             r#"
             INSERT INTO http_trigger (
                 path, route_path, route_path_key, script_path, is_flow,
-                workspace_id, edited_by, email, http_method,
+                workspace_id, edited_by, permissioned_as, http_method,
                 authentication_method, is_static_website, workspaced_route,
                 wrap_body, raw_string, mode
             )
@@ -835,7 +832,7 @@ async fn test_http_trigger_mode_filtering(db: Pool<Postgres>) -> anyhow::Result<
             false,
             "test-workspace",
             "test-user",
-            "test@windmill.dev",
+            "u/test-user",
             "get" as _,
             "none" as _,
             false,
@@ -875,7 +872,7 @@ async fn test_websocket_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()>
         r#"
         INSERT INTO websocket_trigger (
             path, url, script_path, is_flow, workspace_id,
-            edited_by, email
+            edited_by, permissioned_as
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
@@ -885,7 +882,7 @@ async fn test_websocket_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()>
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
     )
     .execute(&db)
     .await?;
@@ -914,7 +911,7 @@ async fn test_kafka_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO kafka_trigger (
             path, kafka_resource_path, topics, group_id, script_path,
-            is_flow, workspace_id, edited_by, email
+            is_flow, workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         "#,
@@ -926,14 +923,15 @@ async fn test_kafka_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
     )
     .execute(&db)
     .await?;
 
     let trigger = sqlx::query!(
         r#"
-        SELECT kafka_resource_path, topics, group_id, mode AS "mode: String"
+        SELECT kafka_resource_path, topics, group_id, mode AS "mode: String",
+               auto_offset_reset, auto_commit, reset_offset
         FROM kafka_trigger
         WHERE workspace_id = $1 AND path = $2
         "#,
@@ -947,6 +945,50 @@ async fn test_kafka_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(trigger.topics, vec!["topic-a", "topic-b"]);
     assert_eq!(trigger.group_id, "my-consumer-group");
     assert_eq!(trigger.mode, "enabled");
+    assert_eq!(trigger.auto_offset_reset, "latest");
+    assert_eq!(trigger.auto_commit, true);
+    assert_eq!(trigger.reset_offset, false);
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_kafka_trigger_insert_auto_commit_disabled(db: Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::query!(
+        r#"
+        INSERT INTO kafka_trigger (
+            path, kafka_resource_path, topics, group_id, script_path,
+            is_flow, workspace_id, edited_by, permissioned_as, auto_commit
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        "#,
+        "f/test/kafka_trigger_no_commit",
+        "u/admin/kafka_resource",
+        &["topic-c"] as &[&str],
+        "my-consumer-group-2",
+        "f/test/kafka_handler",
+        false,
+        "test-workspace",
+        "test-user",
+        "u/test-user",
+        false,
+    )
+    .execute(&db)
+    .await?;
+
+    let trigger = sqlx::query!(
+        r#"
+        SELECT auto_commit
+        FROM kafka_trigger
+        WHERE workspace_id = $1 AND path = $2
+        "#,
+        "test-workspace",
+        "f/test/kafka_trigger_no_commit",
+    )
+    .fetch_one(&db)
+    .await?;
+
+    assert_eq!(trigger.auto_commit, false);
 
     Ok(())
 }
@@ -956,7 +998,7 @@ async fn test_postgres_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> 
     sqlx::query!(
         r#"
         INSERT INTO postgres_trigger (
-            path, script_path, is_flow, workspace_id, edited_by, email,
+            path, script_path, is_flow, workspace_id, edited_by, permissioned_as,
             postgres_resource_path, replication_slot_name, publication_name
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -966,7 +1008,7 @@ async fn test_postgres_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> 
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
         "u/admin/pg_resource",
         "test_slot",
         "test_publication",
@@ -1000,7 +1042,7 @@ async fn test_nats_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO nats_trigger (
             path, nats_resource_path, subjects, script_path,
-            is_flow, workspace_id, edited_by, email, use_jetstream
+            is_flow, workspace_id, edited_by, permissioned_as, use_jetstream
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         "#,
@@ -1011,7 +1053,7 @@ async fn test_nats_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
         false,
     )
     .execute(&db)
@@ -1043,7 +1085,7 @@ async fn test_sqs_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO sqs_trigger (
             path, queue_url, aws_resource_path, script_path,
-            is_flow, workspace_id, edited_by, email
+            is_flow, workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
@@ -1054,7 +1096,7 @@ async fn test_sqs_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
     )
     .execute(&db)
     .await?;
@@ -1094,7 +1136,7 @@ async fn test_trigger_server_state_tracking(db: Pool<Postgres>) -> anyhow::Resul
         r#"
         INSERT INTO websocket_trigger (
             path, url, script_path, is_flow, workspace_id,
-            edited_by, email, server_id, error
+            edited_by, permissioned_as, server_id, error
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         "#,
@@ -1104,7 +1146,7 @@ async fn test_trigger_server_state_tracking(db: Pool<Postgres>) -> anyhow::Resul
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
         "server-abc-123",
         "connection refused",
     )
@@ -1152,7 +1194,7 @@ async fn test_trigger_mode_filtering(db: Pool<Postgres>) -> anyhow::Result<()> {
             r#"
             INSERT INTO websocket_trigger (
                 path, url, script_path, is_flow, workspace_id,
-                edited_by, email, mode
+                edited_by, permissioned_as, mode
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::trigger_mode)
             "#,
@@ -1162,7 +1204,7 @@ async fn test_trigger_mode_filtering(db: Pool<Postgres>) -> anyhow::Result<()> {
             false,
             "test-workspace",
             "test-user",
-            "test@windmill.dev",
+            "u/test-user",
             *mode as _,
         )
         .execute(&db)
@@ -1234,9 +1276,9 @@ async fn test_schedule_insert_and_query(db: Pool<Postgres>) -> anyhow::Result<()
         r#"
         INSERT INTO schedule (
             workspace_id, path, edited_by, schedule, enabled,
-            script_path, is_flow, email, timezone
+            script_path, is_flow, email, timezone, permissioned_as
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         "#,
         "test-workspace",
         "f/test/my_schedule",
@@ -1247,6 +1289,7 @@ async fn test_schedule_insert_and_query(db: Pool<Postgres>) -> anyhow::Result<()
         false,
         "test@windmill.dev",
         "UTC",
+        "u/test-user",
     )
     .execute(&db)
     .await?;
@@ -1282,7 +1325,7 @@ async fn test_mqtt_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO mqtt_trigger (
             path, mqtt_resource_path, subscribe_topics, client_version,
-            script_path, is_flow, workspace_id, edited_by, email
+            script_path, is_flow, workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, ARRAY[$3::jsonb], $4::mqtt_client_version, $5, $6, $7, $8, $9)
         "#,
@@ -1295,7 +1338,7 @@ async fn test_mqtt_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
     .bind(false)
     .bind("test-workspace")
     .bind("test-user")
-    .bind("test@windmill.dev")
+    .bind("u/test-user")
     .execute(&db)
     .await?;
 
@@ -1326,7 +1369,7 @@ async fn test_mqtt_trigger_update(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO mqtt_trigger (
             path, mqtt_resource_path, subscribe_topics, client_version,
-            script_path, is_flow, workspace_id, edited_by, email
+            script_path, is_flow, workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, ARRAY[$3::jsonb], $4::mqtt_client_version, $5, $6, $7, $8, $9)
         "#,
@@ -1339,7 +1382,7 @@ async fn test_mqtt_trigger_update(db: Pool<Postgres>) -> anyhow::Result<()> {
     .bind(false)
     .bind("test-workspace")
     .bind("test-user")
-    .bind("test@windmill.dev")
+    .bind("u/test-user")
     .execute(&db)
     .await?;
 
@@ -1371,7 +1414,7 @@ async fn test_mqtt_trigger_delete(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO mqtt_trigger (
             path, mqtt_resource_path, subscribe_topics, client_version,
-            script_path, is_flow, workspace_id, edited_by, email
+            script_path, is_flow, workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, ARRAY[$3::jsonb], $4::mqtt_client_version, $5, $6, $7, $8, $9)
         "#,
@@ -1384,7 +1427,7 @@ async fn test_mqtt_trigger_delete(db: Pool<Postgres>) -> anyhow::Result<()> {
     .bind(false)
     .bind("test-workspace")
     .bind("test-user")
-    .bind("test@windmill.dev")
+    .bind("u/test-user")
     .execute(&db)
     .await?;
 
@@ -1420,7 +1463,7 @@ async fn test_gcp_trigger_insert_pull(db: Pool<Postgres>) -> anyhow::Result<()> 
         INSERT INTO gcp_trigger (
             path, gcp_resource_path, topic_id, subscription_id,
             delivery_type, subscription_mode, script_path, is_flow,
-            workspace_id, edited_by, email
+            workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, $3, $4, $5::delivery_mode, $6::gcp_subscription_mode, $7, $8, $9, $10, $11)
         "#,
@@ -1435,7 +1478,7 @@ async fn test_gcp_trigger_insert_pull(db: Pool<Postgres>) -> anyhow::Result<()> 
     .bind(false)
     .bind("test-workspace")
     .bind("test-user")
-    .bind("test@windmill.dev")
+    .bind("u/test-user")
     .execute(&db)
     .await?;
 
@@ -1471,7 +1514,7 @@ async fn test_gcp_trigger_insert_push(db: Pool<Postgres>) -> anyhow::Result<()> 
         INSERT INTO gcp_trigger (
             path, gcp_resource_path, topic_id, subscription_id,
             delivery_type, delivery_config, subscription_mode,
-            script_path, is_flow, workspace_id, edited_by, email
+            script_path, is_flow, workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, $3, $4, $5::delivery_mode, $6::jsonb, $7::gcp_subscription_mode, $8, $9, $10, $11, $12)
         "#,
@@ -1487,7 +1530,7 @@ async fn test_gcp_trigger_insert_push(db: Pool<Postgres>) -> anyhow::Result<()> 
     .bind(false)
     .bind("test-workspace")
     .bind("test-user")
-    .bind("test@windmill.dev")
+    .bind("u/test-user")
     .execute(&db)
     .await?;
 
@@ -1520,7 +1563,7 @@ async fn test_gcp_trigger_unique_constraint(db: Pool<Postgres>) -> anyhow::Resul
         INSERT INTO gcp_trigger (
             path, gcp_resource_path, topic_id, subscription_id,
             delivery_type, subscription_mode, script_path, is_flow,
-            workspace_id, edited_by, email
+            workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, $3, $4, $5::delivery_mode, $6::gcp_subscription_mode, $7, $8, $9, $10, $11)
     "#;
@@ -1536,7 +1579,7 @@ async fn test_gcp_trigger_unique_constraint(db: Pool<Postgres>) -> anyhow::Resul
         .bind(false)
         .bind("test-workspace")
         .bind("test-user")
-        .bind("test@windmill.dev")
+        .bind("u/test-user")
         .execute(&db)
         .await?;
 
@@ -1552,7 +1595,7 @@ async fn test_gcp_trigger_unique_constraint(db: Pool<Postgres>) -> anyhow::Resul
         .bind(false)
         .bind("test-workspace")
         .bind("test-user")
-        .bind("test@windmill.dev")
+        .bind("u/test-user")
         .execute(&db)
         .await;
 
@@ -1574,7 +1617,7 @@ async fn test_email_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO email_trigger (
             path, local_part, workspaced_local_part, script_path,
-            is_flow, workspace_id, edited_by, email
+            is_flow, workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
@@ -1585,7 +1628,7 @@ async fn test_email_trigger_insert(db: Pool<Postgres>) -> anyhow::Result<()> {
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
     )
     .execute(&db)
     .await?;
@@ -1617,7 +1660,7 @@ async fn test_email_trigger_update(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO email_trigger (
             path, local_part, workspaced_local_part, script_path,
-            is_flow, workspace_id, edited_by, email
+            is_flow, workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
@@ -1628,7 +1671,7 @@ async fn test_email_trigger_update(db: Pool<Postgres>) -> anyhow::Result<()> {
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
     )
     .execute(&db)
     .await?;
@@ -1663,7 +1706,7 @@ async fn test_email_trigger_delete(db: Pool<Postgres>) -> anyhow::Result<()> {
         r#"
         INSERT INTO email_trigger (
             path, local_part, workspaced_local_part, script_path,
-            is_flow, workspace_id, edited_by, email
+            is_flow, workspace_id, edited_by, permissioned_as
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
@@ -1674,7 +1717,7 @@ async fn test_email_trigger_delete(db: Pool<Postgres>) -> anyhow::Result<()> {
         false,
         "test-workspace",
         "test-user",
-        "test@windmill.dev",
+        "u/test-user",
     )
     .execute(&db)
     .await?;

@@ -499,9 +499,6 @@ def generate_cli_commands_markdown(cli_data: dict) -> str:
     md = "# Windmill CLI Commands\n\n"
     md += "The Windmill CLI (`wmill`) provides commands for managing scripts, flows, apps, and other resources.\n\n"
 
-    if cli_data.get('version'):
-        md += f"Current version: {cli_data['version']}\n\n"
-
     # Global options
     if cli_data.get('global_options'):
         md += "## Global Options\n\n"
@@ -659,6 +656,202 @@ def generate_schema_files(cli_schemas: dict[str, dict]) -> dict[str, str]:
 
 
 # =============================================================================
+# Datatable SDK Extraction
+# =============================================================================
+
+
+TS_SQL_UTILS_PATH = TS_SDK_DIR / "sqlUtils.ts"
+
+
+def extract_datatable_ts_sdk() -> str:
+    """Extract datatable-specific type definitions from TypeScript SDK (sqlUtils.ts).
+
+    Reads the source file and extracts the public API surface:
+    - SqlStatement<T> type (fetch, fetchOne, fetchOneScalar, execute methods)
+    - DatatableSqlTemplateFunction interface (template tag + query method)
+    - datatable() function signature
+    """
+    if not TS_SQL_UTILS_PATH.exists():
+        print(f"  Warning: sqlUtils.ts not found at {TS_SQL_UTILS_PATH}")
+        return ''
+
+    content = TS_SQL_UTILS_PATH.read_text()
+
+    md = "## TypeScript Datatable API (windmill-client)\n\n"
+    md += "Import: `import * as wmill from 'windmill-client'`\n\n"
+
+    # Extract exported type/interface/function definitions from sqlUtils.ts
+    # We use extract_balanced to handle nested braces correctly
+
+    # 1. Extract SqlStatement<T> type
+    match = re.search(r'(\/\*\*(?:[^*]|\*(?!\/))*\*\/\s*)?export\s+type\s+SqlStatement<T>\s*=\s*', content)
+    if match:
+        jsdoc_raw = match.group(1)
+        brace_start = content.index('{', match.end() - 1)
+        body, end = extract_balanced(content, brace_start, '{', '}')
+        if end != -1:
+            if jsdoc_raw:
+                md += clean_jsdoc(jsdoc_raw) + "\n"
+            md += "```typescript\n"
+            md += f"type SqlStatement<T> = {{\n{_indent_body(body)}\n}};\n"
+            md += "```\n\n"
+
+    # 2. Extract DatatableSqlTemplateFunction interface
+    match = re.search(
+        r'(\/\*\*(?:[^*]|\*(?!\/))*\*\/\s*)?export\s+interface\s+DatatableSqlTemplateFunction\s+extends\s+SqlTemplateFunction\s*',
+        content
+    )
+    if match:
+        brace_start = content.index('{', match.end() - 1)
+        body, end = extract_balanced(content, brace_start, '{', '}')
+        if end != -1:
+            md += "```typescript\n"
+            md += "// Template tag function: sql`SELECT * FROM table WHERE id = ${id}`.fetch()\n"
+            md += f"interface DatatableSqlTemplateFunction {{\n"
+            md += f"  // Tagged template usage:\n"
+            md += f"  <T = any>(strings: TemplateStringsArray, ...values: any[]): SqlStatement<T>;\n"
+            md += f"{_indent_body(body)}\n"
+            md += "};\n"
+            md += "```\n\n"
+
+    # 3. Extract datatable() function
+    match = re.search(
+        r'(\/\*\*(?:[^*]|\*(?!\/))*\*\/\s*)?export\s+function\s+datatable\s*\(([^)]*)\)\s*:\s*(\S+)',
+        content
+    )
+    if match:
+        jsdoc_raw, params, return_type = match.groups()
+        if jsdoc_raw:
+            md += clean_jsdoc(jsdoc_raw) + "\n"
+        md += "```typescript\n"
+        md += f"function datatable({params.strip()}): {return_type}\n"
+        md += "```\n"
+
+    return md
+
+
+def extract_datatable_py_sdk(py_content: str) -> str:
+    """Extract datatable-specific class/function definitions from Python SDK.
+
+    Uses Python AST to extract:
+    - datatable() function
+    - DataTableClient class with query() method
+    - SqlQuery class with fetch(), fetch_one(), fetch_one_scalar(), execute() methods
+    """
+    if not py_content:
+        return ''
+
+    try:
+        tree = ast.parse(py_content)
+    except SyntaxError as e:
+        print(f"  Warning: Could not parse Python SDK for datatable extraction: {e}")
+        return ''
+
+    md = "## Python Datatable API (wmill)\n\n"
+    md += "Import: `import wmill`\n\n"
+
+    # Target classes and the top-level datatable function
+    target_classes = {'DataTableClient', 'SqlQuery'}
+
+    # 1. Extract datatable() top-level function
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == 'datatable':
+            docstring = ast.get_docstring(node) or ''
+            params = _format_py_params(node)
+            return_ann = f" -> {ast.unparse(node.returns)}" if node.returns else ''
+            if docstring:
+                for line in docstring.split('\n'):
+                    md += f"# {line}\n"
+            md += f"def datatable({params}){return_ann}\n\n"
+            break
+
+    # 2. Extract target classes with their public methods
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name in target_classes:
+            class_doc = ast.get_docstring(node) or ''
+            if class_doc:
+                for line in class_doc.split('\n'):
+                    md += f"# {line}\n"
+            md += f"class {node.name}:\n"
+
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if item.name.startswith('_') and item.name != '__init__':
+                        continue
+                    docstring = ast.get_docstring(item) or ''
+                    params = _format_py_params(item, skip_self=True)
+                    return_ann = f" -> {ast.unparse(item.returns)}" if item.returns else ''
+                    async_prefix = 'async ' if isinstance(item, ast.AsyncFunctionDef) else ''
+                    if docstring:
+                        for line in docstring.split('\n'):
+                            md += f"    # {line}\n"
+                    md += f"    {async_prefix}def {item.name}({params}){return_ann}\n\n"
+
+            md += "\n"
+
+    return md
+
+
+def _format_py_params(node: ast.FunctionDef, skip_self: bool = False) -> str:
+    """Format function parameters from AST node."""
+    params = []
+    args = node.args
+    num_defaults = len(args.defaults)
+    num_args = len(args.args)
+
+    for i, arg in enumerate(args.args):
+        if skip_self and arg.arg == 'self':
+            continue
+        param_str = arg.arg
+        if arg.annotation:
+            param_str += f": {ast.unparse(arg.annotation)}"
+        default_idx = i - (num_args - num_defaults)
+        if default_idx >= 0:
+            default = args.defaults[default_idx]
+            param_str += f" = {ast.unparse(default)}"
+        params.append(param_str)
+
+    if args.vararg:
+        vararg_str = f"*{args.vararg.arg}"
+        if args.vararg.annotation:
+            vararg_str += f": {ast.unparse(args.vararg.annotation)}"
+        params.append(vararg_str)
+
+    for i, arg in enumerate(args.kwonlyargs):
+        param_str = arg.arg
+        if arg.annotation:
+            param_str += f": {ast.unparse(arg.annotation)}"
+        if args.kw_defaults[i]:
+            param_str += f" = {ast.unparse(args.kw_defaults[i])}"
+        params.append(param_str)
+
+    if args.kwarg:
+        kwarg_str = f"**{args.kwarg.arg}"
+        if args.kwarg.annotation:
+            kwarg_str += f": {ast.unparse(args.kwarg.annotation)}"
+        params.append(kwarg_str)
+
+    return ', '.join(params)
+
+
+def _indent_body(body: str) -> str:
+    """Clean and re-indent a type body for readable output."""
+    lines = body.strip().split('\n')
+    result = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped:
+            # Keep JSDoc comments and method signatures with consistent indentation
+            if not stripped.startswith('//') and not stripped.startswith('/*') and not stripped.startswith('*'):
+                result.append(f"  {stripped}")
+            else:
+                result.append(f"  {stripped}")
+        else:
+            result.append('')
+    return '\n'.join(result)
+
+
+# =============================================================================
 # Skill Generation
 # =============================================================================
 
@@ -763,9 +956,11 @@ def generate_skills(
     # CLI intro for script skills
     script_cli_intro = """## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - `wmill script generate-metadata` - Generate .script.yaml and .lock files
 - `wmill sync push` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use `wmill resource-type list --schema` to discover available resource types."""
 
@@ -920,7 +1115,7 @@ def main():
     # Read SDK files
     ts_content = ''
     if TS_SDK_DIR.exists():
-        for ts_file in TS_SDK_DIR.glob('*.ts'):
+        for ts_file in sorted(TS_SDK_DIR.glob('*.ts')):
             if not ts_file.name.endswith('.d.ts'):
                 ts_content += ts_file.read_text() + '\n'
     py_content = PY_SDK_PATH.read_text() if PY_SDK_PATH.exists() else ''
@@ -948,6 +1143,13 @@ def main():
     (OUTPUT_SDKS_DIR / "python.md").write_text(py_sdk_md)
     print(f"  Found {len(py_functions)} functions, {len(py_classes)} classes")
 
+    # Extract datatable-specific SDK docs (for app mode system prompt)
+    print("Extracting datatable SDK docs...")
+    datatable_ts_md = extract_datatable_ts_sdk()
+    datatable_py_md = extract_datatable_py_sdk(py_content)
+    (OUTPUT_SDKS_DIR / "datatable-typescript.md").write_text(datatable_ts_md)
+    (OUTPUT_SDKS_DIR / "datatable-python.md").write_text(datatable_py_md)
+
     # Read base prompts
     print("Assembling complete prompts...")
     base_dir = SCRIPT_DIR / "base"
@@ -958,7 +1160,7 @@ def main():
 
     # Read language files
     languages = {}
-    for lang_file in languages_dir.glob("*.md"):
+    for lang_file in sorted(languages_dir.glob("*.md")):
         languages[lang_file.stem] = lang_file.read_text()
 
     # Extract and generate CLI commands documentation
@@ -1009,6 +1211,10 @@ def main():
         # SDKs
         'SDK_TYPESCRIPT': ts_sdk_md,
         'SDK_PYTHON': py_sdk_md,
+
+        # Datatable-specific SDK docs (for app mode)
+        'DATATABLE_SDK_TYPESCRIPT': datatable_ts_md,
+        'DATATABLE_SDK_PYTHON': datatable_py_md,
 
         # Schema (raw YAML content)
         'OPENFLOW_SCHEMA': openflow_content,
@@ -1078,6 +1284,14 @@ export function getFlowPrompt(): string {
     prompts.OPENFLOW_SCHEMA
   ].filter(Boolean).join('\\n\\n');
 }
+
+// Helper to get datatable SDK reference for app mode
+export function getDatatableSdkReference(): string {
+  return [
+    prompts.DATATABLE_SDK_TYPESCRIPT,
+    prompts.DATATABLE_SDK_PYTHON
+  ].filter(Boolean).join('\\n\\n');
+}
 """
     (OUTPUT_GENERATED_DIR / "index.ts").write_text(index_content)
 
@@ -1095,6 +1309,20 @@ export function getFlowPrompt(): string {
 
     # Generate skills TypeScript export for CLI
     skills_ts = generate_skills_ts_export(skills, schema_yaml_content)
+
+    # Replace hardcoded path conventions with placeholders for CLI runtime resolution.
+    # init.ts resolves these based on the nonDottedPaths setting in wmill.yaml.
+    # (Frontend auto-generated files keep the default non-dotted conventions.)
+    skills_ts = (skills_ts
+        .replace("\\`__flow\\`", "\\`{{FLOW_SUFFIX}}\\`")
+        .replace(
+            "Inline script files should NOT include \\`.inline_script.\\`"
+            " in their names (e.g. use \\`a.ts\\`, not \\`a.inline_script.ts\\`).",
+            "{{INLINE_SCRIPT_NAMING}}"
+        )
+        .replace("my_flow__flow", "my_flow{{FLOW_SUFFIX}}")
+        .replace("my_app__raw_app/", "my_app{{RAW_APP_SUFFIX}}/")
+    )
     (CLI_GUIDANCE_DIR / "skills.ts").write_text(skills_ts)
 
     print(f"\nGenerated files:")

@@ -2,7 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { IndexSearchService } from '$lib/gen'
-	import type { GetIndexerStatusResponse } from '$lib/gen'
+	import type { GetIndexerStatusResponse, GetIndexDiskStorageSizesResponse } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { displaySize } from '$lib/utils'
 	import Tooltip from '../Tooltip.svelte'
@@ -24,6 +24,7 @@
 	let clearServiceLogsIndexModalOpen = $state(false)
 
 	let status: GetIndexerStatusResponse | undefined = $state(undefined)
+	let diskSizes: GetIndexDiskStorageSizesResponse | undefined = $state(undefined)
 	let statusLoading = $state(true)
 	let statusError = $state(false)
 
@@ -41,9 +42,15 @@
 		statusLoading = true
 		statusError = false
 		try {
-			status = await IndexSearchService.getIndexerStatus()
+			const [statusRes, diskRes] = await Promise.all([
+				IndexSearchService.getIndexerStatus(),
+				IndexSearchService.getIndexDiskStorageSizes().catch(() => undefined)
+			])
+			status = statusRes
+			diskSizes = diskRes
 		} catch (e) {
 			status = undefined
+			diskSizes = undefined
 			statusError = true
 		} finally {
 			statusLoading = false
@@ -84,6 +91,37 @@
 		/>
 		<InputError error={errors.writer_memory_budget ?? ''} />
 	</div>
+	<div class="flex flex-col gap-1">
+		<label for="max_index_time_window_secs" class="block text-xs font-semibold text-emphasis">
+			Index time window (days)
+			<Tooltip>
+				Maximum age of items to include in the index. Jobs and logs older than this window will not
+				be indexed and will be cleaned up from the index. Set to 0 to disable (index everything
+				within the retention period).
+			</Tooltip>
+		</label>
+		<IntegerInput
+			placeholder="7"
+			id="max_index_time_window_secs"
+			{disabled}
+			error={errors.max_index_time_window_secs ?? ''}
+			value={$values['indexer_settings'].max_index_time_window_secs != null
+				? Math.round($values['indexer_settings'].max_index_time_window_secs / 86400)
+				: undefined}
+			oninput={(v) => {
+				if (v == null) {
+					const { max_index_time_window_secs: _, ...rest } = $values['indexer_settings']
+					$values['indexer_settings'] = rest
+				} else {
+					$values['indexer_settings'] = {
+						...$values['indexer_settings'],
+						max_index_time_window_secs: v * 86400
+					}
+				}
+			}}
+		/>
+		<InputError error={errors.max_index_time_window_secs ?? ''} />
+	</div>
 	<Label label="Indexer status">
 		{#snippet action()}
 			<button
@@ -108,7 +146,11 @@
 								: 'bg-red-500'}"
 						></span>
 						<span class="text-primary font-medium">{label}:</span>
-						<span class="font-semibold {entry?.is_alive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}">
+						<span
+							class="font-semibold {entry?.is_alive
+								? 'text-green-600 dark:text-green-400'
+								: 'text-red-600 dark:text-red-400'}"
+						>
 							{entry?.is_alive ? 'Running' : 'Stopped'}
 						</span>
 						{#if entry?.last_locked_at}
@@ -130,21 +172,21 @@
 			<div class="flex flex-col gap-1 text-2xs text-tertiary">
 				<span>
 					Jobs index:
-					{#if status.job_indexer?.storage?.disk_size_bytes != null}
-						Disk: {displaySize(status.job_indexer.storage.disk_size_bytes) ?? 'N/A'}
+					{#if diskSizes?.job_index_disk_size_bytes != null}
+						Disk: {displaySize(diskSizes.job_index_disk_size_bytes) ?? 'N/A'}
 					{/if}
 					{#if status.job_indexer?.storage?.s3_size_bytes != null}
-						{#if status.job_indexer?.storage?.disk_size_bytes != null}&middot;{/if}
+						{#if diskSizes?.job_index_disk_size_bytes != null}&middot;{/if}
 						S3: {displaySize(status.job_indexer.storage.s3_size_bytes) ?? 'N/A'}
 					{/if}
 				</span>
 				<span>
 					Service logs index:
-					{#if status.log_indexer?.storage?.disk_size_bytes != null}
-						Disk: {displaySize(status.log_indexer.storage.disk_size_bytes) ?? 'N/A'}
+					{#if diskSizes?.log_index_disk_size_bytes != null}
+						Disk: {displaySize(diskSizes.log_index_disk_size_bytes) ?? 'N/A'}
 					{/if}
 					{#if status.log_indexer?.storage?.s3_size_bytes != null}
-						{#if status.log_indexer?.storage?.disk_size_bytes != null}&middot;{/if}
+						{#if diskSizes?.log_index_disk_size_bytes != null}&middot;{/if}
 						S3: {displaySize(status.log_indexer.storage.s3_size_bytes) ?? 'N/A'}
 					{/if}
 				</span>

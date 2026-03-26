@@ -585,7 +585,9 @@ mod debounce {
         Ok(())
     }
 
-    /// Test: max_total_debounces_amount limit - debounce batch resets when exceeded.
+    /// Test: max_total_debounces_amount limit - push-time debounce deletes key and
+    /// completes previous job when limit is reached. With max=2, the 2nd event
+    /// (debounced_times=1, total events=2) triggers the limit.
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     async fn test_debounce_max_count_limit(db: Pool<Postgres>) -> anyhow::Result<()> {
         let settings = DebouncingSettings {
@@ -596,8 +598,10 @@ mod debounce {
         };
         let args_hm = empty_args();
 
-        // Push 4 jobs: after the 3rd debounce (exceeding limit of 2), batch should reset
+        // With max=2: job1 debounced (dt=0), job2 triggers limit (dt=1, 1+1>=2),
+        // job3 debounced (fresh INSERT), job4 triggers limit (dt=1 again)
         let mut jobs = Vec::new();
+        let mut scheduled_fors = Vec::new();
         for _ in 0..4 {
             let job_id = Uuid::new_v4();
             insert_noop_job(&db, job_id, "test-workspace").await;
@@ -620,11 +624,44 @@ mod debounce {
             )
             .await?;
             tx.commit().await?;
+            scheduled_fors.push(scheduled_for);
         }
 
-        // The debounce_key entry should still exist
+        // Job 1: debounced (scheduled_for set)
+        assert!(
+            scheduled_fors[0].is_some(),
+            "job1 should be debounced (scheduled_for set)"
+        );
+        // Job 2: limit exceeded → scheduled_for cleared, previous job completed
+        assert!(
+            scheduled_fors[1].is_none(),
+            "job2 should execute immediately (limit exceeded)"
+        );
+        assert!(
+            is_completed(&db, &jobs[0]).await,
+            "job1 should be completed (debounced by job2 at limit)"
+        );
+        // Job 3: new batch (fresh INSERT after DELETE)
+        assert!(
+            scheduled_fors[2].is_some(),
+            "job3 should be debounced (new batch)"
+        );
+        // Job 4: limit exceeded again
+        assert!(
+            scheduled_fors[3].is_none(),
+            "job4 should execute immediately (limit exceeded)"
+        );
+        assert!(
+            is_completed(&db, &jobs[2]).await,
+            "job3 should be completed (debounced by job4 at limit)"
+        );
+
+        // The debounce_key entry should be deleted after the last limit exceeded
         let dk = get_debounce_key(&db, "count_limit_key").await;
-        assert!(dk.is_some(), "debounce_key entry should exist");
+        assert!(
+            dk.is_none(),
+            "debounce_key entry should be deleted after limit exceeded"
+        );
 
         Ok(())
     }
@@ -975,7 +1012,8 @@ mod debounce {
         Ok(())
     }
 
-    /// Test: Post-preprocessing debounce with max count limit resets the batch.
+    /// Test: Post-preprocessing debounce with max count limit deletes the debounce_key entry
+    /// and completes the previous job. With max=2, the 2nd event triggers the limit.
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     async fn test_post_preprocessing_debounce_max_count_resets(
         db: Pool<Postgres>,
@@ -988,7 +1026,8 @@ mod debounce {
         };
         let args_hm = empty_args();
 
-        // Push 4 jobs. After 3rd debounce (exceeding limit of 2), batch should reset.
+        // With max=2: job1 debounced (dt=0), job2 limit exceeded (dt=1, 1+1>=2),
+        // job3 debounced (fresh INSERT), job4 limit exceeded (dt=1 again)
         let mut jobs = Vec::new();
         let mut results = Vec::new();
         for _ in 0..4 {
@@ -1011,20 +1050,41 @@ mod debounce {
             results.push(result);
         }
 
-        // First job always gets scheduled_for
+        // Job 1: debounced (first in batch)
         assert!(results[0].is_some(), "first job should get scheduled_for");
 
-        // Jobs 2 and 3 should also get scheduled_for (debouncing within limit)
-        assert!(results[1].is_some(), "second job should get scheduled_for");
-        assert!(results[2].is_some(), "third job should get scheduled_for");
+        // Job 2: limit exceeded → execute immediately, complete job1
+        assert!(
+            results[1].is_none(),
+            "second job should execute immediately (limit exceeded)"
+        );
+        assert!(
+            is_completed(&db, &jobs[0]).await,
+            "job1 should be completed (debounced by job2 at limit)"
+        );
 
-        // Job 4 (the one that exceeds the limit): when limit is exceeded,
-        // the batch resets and the job executes immediately (no scheduled_for delay)
-        // The exact behavior depends on whether the limit check happens before or after the
-        // new job is counted. Let's just verify the debounce_key is reset.
-        let dk = get_debounce_key(&db, "pp_max_count_key").await.unwrap();
-        // debounced_times should have been reset at some point
-        assert!(dk.0 == jobs[3], "debounce_key should point to last job");
+        // Job 3: new batch (fresh INSERT after DELETE)
+        assert!(
+            results[2].is_some(),
+            "third job should get scheduled_for (new batch)"
+        );
+
+        // Job 4: limit exceeded again → execute immediately, complete job3
+        assert!(
+            results[3].is_none(),
+            "fourth job should execute immediately (limit exceeded)"
+        );
+        assert!(
+            is_completed(&db, &jobs[2]).await,
+            "job3 should be completed (debounced by job4 at limit)"
+        );
+
+        // debounce_key should be deleted after the last limit exceeded
+        let dk = get_debounce_key(&db, "pp_max_count_key").await;
+        assert!(
+            dk.is_none(),
+            "debounce_key entry should be deleted when limits exceeded"
+        );
 
         Ok(())
     }
@@ -1390,20 +1450,23 @@ mod debounce {
             &db,
         )
         .await?;
-        // When limit is exceeded, the function resets and returns None (execute immediately)
+        // When limit is exceeded, the function returns None (execute immediately)
         assert!(
             r2.is_none(),
             "should return None when time limit is exceeded"
         );
 
-        // Verify the batch was reset: debounced_times should be 0
-        let dk = get_debounce_key(&db, "pp_time_limit_key").await.unwrap();
-        assert_eq!(dk.2, 0, "debounced_times should be reset to 0");
-
-        // Job 1 should NOT be completed (time limit reset skips debouncing the previous job)
+        // Verify the debounce_key entry is deleted (not just reset)
+        let dk = get_debounce_key(&db, "pp_time_limit_key").await;
         assert!(
-            is_queued(&db, &job1).await,
-            "job1 should still be queued (time limit reset doesn't debounce)"
+            dk.is_none(),
+            "debounce_key entry should be deleted when time limit exceeded"
+        );
+
+        // Job 1 should be completed (debounced by job2 when limit exceeded)
+        assert!(
+            is_completed(&db, &job1).await,
+            "job1 should be completed (debounced by job2 at time limit)"
         );
 
         Ok(())
@@ -1466,16 +1529,31 @@ mod debounce {
         )
         .await?;
         tx.commit().await?;
-        // scheduled_for is still set (push-time doesn't clear it on limit exceed)
-        // but the batch should be reset
-        let dk = get_debounce_key(&db, "push_time_limit_key").await.unwrap();
-        assert_eq!(dk.2, 0, "debounced_times should be reset to 0");
+
+        // scheduled_for should be cleared (execute immediately when limit exceeded)
+        assert!(
+            sf2.is_none(),
+            "scheduled_for should be cleared when time limit exceeded"
+        );
+
+        // debounce_key should be deleted (not just reset)
+        let dk = get_debounce_key(&db, "push_time_limit_key").await;
+        assert!(
+            dk.is_none(),
+            "debounce_key entry should be deleted when time limit exceeded"
+        );
+
+        // Job 1 should be completed (debounced by job2 at time limit)
+        assert!(
+            is_completed(&db, &job1).await,
+            "job1 should be completed (debounced by job2 at time limit)"
+        );
 
         Ok(())
     }
 
-    /// Test: max_count boundary — at exactly the limit, debouncing still works.
-    /// One over the limit triggers reset.
+    /// Test: max_count boundary — with max=3, the 3rd event (debounced_times=2,
+    /// total events=3) triggers the limit. Events 1-2 debounce, event 3 launches.
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     async fn test_post_preprocessing_max_count_exact_boundary(
         db: Pool<Postgres>,
@@ -1490,7 +1568,8 @@ mod debounce {
 
         let mut jobs = Vec::new();
         let mut results = Vec::new();
-        // Push 5 jobs: job 1 (no debounce), jobs 2-4 (debounce, count 1-3), job 5 (count 4 > limit 3 → reset)
+        // With max=3: job1 dt=0 (1 event), job2 dt=1 (2 events), job3 dt=2 (3 events → limit),
+        // job4 dt=0 (new batch), job5 dt=1 (2 events)
         for _ in 0..5 {
             let id = Uuid::new_v4();
             insert_flow_job(&db, id, "test-workspace", "f/test/flow").await;
@@ -1511,31 +1590,39 @@ mod debounce {
             results.push(result);
         }
 
-        // Jobs 1-4 should return Some (scheduled_for) — debouncing within limit
-        for (i, r) in results.iter().enumerate().take(4) {
-            assert!(
-                r.is_some(),
-                "job {} should get scheduled_for (within limit)",
-                i + 1
-            );
-        }
+        // Jobs 1-2: debounced (within limit)
+        assert!(results[0].is_some(), "job 1 should get scheduled_for");
+        assert!(results[1].is_some(), "job 2 should get scheduled_for");
 
-        // Job 5 (debounced_times=4, exceeds limit=3) should return None (batch reset)
+        // Job 3: limit exceeded (dt=2, 2+1=3 >= 3) → execute immediately
         assert!(
-            results[4].is_none(),
-            "job 5 should return None (limit exceeded, batch reset)"
+            results[2].is_none(),
+            "job 3 should return None (limit exceeded)"
         );
 
-        // After reset, debounced_times should be 0
-        let dk = get_debounce_key(&db, "pp_count_boundary_key")
-            .await
-            .unwrap();
-        assert_eq!(dk.2, 0, "debounced_times should be reset to 0 after limit");
+        // Jobs 4-5: new batch after DELETE
+        assert!(
+            results[3].is_some(),
+            "job 4 should get scheduled_for (new batch)"
+        );
+        assert!(
+            results[4].is_some(),
+            "job 5 should get scheduled_for (within limit)"
+        );
+
+        // debounce_key should exist (pointing to job5, within new batch)
+        let dk = get_debounce_key(&db, "pp_count_boundary_key").await;
+        assert!(
+            dk.is_some(),
+            "debounce_key entry should exist (new batch in progress)"
+        );
 
         Ok(())
     }
 
-    /// Test: after a max_count reset, a new batch starts fresh and debouncing works again.
+    /// Test: after a max_count limit exceeded, a new batch starts completely fresh.
+    /// The debounce_key entry is deleted, so the next cycle starts with a fresh INSERT.
+    /// With max=2: every 2 events forms a batch (1st debounced, 2nd triggers limit).
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     async fn test_post_preprocessing_max_count_reset_new_batch(
         db: Pool<Postgres>,
@@ -1548,9 +1635,8 @@ mod debounce {
         };
         let args_hm = empty_args();
 
-        // Limit check is `debounced_times > max`, so with max=2 we need 4 jobs
-        // to trigger reset (debounced_times=3 on the 4th job, 3>2=true).
-        // Cycle 1: jobs 1-4 (job 4 exceeds limit → reset)
+        // With max=2: job1 debounced, job2 triggers limit (completes job1),
+        // job3 debounced (new batch), job4 triggers limit (completes job3)
         let mut cycle1 = Vec::new();
         for _ in 0..4 {
             let id = Uuid::new_v4();
@@ -1571,22 +1657,28 @@ mod debounce {
             .await?;
             cycle1_results.push(r);
         }
-        assert!(cycle1_results[0].is_some(), "cycle1 job1 scheduled");
-        assert!(cycle1_results[1].is_some(), "cycle1 job2 scheduled");
+        assert!(cycle1_results[0].is_some(), "cycle1 job1 debounced");
+        assert!(
+            cycle1_results[1].is_none(),
+            "cycle1 job2 should execute immediately (limit)"
+        );
         assert!(
             cycle1_results[2].is_some(),
-            "cycle1 job3 scheduled (at limit)"
+            "cycle1 job3 debounced (new batch)"
         );
         assert!(
             cycle1_results[3].is_none(),
-            "cycle1 job4 should reset (over limit)"
+            "cycle1 job4 should execute immediately (limit)"
         );
 
-        // Verify debounced_times is reset to 0
-        let dk = get_debounce_key(&db, "pp_reset_cycle_key").await.unwrap();
-        assert_eq!(dk.2, 0, "debounced_times should be 0 after reset");
+        // Verify debounce_key entry is deleted after limit exceeded
+        let dk = get_debounce_key(&db, "pp_reset_cycle_key").await;
+        assert!(
+            dk.is_none(),
+            "debounce_key entry should be deleted after limit exceeded"
+        );
 
-        // Cycle 2: jobs 5-8 (new batch, should debounce independently)
+        // Cycle 2: completely fresh batch since entry was deleted
         let mut cycle2 = Vec::new();
         for _ in 0..4 {
             let id = Uuid::new_v4();
@@ -1607,19 +1699,22 @@ mod debounce {
             .await?;
             cycle2_results.push(r);
         }
-        // After cycle 1 reset, debounced_times=0. Cycle 2's first job hits ON CONFLICT
-        // and increments to 1 (unlike cycle 1's first job which was a fresh insert at 0).
-        // So cycle 2 reaches the limit one job sooner:
-        //   job5: dt=1, job6: dt=2, job7: dt=3 (>2 → reset), job8: dt=1
-        assert!(cycle2_results[0].is_some(), "cycle2 job1 scheduled (dt=1)");
-        assert!(cycle2_results[1].is_some(), "cycle2 job2 scheduled (dt=2)");
+        // Cycle 2 behaves identically: [debounced, limit, debounced, limit]
         assert!(
-            cycle2_results[2].is_none(),
-            "cycle2 job3 should reset (dt=3 > 2)"
+            cycle2_results[0].is_some(),
+            "cycle2 job1 debounced (fresh INSERT)"
         );
         assert!(
-            cycle2_results[3].is_some(),
-            "cycle2 job4 scheduled (fresh after reset, dt=1)"
+            cycle2_results[1].is_none(),
+            "cycle2 job2 should execute immediately (limit)"
+        );
+        assert!(
+            cycle2_results[2].is_some(),
+            "cycle2 job3 debounced (new batch)"
+        );
+        assert!(
+            cycle2_results[3].is_none(),
+            "cycle2 job4 should execute immediately (limit)"
         );
 
         Ok(())
@@ -1735,7 +1830,9 @@ mod debounce {
         Ok(())
     }
 
-    /// Test: after a max_count reset, the new batch gets a different batch ID.
+    /// Test: the limit-triggered job stays in the same batch as its predecessors
+    /// (so args can be accumulated), and the next batch after reset is different.
+    /// With max=3: batch of 3 events (2 debounced + 1 limit trigger), then new batch.
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     async fn test_post_preprocessing_batch_id_changes_on_reset(
         db: Pool<Postgres>,
@@ -1743,14 +1840,14 @@ mod debounce {
         let settings = DebouncingSettings {
             debounce_delay_s: Some(5),
             debounce_key: Some("pp_batch_reset_id_test".to_string()),
-            max_total_debounces_amount: Some(2),
+            max_total_debounces_amount: Some(3),
             ..Default::default()
         };
         let args_hm = empty_args();
 
-        // Batch 1: jobs 1-4 (job 4 triggers reset at debounced_times=3 > 2)
+        // With max=3: jobs 1-2 debounced (dt=0,1), job 3 triggers limit (dt=2, 2+1>=3)
         let mut batch1_jobs = Vec::new();
-        for _ in 0..4 {
+        for _ in 0..3 {
             let id = Uuid::new_v4();
             insert_flow_job(&db, id, "test-workspace", "f/test/flow").await;
             batch1_jobs.push(id);
@@ -1768,7 +1865,7 @@ mod debounce {
             .await?;
         }
 
-        // Batch 2: jobs 5-6 (new batch after reset)
+        // Batch 2: jobs 4-5 (new batch after DELETE, within limit)
         let mut batch2_jobs = Vec::new();
         for _ in 0..2 {
             let id = Uuid::new_v4();
@@ -1795,17 +1892,18 @@ mod debounce {
         .fetch_one(&db)
         .await?;
 
-        // Job 4 (the one that triggered reset) should have a different batch from jobs 1-3
-        let reset_batch: i64 = sqlx::query_scalar!(
+        // Job 3 (limit-triggered) stays in the same batch as jobs 1-2
+        // so that maybe_apply_debouncing can accumulate args from all 3.
+        let trigger_batch: i64 = sqlx::query_scalar!(
             "SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1",
-            batch1_jobs[3],
+            batch1_jobs[2],
         )
         .fetch_one(&db)
         .await?;
 
-        assert_ne!(
-            batch1_id, reset_batch,
-            "reset job should have a different batch ID"
+        assert_eq!(
+            batch1_id, trigger_batch,
+            "limit-triggered job should stay in the same batch for arg accumulation"
         );
 
         // Batch 2 jobs should share the same batch but different from batch 1
@@ -2321,6 +2419,346 @@ mod debounce {
         assert_eq!(dk.0, job3, "should point to job3");
         assert_eq!(dk.1, Some(job2), "previous should be job2");
         assert_eq!(dk.2, 2, "debounced_times should be 2");
+
+        Ok(())
+    }
+
+    /// Test: 5 webhook calls with max_total_debounces_amount=2 and debounce_args_to_accumulate.
+    /// Simulates the flow described by the user: debounce_delay_s=50, max=2, accumulate x.
+    ///
+    /// Expected behavior:
+    ///   Call 1: debounced (first in batch, scheduled_for set)
+    ///   Call 2: launched immediately (limit reached at 2 total events, completes call 1)
+    ///   Call 3: debounced (new batch starts fresh)
+    ///   Call 4: launched immediately (limit reached again, completes call 3)
+    ///   Call 5: debounced (new batch, waiting for delay or more events)
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_post_preprocessing_webhook_5_calls_max_2(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(50),
+            debounce_key: Some("webhook_5calls_key".to_string()),
+            max_total_debounces_amount: Some(2),
+            debounce_args_to_accumulate: Some(vec!["x".to_string()]),
+            ..Default::default()
+        };
+
+        let mut jobs = Vec::new();
+        let mut results = Vec::new();
+
+        for i in 0..5 {
+            let id = Uuid::new_v4();
+            let args_val = serde_json::json!({"x": [i + 1]});
+            insert_flow_job_with_args(&db, id, "test-workspace", "f/test/flow", &args_val).await;
+            jobs.push(id);
+
+            let args_hm: HashMap<String, Box<RawValue>> = serde_json::from_value(args_val).unwrap();
+            let args = PushArgs::from(&args_hm);
+            let result = windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+                &settings,
+                &Some("f/test/flow".to_string()),
+                "test-workspace",
+                id,
+                &args,
+                &db,
+            )
+            .await?;
+            results.push(result);
+        }
+
+        // Call 1: debounced (first in batch)
+        assert!(
+            results[0].is_some(),
+            "call 1 should be debounced (scheduled_for set)"
+        );
+
+        // Call 2: launched immediately (limit exceeded: dt=1, 1+1 >= 2)
+        assert!(
+            results[1].is_none(),
+            "call 2 should launch immediately (limit reached at 2 total events)"
+        );
+
+        // Call 3: debounced (new batch, fresh INSERT after key was deleted by call 2)
+        assert!(
+            results[2].is_some(),
+            "call 3 should be debounced (new batch started)"
+        );
+
+        // Call 4: launched immediately (limit exceeded again)
+        assert!(
+            results[3].is_none(),
+            "call 4 should launch immediately (limit reached again)"
+        );
+
+        // Call 5: debounced (new batch)
+        assert!(
+            results[4].is_some(),
+            "call 5 should be debounced (new batch, waiting for delay)"
+        );
+
+        // Verify final state after all 5 calls:
+        // Completed: jobs[0] (debounced by call 2), jobs[2] (debounced by call 4)
+        assert!(
+            is_completed(&db, &jobs[0]).await,
+            "job from call 1 should be completed (debounced by call 2)"
+        );
+        assert!(
+            is_completed(&db, &jobs[2]).await,
+            "job from call 3 should be completed (debounced by call 4)"
+        );
+
+        // Queued: jobs[1] (launched immediately), jobs[3] (launched immediately), jobs[4] (debounced, waiting)
+        assert!(
+            is_queued(&db, &jobs[1]).await,
+            "call 2's job should be queued (launched immediately)"
+        );
+        assert!(
+            is_queued(&db, &jobs[3]).await,
+            "call 4's job should be queued (launched immediately)"
+        );
+        assert!(
+            is_queued(&db, &jobs[4]).await,
+            "call 5's job should be queued (debounced, waiting)"
+        );
+
+        // debounce_key should exist pointing to call 5's job (the active batch)
+        let dk = get_debounce_key(&db, "webhook_5calls_key").await;
+        assert!(dk.is_some(), "debounce_key should exist for call 5's batch");
+        let (dk_job_id, _, dk_times) = dk.unwrap();
+        assert_eq!(dk_job_id, jobs[4], "debounce_key should point to call 5");
+        assert_eq!(
+            dk_times, 0,
+            "debounced_times should be 0 (first in new batch)"
+        );
+
+        Ok(())
+    }
+
+    /// Test: 5 webhook calls with max_total_debounces_amount=2 verifies both
+    /// debounce behavior AND accumulated arg values via maybe_apply_debouncing.
+    ///
+    /// Each call sends {x: [i]}. Expected:
+    ///   Call 1 (x=[1]): debounced
+    ///   Call 2 (x=[2]): fires immediately (limit), accumulated x=[1,2]
+    ///   Call 3 (x=[3]): debounced (new batch)
+    ///   Call 4 (x=[4]): fires immediately (limit), accumulated x=[3,4]
+    ///   Call 5 (x=[5]): debounced (new batch), only x=[5] since batch has 1 job
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_post_preprocessing_max_count_accumulation(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(50),
+            debounce_key: Some("max_count_accum_key".to_string()),
+            max_total_debounces_amount: Some(2),
+            debounce_args_to_accumulate: Some(vec!["x".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        let mut jobs = Vec::new();
+        let mut results = Vec::new();
+
+        for i in 0..5 {
+            let id = Uuid::new_v4();
+            let args_val = serde_json::json!({"x": [i + 1]});
+            insert_flow_job_with_args(&db, id, "test-workspace", "f/test/accum_flow", &args_val)
+                .await;
+            jobs.push((id, args_val.clone()));
+
+            let args_hm: HashMap<String, Box<RawValue>> = serde_json::from_value(args_val).unwrap();
+            let args = PushArgs::from(&args_hm);
+            let result = windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+                &settings,
+                &Some("f/test/accum_flow".to_string()),
+                "test-workspace",
+                id,
+                &args,
+                &db,
+            )
+            .await?;
+            results.push(result);
+        }
+
+        // Verify debounce behavior
+        assert!(results[0].is_some(), "call 1 debounced");
+        assert!(results[1].is_none(), "call 2 fires immediately");
+        assert!(results[2].is_some(), "call 3 debounced");
+        assert!(results[3].is_none(), "call 4 fires immediately");
+        assert!(results[4].is_some(), "call 5 debounced");
+
+        // Call 2 fires immediately with MaxCountExceeded.
+        // Simulate worker: store runnable_settings_handle, then call maybe_apply_debouncing.
+        let survivor_2 = jobs[1].0;
+        sqlx::query!(
+            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+            rs_handle,
+            survivor_2,
+        )
+        .execute(&db)
+        .await?;
+
+        let mut pulled_2 = make_pulled_job_result(
+            survivor_2,
+            "test-workspace",
+            "f/test/accum_flow",
+            &jobs[1].1,
+            JobKind::Flow,
+            "flow",
+            rs_handle,
+        );
+        pulled_2.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&pulled_2, &[1, 2], "x");
+
+        // Call 4 fires immediately with MaxCountExceeded.
+        let survivor_4 = jobs[3].0;
+        sqlx::query!(
+            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+            rs_handle,
+            survivor_4,
+        )
+        .execute(&db)
+        .await?;
+
+        let mut pulled_4 = make_pulled_job_result(
+            survivor_4,
+            "test-workspace",
+            "f/test/accum_flow",
+            &jobs[3].1,
+            JobKind::Flow,
+            "flow",
+            rs_handle,
+        );
+        pulled_4.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&pulled_4, &[3, 4], "x");
+
+        // Call 5 is debounced (only job in its batch so far).
+        // When eventually pulled, it should only have its own args.
+        let survivor_5 = jobs[4].0;
+        sqlx::query!(
+            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+            rs_handle,
+            survivor_5,
+        )
+        .execute(&db)
+        .await?;
+
+        let mut pulled_5 = make_pulled_job_result(
+            survivor_5,
+            "test-workspace",
+            "f/test/accum_flow",
+            &jobs[4].1,
+            JobKind::Flow,
+            "flow",
+            rs_handle,
+        );
+        pulled_5.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&pulled_5, &[5], "x");
+
+        Ok(())
+    }
+
+    /// Test: same as above but triggered by max_total_debouncing_time instead of count.
+    /// Uses a very short time window so that the 2nd call exceeds it.
+    ///
+    /// Call 1 (x=[10]): debounced
+    /// -- sleep past max_total_debouncing_time --
+    /// Call 2 (x=[20]): fires immediately (time exceeded), accumulated x=[10,20]
+    /// Call 3 (x=[30]): debounced (new batch)
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_post_preprocessing_max_time_accumulation(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(50),
+            debounce_key: Some("max_time_accum_key".to_string()),
+            max_total_debouncing_time: Some(1), // 1 second
+            debounce_args_to_accumulate: Some(vec!["x".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        // Call 1: debounced
+        let id1 = Uuid::new_v4();
+        let args1 = serde_json::json!({"x": [10]});
+        insert_flow_job_with_args(&db, id1, "test-workspace", "f/test/time_accum", &args1).await;
+
+        let args_hm: HashMap<String, Box<RawValue>> =
+            serde_json::from_value(args1.clone()).unwrap();
+        let r1 = windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+            &settings,
+            &Some("f/test/time_accum".to_string()),
+            "test-workspace",
+            id1,
+            &PushArgs::from(&args_hm),
+            &db,
+        )
+        .await?;
+        assert!(r1.is_some(), "call 1 should be debounced");
+
+        // Wait for time to exceed
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // Call 2: time exceeded, fires immediately
+        let id2 = Uuid::new_v4();
+        let args2 = serde_json::json!({"x": [20]});
+        insert_flow_job_with_args(&db, id2, "test-workspace", "f/test/time_accum", &args2).await;
+
+        let args_hm2: HashMap<String, Box<RawValue>> =
+            serde_json::from_value(args2.clone()).unwrap();
+        let r2 = windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+            &settings,
+            &Some("f/test/time_accum".to_string()),
+            "test-workspace",
+            id2,
+            &PushArgs::from(&args_hm2),
+            &db,
+        )
+        .await?;
+        assert!(
+            r2.is_none(),
+            "call 2 should fire immediately (time exceeded)"
+        );
+
+        // Simulate worker: store handle and call maybe_apply_debouncing
+        sqlx::query!(
+            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+            rs_handle,
+            id2,
+        )
+        .execute(&db)
+        .await?;
+
+        let mut pulled = make_pulled_job_result(
+            id2,
+            "test-workspace",
+            "f/test/time_accum",
+            &args2,
+            JobKind::Flow,
+            "flow",
+            rs_handle,
+        );
+        pulled.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&pulled, &[10, 20], "x");
+
+        // Call 3: new batch, debounced
+        let id3 = Uuid::new_v4();
+        let args3 = serde_json::json!({"x": [30]});
+        insert_flow_job_with_args(&db, id3, "test-workspace", "f/test/time_accum", &args3).await;
+
+        let args_hm3: HashMap<String, Box<RawValue>> =
+            serde_json::from_value(args3.clone()).unwrap();
+        let r3 = windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+            &settings,
+            &Some("f/test/time_accum".to_string()),
+            "test-workspace",
+            id3,
+            &PushArgs::from(&args_hm3),
+            &db,
+        )
+        .await?;
+        assert!(r3.is_some(), "call 3 should be debounced (new batch)");
 
         Ok(())
     }
@@ -3074,6 +3512,29 @@ mod debounce {
         let other: String = serde_json::from_str(other_raw.get())?;
         assert_eq!(other, "x", "non-accumulated arg should be unchanged");
 
+        // Verify accumulated args were persisted to v2_job (needed for flows
+        // where subsequent steps re-read args from the DB)
+        let db_args: Option<serde_json::Value> =
+            sqlx::query_scalar!("SELECT args FROM v2_job WHERE id = $1", survivor_id,)
+                .fetch_one(&db)
+                .await?;
+        let db_args = db_args.expect("v2_job args should not be null after accumulation");
+        let db_items = db_args
+            .get("items")
+            .expect("persisted args should contain 'items'");
+        let db_items: Vec<i64> =
+            serde_json::from_value::<Vec<serde_json::Value>>(db_items.clone())?
+                .iter()
+                .map(|v| v.as_i64().unwrap())
+                .collect();
+        let mut db_items_sorted = db_items.clone();
+        db_items_sorted.sort();
+        assert_eq!(
+            db_items_sorted,
+            vec![1, 2, 3, 4, 5, 6],
+            "persisted args in v2_job should contain all accumulated items"
+        );
+
         Ok(())
     }
 
@@ -3417,6 +3878,237 @@ mod debounce {
         Ok(())
     }
 
+    /// Test: Push-time (script) debounce with max_total_debounces_amount=2.
+    /// 5 calls, each sending {x: [i]}. Expected:
+    ///   Call 1: debounced (scheduled_for set)
+    ///   Call 2: fires immediately (limit), accumulated x=[1,2]
+    ///   Call 3: debounced (new batch)
+    ///   Call 4: fires immediately (limit), accumulated x=[3,4]
+    ///   Call 5: debounced (new batch), x=[5]
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_push_max_count_accumulation(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(50),
+            debounce_key: Some("push_count_accum_key".to_string()),
+            max_total_debounces_amount: Some(2),
+            debounce_args_to_accumulate: Some(vec!["x".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        let mut jobs = Vec::new();
+        let mut scheduled_fors = Vec::new();
+
+        for i in 0..5 {
+            let id = Uuid::new_v4();
+            let args_val = serde_json::json!({"x": [i + 1]});
+            insert_script_job_with_args(&db, id, "test-workspace", "f/test/push_script", &args_val)
+                .await;
+            sqlx::query!(
+                "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+                rs_handle,
+                id,
+            )
+            .execute(&db)
+            .await?;
+            jobs.push((id, args_val.clone()));
+
+            let args_hm: HashMap<String, Box<RawValue>> = serde_json::from_value(args_val).unwrap();
+            let push_args = PushArgs::from(&args_hm);
+            let mut scheduled_for = None;
+            let mut tx = db.begin().await?;
+            windmill_queue::jobs_ee::maybe_debounce(
+                &settings,
+                &mut scheduled_for,
+                &Some("f/test/push_script".to_string()),
+                "test-workspace",
+                JobKind::Script,
+                id,
+                &push_args,
+                &mut tx,
+            )
+            .await?;
+            tx.commit().await?;
+            scheduled_fors.push(scheduled_for);
+        }
+
+        // Verify debounce behavior
+        assert!(scheduled_fors[0].is_some(), "call 1 debounced");
+        assert!(scheduled_fors[1].is_none(), "call 2 fires immediately");
+        assert!(scheduled_fors[2].is_some(), "call 3 debounced");
+        assert!(scheduled_fors[3].is_none(), "call 4 fires immediately");
+        assert!(scheduled_fors[4].is_some(), "call 5 debounced");
+
+        // Call 2: accumulate args
+        let mut pulled_2 = make_pulled_job_result(
+            jobs[1].0,
+            "test-workspace",
+            "f/test/push_script",
+            &jobs[1].1,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        pulled_2.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&pulled_2, &[1, 2], "x");
+
+        // Call 4: accumulate args
+        let mut pulled_4 = make_pulled_job_result(
+            jobs[3].0,
+            "test-workspace",
+            "f/test/push_script",
+            &jobs[3].1,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        pulled_4.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&pulled_4, &[3, 4], "x");
+
+        // Call 5: only its own args
+        let mut pulled_5 = make_pulled_job_result(
+            jobs[4].0,
+            "test-workspace",
+            "f/test/push_script",
+            &jobs[4].1,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        pulled_5.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&pulled_5, &[5], "x");
+
+        Ok(())
+    }
+
+    /// Test: Push-time (script) debounce with max_total_debouncing_time=1s.
+    ///   Call 1 (x=[10]): debounced
+    ///   -- sleep past max time --
+    ///   Call 2 (x=[20]): fires immediately (time exceeded), accumulated x=[10,20]
+    ///   Call 3 (x=[30]): debounced (new batch)
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_push_max_time_accumulation(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(50),
+            debounce_key: Some("push_time_accum_key".to_string()),
+            max_total_debouncing_time: Some(1),
+            debounce_args_to_accumulate: Some(vec!["x".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        // Call 1: debounced
+        let id1 = Uuid::new_v4();
+        let args1 = serde_json::json!({"x": [10]});
+        insert_script_job_with_args(&db, id1, "test-workspace", "f/test/push_time", &args1).await;
+        sqlx::query!(
+            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+            rs_handle,
+            id1,
+        )
+        .execute(&db)
+        .await?;
+
+        let args_hm: HashMap<String, Box<RawValue>> =
+            serde_json::from_value(args1.clone()).unwrap();
+        let mut sf1 = None;
+        let mut tx = db.begin().await?;
+        windmill_queue::jobs_ee::maybe_debounce(
+            &settings,
+            &mut sf1,
+            &Some("f/test/push_time".to_string()),
+            "test-workspace",
+            JobKind::Script,
+            id1,
+            &PushArgs::from(&args_hm),
+            &mut tx,
+        )
+        .await?;
+        tx.commit().await?;
+        assert!(sf1.is_some(), "call 1 should be debounced");
+
+        // Wait for time to exceed
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // Call 2: time exceeded, fires immediately
+        let id2 = Uuid::new_v4();
+        let args2 = serde_json::json!({"x": [20]});
+        insert_script_job_with_args(&db, id2, "test-workspace", "f/test/push_time", &args2).await;
+        sqlx::query!(
+            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+            rs_handle,
+            id2,
+        )
+        .execute(&db)
+        .await?;
+
+        let args_hm2: HashMap<String, Box<RawValue>> =
+            serde_json::from_value(args2.clone()).unwrap();
+        let mut sf2 = None;
+        let mut tx = db.begin().await?;
+        windmill_queue::jobs_ee::maybe_debounce(
+            &settings,
+            &mut sf2,
+            &Some("f/test/push_time".to_string()),
+            "test-workspace",
+            JobKind::Script,
+            id2,
+            &PushArgs::from(&args_hm2),
+            &mut tx,
+        )
+        .await?;
+        tx.commit().await?;
+        assert!(
+            sf2.is_none(),
+            "call 2 should fire immediately (time exceeded)"
+        );
+
+        // Verify accumulation
+        let mut pulled = make_pulled_job_result(
+            id2,
+            "test-workspace",
+            "f/test/push_time",
+            &args2,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        pulled.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&pulled, &[10, 20], "x");
+
+        // Call 3: new batch, debounced
+        let id3 = Uuid::new_v4();
+        let args3 = serde_json::json!({"x": [30]});
+        insert_script_job_with_args(&db, id3, "test-workspace", "f/test/push_time", &args3).await;
+        sqlx::query!(
+            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+            rs_handle,
+            id3,
+        )
+        .execute(&db)
+        .await?;
+
+        let args_hm3: HashMap<String, Box<RawValue>> =
+            serde_json::from_value(args3.clone()).unwrap();
+        let mut sf3 = None;
+        let mut tx = db.begin().await?;
+        windmill_queue::jobs_ee::maybe_debounce(
+            &settings,
+            &mut sf3,
+            &Some("f/test/push_time".to_string()),
+            "test-workspace",
+            JobKind::Script,
+            id3,
+            &PushArgs::from(&args_hm3),
+            &mut tx,
+        )
+        .await?;
+        tx.commit().await?;
+        assert!(sf3.is_some(), "call 3 should be debounced (new batch)");
+
+        Ok(())
+    }
+
     /// Test: Flow (without preprocessor) debounce accumulation via push-time maybe_debounce.
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     async fn test_flow_debounce_accumulation_no_preprocessor(
@@ -3503,6 +4195,27 @@ mod debounce {
         result.maybe_apply_debouncing(&db).await?;
 
         assert_accumulated_items(&result, &[10, 20, 30, 40, 50], "items");
+
+        // Verify accumulated args were persisted to v2_job
+        let db_args: Option<serde_json::Value> =
+            sqlx::query_scalar!("SELECT args FROM v2_job WHERE id = $1", survivor_id,)
+                .fetch_one(&db)
+                .await?;
+        let db_items = db_args
+            .expect("v2_job args should not be null")
+            .get("items")
+            .expect("persisted args should contain 'items'")
+            .clone();
+        let mut db_items: Vec<i64> = serde_json::from_value::<Vec<serde_json::Value>>(db_items)?
+            .iter()
+            .map(|v| v.as_i64().unwrap())
+            .collect();
+        db_items.sort();
+        assert_eq!(
+            db_items,
+            vec![10, 20, 30, 40, 50],
+            "persisted args in v2_job should contain all accumulated items"
+        );
 
         Ok(())
     }
@@ -3604,6 +4317,33 @@ mod debounce {
         let extra: String = serde_json::from_str(extra_raw.get())?;
         assert_eq!(extra, "v", "non-accumulated arg should be unchanged");
 
+        // Verify accumulated args were persisted to v2_job
+        let db_args: Option<serde_json::Value> =
+            sqlx::query_scalar!("SELECT args FROM v2_job WHERE id = $1", survivor_id,)
+                .fetch_one(&db)
+                .await?;
+        let db_args = db_args.expect("v2_job args should not be null");
+        let db_items = db_args
+            .get("items")
+            .expect("persisted args should contain 'items'")
+            .clone();
+        let mut db_items: Vec<i64> = serde_json::from_value::<Vec<serde_json::Value>>(db_items)?
+            .iter()
+            .map(|v| v.as_i64().unwrap())
+            .collect();
+        db_items.sort();
+        assert_eq!(
+            db_items,
+            vec![100, 200, 300, 400, 500, 600],
+            "persisted args in v2_job should contain all accumulated items"
+        );
+        // "extra" should also be persisted unchanged
+        let db_extra = db_args.get("extra").unwrap().as_str().unwrap();
+        assert_eq!(
+            db_extra, "v",
+            "persisted non-accumulated arg should be unchanged"
+        );
+
         Ok(())
     }
 
@@ -3685,6 +4425,323 @@ mod debounce {
             item_nums,
             vec![4, 5],
             "Without the fix: only the survivor's own items should be present (no accumulation)"
+        );
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // Tests for maybe_debounce_flow_node (flow node debouncing)
+    // =========================================================================
+
+    /// Helper: insert a child job with a parent flow.
+    async fn insert_child_job_with_parent(
+        db: &Pool<Postgres>,
+        child_id: Uuid,
+        parent_id: Uuid,
+        workspace_id: &str,
+    ) {
+        sqlx::query!(
+            "INSERT INTO v2_job (id, kind, tag, created_by, permissioned_as, permissioned_as_email, workspace_id, parent_job)
+             VALUES ($1, 'noop', 'deno', 'test-user', 'u/test-user', 'test@windmill.dev', $2, $3)",
+            child_id,
+            workspace_id,
+            parent_id,
+        )
+        .execute(db)
+        .await
+        .expect("insert v2_job (child)");
+
+        sqlx::query!(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag)
+             VALUES ($1, $2, now(), 'deno')",
+            child_id,
+            workspace_id,
+        )
+        .execute(db)
+        .await
+        .expect("insert v2_job_queue (child)");
+
+        sqlx::query!("INSERT INTO v2_job_runtime (id) VALUES ($1)", child_id)
+            .execute(db)
+            .await
+            .expect("insert v2_job_runtime (child)");
+    }
+
+    /// Test: First flow node job in a debounce batch should set scheduled_for
+    /// and create a debounce_key entry. The parent flow should remain in queue.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_flow_node_debounce_first_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let flow_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+        insert_flow_job(&db, flow_id, "test-workspace", "f/test/my_flow").await;
+        insert_child_job_with_parent(&db, child_id, flow_id, "test-workspace").await;
+
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some("test_flow_node_first".to_string()),
+            ..Default::default()
+        };
+        let args_hm = empty_args();
+        let args = PushArgs::from(&args_hm);
+        let mut tx = db.begin().await?;
+
+        windmill_queue::jobs_ee::maybe_debounce_flow_node(
+            &settings,
+            child_id,
+            flow_id,
+            "f/test/my_flow",
+            "step_a",
+            "test-workspace",
+            &args,
+            &mut tx,
+            &db,
+        )
+        .await?;
+
+        tx.commit().await?;
+
+        // Child job should still be in queue with delayed scheduled_for
+        assert!(is_queued(&db, &child_id).await, "child should be queued");
+        let sf = sqlx::query_scalar!(
+            "SELECT scheduled_for FROM v2_job_queue WHERE id = $1",
+            child_id
+        )
+        .fetch_one(&db)
+        .await?;
+        let diff = (sf - Utc::now()).num_seconds();
+        assert!(
+            diff >= 0 && diff <= 6,
+            "scheduled_for should be in the future (up to ~5s), got {diff}s"
+        );
+
+        // Parent flow should still be in queue
+        assert!(
+            is_queued(&db, &flow_id).await,
+            "parent flow should still be queued"
+        );
+        assert!(
+            !is_completed(&db, &flow_id).await,
+            "parent flow should not be completed"
+        );
+
+        // debounce_key should exist
+        let dk = get_debounce_key(&db, "test_flow_node_first").await;
+        assert!(dk.is_some(), "debounce_key entry should exist");
+        let (dk_job, dk_prev, dk_times) = dk.unwrap();
+        assert_eq!(dk_job, child_id);
+        assert!(dk_prev.is_none());
+        assert_eq!(dk_times, 0);
+
+        Ok(())
+    }
+
+    /// Test: Second flow node job with same key should cancel the first child and
+    /// complete the first parent flow with "Debounced by" result.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_flow_node_debounce_second_cancels_first(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        // Flow 1 with child 1
+        let flow1 = Uuid::new_v4();
+        let child1 = Uuid::new_v4();
+        insert_flow_job(&db, flow1, "test-workspace", "f/test/my_flow").await;
+        insert_child_job_with_parent(&db, child1, flow1, "test-workspace").await;
+
+        // Flow 2 with child 2
+        let flow2 = Uuid::new_v4();
+        let child2 = Uuid::new_v4();
+        insert_flow_job(&db, flow2, "test-workspace", "f/test/my_flow").await;
+        insert_child_job_with_parent(&db, child2, flow2, "test-workspace").await;
+
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some("test_flow_node_cancel".to_string()),
+            ..Default::default()
+        };
+        let args_hm = empty_args();
+
+        // Push child 1
+        {
+            let args = PushArgs::from(&args_hm);
+            let mut tx = db.begin().await?;
+            windmill_queue::jobs_ee::maybe_debounce_flow_node(
+                &settings,
+                child1,
+                flow1,
+                "f/test/my_flow",
+                "step_a",
+                "test-workspace",
+                &args,
+                &mut tx,
+                &db,
+            )
+            .await?;
+            tx.commit().await?;
+        }
+
+        // Push child 2 — should cancel child 1 and complete flow 1
+        {
+            let args = PushArgs::from(&args_hm);
+            let mut tx = db.begin().await?;
+            windmill_queue::jobs_ee::maybe_debounce_flow_node(
+                &settings,
+                child2,
+                flow2,
+                "f/test/my_flow",
+                "step_a",
+                "test-workspace",
+                &args,
+                &mut tx,
+                &db,
+            )
+            .await?;
+            tx.commit().await?;
+        }
+
+        // child1 should be completed (debounced/skipped)
+        assert!(
+            is_completed(&db, &child1).await,
+            "child1 should be completed"
+        );
+        assert!(
+            !is_queued(&db, &child1).await,
+            "child1 should not be in queue"
+        );
+
+        // flow1 (parent of child1) should also be completed
+        assert!(
+            is_completed(&db, &flow1).await,
+            "flow1 should be completed (debounced)"
+        );
+        assert!(
+            !is_queued(&db, &flow1).await,
+            "flow1 should not be in queue"
+        );
+
+        // Check flow1 result contains "Debounced by"
+        let result = sqlx::query_scalar!(
+            "SELECT result::text FROM v2_job_completed WHERE id = $1",
+            flow1
+        )
+        .fetch_one(&db)
+        .await?;
+        assert!(
+            result.as_ref().is_some_and(|r| r.contains("Debounced by")),
+            "flow1 result should contain 'Debounced by', got: {:?}",
+            result
+        );
+
+        // child2 should still be in queue (it's the winner)
+        assert!(
+            is_queued(&db, &child2).await,
+            "child2 should still be queued"
+        );
+        assert!(
+            !is_completed(&db, &child2).await,
+            "child2 should not be completed"
+        );
+
+        // flow2 should still be in queue
+        assert!(is_queued(&db, &flow2).await, "flow2 should still be queued");
+
+        // debounce_key should point to child2
+        let dk = get_debounce_key(&db, "test_flow_node_cancel").await;
+        assert!(dk.is_some());
+        let (dk_job, _, dk_times) = dk.unwrap();
+        assert_eq!(dk_job, child2);
+        assert_eq!(dk_times, 1);
+
+        Ok(())
+    }
+
+    /// Test: Default debounce key for flow nodes uses $workspace/flow/$path-$step_id.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_flow_node_debounce_default_key(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let flow_id = Uuid::new_v4();
+        let child_id = Uuid::new_v4();
+        insert_flow_job(&db, flow_id, "test-workspace", "f/test/my_flow").await;
+        insert_child_job_with_parent(&db, child_id, flow_id, "test-workspace").await;
+
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: None, // No custom key — use default
+            ..Default::default()
+        };
+        let args_hm = empty_args();
+        let args = PushArgs::from(&args_hm);
+        let mut tx = db.begin().await?;
+
+        windmill_queue::jobs_ee::maybe_debounce_flow_node(
+            &settings,
+            child_id,
+            flow_id,
+            "f/test/my_flow",
+            "step_a",
+            "test-workspace",
+            &args,
+            &mut tx,
+            &db,
+        )
+        .await?;
+
+        tx.commit().await?;
+
+        // Default key should be: test-workspace/flow/f/test/my_flow-step_a
+        let expected_key = "test-workspace/flow/f/test/my_flow-step_a";
+        let dk = get_debounce_key(&db, expected_key).await;
+        assert!(dk.is_some(), "debounce_key with default key should exist");
+
+        Ok(())
+    }
+
+    /// Test: Flow node debounce tracks debounced_times counter correctly.
+    /// Each debounce call increments the counter in the debounce_key table.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_flow_node_debounce_counter_tracking(db: Pool<Postgres>) -> anyhow::Result<()> {
+        // No limits set so counter never resets
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some("test_flow_node_counter".to_string()),
+            ..Default::default()
+        };
+        let args_hm = empty_args();
+
+        // Push 4 jobs. Each subsequent one increments debounced_times.
+        for _ in 0..4 {
+            let flow_id = Uuid::new_v4();
+            let child_id = Uuid::new_v4();
+            insert_flow_job(&db, flow_id, "test-workspace", "f/test/flow").await;
+            insert_child_job_with_parent(&db, child_id, flow_id, "test-workspace").await;
+
+            let args = PushArgs::from(&args_hm);
+            let mut tx = db.begin().await?;
+            windmill_queue::jobs_ee::maybe_debounce_flow_node(
+                &settings,
+                child_id,
+                flow_id,
+                "f/test/flow",
+                "step_a",
+                "test-workspace",
+                &args,
+                &mut tx,
+                &db,
+            )
+            .await?;
+            tx.commit().await?;
+        }
+
+        // After 4 jobs, debounced_times should be 3 (first job creates the entry with 0,
+        // subsequent 3 jobs each increment it)
+        let debounced_times = sqlx::query_scalar!(
+            "SELECT debounced_times FROM debounce_key WHERE key = $1",
+            "test_flow_node_counter"
+        )
+        .fetch_one(&db)
+        .await?;
+        assert_eq!(
+            debounced_times, 3,
+            "debounced_times should be 3 after 4 jobs"
         );
 
         Ok(())

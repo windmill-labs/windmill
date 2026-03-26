@@ -15,15 +15,16 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInf
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        parse_npm_config, read_file, read_file_content, read_result, start_child_process,
-        write_file_binary, MaybeLock, OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
+        parse_npm_config, read_file, read_file_content, read_result, resolve_nsjail_timeout,
+        start_child_process, write_file_binary, MaybeLock, OccupancyMetrics, StreamNotifier,
+        DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR,
-    BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH,
-    NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
-    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry_with_workspace_override, BUNFIG_INSTALL_SCOPES,
+    BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH, DISABLE_NUSER, HOME_ENV,
+    NODE_BIN_PATH, NODE_PATH, NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_AVAILABLE, NSJAIL_PATH,
+    PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -76,40 +77,161 @@ pub const EMPTY_FILE: &str = "<empty>";
 /// Bun args for dedicated worker (without the script path)
 pub const BUN_DEDICATED_WORKER_ARGS: &[&str] = &["run", "-i", "--prefer-offline"];
 
-/// Generate the dedicated worker wrapper content.
-/// - `arg_names`: The argument names for the main function (e.g., ["x", "y"])
-/// - `main_import`: The import path for the main module (e.g., "./main.ts")
-/// - `date_conversions`: Optional date conversion statements for Datetime args
-pub fn generate_dedicated_worker_wrapper(
-    arg_names: &[&str],
-    main_import: &str,
-    date_conversions: Option<&str>,
-) -> String {
-    let spread = arg_names.join(",");
-    let dates = date_conversions.unwrap_or("");
+/// Pre-computed codegen data for a TypeScript/Bun/Deno script.
+/// Computed in Rust from the parsed signature, then baked into the wrapper template.
+#[cfg(any(feature = "private", test))]
+pub struct TsScriptCodegen {
+    pub spread: String,
+    pub date_conversions: String,
+    pub preprocessor_spread: Option<String>,
+    pub preprocessor_date_conversions: Option<String>,
+}
+
+/// Parse a TS script and compute the codegen data (arg spread, date conversions, preprocessor).
+/// This is the same logic that was used on main in `start_worker`.
+#[cfg(any(feature = "private", test))]
+pub fn compute_ts_codegen(content: &str) -> TsScriptCodegen {
+    let sig =
+        windmill_parser_ts::parse_deno_signature(content, true, false, None).unwrap_or_default();
+    let arg_names: Vec<&str> = sig.args.iter().map(|a| a.name.as_str()).collect();
+    let spread = arg_names.join(", ");
+
+    let dates = sig
+        .args
+        .iter()
+        .filter(|a| matches!(a.typ, Typ::Datetime))
+        .map(|a| {
+            format!(
+                "{name} = {name} ? new Date({name}) : undefined",
+                name = a.name
+            )
+        })
+        .join("\n    ");
+
+    let pre_sig = windmill_parser_ts::parse_deno_signature(
+        content,
+        true,
+        false,
+        Some("preprocessor".to_string()),
+    )
+    .ok()
+    .filter(|s| !s.args.is_empty());
+
+    let preprocessor_spread = pre_sig
+        .as_ref()
+        .map(|s| s.args.iter().map(|a| a.name.as_str()).join(", "));
+    let preprocessor_date_conversions = pre_sig.as_ref().map(|s| {
+        s.args
+            .iter()
+            .filter(|a| matches!(a.typ, Typ::Datetime))
+            .map(|a| {
+                format!(
+                    "{name} = {name} ? new Date({name}) : undefined",
+                    name = a.name
+                )
+            })
+            .join("\n    ")
+    });
+
+    TsScriptCodegen {
+        spread,
+        date_conversions: dates,
+        preprocessor_spread,
+        preprocessor_date_conversions,
+    }
+}
+
+/// Script entry for the unified wrapper generator.
+/// `import_name`: the file stem used in the import path (e.g., "main" → `./main.ts`, or "f__script" → `./f__script.ts`)
+#[cfg(any(feature = "private", test))]
+pub struct TsScriptEntry<'a> {
+    pub import_name: &'a str,
+    pub original_path: &'a str,
+    pub codegen: &'a TsScriptCodegen,
+}
+
+/// Generate a wrapper for dedicated workers and runner groups.
+/// All scripts are baked in at codegen time with static imports and inline arg handling.
+/// Protocol:
+///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
+///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
+///   end                             -> exit
+#[cfg(any(feature = "private", test))]
+pub fn generate_multi_script_wrapper(scripts: &[TsScriptEntry<'_>], ext: &str) -> String {
     let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
     let print_lines = if is_debug {
-        r#"console.log(line);"#
+        r#"console.log("[debug] " + line);"#
     } else {
         ""
     };
 
+    let imports: String = scripts
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            format!(
+                "import * as _s{i} from \"./{import_name}.{ext}\";",
+                import_name = e.import_name
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Generate per-script getArgs / getPreArgs functions
+    let mut functions = String::new();
+    let mut registrations = String::new();
+
+    for (i, entry) in scripts.iter().enumerate() {
+        let cg = entry.codegen;
+        let spread = &cg.spread;
+        let dates = &cg.date_conversions;
+
+        functions.push_str(&format!(
+            r#"
+function getArgs_{i}(line) {{
+    let {{ {spread} }} = JSON.parse(line);
+    {dates}
+    return [ {spread} ];
+}}
+"#
+        ));
+
+        let pre_fn = if let Some(ref pre_spread) = cg.preprocessor_spread {
+            let pre_dates = cg.preprocessor_date_conversions.as_deref().unwrap_or("");
+            functions.push_str(&format!(
+                r#"
+function getPreArgs_{i}(line) {{
+    let {{ {pre_spread} }} = JSON.parse(line);
+    {pre_dates}
+    return [ {pre_spread} ];
+}}
+"#
+            ));
+            format!("getPreArgs_{i}")
+        } else {
+            "null".to_string()
+        };
+
+        registrations.push_str(&format!(
+            "scripts.set(\"{path}\", {{ module: _s{i}, getArgs: getArgs_{i}, getPreArgs: {pre_fn} }});\n",
+            path = entry.original_path,
+        ));
+    }
+
     format!(
         r#"
-import * as Main from "{main_import}";
+{imports}
 import * as Readline from "node:readline"
 
 BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
 
-console.log('start');
+const scripts = new Map();
+{functions}
+{registrations}
 
-function getArgs(line) {{
-    let {{ {spread} }} = JSON.parse(line)
-    {dates}
-    return [ {spread} ];
-}}
+console.log('start');
 
 for await (const line of Readline.createInterface({{ input: process.stdin }})) {{
     {print_lines}
@@ -117,20 +239,74 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
     if (line === "end") {{
         process.exit(0);
     }}
-    try {{
-        const args = getArgs(line);
-        const res = await Main.main(...args);
-        console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
-    }} catch (e) {{
-        console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}));
+
+    if (line.startsWith("exec_preprocess:")) {{
+        const rest = line.slice("exec_preprocess:".length);
+        const colonIdx = rest.indexOf(":");
+        if (colonIdx === -1) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "Malformed exec_preprocess command: missing colon separator", name: "Error" }}));
+            continue;
+        }}
+        const scriptPath = rest.slice(0, colonIdx);
+        const argsJson = rest.slice(colonIdx + 1);
+
+        const entry = scripts.get(scriptPath);
+        if (!entry) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not found: " + scriptPath, name: "Error" }}));
+            continue;
+        }}
+
+        try {{
+            if (!entry.getPreArgs) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}));
+                continue;
+            }}
+            const preArgs = entry.getPreArgs(argsJson);
+            const preprocessedArgs = await entry.module.preprocessor(...preArgs);
+            console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value));
+            const mainArgs = entry.getArgs(JSON.stringify(preprocessedArgs ?? {{}}));
+            const res = await entry.module.main(...mainArgs);
+            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
+        }} catch (e) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
+        }}
+        continue;
     }}
+
+    if (line.startsWith("exec:")) {{
+        const rest = line.slice("exec:".length);
+        const colonIdx = rest.indexOf(":");
+        if (colonIdx === -1) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "Malformed exec command: missing colon separator", name: "Error" }}));
+            continue;
+        }}
+        const scriptPath = rest.slice(0, colonIdx);
+        const argsJson = rest.slice(colonIdx + 1);
+
+        const entry = scripts.get(scriptPath);
+        if (!entry) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: "Script not found: " + scriptPath, name: "Error" }}));
+            continue;
+        }}
+
+        try {{
+            const args = entry.getArgs(argsJson);
+            const res = await entry.module.main(...args);
+            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
+        }} catch (e) {{
+            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
+        }}
+        continue;
+    }}
+
+    console.error("Unknown command:", line);
 }}
 "#
     )
 }
 
 /// Returns (package.json, bun.lock(b), is_empty, is_binary)
-fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool) {
+pub(crate) fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool) {
     if let Some(index) = lockfile.find(BUN_LOCK_SPLIT) {
         // Split using "\n//bun.lock\n"
         let (before, after_with_sep) = lockfile.split_at(index);
@@ -171,6 +347,8 @@ pub async fn gen_bun_lockfile(
     workspace_dependencies: &WorkspaceDependenciesPrefetched,
     npm_mode: bool,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    temp_script_refs: &Option<HashMap<String, String>>,
+    quiet: bool,
 ) -> Result<Option<String>> {
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
@@ -180,6 +358,11 @@ pub async fn gen_bun_lockfile(
         gen_bunfig(job_dir, job_id, w_id, db).await?;
         write_file(job_dir, "package.json", package_json_content.as_str())?;
     } else {
+        let temp_refs_json = temp_script_refs
+            .as_ref()
+            .and_then(|m| serde_json::to_string(m).ok())
+            .unwrap_or_else(|| "null".to_string());
+
         let loader = RELATIVE_BUN_LOADER
             .replace("W_ID", w_id)
             .replace("BASE_INTERNAL_URL", base_internal_url)
@@ -188,7 +371,8 @@ pub async fn gen_bun_lockfile(
                 "CURRENT_PATH",
                 &crate::common::use_flow_root_path(script_path),
             )
-            .replace("RAW_GET_ENDPOINT", "raw");
+            .replace("RAW_GET_ENDPOINT", "raw")
+            .replace("TEMP_SCRIPT_REFS_PLACEHOLDER", &temp_refs_json);
 
         write_file(
             &job_dir,
@@ -219,7 +403,8 @@ pub async fn gen_bun_lockfile(
         let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
 
         if let Some(db) = db {
-            handle_child(
+            let mut quiet_buf = String::new();
+            let result = handle_child(
                 job_id,
                 db,
                 mem_peak,
@@ -232,10 +417,20 @@ pub async fn gen_bun_lockfile(
                 None,
                 false,
                 occupancy_metrics,
-                None,
+                if quiet { Some(&mut quiet_buf) } else { None },
                 None,
             )
-            .await?;
+            .await;
+            if quiet && result.is_err() {
+                append_logs(
+                    job_id,
+                    w_id,
+                    format!("\n--- BUN BUILD (failed) ---\n{quiet_buf}"),
+                    db,
+                )
+                .await;
+            }
+            result?;
         } else {
             Box::into_pin(child_process.wait()).await?;
         }
@@ -259,11 +454,14 @@ pub async fn gen_bun_lockfile(
             common_bun_proc_envs,
             npm_mode,
             occupancy_metrics,
+            quiet,
         )
         .await?;
     } else {
-        if let Some(db) = db {
-            append_logs(job_id, w_id, "\nempty dependencies, skipping install", db).await;
+        if !quiet {
+            if let Some(db) = db {
+                append_logs(job_id, w_id, "\nempty dependencies, skipping install", db).await;
+            }
         }
     }
 
@@ -307,7 +505,15 @@ async fn gen_bunfig(
     db: Option<&Connection>,
 ) -> Result<()> {
     let npmrc = if let Some(conn) = db {
-        read_ee_registry(NPMRC.read().await.clone(), "npmrc", job_id, w_id, conn).await
+        read_ee_registry_with_workspace_override(
+            NPMRC.read().await.clone(),
+            "npmrc",
+            "npmrc",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
     } else {
         NPMRC.read().await.clone()
     };
@@ -322,16 +528,18 @@ async fn gen_bunfig(
 
     let (registry, bunfig_install_scopes) = if let Some(conn) = db {
         (
-            read_ee_registry(
+            read_ee_registry_with_workspace_override(
                 NPM_CONFIG_REGISTRY.read().await.clone(),
+                "npm_config_registry",
                 "npm registry",
                 job_id,
                 w_id,
                 conn,
             )
             .await,
-            read_ee_registry(
+            read_ee_registry_with_workspace_override(
                 BUNFIG_INSTALL_SCOPES.read().await.clone(),
+                "bunfig_install_scopes",
                 "bunfig install scopes",
                 job_id,
                 w_id,
@@ -390,6 +598,7 @@ pub async fn install_bun_lockfile(
     common_bun_proc_envs: HashMap<String, String>,
     npm_mode: bool,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    quiet: bool,
 ) -> Result<()> {
     let mut child_cmd = Command::new(if npm_mode { &*NPM_PATH } else { &*BUN_PATH });
 
@@ -424,7 +633,15 @@ pub async fn install_bun_lockfile(
 
     let has_file = if npm_mode {
         let npmrc = if let Some(conn) = db {
-            read_ee_registry(NPMRC.read().await.clone(), "npmrc", job_id, w_id, conn).await
+            read_ee_registry_with_workspace_override(
+                NPMRC.read().await.clone(),
+                "npmrc",
+                "npmrc",
+                job_id,
+                w_id,
+                conn,
+            )
+            .await
         } else {
             NPMRC.read().await.clone()
         };
@@ -439,8 +656,9 @@ pub async fn install_bun_lockfile(
             }
         } else {
             let registry = if let Some(conn) = db {
-                read_ee_registry(
+                read_ee_registry_with_workspace_override(
                     NPM_CONFIG_REGISTRY.read().await.clone(),
+                    "npm_config_registry",
                     "npm registry",
                     job_id,
                     w_id,
@@ -477,7 +695,7 @@ pub async fn install_bun_lockfile(
         false
     };
 
-    if npm_mode || no_cache {
+    if !quiet && (npm_mode || no_cache) {
         if let Some(db) = db {
             append_logs(&job_id.clone(), w_id, npm_logs, db).await;
         }
@@ -489,7 +707,8 @@ pub async fn install_bun_lockfile(
 
     let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
     if let Some(db) = db {
-        handle_child(
+        let mut quiet_buf = String::new();
+        let result = handle_child(
             job_id,
             db,
             mem_peak,
@@ -502,11 +721,22 @@ pub async fn install_bun_lockfile(
             None,
             false,
             occupancy_metrics,
-            None,
+            if quiet { Some(&mut quiet_buf) } else { None },
             None,
         )
         .warn_after_seconds(10)
-        .await?;
+        .await;
+        if quiet && result.is_err() {
+            // On failure, flush suppressed install output so the user can diagnose
+            append_logs(
+                job_id,
+                w_id,
+                format!("\n--- BUN INSTALL (failed) ---\n{quiet_buf}"),
+                db,
+            )
+            .await;
+        }
+        result?;
     } else {
         Box::into_pin(child_process.wait()).await?;
     }
@@ -533,9 +763,15 @@ pub async fn build_loader(
     w_id: &str,
     current_path: &str,
     mode: LoaderMode,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> Result<()> {
     // Use forward slashes in JS strings to avoid backslash escape issues on Windows
     let job_dir_js = job_dir.replace('\\', "/");
+    let temp_refs_json = temp_script_refs
+        .as_ref()
+        .and_then(|m| serde_json::to_string(m).ok())
+        .unwrap_or_else(|| "null".to_string());
+
     let loader = RELATIVE_BUN_LOADER
         .replace("W_ID", w_id)
         .replace("BASE_INTERNAL_URL", base_internal_url)
@@ -544,7 +780,8 @@ pub async fn build_loader(
             "CURRENT_PATH",
             &crate::common::use_flow_root_path(current_path),
         )
-        .replace("RAW_GET_ENDPOINT", "raw_unpinned");
+        .replace("RAW_GET_ENDPOINT", "raw_unpinned")
+        .replace("TEMP_SCRIPT_REFS_PLACEHOLDER", &temp_refs_json);
 
     if mode == LoaderMode::Node {
         write_file(
@@ -842,6 +1079,7 @@ pub async fn prebundle_bun_script(
     worker_name: &str,
     token: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> Result<()> {
     let (local_path, remote_path) =
         compute_bundle_local_and_remote_path(inner_content, lock, script_path, db, w_id).await;
@@ -868,6 +1106,7 @@ pub async fn prebundle_bun_script(
         } else {
             LoaderMode::BunBundle
         },
+        temp_script_refs,
     )
     .await?;
 
@@ -929,6 +1168,8 @@ pub async fn compute_bundle_local_and_remote_path(
         }
     };
 
+    let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
+    input_src.push_str(&ws_suffix);
     let hash = windmill_common::utils::calculate_hash(&input_src);
     let local_path = format!("{}/{hash}", *BUN_BUNDLE_CACHE_DIR);
 
@@ -987,6 +1228,7 @@ pub async fn handle_bun_job(
     occupancy_metrics: &mut OccupancyMetrics,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
+    modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
@@ -1051,6 +1293,54 @@ pub async fn handle_bun_job(
     let apply_preprocessor =
         job.flow_step_id.as_deref() != Some("preprocessor") && job.preprocessed == Some(false);
 
+    let is_wac_v2 = main_override.is_none() && crate::wac_executor::is_wac_v2_ts(inner_content);
+
+    // Detect WAC v2 replay (resumed from suspend) to suppress verbose logs.
+    // The actual step name is logged later by handle_wac_v2_output.
+    let wac_replay_info: Option<String> = if is_wac_v2 {
+        if let Connection::Sql(db) = conn {
+            let checkpoint = crate::wac_executor::load_checkpoint(db, &job.id).await?;
+            if !checkpoint.completed_steps.is_empty() {
+                Some(String::new())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // For WAC v2, inject variable names into unnamed task() calls so the
+    // runtime can use them for step naming (timeline, graph).
+    // `const double = task(async ...` → `const double = task("double", async ...`
+    // Also handles: export const, let, var, and optional generic type parameters.
+    // Skips calls that already have a string argument: `task("path", async ...`
+    let inner_content = if is_wac_v2 {
+        use regex::Regex;
+        use std::borrow::Cow;
+        lazy_static::lazy_static! {
+            static ref TASK_RE: Regex =
+                Regex::new(r#"(?m)((?:export\s+)?(?:const|let|var)\s+)(\w+)(\s*=\s*task\s*(?:<[^>]*>)?\s*\(\s*)(async\b)"#).unwrap();
+        }
+        let replaced = TASK_RE.replace_all(inner_content, r#"${1}${2}${3}"${2}", ${4}"#);
+        match replaced {
+            Cow::Borrowed(_) => inner_content.to_string(),
+            Cow::Owned(s) => s,
+        }
+    } else {
+        inner_content.to_string()
+    };
+    let inner_content = inner_content.as_str();
+
+    // WAC v2 scripts can't use bundle caching because the wrapper imports
+    // windmill-client from node_modules, which isn't available in bundle mode
+    if is_wac_v2 && has_bundle_cache {
+        has_bundle_cache = false;
+        let _ = write_file(job_dir, "main.ts", inner_content)?;
+    }
+
     let mut format = BundleFormat::Cjs;
     if has_bundle_cache {
         let target;
@@ -1112,14 +1402,17 @@ pub async fn handle_bun_job(
                         common_bun_proc_envs.clone(),
                         annotation.npm,
                         &mut Some(occupancy_metrics),
+                        wac_replay_info.is_some(),
                     )
                     .await?;
                 }
             }
             MaybeLock::Unresolved { ref workspace_dependencies } => {
                 // if is_sandboxing_enabled() || !empty_trusted_deps || has_custom_config_registry {
-                let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
-                append_logs(&job.id, &job.workspace_id, logs1, conn).await;
+                if wac_replay_info.is_none() {
+                    let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
+                    append_logs(&job.id, &job.workspace_id, logs1, conn).await;
+                }
                 gen_bun_lockfile(
                     mem_peak,
                     canceled_by,
@@ -1135,6 +1428,8 @@ pub async fn handle_bun_job(
                     workspace_dependencies,
                     annotation.npm,
                     &mut Some(occupancy_metrics),
+                    &None,
+                    wac_replay_info.is_some(),
                 )
                 .await?;
 
@@ -1147,7 +1442,13 @@ pub async fn handle_bun_job(
         annotation.nodejs = true
     }
 
-    let mut init_logs = if annotation.native {
+    let mut init_logs = if let Some(ref replay_header) = wac_replay_info {
+        // WAC v2 replay: use concise header, but still write main.ts if needed
+        if !annotation.native && !has_bundle_cache && codebase.is_none() {
+            write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?)?;
+        }
+        replay_header.clone()
+    } else if annotation.native {
         "\n\n--- NATIVE CODE EXECUTION ---\n".to_string()
     } else if has_bundle_cache {
         if annotation.nodejs {
@@ -1168,6 +1469,18 @@ pub async fn handle_bun_job(
         "\n\n--- NODE CODE EXECUTION ---\n".to_string()
     } else {
         write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?)?;
+        // Module inlining has two phases:
+        // 1. BUILD phase: loader.bun.js checks for local module files on disk (written by
+        //    write_module_files) and resolves them directly, so they get inlined into the bundle.
+        // 2. RUN phase: overwrite main.ts with the bundled output below. The runtime wrapper
+        //    imports main.ts, which now contains the inlined modules from the build step.
+        if modules.as_ref().is_some_and(|m| !m.is_empty()) {
+            let bundle_path = std::path::Path::new(job_dir).join("out").join("main.js");
+            if bundle_path.exists() {
+                let bundled = std::fs::read_to_string(&bundle_path)?;
+                write_file(job_dir, "main.ts", &bundled)?;
+            }
+        }
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
     };
 
@@ -1184,13 +1497,20 @@ pub async fn handle_bun_job(
             return Ok(()) as error::Result<()>;
         }
         // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(
-            inner_content,
-            true,
-            false,
-            main_override.map(ToString::to_string),
-        )?
-        .args;
+        let args = if is_wac_v2 {
+            // For WAC v2, try to parse "main" args; if that fails, try the default export
+            windmill_parser_ts::parse_deno_signature(inner_content, true, false, None)
+                .unwrap_or_default()
+                .args
+        } else {
+            windmill_parser_ts::parse_deno_signature(
+                inner_content,
+                true,
+                false,
+                main_override.map(ToString::to_string),
+            )?
+            .args
+        };
 
         let pre_args = if apply_preprocessor {
             Some(
@@ -1227,6 +1547,14 @@ pub async fn handle_bun_job(
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
         let main_name = main_override.unwrap_or("main");
 
+        // For WAC child jobs where the parser can't find params (task-wrapped consts),
+        // fall back to passing arg values directly (filtering out internal fields)
+        let child_spread = if spread.is_empty() && main_override.is_some() {
+            "Object.values(Object.fromEntries(Object.entries(args).filter(([k]) => !k.startsWith('_'))))".to_string()
+        } else {
+            "argsObjToArr(args)".to_string()
+        };
+
         let main_import = if codebase.is_some() || has_bundle_cache {
             "./main.js"
         } else {
@@ -1250,8 +1578,119 @@ pub async fn handle_bun_job(
             "".to_string()
         };
 
-        let wrapper_content = format!(
-            r#"
+        let wac_spread = if spread.is_empty() {
+            "Object.values(args)".to_string()
+        } else {
+            format!("argsObjToArr(args)")
+        };
+
+        let wrapper_content = if is_wac_v2 {
+            format!(
+                r#"
+import * as Main from "{main_import}";
+import {{ WorkflowCtx, StepSuspend, setWorkflowCtx }} from "windmill-client";
+
+import * as fs from "fs/promises";
+
+let args = await fs.readFile('args.json', {{ encoding: 'utf8' }}).then(JSON.parse);
+const checkpoint = JSON.parse(await fs.readFile('checkpoint.json', {{ encoding: 'utf8' }}));
+
+function argsObjToArr({{ {spread} }}) {{
+    return [ {spread} ];
+}}
+
+BigInt.prototype.toJSON = function () {{
+    return this.toString();
+}};
+
+// Find the workflow entrypoint (export default)
+let workflowFn = Main.default;
+if (!workflowFn || !workflowFn._is_workflow) {{
+    for (const key of Object.keys(Main)) {{
+        if (Main[key]?._is_workflow) {{
+            workflowFn = Main[key];
+            break;
+        }}
+    }}
+}}
+if (!workflowFn) {{
+    throw new Error("No workflow() entrypoint found. Wrap your main function with workflow().");
+}}
+
+async function run() {{
+    {dates}
+    {preprocessor}
+    const argsArr = {wac_spread};
+
+    const ctx = new WorkflowCtx(checkpoint);
+    setWorkflowCtx(ctx);
+
+    try {{
+        const result = await workflowFn(...argsArr);
+        setWorkflowCtx(null);
+        // Flush any unawaited tasks (e.g. forgotten await on last statement)
+        const trailing = ctx._flushPending();
+        if (trailing.length > 0) {{
+            return {{ type: "dispatch", mode: trailing.length > 1 ? "parallel" : "sequential", steps: trailing }};
+        }}
+        return {{ type: "complete", result: result ?? null }};
+    }} catch (e) {{
+        setWorkflowCtx(null);
+        if (e?.name === "StepSuspend" || e instanceof StepSuspend) {{
+            const dispatch = e.dispatchInfo ?? e.dispatch_info ?? {{}};
+            if (dispatch.mode === "step_complete") {{
+                return {{ type: "complete", result: dispatch.result ?? null }};
+            }}
+            if (dispatch.mode === "inline_checkpoint") {{
+                return {{ type: "inline_checkpoint", key: dispatch.key, result: dispatch.result ?? null, started_at: dispatch.started_at, duration_ms: dispatch.duration_ms }};
+            }}
+            if (dispatch.mode === "approval") {{
+                return {{ type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form, self_approval_disabled: dispatch.self_approval_disabled }};
+            }}
+            if (dispatch.mode === "sleep") {{
+                return {{ type: "sleep", key: dispatch.key, seconds: dispatch.seconds }};
+            }}
+            return {{ type: "dispatch", mode: dispatch.mode ?? "sequential", steps: dispatch.steps ?? [] }};
+        }}
+        throw e;
+    }}
+}}
+
+try {{
+    const output = await run();
+    if (output.type === "complete") {{
+        console.log(`\n--- WAC: complete ---`);
+    }}
+    const output_json = JSON.stringify(output, (key, value) =>
+        typeof value === 'undefined' ? null : value
+    );
+    await fs.writeFile("result.json", output_json);
+    process.exit(0);
+}} catch(e) {{
+    console.error(e);
+    let err = {{ message: e.message, name: e.name, stack: e.stack }};
+    let step_id = process.env.WM_FLOW_STEP_ID;
+    if (step_id) {{
+        err["step_id"] = step_id;
+    }}
+    const extra = {{}};
+    Object.getOwnPropertyNames(e).forEach((key) => {{
+        if (['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'].includes(key)) {{
+            return;
+        }}
+        extra[key] = e[key];
+    }});
+    if (Object.keys(extra).length > 0) {{
+        err["extra"] = extra;
+    }}
+    await fs.writeFile("result.json", JSON.stringify(err));
+    process.exit(1);
+}}
+    "#,
+            )
+        } else {
+            format!(
+                r#"
 import * as Main from "{main_import}";
 
 import * as fs from "fs/promises";
@@ -1273,11 +1712,14 @@ BigInt.prototype.toJSON = function () {{
 async function run() {{
     {dates}
     {preprocessor}
-    const argsArr = argsObjToArr(args);
+    // If the entrypoint has no parsed params (spread is empty), pass values directly
+    // This handles WAC child jobs where tasks are const-wrapped functions
+    const argsArr = {child_spread};
     if (Main.{main_name} === undefined || typeof Main.{main_name} !== 'function') {{
         throw new Error("{main_name} function is missing");
     }}
-    let res = await Main.{main_name}(...argsArr);
+    let entrypoint = Main.{main_name};
+    let res = await entrypoint(...argsArr);
     if (isAsyncIterable(res)) {{
         for await (const chunk of res) {{
             console.log("WM_STREAM: " + chunk.replace(/\n/g, '\\n'));
@@ -1311,7 +1753,8 @@ try {{
     process.exit(1);
 }}
     "#,
-        );
+            )
+        };
         write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
         Ok(()) as error::Result<()>
     };
@@ -1336,6 +1779,7 @@ try {{
         && !annotation.nobundling
         && !*DISABLE_BUNDLING
         && !codebase.is_some()
+        && !is_wac_v2
         && (maybe_lock.get_lock().is_some() || annotation.native);
 
     let write_loader_f = async {
@@ -1353,6 +1797,7 @@ try {{
                 } else {
                     LoaderMode::BunBundle
                 },
+                &None,
             )
             .await?;
 
@@ -1369,6 +1814,7 @@ try {{
                 } else {
                     LoaderMode::Bun
                 },
+                &None,
             )
             .await
         } else {
@@ -1381,6 +1827,23 @@ try {{
         write_wrapper_f,
         write_loader_f
     )?;
+
+    // For WAC v2, write checkpoint.json before bun runs
+    if is_wac_v2 {
+        if let Connection::Sql(db) = conn {
+            let checkpoint = crate::wac_executor::load_checkpoint(db, &job.id).await?;
+            let checkpoint =
+                crate::wac_executor::prepare_checkpoint_for_resume(db, &job.id, checkpoint).await?;
+
+            let checkpoint_json = serde_json::to_string(&checkpoint).map_err(|e| {
+                error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
+            })?;
+            write_file(job_dir, "checkpoint.json", &checkpoint_json)?;
+        } else {
+            write_file(job_dir, "checkpoint.json", r#"{"completed_steps":{}}"#)?;
+        }
+    }
+
     if !codebase.is_some() && !has_bundle_cache {
         if build_cache {
             generate_bun_bundle(
@@ -1472,11 +1935,71 @@ try {{
 
             append_logs(&job.id, &job.workspace_id, format!("{init_logs}\n"), conn).await;
 
+            if apply_preprocessor {
+                // First pass: run preprocessor function
+                let pre_result = crate::js_eval::eval_fetch_timeout(
+                    env_code.clone(),
+                    inner_content.to_string(),
+                    js_code.clone(),
+                    job_args,
+                    Some("preprocessor".to_string()),
+                    job.id,
+                    job.timeout,
+                    conn,
+                    mem_peak,
+                    canceled_by,
+                    worker_name,
+                    &job.workspace_id,
+                    false,
+                    occupancy_metrics,
+                    None,
+                    has_stream,
+                )
+                .await?;
+
+                let preprocessed: HashMap<String, Box<RawValue>> =
+                    serde_json::from_str(pre_result.get()).map_err(|e| {
+                        error::Error::internal_err(format!(
+                            "error deserializing preprocessed args: {e:#}"
+                        ))
+                    })?;
+                *new_args = Some(preprocessed.clone());
+
+                // Second pass: run main with preprocessed args
+                let preprocessed_json = sqlx::types::Json(preprocessed);
+                let stream_notifier = StreamNotifier::new(conn, job);
+
+                let result = crate::js_eval::eval_fetch_timeout(
+                    env_code,
+                    inner_content.to_string(),
+                    js_code,
+                    Some(&preprocessed_json),
+                    job.script_entrypoint_override.clone(),
+                    job.id,
+                    job.timeout,
+                    conn,
+                    mem_peak,
+                    canceled_by,
+                    worker_name,
+                    &job.workspace_id,
+                    false,
+                    occupancy_metrics,
+                    stream_notifier,
+                    has_stream,
+                )
+                .await?;
+                tracing::info!(
+                    "Executed native code (with preprocessor) in {}ms",
+                    started_at.elapsed().as_millis()
+                );
+                return Ok(result);
+            }
+
             let stream_notifier = StreamNotifier::new(conn, job);
 
             let result = crate::js_eval::eval_fetch_timeout(
                 env_code,
-                inner_content.clone(),
+                inner_content.to_string(),
                 js_code,
                 job_args,
                 job.script_entrypoint_override.clone(),
@@ -1504,6 +2027,8 @@ try {{
 
     //do not cache local dependencies
     let child = if is_sandboxing_enabled() || annotation.sandbox {
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -1523,7 +2048,8 @@ try {{
                     ),
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
-                .replace("#{DEV}", DEV_CONF_NSJAIL),
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -1564,7 +2090,9 @@ try {{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Bun).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Bun, &job.id, &job.workspace_id, conn).await?,
+            )
             .envs(common_bun_proc_envs)
             .env("PATH", PATH_ENV.as_str())
             .args(args)
@@ -1582,7 +2110,10 @@ try {{
                 .env_clear()
                 .envs(envs)
                 .envs(reserved_variables)
-                .envs(get_proxy_envs_for_lang(&ScriptLang::Bun).await?)
+                .envs(
+                    get_proxy_envs_for_lang(&ScriptLang::Bun, &job.id, &job.workspace_id, conn)
+                        .await?,
+                )
                 .envs(common_bun_proc_envs)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
@@ -1613,7 +2144,10 @@ try {{
                 .env_clear()
                 .envs(envs)
                 .envs(reserved_variables)
-                .envs(get_proxy_envs_for_lang(&ScriptLang::Bun).await?)
+                .envs(
+                    get_proxy_envs_for_lang(&ScriptLang::Bun, &job.id, &job.workspace_id, conn)
+                        .await?,
+                )
                 .envs(common_bun_proc_envs)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
@@ -1671,7 +2205,985 @@ try {{
             })?;
         *new_args = Some(args.clone());
     }
-    read_result(job_dir, handle_result.result_stream).await
+
+    let result = read_result(job_dir, handle_result.result_stream).await?;
+
+    // WAC v2 post-execution: parse output and handle dispatch/suspend
+    if is_wac_v2 {
+        return handle_wac_v2_output(result, job, conn, modules).await;
+    }
+
+    Ok(result)
+}
+
+/// Resolve a module file from the parent script's modules map.
+/// For Script jobs, fetches from the `script` table by hash.
+/// For Preview jobs, fetches from `v2_job.raw_code` (modules stored inline).
+fn resolve_parent_module(
+    modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
+    module_key: &str,
+) -> error::Result<windmill_common::scripts::ScriptModule> {
+    if let Some(modules) = modules {
+        if let Some(module) = modules.get(module_key) {
+            return Ok(module.clone());
+        }
+    }
+    Err(error::Error::ExecutionErr(format!(
+        "Module '{}' not found in script modules",
+        module_key
+    )))
+}
+
+/// Handle WAC v2 output after bun/python exits. Parse result as WacOutput,
+/// dispatch child jobs on suspend, or return the final result.
+pub async fn handle_wac_v2_output(
+    result: Box<RawValue>,
+    job: &MiniPulledJob,
+    conn: &Connection,
+    modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> error::Result<Box<RawValue>> {
+    use crate::wac_executor::{
+        add_completed_step, load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch,
+        WacOutput,
+    };
+    use serde_json::Value;
+    use windmill_common::get_latest_flow_version_info_for_path;
+    use windmill_common::jobs::{script_path_to_payload, JobKind, JobPayload, RawCode};
+    use windmill_common::runnable_settings::{
+        ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
+    };
+    use windmill_queue::{push, PushArgs, PushIsolationLevel};
+
+    let output = parse_wac_output(&result)?;
+
+    match output {
+        WacOutput::Complete { result: value } => {
+            // Workflow completed — return the inner result value
+            let raw = serde_json::value::to_raw_value(&value).map_err(|e| {
+                error::Error::internal_err(format!("Failed to serialize WAC result: {e}"))
+            })?;
+            Ok(raw)
+        }
+        WacOutput::Dispatch { mode, steps } => {
+            if steps.is_empty() {
+                return Err(error::Error::internal_err(
+                    "WAC v2 dispatch with no steps — this is a bug in the workflow SDK".to_string(),
+                ));
+            }
+            let db = match conn {
+                Connection::Sql(db) => db,
+                _ => {
+                    return Err(error::Error::internal_err(
+                        "WAC v2 dispatch requires SQL connection".to_string(),
+                    ))
+                }
+            };
+
+            let mut checkpoint = load_checkpoint(db, &job.id).await?;
+
+            // Source hash validation: detect if code changed between replays
+            let current_hash = job.runnable_id.map(|h| h.0.to_string()).unwrap_or_default();
+            if !current_hash.is_empty() {
+                if checkpoint.source_hash.is_empty() {
+                    checkpoint.source_hash = current_hash.clone();
+                } else if checkpoint.source_hash != current_hash {
+                    return Err(error::Error::ExecutionErr(
+                        "Workflow source code changed between replays. \
+                         Cannot safely resume from checkpoint — step keys may have shifted. \
+                         Please restart this workflow."
+                            .to_string(),
+                    ));
+                }
+            }
+            let num_steps = steps.len();
+
+            tracing::info!(
+                job_id = %job.id,
+                mode = %mode,
+                num_steps = num_steps,
+                steps = ?steps.iter().map(|s| &s.name).collect::<Vec<_>>(),
+                "WAC v2 dispatching child jobs"
+            );
+
+            // Create child jobs for each step.
+            // Each child re-runs the full workflow with a checkpoint containing
+            // _executing_key = step_key, so only that step runs its inner function.
+            //
+            // IMPORTANT: To prevent a race condition where a fast child completes
+            // before the parent is suspended, we:
+            //   1. Pre-generate child UUIDs
+            //   2. Save checkpoint + suspend parent + seed child checkpoints
+            //   3. THEN push the child jobs (making them visible to workers)
+
+            // Read the parent's original args for the child jobs
+            let parent_args: HashMap<String, Box<RawValue>> = {
+                let stored: serde_json::Map<String, Value> = checkpoint.input_args.clone();
+                if stored.is_empty() {
+                    // First dispatch — read from the parent job's args
+                    let row: Option<Value> = sqlx::query_scalar(
+                        "SELECT args FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                    )
+                    .bind(&job.id)
+                    .bind(&job.workspace_id)
+                    .fetch_optional(db)
+                    .await?;
+                    let args_val = row.unwrap_or(Value::Object(Default::default()));
+                    if let Value::Object(map) = args_val {
+                        // Store for future re-runs
+                        checkpoint.input_args = map.clone();
+                        map.into_iter()
+                            .map(|(k, v)| {
+                                let raw = serde_json::value::to_raw_value(&v).map_err(|e| {
+                                    error::Error::internal_err(format!(
+                                        "Failed to serialize arg '{k}': {e}"
+                                    ))
+                                })?;
+                                Ok((k, raw))
+                            })
+                            .collect::<error::Result<HashMap<_, _>>>()?
+                    } else {
+                        HashMap::new()
+                    }
+                } else {
+                    stored
+                        .into_iter()
+                        .map(|(k, v)| {
+                            let raw = serde_json::value::to_raw_value(&v).map_err(|e| {
+                                error::Error::internal_err(format!(
+                                    "Failed to serialize arg '{k}': {e}"
+                                ))
+                            })?;
+                            Ok((k, raw))
+                        })
+                        .collect::<error::Result<HashMap<_, _>>>()?
+                }
+            };
+
+            // Pre-generate child UUIDs so we can save them in the checkpoint
+            // before the children become visible to workers.
+            // Validate key uniqueness — duplicate keys would cause one child's
+            // UUID to be overwritten in the job_ids map, making it unmappable
+            // on completion (the parent would hang).
+            {
+                let mut seen_keys = std::collections::HashSet::new();
+                for s in &steps {
+                    if !seen_keys.insert(&s.key) {
+                        return Err(error::Error::internal_err(format!(
+                            "WAC v2 duplicate step key '{}' — each task call must produce a unique key",
+                            s.key
+                        )));
+                    }
+                }
+            }
+            let job_ids: Vec<(String, Uuid)> = steps
+                .iter()
+                .map(|s| (s.key.clone(), ulid::Ulid::new().into()))
+                .collect();
+
+            // Resolve job_payload once (same for all children since they re-run
+            // the parent script)
+            let job_payload_template = match job.kind {
+                JobKind::Script => {
+                    if let Some(hash) = job.runnable_id {
+                        Ok(JobPayload::ScriptHash {
+                            hash,
+                            path: job.runnable_path.clone().unwrap_or_default(),
+                            cache_ttl: job.cache_ttl,
+                            cache_ignore_s3_path: job.cache_ignore_s3_path,
+                            dedicated_worker: None,
+                            language: job.script_lang.unwrap_or(ScriptLang::Bun),
+                            priority: job.priority,
+                            apply_preprocessor: false,
+                            concurrency_settings: ConcurrencySettings::default(),
+                            debouncing_settings: DebouncingSettings::default(),
+                        })
+                    } else {
+                        Err(error::Error::internal_err(
+                            "WAC v2 Script job missing runnable_id".to_string(),
+                        ))
+                    }
+                }
+                JobKind::Preview => {
+                    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+                        "SELECT raw_code, raw_lock FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                    )
+                    .bind(&job.id)
+                    .bind(&job.workspace_id)
+                    .fetch_optional(db)
+                    .await?;
+                    let (code, lock) = row.unwrap_or_default();
+                    Ok(JobPayload::Code(RawCode {
+                        content: code.unwrap_or_default(),
+                        path: job.runnable_path.clone(),
+                        hash: None,
+                        language: job.script_lang.unwrap_or(ScriptLang::Bun),
+                        lock: lock,
+                        cache_ttl: job.cache_ttl,
+                        cache_ignore_s3_path: job.cache_ignore_s3_path,
+                        dedicated_worker: None,
+                        concurrency_settings: ConcurrencySettingsWithCustom::default(),
+                        debouncing_settings: DebouncingSettings::default(),
+                        modules: None,
+                    }))
+                }
+                _ => Err(error::Error::internal_err(format!(
+                    "WAC v2 unsupported job kind: {:?}",
+                    job.kind
+                ))),
+            }?;
+
+            // Step 1: Save checkpoint, suspend parent, and seed child checkpoints
+            // in a single transaction — all BEFORE children become visible.
+            {
+                let mut tx = db.begin().await?;
+
+                // Update checkpoint with pending steps
+                update_checkpoint_for_dispatch(&mut checkpoint, &steps, &mode, &job_ids);
+                let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
+                    error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
+                })?;
+                sqlx::query(
+                    "INSERT INTO v2_job_status (id, workflow_as_code_status)
+                     VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
+                     ON CONFLICT (id) DO UPDATE SET
+                        workflow_as_code_status = jsonb_set(
+                            COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+                            '{_checkpoint}',
+                            $2::jsonb
+                        )",
+                )
+                .bind(&job.id)
+                .bind(&status_json)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error::Error::internal_err(format!("Failed to save WAC checkpoint: {e}"))
+                })?;
+
+                // Store per-child-job info for the WorkflowTimeline UI
+                for (step, (_, child_id)) in steps.iter().zip(job_ids.iter()) {
+                    let child_id_str = child_id.to_string();
+                    let timeline_val = serde_json::json!({
+                        "scheduled_for": chrono::Utc::now().to_rfc3339(),
+                        "name": step.key,
+                    });
+                    sqlx::query(
+                        "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+                            COALESCE(workflow_as_code_status, '{}'::jsonb),
+                            ARRAY[$2],
+                            $3
+                        ) WHERE id = $1",
+                    )
+                    .bind(&job.id)
+                    .bind(&child_id_str)
+                    .bind(&timeline_val)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        error::Error::internal_err(format!(
+                            "Failed to update WAC timeline status: {e}"
+                        ))
+                    })?;
+                }
+
+                // Suspend parent before children become visible.
+                // Keep running = true so the normal pull query ignores it.
+                // The suspended pull query picks it up when suspend reaches 0
+                // (it checks: suspend_until IS NOT NULL AND suspend <= 0).
+                let suspend_count = num_steps as i32;
+                sqlx::query!(
+                    "UPDATE v2_job_queue SET suspend = $2, suspend_until = now() + interval '14 day' WHERE id = $1",
+                    job.id,
+                    suspend_count,
+                )
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error::Error::internal_err(format!(
+                        "Failed to suspend WAC parent job {}: {e}",
+                        job.id
+                    ))
+                })?;
+
+                tx.commit().await?;
+            }
+
+            // Step 2: Push child jobs (now visible to workers).
+            // Parent is already suspended, so child completions are safe.
+            // Track successfully pushed children so we can cancel them on
+            // partial failure (e.g. pushing child 3 of 5 fails).
+            let mut pushed_ids: Vec<Uuid> = Vec::with_capacity(num_steps);
+            let push_result: error::Result<()> = async {
+                for (step, (_, child_uuid)) in steps.iter().zip(job_ids.iter()) {
+                    // Resolve job payload based on dispatch_type
+                    let (job_payload, child_args, is_external) = match step.dispatch_type.as_str() {
+                        "script" if step.script.starts_with("./") => {
+                            // Module-relative path: resolve from parent script's modules
+                            let module_key = step.script.strip_prefix("./").unwrap();
+                            let module = resolve_parent_module(modules, module_key)?;
+                            let payload = JobPayload::Code(RawCode {
+                                content: module.content,
+                                path: job.runnable_path.clone(),
+                                hash: None,
+                                language: module.language,
+                                lock: module.lock,
+                                cache_ttl: job.cache_ttl,
+                                cache_ignore_s3_path: job.cache_ignore_s3_path,
+                                dedicated_worker: None,
+                                concurrency_settings: ConcurrencySettingsWithCustom::default(),
+                                debouncing_settings: DebouncingSettings::default(),
+                                modules: None,
+                            });
+                            let step_args: HashMap<String, Box<RawValue>> = step
+                                .args
+                                .iter()
+                                .map(|(k, v)| {
+                                    let raw = serde_json::value::to_raw_value(v).unwrap();
+                                    (k.clone(), raw)
+                                })
+                                .collect();
+                            (payload, step_args, true)
+                        }
+                        "script" => {
+                            // Resolve script path to job payload (handles hash, lang, etc.)
+                            let (payload, _, _, _, _) = script_path_to_payload(
+                                &step.script,
+                                None, // no authed db for background workers
+                                db.clone(),
+                                &job.workspace_id,
+                                Some(true), // skip preprocessor
+                            )
+                            .await?;
+                            let step_args: HashMap<String, Box<RawValue>> = step
+                                .args
+                                .iter()
+                                .map(|(k, v)| {
+                                    let raw = serde_json::value::to_raw_value(v).unwrap();
+                                    (k.clone(), raw)
+                                })
+                                .collect();
+                            (payload, step_args, true)
+                        }
+                        "flow" => {
+                            let flow_info = get_latest_flow_version_info_for_path(
+                                None,
+                                db,
+                                &job.workspace_id,
+                                &step.script,
+                                true,
+                            )
+                            .await?;
+                            let payload = JobPayload::Flow {
+                                path: step.script.clone(),
+                                dedicated_worker: flow_info.dedicated_worker,
+                                apply_preprocessor: false,
+                                version: flow_info.version,
+                            };
+                            let step_args: HashMap<String, Box<RawValue>> = step
+                                .args
+                                .iter()
+                                .map(|(k, v)| {
+                                    let raw = serde_json::value::to_raw_value(v).unwrap();
+                                    (k.clone(), raw)
+                                })
+                                .collect();
+                            (payload, step_args, true)
+                        }
+                        _ => {
+                            // "inline" — re-run parent with _executing_key
+                            (job_payload_template.clone(), parent_args.clone(), false)
+                        }
+                    };
+
+                    let push_args = PushArgs { args: &child_args, extra: None };
+
+                    // Apply step-level overrides to payload (cache, concurrency)
+                    let mut job_payload = job_payload;
+                    if let Some(cache_ttl) = step.cache_ttl {
+                        match &mut job_payload {
+                            JobPayload::ScriptHash { cache_ttl: ref mut ct, .. } => {
+                                *ct = Some(cache_ttl)
+                            }
+                            JobPayload::Code(ref mut code) => code.cache_ttl = Some(cache_ttl),
+                            _ => {}
+                        }
+                    }
+                    if step.concurrent_limit.is_some()
+                        || step.concurrency_key.is_some()
+                        || step.concurrency_time_window_s.is_some()
+                    {
+                        match &mut job_payload {
+                            JobPayload::ScriptHash { concurrency_settings: ref mut cs, .. } => {
+                                if let Some(limit) = step.concurrent_limit {
+                                    cs.concurrent_limit = Some(limit);
+                                }
+                                if let Some(ref key) = step.concurrency_key {
+                                    cs.concurrency_key = Some(key.clone());
+                                }
+                                if let Some(window) = step.concurrency_time_window_s {
+                                    cs.concurrency_time_window_s = Some(window);
+                                }
+                            }
+                            JobPayload::Code(ref mut code) => {
+                                if let Some(limit) = step.concurrent_limit {
+                                    code.concurrency_settings.concurrent_limit = Some(limit);
+                                }
+                                if let Some(ref key) = step.concurrency_key {
+                                    code.concurrency_settings.custom_concurrency_key =
+                                        Some(key.clone());
+                                }
+                                if let Some(window) = step.concurrency_time_window_s {
+                                    code.concurrency_settings.concurrency_time_window_s =
+                                        Some(window);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    let (_, mut tx) = push(
+                        db,
+                        PushIsolationLevel::IsolatedRoot(db.clone()),
+                        &job.workspace_id,
+                        job_payload,
+                        push_args,
+                        &job.created_by,
+                        &job.permissioned_as_email,
+                        job.permissioned_as.clone(),
+                        None,
+                        None,
+                        None,
+                        Some(job.id),                  // parent_job
+                        job.root_job.or(Some(job.id)), // root_job
+                        job.flow_innermost_root_job,
+                        Some(*child_uuid), // pre-generated job_id
+                        false,             // is_flow_step
+                        false,             // same_worker
+                        None,              // pre_run_error
+                        job.visible_to_owner,
+                        step.tag.clone().or_else(|| Some(job.tag.clone())),
+                        step.timeout.or(job.timeout),
+                        None,          // flow_step_id
+                        step.priority, // priority_override
+                        None,          // authed
+                        false,         // running
+                        None,          // end_user_email
+                        None,          // trigger
+                        None,          // suspended_mode
+                    )
+                    .await?;
+
+                    // Seed child checkpoint only for inline tasks (they need
+                    // _executing_key to know which step to run). External
+                    // scripts/flows don't need a WAC checkpoint.
+                    if !is_external {
+                        let child_checkpoint_json = serde_json::json!({
+                            "completed_steps": &checkpoint.completed_steps,
+                            "_executing_key": &step.key,
+                        });
+                        sqlx::query(
+                            "INSERT INTO v2_job_status (id, workflow_as_code_status)
+                             VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
+                             ON CONFLICT (id) DO UPDATE SET
+                                workflow_as_code_status = jsonb_set(
+                                    COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+                                    '{_checkpoint}',
+                                    $2::jsonb
+                                )",
+                        )
+                        .bind(child_uuid)
+                        .bind(&child_checkpoint_json)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| {
+                            error::Error::internal_err(format!(
+                                "Failed to seed child checkpoint: {e}"
+                            ))
+                        })?;
+                    }
+
+                    tx.commit().await.map_err(|e| {
+                        error::Error::internal_err(format!("Failed to commit child push: {e}"))
+                    })?;
+
+                    pushed_ids.push(*child_uuid);
+
+                    tracing::info!(
+                        parent_job = %job.id,
+                        child_job = %child_uuid,
+                        step_name = %step.name,
+                        step_key = %step.key,
+                        "WAC v2 dispatched child job"
+                    );
+                }
+                Ok(())
+            }
+            .await;
+
+            if let Err(e) = push_result {
+                tracing::error!(
+                    job_id = %job.id,
+                    error = %e,
+                    pushed_count = pushed_ids.len(),
+                    total_count = num_steps,
+                    "WAC v2 failed to push child jobs, cleaning up"
+                );
+
+                // Cancel already-pushed children so they don't complete and
+                // corrupt the checkpoint (they'd decrement suspend on a parent
+                // that's about to be unsuspended and re-run).
+                for child_id in &pushed_ids {
+                    let _ = sqlx::query!(
+                        "UPDATE v2_job_queue SET canceled_by = $2, canceled_reason = $3 WHERE id = $1",
+                        child_id,
+                        "system",
+                        "WAC dispatch failed: not all children could be pushed",
+                    )
+                    .execute(db)
+                    .await;
+                }
+
+                // Clear pending_steps from checkpoint so the parent doesn't
+                // think children are outstanding when it re-runs.
+                let _ = sqlx::query(
+                    "UPDATE v2_job_status SET workflow_as_code_status = \
+                     workflow_as_code_status #- '{_checkpoint,pending_steps}' \
+                     WHERE id = $1",
+                )
+                .bind(&job.id)
+                .execute(db)
+                .await;
+
+                // Unsuspend parent so the error propagates instead of a 14-day hang
+                let _ = sqlx::query!(
+                    "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE id = $1",
+                    job.id,
+                )
+                .execute(db)
+                .await;
+                return Err(e);
+            }
+
+            tracing::info!(
+                job_id = %job.id,
+                num_steps = num_steps,
+                "WAC v2 parent job suspended"
+            );
+
+            Err(error::Error::WacSuspended(format!(
+                "WAC v2 job {} suspended waiting for {} child job(s)",
+                job.id, num_steps
+            )))
+        }
+        WacOutput::Approval { key, timeout, form, self_approval_disabled } => {
+            let db = match conn {
+                Connection::Sql(db) => db,
+                _ => {
+                    return Err(error::Error::internal_err(
+                        "WAC v2 approval requires SQL connection".to_string(),
+                    ))
+                }
+            };
+
+            let mut checkpoint = load_checkpoint(db, &job.id).await?;
+            let timeout_secs = timeout.unwrap_or(1800) as f64;
+
+            // Mark this step as pending approval
+            checkpoint.pending_steps = Some(crate::wac_executor::WacPendingSteps {
+                mode: "approval".to_string(),
+                keys: vec![key.clone()],
+                job_ids: serde_json::Map::new(),
+            });
+
+            let mut tx = db.begin().await?;
+
+            // Save checkpoint
+            let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
+                error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
+            })?;
+            sqlx::query(
+                "INSERT INTO v2_job_status (id, workflow_as_code_status)
+                 VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
+                 ON CONFLICT (id) DO UPDATE SET
+                    workflow_as_code_status = jsonb_set(
+                        COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+                        '{_checkpoint}',
+                        $2::jsonb
+                    )",
+            )
+            .bind(&job.id)
+            .bind(&status_json)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| error::Error::internal_err(format!("Failed to save checkpoint: {e}")))?;
+
+            // Store approval_conditions in flow_status for resume endpoint auth checks
+            let sad = self_approval_disabled.unwrap_or(false);
+            if sad {
+                #[cfg(not(feature = "enterprise"))]
+                return Err(error::Error::ExecutionErr(
+                    "Disabling self-approval is an enterprise only feature".to_string(),
+                ));
+
+                #[cfg(feature = "enterprise")]
+                {
+                    use windmill_common::flow_status::ApprovalConditions;
+                    let approval_conditions = ApprovalConditions {
+                        user_auth_required: true,
+                        user_groups_required: vec![],
+                        self_approval_disabled: true,
+                    };
+                    sqlx::query(
+                        "UPDATE v2_job_status SET flow_status = JSONB_SET(
+                        COALESCE(flow_status, '{}'::jsonb),
+                        '{approval_conditions}',
+                        $2::jsonb
+                    ) WHERE id = $1",
+                    )
+                    .bind(&job.id)
+                    .bind(&serde_json::json!(approval_conditions))
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        error::Error::internal_err(format!(
+                            "Failed to save approval conditions: {e}"
+                        ))
+                    })?;
+                }
+            }
+
+            // Generate resume URLs for the inline approval buttons.
+            // Use a hash of the step key as resume_id so each waitForApproval()
+            // in the same workflow gets a unique resume_job record.
+            let resume_id: u32 = {
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                key.hash(&mut hasher);
+                (hasher.finish() & 0xFFFF_FFFF) as u32
+            };
+            // Generate stateless approval token using shared utility
+            let approval_token =
+                windmill_common::variables::generate_approval_token(&job.workspace_id, job.id, db)
+                    .await?;
+
+            let (resume_url, cancel_url, approval_page_url) = {
+                use hmac::{Hmac, Mac};
+                use sha2::Sha256;
+                use windmill_common::variables::get_workspace_key;
+
+                let wkey = get_workspace_key(&job.workspace_id, db).await?;
+                let mut mac = Hmac::<Sha256>::new_from_slice(wkey.as_bytes())
+                    .map_err(|e| error::Error::internal_err(format!("HMAC key error: {e}")))?;
+                mac.update(job.id.as_bytes());
+                mac.update(resume_id.to_be_bytes().as_ref());
+                let signature = hex::encode(mac.finalize().into_bytes());
+
+                let base_url = windmill_common::BASE_URL.read().await.clone();
+                let w_id = &job.workspace_id;
+                let job_id = &job.id;
+
+                let resume = format!(
+                    "{base_url}/api/w/{w_id}/jobs_u/resume/{job_id}/{resume_id}/{signature}"
+                );
+                let cancel = format!(
+                    "{base_url}/api/w/{w_id}/jobs_u/cancel/{job_id}/{resume_id}/{signature}"
+                );
+                let approval_page =
+                    format!("{base_url}/approve/{w_id}/{job_id}?token={approval_token}");
+                (resume, cancel, approval_page)
+            };
+
+            // Store approval form metadata for the approval page endpoint
+            let approval_meta = serde_json::json!({
+                "key": key,
+                "form": form,
+                "timeout": timeout_secs as u32,
+                "self_approval_disabled": sad,
+                "resume": resume_url,
+                "cancel": cancel_url,
+                "approvalPage": approval_page_url,
+            });
+            sqlx::query(
+                "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+                    COALESCE(workflow_as_code_status, '{}'::jsonb),
+                    '{_approval}',
+                    $2::jsonb
+                ) WHERE id = $1",
+            )
+            .bind(&job.id)
+            .bind(&approval_meta)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!("Failed to save approval meta: {e}"))
+            })?;
+
+            // Write timeline entry for the approval step
+            {
+                let now_str = chrono::Utc::now().to_rfc3339();
+                let timeline_val = serde_json::json!({
+                    "scheduled_for": &now_str,
+                    "started_at": &now_str,
+                    "name": key,
+                    "approval": true,
+                    "self_approval_disabled": sad,
+                    "form": form,
+                    "resume": &resume_url,
+                    "cancel": &cancel_url,
+                    "approvalPage": &approval_page_url,
+                });
+                let step_timeline_key = format!("_step/{}", key);
+                sqlx::query(
+                    "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+                        COALESCE(workflow_as_code_status, '{}'::jsonb),
+                        ARRAY[$2],
+                        $3
+                    ) WHERE id = $1",
+                )
+                .bind(&job.id)
+                .bind(&step_timeline_key)
+                .bind(&timeline_val)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error::Error::internal_err(format!("Failed to write approval timeline: {e}"))
+                })?;
+            }
+
+            // Suspend parent with suspend=1 (waiting for 1 approval event)
+            sqlx::query!(
+                "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
+                job.id,
+                timeout_secs,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            tx.commit().await?;
+
+            tracing::info!(
+                job_id = %job.id,
+                approval_key = %key,
+                timeout_secs = timeout_secs,
+                "WAC v2 parent job suspended waiting for approval"
+            );
+
+            Err(error::Error::WacSuspended(format!(
+                "WAC v2 job {} suspended waiting for approval (key: {})",
+                job.id, key
+            )))
+        }
+        WacOutput::Sleep { key, seconds } => {
+            let db = match conn {
+                Connection::Sql(db) => db,
+                _ => {
+                    return Err(error::Error::internal_err(
+                        "WAC v2 sleep requires SQL connection".to_string(),
+                    ))
+                }
+            };
+
+            let mut checkpoint = load_checkpoint(db, &job.id).await?;
+            let sleep_secs = seconds.max(1) as f64;
+
+            // Mark this step as pending sleep
+            checkpoint.pending_steps = Some(crate::wac_executor::WacPendingSteps {
+                mode: "sleep".to_string(),
+                keys: vec![key.clone()],
+                job_ids: serde_json::Map::new(),
+            });
+
+            let mut tx = db.begin().await?;
+
+            // Save checkpoint
+            let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
+                error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
+            })?;
+            sqlx::query(
+                "INSERT INTO v2_job_status (id, workflow_as_code_status)
+                 VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
+                 ON CONFLICT (id) DO UPDATE SET
+                    workflow_as_code_status = jsonb_set(
+                        COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+                        '{_checkpoint}',
+                        $2::jsonb
+                    )",
+            )
+            .bind(&job.id)
+            .bind(&status_json)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| error::Error::internal_err(format!("Failed to save checkpoint: {e}")))?;
+
+            // Write a "sleep" marker in the timeline.  Unlike real steps it
+            // carries no execution bar — the frontend renders it as a
+            // minimal label row (e.g. "sleep (2s)").
+            {
+                let now_str = chrono::Utc::now().to_rfc3339();
+                let timeline_val = serde_json::json!({
+                    "scheduled_for": &now_str,
+                    "name": key,
+                    "sleep_duration_s": seconds,
+                });
+                let step_timeline_key = format!("_step/{}", key);
+                sqlx::query(
+                    "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+                        COALESCE(workflow_as_code_status, '{}'::jsonb),
+                        ARRAY[$2],
+                        $3
+                    ) WHERE id = $1",
+                )
+                .bind(&job.id)
+                .bind(&step_timeline_key)
+                .bind(&timeline_val)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error::Error::internal_err(format!("Failed to write sleep timeline: {e}"))
+                })?;
+            }
+
+            // Suspend parent — it will auto-resume when suspend_until passes.
+            // Use suspend=1 (not 0) so the suspended pull query only picks it up
+            // when `suspend_until <= now()`, not via `suspend <= 0`.
+            sqlx::query!(
+                "UPDATE v2_job_queue SET suspend = 1, suspend_until = now() + make_interval(secs => $2) WHERE id = $1",
+                job.id,
+                sleep_secs,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            tx.commit().await?;
+
+            tracing::info!(
+                job_id = %job.id,
+                sleep_key = %key,
+                sleep_secs = sleep_secs,
+                "WAC v2 parent job sleeping for {}s",
+                sleep_secs
+            );
+
+            Err(error::Error::WacSuspended(format!(
+                "WAC v2 job {} sleeping for {}s (key: {})",
+                job.id, seconds, key
+            )))
+        }
+        WacOutput::InlineCheckpoint { key, result: value, started_at, duration_ms } => {
+            let db = match conn {
+                Connection::Sql(db) => db,
+                _ => {
+                    return Err(error::Error::internal_err(
+                        "WAC v2 inline checkpoint requires SQL connection".to_string(),
+                    ))
+                }
+            };
+
+            let mut checkpoint = load_checkpoint(db, &job.id).await?;
+
+            // Source hash validation (same as Dispatch path)
+            let current_hash = job.runnable_id.map(|h| h.0.to_string()).unwrap_or_default();
+            if !current_hash.is_empty() {
+                if checkpoint.source_hash.is_empty() {
+                    checkpoint.source_hash = current_hash.clone();
+                } else if checkpoint.source_hash != current_hash {
+                    return Err(error::Error::ExecutionErr(
+                        "Workflow source code changed between replays. \
+                         Cannot safely resume from checkpoint — step keys may have shifted. \
+                         Please restart this workflow."
+                            .to_string(),
+                    ));
+                }
+            }
+
+            tracing::info!(
+                job_id = %job.id,
+                step_key = %key,
+                "WAC v2 inline checkpoint — persisting step result"
+            );
+
+            add_completed_step(&mut checkpoint, &key, value);
+
+            // Save checkpoint + write step timeline entry + reset running in a single transaction
+            {
+                let mut tx = db.begin().await?;
+                let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
+                    error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
+                })?;
+                sqlx::query(
+                    "INSERT INTO v2_job_status (id, workflow_as_code_status)
+                     VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
+                     ON CONFLICT (id) DO UPDATE SET
+                        workflow_as_code_status = jsonb_set(
+                            COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+                            '{_checkpoint}',
+                            $2::jsonb
+                        )",
+                )
+                .bind(&job.id)
+                .bind(&status_json)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error::Error::internal_err(format!("Failed to save WAC checkpoint: {e}"))
+                })?;
+
+                // Write timeline entry for the inline step (keyed as _step/<key>).
+                // Fall back to now() when the client doesn't provide started_at
+                // (older windmill-client versions omit it).
+                {
+                    let now_str = chrono::Utc::now().to_rfc3339();
+                    let sa = started_at.as_deref().unwrap_or(&now_str);
+                    let mut timeline_val = serde_json::json!({
+                        "scheduled_for": sa,
+                        "started_at": sa,
+                        "name": key,
+                    });
+                    if let Some(dur) = duration_ms {
+                        timeline_val["duration_ms"] = serde_json::json!(dur);
+                    }
+                    let step_timeline_key = format!("_step/{}", key);
+                    sqlx::query(
+                        "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+                            COALESCE(workflow_as_code_status, '{}'::jsonb),
+                            ARRAY[$2],
+                            $3
+                        ) WHERE id = $1",
+                    )
+                    .bind(&job.id)
+                    .bind(&step_timeline_key)
+                    .bind(&timeline_val)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        error::Error::internal_err(format!("Failed to write step timeline: {e}"))
+                    })?;
+                }
+
+                // Reset running=false so the job is immediately eligible for pickup.
+                // Unlike dispatch (which sets suspend>0), inline checkpoints don't suspend —
+                // the job should be re-run right away to continue past the cached step.
+                sqlx::query!(
+                    "UPDATE v2_job_queue SET running = false, started_at = null WHERE id = $1",
+                    job.id,
+                )
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error::Error::internal_err(format!(
+                        "Failed to reset running state for inline checkpoint: {e}"
+                    ))
+                })?;
+
+                tx.commit().await?;
+            }
+
+            Err(error::Error::WacSuspended(format!(
+                "WAC v2 job {} inline checkpoint for step {}",
+                job.id, key
+            )))
+        }
+    }
 }
 
 pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMap<String, String> {
@@ -1722,7 +3234,10 @@ pub fn build_nativets_env_code(
         "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
         reserved_variables
             .iter()
-            .map(|(k, v)| format!("process.env['{}'] = '{}';", k, v))
+            .map(|(k, v)| {
+                let escaped = v.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r");
+                format!("process.env['{}'] = '{}';", k, escaped)
+            })
             .collect::<Vec<String>>()
             .join("\n")
     )
@@ -1792,12 +3307,34 @@ async fn handle_dedicated_bunnative(
         let env_code = env_code.to_string();
         let js_code = js_code.to_string();
 
+        let pre_arg_names: Option<Vec<String>> = windmill_parser_ts::parse_deno_signature(
+            inner_content,
+            true,
+            false,
+            Some("preprocessor".to_string()),
+        )
+        .ok()
+        .filter(|sig| !sig.args.is_empty())
+        .map(|sig| sig.args.into_iter().map(|x| x.name).collect());
+
         let mut warm = PrewarmedIsolate::spawn(
             env_code.clone(),
             js_code.clone(),
             ann.clone(),
             arg_names.clone(),
+            None,
         );
+
+        // Pre-warm preprocessor isolate if the script has a preprocessor
+        let mut pre_warm = pre_arg_names.as_ref().map(|pre_names| {
+            PrewarmedIsolate::spawn(
+                env_code.clone(),
+                js_code.clone(),
+                ann.clone(),
+                pre_names.clone(),
+                Some("preprocessor".to_string()),
+            )
+        });
 
         let init_log = format!("dedicated worker nativets: {worker_name}\n\n");
         let alive = true;
@@ -1831,108 +3368,138 @@ async fn handle_dedicated_bunnative(
                             "{}".to_string()
                         };
 
-                        if let Err(e) = warm.wait_ready().await {
-                            tracing::error!("pre-warmed isolate failed during init: {e}");
-                            let result = Arc::new(to_raw_value(&serde_json::json!({
-                                "message": format!("isolate init failed: {e}"),
-                                "name": "Error",
-                            })));
-                            append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
-                            job_completed_tx.send_job(JobCompleted {
-                                job: MiniCompletedJob::from(job),
-                                result,
-                                result_columns: None,
-                                mem_peak: 0,
-                                canceled_by: None,
-                                success: false,
-                                cached_res_path: None,
-                                token: token.to_string(),
-                                duration: None,
-                                preprocessed_args: None,
-                                has_stream: Some(false),
-                                from_cache: None,
-                                flow_runners,
-                                done_tx,
-                            }, true).await?;
+                        // Run the job: preprocess if needed, then execute main.
+                        // Uses a labeled block to unify error handling with a single JobCompleted send.
+                        let (result, success, preprocessed_args, logs) = 'job: {
+                            if let Err(e) = warm.wait_ready().await {
+                                break 'job (
+                                    Arc::new(to_raw_value(&serde_json::json!({"message": format!("isolate init failed: {e}"), "name": "Error"}))),
+                                    false, None, init_log.clone(),
+                                );
+                            }
+
+                            let needs_preprocessing = job.preprocessed == Some(false);
+
+                            let (main_args, preprocessed) = if needs_preprocessing {
+                                let Some(ref pre_names) = pre_arg_names else {
+                                    break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": "preprocessor function is missing", "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    );
+                                };
+
+                                let mut pre_isolate = pre_warm.take().unwrap_or_else(|| {
+                                    PrewarmedIsolate::spawn(
+                                        env_code.clone(),
+                                        js_code.clone(),
+                                        ann.clone(),
+                                        pre_names.clone(),
+                                        Some("preprocessor".to_string()),
+                                    )
+                                });
+                                if let Err(e) = pre_isolate.wait_ready().await {
+                                    break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": format!("preprocessor isolate init failed: {e}"), "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    );
+                                }
+
+                                let pre_executing = pre_isolate.start_execution(args.clone());
+                                // Pipeline: start pre-warming the next preprocessor isolate
+                                pre_warm = Some(PrewarmedIsolate::spawn(
+                                    env_code.clone(),
+                                    js_code.clone(),
+                                    ann.clone(),
+                                    pre_names.clone(),
+                                    Some("preprocessor".to_string()),
+                                ));
+
+                                let pre_result = match pre_executing.wait().await {
+                                    Ok(r) => r,
+                                    Err(e) => break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": format!("preprocessor failed: {e}"), "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    ),
+                                };
+                                if !pre_result.logs.is_empty() {
+                                    append_logs(&id, &job.workspace_id, pre_result.logs, &db.into()).await;
+                                }
+                                let raw = match pre_result.result {
+                                    Ok(r) => r,
+                                    Err(e) => break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": format!("preprocessor failed: {e}"), "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    ),
+                                };
+
+                                let preprocessed: HashMap<String, Box<RawValue>> = match serde_json::from_str(raw.get()) {
+                                    Ok(v) => v,
+                                    Err(e) => break 'job (
+                                        Arc::new(to_raw_value(&serde_json::json!({"message": format!("error deserializing preprocessed args: {e:#}"), "name": "Error"}))),
+                                        false, None, init_log.clone(),
+                                    ),
+                                };
+                                let main_args = serde_json::to_string(&preprocessed)
+                                    .unwrap_or_else(|_| "{}".to_string());
+                                (main_args, Some(preprocessed))
+                            } else {
+                                (args, None)
+                            };
+
+                            let executing = warm.start_execution(main_args);
+                            // Pipeline: start pre-warming the next main isolate
                             warm = PrewarmedIsolate::spawn(
                                 env_code.clone(),
                                 js_code.clone(),
                                 ann.clone(),
                                 arg_names.clone(),
+                                None,
                             );
-                            continue;
-                        }
 
-                        let executing = warm.start_execution(args);
+                            let main_result = match executing.wait().await {
+                                Ok(r) => r,
+                                Err(e) => break 'job (
+                                    Arc::new(to_raw_value(&serde_json::json!({"message": format!("{e}"), "name": "Error"}))),
+                                    false, preprocessed, init_log.clone(),
+                                ),
+                            };
 
-                        warm = PrewarmedIsolate::spawn(
-                            env_code.clone(),
-                            js_code.clone(),
-                            ann.clone(),
-                            arg_names.clone(),
-                        );
-
-                        match executing.wait().await {
-                            Ok(prewarmed_result) => {
-                                let mut logs = init_log.clone();
-                                if !prewarmed_result.logs.is_empty() {
-                                    logs.push_str(&prewarmed_result.logs);
-                                }
-                                append_logs(&id, &job.workspace_id, logs, &db.into()).await;
-
-                                let (result, success) = match prewarmed_result.result {
-                                    Ok(raw) => (Arc::new(raw), true),
-                                    Err(e) => (
-                                        Arc::new(to_raw_value(&serde_json::json!({
-                                            "message": e,
-                                            "name": "Error",
-                                        }))),
-                                        false,
-                                    ),
-                                };
-
-                                job_completed_tx.send_job(JobCompleted {
-                                    job: MiniCompletedJob::from(job),
-                                    result,
-                                    result_columns: None,
-                                    mem_peak: 0,
-                                    canceled_by: None,
-                                    success,
-                                    cached_res_path: None,
-                                    token: token.to_string(),
-                                    duration: None,
-                                    preprocessed_args: None,
-                                    has_stream: Some(false),
-                                    from_cache: None,
-                                    flow_runners,
-                                    done_tx,
-                                }, true).await?;
+                            let mut logs = init_log.clone();
+                            if !main_result.logs.is_empty() {
+                                logs.push_str(&main_result.logs);
                             }
-                            Err(e) => {
-                                tracing::error!("isolate execution failed: {e}");
-                                append_logs(&id, &job.workspace_id, init_log.clone(), &db.into()).await;
-                                let result = Arc::new(to_raw_value(&serde_json::json!({
-                                    "message": format!("{e}"),
-                                    "name": "Error",
-                                })));
-                                job_completed_tx.send_job(JobCompleted {
-                                    job: MiniCompletedJob::from(job),
-                                    result,
-                                    result_columns: None,
-                                    mem_peak: 0,
-                                    canceled_by: None,
-                                    success: false,
-                                    cached_res_path: None,
-                                    token: token.to_string(),
-                                    duration: None,
-                                    preprocessed_args: None,
-                                    has_stream: Some(false),
-                                    from_cache: None,
-                                    flow_runners: None,
-                                    done_tx: None,
-                                }, true).await?;
-                            }
-                        }
+
+                            let (result, success) = match main_result.result {
+                                Ok(raw) => (Arc::new(raw), true),
+                                Err(e) => (
+                                    Arc::new(to_raw_value(&serde_json::json!({
+                                        "message": e,
+                                        "name": "Error",
+                                    }))),
+                                    false,
+                                ),
+                            };
+
+                            (result, success, preprocessed, logs)
+                        };
+
+                        append_logs(&id, &job.workspace_id, logs, &db.into()).await;
+                        job_completed_tx.send_job(JobCompleted {
+                            job: MiniCompletedJob::from(job),
+                            result,
+                            result_columns: None,
+                            mem_peak: 0,
+                            canceled_by: None,
+                            success,
+                            cached_res_path: None,
+                            token: token.to_string(),
+                            duration: None,
+                            preprocessed_args,
+                            has_stream: Some(false),
+                            from_cache: None,
+                            flow_runners,
+                            done_tx,
+                        }, true).await?;
                     } else {
                         tracing::debug!("job channel closed for nativets dedicated worker");
                         break;
@@ -2025,6 +3592,7 @@ pub async fn start_worker(
                         common_bun_proc_envs.clone(),
                         annotation.npm,
                         &mut None,
+                        false,
                     )
                     .await?;
                 }
@@ -2038,6 +3606,7 @@ pub async fn start_worker(
             w_id,
             script_path,
             LoaderMode::BrowserBundle,
+            &None,
         )
         .await?;
         generate_bun_bundle(
@@ -2120,6 +3689,7 @@ pub async fn start_worker(
                 common_bun_proc_envs.clone(),
                 annotation.npm,
                 &mut None,
+                false,
             )
             .await?;
             tracing::info!("dedicated worker requirements installed: {reqs}");
@@ -2149,6 +3719,8 @@ pub async fn start_worker(
             .await?,
             annotation.npm,
             &mut None,
+            &None,
+            false,
         )
         .await?;
     }
@@ -2156,36 +3728,18 @@ pub async fn start_worker(
     let main_code = remove_pinned_imports(inner_content)?;
     let _ = write_file(job_dir, "main.ts", &main_code)?;
 
+    let codegen = compute_ts_codegen(inner_content);
+    let wrapper_ext = if codebase.is_some() { "js" } else { "ts" };
     {
-        // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(inner_content, true, false, None)?.args;
-        let dates = args
-            .iter()
-            .filter_map(|x| {
-                if matches!(x.typ, Typ::Datetime) {
-                    Some(x.name.clone())
-                } else {
-                    None
-                }
-            })
-            .map(|x| return format!("{x} = {x} ? new Date({x}) : undefined"))
-            .join("\n");
-
-        let arg_names: Vec<&str> = args.iter().map(|x| x.name.as_str()).collect();
-        // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
-        // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
-
-        let main_import = if codebase.is_some() {
-            "./main.js"
-        } else {
-            "./main.ts"
-        };
-        let dates_opt = if dates.is_empty() {
-            None
-        } else {
-            Some(dates.as_str())
-        };
-        let wrapper_content = generate_dedicated_worker_wrapper(&arg_names, main_import, dates_opt);
+        let scripts =
+            [
+                TsScriptEntry {
+                    import_name: "main",
+                    original_path: script_path,
+                    codegen: &codegen,
+                },
+            ];
+        let wrapper_content = generate_multi_script_wrapper(&scripts, wrapper_ext);
         write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
     }
 
@@ -2205,6 +3759,7 @@ pub async fn start_worker(
             } else {
                 LoaderMode::Bun
             },
+            &None,
         )
         .await?;
     }
@@ -2382,5 +3937,49 @@ lockfile-content"#;
         assert_eq!(lock, Some("lockfile-content"));
         assert!(!is_empty);
         assert!(!is_binary);
+    }
+
+    #[test]
+    fn test_compute_ts_codegen_basic_args() {
+        let code = r#"export function main(x: string, y: number) { return x; }"#;
+        let cg = compute_ts_codegen(code);
+        assert_eq!(cg.spread, "x, y");
+        assert!(cg.date_conversions.is_empty());
+        assert!(cg.preprocessor_spread.is_none());
+    }
+
+    #[test]
+    fn test_compute_ts_codegen_with_datetime() {
+        let code = r#"export function main(name: string, created_at: Date, count: number) { return name; }"#;
+        let cg = compute_ts_codegen(code);
+        assert_eq!(cg.spread, "name, created_at, count");
+        assert!(cg.date_conversions.contains("created_at"));
+        assert!(cg.date_conversions.contains("new Date"));
+    }
+
+    #[test]
+    fn test_compute_ts_codegen_with_preprocessor() {
+        let code = r#"
+export function main(x: string, ts: Date) { return x; }
+export function preprocessor(input: string, when: Date) { return { x: input, ts: when }; }
+"#;
+        let cg = compute_ts_codegen(code);
+        assert_eq!(cg.spread, "x, ts");
+        assert!(cg.date_conversions.contains("ts"));
+        assert_eq!(cg.preprocessor_spread.as_deref(), Some("input, when"));
+        assert!(cg
+            .preprocessor_date_conversions
+            .as_ref()
+            .unwrap()
+            .contains("when"));
+    }
+
+    #[test]
+    fn test_compute_ts_codegen_no_args() {
+        let code = r#"export function main() { return 42; }"#;
+        let cg = compute_ts_codegen(code);
+        assert!(cg.spread.is_empty());
+        assert!(cg.date_conversions.is_empty());
+        assert!(cg.preprocessor_spread.is_none());
     }
 }

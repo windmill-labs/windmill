@@ -8,6 +8,14 @@ import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 import type { ModulesTestStates, ModuleTestState } from '../modulesTest.svelte'
 import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
+import {
+	type FlowStructureNode,
+	collectLeafIds,
+	findInsertIndexByNodeId,
+	buildStructureTree
+} from './flowStructure'
+import { groupKey, type FlowGroup } from './groupEditor.svelte'
+import { computeGroupModuleIds } from './groupDetectionUtils'
 
 export type InsertKind =
 	| 'script'
@@ -62,6 +70,7 @@ export type GraphEventHandlers = {
 	simplifyFlow: (b: boolean) => void
 	expandSubflow: (id: string, path: string) => void
 	minimizeSubflow: (id: string) => void
+	expandGroup: (groupId: string) => void
 	updateMock: (detail: { mock: FlowModule['mock']; id: string }) => void
 	testUpTo: (id: string) => void
 	editInput: (moduleId: string, key: string) => void
@@ -88,9 +97,7 @@ export function buildPrefix(prefix: string | undefined, id: string): string {
 export type NodeLayout = {
 	id: string
 	parentIds?: string[]
-	data: {
-		offset?: number
-	}
+	data: {}
 	selectable?: boolean
 } & FlowNode
 
@@ -113,6 +120,9 @@ export type FlowNode =
 	| AssetsOverflowedN
 	| AiToolN
 	| NewAiToolN
+	| CollapsedGroupN
+	| GroupHeadN
+	| GroupEndN
 
 export type InputN = {
 	type: 'input2'
@@ -138,7 +148,6 @@ export type InputN = {
 export type ModuleN = {
 	type: 'module'
 	data: {
-		offset: number
 		module: FlowModule
 		id: string
 		parentIds: string[]
@@ -157,7 +166,6 @@ export type ModuleN = {
 export type BranchAllStartN = {
 	type: 'branchAllStart'
 	data: {
-		offset: number
 		label: string
 		id: string
 		branchIndex: number
@@ -171,7 +179,6 @@ export type BranchAllStartN = {
 export type BranchAllEndN = {
 	type: 'branchAllEnd'
 	data: {
-		offset: number
 		id: string
 		eventHandlers: GraphEventHandlers
 		flowModuleState: GraphModuleState | undefined
@@ -181,7 +188,6 @@ export type BranchAllEndN = {
 export type ForLoopEndN = {
 	type: 'forLoopEnd'
 	data: {
-		offset: number
 		id: string
 		eventHandlers: GraphEventHandlers
 		simplifiedTriggerView: boolean
@@ -192,7 +198,6 @@ export type ForLoopEndN = {
 export type ForLoopStartN = {
 	type: 'forLoopStart'
 	data: {
-		offset: number
 		id: string
 		eventHandlers: GraphEventHandlers
 		flowModuleState: GraphModuleState | undefined
@@ -217,22 +222,18 @@ export type ResultN = {
 export type WhileLoopStartN = {
 	type: 'whileLoopStart'
 	data: {
-		offset: number
 		eventHandlers: GraphEventHandlers
 	}
 }
 
 export type WhileLoopEndN = {
 	type: 'whileLoopEnd'
-	data: {
-		offset: number
-	}
+	data: {}
 }
 
 export type BranchOneStartN = {
 	type: 'branchOneStart'
 	data: {
-		offset: number
 		id: string
 		eventHandlers: GraphEventHandlers
 		flowModuleState: GraphModuleState | undefined
@@ -248,7 +249,6 @@ export type BranchOneStartN = {
 export type BranchOneEndN = {
 	type: 'branchOneEnd'
 	data: {
-		offset: number
 		id: string
 		eventHandlers: GraphEventHandlers
 		flowModuleState: GraphModuleState | undefined
@@ -258,7 +258,6 @@ export type BranchOneEndN = {
 export type SubflowBoundN = {
 	type: 'subflowBound'
 	data: {
-		offset: number
 		id: string
 		eventHandlers: GraphEventHandlers
 		label: string
@@ -271,7 +270,6 @@ export type SubflowBoundN = {
 export type NoBranchN = {
 	type: 'noBranch'
 	data: {
-		offset: number
 		id: string
 		eventHandlers: GraphEventHandlers
 		flowModuleState: GraphModuleState | undefined
@@ -314,6 +312,7 @@ export type AiToolN = {
 	data: {
 		tool: string
 		type?: string
+		nameError?: string
 		eventHandlers: GraphEventHandlers
 		moduleId: string
 		insertable: boolean
@@ -326,6 +325,48 @@ export type NewAiToolN = {
 	data: {
 		eventHandlers: GraphEventHandlers
 		agentModuleId: string
+	}
+}
+
+export type CollapsedGroupN = {
+	type: 'collapsedGroup'
+	data: {
+		groupId: string
+		summary: string | undefined
+		note: string | undefined
+		color: string | undefined
+		autocollapse: boolean | undefined
+		stepCount: number
+		modules: FlowModule[]
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+		flowJob: Job | undefined
+		isOwner: boolean
+		suspendStatus: Record<string, { job: Job; nb: number }>
+		showNotes: boolean
+		editMode: boolean
+		eventHandlers: GraphEventHandlers
+	}
+}
+
+export type GroupHeadN = {
+	type: 'groupHead'
+	data: {
+		groupId: string
+		summary: string | undefined
+		note: string | undefined
+		color: string | undefined
+		autocollapse: boolean | undefined
+		editMode: boolean
+		showNotes: boolean
+		eventHandlers: GraphEventHandlers
+		wrapperWidth?: number
+	}
+}
+
+export type GroupEndN = {
+	type: 'groupEnd'
+	data: {
+		groupId: string
 	}
 }
 
@@ -349,22 +390,8 @@ export function topologicalSort(
 	return result.reverse()
 }
 
-// input2: InputNode,
-// module: ModuleNode,
-// branchAllStart: BranchAllStart,
-// branchAllEnd: BranchAllEndNode,
-// forLoopEnd: ForLoopEndNode,
-// forLoopStart: ForLoopStartNode,
-// result: ResultNode,
-// whileLoopStart: ForLoopStartNode,
-// whileLoopEnd: ForLoopEndNode,
-// branchOneStart: BranchOneStart,
-// branchOneEnd: BranchOneEndNode,
-// subflowBound: SubflowBound,
-// noBranch: NoBranchNode,
-// trigger: TriggersNode
-
 export function graphBuilder(
+	structureTree: FlowStructureNode[],
 	modules: FlowModule[] | undefined,
 	extra: {
 		disableAi: boolean
@@ -396,11 +423,9 @@ export function graphBuilder(
 	selectedId: string | undefined,
 	simplifiableFlow: SimplifiableFlow | undefined,
 	flowPathForTriggerNode: string | undefined,
-	expandedSubflows: Record<string, FlowModule[]>
-	// triggerProps?: {
-	// 	path?: string
-	// 	flowIsSimplifiable?: boolean
-	// }
+	expandedSubflows: Record<string, { modules: FlowModule[]; groups?: FlowGroup[] }>,
+	showNotes: boolean,
+	collapsedGroupIds: Set<string>
 ): {
 	nodes: { [key: string]: NodeLayout }
 	edges: Edge[]
@@ -416,7 +441,13 @@ export function graphBuilder(
 		const nodes: NodeLayout[] = []
 		const edges: Edge[] = []
 
-		function addNode(module: FlowModule, offset: number) {
+		// Lookup map from module ID to the original reactive FlowModule objects.
+		const moduleMap = new Map<string, FlowModule>()
+		for (const m of getAllModules(modules, failureModule)) {
+			moduleMap.set(m.id, m)
+		}
+
+		function addNode(module: FlowModule, extraData?: Record<string, any>) {
 			const duplicated = nodes.find((n) => n.id === module.id)
 			if (duplicated) {
 				console.log('Duplicated node detected: ', module, duplicated)
@@ -426,7 +457,6 @@ export function graphBuilder(
 			nodes.push({
 				id: module.id,
 				data: {
-					offset: offset,
 					module: module,
 					id: module.id,
 					parentIds: [],
@@ -438,7 +468,8 @@ export function graphBuilder(
 					isOwner: extra.isOwner,
 					flowJob: extra.flowJob,
 					assets: getFlowModuleAssets(module, extra.additionalAssetsMap),
-					moduleAction: extra.moduleActions?.[module.id]
+					moduleAction: extra.moduleActions?.[module.id],
+					...extraData
 				},
 				type: 'module',
 				selectable: true
@@ -497,14 +528,20 @@ export function graphBuilder(
 				customId?: string
 				type?: string
 				subModules?: FlowModule[]
+				currentItems?: FlowStructureNode[]
 				disableMoveIds?: string[]
 			}
 		) {
 			parents[targetId] = [...(parents[targetId] ?? []), sourceId]
 
-			const mods = options?.subModules ?? modules
-
-			let index = mods?.findIndex((m) => m.id === targetId) ?? -1
+			let index: number
+			if (options?.currentItems) {
+				index = findInsertIndexByNodeId(options.currentItems, targetId)
+			} else {
+				const mods = options?.subModules ?? modules
+				const found = mods?.findIndex((m) => m.id === targetId) ?? -1
+				index = found >= 0 ? found : (mods?.length ?? 0)
+			}
 
 			const visited = new Set<string>()
 			const recStack = new Set<string>()
@@ -528,8 +565,7 @@ export function graphBuilder(
 					simplifiedTriggerView: simplifiableFlow?.simplifiedFlow,
 					disableMoveIds: options?.disableMoveIds,
 					enableTrigger: sourceId === 'Input',
-					// If the index is -1, it means that the target module is not in the modules array, so we set it to the length of the array
-					index: index >= 0 ? index : (mods?.length ?? 0),
+					index,
 					...extra,
 					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
 					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId)
@@ -605,54 +641,187 @@ export function graphBuilder(
 		}
 
 		function processModules(
-			modules: FlowModule[],
+			items: FlowStructureNode[],
 			branch: { rootId: string; branch: number } | undefined,
 			beforeNode: NodeLayout,
 			nextNode: NodeLayout | undefined,
 			simplifiedTriggerView: boolean,
 			prefix: string | undefined,
-			currentOffset = 0,
 			disableMoveIds: string[] = [],
 			parentIndex?: string
 		) {
+			// For subflow prefix rewriting, clone modules into moduleMap with prefixed IDs
+			// (avoid mutating reactive originals which would trigger state_unsafe_mutation in $derived)
 			if (prefix != undefined) {
-				modules.forEach((m) => {
-					if (!m['oid']) {
-						m['oid'] = m.id
+				items.forEach((item) => {
+					if (item.kind === 'group') return
+					const m = moduleMap.get(item.id)
+					if (m) {
+						const oid = m['oid'] ?? m.id
+						const newId = 'subflow:' + prefix + oid
+						const clone = { ...m, id: newId, oid } as FlowModule & { oid: string }
+						clone['oid'] = oid
+						moduleMap.set(newId, clone)
+						item.id = newId
 					}
-					m.id = 'subflow:' + prefix + m['oid']
 				})
 			}
 			let previousId: string | undefined = undefined
 
-			if (modules.length === 0) {
+			if (items.length === 0) {
 				if (nextNode) {
 					addEdge(beforeNode.id, nextNode.id, branch, prefix, {
-						subModules: modules,
+						currentItems: items,
 						disableMoveIds
 					})
 				}
 			} else {
-				modules.forEach((module, index) => {
+				items.forEach((item, index) => {
+					// --- Group items ---
+					if (item.kind === 'group') {
+						const g = item.group!
+						const gId = item.id
+
+						if (collapsedGroupIds.has(gId)) {
+							// Collapsed group: single node
+							const nodeId = `collapsed-group:${gId}`
+							const leafIds = collectLeafIds(item.branches[0].children)
+							nodes.push({
+								id: nodeId,
+								data: {
+									groupId: gId,
+									summary: g.summary,
+									note: g.note,
+									color: g.color,
+									autocollapse: g.autocollapse,
+									stepCount: item.moduleIds?.length ?? 0,
+									modules: leafIds
+										.map((id) => moduleMap.get(id))
+										.filter((m): m is FlowModule => !!m),
+									flowModuleStates: extra.flowModuleStates,
+									flowJob: extra.flowJob,
+									isOwner: extra.isOwner,
+									suspendStatus: extra.suspendStatus,
+									showNotes,
+									editMode: prefix == undefined && extra.editMode,
+									eventHandlers
+								},
+								type: 'collapsedGroup',
+								selectable: false
+							})
+
+							// Wire: previous → collapsedGroup
+							if (index > 0 && previousId) {
+								addEdge(previousId, nodeId, branch, prefix, {
+									currentItems: items,
+									disableMoveIds
+								})
+							}
+
+							previousId = nodeId
+						} else {
+							// Expanded group: head → recurse → end
+							const headId = `group:${gId}`
+							const endId = `group:${gId}-end`
+							const localDisableMoveIds = [...disableMoveIds, headId]
+
+							const headNode: NodeLayout = {
+								id: headId,
+								data: {
+									groupId: gId,
+									summary: g.summary,
+									note: g.note,
+									color: g.color,
+									autocollapse: g.autocollapse,
+									editMode: prefix == undefined && extra.editMode,
+									showNotes,
+									eventHandlers
+								},
+								type: 'groupHead',
+								selectable: false
+							}
+
+							const endNode: NodeLayout = {
+								id: endId,
+								data: {
+									groupId: gId
+								},
+								type: 'groupEnd',
+								selectable: false
+							}
+
+							nodes.push(headNode)
+							nodes.push(endNode)
+
+							// Wire: previous → headNode
+							if (index > 0 && previousId) {
+								addEdge(previousId, headId, branch, prefix, {
+									currentItems: items,
+									disableMoveIds
+								})
+							}
+
+							// Recurse inner modules
+							processModules(
+								item.branches[0].children,
+								{ rootId: headId, branch: 0 },
+								headNode,
+								endNode,
+								simplifiedTriggerView,
+								prefix,
+								localDisableMoveIds,
+								parentIndex
+							)
+
+							previousId = endId
+						}
+
+						// Shared first/last edge wiring for groups
+						if (index === 0) {
+							addEdge(
+								beforeNode.id,
+								collapsedGroupIds.has(gId) ? `collapsed-group:${gId}` : `group:${gId}`,
+								undefined,
+								prefix,
+								{
+									currentItems: items,
+									disableMoveIds,
+									disableInsert: simplifiedTriggerView
+								}
+							)
+						}
+
+						if (index === items.length - 1 && previousId && nextNode) {
+							addEdge(previousId, nextNode.id, branch, prefix, {
+								currentItems: items,
+								disableMoveIds
+							})
+						}
+
+						return
+					}
+
+					// --- Regular FlowModule items ---
+					const module = moduleMap.get(item.id)
+					if (!module) return
 					const localDisableMoveIds = [...disableMoveIds, module.id]
 
-					// Add the edge between the previous node and the current one
+					// Inter-module edge: connect previous → current (expanded subflows handle their own)
 					if (index > 0 && previousId && expandedSubflows[module.id] == undefined) {
 						addEdge(previousId, module.id, branch, prefix, {
-							subModules: modules,
+							currentItems: items,
 							disableMoveIds
 						})
 					}
 
 					if (module.value.type === 'branchall') {
 						// Start
-						addNode(module, currentOffset)
+						addNode(module)
 
 						// "Collect result of each branch" node
 						const endNode: NodeLayout = {
 							id: `${module.id}-end`,
 							data: {
-								offset: currentOffset,
 								id: module.id,
 								eventHandlers: eventHandlers,
 								flowModuleState: extra.flowModuleStates?.[module.id]
@@ -667,7 +836,6 @@ export function graphBuilder(
 							const startNode: NodeLayout = {
 								id: `${module.id}-branch-0`,
 								data: {
-									offset: currentOffset,
 									id: module.id,
 									branchIndex: -1,
 									eventHandlers: eventHandlers,
@@ -693,7 +861,6 @@ export function graphBuilder(
 								const startNode: NodeLayout = {
 									id: `${module.id}-branch-${branchIndex}`,
 									data: {
-										offset: currentOffset,
 										label: defaultIfEmptyString(branch.summary, `Branch ${branchIndex + 1}`),
 										id: module.id,
 										branchIndex: branchIndex,
@@ -718,13 +885,12 @@ export function graphBuilder(
 								)
 
 								processModules(
-									branch.modules,
+									item.branches[branchIndex]?.children ?? [],
 									{ rootId: module.id, branch: branchIndex },
 									startNode,
 									endNode,
 									false,
 									prefix,
-									currentOffset,
 									localDisableMoveIds,
 									parentIndex ? `${parentIndex}-${index}-${branchIndex}` : `${index}-${branchIndex}`
 								)
@@ -734,15 +900,14 @@ export function graphBuilder(
 						previousId = endNode.id
 					} else if (module.value.type === 'forloopflow') {
 						if (!simplifiedTriggerView) {
-							addNode(module, currentOffset)
+							addNode(module)
 						}
 
 						const startNode: NodeLayout = {
 							id: `${module.id}-start`,
 							data: {
-								offset: currentOffset + 25,
 								id: module.id,
-								module: module,
+								module: moduleMap.get(module.id) ?? module,
 								simplifiedTriggerView,
 								eventHandlers: eventHandlers,
 								editMode: extra.editMode,
@@ -765,7 +930,6 @@ export function graphBuilder(
 						const endNode: NodeLayout = {
 							id: `${module.id}-end`,
 							data: {
-								offset: currentOffset,
 								id: module.id,
 								eventHandlers: eventHandlers,
 								simplifiedTriggerView,
@@ -780,13 +944,12 @@ export function graphBuilder(
 						const selectedIterIndex = extra.flowModuleStates?.[module.id]?.selectedForloopIndex
 
 						processModules(
-							module.value.modules,
+							item.branches[0]?.children ?? [],
 							{ rootId: module.id, branch: 0 },
 							startNode,
 							endNode,
 							false,
 							prefix,
-							currentOffset + 25,
 							localDisableMoveIds,
 							parentIndex
 								? `${parentIndex}-${index}-${selectedIterIndex ?? '?'}`
@@ -795,12 +958,11 @@ export function graphBuilder(
 
 						previousId = endNode.id
 					} else if (module.value.type === 'whileloopflow') {
-						addNode(module, currentOffset)
+						addNode(module)
 
 						const startNode: NodeLayout = {
 							id: `${module.id}-start`,
 							data: {
-								offset: currentOffset + 25,
 								eventHandlers: eventHandlers
 							},
 							type: 'whileLoopStart'
@@ -811,7 +973,7 @@ export function graphBuilder(
 
 						const endNode: NodeLayout = {
 							id: `${module.id}-end`,
-							data: { offset: currentOffset, ...extra },
+							data: { ...extra },
 							type: 'whileLoopEnd'
 						}
 
@@ -821,13 +983,12 @@ export function graphBuilder(
 						const selectedIterIndex = extra.flowModuleStates?.[module.id]?.selectedForloopIndex
 
 						processModules(
-							module.value.modules,
+							item.branches[0]?.children ?? [],
 							{ rootId: module.id, branch: 0 },
 							startNode,
 							endNode,
 							false,
 							prefix,
-							currentOffset + 25,
 							localDisableMoveIds,
 							parentIndex
 								? `${parentIndex}-${index}-${selectedIterIndex ?? '?'}`
@@ -836,12 +997,11 @@ export function graphBuilder(
 
 						previousId = endNode.id
 					} else if (module.value.type === 'branchone') {
-						addNode(module, currentOffset)
+						addNode(module)
 
 						const endNode: NodeLayout = {
 							id: `${module.id}-end`,
 							data: {
-								offset: currentOffset,
 								eventHandlers: eventHandlers,
 								flowModuleState: extra.flowModuleStates?.[module.id],
 								id: module.id
@@ -850,25 +1010,9 @@ export function graphBuilder(
 						}
 						nodes.push(endNode)
 
-						// // Add default branch
-						// const defaultBranch: NodeLayout = {
-						// 	id: `${module.id}-default`,
-						// 	data: {
-						// 		offset: currentOffset,
-						// 		label: 'Default',
-						// 		id: module.id,
-						// 		branchIndex: -1,
-						// 		eventHandlers: eventHandlers,
-						// 		branchOne: true,
-						// 		...extra
-						// 	},
-						// 	type: 'noBranch'
-						// }
-
 						const defaultBranch: NodeLayout = {
 							id: `${module.id}-branch-default`,
 							data: {
-								offset: currentOffset,
 								label: 'Default',
 								id: module.id,
 								branchIndex: -1,
@@ -889,13 +1033,12 @@ export function graphBuilder(
 						})
 
 						processModules(
-							module.value.default,
+							item.branches[0]?.children ?? [],
 							{ rootId: module.id, branch: 0 },
 							defaultBranch,
 							endNode,
 							false,
 							prefix,
-							currentOffset,
 							localDisableMoveIds,
 							parentIndex ? `${parentIndex}-${index}` : index.toString()
 						)
@@ -906,7 +1049,6 @@ export function graphBuilder(
 							const startNode: NodeLayout = {
 								id: `${module.id}-branch-${branchIndex}`,
 								data: {
-									offset: currentOffset,
 									label: defaultIfEmptyString(branch.summary, 'Branch ' + (branchIndex + 1)),
 									preLabel: branch.summary ? '' : branch.expr,
 									id: module.id,
@@ -927,13 +1069,12 @@ export function graphBuilder(
 							})
 
 							processModules(
-								branch.modules,
+								item.branches[branchIndex + 1]?.children ?? [],
 								{ rootId: module.id, branch: branchIndex + 1 },
 								startNode,
 								endNode,
 								false,
 								prefix,
-								currentOffset,
 								localDisableMoveIds,
 								parentIndex ? `${parentIndex}-${index}` : index.toString()
 							)
@@ -941,9 +1082,9 @@ export function graphBuilder(
 
 						previousId = endNode.id
 					} else {
-						let expanded = expandedSubflows[module.id]
-						if (expanded) {
-							expanded = $state.snapshot(expanded)
+						const expandedData = expandedSubflows[module.id]
+						if (expandedData) {
+							const expandedMods = $state.snapshot(expandedData.modules) as FlowModule[]
 							const startId = `${module.id}`
 							const idWithoutPrefix = module.id.startsWith('subflow:')
 								? module.id.substring(8)
@@ -951,7 +1092,6 @@ export function graphBuilder(
 							const startNode: NodeLayout = {
 								id: startId,
 								data: {
-									offset: currentOffset,
 									label: `Start of subflow ${idWithoutPrefix}`,
 									id: startId,
 									subflowId: module.id,
@@ -966,12 +1106,12 @@ export function graphBuilder(
 
 							if (previousId) {
 								addEdge(previousId, startNode.id, branch, prefix, {
-									subModules: modules,
+									currentItems: items,
 									disableMoveIds
 								})
 							} else {
 								addEdge(beforeNode.id, startNode.id, undefined, prefix, {
-									subModules: modules,
+									currentItems: items,
 									disableMoveIds
 								})
 							}
@@ -980,7 +1120,6 @@ export function graphBuilder(
 							const endNode: NodeLayout = {
 								id: endId,
 								data: {
-									offset: currentOffset,
 									label: `End of subflow ${idWithoutPrefix}`,
 									id: endId,
 									subflowId: module.id,
@@ -993,35 +1132,46 @@ export function graphBuilder(
 
 							nodes.push(endNode)
 
+							// Register expanded subflow modules so prefix rewriting finds
+							// the inner modules (not the parent flow's modules with same IDs)
+							for (const em of getAllModules(expandedMods)) {
+								moduleMap.set(em.id, em)
+							}
+
+							const expandedGroups = (expandedData.groups ?? []).map((g) => ({
+								...g,
+								id: groupKey(g),
+								moduleIds: computeGroupModuleIds(g.start_id, g.end_id, getAllModules(expandedMods))
+							}))
+
 							processModules(
-								expanded,
+								buildStructureTree(expandedMods, expandedGroups),
 								undefined,
 								startNode,
 								endNode,
 								false,
 								buildPrefix(prefix, module['oid'] ?? module.id),
-								currentOffset,
 								localDisableMoveIds
 							)
 
 							previousId = endNode.id
 						} else {
-							addNode(module, currentOffset)
+							addNode(module)
 							previousId = module.id
 						}
 					}
 
 					if (index === 0 && expandedSubflows[module.id] == undefined) {
 						addEdge(beforeNode.id, module.id, undefined, prefix, {
-							subModules: modules,
+							currentItems: items,
 							disableMoveIds,
 							disableInsert: simplifiedTriggerView
 						})
 					}
 
-					if (index === modules.length - 1 && previousId && nextNode) {
+					if (index === items.length - 1 && previousId && nextNode) {
 						addEdge(previousId, nextNode.id, branch, prefix, {
-							subModules: modules,
+							currentItems: items,
 							disableMoveIds
 						})
 					}
@@ -1029,10 +1179,12 @@ export function graphBuilder(
 			}
 		}
 
+		const topLevelItems = structureTree
+
 		if (simplifiableFlow?.simplifiedFlow === true && triggerNode) {
-			processModules(modules, undefined, triggerNode, undefined, true, undefined)
+			processModules(topLevelItems, undefined, triggerNode, undefined, true, undefined)
 		} else {
-			processModules(modules, undefined, inputNode, resultNode, false, undefined)
+			processModules(topLevelItems, undefined, inputNode, resultNode, false, undefined)
 		}
 
 		if (failureModule) {
@@ -1047,19 +1199,19 @@ export function graphBuilder(
 			})
 
 			Object.entries(toAdd).forEach((x) => {
-				addNode({ ...failureModule, id: x[1] }, 0)
+				addNode({ ...failureModule, id: x[1] })
 				addEdge(x[0], x[1], undefined, undefined, { type: 'empty' })
 			})
 		}
 
 		if (preprocessorModule) {
-			addNode(preprocessorModule, 0)
+			addNode(preprocessorModule)
 			const id = JSON.parse(JSON.stringify(preprocessorModule.id))
 			addEdge(id, 'Input', undefined, undefined, { type: 'empty' })
 		}
 
 		if (failureModule && !extra.flowModuleStates) {
-			addNode(failureModule, 0)
+			addNode(failureModule)
 		}
 
 		Object.keys(parents).forEach((key) => {

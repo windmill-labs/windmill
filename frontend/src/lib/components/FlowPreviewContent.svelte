@@ -588,6 +588,7 @@
 				{/if}
 				<FlowHistoryJobPicker
 					selectInitial={jobId == undefined}
+					newFlow={$initialPathStore === ''}
 					on:select={(e) => {
 						if (!currentJobId) {
 							currentJobId = jobId
@@ -607,7 +608,9 @@
 				/>
 			</div>
 
-			<FlowProgressBar {job} bind:this={flowProgressBar} slim textPosition="bottom" showStepId />
+			{#if jobId}
+				<FlowProgressBar {job} bind:this={flowProgressBar} slim textPosition="bottom" showStepId />
+			{/if}
 
 			{#if job}
 				<div class="w-full my-6">
@@ -649,6 +652,13 @@
 					onDone={async ({ job: completedJob }) => {
 						isRunning = false
 						$executionCount = $executionCount + 1
+						// Reset 'initial' flags for modules that were part of this flow test,
+						// so OutputPicker no longer shows "Run loaded from history"
+						for (const mod of completedJob.flow_status?.modules ?? []) {
+							if (mod.id) {
+								stepHistoryLoader?.resetInitial(mod.id)
+							}
+						}
 						if (flowRecording.active) {
 							lastRecording = flowRecording.stop()
 							setActiveRecording(undefined)
@@ -669,6 +679,10 @@
 			{:else if loadingHistory}
 				<div class="italic text-primary h-full grow mx-auto flex flex-row items-center gap-2">
 					<Loader2 class="animate-spin" /> <span> Loading history... </span>
+				</div>
+			{:else}
+				<div class="italic text-tertiary h-full grow mx-auto flex flex-row items-center">
+					Flow status will display here
 				</div>
 			{/if}
 		</div>

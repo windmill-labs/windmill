@@ -140,6 +140,7 @@
 								<FlowGraphV2
 									bind:this={beforeGraph}
 									modules={beforeFlow.value.modules}
+									groups={beforeFlow.value.groups}
 									failureModule={beforeFlow.value.failure_module}
 									preprocessorModule={beforeFlow.value.preprocessor_module}
 									earlyStop={beforeFlow.value.skip_expr !== undefined}
@@ -171,6 +172,7 @@
 									bind:this={afterGraph}
 									diffBeforeFlow={beforeFlow}
 									modules={afterFlow.value.modules}
+									groups={afterFlow.value.groups}
 									failureModule={afterFlow.value.failure_module}
 									preprocessorModule={afterFlow.value.preprocessor_module}
 									earlyStop={afterFlow.value.skip_expr !== undefined}
@@ -201,6 +203,7 @@
 					<FlowGraphV2
 						diffBeforeFlow={beforeFlow}
 						modules={afterFlow.value.modules}
+						groups={afterFlow.value.groups}
 						failureModule={afterFlow.value.failure_module}
 						preprocessorModule={afterFlow.value.preprocessor_module}
 						earlyStop={afterFlow.value.skip_expr !== undefined}

@@ -11,7 +11,7 @@ import time
 import warnings
 import json
 from json import JSONDecodeError
-from typing import Dict, Any, Union, Literal, Optional
+from typing import Callable, Dict, Any, Union, Literal, Optional
 import re
 
 import httpx
@@ -2151,69 +2151,6 @@ def ducklake(name: str = "main") -> DucklakeClient:
     """
     return _client.ducklake(name)
 
-def task(*args, **kwargs):
-    """Decorator to mark a function as a workflow task.
-
-    When executed inside a Windmill job, the decorated function runs as a
-    separate workflow step. Outside Windmill, it executes normally.
-
-    Args:
-        tag: Optional worker tag for execution
-
-    Returns:
-        Decorated function
-    """
-    from inspect import signature
-
-    def f(func, tag: str | None = None):
-        if (
-            os.environ.get("WM_JOB_ID") is None
-            or os.environ.get("MAIN_OVERRIDE") == func.__name__
-        ):
-
-            def inner(*args, **kwargs):
-                return func(*args, **kwargs)
-
-            return inner
-        else:
-
-            def inner(*args, **kwargs):
-                global _client
-                if _client is None:
-                    _client = Windmill()
-                w_id = os.environ.get("WM_WORKSPACE")
-                job_id = os.environ.get("WM_JOB_ID")
-                f_name = func.__name__
-                json = kwargs
-                params = list(signature(func).parameters)
-                for i, arg in enumerate(args):
-                    if i < len(params):
-                        p = params[i]
-                        key = p
-                        if key not in kwargs:
-                            json[key] = arg
-
-                params = {}
-                if tag is not None:
-                    params["tag"] = tag
-                w_as_code_response = _client.post(
-                    f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{f_name}",
-                    json={"args": json},
-                    params=params,
-                )
-                job_id = w_as_code_response.text
-                print(f"Executing task {func.__name__} on job {job_id}")
-                job_result = _client.wait_job(job_id)
-                print(f"Task {func.__name__} ({job_id}) completed")
-                return job_result
-
-            return inner
-
-    if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
-        return f(args[0], None)
-    else:
-        return lambda x: f(x, kwargs.get("tag"))
-
 def parse_resource_syntax(s: str) -> Optional[str]:
     """Parse resource syntax from string."""
     if s is None:
@@ -2413,7 +2350,545 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]:
     name = name
     schema = None
     if ":" in name:
-        name, schema = name.split(":", 1) 
+        name, schema = name.split(":", 1)
     if not name:
         name = "main"
     return name, schema
+
+
+# ── Workflow-as-Code SDK ──────────────────────────────────────────────
+
+import asyncio as _asyncio
+import contextvars as _contextvars
+
+
+class _StepSuspend(BaseException):
+    """Raised to suspend workflow execution. Inherits from BaseException
+    so it is not caught by bare `except Exception:` blocks."""
+
+    def __init__(self, dispatch_info: dict):
+        self.dispatch_info = dispatch_info
+
+
+class TaskError(Exception):
+    """Raised when a WAC task step failed.
+
+    Attributes:
+        step_key: The checkpoint key of the failed step.
+        child_job_id: The UUID of the failed child job.
+        result: The error result from the child job.
+    """
+
+    def __init__(self, message: str, *, step_key: str = "", child_job_id: str = "", result=None):
+        super().__init__(message)
+        self.step_key = step_key
+        self.child_job_id = child_job_id
+        self.result = result
+
+
+_workflow_ctx: _contextvars.ContextVar["WorkflowCtx"] = _contextvars.ContextVar(
+    "_workflow_ctx"
+)
+
+
+class WorkflowCtx:
+    """Internal context for workflow replay/suspension.
+
+    Not user-facing — set implicitly by ``@workflow`` via contextvars.
+    """
+
+    def __init__(self, checkpoint: dict | None = None):
+        checkpoint = checkpoint or {}
+        self._completed: dict = checkpoint.get("completed_steps", {})
+        self._counters: dict[str, int] = {}
+        self._pending: list = []
+        self._executing_key: str | None = checkpoint.get("_executing_key")
+
+    def _alloc_key(self, name: str = "step") -> str:
+        """Name-based key: ``double`` for first call, ``double_2``, ``double_3`` for subsequent."""
+        n = self._counters.get(name, 0) + 1
+        self._counters[name] = n
+        return name if n == 1 else f"{name}_{n}"
+
+    def _next_step(self, name: str, script: str, func=None, dispatch_type: str = "inline", _task_options: Optional[dict] = None, **kwargs):
+        """Return an awaitable that either resolves from cache or suspends."""
+        key = self._alloc_key(name or script or "step")
+
+        if key in self._completed:
+            val = self._completed[key]
+            if isinstance(val, dict) and val.get("__wmill_error"):
+                raise TaskError(
+                    val.get("message", f"Task '{name}' failed"),
+                    step_key=val.get("step_key", ""),
+                    child_job_id=val.get("child_job_id", ""),
+                    result=val.get("result"),
+                )
+            return self._resolved(val)
+
+        if self._executing_key is not None:
+            if key == self._executing_key:
+                return self._execute_directly(func, **kwargs)
+            else:
+                return self._never_resolve()
+
+        print(f"\n--- WAC: {key} ---")
+        info = {"name": name or key, "script": script or key, "args": kwargs, "key": key, "dispatch_type": dispatch_type}
+        if _task_options:
+            for opt_key in ("timeout", "tag", "cache_ttl", "priority", "concurrent_limit", "concurrency_key", "concurrency_time_window_s"):
+                if opt_key in _task_options and _task_options[opt_key] is not None:
+                    info[opt_key] = _task_options[opt_key]
+        self._pending.append(info)
+        return self._suspend()
+
+    async def _resolved(self, value):
+        return value
+
+    async def _execute_directly(self, func, **kwargs):
+        result = func(**kwargs)
+        if _asyncio.iscoroutine(result):
+            result = await result
+        raise _StepSuspend({"mode": "step_complete", "steps": [], "result": result})
+
+    async def _never_resolve(self):
+        await _asyncio.Future()
+
+    async def _suspend(self):
+        steps = list(self._pending)
+        self._pending.clear()
+        raise _StepSuspend(
+            {
+                "mode": "parallel" if len(steps) > 1 else "sequential",
+                "steps": steps,
+            }
+        )
+
+    async def _wait_for_approval(
+        self, timeout: int = 1800, form: dict | None = None, self_approval: bool = True
+    ):
+        key = self._alloc_key("approval")
+
+        if key in self._completed:
+            return self._completed[key]
+
+        if self._executing_key is not None:
+            await _asyncio.Future()
+
+        print(f"\n--- WAC: wait_for_approval({key}) ---")
+        raise _StepSuspend({
+            "mode": "approval",
+            "key": key,
+            "timeout": timeout,
+            "form": form,
+            "self_approval_disabled": not self_approval,
+            "steps": [],
+        })
+
+    async def _sleep(self, seconds: int):
+        key = self._alloc_key("sleep")
+
+        if key in self._completed:
+            return
+
+        if self._executing_key is not None:
+            await _asyncio.Future()
+
+        print(f"\n--- WAC: sleep({key}, {seconds}s) ---")
+        raise _StepSuspend({
+            "mode": "sleep",
+            "key": key,
+            "seconds": max(1, int(seconds)),
+            "steps": [],
+        })
+
+    async def _run_inline_step(self, name: str, fn):
+        import json as _json_mod
+        import time as _time_mod
+        from datetime import datetime as _dt, timezone as _tz
+
+        key = self._alloc_key(name or "step")
+
+        if key in self._completed:
+            val = self._completed[key]
+            if isinstance(val, dict) and val.get("__wmill_error"):
+                raise TaskError(
+                    val.get("message", f"Step '{name}' failed"),
+                    step_key=val.get("step_key", ""),
+                    child_job_id=val.get("child_job_id", ""),
+                    result=val.get("result"),
+                )
+            return val
+
+        if self._executing_key is not None:
+            await _asyncio.Future()
+
+        print(f"\n--- WAC: {key} ---")
+        started_at = _dt.now(_tz.utc).isoformat()
+        print(f"WM_WAC_STEP: {_json_mod.dumps({'key': key, 'started_at': started_at})}")
+        t0 = _time_mod.monotonic()
+        result = fn()
+        if _asyncio.iscoroutine(result):
+            result = await result
+        duration_ms = int((_time_mod.monotonic() - t0) * 1000)
+
+        raise _StepSuspend({
+            "mode": "inline_checkpoint",
+            "steps": [],
+            "key": key,
+            "result": result,
+            "started_at": started_at,
+            "duration_ms": duration_ms,
+        })
+
+
+def task(
+    _func=None,
+    *,
+    path: Optional[str] = None,
+    tag: Optional[str] = None,
+    timeout: Optional[int] = None,
+    cache_ttl: Optional[int] = None,
+    priority: Optional[int] = None,
+    concurrency_limit: Optional[int] = None,
+    concurrency_key: Optional[str] = None,
+    concurrency_time_window_s: Optional[int] = None,
+):
+    """Decorator that marks a function as a workflow task.
+
+    Works in both WAC v1 (sync, HTTP-based dispatch) and WAC v2
+    (async, checkpoint/replay) modes:
+
+    - **v2 (inside @workflow)**: dispatches as a checkpoint step.
+    - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
+    - **Standalone**: executes the function body directly.
+
+    Usage::
+
+        @task
+        async def extract_data(url: str): ...
+
+        @task(path="f/external_script", timeout=600, tag="gpu")
+        async def run_external(x: int): ...
+    """
+    from inspect import signature as _sig
+
+    _task_opts = {
+        "timeout": timeout,
+        "tag": tag,
+        "cache_ttl": cache_ttl,
+        "priority": priority,
+        "concurrent_limit": concurrency_limit,
+        "concurrency_key": concurrency_key,
+        "concurrency_time_window_s": concurrency_time_window_s,
+    }
+    # Remove None values
+    _task_opts = {k: v for k, v in _task_opts.items() if v is not None} or None
+
+    def decorator(func) -> Callable[..., Any]:
+        task_path = path
+        task_name = func.__name__
+
+        _params_list = list(_sig(func).parameters)
+
+        def _merge_args(args, kwargs):
+            merged = dict(kwargs)
+            for i, arg in enumerate(args):
+                if i < len(_params_list):
+                    key = _params_list[i]
+                    if key not in merged:
+                        merged[key] = arg
+                else:
+                    merged[f"arg{i}"] = arg
+            return merged
+
+        def wrapper(*args, **kwargs):
+            # WAC v2: inside a @workflow context
+            ctx = _workflow_ctx.get(None)
+            if ctx is not None:
+                script = task_path if task_path else task_name
+                merged = _merge_args(args, kwargs)
+                return ctx._next_step(task_name, script, func, _task_options=_task_opts, **merged)
+
+            # WAC v1: running inside a Windmill job but not in a @workflow
+            if (
+                os.environ.get("WM_JOB_ID") is not None
+                and os.environ.get("MAIN_OVERRIDE") != func.__name__
+            ):
+                global _client
+                if _client is None:
+                    _client = Windmill()
+                w_id = os.environ.get("WM_WORKSPACE")
+                job_id = os.environ.get("WM_JOB_ID")
+                json_args = _merge_args(args, kwargs)
+                api_params = {}
+                if tag is not None:
+                    api_params["tag"] = tag
+                resp = _client.post(
+                    f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{func.__name__}",
+                    json={"args": json_args},
+                    params=api_params,
+                )
+                child_job_id = resp.text
+                print(f"Executing task {func.__name__} on job {child_job_id}")
+                job_result = _client.wait_job(child_job_id)
+                print(f"Task {func.__name__} ({child_job_id}) completed")
+                return job_result
+
+            # Standalone — execute directly
+            return func(*args, **kwargs)
+
+        wrapper._is_task = True
+        wrapper._task_path = task_path
+        return wrapper
+
+    if _func is not None:
+        # @task without parentheses
+        return decorator(_func)
+    # @task() or @task(path="...", tag="...")
+    return decorator
+
+
+def task_script(
+    path: str,
+    *,
+    timeout: Optional[int] = None,
+    tag: Optional[str] = None,
+    cache_ttl: Optional[int] = None,
+    priority: Optional[int] = None,
+    concurrency_limit: Optional[int] = None,
+    concurrency_key: Optional[str] = None,
+    concurrency_time_window_s: Optional[int] = None,
+):
+    """Create a task that dispatches to a separate Windmill script.
+
+    Usage::
+
+        extract = task_script("f/data/extract", timeout=600)
+
+        @workflow
+        async def main():
+            data = await extract(url="https://...")
+    """
+    name = path.rsplit("/", 1)[-1]
+    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s}.items() if v is not None} or None
+
+    def wrapper(**kwargs):
+        ctx = _workflow_ctx.get(None)
+        if ctx is not None:
+            return ctx._next_step(name, path, dispatch_type="script", _task_options=_opts, **kwargs)
+        raise RuntimeError(f'task_script("{path}") can only be called inside a @workflow')
+
+    wrapper.__name__ = name
+    wrapper._is_task = True
+    wrapper._task_path = path
+    return wrapper
+
+
+def task_flow(
+    path: str,
+    *,
+    timeout: Optional[int] = None,
+    tag: Optional[str] = None,
+    cache_ttl: Optional[int] = None,
+    priority: Optional[int] = None,
+    concurrency_limit: Optional[int] = None,
+    concurrency_key: Optional[str] = None,
+    concurrency_time_window_s: Optional[int] = None,
+):
+    """Create a task that dispatches to a separate Windmill flow.
+
+    Usage::
+
+        pipeline = task_flow("f/etl/pipeline", priority=10)
+
+        @workflow
+        async def main():
+            result = await pipeline(input=data)
+    """
+    name = path.rsplit("/", 1)[-1]
+    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s}.items() if v is not None} or None
+
+    def wrapper(**kwargs):
+        ctx = _workflow_ctx.get(None)
+        if ctx is not None:
+            return ctx._next_step(name, path, dispatch_type="flow", _task_options=_opts, **kwargs)
+        raise RuntimeError(f'task_flow("{path}") can only be called inside a @workflow')
+
+    wrapper.__name__ = name
+    wrapper._is_task = True
+    wrapper._task_path = path
+    return wrapper
+
+
+def workflow(func):
+    """Decorator marking an async function as a workflow-as-code entry point.
+
+    The function must be **deterministic**: given the same inputs it must call
+    tasks in the same order on every replay. Branching on task results is fine
+    (results are replayed from checkpoint), but branching on external state
+    (current time, random values, external API calls) must use ``step()`` to
+    checkpoint the value so replays see the same result.
+    """
+    func._is_workflow = True
+    return func
+
+
+async def step(name: str, fn):
+    """Execute ``fn`` inline and checkpoint the result.
+
+    On replay the cached value is returned without re-executing ``fn``.
+    Use for lightweight deterministic operations (timestamps, random IDs,
+    config reads) that should not incur the overhead of a child job.
+    """
+    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    if ctx is not None:
+        return await ctx._run_inline_step(name, fn)
+    result = fn()
+    if _asyncio.iscoroutine(result):
+        result = await result
+    return result
+
+
+async def sleep(seconds: int):
+    """Server-side sleep — suspend the workflow for the given duration without holding a worker.
+
+    Inside a @workflow, the parent job suspends and auto-resumes after ``seconds``.
+    Outside a workflow, falls back to ``asyncio.sleep``.
+    """
+    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    if ctx is not None:
+        return await ctx._sleep(seconds)
+    await _asyncio.sleep(seconds)
+
+
+async def wait_for_approval(
+    timeout: int = 1800,
+    form: dict | None = None,
+    self_approval: bool = True,
+) -> dict:
+    """Suspend the workflow and wait for an external approval.
+
+    Use ``get_resume_urls()`` (wrapped in ``step()``) to obtain
+    resume/cancel/approval URLs before calling this function.
+
+    Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
+
+    Args:
+        timeout: Approval timeout in seconds (default 1800).
+        form: Optional form schema for the approval page.
+        self_approval: Whether the user who triggered the flow can approve it (default True).
+
+    Example::
+
+        urls = await step("urls", lambda: get_resume_urls())
+        await step("notify", lambda: send_email(urls["approvalPage"]))
+        result = await wait_for_approval(timeout=3600)
+    """
+    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    if ctx is not None:
+        return await ctx._wait_for_approval(timeout=timeout, form=form, self_approval=self_approval)
+    raise RuntimeError("wait_for_approval can only be called inside a @workflow")
+
+
+async def parallel(items, fn, *, concurrency: Optional[int] = None):
+    """Process items in parallel with optional concurrency control.
+
+    Each item is processed by calling ``fn(item)``, which should be a @task.
+    Items are dispatched in batches of ``concurrency`` (default: all at once).
+
+    Example::
+
+        @task
+        async def process(item: str):
+            ...
+
+        results = await parallel(items, process, concurrency=5)
+    """
+    if not items:
+        return []
+    batch_size = concurrency if concurrency and concurrency > 0 else len(items)
+    results = []
+    for i in range(0, len(items), batch_size):
+        batch = items[i : i + batch_size]
+        batch_results = await _asyncio.gather(*(fn(item) for item in batch))
+        results.extend(batch_results)
+    return results
+
+
+async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
+    ctx = WorkflowCtx(checkpoint)
+    token = _workflow_ctx.set(ctx)
+    try:
+        result = await func(**input_args)
+        # Flush any unawaited tasks (e.g. forgotten await on last statement)
+        if ctx._pending:
+            steps = list(ctx._pending)
+            ctx._pending.clear()
+            return {
+                "type": "dispatch",
+                "mode": "parallel" if len(steps) > 1 else "sequential",
+                "steps": steps,
+            }
+        return {"type": "complete", "result": result}
+    except _StepSuspend as e:
+        info = e.dispatch_info
+        mode = info.get("mode")
+        if mode == "step_complete":
+            return {"type": "complete", "result": info.get("result")}
+        if mode == "inline_checkpoint":
+            out = {
+                "type": "inline_checkpoint",
+                "key": info["key"],
+                "result": info.get("result"),
+            }
+            if "started_at" in info:
+                out["started_at"] = info["started_at"]
+            if "duration_ms" in info:
+                out["duration_ms"] = info["duration_ms"]
+            return out
+        if mode == "approval":
+            return {
+                "type": "approval",
+                "key": info["key"],
+                "timeout": info.get("timeout"),
+                "form": info.get("form"),
+            }
+        if mode == "sleep":
+            return {
+                "type": "sleep",
+                "key": info["key"],
+                "seconds": info.get("seconds"),
+            }
+        return {"type": "dispatch", **info}
+    finally:
+        _workflow_ctx.reset(token)
+
+
+def _run_workflow(func, checkpoint: dict, input_args: dict):
+    """Synchronous wrapper that runs the workflow coroutine to completion
+    or until it suspends."""
+    return _asyncio.run(_run_workflow_async(func, checkpoint, input_args))
+
+
+@init_global_client
+def commit_kafka_offsets(
+    trigger_path: str,
+    topic: str,
+    partition: int,
+    offset: int,
+) -> None:
+    """Commit Kafka offsets for a trigger with auto_commit disabled.
+
+    Args:
+        trigger_path: Path to the Kafka trigger (from event['wm_trigger']['trigger_path'])
+        topic: Kafka topic name (from event['topic'])
+        partition: Partition number (from event['partition'])
+        offset: Message offset to commit (from event['offset'])
+    """
+    _client.post(
+        f"/w/{_client.workspace}/kafka_triggers/commit_offsets/{trigger_path}",
+        json={
+            "topic": topic,
+            "partition": partition,
+            "offset": offset,
+        },
+    )

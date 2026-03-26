@@ -42,10 +42,7 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{self, Error, JsonResult, Result},
     get_database_url,
-    utils::{
-        get_custom_pg_instance_password, not_found_if_none, paginate, require_admin, Pagination,
-        StripPath,
-    },
+    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
     worker::{CLOUD_HOSTED, WINDMILL_DIR},
     PgDatabase,
@@ -504,12 +501,9 @@ pub async fn get_resource_value_interpolated_internal<'a>(
 ) -> Result<Option<serde_json::Value>> {
     // This is a special syntax to help debugging custom instance databases
     if let Some(dbname) = path.strip_prefix("CUSTOM_INSTANCE_DB/") {
-        let db = db_with_opt_authed.db();
         require_super_admin(db_with_opt_authed.db(), &db_with_opt_authed.email()).await?;
         let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
         pg_creds.dbname = dbname.to_string();
-        pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
-        pg_creds.user = Some("custom_instance_user".to_string());
         let pg_creds = serde_json::to_value(&pg_creds)
             .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?;
         return Ok(Some(pg_creds));
@@ -768,7 +762,7 @@ async fn create_resource(
         .await?;
         if nb_resources.unwrap_or(0) >= 10000 {
             return Err(Error::BadRequest(
-                    "You have reached the maximum number of resources (10000) on cloud. Contact support@windmill.dev to increase the limit"
+                    "You have reached the maximum number of resources (10000) on cloud. Check your usage in Workspace Settings > General > Cloud Quotas. Contact support@windmill.dev to increase the limit"
                         .to_string(),
                 ));
         }
@@ -883,6 +877,14 @@ async fn delete_resource(
     }
     let mut tx = user_db.begin(&authed).await?;
 
+    // Fetch the resource value before deleting, so we can find linked $var: references
+    let resource_value: Option<Option<serde_json::Value>> =
+        sqlx::query_scalar("SELECT value FROM resource WHERE path = $1 AND workspace_id = $2")
+            .bind(path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
     let deleted_path = sqlx::query_scalar!(
         "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
         path,
@@ -891,13 +893,32 @@ async fn delete_resource(
     .fetch_optional(&mut *tx)
     .await?;
     not_found_if_none(deleted_path, "Resource", &path)?;
-    sqlx::query!(
-        "DELETE FROM variable WHERE path = $1 AND workspace_id = $2",
-        path,
-        w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+
+    // Collect all $var: paths referenced in the resource value
+    let mut linked_var_paths: Vec<String> = Vec::new();
+    if let Some(Some(value)) = resource_value {
+        collect_var_refs(&value, &mut linked_var_paths);
+    }
+
+    // Delete linked variables that are actually referenced in the resource value
+    let deleted_linked_variables: Vec<String> = if linked_var_paths.is_empty() {
+        Vec::new()
+    } else {
+        let placeholders: Vec<String> = linked_var_paths
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("${}", i + 2))
+            .collect();
+        let query = format!(
+            "DELETE FROM variable WHERE workspace_id = $1 AND path IN ({}) RETURNING path",
+            placeholders.join(", ")
+        );
+        let mut q = sqlx::query_scalar::<_, String>(&query).bind(&w_id);
+        for var_path in &linked_var_paths {
+            q = q.bind(var_path);
+        }
+        q.fetch_all(&mut *tx).await?
+    };
     audit_log(
         &mut *tx,
         &authed,
@@ -924,10 +945,57 @@ async fn delete_resource(
 
     webhook.send_message(
         w_id.clone(),
-        WebhookMessage::DeleteResource { workspace: w_id, path: path.to_owned() },
+        WebhookMessage::DeleteResource { workspace: w_id.clone(), path: path.to_owned() },
     );
 
+    for var_path in &deleted_linked_variables {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::Variable {
+                path: var_path.clone(),
+                parent_path: Some(var_path.clone()),
+            },
+            Some(format!(
+                "Variable '{}' deleted (linked resource deleted)",
+                var_path
+            )),
+            true,
+            None,
+        )
+        .await?;
+
+        webhook.send_message(
+            w_id.clone(),
+            WebhookMessage::DeleteVariable { workspace: w_id.clone(), path: var_path.clone() },
+        );
+    }
+
     Ok(format!("resource {} deleted", path))
+}
+
+/// Recursively collect all `$var:path` references from a JSON value.
+fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(s) => {
+            if let Some(var_path) = s.strip_prefix("$var:") {
+                out.push(var_path.to_string());
+            }
+        }
+        serde_json::Value::Object(m) => {
+            for v in m.values() {
+                collect_var_refs(v, out);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                collect_var_refs(v, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 async fn delete_resources_bulk(

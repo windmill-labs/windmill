@@ -7,8 +7,6 @@ description: MUST use when using the CLI.
 
 The Windmill CLI (`wmill`) provides commands for managing scripts, flows, apps, and other resources.
 
-Current version: 1.642.0
-
 ## Global Options
 
 - `--workspace <workspace:string>` - Specify the target workspace. This overrides the default workspace.
@@ -65,6 +63,15 @@ Launch a dev server that will spawn a webserver with HMR
 **Options:**
 - `--includes <pattern...:string>` - Filter paths givena glob pattern or path
 
+### docs
+
+Search Windmill documentation. Requires Enterprise Edition.
+
+**Arguments:** `<query:string>`
+
+**Options:**
+- `--json` - Output results as JSON.
+
 ### flow
 
 flow related commands
@@ -84,11 +91,13 @@ flow related commands
 - `flow run <path:string>` - run a flow by path.
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not ouput anything other then the final output. Useful for scripting.
-- `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files.
+- `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default.
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
+  - `--remote` - Use deployed workspace scripts for PathScript steps instead of local files.
 - `flow generate-locks [flow:file]` - re-generate the lock files of all inline scripts of all updated flows
   - `--yes` - Skip confirmation prompt
+  - `--dry-run` - Perform a dry run without making changes
   - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
   - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which file to NOT take into account.
 - `flow new <flow_path:string>` - create a new empty flow
@@ -113,9 +122,27 @@ folder related commands
   - `--json` - Output as JSON (for piping to jq)
 - `folder new <name:string>` - create a new folder locally
   - `--summary <summary:string>` - folder summary
-- `folder push <name:string>` - push a local folder to the remote by name.  This overrides any remote versions.
+- `folder push <name:string>` - push a local folder to the remote by name. This overrides any remote versions.
 - `folder add-missing` - create default folder.meta.yaml for all subdirectories of f/ that are missing one
   - `-y, --yes` - skip confirmation prompt
+
+### generate-metadata
+
+Generate metadata (locks, schemas) for all scripts, flows, and apps
+
+**Arguments:** `[folder:string]`
+
+**Options:**
+- `--yes` - Skip confirmation prompt
+- `--dry-run` - Show what would be updated without making changes
+- `--lock-only` - Re-generate only the lock files
+- `--schema-only` - Re-generate only script schemas (skips flows and apps)
+- `--skip-scripts` - Skip processing scripts
+- `--skip-flows` - Skip processing flows
+- `--skip-apps` - Skip processing apps
+- `--strict-folder-boundaries` - Only update items inside the specified folder (requires folder argument)
+- `-i --includes <patterns:file[]>` - Comma separated patterns to specify which files to include
+- `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which files to exclude
 
 ### gitsync-settings
 
@@ -356,7 +383,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--extra-includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy
   - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo) when multiple repositories exist
   - `--promotion <branch:string>` - Use promotionOverrides from the specified branch instead of regular overrides
-  - `--branch <branch:string>` - Override the current git branch (works even outside a git repository)
+  - `--branch, --env <branch:string>` - Override the current git branch/environment (works even outside a git repository)
 - `sync push` - Push any local changes and apply them remotely.
   - `--yes` - Push without needing confirmation
   - `--dry-run` - Show changes that would be pushed without actually pushing
@@ -386,7 +413,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--message <message:string>` - Include a message that will be added to all scripts/flows/apps updated during this push
   - `--parallel <number>` - Number of changes to process in parallel
   - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo) when multiple repositories exist
-  - `--branch <branch:string>` - Override the current git branch (works even outside a git repository)
+  - `--branch, --env <branch:string>` - Override the current git branch/environment (works even outside a git repository)
   - `--lint` - Run lint validation before pushing
   - `--locks-required` - Fail if scripts or flow inline scripts that need locks have no locks
 
@@ -488,9 +515,9 @@ workspace related commands
 - `workspace list` - List local workspace profiles
 - `workspace list-remote` - List workspaces on the remote server that you have access to
 - `workspace bind` - Bind the current Git branch to the active workspace
-  - `--branch <branch:string>` - Specify branch (defaults to current)
+  - `--branch, --env <branch:string>` - Specify branch/environment (defaults to current)
 - `workspace unbind` - Remove workspace binding from the current Git branch
-  - `--branch <branch:string>` - Specify branch (defaults to current)
+  - `--branch, --env <branch:string>` - Specify branch/environment (defaults to current)
 - `workspace fork [workspace_name:string] [workspace_id:string]` - Create a forked workspace
   - `--create-workspace-name <workspace_name:string>` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
 - `workspace delete-fork <fork_name:string>` - Delete a forked workspace and git branch

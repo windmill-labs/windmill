@@ -344,8 +344,11 @@ pub async fn push_scheduled_job<'c>(
         .await?;
 
         let (debouncing_settings, concurrency_settings) =
-            windmill_common::runnable_settings::prefetch_cached_from_handle(runnable_settings_handle, db)
-                .await?;
+            windmill_common::runnable_settings::prefetch_cached_from_handle(
+                runnable_settings_handle,
+                db,
+            )
+            .await?;
 
         if schedule.retry.is_some() {
             let parsed_retry = serde_json::from_value::<Retry>(schedule.retry.clone().unwrap())
@@ -450,18 +453,20 @@ pub async fn push_scheduled_job<'c>(
                 .await?;
         }
         (
-            email,
+            email.clone(),
             username_to_permissioned_as(&created_by),
             None,
             is_windmill_user,
         )
     } else {
-        (
-            &schedule.email,
-            username_to_permissioned_as(&schedule.edited_by),
-            authed,
-            false,
+        let permissioned_as = schedule.permissioned_as.clone();
+        let resolved_email = windmill_common::users::get_email_from_permissioned_as(
+            &permissioned_as,
+            &schedule.workspace_id,
+            db,
         )
+        .await?;
+        (resolved_email, permissioned_as, authed, false)
     };
 
     let obo_authed;
@@ -470,7 +475,7 @@ pub async fn push_scheduled_job<'c>(
         None => {
             obo_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
                 &permissioned_as,
-                email,
+                &email,
                 &schedule.workspace_id,
                 &mut *tx,
             )
@@ -485,7 +490,7 @@ pub async fn push_scheduled_job<'c>(
             &db,
             &schedule.workspace_id,
             &tag,
-            email,
+            &email,
             None, // no token for schedules so no scopes so no scope_tags
         )
         .warn_after_seconds_with_sql(1, "check_tag_available_for_workspace_internal".to_string())
@@ -506,7 +511,7 @@ pub async fn push_scheduled_job<'c>(
         payload,
         crate::PushArgs { args: &args, extra: None },
         &schedule_to_user(&schedule.path),
-        email,
+        &email,
         permissioned_as,
         Some(&schedule.path),
         Some(next),

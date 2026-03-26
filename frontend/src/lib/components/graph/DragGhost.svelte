@@ -18,10 +18,6 @@
 	/** Offset so the cursor indicator icon doesn't overlap the cursor tip */
 	const CURSOR_INDICATOR_OFFSET = 8
 
-	function nodeOffset(n: Node): number {
-		return ((n.data as Record<string, unknown>)?.offset as number) ?? 0
-	}
-
 	function getSubflowNodesAndEdges(
 		moduleId: string,
 		allNodes: Node[],
@@ -46,7 +42,12 @@
 		return { x: n.position.x, y: n.position.y }
 	}
 
-	function computeGhost(moduleId: string, draggedNodeIds: Set<string>, allNodes: Node[], allEdges: Edge[]) {
+	function computeGhost(
+		moduleId: string,
+		draggedNodeIds: Set<string>,
+		allNodes: Node[],
+		allEdges: Edge[]
+	) {
 		// Use pre-computed draggedNodeIds when available (covers multi-select),
 		// otherwise fall back to single-module subflow computation.
 		let sfNodes: Node[]
@@ -68,7 +69,7 @@
 			maxY = -Infinity
 		for (const n of sfNodes) {
 			const abs = absolutePosition(n, allNodes)
-			const x = abs.x + nodeOffset(n)
+			const x = abs.x
 			const y = abs.y
 			const w = n.measured?.width ?? NODE.width
 			const h = n.measured?.height ?? NODE.height
@@ -90,7 +91,7 @@
 		let offsetY = containerHeight / 2
 		if (mainNode) {
 			const mainAbs = absolutePosition(mainNode, allNodes)
-			const mx = mainAbs.x + nodeOffset(mainNode) - minX + PADDING
+			const mx = mainAbs.x - minX + PADDING
 			const my = mainAbs.y - minY + PADDING
 			const mw = mainNode.measured?.width ?? NODE.width
 			const mh = mainNode.measured?.height ?? NODE.height
@@ -115,7 +116,15 @@
 			zoom: scale
 		}
 
-		return { containerWidth, containerHeight, ghostNodes, ghostEdges, offsetX, offsetY, initialViewport }
+		return {
+			containerWidth,
+			containerHeight,
+			ghostNodes,
+			ghostEdges,
+			offsetX,
+			offsetY,
+			initialViewport
+		}
 	}
 
 	let isNearDrop = $derived(moveManager.nearestDropZone != null)
@@ -132,7 +141,8 @@
 		class="fixed pointer-events-none z-[10001] flex items-center justify-center w-5 h-5 rounded-full shadow border border-border transition-colors duration-150 {isNearDrop
 			? 'bg-surface-accent-primary text-white'
 			: 'bg-surface text-secondary'}"
-		style="left: {moveManager.ghostScreenX + CURSOR_INDICATOR_OFFSET}px; top: {moveManager.ghostScreenY + CURSOR_INDICATOR_OFFSET}px;"
+		style="left: {moveManager.ghostScreenX +
+			CURSOR_INDICATOR_OFFSET}px; top: {moveManager.ghostScreenY + CURSOR_INDICATOR_OFFSET}px;"
 	>
 		<Move size={12} />
 	</div>

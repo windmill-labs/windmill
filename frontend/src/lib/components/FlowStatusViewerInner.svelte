@@ -9,11 +9,13 @@
 		type FlowModuleValue,
 		type FlowModule,
 		ResourceService,
-		type CompletedJob
+		type CompletedJob,
+		type WorkflowStatus
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import FlowJobResult from './FlowJobResult.svelte'
+	import WorkflowTimeline from './WorkflowTimeline.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 
 	import { getContext, setContext, tick, untrack } from 'svelte'
@@ -236,13 +238,28 @@
 	})
 
 	let jobResults: any[] = $state(
-		untrack(() => flowJobIds)?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
+		untrack(() => flowJobIds)?.flowJobs?.map(
+			(x, id) => `iter #${id + 1} not loaded by frontend yet`
+		) ?? []
 	)
+
+	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
+		if (!x || typeof x !== 'object') return {}
+		const result: Record<string, WorkflowStatus> = {}
+		for (const [k, v] of Object.entries(x)) {
+			if (!k.startsWith('_') || k.startsWith('_step/')) result[k] = v as WorkflowStatus
+		}
+		return result
+	}
+
+	function getStepResults(x: any): Record<string, any> {
+		return x?._checkpoint?.completed_steps ?? {}
+	}
 
 	let retry_selected = $state('')
 	let timeout: number | undefined = undefined
 
-	let expandedSubflows: Record<string, FlowModule[]> = $state({})
+	let expandedSubflows: Record<string, { modules: FlowModule[]; groups?: any[] }> = $state({})
 
 	let selectionManager = new SelectionManager()
 
@@ -671,10 +688,7 @@
 									}
 								})
 								.catch((e) => {
-									console.error(
-										`Could not load inner module duration status for job ${mod.job}`,
-										e
-									)
+									console.error(`Could not load inner module duration status for job ${mod.job}`, e)
 								})
 						}
 					} else {
@@ -881,7 +895,8 @@
 						tag: job.tag,
 						started_at,
 						parent_module: mod['parent_module'],
-						script_hash: job.script_hash
+						script_hash: job.script_hash,
+						workflow_as_code_status: job['workflow_as_code_status']
 					},
 					force
 				)
@@ -919,8 +934,8 @@
 						retries: mod?.failed_retries?.length,
 						skipped: mod.skipped,
 						agent_actions: mod.agent_actions,
-						script_hash: job.script_hash
-						// retries: flowStateStore?.raw_flow
+						script_hash: job.script_hash,
+						workflow_as_code_status: job['workflow_as_code_status']
 					},
 					force
 				)
@@ -1140,7 +1155,7 @@
 
 	function allModulesForTimeline(
 		modules: FlowModule[],
-		expandedSubflows: Record<string, FlowModule[]>
+		expandedSubflows: Record<string, { modules: FlowModule[]; groups?: any[] }>
 	): FlowModuleForTimeline[] {
 		const ids = dfs(modules, (x) => ({ id: x.id, type: x.value.type }) as FlowModuleForTimeline, {
 			skipToolNodes: true
@@ -1152,7 +1167,7 @@
 		): FlowModuleForTimeline[] {
 			return ids.concat(
 				ids.flatMap(({ id }) => {
-					let fms = expandedSubflows[id]
+					let fms = expandedSubflows[id]?.modules
 					let oid = id.split(':').pop()
 					if (!oid) {
 						return []
@@ -1888,6 +1903,7 @@
 									cache={job.raw_flow?.cache_ttl !== undefined}
 									modules={job.raw_flow?.modules ?? []}
 									notes={job.raw_flow?.notes ?? []}
+									groups={job.raw_flow?.groups}
 									failureModule={job.raw_flow?.failure_module}
 									preprocessorModule={job.raw_flow?.preprocessor_module}
 									allowSimplifiedPoll={false}
@@ -1980,7 +1996,9 @@
 												{#if job.args}
 													<JobArgs
 														id={isReplay ? undefined : job.id}
-														workspace={isReplay ? undefined : (job.workspace_id ?? $workspaceStore ?? 'no_w')}
+														workspace={isReplay
+															? undefined
+															: (job.workspace_id ?? $workspaceStore ?? 'no_w')}
 														args={job.args}
 													/>
 												{:else}
@@ -2050,8 +2068,25 @@
 																	<div class="text-xs text-emphasis font-semibold mb-1">Inputs</div>
 																	<JobArgs
 																		id={isReplay ? undefined : node.job_id}
-																		workspace={isReplay ? undefined : (job.workspace_id ?? $workspaceStore ?? 'no_w')}
+																		workspace={isReplay
+																			? undefined
+																			: (job.workspace_id ?? $workspaceStore ?? 'no_w')}
 																		args={node.args}
+																	/>
+																</div>
+															{/if}
+															{#if node.workflow_as_code_status}
+																<div>
+																	<div class="text-xs text-emphasis font-semibold mb-1"
+																		>Workflow timeline</div
+																	>
+																	<WorkflowTimeline
+																		flow_status={asWorkflowStatus(node.workflow_as_code_status)}
+																		flowDone={node.type === 'Success' || node.type === 'Failure'}
+																		stepResults={getStepResults(node.workflow_as_code_status)}
+																		result={node.result}
+																		success={node.type === 'Success'}
+																		jobId={node.job_id}
 																	/>
 																</div>
 															{/if}

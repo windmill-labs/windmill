@@ -3,6 +3,7 @@ name: "python run script"
 mode: ONCE
 hostname: "python"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 rlimit_as: 4096
 rlimit_cpu: 1000
@@ -84,6 +85,13 @@ mount {
     dst: "/tmp/args.json"
     is_bind: true
     rw: true
+}
+
+mount {
+    src: "{JOB_DIR}/checkpoint.json"
+    dst: "/tmp/checkpoint.json"
+    is_bind: true
+    mandatory: false
 }
 
 mount {

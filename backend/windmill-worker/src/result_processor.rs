@@ -16,6 +16,10 @@ use windmill_common::otel_oss::FutureExt;
 
 use uuid::Uuid;
 
+/// Set by the result processor when a WAC child completion makes suspend reach 0,
+/// signaling the worker main loop to check for suspended jobs immediately.
+pub static WAC_SUSPEND_READY: AtomicBool = AtomicBool::new(false);
+
 use windmill_common::{
     add_time,
     error::{self, Error},
@@ -422,11 +426,14 @@ pub fn start_background_processor(
 }
 
 async fn send_job_completed(job_completed_tx: JobCompletedSender, jc: JobCompleted) {
-    job_completed_tx
+    if let Err(e) = job_completed_tx
         .send_job(jc, true)
         .with_context(windmill_common::otel_oss::otel_ctx())
         .await
-        .expect("send job completed")
+    {
+        tracing::error!("send job completed failed, triggering worker shutdown: {e:#}");
+        job_completed_tx.send_worker_killpill();
+    }
 }
 
 pub async fn process_result(
@@ -665,7 +672,7 @@ pub async fn process_completed_job(
 
         add_time!(bench, "pre add_completed_job");
 
-        let (_, duration) = add_completed_job(
+        let (_, duration, wac_job_ids) = add_completed_job(
             db,
             &job,
             true,
@@ -716,6 +723,29 @@ pub async fn process_completed_job(
                         .expect("done receiver should still be alive");
                 }
                 return Ok(r);
+            }
+        } else if let Some(parent_job) = parent_job {
+            // wac_job_ids is piggybacked from the duration write in
+            // add_completed_job — no extra query needed.
+            if let Some(job_ids) = wac_job_ids {
+                if let Ok(Some(_)) = handle_wac_child_completion(
+                    db,
+                    &job_id,
+                    parent_job,
+                    &workspace_id,
+                    result,
+                    true,
+                    job_ids,
+                )
+                .await
+                {
+                    if let Some(done_tx) = done_tx {
+                        done_tx
+                            .send(())
+                            .expect("done receiver should still be alive");
+                    }
+                    return Ok(None);
+                }
             }
         }
     } else {
@@ -770,9 +800,228 @@ pub async fn process_completed_job(
                 }
                 return Ok(r);
             }
+        } else if let Some(parent_job) = job.parent_job {
+            // WAC child failed — query job_ids from parent (errors are rare,
+            // so the extra read is acceptable here).
+            let job_ids_json: Option<Option<Value>> = sqlx::query_scalar(
+                "SELECT workflow_as_code_status->'_checkpoint'->'pending_steps'->'job_ids' \
+                 FROM v2_job_status WHERE id = $1",
+            )
+            .bind(&parent_job)
+            .fetch_optional(db)
+            .await?;
+            if let Some(Some(job_ids)) = job_ids_json {
+                let err_result = Arc::new(serde_json::value::to_raw_value(&result).unwrap());
+                if let Ok(Some(_)) = handle_wac_child_completion(
+                    db,
+                    &job.id,
+                    parent_job,
+                    &job.workspace_id,
+                    err_result,
+                    false,
+                    job_ids,
+                )
+                .await
+                {
+                    if let Some(done_tx) = done_tx {
+                        done_tx
+                            .send(())
+                            .expect("done receiver should still be alive");
+                    }
+                    return Ok(None);
+                }
+            }
         }
     }
     return Ok(None);
+}
+
+/// Handle a WAC v2 child job completion.
+/// Returns Ok(Some(())) if the parent was a WAC job and was handled,
+/// Ok(None) if the parent is not a WAC job (caller should fall through).
+///
+/// CONCURRENCY: Multiple parallel children may complete simultaneously on
+/// different workers.  We use atomic SQL operations throughout:
+///   - `completed_steps` is merged via `jsonb_set(... || jsonb_build_object(...))`
+///     — PostgreSQL serialises concurrent UPDATEs on the same row, so each
+///     worker sees the previous worker's writes.
+///   - The suspend counter (set to N at dispatch time) is decremented atomically
+///     with `RETURNING` to determine the "all done" condition.
+pub(crate) async fn handle_wac_child_completion(
+    db: &DB,
+    child_job_id: &Uuid,
+    parent_job_id: Uuid,
+    workspace_id: &str,
+    result: Arc<Box<RawValue>>,
+    success: bool,
+    job_ids_value: Value,
+) -> error::Result<Option<()>> {
+    let job_ids = match job_ids_value {
+        Value::Object(m) => m,
+        _ => return Ok(None), // Not a WAC parent or no pending steps
+    };
+
+    let child_id_str = child_job_id.to_string();
+    let step_key = job_ids.iter().find_map(|(key, val)| {
+        if val.as_str() == Some(&child_id_str) {
+            Some(key.clone())
+        } else {
+            None
+        }
+    });
+
+    let step_key = match step_key {
+        Some(k) => k,
+        None => {
+            if !success {
+                // No step key and failed — can't store error, fail parent immediately
+                tracing::error!(
+                    parent_job = %parent_job_id,
+                    child_job = %child_job_id,
+                    "WAC v2 child job failed but no step key found, failing parent"
+                );
+                sqlx::query!(
+                    "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE id = $1",
+                    parent_job_id,
+                )
+                .execute(db)
+                .await?;
+                let parent_mini = get_mini_completed_job(&parent_job_id, workspace_id, db).await?;
+                if let Some(parent_mini) = parent_mini {
+                    let child_err: Value =
+                        serde_json::from_str(result.get()).unwrap_or(Value::Null);
+                    let err_value = json!({
+                        "message": format!("WAC child job {} failed (no step key)", child_job_id),
+                        "error": child_err,
+                    });
+                    let _ = windmill_queue::add_completed_job_error(
+                        db,
+                        &parent_mini,
+                        0,
+                        None,
+                        err_value,
+                        "wac_child_handler",
+                        false,
+                        None,
+                    )
+                    .await;
+                }
+                return Ok(Some(()));
+            }
+            tracing::warn!(
+                parent_job = %parent_job_id,
+                child_job = %child_job_id,
+                "WAC v2 child completed but no matching step key found in checkpoint, decrementing suspend to avoid parent hang"
+            );
+            // Still decrement suspend so the parent doesn't hang indefinitely
+            let _ = sqlx::query_scalar!(
+                "UPDATE v2_job_queue \
+                 SET suspend = GREATEST(suspend - 1, 0) \
+                 WHERE id = $1 \
+                 RETURNING suspend",
+                parent_job_id,
+            )
+            .fetch_optional(db)
+            .await?;
+            return Ok(Some(()));
+        }
+    };
+
+    // Build result — wrap errors with _error marker so workflow try/catch can handle them
+    let result_value: Value = if success {
+        serde_json::from_str(result.get()).unwrap_or(Value::Null)
+    } else {
+        let child_err: Value = serde_json::from_str(result.get()).unwrap_or(Value::Null);
+        tracing::info!(
+            parent_job = %parent_job_id,
+            child_job = %child_job_id,
+            step_key = %step_key,
+            "WAC v2 child job failed, storing error for workflow try/catch"
+        );
+        json!({
+            "__wmill_error": true,
+            "message": format!("WAC task '{}' failed (child job {})", step_key, child_job_id),
+            "child_job_id": child_job_id.to_string(),
+            "step_key": step_key,
+            "result": child_err,
+        })
+    };
+
+    tracing::info!(
+        parent_job = %parent_job_id,
+        child_job = %child_job_id,
+        step_key = %step_key,
+        success = success,
+        "WAC v2 child job completed"
+    );
+
+    // Use a transaction to ensure completed_steps merge + suspend decrement
+    // are atomic.  Without this, a crash between the two could strand the parent.
+    let result_json = serde_json::to_value(&result_value)
+        .map_err(|e| error::Error::InternalErr(format!("Failed to serialize step result: {e}")))?;
+
+    let mut tx = db.begin().await?;
+
+    // Merge the completed step into the checkpoint.
+    // Uses `|| jsonb_build_object(key, value)` so concurrent children on
+    // different workers don't overwrite each other — PostgreSQL serialises
+    // concurrent UPDATEs on the same row and each sees the previous write.
+    sqlx::query(
+        "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+            workflow_as_code_status,
+            '{_checkpoint,completed_steps}',
+            COALESCE(workflow_as_code_status->'_checkpoint'->'completed_steps', '{}'::jsonb)
+            || jsonb_build_object($2::text, $3::jsonb)
+        ) WHERE id = $1",
+    )
+    .bind(&parent_job_id)
+    .bind(&step_key)
+    .bind(&result_json)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| error::Error::InternalErr(format!("Failed to add WAC completed step: {e}")))?;
+
+    // Decrement the suspend counter.  The counter was set to N (number of
+    // children) at dispatch time.  When it reaches 0 all children are done.
+    // Keep suspend_until non-null so the suspended pull query
+    // (`WHERE suspend_until IS NOT NULL AND suspend <= 0`) picks up the parent.
+    let new_suspend: Option<i32> = sqlx::query_scalar!(
+        "UPDATE v2_job_queue \
+         SET suspend = GREATEST(suspend - 1, 0) \
+         WHERE id = $1 \
+         RETURNING suspend",
+        parent_job_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let all_done = new_suspend == Some(0);
+
+    if all_done {
+        // Clear pending_steps from checkpoint since all children are complete.
+        // This is cosmetic — the next replay will overwrite it anyway — but
+        // keeps the checkpoint clean for frontend display.
+        let _ = sqlx::query(
+            "UPDATE v2_job_status SET workflow_as_code_status = \
+             workflow_as_code_status #- '{_checkpoint,pending_steps}' \
+             WHERE id = $1",
+        )
+        .bind(&parent_job_id)
+        .execute(&mut *tx)
+        .await;
+    }
+
+    tx.commit().await?;
+
+    if all_done {
+        tracing::info!(
+            parent_job = %parent_job_id,
+            "WAC v2 all child jobs completed, unsuspending parent"
+        );
+        WAC_SUSPEND_READY.store(true, Ordering::Relaxed);
+    }
+
+    Ok(Some(()))
 }
 
 pub async fn handle_non_flow_job_error(

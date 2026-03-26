@@ -133,21 +133,12 @@ async fn list_variables(
         ])
         .left()
         .join("account")
-        .on(&format!(
-            "variable.account = account.id AND account.workspace_id = '{}'",
-            w_id
-        ))
+        .on("variable.account = account.id AND account.workspace_id = ?".bind(&w_id))
         .left()
         .join("resource")
-        .on(&format!(
-            "resource.path = variable.path AND resource.workspace_id = '{}'",
-            w_id
-        ))
+        .on("resource.path = variable.path AND resource.workspace_id = ?".bind(&w_id))
         .and_where("variable.workspace_id = ?".bind(&w_id))
-        .and_where(&format!(
-            "variable.path NOT LIKE 'u/' || '{}' || '/secret_arg/%'",
-            authed.username
-        ))
+        .and_where("variable.path NOT LIKE 'u/' || ? || '/secret_arg/%'".bind(&authed.username))
         .order_by("path", false)
         .limit(per_page)
         .offset(offset)
@@ -414,7 +405,7 @@ async fn create_variable(
         .await?;
         if nb_variables.unwrap_or(0) >= 10000 {
             return Err(Error::BadRequest(
-                    "You have reached the maximum number of variables (10000) on cloud. Contact support@windmill.dev to increase the limit"
+                    "You have reached the maximum number of variables (10000) on cloud. Check your usage in Workspace Settings > General > Cloud Quotas. Contact support@windmill.dev to increase the limit"
                         .to_string(),
                 ));
         }
@@ -536,12 +527,12 @@ async fn delete_variable(
     )
     .execute(&mut *tx)
     .await?;
-    sqlx::query!(
-        "DELETE FROM resource WHERE path = $1 AND workspace_id = $2",
+    let deleted_linked_resource = sqlx::query_scalar!(
+        "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
         path,
         w_id
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
     audit_log(
         &mut *tx,
@@ -575,8 +566,33 @@ async fn delete_variable(
 
     webhook.send_message(
         w_id.clone(),
-        WebhookMessage::DeleteVariable { workspace: w_id, path: path.to_owned() },
+        WebhookMessage::DeleteVariable { workspace: w_id.clone(), path: path.to_owned() },
     );
+
+    if deleted_linked_resource.is_some() {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::Resource {
+                path: path.to_string(),
+                parent_path: Some(path.to_string()),
+            },
+            Some(format!(
+                "Resource '{}' deleted (linked variable deleted)",
+                path
+            )),
+            true,
+            None,
+        )
+        .await?;
+
+        webhook.send_message(
+            w_id.clone(),
+            WebhookMessage::DeleteResource { workspace: w_id, path: path.to_owned() },
+        );
+    }
 
     Ok(format!("variable {} deleted", path))
 }

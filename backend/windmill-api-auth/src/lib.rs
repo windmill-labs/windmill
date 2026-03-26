@@ -18,7 +18,10 @@ use http::request::Parts;
 
 use windmill_audit::audit_oss::AuditAuthorable;
 use windmill_common::{
-    auth::{fetch_authed_from_permissioned_as, is_devops_email, is_super_admin_email},
+    auth::{
+        fetch_authed_from_permissioned_as, hash_token, is_devops_email, is_super_admin_email,
+        TOKEN_PREFIX_LEN,
+    },
     db::{Authable, Authed, AuthedRef},
     error::{self, Error, Result},
     users::username_to_permissioned_as,
@@ -511,9 +514,20 @@ pub async fn create_token_internal(
 ) -> Result<String> {
     use tracing::Instrument;
     use windmill_audit::{audit_oss::audit_log, ActionKind};
-    use windmill_common::{utils::rd_string, worker::CLOUD_HOSTED};
+    use windmill_common::{
+        min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH, utils::rd_string, worker::CLOUD_HOSTED,
+    };
 
     let token = rd_string(32);
+    let t_hash = hash_token(&token);
+    let t_prefix = token.get(..TOKEN_PREFIX_LEN).unwrap_or(&token);
+
+    // Write plaintext token column until all workers support hash-based lookup
+    let plaintext: Option<&str> = if MIN_VERSION_SUPPORTS_TOKEN_HASH.met().await {
+        None
+    } else {
+        Some(&token)
+    };
 
     let is_super_admin = sqlx::query_scalar!(
         "SELECT super_admin FROM password WHERE email = $1",
@@ -536,12 +550,14 @@ pub async fn create_token_internal(
     }
     let rows = sqlx::query!(
         "INSERT INTO token
-            (token, email, label, expiration, super_admin, scopes, workspace_id)
-            SELECT $1, $2, $3, $4, $5, $6, $7
-            WHERE $7::varchar IS NULL OR NOT EXISTS(
-                SELECT 1 FROM workspace WHERE id = $7 AND deleted = true
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
+            WHERE $9::varchar IS NULL OR NOT EXISTS(
+                SELECT 1 FROM workspace WHERE id = $9 AND deleted = true
             )",
-        token,
+        t_hash,
+        t_prefix,
+        plaintext as Option<&str>,
         authed.email,
         token_config.label,
         token_config.expiration,
@@ -559,7 +575,7 @@ pub async fn create_token_internal(
 
     register_token_expiry_notification(
         &mut *tx,
-        &token,
+        &t_hash,
         token_config.label.as_deref(),
         token_config.expiration,
     )
@@ -571,7 +587,7 @@ pub async fn create_token_internal(
         "users.token.create",
         ActionKind::Create,
         &"global",
-        Some(&token[0..10]),
+        Some(t_prefix),
         None,
     )
     .instrument(tracing::info_span!("token", email = &authed.email))
@@ -581,21 +597,31 @@ pub async fn create_token_internal(
 }
 
 /// Insert a pending expiry notification row for user tokens that have an expiration.
+/// Stores the token_hash so the join in check_expiring_tokens works even when
+/// the plaintext token column is NULL (after hash migration).
+/// When updating this filter, also update:
+/// - `is_user_token` in src/monitor.rs
+/// - `isUserToken` in frontend/src/lib/components/settings/TokensTable.svelte
 pub async fn register_token_expiry_notification(
     tx: &mut sqlx::PgConnection,
-    token: &str,
+    token_hash: &str,
     label: Option<&str>,
     expiration: Option<chrono::DateTime<chrono::Utc>>,
 ) {
     let Some(expiration) = expiration else { return };
     if label == Some("session")
-        || label.is_some_and(|l| l.starts_with("ephemeral") || l.starts_with("Ephemeral"))
+        || label.is_some_and(|l| {
+            l.starts_with("ephemeral")
+                || l.starts_with("Ephemeral")
+                || l == "debugger-token"
+                || l.starts_with("mcp-oauth-")
+        })
     {
         return;
     }
     if let Err(e) = sqlx::query!(
-        "INSERT INTO token_expiry_notification (token, expiration) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        token,
+        "INSERT INTO token_expiry_notification (token_hash, expiration) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        token_hash,
         expiration,
     )
     .execute(&mut *tx)

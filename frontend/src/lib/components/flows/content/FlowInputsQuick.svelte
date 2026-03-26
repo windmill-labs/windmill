@@ -491,7 +491,7 @@
 			{/await}
 			<div class="pb-1"></div>
 		{/if}
-		{#if selectedKind === 'script' && preFilter === 'all' && !selected}
+		{#if selectedKind === 'script' && preFilter === 'all' && !selected && customUi?.aiSandbox != false}
 			<div class="pb-0 text-2xs font-normal text-secondary ml-2">AI Sandbox</div>
 			<FlowScriptPickerQuick
 				eeRestricted={false}

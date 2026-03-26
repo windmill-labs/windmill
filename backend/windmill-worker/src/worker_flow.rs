@@ -286,15 +286,20 @@ struct RecoveryObject {
 
 fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<String>) {
     if let Some(stop_after_if) = stop_after_if {
+        // skip_if_stopped and error_message are mutually exclusive:
+        // skip_if_stopped=true means clean stop (mark remaining as skipped),
+        // error_message means stop with error. skip_if_stopped takes precedence.
+        if stop_after_if.skip_if_stopped {
+            return (true, None);
+        }
         let err_msg = stop_after_if.error_message.as_ref().and_then(|message| {
-            let s = if message.is_empty() {
-                format!("stop after if: {}", stop_after_if.expr)
+            if message.is_empty() {
+                Some(format!("stop after if: {}", stop_after_if.expr))
             } else {
-                message.clone()
-            };
-            Some(s)
+                Some(message.clone())
+            }
         });
-        return (stop_after_if.skip_if_stopped, err_msg);
+        return (false, err_msg);
     }
     return (false, None);
 }
@@ -865,7 +870,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .and_then(|x| x.stop_after_all_iters_if.as_ref())
                     {
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
-                        evaluate_stop_after_all_iters_if(
+                        if let Err(e) = evaluate_stop_after_all_iters_if(
                             db,
                             stop_after_all_iters_if,
                             module_status,
@@ -879,7 +884,16 @@ pub async fn update_flow_status_after_job_completion_internal(
                             flow,
                             &old_status,
                         )
-                        .await?;
+                        .await
+                        {
+                            tracing::error!("error evaluating stop_after_all_iters_if: {e:#}");
+                            stop_early = true;
+                            skip_if_stop_early = false;
+                            stop_early_err_msg = Some(format!(
+                                "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
+                                stop_after_all_iters_if.expr
+                            ));
+                        }
                     }
 
                     let new_status = if
@@ -1074,7 +1088,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     {
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
 
-                        evaluate_stop_after_all_iters_if(
+                        if let Err(e) = evaluate_stop_after_all_iters_if(
                             db,
                             stop_after_all_iters_if,
                             module_status,
@@ -1088,7 +1102,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                             flow,
                             &old_status,
                         )
-                        .await?;
+                        .await
+                        {
+                            stop_early = true;
+                            skip_if_stop_early = false;
+                            stop_early_err_msg = Some(format!(
+                                "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
+                                stop_after_all_iters_if.expr
+                            ));
+                        }
                     }
                 }
 
@@ -1436,10 +1458,12 @@ pub async fn update_flow_status_after_job_completion_internal(
                 }
             };
 
-            // When debouncing is applied, store the flow's debouncing settings in
-            // the runnable_settings_handle so that maybe_apply_debouncing can find
-            // them after re-pull and perform argument accumulation.
-            let new_runnable_settings_handle: Option<i64> = if scheduled_for.is_some() {
+            // Store the flow's debouncing settings in the runnable_settings_handle
+            // so that maybe_apply_debouncing can find them after pull and perform
+            // argument accumulation. This is needed both when debounced (CanDebounce)
+            // and when firing immediately (MaxCountExceeded), since accumulation
+            // happens at pull time in both cases.
+            let new_runnable_settings_handle: Option<i64> = if has_debouncing {
                 let debouncing_hash = flow_value
                     .debouncing_settings
                     .insert_cached(db)
@@ -1705,8 +1729,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 chat_ai_info.conversation_id,
             )
             .await?;
-            let duration = if success {
-                let (_, duration) = add_completed_job(
+            let (duration, wac_job_ids) = if success {
+                let (_, duration, wac_job_ids) = add_completed_job(
                     db,
                     &cflow_job,
                     true,
@@ -1720,9 +1744,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                duration
+                (duration, wac_job_ids)
             } else {
-                let (_, duration) = add_completed_job(
+                let (_, duration, wac_job_ids) = add_completed_job(
                     db,
                     &cflow_job,
                     false,
@@ -1740,11 +1764,30 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                duration
+                (duration, wac_job_ids)
             };
             flow_job_duration = flow_job
                 .started_at
                 .map(|x| FlowJobDuration { started_at: x, duration_ms: duration });
+
+            // If this flow is a WAC child (not a flow step, has parent),
+            // notify the WAC parent of completion.
+            if !flow_job.is_flow_step() {
+                if let Some(parent_job) = flow_job.parent_job {
+                    if let Some(job_ids) = wac_job_ids {
+                        let _ = crate::result_processor::handle_wac_child_completion(
+                            db,
+                            &flow_job.id,
+                            parent_job,
+                            &flow_job.workspace_id,
+                            nresult.clone(),
+                            success,
+                            job_ids,
+                        )
+                        .await;
+                    }
+                }
+            }
         }
         true
     } else {
@@ -3644,6 +3687,34 @@ async fn push_next_flow_job(
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
+        // Apply flow node debouncing if configured. Skip parallel steps (for-loops, branchall)
+        // where len > 1 — debouncing those would cancel sibling sub-jobs within the same run.
+        #[cfg(feature = "private")]
+        if len == 1 {
+            if let Some(ref debouncing) = module.debouncing {
+                if debouncing.debounce_delay_s.is_some_and(|d| d > 0) {
+                    let debounce_args = if let Ok(ref v) = nargs {
+                        windmill_queue::PushArgs::from(v.as_ref())
+                    } else {
+                        windmill_queue::PushArgs::from(&*EHM)
+                    };
+                    let flow_path = flow_job.runnable_path().to_string();
+                    windmill_queue::jobs_ee::maybe_debounce_flow_node(
+                        debouncing,
+                        uuid,
+                        flow_job.id,
+                        &flow_path,
+                        &module.id,
+                        &flow_job.workspace_id,
+                        &debounce_args,
+                        &mut inner_tx,
+                        &db,
+                    )
+                    .await?;
+                }
+            }
+        }
+
         if value_with_parallel.type_ == "forloopflow"
             && value_with_parallel.parallel.unwrap_or(false)
         {
@@ -4997,6 +5068,7 @@ pub fn raw_script_to_payload(
             concurrency_settings,
             // TODO: Should this have debouncing?
             debouncing_settings: DebouncingSettings::default(),
+            modules: None,
         }),
         tag,
         delete_after_use,
