@@ -71,7 +71,8 @@
 
 	let previousVersionId: number | undefined = $state(undefined)
 	let previousFlow: PreviousFlow | undefined = $state(undefined)
-	if (selectedTab === undefined) {
+	const tabControlledExternally = selectedTab !== undefined
+	if (!tabControlledExternally) {
 		selectedTab = initTab ?? 'diff'
 	}
 
@@ -104,7 +105,7 @@
 	})
 
 	$effect.pre(() => {
-		if (initTab) {
+		if (initTab || tabControlledExternally) {
 			return
 		}
 		if (availableVersions && availableVersions.length > 0) {
