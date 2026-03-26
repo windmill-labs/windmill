@@ -2300,7 +2300,7 @@ async fn delete_script_by_path(
             path,
             w_id
         )
-        .execute(&db)
+        .execute(&mut *tx)
         .await?;
 
         sqlx::query!(
@@ -2308,7 +2308,7 @@ async fn delete_script_by_path(
             path,
             w_id
         )
-        .execute(&db)
+        .execute(&mut *tx)
         .await?;
     }
 
