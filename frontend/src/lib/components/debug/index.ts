@@ -61,6 +61,7 @@ export {
 export {
 	fetchContextualVariables,
 	signDebugRequest,
+	signMultiplayerRequest,
 	getDebugErrorMessage,
 	isDebuggableLanguage,
 	getDebugFileExtension

@@ -10,6 +10,7 @@ import {
 	createGetRunnableDetailsTool,
 	type Tool
 } from '../shared'
+import { getDatatableSdkReference } from '$system_prompts'
 import { aiChatManager } from '../AIChatManager.svelte'
 import type {
 	ContextElement,
@@ -842,38 +843,30 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 
 Backend runnables should only perform **data operations** (SELECT, INSERT, UPDATE, DELETE) on **existing tables**. Never use CREATE TABLE, DROP TABLE, or ALTER TABLE inside runnables.
 
-**TypeScript (Bun)**:
+**TypeScript (Bun) example**:
 \`\`\`typescript
 import * as wmill from 'windmill-client';
 
 export async function main(user_id: string) {
   const sql = ${datatableCall};
-
-  // Safe string interpolation (parameterized query)
   const user = await sql\`SELECT * FROM ${schemaPrefix}users WHERE id = \${user_id}\`.fetchOne();
   return user;
 }
 \`\`\`
 
-**Python**:
+**Python example**:
 \`\`\`python
 import wmill
 
 def main(user_id: str):
     db = ${datatableCall}
-
-    # Use positional arguments ($1, $2, etc.)
     user = db.query('SELECT * FROM ${schemaPrefix}users WHERE id = $1', user_id).fetch_one()
     return user
 \`\`\`
 
-### Common Operations (for use in backend runnables)
+### Datatable Client API Reference
 
-- **Fetch all**: \`sql\`SELECT * FROM ${schemaPrefix}table\`.fetch()\` or \`db.query('SELECT * FROM ${schemaPrefix}table').fetch()\`
-- **Fetch one**: \`.fetchOne()\` or \`.fetch_one()\`
-- **Insert**: \`sql\`INSERT INTO ${schemaPrefix}table (col) VALUES (\${value})\`\`
-- **Update**: \`sql\`UPDATE ${schemaPrefix}table SET col = \${value} WHERE id = \${id}\`\`
-- **Delete**: \`sql\`DELETE FROM ${schemaPrefix}table WHERE id = \${id}\`\`
+${getDatatableSdkReference()}
 
 ### Schema Modifications (DDL) - Use exec_datatable_sql tool ONLY
 

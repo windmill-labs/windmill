@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { HttpTriggerService, type EditHttpTrigger, type HttpTrigger, type NewHttpTrigger } from '$lib/gen'
+	import {
+		HttpTriggerService,
+		SettingService,
+		type EditHttpTrigger,
+		type HttpTrigger,
+		type NewHttpTrigger
+	} from '$lib/gen'
 	import { Pen, Save } from 'lucide-svelte'
 	import Button from '../../common/button/Button.svelte'
 	import ToggleButton from '../../common/toggleButton-v2/ToggleButton.svelte'
@@ -23,6 +29,19 @@
 	}
 
 	let { closeFn }: Props = $props()
+
+	let globalHttpWorkspacedRoute = $state(false)
+
+	async function loadGlobalHttpWorkspacedRouteSetting() {
+		try {
+			const setting = await SettingService.getGlobal({ key: 'http_route_workspaced_route' })
+			globalHttpWorkspacedRoute = (setting as boolean) ?? false
+		} catch {
+			globalHttpWorkspacedRoute = false
+		}
+	}
+
+	loadGlobalHttpWorkspacedRouteSetting()
 
 	let routeEditor: RouteEditor
 	let routesGenerator: Drawer
@@ -288,7 +307,7 @@
 								<div>
 									<div class="text-primary">
 										{httpTrigger.http_method.toUpperCase()}
-										{isCloudHosted() || httpTrigger.workspaced_route
+										{isCloudHosted() || httpTrigger.workspaced_route || globalHttpWorkspacedRoute
 											? $workspaceStore! + '/' + httpTrigger.route_path
 											: httpTrigger.route_path}
 									</div>
