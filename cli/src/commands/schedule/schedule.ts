@@ -119,14 +119,14 @@ export async function pushSchedule(
   }
 
   // Build preserve flags for permissioned_as
-  const preserveFields: { email?: string; preserve_email?: boolean } = {};
+  const preserveFields: { permissioned_as?: string; preserve_permissioned_as?: boolean } = {};
   if (permissionedAsContext?.userIsAdminOrDeployer) {
     if (schedule) {
-      // Updating: preserve the remote's edited_by (username)
-      preserveFields.preserve_email = true;
-      if ((schedule as Schedule).edited_by) {
-        preserveFields.email = (schedule as Schedule).edited_by;
-        log.info(`Preserving ${(schedule as Schedule).edited_by} as permissioned_as for schedule ${path}`);
+      // Updating: preserve the remote's permissioned_as (u/username format)
+      preserveFields.preserve_permissioned_as = true;
+      if ((schedule as Schedule).permissioned_as) {
+        preserveFields.permissioned_as = (schedule as Schedule).permissioned_as;
+        log.info(`Preserving ${(schedule as Schedule).permissioned_as} as permissioned_as for schedule ${path}`);
       }
     } else {
       // Creating: apply defaultPermissionedAs rule if one matches
@@ -140,8 +140,8 @@ export async function pushSchedule(
           rule.email,
           permissionedAsContext.emailToUsernameCache
         );
-        preserveFields.email = username;
-        preserveFields.preserve_email = true;
+        preserveFields.permissioned_as = `u/${username}`;
+        preserveFields.preserve_permissioned_as = true;
         log.info(`Setting schedule ${path} to run permissioned as ${rule.email} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
       }
     }
@@ -242,8 +242,8 @@ async function setPermissionedAs(
     workspace: workspace.workspaceId,
     path: schedulePath,
     requestBody: {
-      email: username,
-      preserve_email: true,
+      permissioned_as: `u/${username}`,
+      preserve_permissioned_as: true,
     } as any,
   });
   log.info(

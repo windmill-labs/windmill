@@ -60,6 +60,7 @@ type TriggerFile<K extends TriggerType> = Omit<
   | "workspace"
   | "edited_by"
   | "edited_at"
+  | "permissioned_as"
   | "error"
   | "last_server_ping"
   | "server_id"
@@ -168,14 +169,14 @@ export async function pushTrigger<K extends TriggerType>(
   }
 
   // Build preserve flags for permissioned_as
-  const preserveFields: { email?: string; preserve_email?: boolean } = {};
+  const preserveFields: { permissioned_as?: string; preserve_permissioned_as?: boolean } = {};
   if (permissionedAsContext?.userIsAdminOrDeployer) {
     if (trigger) {
-      // Updating: preserve the remote's edited_by (username)
-      preserveFields.preserve_email = true;
-      if ((trigger as any).edited_by) {
-        preserveFields.email = (trigger as any).edited_by;
-        log.info(`Preserving ${(trigger as any).edited_by} as permissioned_as for trigger ${path}`);
+      // Updating: preserve the remote's permissioned_as (u/username format)
+      preserveFields.preserve_permissioned_as = true;
+      if ((trigger as any).permissioned_as) {
+        preserveFields.permissioned_as = (trigger as any).permissioned_as;
+        log.info(`Preserving ${(trigger as any).permissioned_as} as permissioned_as for trigger ${path}`);
       }
     } else {
       // Creating: apply defaultPermissionedAs rule if one matches
@@ -189,8 +190,8 @@ export async function pushTrigger<K extends TriggerType>(
           rule.email,
           permissionedAsContext.emailToUsernameCache
         );
-        preserveFields.email = username;
-        preserveFields.preserve_email = true;
+        preserveFields.permissioned_as = `u/${username}`;
+        preserveFields.preserve_permissioned_as = true;
         log.info(`Setting trigger ${path} to run permissioned as ${rule.email} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
       }
     }
@@ -630,8 +631,8 @@ async function setPermissionedAs(
   );
 
   await updateTrigger(opts.kind, workspace.workspaceId, triggerPath, {
-    email: username,
-    preserve_email: true,
+    permissioned_as: `u/${username}`,
+    preserve_permissioned_as: true,
     path: triggerPath,
   } as any);
   log.info(
