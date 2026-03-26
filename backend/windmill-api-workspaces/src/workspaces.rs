@@ -79,6 +79,7 @@ pub fn workspaced_service() -> Router {
         .route("/rebuild_dependency_map", post(rebuild_dependency_map))
         .route("/get_dependency_map", get(get_dependency_map))
         .route("/get_dependents/*imported_path", get(get_dependents))
+        .route("/get_imports/*importer_path", get(get_imports))
         .route("/get_dependents_amounts", post(get_dependents_amounts))
         .route("/get_settings", get(get_settings))
         .route(
@@ -4356,6 +4357,30 @@ async fn get_dependents(
     );
 
     Ok(Json(dependents))
+}
+
+async fn get_imports(
+    Extension(db): Extension<DB>,
+    Path((w_id, importer_path)): Path<(String, String)>,
+    _authed: ApiAuthed,
+) -> JsonResult<Vec<String>> {
+    tracing::debug!(
+        workspace_id = %w_id,
+        importer_path = %importer_path,
+        "API: Getting imports for importer path"
+    );
+
+    let imports = ScopedDependencyMap::get_imports(&importer_path, &w_id, &db).await?;
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        importer_path = %importer_path,
+        imports_count = imports.len(),
+        "API: Found imports: {:?}",
+        imports
+    );
+
+    Ok(Json(imports))
 }
 
 #[derive(Serialize, Debug)]
