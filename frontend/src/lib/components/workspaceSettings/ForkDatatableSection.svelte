@@ -251,19 +251,12 @@
 {#if cloneModalOpen && currentCloneJob}
 	<ConfirmationModal
 		title="Clone datatable: {currentCloneJob.name}"
-		confirmationText={cloneRunning
-			? 'Running...'
-			: currentCloneJob.steps.every((s) => s.status === 'done')
-				? 'Next'
-				: 'Start'}
+		confirmationText={cloneRunning ? 'Running...' : 'Start'}
 		open={cloneModalOpen}
 		loading={cloneRunning}
 		onConfirmed={async () => {
-			if (currentCloneJob!.steps.every((s) => s.status === 'done')) {
-				advanceCloneQueue()
-			} else {
-				await executeCloneJob(currentCloneJob!)
-			}
+			await executeCloneJob(currentCloneJob!)
+			advanceCloneQueue()
 		}}
 		onCanceled={() => {
 			cloneModalOpen = false
