@@ -6,6 +6,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 	import { AppService, HelpersService } from '$lib/gen'
+	import { OpenAPI } from '$lib/gen/core/OpenAPI'
 	import { writable, type Writable } from 'svelte/store'
 	import { Ban, CheckCheck, FileWarning, Files, RefreshCcw, Trash, XIcon } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -92,7 +93,7 @@
 
 	let initialS3 = $derived(
 		Array.isArray(initialValue)
-			? initialValue?.map((v) => v.s3)
+			? initialValue?.filter((v) => v != null).map((v) => v.s3)
 			: initialValue?.s3
 				? [initialValue?.s3]
 				: undefined
@@ -112,7 +113,7 @@
 				if (!$fileUploads.find((fileUpload) => fileUpload.path === s3)) {
 					let initialFileUploads = initialValue
 						? Array.isArray(initialValue)
-							? initialValue.map(transform)
+							? initialValue.filter((v) => v != null).map(transform)
 							: [transform(initialValue)]
 						: []
 					$fileUploads = [...$fileUploads, ...initialFileUploads]
@@ -334,6 +335,9 @@
 					true
 				)
 				xhr?.setRequestHeader('Content-Type', 'application/octet-stream')
+				if (OpenAPI.TOKEN) {
+					xhr?.setRequestHeader('Authorization', `Bearer ${OpenAPI.TOKEN}`)
+				}
 				xhr?.send(fileToUpload)
 			})) as any
 

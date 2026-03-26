@@ -714,24 +714,45 @@ pub async fn run_agent(
         }
     };
 
-    // Add user message if provided and non-empty
-    if let Some(ref user_message) = args.user_message {
-        if !user_message.is_empty() {
+    // Add user message and attachments as a single user message
+    // (Bedrock requires a text block alongside document blocks in the same message)
+    {
+        let has_message = args
+            .user_message
+            .as_ref()
+            .map(|m| !m.is_empty())
+            .unwrap_or(false);
+        let has_attachments = args
+            .user_attachments
+            .as_ref()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false);
+
+        if has_message && has_attachments {
+            let mut parts = vec![ContentPart::Text {
+                text: args.user_message.clone().unwrap(),
+            }];
+            for attachment in args.user_attachments.as_ref().unwrap() {
+                if !attachment.s3.is_empty() {
+                    parts.push(ContentPart::S3Object { s3_object: attachment.clone() });
+                }
+            }
             messages.push(OpenAIMessage {
                 role: "user".to_string(),
-                content: Some(OpenAIContent::Text(user_message.clone())),
+                content: Some(OpenAIContent::Parts(parts)),
                 ..Default::default()
             });
-        }
-    }
-
-    // Add user images if provided
-    if let Some(ref user_images) = args.user_images {
-        if !user_images.is_empty() {
+        } else if has_message {
+            messages.push(OpenAIMessage {
+                role: "user".to_string(),
+                content: Some(OpenAIContent::Text(args.user_message.clone().unwrap())),
+                ..Default::default()
+            });
+        } else if has_attachments {
             let mut parts = vec![];
-            for image in user_images.iter() {
-                if !image.s3.is_empty() {
-                    parts.push(ContentPart::S3Object { s3_object: image.clone() });
+            for attachment in args.user_attachments.as_ref().unwrap() {
+                if !attachment.s3.is_empty() {
+                    parts.push(ContentPart::S3Object { s3_object: attachment.clone() });
                 }
             }
             messages.push(OpenAIMessage {
@@ -882,7 +903,7 @@ pub async fn run_agent(
                 output_type,
                 system_prompt: args.system_prompt.as_deref(),
                 user_message: args.user_message.as_deref().unwrap_or(""),
-                images: args.user_images.as_deref(),
+                attachments: args.user_attachments.as_deref(),
                 has_websearch,
             };
 

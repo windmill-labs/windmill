@@ -33,6 +33,11 @@ pub enum ContentPart {
     ImageUrl {
         image_url: ImageUrlData,
     },
+    /// File content block for OpenAI Chat Completions format (PDFs, etc.)
+    #[serde(rename = "file")]
+    File {
+        file: FileData,
+    },
     #[serde(rename = "s3_object")]
     S3Object {
         s3_object: S3Object,
@@ -42,6 +47,25 @@ pub enum ContentPart {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ImageUrlData {
     pub url: String, // data:image/png;base64,... or https://...
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FileData {
+    pub filename: String,
+    pub file_data: String, // data:application/pdf;base64,...
+}
+
+/// Check if a MIME type represents a document (as opposed to an image).
+pub fn is_document_mime(mime_type: &str) -> bool {
+    matches!(
+        mime_type,
+        "application/pdf"
+            | "text/csv"
+            | "text/html"
+            | "text/plain"
+            | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

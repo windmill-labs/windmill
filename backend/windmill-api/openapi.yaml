@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.664.0
+  version: 1.665.0
   title: Windmill API
 
   contact:
@@ -4858,6 +4858,11 @@ paths:
                 mcp_server_url:
                   type: string
                   description: "MCP server URL for MCP OAuth token refresh"
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                  description: "OAuth scopes to use for token refresh. Overrides instance-level scopes."
               required:
                 - refresh_token
                 - expires_in

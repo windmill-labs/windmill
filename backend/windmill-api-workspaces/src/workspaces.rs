@@ -1691,6 +1691,18 @@ async fn check_git_sync_access(_db: &DB, _w_id: &str) -> Result<()> {
     Ok(())
 }
 
+// Anchor the CE-only query for `cargo sqlx prepare` (which runs with --features enterprise)
+#[cfg(feature = "enterprise")]
+#[allow(dead_code)]
+async fn _sqlx_anchor_ce_user_count(db: &DB, w_id: &str) {
+    let _ = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM usr WHERE workspace_id = $1 AND disabled = false",
+        w_id
+    )
+    .fetch_one(db)
+    .await;
+}
+
 #[cfg(not(feature = "enterprise"))]
 async fn check_git_sync_access(db: &DB, w_id: &str) -> Result<()> {
     let user_count: i64 = sqlx::query_scalar!(
