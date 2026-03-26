@@ -354,6 +354,13 @@ pub fn convert_content_to_gemini_parts(content: &OpenAIContent) -> Vec<GeminiPar
                         inline_data: GeminiInlineData { mime_type, data },
                     })
                 }
+                ContentPart::File { file } => {
+                    parse_data_url(&file.file_data).map(|(mime_type, data)| {
+                        GeminiPart::InlineData {
+                            inline_data: GeminiInlineData { mime_type, data },
+                        }
+                    })
+                }
                 // S3Objects are handled by the worker
                 _ => None,
             })

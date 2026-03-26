@@ -11,8 +11,9 @@ use aws_config::BehaviorVersion;
 use aws_credential_types::provider::token::ProvideToken;
 use aws_credential_types::provider::ProvideCredentials;
 use aws_sdk_bedrockruntime::types::{
-    ContentBlock, ConversationRole, ConverseStreamOutput, ImageBlock, ImageFormat, ImageSource,
-    InferenceConfiguration, Message, SystemContentBlock, Tool, ToolInputSchema, ToolSpecification,
+    ContentBlock, ConversationRole, ConverseStreamOutput, DocumentBlock, DocumentFormat,
+    DocumentSource, ImageBlock, ImageFormat, ImageSource, InferenceConfiguration, Message,
+    SystemContentBlock, Tool, ToolInputSchema, ToolSpecification,
 };
 use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
 use serde::{Deserialize, Serialize};
@@ -356,13 +357,12 @@ pub fn content_to_text(content: &OpenAIContent) -> String {
     }
 }
 
-/// Parse image data URL and extract format and base64 data
-fn parse_image_data_url(url: &str) -> Result<(ImageFormat, Vec<u8>), Error> {
+/// Parse a data URL and extract MIME type and decoded bytes.
+fn parse_data_url_bytes(url: &str) -> Result<(String, Vec<u8>), Error> {
     if !url.starts_with("data:") {
-        return Err(Error::internal_err("Image URL must be a data URL"));
+        return Err(Error::internal_err("URL must be a data URL"));
     }
 
-    // Parse data:image/png;base64,<data>
     let base64_start = url
         .find("base64,")
         .ok_or_else(|| Error::internal_err("Invalid data URL format"))?;
@@ -372,28 +372,49 @@ fn parse_image_data_url(url: &str) -> Result<(ImageFormat, Vec<u8>), Error> {
         .split(';')
         .next()
         .and_then(|s| s.strip_prefix("data:"))
-        .unwrap_or("image/png");
+        .unwrap_or("application/octet-stream");
 
-    // Extract format from MIME type (e.g., "image/png" -> "png")
+    let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, base64_data)
+        .map_err(|e| Error::internal_err(format!("Failed to decode base64 data: {}", e)))?;
+
+    Ok((mime_type.to_string(), bytes))
+}
+
+/// Parse an image data URL and extract ImageFormat and decoded bytes.
+fn parse_image_data_url(url: &str) -> Result<(ImageFormat, Vec<u8>), Error> {
+    let (mime_type, bytes) = parse_data_url_bytes(url)?;
+
     let format_str = mime_type
         .rsplit_once('/')
         .map(|(_, format)| format)
         .unwrap_or("png");
 
-    // Map to ImageFormat enum
     let format = match format_str {
         "png" => ImageFormat::Png,
         "jpeg" | "jpg" => ImageFormat::Jpeg,
         "gif" => ImageFormat::Gif,
         "webp" => ImageFormat::Webp,
-        _ => ImageFormat::Png, // Default to PNG
+        _ => ImageFormat::Png,
     };
 
-    // Decode base64
-    let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, base64_data)
-        .map_err(|e| Error::internal_err(format!("Failed to decode base64 image: {}", e)))?;
-
     Ok((format, bytes))
+}
+
+/// Map a MIME type to a Bedrock DocumentFormat.
+fn mime_to_document_format(mime_type: &str) -> DocumentFormat {
+    match mime_type {
+        "application/pdf" => DocumentFormat::Pdf,
+        "text/csv" => DocumentFormat::Csv,
+        "text/html" => DocumentFormat::Html,
+        "text/plain" => DocumentFormat::Txt,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
+            DocumentFormat::Docx
+        }
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => {
+            DocumentFormat::Xlsx
+        }
+        _ => DocumentFormat::Pdf,
+    }
 }
 
 /// Convert a ContentPart to Bedrock ContentBlock
@@ -418,8 +439,21 @@ fn content_part_to_block(part: &ContentPart) -> Result<Option<ContentBlock>, Err
 
             Ok(Some(ContentBlock::Image(image_block)))
         }
+        ContentPart::File { file } => {
+            let (mime_type, bytes) = parse_data_url_bytes(&file.file_data)?;
+            let doc_source = DocumentSource::Bytes(bytes.into());
+            let doc_block = DocumentBlock::builder()
+                .format(mime_to_document_format(&mime_type))
+                .name(file.filename.replace('.', "_"))
+                .source(doc_source)
+                .build()
+                .map_err(|e| {
+                    Error::internal_err(format!("Failed to build document block: {}", e))
+                })?;
+            Ok(Some(ContentBlock::Document(doc_block)))
+        }
         ContentPart::S3Object { .. } => {
-            // S3Objects should be converted to ImageUrl before calling this function
+            // S3Objects should be converted before calling this function
             Ok(None)
         }
     }
