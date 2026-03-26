@@ -432,17 +432,22 @@ pub async fn write_lines(
         let job_id = job_id.clone();
         let mut nstream = String::new();
 
+        // Snapshot secrets once per batch — no lock needed per line
+        let mask_snapshot = windmill_common::sensitive_log_masks::snapshot(&job_id);
+
         while let Some(line) = read_lines.next().await {
             match line {
                 Ok(line) => {
                     if line.is_empty() {
                         continue;
                     }
-                    let line = match windmill_common::sensitive_log_masks::mask_sensitive_values(
-                        &job_id, &line,
-                    ) {
-                        std::borrow::Cow::Owned(masked) => masked,
-                        std::borrow::Cow::Borrowed(_) => line,
+                    let line = if let Some(ref snap) = mask_snapshot {
+                        match snap.mask(&line) {
+                            std::borrow::Cow::Owned(masked) => masked,
+                            std::borrow::Cow::Borrowed(_) => line,
+                        }
+                    } else {
+                        line
                     };
                     if *OTEL_JOB_LOGS {
                         if let Some(otel_suffix) = line.strip_prefix(OTEL_PREFIX) {

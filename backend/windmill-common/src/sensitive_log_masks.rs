@@ -35,6 +35,68 @@ lazy_static::lazy_static! {
         RwLock::new(HashSet::new());
 }
 
+/// A lock-free snapshot of secrets for a job, taken once per log batch.
+/// Pre-computes replacement strings so the hot path does zero lock acquisition.
+pub struct MaskSnapshot {
+    /// (secret_value, replacement) pairs, sorted longest-first for correct overlapping matches.
+    replacements: Vec<(String, String)>,
+    job_id: Uuid,
+}
+
+impl MaskSnapshot {
+    /// Mask all secrets in `text`. Returns `Cow::Borrowed` when no match (zero allocation).
+    pub fn mask<'a>(&self, text: &'a str) -> Cow<'a, str> {
+        if text.is_empty() || self.replacements.is_empty() {
+            return Cow::Borrowed(text);
+        }
+
+        // Fast check: does any secret appear?
+        let has_match = self
+            .replacements
+            .iter()
+            .any(|(s, _)| text.contains(s.as_str()));
+        if !has_match {
+            return Cow::Borrowed(text);
+        }
+
+        let mut result = text.to_string();
+        for (secret, mask) in &self.replacements {
+            result = result.replace(secret.as_str(), mask.as_str());
+        }
+
+        // Append the notice only once per job
+        let mut shown = NOTICE_SHOWN.write().unwrap_or_else(|e| e.into_inner());
+        if shown.insert(self.job_id) {
+            result.push('\n');
+            result.push_str(MASKED_NOTICE);
+        }
+
+        Cow::Owned(result)
+    }
+}
+
+/// Take a snapshot of the current secrets for a job. Returns `None` if no secrets
+/// are registered (the caller can then skip masking entirely for the whole batch).
+///
+/// Call this once per log batch in `write_lines`, not per line.
+pub fn snapshot(job_id: &Uuid) -> Option<MaskSnapshot> {
+    let masks = SENSITIVE_MASKS.read().unwrap_or_else(|e| e.into_inner());
+    let secrets = masks.get(job_id)?;
+    if secrets.is_empty() {
+        return None;
+    }
+    let mut replacements: Vec<(String, String)> = secrets
+        .iter()
+        .map(|s| {
+            let prefix: String = s.chars().take(3).collect();
+            (s.clone(), format!("{}*****", prefix))
+        })
+        .collect();
+    // Sort longest-first so longer secrets are replaced before shorter substrings
+    replacements.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    Some(MaskSnapshot { replacements, job_id: *job_id })
+}
+
 /// Register a job as currently running. Call this before `handle_queued_job`.
 pub fn register_running_job(job_id: Uuid) {
     {
@@ -94,45 +156,4 @@ pub fn register_secret_for_job(job_id: Uuid, secret: &str) {
     if let Some(set) = masks.get_mut(&job_id) {
         set.insert(secret.to_string());
     }
-}
-
-/// Mask all registered secret values in `text` for the given job.
-/// Returns `Cow::Borrowed` when no masking is needed (zero-cost path).
-/// The security notice is appended only once per job, not on every masked line.
-pub fn mask_sensitive_values<'a>(job_id: &Uuid, text: &'a str) -> Cow<'a, str> {
-    if text.is_empty() {
-        return Cow::Borrowed(text);
-    }
-
-    let masks = SENSITIVE_MASKS.read().unwrap_or_else(|e| e.into_inner());
-    let secrets = match masks.get(job_id) {
-        Some(set) if !set.is_empty() => set,
-        _ => return Cow::Borrowed(text),
-    };
-
-    // Check if any secret appears in the text before allocating
-    let matching: Vec<&String> = secrets
-        .iter()
-        .filter(|s| text.contains(s.as_str()))
-        .collect();
-    if matching.is_empty() {
-        return Cow::Borrowed(text);
-    }
-
-    let mut result = text.to_string();
-    for secret in &matching {
-        // Show first 3 chars then mask the rest
-        let prefix: String = secret.chars().take(3).collect();
-        let mask = format!("{}*****", prefix);
-        result = result.replace(secret.as_str(), &mask);
-    }
-
-    // Append the notice only once per job
-    let mut shown = NOTICE_SHOWN.write().unwrap_or_else(|e| e.into_inner());
-    if shown.insert(*job_id) {
-        result.push('\n');
-        result.push_str(MASKED_NOTICE);
-    }
-
-    Cow::Owned(result)
 }
