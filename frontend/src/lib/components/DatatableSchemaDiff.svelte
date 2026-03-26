@@ -310,16 +310,12 @@
 			return
 		}
 
-		// Update forked_from.schema: re-fetch the target's live schema for this table
-		// so the new baseline reflects the post-migration state
+		// Update forked_from.schema for the migrated table
 		try {
+			const sourceSchema =
+				drawerDirection === 'ahead' ? drawerDiff.forkSchema : drawerDiff.parentSchema
 			const { schemaName, tableName } = drawerChange
-			const targetLiveSchemaRaw = await WorkspaceService.getDatatableFullSchema({
-				workspace: targetWorkspace,
-				requestBody: { source: `datatable://${dtName}` }
-			})
-			const targetLiveSchema = apiSchemaToEditorSchema(targetLiveSchemaRaw)
-			const newTableDef = targetLiveSchema[schemaName]?.[tableName]
+			const newTableDef = sourceSchema[schemaName]?.[tableName]
 
 			const forkSettings = await WorkspaceService.getSettings({
 				workspace: currentWorkspaceId
