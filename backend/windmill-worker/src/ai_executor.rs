@@ -714,22 +714,43 @@ pub async fn run_agent(
         }
     };
 
-    // Add user message if provided and non-empty
-    if let Some(ref user_message) = args.user_message {
-        if !user_message.is_empty() {
+    // Add user message and attachments as a single user message
+    // (Bedrock requires a text block alongside document blocks in the same message)
+    {
+        let has_message = args
+            .user_message
+            .as_ref()
+            .map(|m| !m.is_empty())
+            .unwrap_or(false);
+        let has_attachments = args
+            .user_attachments
+            .as_ref()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false);
+
+        if has_message && has_attachments {
+            let mut parts = vec![ContentPart::Text {
+                text: args.user_message.clone().unwrap(),
+            }];
+            for attachment in args.user_attachments.as_ref().unwrap() {
+                if !attachment.s3.is_empty() {
+                    parts.push(ContentPart::S3Object { s3_object: attachment.clone() });
+                }
+            }
             messages.push(OpenAIMessage {
                 role: "user".to_string(),
-                content: Some(OpenAIContent::Text(user_message.clone())),
+                content: Some(OpenAIContent::Parts(parts)),
                 ..Default::default()
             });
-        }
-    }
-
-    // Add user attachments (images, PDFs, etc.) if provided
-    if let Some(ref user_attachments) = args.user_attachments {
-        if !user_attachments.is_empty() {
+        } else if has_message {
+            messages.push(OpenAIMessage {
+                role: "user".to_string(),
+                content: Some(OpenAIContent::Text(args.user_message.clone().unwrap())),
+                ..Default::default()
+            });
+        } else if has_attachments {
             let mut parts = vec![];
-            for attachment in user_attachments.iter() {
+            for attachment in args.user_attachments.as_ref().unwrap() {
                 if !attachment.s3.is_empty() {
                     parts.push(ContentPart::S3Object { s3_object: attachment.clone() });
                 }
