@@ -1099,6 +1099,9 @@ Windmill Community Edition {GIT_VERSION}
         }
 
         let addr = SocketAddr::from((server_bind_address, port));
+        let listener = tokio::net::TcpListener::bind(addr)
+            .await
+            .context("binding main windmill server")?;
 
         let (base_internal_tx, base_internal_rx) = tokio::sync::oneshot::channel::<String>();
 
@@ -1232,7 +1235,7 @@ Windmill Community Edition {GIT_VERSION}
                         db.clone(),
                         index_reader,
                         log_index_reader,
-                        addr,
+                        listener,
                         server_killpill_rx,
                         base_internal_tx,
                         server_mode,

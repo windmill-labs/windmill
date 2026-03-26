@@ -475,6 +475,11 @@
 					grant_type: valueToken.grant_type || 'authorization_code'
 				}
 
+				// Store scopes so token refresh uses the same scopes
+				if (scopes.length > 0) {
+					accountData.scopes = scopes
+				}
+
 				// Add client credentials if using client_credentials flow
 				if (useClientCredentials) {
 					accountData.cc_client_id = clientId.trim()
