@@ -446,6 +446,27 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
     }
 
     /// Get dependents of any imported path - returns scripts/flows/apps that depend on it
+    pub async fn get_imports<'c>(
+        importer_path: &str,
+        workspace_id: &str,
+        e: impl PgExecutor<'c>,
+    ) -> Result<Vec<String>> {
+        sqlx::query_scalar!(
+            r#"
+            SELECT DISTINCT imported_path as "imported_path!"
+            FROM dependency_map
+            WHERE workspace_id = $1
+                AND importer_path = $2
+                AND imported_path NOT LIKE 'dependencies/%'
+            "#,
+            workspace_id,
+            importer_path
+        )
+        .fetch_all(e)
+        .await
+        .map_err(Error::from)
+    }
+
     pub async fn get_dependents<'c>(
         imported_path: &str,
         workspace_id: &str,

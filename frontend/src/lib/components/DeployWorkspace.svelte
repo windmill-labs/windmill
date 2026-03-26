@@ -262,6 +262,12 @@
 					return getTriggerDependency(additionalInformation.triggers.kind, path, $workspaceStore!)
 				}
 				throw new Error('Missing trigger information')
+			} else if (kind == 'script') {
+				const imports = await WorkspaceService.getImports({
+					workspace: $workspaceStore!,
+					importerPath: path
+				})
+				return imports.map((importedPath) => ({ kind: 'script' as Kind, path: importedPath }))
 			}
 			return []
 		}
@@ -269,6 +275,9 @@
 		let processed: { kind: Kind; path: string }[] = []
 		while (toProcess.length > 0) {
 			const { kind, path } = toProcess.pop()!
+			if (processed.some((p) => p.kind === kind && p.path === path)) {
+				continue
+			}
 			toProcess.push(...(await rec(kind, path)))
 			processed.push({ kind, path })
 		}
