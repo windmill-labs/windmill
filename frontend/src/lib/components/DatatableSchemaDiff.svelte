@@ -61,6 +61,7 @@
 		datatableName: string
 		aheadChanges: TableDiff[]
 		behindChanges: TableDiff[]
+		originalSchema: DatabaseSchema
 		parentSchema: DatabaseSchema
 		forkSchema: DatabaseSchema
 	}
@@ -107,6 +108,7 @@
 			datatableName,
 			behindChanges: diffDatabaseSchemas(originalSchema, parentSchema),
 			aheadChanges: diffDatabaseSchemas(originalSchema, forkSchema),
+			originalSchema,
 			parentSchema,
 			forkSchema
 		}
@@ -265,12 +267,17 @@
 	}
 
 	function getDiffYaml(): { original: string; modified: string } {
-		if (!drawerChange || !drawerDiff) return { original: '', modified: '' }
-		const parentTable = drawerDiff.parentSchema[drawerChange.schemaName]?.[drawerChange.tableName]
-		const forkTable = drawerDiff.forkSchema[drawerChange.schemaName]?.[drawerChange.tableName]
+		if (!drawerChange || !drawerDiff || !drawerDirection) return { original: '', modified: '' }
+		const { schemaName, tableName } = drawerChange
+		const origTable = drawerDiff.originalSchema[schemaName]?.[tableName]
+		// ahead = fork changed → show original vs fork
+		// behind = parent changed → show original vs parent
+		const changedSchema =
+			drawerDirection === 'ahead' ? drawerDiff.forkSchema : drawerDiff.parentSchema
+		const changedTable = changedSchema[schemaName]?.[tableName]
 		return {
-			original: parentTable ? YAML.stringify(parentTable) : '# table does not exist',
-			modified: forkTable ? YAML.stringify(forkTable) : '# table does not exist'
+			original: origTable ? YAML.stringify(origTable) : '# table does not exist',
+			modified: changedTable ? YAML.stringify(changedTable) : '# table does not exist'
 		}
 	}
 
