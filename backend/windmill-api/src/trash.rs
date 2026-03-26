@@ -17,9 +17,9 @@ use crate::db::{ApiAuthed, DB};
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_trash))
-        .route("/get/{id}", get(get_trash_item))
-        .route("/restore/{id}", post(restore_trash_item))
-        .route("/delete/{id}", delete(permanently_delete_item))
+        .route("/get/:id", get(get_trash_item))
+        .route("/restore/:id", post(restore_trash_item))
+        .route("/delete/:id", delete(permanently_delete_item))
         .route("/empty", post(empty_trash))
 }
 
