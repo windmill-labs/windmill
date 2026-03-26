@@ -2,7 +2,10 @@
  * Configuration option descriptor — each entry IS a JSON Schema property
  * with extra metadata for template rendering and reference table display.
  *
- * To generate the JSON Schema: iterate non-hidden entries, strip NON_SCHEMA_KEYS, done.
+ * To generate the JSON Schema: iterate entries, strip NON_SCHEMA_KEYS, done.
+ * Sub-fields of complex types (codebases items, gitBranches branch config)
+ * are defined inline in the parent's schema — no duplicate entries needed.
+ * The reference table auto-expands nested schemas into rows.
  *
  * Adding a new option:
  *   1. Add an entry to CONFIG_REFERENCE with JSON Schema type fields + description
@@ -29,7 +32,6 @@ export interface ConfigOption {
   commented?: boolean;
   templateValue?: string;
   example?: string;
-  hidden?: boolean;
   inlineComment?: string;
   groupNote?: string;
 }
@@ -38,7 +40,7 @@ export interface ConfigOption {
 const NON_SCHEMA_KEYS = new Set([
   "name", "default",
   "section", "sectionNote", "commented", "templateValue",
-  "example", "hidden", "inlineComment", "groupNote",
+  "example", "inlineComment", "groupNote",
 ]);
 
 // Reusable sub-schemas for nested types
@@ -69,11 +71,7 @@ const BRANCH_CONFIG_SCHEMA = {
 
 /**
  * All wmill.yaml configuration options — single source of truth.
- *
  * Each entry is a JSON Schema property with extra metadata.
- * For sub-fields of complex types (codebases[], gitBranches.<branch>.*):
- * set `hidden: true` — they appear in the reference table but not in the
- * template or schema (the parent's inline schema covers them).
  */
 export const CONFIG_REFERENCE: ConfigOption[] = [
   // ── Core ──────────────────────────────────────────────────────────────
@@ -82,8 +80,7 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     templateValue: '\n  - "f/**"' },
   { name: "extraIncludes", type: "array", items: { type: "string" }, default: "[]", description: "Additional glob patterns merged with includes (useful in branch overrides)",
     commented: true },
-  { name: "excludes", type: "array", items: { type: "string" }, default: "[]", description: "Glob patterns for files to exclude from sync",
- },
+  { name: "excludes", type: "array", items: { type: "string" }, default: "[]", description: "Glob patterns for files to exclude from sync" },
 
   // ── What to sync ──────────────────────────────────────────────────────
   { name: "skipVariables", type: "boolean", default: "false", description: "Skip syncing variables",
@@ -170,18 +167,6 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
       '#     #   ".png": "dataurl"',
     ].join("\n"),
   },
-  // Sub-fields for reference table display only
-  { name: "codebases[].relative_path", type: "string", default: "(required)", description: "Path to the codebase directory", hidden: true },
-  { name: "codebases[].includes", type: "array", items: { type: "string" }, default: "(all files)", description: "Glob patterns for files to include in bundle", hidden: true },
-  { name: "codebases[].excludes", type: "array", items: { type: "string" }, default: "[]", description: "Glob patterns for files to exclude from bundle", hidden: true },
-  { name: "codebases[].format", type: "string", enum: ["cjs", "esm"], default: "(unset)", description: "Bundle output format", hidden: true },
-  { name: "codebases[].external", type: "array", items: { type: "string" }, default: "[]", description: "Dependencies to leave unbundled (externals)", hidden: true },
-  { name: "codebases[].assets", type: "array", default: "[]", description: "Static files to copy into the bundle", hidden: true },
-  { name: "codebases[].customBundler", type: "string", default: "(unset)", description: "Path to a custom bundler script (replaces esbuild)", hidden: true },
-  { name: "codebases[].inject", type: "array", items: { type: "string" }, default: "[]", description: "Files to inject into every entry point", hidden: true },
-  { name: "codebases[].define", type: "object", additionalProperties: { type: "string" }, default: "{}", description: "Compile-time constant definitions", hidden: true },
-  { name: "codebases[].banner", type: "object", additionalProperties: { type: "string" }, default: "{}", description: "Text to prepend to output files by type", hidden: true },
-  { name: "codebases[].loader", type: "object", additionalProperties: { type: "string" }, default: "{}", description: "esbuild loader overrides by extension", hidden: true },
 
   // ── Git branches ──────────────────────────────────────────────────────
   { name: "gitBranches", type: "object", default: "{}", description: "Map git branches to workspaces and per-branch sync overrides",
@@ -217,27 +202,11 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
       '  #   folders: ["shared"]',
     ].join("\n"),
   },
-  // Sub-fields for reference table display only
-  { name: "gitBranches.<branch>.baseUrl", type: "string", default: "(unset)", description: "Windmill instance URL for this branch", hidden: true },
-  { name: "gitBranches.<branch>.workspaceId", type: "string", default: "(unset)", description: "Workspace ID to sync with for this branch", hidden: true },
-  { name: "gitBranches.<branch>.overrides", type: "object", default: "{}", description: "Override any top-level sync option for this branch", hidden: true },
-  { name: "gitBranches.<branch>.promotionOverrides", type: "object", default: "{}", description: "Overrides applied when using --promotion flag", hidden: true },
-  { name: "gitBranches.<branch>.specificItems", type: "object", default: "(unset)", description: "Only sync specific items on this branch", hidden: true },
-  { name: "gitBranches.<branch>.specificItems.variables", type: "array", items: { type: "string" }, default: "[]", description: "Specific variable paths to sync", hidden: true },
-  { name: "gitBranches.<branch>.specificItems.resources", type: "array", items: { type: "string" }, default: "[]", description: "Specific resource paths to sync", hidden: true },
-  { name: "gitBranches.<branch>.specificItems.triggers", type: "array", items: { type: "string" }, default: "[]", description: "Specific trigger paths to sync", hidden: true },
-  { name: "gitBranches.<branch>.specificItems.folders", type: "array", items: { type: "string" }, default: "[]", description: "Specific folder paths to sync", hidden: true },
-  { name: "gitBranches.<branch>.specificItems.settings", type: "boolean", default: "false", description: "Whether to sync settings for this branch", hidden: true },
-  { name: "gitBranches.commonSpecificItems", type: "object", default: "(unset)", description: "Specific items shared across all branches", hidden: true },
-  { name: "gitBranches.commonSpecificItems.variables", type: "array", items: { type: "string" }, default: "[]", description: "Variable paths shared across all branches", hidden: true },
-  { name: "gitBranches.commonSpecificItems.resources", type: "array", items: { type: "string" }, default: "[]", description: "Resource paths shared across all branches", hidden: true },
-  { name: "gitBranches.commonSpecificItems.triggers", type: "array", items: { type: "string" }, default: "[]", description: "Trigger paths shared across all branches", hidden: true },
-  { name: "gitBranches.commonSpecificItems.folders", type: "array", items: { type: "string" }, default: "[]", description: "Folder paths shared across all branches", hidden: true },
-  { name: "gitBranches.commonSpecificItems.settings", type: "boolean", default: "false", description: "Whether to sync settings across all branches", hidden: true },
-  { name: "environments", type: "object", default: "-", description: "Alias for gitBranches — use if you prefer environment-based terminology",
+
+  { name: "environments", type: "object", default: "{}", description: "Alias for gitBranches — use if you prefer environment-based terminology",
     properties: { commonSpecificItems: SPECIFIC_ITEMS_SCHEMA },
     additionalProperties: BRANCH_CONFIG_SCHEMA,
-    hidden: true },
+    commented: true },
 ];
 
 // ─── Template generator ─────────────────────────────────────────────────────
@@ -252,8 +221,6 @@ export function generateCommentedTemplate(branchName?: string): string {
   ];
 
   for (const opt of CONFIG_REFERENCE) {
-    if (opt.hidden) continue;
-
     if (opt.section) {
       const ruler = "-".repeat(Math.max(0, 65 - opt.section.length));
       lines.push(`# --- ${opt.section} ${ruler}`);
@@ -301,6 +268,24 @@ export function generateCommentedTemplate(branchName?: string): string {
 
 // ─── Reference formatters ───────────────────────────────────────────────────
 
+/** Recursively expand a schema's properties into flat reference rows. */
+function expandSchema(
+  prefix: string,
+  schema: Record<string, any>,
+  rows: { name: string; description: string; default: string }[]
+): void {
+  if (schema.properties) {
+    for (const [key, prop] of Object.entries(schema.properties) as [string, Record<string, any>][]) {
+      const name = prefix ? `${prefix}.${key}` : key;
+      rows.push({ name, description: prop.description ?? "", default: "" });
+      // Recurse into nested object properties (e.g., specificItems)
+      if (prop.properties && prop.type === "object") {
+        expandSchema(name, prop, rows);
+      }
+    }
+  }
+}
+
 export function formatConfigReference(): string {
   const nameWidth = 48;
   const descWidth = 70;
@@ -313,12 +298,26 @@ export function formatConfigReference(): string {
 
   const separator = "-".repeat(header.length + 10);
 
-  const rows = CONFIG_REFERENCE.map((opt) =>
-    [
-      opt.name.padEnd(nameWidth),
-      opt.description.padEnd(descWidth),
-      opt.default,
-    ].join("  ")
+  const allRows: { name: string; description: string; default: string }[] = [];
+  for (const opt of CONFIG_REFERENCE) {
+    allRows.push({ name: opt.name, description: opt.description, default: opt.default });
+
+    // Auto-expand array item properties (e.g., codebases[].*)
+    if (opt.items?.properties) {
+      expandSchema(`${opt.name}[]`, opt.items, allRows);
+    }
+    // Auto-expand additionalProperties (e.g., gitBranches.<branch>.*)
+    if (opt.additionalProperties && typeof opt.additionalProperties === "object" && opt.additionalProperties.properties) {
+      expandSchema(`${opt.name}.<branch>`, opt.additionalProperties as Record<string, any>, allRows);
+    }
+    // Auto-expand named properties (e.g., gitBranches.commonSpecificItems)
+    if (opt.properties) {
+      expandSchema(opt.name, opt, allRows);
+    }
+  }
+
+  const rows = allRows.map((r) =>
+    [r.name.padEnd(nameWidth), r.description.padEnd(descWidth), r.default].join("  ")
   );
 
   return [
@@ -351,7 +350,6 @@ export function formatConfigReferenceJson(): string {
 export function generateJsonSchema(): Record<string, any> {
   const properties: Record<string, any> = {};
   for (const opt of CONFIG_REFERENCE) {
-    if (opt.hidden) continue;
     const entry: Record<string, any> = {};
     for (const [k, v] of Object.entries(opt)) {
       if (!NON_SCHEMA_KEYS.has(k) && k !== "name") {
