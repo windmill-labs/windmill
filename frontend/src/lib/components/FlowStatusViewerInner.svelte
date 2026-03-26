@@ -10,7 +10,9 @@
 		type FlowModule,
 		ResourceService,
 		type CompletedJob,
-		type WorkflowStatus
+		type WorkflowStatus,
+		type FlowNote,
+		type FlowValue
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -134,6 +136,8 @@
 		}
 		showLogsWithResult?: boolean
 		showJobDetailHeader?: boolean
+		notes?: FlowNote[]
+		groups?: FlowValue['groups']
 	}
 
 	let {
@@ -173,7 +177,9 @@
 		onDone = undefined,
 		toolCallStore,
 		showLogsWithResult = false,
-		showJobDetailHeader = false
+		showJobDetailHeader = false,
+		notes: notesProp = undefined,
+		groups: groupsProp = undefined
 	}: Props = $props()
 
 	let getTopModuleStates = $derived(topModuleStates ?? localModuleStates)
@@ -1900,8 +1906,8 @@
 									earlyStop={job.raw_flow?.skip_expr !== undefined}
 									cache={job.raw_flow?.cache_ttl !== undefined}
 									modules={job.raw_flow?.modules ?? []}
-									notes={job.raw_flow?.notes ?? []}
-									groups={job.raw_flow?.groups}
+									notes={notesProp ?? job.raw_flow?.notes ?? []}
+									groups={groupsProp ?? job.raw_flow?.groups}
 									failureModule={job.raw_flow?.failure_module}
 									preprocessorModule={job.raw_flow?.preprocessor_module}
 									allowSimplifiedPoll={false}
