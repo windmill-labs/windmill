@@ -675,6 +675,17 @@ async fn create_script_internal<'c>(
                 .to_owned(),
         ));
     };
+    // When auto_parent is set, serialize concurrent creates for the same (workspace, path)
+    // so the clashing_script query always sees the latest committed head.
+    if ns.auto_parent.unwrap_or(false) {
+        sqlx::query_scalar!(
+            "SELECT pg_advisory_xact_lock(hashtext($1 || '/' || $2))",
+            &w_id,
+            &ns.path
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+    }
     let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
         "SELECT * FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
     )
@@ -688,9 +699,8 @@ async fn create_script_internal<'c>(
         p_path: String,
     }
     // When auto_parent is set, resolve parent_hash to the current head for this path
-    // within the transaction, avoiding client-side race conditions during sync push.
-    // This atomically resolves the parent even if another concurrent request just created
-    // a new version, because the clashing_script query runs inside the same transaction.
+    // within the transaction. The advisory lock above ensures the second concurrent
+    // request waits until the first commits, so this query sees the updated head.
     if ns.auto_parent.unwrap_or(false) {
         if let Some(ref cs) = clashing_script {
             ns.parent_hash = Some(cs.hash.clone());
