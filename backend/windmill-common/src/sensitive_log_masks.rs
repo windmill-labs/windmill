@@ -98,14 +98,21 @@ pub fn mask_sensitive_values<'a>(job_id: &Uuid, text: &'a str) -> Cow<'a, str> {
     };
 
     // Check if any secret appears in the text before allocating
-    let has_match = secrets.iter().any(|s| text.contains(s.as_str()));
-    if !has_match {
+    let matching: Vec<&String> = secrets
+        .iter()
+        .filter(|s| text.contains(s.as_str()))
+        .collect();
+    if matching.is_empty() {
         return Cow::Borrowed(text);
     }
 
     let mut result = text.to_string();
-    for secret in secrets {
-        result = result.replace(secret.as_str(), "*******");
+    for secret in &matching {
+        // Show first 3 chars then mask the rest
+        let prefix: String = secret.chars().take(3).collect();
+        let mask = format!("{}*****", prefix);
+        result = result.replace(secret.as_str(), &mask);
     }
+    result.push_str("\n[windmill] secret value was masked for security reasons, use string transformations to display partial values");
     Cow::Owned(result)
 }

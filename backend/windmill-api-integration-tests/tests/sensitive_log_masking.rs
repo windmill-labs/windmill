@@ -215,8 +215,12 @@ export async function main() {
                 "scenario 1: secret value leaked in logs\nLogs:\n{logs1}"
             );
             assert!(
-                logs1.contains("The secret value is: *******"),
-                "scenario 1: expected masked output\nLogs:\n{logs1}"
+                logs1.contains("The secret value is: alp*****"),
+                "scenario 1: expected masked output with first 3 chars\nLogs:\n{logs1}"
+            );
+            assert!(
+                logs1.contains("[windmill] secret value was masked for security reasons"),
+                "scenario 1: expected security notice\nLogs:\n{logs1}"
             );
 
             // ================================================================
@@ -273,11 +277,11 @@ export async function main() {
                 "scenario 3: secret2 leaked\nLogs:\n{logs3}"
             );
             assert!(
-                logs3.contains("secret1=*******"),
+                logs3.contains("secret1=alp*****"),
                 "scenario 3: secret1 not masked\nLogs:\n{logs3}"
             );
             assert!(
-                logs3.contains("secret2=*******"),
+                logs3.contains("secret2=bet*****"),
                 "scenario 3: secret2 not masked\nLogs:\n{logs3}"
             );
 
@@ -305,7 +309,7 @@ export async function main() {
                 "scenario 4: secret leaked mid-string\nLogs:\n{logs4}"
             );
             assert!(
-                logs4.contains("token=*******&user=bob&format=json"),
+                logs4.contains("token=alp*****&user=bob&format=json"),
                 "scenario 4: mid-string masking failed\nLogs:\n{logs4}"
             );
 
@@ -334,7 +338,7 @@ export async function main() {
                 !logs5.contains(secret2),
                 "scenario 5: secret leaked\nLogs:\n{logs5}"
             );
-            let mask_count = logs5.matches("*******").count();
+            let mask_count = logs5.matches("bet*****").count();
             assert!(
                 mask_count >= 3,
                 "scenario 5: expected >= 3 masked occurrences, found {mask_count}\nLogs:\n{logs5}"
@@ -364,7 +368,7 @@ export async function main() {
                 "scenario 6: encrypted password leaked\nLogs:\n{logs6}"
             );
             assert!(
-                logs6.contains("password is: *******"),
+                logs6.contains("password is: enc*****"),
                 "scenario 6: encrypted password not masked\nLogs:\n{logs6}"
             );
 
@@ -393,7 +397,7 @@ export async function main() {
                 "scenario 7: resource secret leaked\nLogs:\n{logs7}"
             );
             assert!(
-                logs7.contains("db password: *******"),
+                logs7.contains("db password: res*****"),
                 "scenario 7: resource secret not masked\nLogs:\n{logs7}"
             );
             // Non-secret field should remain visible
