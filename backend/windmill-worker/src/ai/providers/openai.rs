@@ -4,7 +4,7 @@ use serde_json::value::RawValue;
 use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
 
 use crate::ai::{
-    image_handler::{download_and_encode_s3_image, prepare_messages_for_api},
+    image_handler::{prepare_messages_for_api, s3_object_to_content_part},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     sse::{OpenAIResponsesSSEParser, SSEParser},
     types::*,
@@ -433,24 +433,21 @@ impl OpenAIQueryBuilder {
         if let Some(attachments) = args.attachments {
             for attachment in attachments.iter() {
                 if !attachment.s3.is_empty() {
-                    let (mime_type, file_bytes) =
-                        download_and_encode_s3_image(attachment, client, workspace_id).await?;
-                    let data_url = format!("data:{};base64,{}", mime_type, file_bytes);
-                    if mime_type == "application/pdf" {
-                        let filename = attachment
-                            .s3
-                            .rsplit('/')
-                            .next()
-                            .unwrap_or("document.pdf")
-                            .to_string();
-                        content.push(ImageGenerationContent::InputFile {
-                            filename,
-                            file_data: data_url,
-                        });
-                    } else {
-                        content.push(ImageGenerationContent::InputImage {
-                            image_url: data_url,
-                        });
+                    let part =
+                        s3_object_to_content_part(attachment, client, workspace_id).await?;
+                    match part {
+                        ContentPart::File { file } => {
+                            content.push(ImageGenerationContent::InputFile {
+                                filename: file.filename,
+                                file_data: file.file_data,
+                            });
+                        }
+                        ContentPart::ImageUrl { image_url } => {
+                            content.push(ImageGenerationContent::InputImage {
+                                image_url: image_url.url,
+                            });
+                        }
+                        _ => {}
                     }
                 }
             }

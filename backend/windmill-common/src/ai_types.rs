@@ -55,6 +55,19 @@ pub struct FileData {
     pub file_data: String, // data:application/pdf;base64,...
 }
 
+/// Check if a MIME type represents a document (as opposed to an image).
+pub fn is_document_mime(mime_type: &str) -> bool {
+    matches!(
+        mime_type,
+        "application/pdf"
+            | "text/csv"
+            | "text/html"
+            | "text/plain"
+            | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
 pub enum OpenAIContent {

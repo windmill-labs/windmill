@@ -92,9 +92,9 @@ pub enum AnthropicRequestContent {
         cache_control: Option<CacheControl>,
     },
     #[serde(rename = "image")]
-    Image { source: AnthropicImageSource },
+    Image { source: AnthropicBase64Source },
     #[serde(rename = "document")]
-    Document { source: AnthropicImageSource },
+    Document { source: AnthropicBase64Source },
     #[serde(rename = "tool_use")]
     ToolUse { id: String, name: String, input: Box<RawValue> },
     #[serde(rename = "tool_result")]
@@ -106,9 +106,9 @@ pub enum AnthropicRequestContent {
     },
 }
 
-/// Image source for Anthropic API
+/// Base64 source for Anthropic API (used by both Image and Document content blocks)
 #[derive(Serialize, Debug)]
-pub struct AnthropicImageSource {
+pub struct AnthropicBase64Source {
     pub r#type: String,
     pub media_type: String,
     pub data: String,
@@ -274,7 +274,7 @@ fn convert_content_to_anthropic(content: &Option<OpenAIContent>) -> Vec<Anthropi
                     ContentPart::ImageUrl { image_url } => {
                         if let Some((media_type, data)) = parse_data_url(&image_url.url) {
                             result.push(AnthropicRequestContent::Image {
-                                source: AnthropicImageSource {
+                                source: AnthropicBase64Source {
                                     r#type: "base64".to_string(),
                                     media_type,
                                     data,
@@ -285,7 +285,7 @@ fn convert_content_to_anthropic(content: &Option<OpenAIContent>) -> Vec<Anthropi
                     ContentPart::File { file } => {
                         if let Some((media_type, data)) = parse_data_url(&file.file_data) {
                             result.push(AnthropicRequestContent::Document {
-                                source: AnthropicImageSource {
+                                source: AnthropicBase64Source {
                                     r#type: "base64".to_string(),
                                     media_type,
                                     data,
