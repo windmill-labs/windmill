@@ -11,3 +11,6 @@ CREATE TABLE trashbin (
 
 CREATE INDEX idx_trashbin_expires_at ON trashbin(expires_at);
 CREATE INDEX idx_trashbin_workspace_kind ON trashbin(workspace_id, item_kind);
+
+GRANT ALL ON trashbin TO windmill_user;
+GRANT ALL ON trashbin TO windmill_admin;
