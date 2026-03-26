@@ -71,16 +71,16 @@
 
 	let previousVersionId: number | undefined = $state(undefined)
 	let previousFlow: PreviousFlow | undefined = $state(undefined)
-	let tab: TabValue = $state(untrack(() => selectedTab ?? initTab) ?? 'diff')
+	let tab: TabValue = $state(selectedTab ?? untrack(() => initTab) ?? 'diff')
 
-	// Sync bindable selectedTab with internal tab state
-	$effect(() => {
-		selectedTab = tab
-	})
+	// Single sync: parent writes flow through selectedTab → tab, tab changes flow back out
 	$effect(() => {
 		if (selectedTab !== undefined && selectedTab !== tab) {
 			tab = selectedTab
 		}
+	})
+	$effect(() => {
+		selectedTab = tab
 	})
 
 	let previousFlowCache: Record<number, PreviousFlow> = {}
