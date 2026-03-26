@@ -20,7 +20,7 @@ use crate::db::{ApiAuthed, DB};
 pub fn global_service() -> Router {
     Router::new()
         .route("/list_files", get(list_files))
-        .route("/get_log_file/*path", get(get_log_file))
+        .route("/get_log_file/{*path}", get(get_log_file))
 }
 use axum::extract::Path;
 

@@ -1,7 +1,6 @@
 #[cfg(feature = "enterprise")]
 use crate::ee_oss::ExternalJwks;
 use axum::{
-    async_trait,
     extract::{FromRequestParts, OriginalUri, Query},
     Extension, Json,
 };
@@ -504,7 +503,6 @@ impl BruteForceCounter {
     }
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for Tokened
 where
     S: Send + Sync,
@@ -535,7 +533,6 @@ where
     }
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for OptTokened
 where
     S: Send + Sync,

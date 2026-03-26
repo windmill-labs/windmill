@@ -374,11 +374,11 @@ pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
     let mut router = Router::new()
         .route("/create", post(create_trigger::<T>))
         .route("/list", get(list_triggers::<T>))
-        .route("/get/*path", get(get_trigger::<T>))
-        .route("/update/*path", post(update_trigger::<T>))
-        .route("/delete/*path", delete(delete_trigger::<T>))
-        .route("/exists/*path", get(exists_trigger::<T>))
-        .route("/setmode/*path", post(set_trigger_mode::<T>));
+        .route("/get/{*path}", get(get_trigger::<T>))
+        .route("/update/{*path}", post(update_trigger::<T>))
+        .route("/delete/{*path}", delete(delete_trigger::<T>))
+        .route("/exists/{*path}", get(exists_trigger::<T>))
+        .route("/setmode/{*path}", post(set_trigger_mode::<T>));
 
     if T::SUPPORTS_TEST_CONNECTION {
         router = router.route("/test", post(test_connection::<T>));

@@ -61,26 +61,26 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_flows))
         .route("/list_search", get(list_search_flows))
         .route("/create", post(create_flow))
-        .route("/update/*path", post(update_flow))
-        .route("/archive/*path", post(archive_flow_by_path))
-        .route("/delete/*path", delete(delete_flow_by_path))
-        .route("/list_tokens/*path", get(list_tokens))
-        .route("/get/*path", get(get_flow_by_path))
-        .route("/deployment_status/p/*path", get(get_deployment_status))
-        .route("/get/draft/*path", get(get_flow_by_path_w_draft))
-        .route("/exists/*path", get(exists_flow_by_path))
+        .route("/update/{*path}", post(update_flow))
+        .route("/archive/{*path}", post(archive_flow_by_path))
+        .route("/delete/{*path}", delete(delete_flow_by_path))
+        .route("/list_tokens/{*path}", get(list_tokens))
+        .route("/get/{*path}", get(get_flow_by_path))
+        .route("/deployment_status/p/{*path}", get(get_deployment_status))
+        .route("/get/draft/{*path}", get(get_flow_by_path_w_draft))
+        .route("/exists/{*path}", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
-        .route("/history/p/*path", get(get_flow_history))
-        .route("/get_latest_version/*path", get(get_latest_version))
+        .route("/history/p/{*path}", get(get_flow_history))
+        .route("/get_latest_version/{*path}", get(get_latest_version))
         .route(
-            "/list_paths_from_workspace_runnable/:runnable_kind/*path",
+            "/list_paths_from_workspace_runnable/{runnable_kind}/{*path}",
             get(list_paths_from_workspace_runnable),
         )
-        .route("/history_update/v/:version", post(update_flow_history))
-        .route("/get/v/:version", get(get_flow_version_by_id))
-        .route("/get/v/:version/p/*path", get(get_flow_version))
+        .route("/history_update/v/{version}", post(update_flow_history))
+        .route("/get/v/{version}", get(get_flow_version_by_id))
+        .route("/get/v/{version}/p/{*path}", get(get_flow_version))
         .route(
-            "/toggle_workspace_error_handler/*path",
+            "/toggle_workspace_error_handler/{*path}",
             post(toggle_workspace_error_handler),
         )
 }
@@ -88,7 +88,7 @@ pub fn workspaced_service() -> Router {
 pub fn global_service() -> Router {
     Router::new()
         .route("/hub/list", get(list_hub_flows))
-        .route("/hub/get/:id", get(get_hub_flow_by_id))
+        .route("/hub/get/{id}", get(get_hub_flow_by_id))
 }
 
 #[derive(Serialize, FromRow)]

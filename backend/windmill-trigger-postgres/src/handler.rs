@@ -282,10 +282,10 @@ impl TriggerCrud for PostgresTrigger {
 
     fn additional_routes(&self) -> Router {
         Router::new()
-            .route("/get_template_script/:id", get(get_template_script))
+            .route("/get_template_script/{id}", get(get_template_script))
             .route("/create_template_script", post(create_template_script))
             .route(
-                "/is_valid_postgres_configuration/*path",
+                "/is_valid_postgres_configuration/{*path}",
                 get(is_database_in_logical_level),
             )
             .nest("/publication", publication_service())
@@ -296,25 +296,25 @@ impl TriggerCrud for PostgresTrigger {
 
 fn publication_service() -> Router {
     Router::new()
-        .route("/get/:publication_name/*path", get(get_publication_info))
-        .route("/create/:publication_name/*path", post(create_publication))
-        .route("/update/:publication_name/*path", post(alter_publication))
+        .route("/get/{publication_name}/{*path}", get(get_publication_info))
+        .route("/create/{publication_name}/{*path}", post(create_publication))
+        .route("/update/{publication_name}/{*path}", post(alter_publication))
         .route(
-            "/delete/:publication_name/*path",
+            "/delete/{publication_name}/{*path}",
             delete(delete_publication),
         )
-        .route("/list/*path", get(list_database_publication))
+        .route("/list/{*path}", get(list_database_publication))
 }
 
 fn slot_service() -> Router {
     Router::new()
-        .route("/list/*path", get(list_slot_name))
-        .route("/create/*path", post(create_slot))
-        .route("/delete/*path", delete(drop_slot_name))
+        .route("/list/{*path}", get(list_slot_name))
+        .route("/create/{*path}", post(create_slot))
+        .route("/delete/{*path}", delete(drop_slot_name))
 }
 
 fn postgres_service() -> Router {
-    Router::new().route("/version/*path", get(get_postgres_version))
+    Router::new().route("/version/{*path}", get(get_postgres_version))
 }
 
 async fn check_if_logical_replication_slot_exist(

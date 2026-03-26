@@ -607,11 +607,11 @@ fn transform_fim_to_chat_completions(body: &Bytes) -> Result<(Bytes, String)> {
 }
 
 pub fn global_service() -> Router {
-    Router::new().route("/proxy/*ai", post(global_proxy).get(global_proxy))
+    Router::new().route("/proxy/{*ai}", post(global_proxy).get(global_proxy))
 }
 
 pub fn workspaced_service() -> Router {
-    let router = Router::new().route("/proxy/*ai", post(proxy).get(proxy));
+    let router = Router::new().route("/proxy/{*ai}", post(proxy).get(proxy));
 
     #[cfg(feature = "bedrock")]
     let router = router.route("/check_bedrock_credentials", get(check_bedrock_credentials));

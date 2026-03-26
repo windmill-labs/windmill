@@ -83,48 +83,54 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_apps))
         .route("/list_search", get(list_search_apps))
-        .route("/get/p/*path", get(get_app))
-        .route("/get/lite/*path", get(get_app_lite))
-        .route("/get/draft/*path", get(get_app_w_draft))
-        .route("/secret_of/*path", get(get_secret_id))
+        .route("/get/p/{*path}", get(get_app))
+        .route("/get/lite/{*path}", get(get_app_lite))
+        .route("/get/draft/{*path}", get(get_app_w_draft))
+        .route("/secret_of/{*path}", get(get_secret_id))
         .route(
-            "/secret_of_latest_version/*path",
+            "/secret_of_latest_version/{*path}",
             get(get_latest_version_secret_id),
         )
-        .route("/get/v/*id", get(get_app_by_id))
-        .route("/get_data/v/*id", get(get_raw_app_data))
-        .route("/exists/*path", get(exists_app))
-        .route("/update/*path", post(update_app))
-        .route("/update_raw/*path", post(update_app_raw))
-        .route("/delete/*path", delete(delete_app))
+        .route("/get/v/{*id}", get(get_app_by_id))
+        .route("/get_data/v/{*id}", get(get_raw_app_data))
+        .route("/exists/{*path}", get(exists_app))
+        .route("/update/{*path}", post(update_app))
+        .route("/update_raw/{*path}", post(update_app_raw))
+        .route("/delete/{*path}", delete(delete_app))
         .route("/create", post(create_app))
         .route("/create_raw", post(create_app_raw))
-        .route("/history/p/*path", get(get_app_history))
-        .route("/get_latest_version/*path", get(get_latest_version))
-        .route("/history_update/a/:id/v/:version", post(update_app_history))
+        .route("/history/p/{*path}", get(get_app_history))
+        .route("/get_latest_version/{*path}", get(get_latest_version))
         .route(
-            "/list_paths_from_workspace_runnable/:runnable_kind/*path",
+            "/history_update/a/{id}/v/{version}",
+            post(update_app_history),
+        )
+        .route(
+            "/list_paths_from_workspace_runnable/{runnable_kind}/{*path}",
             get(list_paths_from_workspace_runnable),
         )
-        .route("/custom_path_exists/*custom_path", get(custom_path_exists))
+        .route(
+            "/custom_path_exists/{*custom_path}",
+            get(custom_path_exists),
+        )
         .route("/sign_s3_objects", post(sign_s3_objects))
 }
 
 pub fn unauthed_service() -> Router {
     Router::new()
-        .route("/execute_component/*path", post(execute_component))
-        .route("/upload_s3_file/*path", post(upload_s3_file_from_app))
+        .route("/execute_component/{*path}", post(execute_component))
+        .route("/upload_s3_file/{*path}", post(upload_s3_file_from_app))
         .route("/delete_s3_file", delete(delete_s3_file_from_app))
-        .route("/download_s3_file/*path", get(download_s3_file_from_app))
-        .route("/public_app/:secret", get(get_public_app_by_secret))
-        .route("/public_resource/*path", get(get_public_resource))
-        .route("/get_data/v/*id", get(get_raw_app_data))
+        .route("/download_s3_file/{*path}", get(download_s3_file_from_app))
+        .route("/public_app/{secret}", get(get_public_app_by_secret))
+        .route("/public_resource/{*path}", get(get_public_resource))
+        .route("/get_data/v/{*id}", get(get_raw_app_data))
 }
 pub fn global_service() -> Router {
     Router::new()
         .route("/hub/list", get(list_hub_apps))
-        .route("/hub/get/:id", get(get_hub_app_by_id))
-        .route("/hub/get_raw/:id", get(get_hub_raw_app_by_id))
+        .route("/hub/get/{id}", get(get_hub_app_by_id))
+        .route("/hub/get_raw/{id}", get(get_hub_raw_app_by_id))
 }
 
 #[derive(FromRow, Deserialize, Serialize)]

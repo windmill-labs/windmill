@@ -479,7 +479,7 @@ pub async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
     .unwrap()
 }
 
-#[axum::async_trait(?Send)]
+#[async_trait::async_trait(?Send)]
 pub trait StreamFind: futures::Stream + Unpin + Sized {
     async fn find(self, item: &Self::Item) -> Option<Self::Item>
     where
