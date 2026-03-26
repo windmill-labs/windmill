@@ -157,6 +157,7 @@
 	import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 	import YAML from 'yaml'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import Alert from './common/alert/Alert.svelte'
 
 	interface Props {
@@ -178,6 +179,7 @@
 	let drawerDirection: 'ahead' | 'behind' | undefined = $state(undefined)
 	let migrationSql = $state('')
 	let migrationRunning = $state(false)
+	let confirmDeployOpen = $state(false)
 
 	async function loadDiffs() {
 		loading = true
@@ -453,7 +455,17 @@
 		>
 			{#snippet actions()}
 				<Button variant="default" onclick={() => (drawerOpen = false)}>Cancel</Button>
-				<Button variant="accent" loading={migrationRunning} onclick={runMigration}>
+				<Button
+					variant="accent"
+					loading={migrationRunning}
+					onclick={() => {
+						if (drawerDirection === 'ahead') {
+							confirmDeployOpen = true
+						} else {
+							runMigration()
+						}
+					}}
+				>
 					Run migration
 				</Button>
 			{/snippet}
@@ -500,3 +512,24 @@
 		</DrawerContent>
 	{/if}
 </Drawer>
+
+<ConfirmationModal
+	open={confirmDeployOpen}
+	title="Deploy to parent workspace"
+	confirmationText="Run migration"
+	onConfirmed={async () => {
+		confirmDeployOpen = false
+		await runMigration()
+	}}
+	onCanceled={() => {
+		confirmDeployOpen = false
+	}}
+>
+	<p class="text-sm">
+		This will run the following SQL on <b>{parentWorkspaceId}</b>:
+	</p>
+	<pre
+		class="mt-2 p-3 bg-surface-secondary rounded text-xs font-mono whitespace-pre-wrap max-h-60 overflow-auto"
+		>{migrationSql}</pre
+	>
+</ConfirmationModal>
