@@ -211,7 +211,7 @@ export function generateCommentedTemplate(branchName?: string): string {
   const branch = branchName ?? "main";
   const lines: string[] = [
     "# wmill.yaml — Windmill CLI configuration",
-    '# Full reference: run "wmill config reference"',
+    '# Full reference: run "wmill config"',
     "",
   ];
 
@@ -276,24 +276,21 @@ export function generateCommentedTemplate(branchName?: string): string {
  */
 export function formatConfigReference(): string {
   const nameWidth = 48;
-  const typeWidth = 24;
-  const defaultWidth = 14;
+  const descWidth = 70;
 
   const header = [
     "OPTION".padEnd(nameWidth),
-    "TYPE".padEnd(typeWidth),
-    "DEFAULT".padEnd(defaultWidth),
-    "DESCRIPTION",
+    "DESCRIPTION".padEnd(descWidth),
+    "DEFAULT",
   ].join("  ");
 
-  const separator = "-".repeat(header.length + 20);
+  const separator = "-".repeat(header.length + 10);
 
   const rows = CONFIG_REFERENCE.map((opt) =>
     [
       opt.name.padEnd(nameWidth),
-      opt.type.padEnd(typeWidth),
-      opt.default.padEnd(defaultWidth),
-      opt.description,
+      opt.description.padEnd(descWidth),
+      opt.default,
     ].join("  ")
   );
 

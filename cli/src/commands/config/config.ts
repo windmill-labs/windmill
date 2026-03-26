@@ -5,11 +5,11 @@ import {
   formatConfigReferenceJson,
 } from "../init/template.ts";
 
-interface ConfigReferenceOptions {
+interface ConfigOptions {
   json?: boolean;
 }
 
-async function referenceAction(opts: ConfigReferenceOptions) {
+async function configAction(opts: ConfigOptions) {
   if (opts.json) {
     log.info(formatConfigReferenceJson());
   } else {
@@ -19,13 +19,8 @@ async function referenceAction(opts: ConfigReferenceOptions) {
 
 const command = new Command()
   .name("config")
-  .description("Manage wmill.yaml configuration")
-  .command(
-    "reference",
-    new Command()
-      .description("Show all available wmill.yaml configuration options")
-      .option("--json", "Output as JSON for programmatic consumption")
-      .action(referenceAction as any)
-  );
+  .description("Show all available wmill.yaml configuration options")
+  .option("--json", "Output as JSON for programmatic consumption")
+  .action(configAction as any);
 
 export default command;
