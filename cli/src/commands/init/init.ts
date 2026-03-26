@@ -10,6 +10,7 @@ import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
 import { SKILLS, SKILL_CONTENT, SCHEMAS, SCHEMA_MAPPINGS } from "../../guidance/skills.ts";
 import { generateAgentsMdContent } from "../../guidance/core.ts";
+import { generateCommentedTemplate } from "./template.ts";
 
 /**
  * Format a YAML schema for inclusion in skill markdown files.
@@ -44,31 +45,16 @@ async function initAction(opts: InitOptions) {
   if (await stat("wmill.yaml").catch(() => null)) {
     log.error(colors.red("wmill.yaml already exists"));
   } else {
-    // Import DEFAULT_SYNC_OPTIONS from conf.ts
-    const { DEFAULT_SYNC_OPTIONS } = await import("../../core/conf.ts");
-
-    // Create initial config with defaults
-    const initialConfig = { ...DEFAULT_SYNC_OPTIONS } as any;
-
-    // Add branch structure
+    // Detect current git branch for template
     const { isGitRepository, getCurrentGitBranch } = await import(
       "../../utils/git.ts"
     );
+    let branchName: string | undefined;
     if (isGitRepository()) {
-      const currentBranch = getCurrentGitBranch();
-      if (currentBranch) {
-        initialConfig.gitBranches = {
-          [currentBranch]: { overrides: {} },
-        };
-      } else {
-        initialConfig.gitBranches = {};
-      }
-    } else {
-      initialConfig.gitBranches = {};
+      branchName = getCurrentGitBranch() ?? undefined;
     }
 
-    initialConfig.nonDottedPaths = true;
-    await writeFile("wmill.yaml", yamlStringify(initialConfig), "utf-8");
+    await writeFile("wmill.yaml", generateCommentedTemplate(branchName), "utf-8");
     log.info(colors.green("wmill.yaml created with default settings"));
 
     // Create lock file
