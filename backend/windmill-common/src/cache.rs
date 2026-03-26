@@ -42,8 +42,13 @@ pub use quick_cache::sync::Cache;
 lazy_static! {
     /// Cache directory for windmill server/worker(s).
     /// Lives under `WINDMILL_DIR` (default `/tmp/windmill`) as `cache_db/`.
+    /// If `WINDMILL_CACHE_PREFIX` is set, uses `cache_db/{prefix}/` instead.
     pub static ref CACHE_PATH: PathBuf = {
-        PathBuf::from(&*crate::worker::WINDMILL_DIR).join("cache_db")
+        let base = PathBuf::from(&*crate::worker::WINDMILL_DIR).join("cache_db");
+        match std::env::var("WINDMILL_CACHE_PREFIX") {
+            Ok(prefix) if !prefix.is_empty() => base.join(prefix),
+            _ => base,
+        }
     };
 }
 
