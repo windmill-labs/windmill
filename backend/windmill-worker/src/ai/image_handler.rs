@@ -92,15 +92,26 @@ pub async fn prepare_messages_for_api(
                     for part in parts {
                         match part {
                             ContentPart::S3Object { s3_object } => {
-                                // Convert S3Object to base64 image URL
-                                let (mime_type, image_bytes) =
+                                let (mime_type, file_bytes) =
                                     download_and_encode_s3_image(s3_object, client, workspace_id)
                                         .await?;
-                                prepared_content.push(ContentPart::ImageUrl {
-                                    image_url: ImageUrlData {
-                                        url: format!("data:{};base64,{}", mime_type, image_bytes),
-                                    },
-                                });
+                                let data_url =
+                                    format!("data:{};base64,{}", mime_type, file_bytes);
+                                if mime_type == "application/pdf" {
+                                    let filename = s3_object
+                                        .s3
+                                        .rsplit('/')
+                                        .next()
+                                        .unwrap_or("document.pdf")
+                                        .to_string();
+                                    prepared_content.push(ContentPart::File {
+                                        file: FileData { filename, file_data: data_url },
+                                    });
+                                } else {
+                                    prepared_content.push(ContentPart::ImageUrl {
+                                        image_url: ImageUrlData { url: data_url },
+                                    });
+                                }
                             }
                             other => {
                                 // Keep Text and ImageUrl as-is

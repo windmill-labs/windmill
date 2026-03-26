@@ -26,7 +26,8 @@ use windmill_types::s3::S3Object;
 // Re-export shared types from windmill_common
 pub use windmill_common::ai_providers::AIPlatform;
 pub use windmill_common::ai_types::{
-    ContentPart, ImageUrlData, OpenAIContent, OpenAIMessage, ToolDef, ToolDefFunction, UrlCitation,
+    ContentPart, FileData, ImageUrlData, OpenAIContent, OpenAIMessage, ToolDef, ToolDefFunction,
+    UrlCitation,
 };
 
 /// same as OpenAIMessage but with agent_action field included in the serialization

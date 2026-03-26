@@ -11,8 +11,9 @@ use aws_config::BehaviorVersion;
 use aws_credential_types::provider::token::ProvideToken;
 use aws_credential_types::provider::ProvideCredentials;
 use aws_sdk_bedrockruntime::types::{
-    ContentBlock, ConversationRole, ConverseStreamOutput, ImageBlock, ImageFormat, ImageSource,
-    InferenceConfiguration, Message, SystemContentBlock, Tool, ToolInputSchema, ToolSpecification,
+    ContentBlock, ConversationRole, ConverseStreamOutput, DocumentBlock, DocumentFormat,
+    DocumentSource, ImageBlock, ImageFormat, ImageSource, InferenceConfiguration, Message,
+    SystemContentBlock, Tool, ToolInputSchema, ToolSpecification,
 };
 use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
 use serde::{Deserialize, Serialize};
@@ -418,8 +419,21 @@ fn content_part_to_block(part: &ContentPart) -> Result<Option<ContentBlock>, Err
 
             Ok(Some(ContentBlock::Image(image_block)))
         }
+        ContentPart::File { file } => {
+            let (_, bytes) = parse_image_data_url(&file.file_data)?;
+            let doc_source = DocumentSource::Bytes(bytes.into());
+            let doc_block = DocumentBlock::builder()
+                .format(DocumentFormat::Pdf)
+                .name(file.filename.replace('.', "_"))
+                .source(doc_source)
+                .build()
+                .map_err(|e| {
+                    Error::internal_err(format!("Failed to build document block: {}", e))
+                })?;
+            Ok(Some(ContentBlock::Document(doc_block)))
+        }
         ContentPart::S3Object { .. } => {
-            // S3Objects should be converted to ImageUrl before calling this function
+            // S3Objects should be converted before calling this function
             Ok(None)
         }
     }

@@ -273,23 +273,24 @@ fn convert_content_to_anthropic(content: &Option<OpenAIContent>) -> Vec<Anthropi
                     }
                     ContentPart::ImageUrl { image_url } => {
                         if let Some((media_type, data)) = parse_data_url(&image_url.url) {
-                            if media_type == "application/pdf" {
-                                result.push(AnthropicRequestContent::Document {
-                                    source: AnthropicImageSource {
-                                        r#type: "base64".to_string(),
-                                        media_type,
-                                        data,
-                                    },
-                                });
-                            } else {
-                                result.push(AnthropicRequestContent::Image {
-                                    source: AnthropicImageSource {
-                                        r#type: "base64".to_string(),
-                                        media_type,
-                                        data,
-                                    },
-                                });
-                            }
+                            result.push(AnthropicRequestContent::Image {
+                                source: AnthropicImageSource {
+                                    r#type: "base64".to_string(),
+                                    media_type,
+                                    data,
+                                },
+                            });
+                        }
+                    }
+                    ContentPart::File { file } => {
+                        if let Some((media_type, data)) = parse_data_url(&file.file_data) {
+                            result.push(AnthropicRequestContent::Document {
+                                source: AnthropicImageSource {
+                                    r#type: "base64".to_string(),
+                                    media_type,
+                                    data,
+                                },
+                            });
                         }
                     }
                     ContentPart::S3Object { .. } => {

@@ -11,7 +11,6 @@ use crate::ai::{
     utils::extract_text_content,
 };
 
-use windmill_common::ai_google::parse_data_url;
 use windmill_common::ai_types::OpenAIToolCall;
 
 // Responses API structures
@@ -239,22 +238,15 @@ fn convert_content_to_responses_format(
                         Some(ImageGenerationContent::InputText { text: text.clone() })
                     }
                     ContentPart::ImageUrl { image_url } => {
-                        if let Some((media_type, _)) = parse_data_url(&image_url.url) {
-                            if media_type == "application/pdf" {
-                                Some(ImageGenerationContent::InputFile {
-                                    filename: "document.pdf".to_string(),
-                                    file_data: image_url.url.clone(),
-                                })
-                            } else {
-                                Some(ImageGenerationContent::InputImage {
-                                    image_url: image_url.url.clone(),
-                                })
-                            }
-                        } else {
-                            Some(ImageGenerationContent::InputImage {
-                                image_url: image_url.url.clone(),
-                            })
-                        }
+                        Some(ImageGenerationContent::InputImage {
+                            image_url: image_url.url.clone(),
+                        })
+                    }
+                    ContentPart::File { file } => {
+                        Some(ImageGenerationContent::InputFile {
+                            filename: file.filename.clone(),
+                            file_data: file.file_data.clone(),
+                        })
                     }
                     // S3 objects should have been resolved earlier, but handle gracefully
                     ContentPart::S3Object { .. } => None,
