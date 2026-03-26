@@ -33,7 +33,7 @@ workspace_key_kind: cloud
 
 ## Tables
 _sqlx_migrations: version(bigint), description(text), installed_on(ts), success(bool), checksum(bytes), execution_time(bigint)
-account: workspace_id(char), id(int), expires_at(ts), refresh_token(char), client(char), refresh_error(text), grant_type(char), cc_client_id(char), cc_client_secret(char), cc_token_url(char), mcp_server_url(text)
+account: workspace_id(char), id(int), expires_at(ts), refresh_token(char), client(char), refresh_error(text), grant_type(char), cc_client_id(char), cc_client_secret(char), cc_token_url(char), mcp_server_url(text), scopes(text[])
   FK: (workspace_id) -> workspace(id)
 agent_token_blacklist: token(char), expires_at(ts), blacklisted_at(ts), blacklisted_by(char)
 ai_agent_memory: workspace_id(char), conversation_id(uuid), step_id(char), messages(jsonb), created_at(ts), updated_at(ts)
