@@ -55,5 +55,29 @@ async fn test_capture_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         "GET /capture/list/script/u/test-user/test_capture",
     );
 
+    // POST /capture/ping_config/{trigger_kind}/{runnable_kind}/{*path} → 200
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/capture/ping_config/webhook/script/u/test-user/test_capture"
+    )))
+    .send()
+    .await?;
+    assert_2xx(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "POST /capture/ping_config",
+    );
+
+    // GET /capture/get_configs/{runnable_kind}/{*path} → 200
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/w/test-workspace/capture/get_configs/script/u/test-user/test_capture"
+    )))
+    .send()
+    .await?;
+    assert_2xx(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "GET /capture/get_configs",
+    );
+
     Ok(())
 }

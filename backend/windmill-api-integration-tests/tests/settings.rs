@@ -82,5 +82,35 @@ async fn test_settings_2xx(db: Pool<Postgres>) -> anyhow::Result<()> {
         "POST /sync_cached_resource_types",
     );
 
+    // --- Reachability only (need external services) ---
+
+    let resp = authed(
+        client()
+            .post(format!("{base}/test_smtp"))
+            .json(&json!({"to": "test@test.com", "subject": "test", "content": "test"})),
+    )
+    .send()
+    .await?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert!(
+        status != 404 || !body.is_empty(),
+        "Router-level 404 for POST /test_smtp"
+    );
+
+    let resp = authed(
+        client()
+            .post(format!("{base}/test_license_key"))
+            .json(&json!({"license_key": "fake"})),
+    )
+    .send()
+    .await?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert!(
+        status != 404 || !body.is_empty(),
+        "Router-level 404 for POST /test_license_key"
+    );
+
     Ok(())
 }

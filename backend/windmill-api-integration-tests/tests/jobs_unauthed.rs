@@ -136,3 +136,115 @@ async fn test_jobs_unauthed_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> 
 
     Ok(())
 }
+
+const FAKE_UUID: &str = "00000000-0000-0000-0000-000000000000";
+const FAKE_SECRET: &str = "aabb";
+
+/// Reachability tests for endpoints that need complex runtime.
+/// These just verify the route matches (handler runs), not 2xx.
+fn assert_route_reachable(status: u16, body: &str, endpoint: &str) {
+    assert!(
+        status != 404 || !body.is_empty(),
+        "Router-level 404 for {endpoint}",
+    );
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_jobs_unauthed_complex_reachability(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/jobs_u");
+
+    let resp = authed(client().get(format!("{base}/resume/{FAKE_UUID}/1/{FAKE_SECRET}")))
+        .send()
+        .await?;
+    assert_route_reachable(resp.status().as_u16(), &resp.text().await?, "GET /resume");
+
+    let resp = authed(client().post(format!("{base}/cancel/{FAKE_UUID}/1/{FAKE_SECRET}")))
+        .send()
+        .await?;
+    assert_route_reachable(resp.status().as_u16(), &resp.text().await?, "POST /cancel");
+
+    let resp = authed(client().get(format!("{base}/get_flow/{FAKE_UUID}/1/{FAKE_SECRET}")))
+        .send()
+        .await?;
+    assert_route_reachable(resp.status().as_u16(), &resp.text().await?, "GET /get_flow");
+
+    let resp = authed(client().post(format!("{base}/queue/cancel/{FAKE_UUID}")))
+        .json(&serde_json::json!({"reason": "test"}))
+        .send()
+        .await?;
+    assert_route_reachable(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "POST /queue/cancel",
+    );
+
+    let resp = authed(client().post(format!("{base}/queue/force_cancel/{FAKE_UUID}")))
+        .json(&serde_json::json!({"reason": "test"}))
+        .send()
+        .await?;
+    assert_route_reachable(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "POST /queue/force_cancel",
+    );
+
+    let resp = authed(client().post(format!("{base}/flow/resume_suspended/{FAKE_UUID}")))
+        .send()
+        .await?;
+    assert_route_reachable(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "POST /flow/resume_suspended",
+    );
+
+    let resp = authed(client().get(format!("{base}/flow/approval_info/{FAKE_UUID}")))
+        .send()
+        .await?;
+    assert_route_reachable(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "GET /flow/approval_info",
+    );
+
+    let resp = authed(client().get(format!("{base}/get_root_job_id/{FAKE_UUID}")))
+        .send()
+        .await?;
+    assert_route_reachable(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "GET /get_root_job_id",
+    );
+
+    let resp = authed(client().get(format!("{base}/get_flow_debug_info/{FAKE_UUID}")))
+        .send()
+        .await?;
+    assert_route_reachable(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "GET /get_flow_debug_info",
+    );
+
+    let resp = authed(client().get(format!("{base}/get_log_file/{FAKE_UUID}/test.txt")))
+        .send()
+        .await?;
+    assert_route_reachable(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "GET /get_log_file",
+    );
+
+    let resp = authed(client().post(format!("{base}/queue/cancel_persistent/u/test-user/fake")))
+        .json(&serde_json::json!({"reason": "test"}))
+        .send()
+        .await?;
+    assert_route_reachable(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "POST /queue/cancel_persistent",
+    );
+
+    Ok(())
+}
