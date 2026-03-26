@@ -490,22 +490,19 @@
 					</Button>
 				</div>
 			</div>
-			<div class="grow overflow-hidden">
-				{#await import('$lib/components/DiffEditor.svelte')}
-					<div class="flex items-center justify-center h-full">
-						<Loader2 class="w-5 h-5 animate-spin" />
+			<div class="flex grow overflow-hidden">
+				<div class="w-1/2 flex flex-col border-r overflow-auto">
+					<div class="px-3 py-1.5 text-2xs font-semibold text-secondary border-b">
+						Parent ({parentWorkspaceId})
 					</div>
-				{:then Module}
-					<Module.default
-						open={true}
-						automaticLayout
-						className="h-full"
-						defaultLang="yaml"
-						defaultOriginal={yaml.parent}
-						defaultModified={yaml.fork}
-						readOnly
-					/>
-				{/await}
+					<pre class="p-3 text-xs whitespace-pre-wrap font-mono grow">{yaml.parent}</pre>
+				</div>
+				<div class="w-1/2 flex flex-col overflow-auto">
+					<div class="px-3 py-1.5 text-2xs font-semibold text-secondary border-b">
+						Fork ({currentWorkspaceId})
+					</div>
+					<pre class="p-3 text-xs whitespace-pre-wrap font-mono grow">{yaml.fork}</pre>
+				</div>
 			</div>
 		</div>
 	{/if}
