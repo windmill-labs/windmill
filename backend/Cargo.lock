@@ -16478,6 +16478,7 @@ name = "windmill-common"
 version = "1.664.0"
 dependencies = [
  "aes-gcm",
+ "aho-corasick",
  "anyhow",
  "async-recursion",
  "async-stream",
