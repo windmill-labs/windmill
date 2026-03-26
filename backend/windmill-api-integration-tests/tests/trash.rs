@@ -1,4 +1,3 @@
-use serde_json::json;
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
@@ -18,34 +17,25 @@ fn assert_2xx(status: u16, body: &str, endpoint: &str) {
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_folder_history_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_trash_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/trash");
 
-    // Create a folder first
-    let resp = authed(
-        client()
-            .post(format!(
-                "http://localhost:{port}/api/w/test-workspace/folders/create"
-            ))
-            .json(&json!({"name": "test_hist_folder", "owners": ["u/test-user"]})),
-    )
-    .send()
-    .await?;
+    // GET /trash/list → 200 (admin, empty array)
+    let resp = authed(client().get(format!("{base}/list"))).send().await?;
     let status = resp.status().as_u16();
     let body = resp.text().await?;
-    assert_2xx(status, &body, "POST /folders/create");
+    assert_2xx(status, &body, "GET /trash/list");
 
-    // GET /folders_history/get/{folder} → 200 (empty array)
-    let resp = authed(client().get(format!(
-        "http://localhost:{port}/api/w/test-workspace/folders_history/get/test_hist_folder"
-    )))
-    .send()
-    .await?;
+    // POST /trash/empty → 200 (admin)
+    let resp = authed(client().post(format!("{base}/empty")))
+        .send()
+        .await?;
     let status = resp.status().as_u16();
     let body = resp.text().await?;
-    assert_2xx(status, &body, "GET /folders_history/get/test_hist_folder");
+    assert_2xx(status, &body, "POST /trash/empty");
 
     Ok(())
 }

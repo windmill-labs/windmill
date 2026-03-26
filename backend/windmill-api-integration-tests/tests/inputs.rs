@@ -10,60 +10,67 @@ fn authed(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     builder.header("Authorization", "Bearer SECRET_TOKEN")
 }
 
-fn assert_route_matched(status: u16, body: &str, endpoint: &str) {
+fn assert_2xx(status: u16, body: &str, endpoint: &str) {
     assert!(
-        status != 404 || !body.is_empty(),
-        "Router-level 404 (empty body) for {} -- route pattern not matched",
-        endpoint,
+        (200..300).contains(&status),
+        "{endpoint} returned {status}: {body}",
     );
 }
 
-const FAKE_UUID: &str = "00000000-0000-0000-0000-000000000000";
-
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_inputs_route_reachability(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_inputs_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let base = format!("http://localhost:{port}/api/w/test-workspace/inputs");
 
+    // GET /history with fake runnable → 200 empty array
     let resp = authed(client().get(format!(
-        "{base}/history?runnable_id=fake&runnable_type=ScriptHash"
+        "{base}/history?runnable_id=u/test-user/test&runnable_type=ScriptPath"
     )))
     .send()
     .await?;
-    assert_route_matched(resp.status().as_u16(), &resp.text().await?, "GET /history");
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_2xx(status, &body, "GET /inputs/history");
 
+    // GET /list with fake runnable → 200 empty array
     let resp = authed(client().get(format!(
-        "{base}/list?runnable_id=fake&runnable_type=ScriptHash"
+        "{base}/list?runnable_id=u/test-user/test&runnable_type=ScriptPath"
     )))
     .send()
     .await?;
-    assert_route_matched(resp.status().as_u16(), &resp.text().await?, "GET /list");
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_2xx(status, &body, "GET /inputs/list");
 
-    let resp = authed(client().post(format!("{base}/create")))
-        .json(&json!({"name": "test", "args": {}}))
+    // POST /create → 200, returns UUID
+    let resp = authed(client().post(format!(
+        "{base}/create?runnable_id=u/test-user/test&runnable_type=ScriptPath"
+    )))
+    .json(&json!({"name": "test_input", "args": {}}))
+    .send()
+    .await?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_2xx(status, &body, "POST /inputs/create");
+    let input_id: String = serde_json::from_str(&body)?;
+
+    // GET /{id}/args → 200
+    let resp = authed(client().get(format!("{base}/{input_id}/args")))
         .send()
         .await?;
-    assert_route_matched(resp.status().as_u16(), &resp.text().await?, "POST /create");
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_2xx(status, &body, "GET /inputs/{id}/args");
 
-    let resp = authed(client().post(format!("{base}/delete/{FAKE_UUID}")))
+    // POST /delete/{id} → 200
+    let resp = authed(client().post(format!("{base}/delete/{input_id}")))
         .send()
         .await?;
-    assert_route_matched(
-        resp.status().as_u16(),
-        &resp.text().await?,
-        "POST /delete/{id}",
-    );
-
-    let resp = authed(client().get(format!("{base}/{FAKE_UUID}/args")))
-        .send()
-        .await?;
-    assert_route_matched(
-        resp.status().as_u16(),
-        &resp.text().await?,
-        "GET /{id}/args",
-    );
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_2xx(status, &body, "POST /inputs/delete/{id}");
 
     Ok(())
 }

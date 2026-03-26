@@ -9,16 +9,15 @@ fn authed(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     builder.header("Authorization", "Bearer SECRET_TOKEN")
 }
 
-fn assert_route_matched(status: u16, body: &str, endpoint: &str) {
+fn assert_2xx(status: u16, body: &str, endpoint: &str) {
     assert!(
-        status != 404 || !body.is_empty(),
-        "Router-level 404 (empty body) for {} -- route pattern not matched",
-        endpoint,
+        (200..300).contains(&status),
+        "{endpoint} returned {status}: {body}",
     );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_group_history_route_reachability(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_group_history_2xx(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -27,7 +26,7 @@ async fn test_group_history_route_reachability(db: Pool<Postgres>) -> anyhow::Re
     let resp = authed(client().get(format!("{base}/get/all")))
         .send()
         .await?;
-    assert_route_matched(resp.status().as_u16(), &resp.text().await?, "GET /get/all");
+    assert_2xx(resp.status().as_u16(), &resp.text().await?, "GET /get/all");
 
     Ok(())
 }

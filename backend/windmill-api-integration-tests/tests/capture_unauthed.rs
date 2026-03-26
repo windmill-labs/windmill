@@ -6,26 +6,54 @@ fn client() -> reqwest::Client {
     reqwest::Client::new()
 }
 
-fn assert_route_matched(status: u16, body: &str, endpoint: &str) {
+fn authed(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    builder.header("Authorization", "Bearer SECRET_TOKEN")
+}
+
+fn assert_2xx(status: u16, body: &str, endpoint: &str) {
     assert!(
-        status != 404 || !body.is_empty(),
-        "Router-level 404 (empty body) for {} -- route pattern not matched",
-        endpoint,
+        (200..300).contains(&status),
+        "{endpoint} returned {status}: {body}",
     );
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_capture_unauthed_route_reachability(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_capture_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
-    let base = format!("http://localhost:{port}/api/w/test-workspace/capture_u/webhook/ScriptHash/u/test-user/fake_script");
 
-    let resp = client().head(&base).send().await?;
-    assert_route_matched(resp.status().as_u16(), &resp.text().await?, "HEAD /webhook");
+    // POST /capture/set_config → 200 (authed)
+    let resp = authed(
+        client()
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/capture/set_config"
+            ))
+            .json(&json!({
+                "trigger_kind": "webhook",
+                "path": "u/test-user/test_capture",
+                "is_flow": false
+            })),
+    )
+    .send()
+    .await?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_2xx(status, &body, "POST /capture/set_config");
 
-    let resp = client().post(&base).json(&json!({})).send().await?;
-    assert_route_matched(resp.status().as_u16(), &resp.text().await?, "POST /webhook");
+    // GET /capture/list/{...} → 200 (authed)
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/w/test-workspace/capture/list/script/u/test-user/test_capture"
+    )))
+    .send()
+    .await?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_2xx(
+        status,
+        &body,
+        "GET /capture/list/script/u/test-user/test_capture",
+    );
 
     Ok(())
 }

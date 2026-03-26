@@ -10,18 +10,17 @@ fn authed(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     builder.header("Authorization", "Bearer SECRET_TOKEN")
 }
 
-fn assert_route_matched(status: u16, body: &str, endpoint: &str) {
+fn assert_2xx(status: u16, body: &str, endpoint: &str) {
     assert!(
-        status != 404 || !body.is_empty(),
-        "Router-level 404 (empty body) for {} -- route pattern not matched",
-        endpoint,
+        (200..300).contains(&status),
+        "{endpoint} returned {status}: {body}",
     );
 }
 
 const FAKE_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_job_metrics_route_reachability(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_job_metrics_2xx(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -31,7 +30,7 @@ async fn test_job_metrics_route_reachability(db: Pool<Postgres>) -> anyhow::Resu
         .json(&json!({}))
         .send()
         .await?;
-    assert_route_matched(
+    assert_2xx(
         resp.status().as_u16(),
         &resp.text().await?,
         "POST /get/{id}",
@@ -41,7 +40,7 @@ async fn test_job_metrics_route_reachability(db: Pool<Postgres>) -> anyhow::Resu
         .json(&json!({"percent": 50}))
         .send()
         .await?;
-    assert_route_matched(
+    assert_2xx(
         resp.status().as_u16(),
         &resp.text().await?,
         "POST /set_progress/{id}",
@@ -50,7 +49,7 @@ async fn test_job_metrics_route_reachability(db: Pool<Postgres>) -> anyhow::Resu
     let resp = authed(client().get(format!("{base}/get_progress/{FAKE_UUID}")))
         .send()
         .await?;
-    assert_route_matched(
+    assert_2xx(
         resp.status().as_u16(),
         &resp.text().await?,
         "GET /get_progress/{id}",
