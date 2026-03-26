@@ -71,17 +71,9 @@
 
 	let previousVersionId: number | undefined = $state(undefined)
 	let previousFlow: PreviousFlow | undefined = $state(undefined)
-	let tab: TabValue = $state(selectedTab ?? untrack(() => initTab) ?? 'diff')
-
-	// Single sync: parent writes flow through selectedTab → tab, tab changes flow back out
-	$effect(() => {
-		if (selectedTab !== undefined && selectedTab !== tab) {
-			tab = selectedTab
-		}
-	})
-	$effect(() => {
-		selectedTab = tab
-	})
+	if (selectedTab === undefined) {
+		selectedTab = untrack(() => initTab) ?? 'diff'
+	}
 
 	let previousFlowCache: Record<number, PreviousFlow> = {}
 
@@ -116,12 +108,12 @@
 			return
 		}
 		if (availableVersions && availableVersions.length > 0) {
-			tab = 'diff'
+			selectedTab = 'diff'
 		} else {
 			if (noGraph) {
-				tab = 'schema'
+				selectedTab = 'schema'
 			} else {
-				tab = 'ui'
+				selectedTab = 'ui'
 			}
 		}
 	})
@@ -149,7 +141,7 @@
 
 <HighlightTheme />
 
-<Tabs bind:selected={tab} {hideTabs}>
+<Tabs bind:selected={selectedTab as string} {hideTabs}>
 	{#if availableVersions && availableVersions.length > 0}
 		<Tab value="diff" label="Diff" />
 	{/if}
