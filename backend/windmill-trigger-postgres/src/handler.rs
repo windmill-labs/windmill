@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
+use async_trait::async_trait;
 use axum::{
-    async_trait,
     extract::Path,
     routing::{delete, get, post},
     Extension, Json, Router,
@@ -297,8 +297,14 @@ impl TriggerCrud for PostgresTrigger {
 fn publication_service() -> Router {
     Router::new()
         .route("/get/{publication_name}/{*path}", get(get_publication_info))
-        .route("/create/{publication_name}/{*path}", post(create_publication))
-        .route("/update/{publication_name}/{*path}", post(alter_publication))
+        .route(
+            "/create/{publication_name}/{*path}",
+            post(create_publication),
+        )
+        .route(
+            "/update/{publication_name}/{*path}",
+            post(alter_publication),
+        )
         .route(
             "/delete/{publication_name}/{*path}",
             delete(delete_publication),
