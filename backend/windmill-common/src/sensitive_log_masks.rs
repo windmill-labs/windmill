@@ -29,10 +29,6 @@ lazy_static::lazy_static! {
     static ref RUNNING_JOBS: RwLock<HashSet<Uuid>> =
         RwLock::new(HashSet::new());
 
-    /// Tracks which jobs have already had the masking notice appended,
-    /// so we only show it once per job.
-    static ref NOTICE_SHOWN: RwLock<HashSet<Uuid>> =
-        RwLock::new(HashSet::new());
 }
 
 /// A lock-free snapshot of secrets for a job, taken once per log batch.
@@ -43,7 +39,9 @@ pub struct MaskSnapshot {
     ac: aho_corasick::AhoCorasick,
     /// Replacement strings, indexed to match the automaton's pattern order.
     replacements: Vec<String>,
-    job_id: Uuid,
+    /// Whether the security notice has already been appended for this snapshot.
+    /// Tracked locally to avoid a global write lock on every masked line.
+    notice_shown: std::cell::Cell<bool>,
 }
 
 impl MaskSnapshot {
@@ -61,9 +59,9 @@ impl MaskSnapshot {
 
         let mut result = self.ac.replace_all(text, &self.replacements);
 
-        // Append the notice only once per job
-        let mut shown = NOTICE_SHOWN.write().unwrap_or_else(|e| e.into_inner());
-        if shown.insert(self.job_id) {
+        // Append the notice only once per snapshot (i.e. per batch)
+        if !self.notice_shown.get() {
+            self.notice_shown.set(true);
             result.push('\n');
             result.push_str(MASKED_NOTICE);
         }
@@ -100,7 +98,7 @@ pub fn snapshot(job_id: &Uuid) -> Option<MaskSnapshot> {
         .build(sorted.iter().map(|s| s.as_str()))
         .expect("failed to build aho-corasick automaton");
 
-    Some(MaskSnapshot { ac, replacements, job_id: *job_id })
+    Some(MaskSnapshot { ac, replacements, notice_shown: std::cell::Cell::new(false) })
 }
 
 /// Register a job as currently running. Call this before `handle_queued_job`.
@@ -124,10 +122,6 @@ pub fn unregister_running_job(job_id: Uuid) {
     {
         let mut masks = SENSITIVE_MASKS.write().unwrap_or_else(|e| e.into_inner());
         masks.remove(&job_id);
-    }
-    {
-        let mut shown = NOTICE_SHOWN.write().unwrap_or_else(|e| e.into_inner());
-        shown.remove(&job_id);
     }
 }
 

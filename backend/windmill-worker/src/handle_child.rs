@@ -432,7 +432,10 @@ pub async fn write_lines(
         let job_id = job_id.clone();
         let mut nstream = String::new();
 
-        // Snapshot secrets once per batch — no lock needed per line
+        // Snapshot secrets once per batch — no lock needed per line.
+        // Trade-off: secrets registered mid-batch (between snapshot and log line)
+        // won't be masked until the next batch. In practice the async HTTP round-trip
+        // to fetch a secret completes before the script's log line arrives.
         let mask_snapshot = windmill_common::sensitive_log_masks::snapshot(&job_id);
 
         while let Some(line) = read_lines.next().await {
