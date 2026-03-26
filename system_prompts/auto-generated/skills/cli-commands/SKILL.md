@@ -46,6 +46,13 @@ app related commands
   - `--dry-run` - Perform a dry run without making changes
   - `--default-ts <runtime:string>` - Default TypeScript runtime (bun or deno)
 
+### config
+
+Show all available wmill.yaml configuration options
+
+**Options:**
+- `--json` - Output as JSON for programmatic consumption
+
 ### dependencies
 
 workspace dependencies related commands
