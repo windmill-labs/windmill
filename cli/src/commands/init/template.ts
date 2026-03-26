@@ -210,6 +210,7 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
 export function generateCommentedTemplate(branchName?: string): string {
   const branch = branchName ?? "main";
   const lines: string[] = [
+    "# yaml-language-server: $schema=wmill.schema.json",
     "# wmill.yaml — Windmill CLI configuration",
     '# Full reference: run "wmill config"',
     "",
@@ -318,4 +319,141 @@ export function formatConfigReferenceJson(): string {
     name, type, default: def, description,
   }));
   return JSON.stringify(clean, null, 2);
+}
+
+// ─── JSON Schema generator ──────────────────────────────────────────────────
+
+/** Map CONFIG_REFERENCE type strings to JSON Schema type descriptors. */
+function typeToJsonSchema(type: string): Record<string, any> {
+  // Exact matches
+  if (type === "boolean") return { type: "boolean" };
+  if (type === "number") return { type: "integer" };
+  if (type === "string") return { type: "string" };
+  if (type === "string[]") return { type: "array", items: { type: "string" } };
+  if (type === '"bun" | "deno"') return { type: "string", enum: ["bun", "deno"] };
+  if (type === '"cjs" | "esm"') return { type: "string", enum: ["cjs", "esm"] };
+  if (type === "Record<string, string>") return { type: "object", additionalProperties: { type: "string" } };
+  if (type === "{from, to}[]") return {
+    type: "array",
+    items: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Source path" },
+        to: { type: "string", description: "Destination path" },
+      },
+      required: ["from", "to"],
+    },
+  };
+  // Fallback
+  return { type: "object" };
+}
+
+/** Build the specificItems sub-schema (shared by per-branch and commonSpecificItems). */
+function specificItemsSchema(): Record<string, any> {
+  return {
+    type: "object",
+    description: "Sync only specific items",
+    properties: {
+      variables: { type: "array", items: { type: "string" }, description: "Specific variable paths to sync" },
+      resources: { type: "array", items: { type: "string" }, description: "Specific resource paths to sync" },
+      triggers: { type: "array", items: { type: "string" }, description: "Specific trigger paths to sync" },
+      folders: { type: "array", items: { type: "string" }, description: "Specific folder paths to sync" },
+      settings: { type: "boolean", description: "Whether to sync settings" },
+    },
+    additionalProperties: false,
+  };
+}
+
+/** Build the Codebase item schema from codebases[].* entries in CONFIG_REFERENCE. */
+function codebaseItemSchema(): Record<string, any> {
+  const props: Record<string, any> = {};
+  for (const opt of CONFIG_REFERENCE) {
+    if (!opt.name.startsWith("codebases[].")) continue;
+    const key = opt.name.replace("codebases[].", "");
+    props[key] = { ...typeToJsonSchema(opt.type), description: opt.description };
+  }
+  return {
+    type: "object",
+    properties: props,
+    required: ["relative_path"],
+    additionalProperties: false,
+  };
+}
+
+/** Build the per-branch config schema. It extends the top-level SyncOptions. */
+function branchConfigSchema(topLevelProps: Record<string, any>): Record<string, any> {
+  return {
+    type: "object",
+    properties: {
+      baseUrl: { type: "string", description: "Windmill instance URL for this branch" },
+      workspaceId: { type: "string", description: "Workspace ID to sync with for this branch" },
+      overrides: {
+        type: "object",
+        description: "Override any top-level sync option for this branch",
+        properties: topLevelProps,
+        additionalProperties: false,
+      },
+      promotionOverrides: {
+        type: "object",
+        description: "Overrides applied when using --promotion flag",
+        properties: topLevelProps,
+        additionalProperties: false,
+      },
+      specificItems: specificItemsSchema(),
+    },
+    additionalProperties: false,
+  };
+}
+
+/**
+ * Generate a JSON Schema for wmill.yaml, derived from CONFIG_REFERENCE.
+ *
+ * The schema enables editor autocomplete, inline documentation, and validation
+ * when referenced via a `# yaml-language-server: $schema=...` directive.
+ */
+export function generateJsonSchema(): Record<string, any> {
+  // Collect top-level simple properties (not codebases, not gitBranches, not sub-fields)
+  const topLevelProps: Record<string, any> = {};
+  for (const opt of CONFIG_REFERENCE) {
+    // Skip sub-fields, complex types, and aliases
+    if (opt.name.includes(".") || opt.name.includes("[")) continue;
+    if (opt.name === "codebases" || opt.name === "gitBranches" || opt.name === "environments") continue;
+    topLevelProps[opt.name] = { ...typeToJsonSchema(opt.type), description: opt.description };
+  }
+
+  const branchSchema = branchConfigSchema(topLevelProps);
+
+  const schema: Record<string, any> = {
+    $schema: "http://json-schema.org/draft-07/schema#",
+    title: "wmill.yaml",
+    description: "Windmill CLI configuration file. Full reference: wmill config",
+    type: "object",
+    properties: {
+      ...topLevelProps,
+      codebases: {
+        type: "array",
+        description: "Codebase bundling configurations for shared libraries",
+        items: codebaseItemSchema(),
+      },
+      gitBranches: {
+        type: "object",
+        description: "Map git branches to workspaces and per-branch sync overrides",
+        properties: {
+          commonSpecificItems: specificItemsSchema(),
+        },
+        additionalProperties: branchSchema,
+      },
+      environments: {
+        type: "object",
+        description: "Alias for gitBranches — use if you prefer environment-based terminology",
+        properties: {
+          commonSpecificItems: specificItemsSchema(),
+        },
+        additionalProperties: branchSchema,
+      },
+    },
+    additionalProperties: false,
+  };
+
+  return schema;
 }
