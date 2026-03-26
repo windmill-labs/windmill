@@ -19,27 +19,34 @@
 		const result: DatabaseSchema = {}
 		for (const [schemaName, tables] of Object.entries(apiSchema)) {
 			result[schemaName] = {}
-			for (const [tableName, table] of Object.entries(tables)) {
+			for (const [tableName, table] of Object.entries(tables as Record<string, any>)) {
+				if (!table || typeof table !== 'object') continue
 				result[schemaName][tableName] = {
-					name: table.name,
-					columns: table.columns.map(
-						(c): TableEditorValuesColumn => ({
+					name: table.name ?? tableName,
+					columns: (table.columns ?? []).map(
+						(c: any): TableEditorValuesColumn => ({
 							name: c.name,
 							datatype: c.datatype,
-							primaryKey: c.primary_key,
-							defaultValue: c.default_value,
+							primaryKey: c.primary_key ?? c.primaryKey,
+							defaultValue: c.default_value ?? c.defaultValue,
 							nullable: c.nullable
 						})
 					),
-					foreignKeys: table.foreign_keys.map(
-						(fk): TableEditorForeignKey => ({
-							targetTable: fk.target_table,
-							columns: fk.columns.map((col) => ({
-								sourceColumn: col.source_column,
-								targetColumn: col.target_column
+					foreignKeys: (table.foreign_keys ?? table.foreignKeys ?? []).map(
+						(fk: any): TableEditorForeignKey => ({
+							targetTable: fk.target_table ?? fk.targetTable,
+							columns: (fk.columns ?? []).map((col: any) => ({
+								sourceColumn: col.source_column ?? col.sourceColumn,
+								targetColumn: col.target_column ?? col.targetColumn
 							})),
-							onDelete: (fk.on_delete as 'CASCADE' | 'SET NULL' | 'NO ACTION') ?? 'NO ACTION',
-							onUpdate: (fk.on_update as 'CASCADE' | 'SET NULL' | 'NO ACTION') ?? 'NO ACTION',
+							onDelete: (fk.on_delete ?? fk.onDelete ?? 'NO ACTION') as
+								| 'CASCADE'
+								| 'SET NULL'
+								| 'NO ACTION',
+							onUpdate: (fk.on_update ?? fk.onUpdate ?? 'NO ACTION') as
+								| 'CASCADE'
+								| 'SET NULL'
+								| 'NO ACTION',
 							fk_constraint_name: fk.fk_constraint_name
 						})
 					),
@@ -349,6 +356,7 @@
 	}
 </script>
 
+<h3 class="text-sm font-semibold">Datatable schema changes</h3>
 {#if loading}
 	<div class="flex items-center gap-2 text-xs text-tertiary py-2">
 		<Loader2 class="w-4 h-4 animate-spin" /> Loading datatable diffs...
@@ -357,7 +365,6 @@
 	<div class="text-xs text-red-500 py-2">Failed to load datatable diffs: {error}</div>
 {:else if diffs.length > 0}
 	<div class="flex flex-col gap-2">
-		<h3 class="text-sm font-semibold">Datatable schema changes</h3>
 		{#each diffs as diff}
 			<div class="border rounded-md">
 				<button
@@ -443,6 +450,8 @@
 			</div>
 		{/each}
 	</div>
+{:else}
+	<span class="text-xs text-secondary"> No changes detected </span>
 {/if}
 
 <Drawer bind:open={drawerOpen} size="900px">
