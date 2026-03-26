@@ -158,18 +158,16 @@
 	</div>
 {:else}
 	<DataTable size="sm">
-		{#snippet head()}
-			<Head>
-				<tr>
-					<Cell head first>Type</Cell>
-					<Cell head>Path</Cell>
-					<Cell head>Deleted by</Cell>
-					<Cell head>Deleted</Cell>
-					<Cell head>Expires</Cell>
-					<Cell head last>Actions</Cell>
-				</tr>
-			</Head>
-		{/snippet}
+		<Head>
+			<tr>
+				<Cell head first>Type</Cell>
+				<Cell head>Path</Cell>
+				<Cell head>Deleted by</Cell>
+				<Cell head>Deleted</Cell>
+				<Cell head>Expires</Cell>
+				<Cell head last>Actions</Cell>
+			</tr>
+		</Head>
 		{#each items as item (item.id)}
 			{@const Icon = getKindIcon(item.item_kind)}
 			<Row>
@@ -222,10 +220,10 @@
 	open={deleteOpen}
 	title="Permanently delete"
 	confirmationText="Delete forever"
-	on:canceled={() => {
+	onCanceled={() => {
 		deleteConfirmedCallback = undefined
 	}}
-	on:confirmed={() => {
+	onConfirmed={() => {
 		if (deleteConfirmedCallback) {
 			deleteConfirmedCallback()
 		}
@@ -239,10 +237,10 @@
 	open={emptyConfirmOpen}
 	title="Empty trashbin"
 	confirmationText="Empty trashbin"
-	on:canceled={() => {
+	onCanceled={() => {
 		emptyConfirmOpen = false
 	}}
-	on:confirmed={() => {
+	onConfirmed={() => {
 		emptyAll()
 		emptyConfirmOpen = false
 	}}

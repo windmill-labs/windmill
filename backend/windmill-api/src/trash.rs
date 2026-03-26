@@ -106,20 +106,47 @@ async fn restore_trash_item(
 async fn permanently_delete_item(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-    trashbin::permanently_delete_item(&db, &w_id, id).await?;
+    let item = trashbin::get_trash_item(&db, &w_id, id).await?;
+    let mut tx = user_db.begin(&authed).await?;
+    trashbin::permanently_delete_item(&mut *tx, &w_id, id).await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "trashbin.permanently_delete",
+        ActionKind::Delete,
+        &w_id,
+        Some(&item.item_path),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
     Ok("permanently deleted".to_string())
 }
 
 async fn empty_trash(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
+    Extension(_db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-    let count = trashbin::empty_trash(&db, &w_id).await?;
+    let mut tx = user_db.begin(&authed).await?;
+    let count = trashbin::empty_trash(&mut *tx, &w_id).await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "trashbin.empty",
+        ActionKind::Delete,
+        &w_id,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
     Ok(format!("{} items permanently deleted", count))
 }
 

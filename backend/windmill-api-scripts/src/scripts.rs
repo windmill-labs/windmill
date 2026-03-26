@@ -2240,13 +2240,17 @@ async fn delete_script_by_path(
     .await?
     .unwrap_or(false);
 
+    if !draft_only {
+        require_admin(authed.is_admin, &authed.username)?;
+    }
+
     // Capture all script versions and drafts for trashbin before deleting
     let trash_scripts: Vec<serde_json::Value> = sqlx::query_scalar(
         "SELECT to_jsonb(t) FROM script t WHERE path = $1 AND workspace_id = $2",
     )
     .bind(path)
     .bind(&w_id)
-    .fetch_all(&db)
+    .fetch_all(&mut *tx)
     .await?;
 
     let trash_drafts: Vec<serde_json::Value> = sqlx::query_scalar(
@@ -2254,34 +2258,22 @@ async fn delete_script_by_path(
     )
     .bind(path)
     .bind(&w_id)
-    .fetch_all(&db)
+    .fetch_all(&mut *tx)
     .await?;
 
-    let script = if !draft_only {
-        require_admin(authed.is_admin, &authed.username)?;
-        sqlx::query_scalar!(
-            "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
-            path,
-            w_id
-        )
-        .fetch_one(&db)
-        .await
-        .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?
-    } else {
-        sqlx::query_scalar!(
-            "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
-            path,
-            w_id
-        )
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?
-    };
+    let script = sqlx::query_scalar!(
+        "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
+        path,
+        w_id
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?;
 
     if !trash_scripts.is_empty() {
         let mut trash_data = serde_json::json!({"scripts": trash_scripts});
         if !trash_drafts.is_empty() {
-            trash_data["drafts"] = serde_json::Value::Array(trash_drafts.clone());
+            trash_data["drafts"] = serde_json::Value::Array(trash_drafts);
         }
         windmill_common::trashbin::move_to_trash(
             &mut *tx,
@@ -2299,7 +2291,7 @@ async fn delete_script_by_path(
         path,
         w_id
     )
-    .execute(&db)
+    .execute(&mut *tx)
     .await?;
 
     if !query.keep_captures.unwrap_or(false) {
