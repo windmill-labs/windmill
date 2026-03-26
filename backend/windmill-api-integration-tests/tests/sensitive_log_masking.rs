@@ -219,7 +219,7 @@ export async function main() {
                 "scenario 1: expected masked output with first 3 chars\nLogs:\n{logs1}"
             );
             assert!(
-                logs1.contains("[windmill] secret value was masked for security reasons"),
+                logs1.contains("[windmill] secret value was masked for security reasons, use string transformations to display full value"),
                 "scenario 1: expected security notice\nLogs:\n{logs1}"
             );
 

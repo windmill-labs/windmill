@@ -113,6 +113,6 @@ pub fn mask_sensitive_values<'a>(job_id: &Uuid, text: &'a str) -> Cow<'a, str> {
         let mask = format!("{}*****", prefix);
         result = result.replace(secret.as_str(), &mask);
     }
-    result.push_str("\n[windmill] secret value was masked for security reasons, use string transformations to display partial values");
+    result.push_str("\n[windmill] secret value was masked for security reasons, use string transformations to display full value");
     Cow::Owned(result)
 }
