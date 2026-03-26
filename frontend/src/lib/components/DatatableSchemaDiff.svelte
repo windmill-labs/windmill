@@ -118,7 +118,12 @@
 		if (change.kind === 'modified' && change.operations) {
 			const queries = makeAlterTableQueries(change.operations, 'postgresql', change.schemaName)
 			if (queries.length === 0) return ''
-			return 'BEGIN;\n' + queries.join('\n') + '\nCOMMIT;'
+			return (
+				'-- Migration is auto-generated on a best-effort basis. You can adjust it here \n\n' +
+				'BEGIN;\n' +
+				queries.join('\n') +
+				'\nCOMMIT;'
+			)
 		}
 		if (change.kind === 'added') {
 			const table = sourceSchema[change.schemaName]?.[change.tableName]
@@ -152,6 +157,7 @@
 	import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 	import YAML from 'yaml'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import Alert from './common/alert/Alert.svelte'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -304,12 +310,16 @@
 			return
 		}
 
-		// Update forked_from.schema for the migrated table
+		// Update forked_from.schema: re-fetch the target's live schema for this table
+		// so the new baseline reflects the post-migration state
 		try {
-			const sourceSchema =
-				drawerDirection === 'ahead' ? drawerDiff.forkSchema : drawerDiff.parentSchema
 			const { schemaName, tableName } = drawerChange
-			const newTableDef = sourceSchema[schemaName]?.[tableName]
+			const targetLiveSchemaRaw = await WorkspaceService.getDatatableFullSchema({
+				workspace: targetWorkspace,
+				requestBody: { source: `datatable://${dtName}` }
+			})
+			const targetLiveSchema = apiSchemaToEditorSchema(targetLiveSchemaRaw)
+			const newTableDef = targetLiveSchema[schemaName]?.[tableName]
 
 			const forkSettings = await WorkspaceService.getSettings({
 				workspace: currentWorkspaceId
@@ -440,10 +450,6 @@
 <Drawer bind:open={drawerOpen} size="900px">
 	{#if drawerChange && drawerDiff && drawerDirection}
 		{@const yaml = getDiffYaml()}
-		{@const targetLabel =
-			drawerDirection === 'ahead'
-				? `Deploy to ${parentWorkspaceId}`
-				: `Update ${currentWorkspaceId}`}
 		<DrawerContent
 			title="{drawerChange.schemaName}.{drawerChange.tableName} ({drawerDirection === 'ahead'
 				? 'Fork → Parent'
@@ -452,10 +458,17 @@
 			{#snippet actions()}
 				<Button variant="default" onclick={() => (drawerOpen = false)}>Cancel</Button>
 				<Button variant="accent" loading={migrationRunning} onclick={runMigration}>
-					{targetLabel}
+					Run migration
 				</Button>
 			{/snippet}
 			<div class="flex flex-col h-full">
+				<Alert title="Changes to {drawerChange.tableName}" type="info">
+					{#if drawerDirection == 'ahead'}
+						You have made these changes in {currentWorkspaceId} that are not yet deployed in {parentWorkspaceId}.
+					{:else if drawerDirection == 'behind'}
+						These changes were made in {parentWorkspaceId} but the current workspace is not up to date.
+					{/if}
+				</Alert>
 				<!-- Diff section -->
 				<div style="height: 45%;">
 					<div class="py-1.5 text-2xs font-semibold text-secondary">
