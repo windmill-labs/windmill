@@ -1657,6 +1657,38 @@ async fn delete_flow_by_path(
     }
     let mut tx = user_db.begin(&authed).await?;
 
+    // Capture all related data for trashbin before deleting (CASCADE will remove flow_version, flow_node)
+    let trash_flow: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT to_jsonb(t) FROM flow t WHERE path = $1 AND workspace_id = $2")
+            .bind(path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let trash_flow_versions: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM flow_version t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let trash_flow_nodes: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM flow_node t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let trash_drafts: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM draft t WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
         path,
@@ -1672,6 +1704,28 @@ async fn delete_flow_by_path(
     )
     .execute(&mut *tx)
     .await?;
+
+    if let Some(flow_data) = trash_flow {
+        let mut trash_data = serde_json::json!({"row": flow_data});
+        if !trash_flow_versions.is_empty() {
+            trash_data["flow_versions"] = serde_json::Value::Array(trash_flow_versions);
+        }
+        if !trash_flow_nodes.is_empty() {
+            trash_data["flow_nodes"] = serde_json::Value::Array(trash_flow_nodes);
+        }
+        if !trash_drafts.is_empty() {
+            trash_data["drafts"] = serde_json::Value::Array(trash_drafts);
+        }
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "flow",
+            path,
+            trash_data,
+            &authed.username,
+        )
+        .await?;
+    }
 
     if !query.keep_captures.unwrap_or(false) {
         sqlx::query!(
