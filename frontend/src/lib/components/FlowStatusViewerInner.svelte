@@ -136,6 +136,7 @@
 		}
 		showLogsWithResult?: boolean
 		showJobDetailHeader?: boolean
+		hideFlowResult?: boolean
 		notes?: FlowNote[]
 		groups?: FlowValue['groups']
 	}
@@ -178,6 +179,7 @@
 		toolCallStore,
 		showLogsWithResult = false,
 		showJobDetailHeader = false,
+		hideFlowResult = false,
 		notes: notesProp = undefined,
 		groups: groupsProp = undefined
 	}: Props = $props()
@@ -1356,7 +1358,7 @@
 					/>
 				</div>
 			{/if}
-		{:else if render}
+		{:else if render && !hideFlowResult}
 			<div class={'flex flex-col w-full'}>
 				{#if showLogsWithResult && job}
 					<!-- Side-by-side result and logs for simple jobs -->
@@ -2141,7 +2143,7 @@
 													likely did not run yet</p
 												>
 											{/if}
-										{:else}<p class="p-2 text-primary italic"
+										{:else}<p class="text-secondary text-xs italic"
 												>Select a node to see its details here</p
 											>{/if}
 									</div>
@@ -2157,7 +2159,7 @@
 									{#if node?.job_id}
 										<JobOtelTraces jobId={node.job_id} />
 									{:else}
-										<div class="p-4 text-secondary"
+										<div class="p-4 text-secondary text-xs italic"
 											>Select a node with a job to see HTTP request traces</div
 										>
 									{/if}

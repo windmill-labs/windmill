@@ -44,6 +44,7 @@
 		workspaceId = undefined,
 		flowState = $bindable({}),
 		selectedJobStep = $bindable(undefined),
+		hideFlowResult = false,
 		hideTimeline = false,
 		hideDownloadInGraph = false,
 		hideNodeDefinition = false,
@@ -175,6 +176,7 @@
 			}
 		}}
 		{showLogsWithResult}
+		{hideFlowResult}
 		notes={notesProp}
 		groups={groupsProp}
 	/>
