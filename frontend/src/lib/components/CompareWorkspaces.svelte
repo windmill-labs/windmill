@@ -982,7 +982,6 @@
 							{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
 								{#if !(mergeIntoParent && !canDeployToParent)}
 									<Button
-										color="blue"
 										disabled={selectedItems.length === 0 ||
 											deploying ||
 											(hasBehindChanges && !allowBehindChangesOverride) ||

@@ -149,7 +149,7 @@
 
 	<!-- Footer -->
 	{#if footer}
-		<div class="p-4">
+		<div class="pt-4">
 			{@render footer()}
 		</div>
 	{/if}
