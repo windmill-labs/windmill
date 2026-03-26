@@ -343,6 +343,12 @@ export async function main() {
                 mask_count >= 3,
                 "scenario 5: expected >= 3 masked occurrences, found {mask_count}\nLogs:\n{logs5}"
             );
+            // Security notice should appear only once even though masking happened 3 times
+            let notice_count = logs5.matches("[windmill] secret value was masked").count();
+            assert_eq!(
+                notice_count, 1,
+                "scenario 5: security notice should appear exactly once, found {notice_count}\nLogs:\n{logs5}"
+            );
 
             // ================================================================
             // Scenario 6: $encrypted: password arg → masked when logged
