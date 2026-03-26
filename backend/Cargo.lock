@@ -16197,6 +16197,7 @@ dependencies = [
  "aws-credential-types",
  "aws-sdk-sqs",
  "base64 0.22.1",
+ "futures",
  "rand 0.9.0",
  "rdkafka",
  "reqwest 0.13.1",
@@ -16477,6 +16478,7 @@ name = "windmill-common"
 version = "1.664.0"
 dependencies = [
  "aes-gcm",
+ "aho-corasick",
  "anyhow",
  "async-recursion",
  "async-stream",
