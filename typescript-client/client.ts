@@ -9,6 +9,7 @@ import {
   MetricsService,
   OidcService,
   UserService,
+  KafkaTriggerService,
 } from "./services.gen";
 import { OpenAPI } from "./core/OpenAPI";
 // import type { DenoS3LightClientSettings } from "./index";
@@ -1557,6 +1558,8 @@ export class WorkflowCtx {
         this._suspended = true;
         const steps = [...this.pending];
         this.pending = [];
+        const names = steps.map(s => s.name).join(", ");
+        console.log(`\n--- WAC: ${names} ---`);
         throw new StepSuspend({
           mode: steps.length > 1 ? "parallel" : "sequential",
           steps,
@@ -1574,6 +1577,7 @@ export class WorkflowCtx {
   _waitForApproval(options?: {
     timeout?: number;
     form?: object;
+    selfApproval?: boolean;
   }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
     const key = this._allocKey("approval");
 
@@ -1588,11 +1592,13 @@ export class WorkflowCtx {
     }
 
     // Throw immediately — approval is always a blocking step
+    console.log(`\n--- WAC: approval(${key}) ---`);
     throw new StepSuspend({
       mode: "approval",
       key,
       timeout: options?.timeout ?? 1800,
       form: options?.form,
+      self_approval_disabled: !(options?.selfApproval ?? true),
       steps: [],
     });
   }
@@ -1608,6 +1614,7 @@ export class WorkflowCtx {
       return { then: () => new Promise(() => {}) };
     }
 
+    console.log(`\n--- WAC: sleep(${key}, ${seconds}s) ---`);
     throw new StepSuspend({
       mode: "sleep",
       key,
@@ -1635,8 +1642,13 @@ export class WorkflowCtx {
       return new Promise(() => {});
     }
 
+    console.log(`\n--- WAC: ${key} ---`);
+    const startedAt = new Date().toISOString();
+    console.log(`WM_WAC_STEP: ${JSON.stringify({ key, started_at: startedAt })}`);
+    const t0 = Date.now();
     const result = await fn();
-    throw new StepSuspend({ mode: "inline_checkpoint", steps: [], key, result });
+    const durationMs = Date.now() - t0;
+    throw new StepSuspend({ mode: "inline_checkpoint", steps: [], key, result, started_at: startedAt, duration_ms: durationMs });
   }
 }
 
@@ -1832,6 +1844,7 @@ export function workflow<T>(fn: (...args: any[]) => Promise<T>) {
 export function waitForApproval(options?: {
   timeout?: number;
   form?: object;
+  selfApproval?: boolean;
 }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
   const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
   if (!ctx) {
@@ -1864,5 +1877,26 @@ export async function parallel<T, R>(
     results.push(...batchResults);
   }
   return results;
+}
+
+/**
+ * Commit Kafka offsets for a trigger with auto_commit disabled.
+ * @param triggerPath - Path to the Kafka trigger (from event.wm_trigger.trigger_path)
+ * @param topic - Kafka topic name (from event.topic)
+ * @param partition - Partition number (from event.partition)
+ * @param offset - Message offset to commit (from event.offset)
+ */
+export async function commitKafkaOffsets(
+  triggerPath: string,
+  topic: string,
+  partition: number,
+  offset: number,
+): Promise<void> {
+  const workspace = getWorkspace();
+  await KafkaTriggerService.commitKafkaOffsets({
+    workspace,
+    path: triggerPath,
+    requestBody: { topic, partition, offset },
+  });
 }
 

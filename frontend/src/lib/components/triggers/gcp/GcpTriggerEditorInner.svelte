@@ -22,6 +22,7 @@
 	import GcpTriggerEditorConfigSection from './GcpTriggerEditorConfigSection.svelte'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveGcpTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import { deepEqual } from 'fast-equals'
@@ -31,6 +32,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 
@@ -56,6 +58,9 @@
 	let subscription_mode: SubscriptionMode = $state('create_update')
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
 	let base_endpoint = $derived(`${window.location.origin}${base}`)
 	let auto_acknowledge_msg = $state(true)
 	let ack_deadline: number | undefined = $state()
@@ -201,6 +206,9 @@
 		auto_acknowledge_msg = cfg?.auto_acknowledge_msg ?? true
 		ack_deadline = cfg?.ack_deadline
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		permissionedAs = cfg?.permissioned_as
+		selectedPermissionedAs = undefined
+		preservePermissionedAs = false
 	}
 
 	async function updateTrigger(): Promise<void> {
@@ -245,7 +253,9 @@
 			error_handler_args,
 			retry,
 			auto_acknowledge_msg,
-			ack_deadline
+			ack_deadline,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 	}
 
@@ -368,6 +378,15 @@
 			<p>Loading...</p>
 		</div>
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-5">
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
@@ -452,7 +471,14 @@
 			/>
 
 			<Section label="Advanced" collapsable>
-				<div class="flex flex-col gap-4">
+				{#snippet header()}
+					<TriggerAdvancedBadges
+						{error_handler_path}
+						{retry}
+						extraBadges={[{ name: 'Manual Ack', active: !auto_acknowledge_msg }]}
+					/>
+				{/snippet}
+				<div class="flex flex-col gap-6">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
 							<Tab value="settings" label="Settings" />
@@ -520,6 +546,7 @@
 					</div>
 				</div>
 			</Section>
+			<div class="pb-8" />
 		</div>
 	{/if}
 {/snippet}

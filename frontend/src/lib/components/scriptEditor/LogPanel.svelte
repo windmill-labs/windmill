@@ -68,7 +68,6 @@
 		showCustomResultPanel = false
 	}: Props = $props()
 
-
 	type DContent = {
 		mode: 'json' | Preview['language'] | 'plain'
 		title: string
@@ -96,12 +95,21 @@
 		if (!x || typeof x !== 'object') return {}
 		const result: Record<string, WorkflowStatus> = {}
 		for (const [k, v] of Object.entries(x)) {
-			if (!k.startsWith('_')) result[k] = v as WorkflowStatus
+			if (!k.startsWith('_') || k.startsWith('_step/')) result[k] = v as WorkflowStatus
 		}
 		return result
 	}
 
+	function getStepResults(x: any): Record<string, any> {
+		return x?._checkpoint?.completed_steps ?? {}
+	}
+
 	let forceJson = $state(false)
+	let isWac = $derived(!!previewJob?.workflow_as_code_status)
+	let wacDone = $derived(
+		previewJob?.type == 'CompletedJob' ||
+			(previewJob != undefined && !previewIsLoading && !!previewJob.workflow_as_code_status)
+	)
 </script>
 
 <Drawer bind:open={drawerOpen} size="800px">
@@ -141,75 +149,81 @@
 		{#snippet content()}
 			<div class="grow min-h-0">
 				{#if selectedTab === 'logs'}
-					<SplitPanesWrapper>
-						<Splitpanes horizontal>
-							{#if previewJob?.workflow_as_code_status}
+					{#if isWac}
+						<div class="h-full overflow-auto">
+							<WorkflowTimeline
+								flow_status={asWorkflowStatus(previewJob?.workflow_as_code_status)}
+								flowDone={wacDone}
+								stepResults={getStepResults(previewJob?.workflow_as_code_status)}
+								result={previewJob?.result}
+								success={previewJob?.success !== false}
+								autoExpandResult
+								jobId={previewJob?.id}
+							/>
+						</div>
+					{:else}
+						<SplitPanesWrapper>
+							<Splitpanes horizontal>
 								<Pane class="relative">
-									<WorkflowTimeline
-										flow_status={asWorkflowStatus(previewJob.workflow_as_code_status)}
-										flowDone={previewJob.type == 'CompletedJob'}
+									<LogViewer
+										jobId={previewJob?.id}
+										duration={previewJob?.['duration_ms']}
+										mem={previewJob?.['mem_peak']}
+										content={previewJob?.logs}
+										isLoading={previewJob?.['running'] == false && previewIsLoading}
+										tag={previewJob?.tag}
+										download={customUi?.disableDownload !== true}
+										tagLabel={customUi?.tagLabel}
 									/>
 								</Pane>
-							{/if}
-							<Pane class="relative">
-								<LogViewer
-									jobId={previewJob?.id}
-									duration={previewJob?.['duration_ms']}
-									mem={previewJob?.['mem_peak']}
-									content={previewJob?.logs}
-									isLoading={previewJob?.['running'] == false && previewIsLoading}
-									tag={previewJob?.tag}
-									download={customUi?.disableDownload !== true}
-									tagLabel={customUi?.tagLabel}
-								/>
-							</Pane>
-							<Pane>
-								{@render children?.()}
-								{#if showCustomResultPanel && customResultPanel}
-									<div class="h-full">
-										{@render customResultPanel()}
-									</div>
-								{:else if previewJob != undefined && (previewJob.result_stream || previewJob.result)}
-									<div class="relative w-full h-full p-2">
-										<div class="relative h-full">
-											<DisplayResult
-												bind:forceJson
-												workspaceId={previewJob?.workspace_id}
-												jobId={previewJob?.id}
-												result={previewJob.result}
-												customUi={customUi?.displayResult}
-												language={lang}
-												result_stream={previewJob?.result_stream}
-												fixTableSizingToParent
-											>
-												{#snippet copilot_fix()}
-													{#if lang && editor && diffEditor && args && previewJob && !previewJob.success && getStringError(previewJob.result)}
-														<ScriptFix {lang} />
-													{/if}
-												{/snippet}
-											</DisplayResult>
+								<Pane>
+									{@render children?.()}
+									{#if showCustomResultPanel && customResultPanel}
+										<div class="h-full">
+											{@render customResultPanel()}
 										</div>
-									</div>
-								{:else}
-									<div class="text-sm text-primary p-2 flex justify-between items-center">
-										<span>
-											{#if previewIsLoading}
-												<Loader2 class="animate-spin" />
-											{:else}
-												Test to see the result here
-											{/if}
-										</span>
-										<Tooltip
-											documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
-										>
-											The result renderer in Windmill supports rich display rendering, allowing you
-											to customize the display format of your results.
-										</Tooltip>
-									</div>
-								{/if}
-							</Pane>
-						</Splitpanes>
-					</SplitPanesWrapper>
+									{:else if previewJob != undefined && (previewJob.result_stream || previewJob.result)}
+										<div class="relative w-full h-full p-2">
+											<div class="relative h-full">
+												<DisplayResult
+													bind:forceJson
+													workspaceId={previewJob?.workspace_id}
+													jobId={previewJob?.id}
+													result={previewJob.result}
+													customUi={customUi?.displayResult}
+													language={lang}
+													result_stream={previewJob?.result_stream}
+													fixTableSizingToParent
+												>
+													{#snippet copilot_fix()}
+														{#if lang && editor && diffEditor && args && previewJob && !previewJob.success && getStringError(previewJob.result)}
+															<ScriptFix {lang} />
+														{/if}
+													{/snippet}
+												</DisplayResult>
+											</div>
+										</div>
+									{:else}
+										<div class="text-sm text-primary p-2 flex justify-between items-center">
+											<span>
+												{#if previewIsLoading}
+													<Loader2 class="animate-spin" />
+												{:else}
+													Test to see the result here
+												{/if}
+											</span>
+											<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
+											>
+												The result renderer in Windmill supports rich display rendering, allowing
+												you to customize the display format of your results.
+											</Tooltip>
+										</div>
+									{/if}
+								</Pane>
+							</Splitpanes>
+						</SplitPanesWrapper>
+					{/if}
 				{/if}
 				{#if selectedTab === 'history'}
 					<div>
@@ -312,9 +326,7 @@
 					{#if previewJob?.id}
 						<JobOtelTraces jobId={previewJob.id} />
 					{:else}
-						<div class="p-4 text-secondary">
-							Run a preview to see HTTP request traces
-						</div>
+						<div class="p-4 text-secondary"> Run a preview to see HTTP request traces </div>
 					{/if}
 				{/if}
 			</div>

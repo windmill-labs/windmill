@@ -13,8 +13,8 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, DENO_CACHE_DIR, DENO_PATH, HOME_ENV, NPMRC,
-    NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry_with_workspace_override, DENO_CACHE_DIR, DENO_PATH,
+    HOME_ENV, NPMRC, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 use windmill_common::worker::TypeScriptAnnotations;
@@ -26,6 +26,16 @@ use windmill_common::{
     worker::Connection,
 };
 use windmill_parser::Typ;
+
+pub const DENO_UNSTABLE_ARGS: &[&str] = &[
+    "--unstable-unsafe-proto",
+    "--unstable-bare-node-builtins",
+    "--unstable-webgpu",
+    "--unstable-ffi",
+    "--unstable-fs",
+    "--unstable-worker-options",
+    "--unstable-http",
+];
 
 lazy_static::lazy_static! {
 
@@ -81,15 +91,24 @@ async fn get_common_deno_proc_envs(
     ]);
 
     let npmrc = if let Some(conn) = conn {
-        read_ee_registry(NPMRC.read().await.clone(), "npmrc", job_id, w_id, conn).await
+        read_ee_registry_with_workspace_override(
+            NPMRC.read().await.clone(),
+            "npmrc",
+            "npmrc",
+            job_id,
+            w_id,
+            conn,
+        )
+        .await
     } else {
         NPMRC.read().await.clone()
     };
 
     if npmrc.as_ref().map_or(true, |s| s.trim().is_empty()) {
         let registry = if let Some(conn) = conn {
-            read_ee_registry(
+            read_ee_registry_with_workspace_override(
                 NPM_CONFIG_REGISTRY.read().await.clone(),
+                "npm_config_registry",
                 "npm registry",
                 job_id,
                 w_id,
@@ -163,22 +182,14 @@ pub async fn generate_deno_lock(
     let mut child_cmd = Command::new(DENO_PATH.as_str());
     child_cmd
         .current_dir(job_dir)
-        .args(vec![
-            "cache",
-            "--unstable-unsafe-proto",
-            "--unstable-bare-node-builtins",
-            "--unstable-webgpu",
-            "--unstable-ffi",
-            "--unstable-fs",
-            "--unstable-worker-options",
-            "--unstable-http",
+        .args(["cache"].iter().chain(DENO_UNSTABLE_ARGS).chain(&[
             "--lock=lock.json",
             "--frozen=false",
             "--allow-import",
             "--import-map",
-            &import_map_path,
+            import_map_path.as_str(),
             "main.ts",
-        ])
+        ]))
         .envs(deno_envs)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -406,8 +417,9 @@ try {{
         common_deno_proc_envs.insert("HOME".to_string(), job_dir.to_string());
     }
 
-    let npmrc = read_ee_registry(
+    let npmrc = read_ee_registry_with_workspace_override(
         NPMRC.read().await.clone(),
+        "npmrc",
         "npmrc",
         &job.id,
         &job.workspace_id,
@@ -432,13 +444,7 @@ try {{
         args.push("--import-map");
         args.push(&import_map_path);
         args.push(&reload);
-        args.push("--unstable-unsafe-proto");
-        args.push("--unstable-bare-node-builtins");
-        args.push("--unstable-webgpu");
-        args.push("--unstable-ffi");
-        args.push("--unstable-fs");
-        args.push("--unstable-worker-options");
-        args.push("--unstable-http");
+        args.extend_from_slice(DENO_UNSTABLE_ARGS);
 
         if !*DISABLE_DENO_LOCK {
             if let Some(reqs) = requirements_o {
@@ -537,7 +543,7 @@ try {{
     read_result(job_dir, handle_result.result_stream).await
 }
 
-async fn build_import_map(
+pub(crate) async fn build_import_map(
     w_id: &str,
     script_path: &str,
     base_internal_url: &str,
@@ -582,6 +588,132 @@ async fn build_import_map(
 
 #[cfg(feature = "private")]
 use crate::{dedicated_worker_oss::handle_dedicated_process, JobCompletedSender};
+/// Generate the dedicated worker wrapper for Deno.
+/// Parses the script signature and bakes in arg destructuring, date conversions,
+/// and preprocessor logic. Uses the `exec:<path>:<args>` protocol.
+#[cfg(any(feature = "private", test))]
+pub fn generate_dedicated_worker_wrapper(inner_content: &str) -> Result<String> {
+    let args = windmill_parser_ts::parse_deno_signature(inner_content, true, false, None)?.args;
+    let dates = args
+        .iter()
+        .filter_map(|x| {
+            if matches!(x.typ, Typ::Datetime) {
+                Some(x.name.clone())
+            } else {
+                None
+            }
+        })
+        .map(|x| format!("{x} = {x} ? new Date({x}) : undefined"))
+        .join("\n");
+
+    let spread = args.into_iter().map(|x| x.name).join(",");
+
+    let pre_spread = windmill_parser_ts::parse_deno_signature(
+        inner_content,
+        true,
+        false,
+        Some("preprocessor".to_string()),
+    )
+    .ok()
+    .filter(|sig| !sig.args.is_empty())
+    .map(|sig| sig.args.into_iter().map(|x| x.name).join(","));
+
+    let preprocessor_import = if pre_spread.is_some() {
+        r#"import { preprocessor } from "./main.ts";"#
+    } else {
+        ""
+    };
+
+    let preprocessor_logic = if let Some(ref pre_spread) = pre_spread {
+        format!(
+            r#"
+        if (line.startsWith("exec_preprocess:")) {{
+            const rest = line.slice("exec_preprocess:".length);
+            const colonIdx = rest.indexOf(":");
+            if (colonIdx === -1) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: "Malformed exec_preprocess command: missing colon separator", name: "Error" }}) + '\n');
+                continue;
+            }}
+            const argsJson = rest.slice(colonIdx + 1);
+            const parsedArgs = JSON.parse(argsJson);
+            if (typeof preprocessor !== 'function') {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}) + '\n');
+                continue;
+            }}
+            try {{
+                function preArgsObjToArr({{ {pre_spread} }}: any) {{
+                    return [ {pre_spread} ];
+                }}
+                const preprocessedArgs: any = await preprocessor(...preArgsObjToArr(parsedArgs));
+                console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+                let {{ {spread} }} = preprocessedArgs ?? {{}};
+                {dates}
+                let res: any = await main(...[ {spread} ]);
+                console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+            }} catch (e) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}) + '\n');
+            }}
+            continue;
+        }}"#
+        )
+    } else {
+        String::new()
+    };
+
+    Ok(format!(
+        r#"
+import {{ main }} from "./main.ts";
+{preprocessor_import}
+
+BigInt.prototype.toJSON = function () {{
+    return this.toString();
+}};
+
+console.log('start\n');
+
+const decoder = new TextDecoder();
+let _buffer = "";
+for await (const chunk of Deno.stdin.readable) {{
+    _buffer += decoder.decode(chunk, {{ stream: true }});
+    const _parts = _buffer.split("\n");
+    _buffer = _parts.pop() ?? "";
+    let exit = false;
+    for (const _part of _parts) {{
+        const line = _part.trim();
+        if (!line) continue;
+        if (line === "end") {{
+            exit = true;
+            break;
+        }}
+        {preprocessor_logic}
+        if (line.startsWith("exec:")) {{
+            const rest = line.slice("exec:".length);
+            const colonIdx = rest.indexOf(":");
+            if (colonIdx === -1) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: "Malformed exec command: missing colon separator", name: "Error" }}) + '\n');
+                continue;
+            }}
+            const argsJson = rest.slice(colonIdx + 1);
+            try {{
+                let {{ {spread} }} = JSON.parse(argsJson)
+                {dates}
+                let res: any = await main(...[ {spread} ]);
+                console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+            }} catch (e) {{
+                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}) + '\n');
+            }}
+            continue;
+        }}
+        console.error("Unknown command:", line);
+    }}
+    if (exit) {{
+        break;
+    }}
+}}
+"#,
+    ))
+}
+
 #[cfg(feature = "private")]
 use tokio::sync::mpsc::Receiver;
 #[cfg(feature = "private")]
@@ -640,114 +772,18 @@ pub async fn start_worker(
     let context_envs = build_envs_map(context.to_vec()).await;
 
     {
-        // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(inner_content, true, false, None)?.args;
-        let dates = args
-            .iter()
-            .filter_map(|x| {
-                if matches!(x.typ, Typ::Datetime) {
-                    Some(x.name.clone())
-                } else {
-                    None
-                }
-            })
-            .map(|x| return format!("{x} = {x} ? new Date({x}) : undefined"))
-            .join("\n");
-
-        let spread = args.into_iter().map(|x| x.name).join(",");
-
-        // Parse preprocessor signature if it exists
-        let pre_spread = windmill_parser_ts::parse_deno_signature(
-            inner_content,
-            true,
-            false,
-            Some("preprocessor".to_string()),
-        )
-        .ok()
-        .filter(|sig| !sig.args.is_empty())
-        .map(|sig| sig.args.into_iter().map(|x| x.name).join(","));
-
-        let preprocessor_import = if pre_spread.is_some() {
-            r#"import { preprocessor } from "./main.ts";"#
-        } else {
-            ""
-        };
-
-        let preprocessor_logic = if let Some(ref pre_spread) = pre_spread {
-            format!(
-                r#"
-        if (line.startsWith("preprocess:")) {{
-            const preInput = line.slice("preprocess:".length);
-            const parsedArgs = JSON.parse(preInput);
-            if (typeof preprocessor !== 'function') {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}) + '\n');
-                continue;
-            }}
-            try {{
-                function preArgsObjToArr({{ {pre_spread} }}: any) {{
-                    return [ {pre_spread} ];
-                }}
-                const preprocessedArgs: any = await preprocessor(...preArgsObjToArr(parsedArgs));
-                console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
-                // Now call main with preprocessed args
-                let {{ {spread} }} = preprocessedArgs ?? {{}};
-                {dates}
-                let res: any = await main(...[ {spread} ]);
-                console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
-            }} catch (e) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}) + '\n');
-            }}
-            continue;
-        }}"#
-            )
-        } else {
-            String::new()
-        };
-
-        // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
-        // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
-        let wrapper_content: String = format!(
-            r#"
-import {{ main }} from "./main.ts";
-{preprocessor_import}
-
-BigInt.prototype.toJSON = function () {{
-    return this.toString();
-}};
-
-{dates}
-
-console.log('start\n');
-
-const decoder = new TextDecoder();
-for await (const chunk of Deno.stdin.readable) {{
-    const lines = decoder.decode(chunk);
-    let exit = false;
-    for (const line of lines.trim().split("\n")) {{
-        if (line === "end") {{
-            exit = true;
-            break;
-        }}
-        {preprocessor_logic}
-        try {{
-            let {{ {spread} }} = JSON.parse(line)
-            {dates}
-            let res: any = await main(...[ {spread} ]);
-            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
-        }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}) + '\n');
-        }}
-    }}
-    if (exit) {{
-        break;
-    }}
-}}
-"#,
-        );
+        let wrapper_content = generate_dedicated_worker_wrapper(inner_content)?;
         write_file(job_dir, "wrapper.ts", &wrapper_content)?;
     }
 
     build_import_map(w_id, script_path, base_internal_url, job_dir).await?;
+
+    let import_map = format!("{job_dir}/import_map.json");
+    let reload = format!("--reload={base_internal_url}");
+    let wrapper = format!("{job_dir}/wrapper.ts");
+    let mut deno_args = vec!["run", "--no-check", "--import-map", &import_map, &reload];
+    deno_args.extend_from_slice(DENO_UNSTABLE_ARGS);
+    deno_args.extend_from_slice(&["-A", &wrapper]);
 
     handle_dedicated_process(
         &*DENO_PATH,
@@ -756,22 +792,7 @@ for await (const chunk of Deno.stdin.readable) {{
         envs,
         context,
         common_deno_proc_envs,
-        vec![
-            "run",
-            "--no-check",
-            "--import-map",
-            &format!("{job_dir}/import_map.json"),
-            &format!("--reload={base_internal_url}"),
-            "--unstable-unsafe-proto",
-            "--unstable-bare-node-builtins",
-            "--unstable-webgpu",
-            "--unstable-ffi",
-            "--unstable-fs",
-            "--unstable-worker-options",
-            "--unstable-http",
-            "-A",
-            &format!("{job_dir}/wrapper.ts"),
-        ],
+        deno_args,
         killpill_rx,
         job_completed_tx,
         token,

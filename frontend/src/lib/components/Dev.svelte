@@ -34,6 +34,7 @@
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { NoteEditor, setNoteEditorContext } from './graph/noteEditor.svelte'
+	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'
 	import { CornerDownLeft, Play } from 'lucide-svelte'
@@ -145,6 +146,7 @@
 		lock?: string
 		isCodebase?: boolean
 		tag?: string
+		modules?: { [key: string]: import('$lib/gen').ScriptModule } | null
 	}
 
 	let currentScript: LastEditScript | undefined = $state(undefined)
@@ -206,7 +208,9 @@
 						done(x) {
 							loadPastTests()
 						}
-					}
+					},
+					undefined,
+					currentScript.modules
 				)
 			} else {
 				sendUserToast(`Bundle received ${lastCommandId} was obsolete, ignoring`, true)
@@ -392,7 +396,11 @@
 						currentScript.language,
 						args,
 						currentScript.tag,
-						useLock ? currentScript.lock : undefined
+						useLock ? currentScript.lock : undefined,
+						undefined,
+						undefined,
+						undefined,
+						currentScript.modules
 					)
 				}
 			}
@@ -553,6 +561,11 @@
 		flowModuleSchemaMap?.enableNotes?.()
 	})
 	setNoteEditorContext(noteEditor)
+
+	// Set up GroupEditor context for group editing capabilities
+	const groupEditor = new GroupEditor(flowStore)
+	let canCreateGroup = $state({ val: false })
+	setGroupEditorContext(groupEditor, canCreateGroup)
 
 	let lastSent: OpenFlow | undefined = undefined
 	function updateFlow(flow: OpenFlow) {

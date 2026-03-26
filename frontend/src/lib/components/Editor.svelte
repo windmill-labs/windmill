@@ -7,6 +7,7 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
+	import { buildWsUrl } from '$lib/wsUrl'
 	import { sendUserToast } from '$lib/toast'
 
 	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
@@ -346,7 +347,9 @@
 	}
 
 	export function setCode(ncode: string, noHistory: boolean = false): void {
-		if (code != ncode) {
+		// Track whether the code actually changed before updating.
+		const changed = code != ncode
+		if (changed) {
 			code = ncode
 		}
 
@@ -367,7 +370,13 @@
 				editor.pushUndoStop()
 			}
 		}
-		// Update lint diagnostics after code change
+		// Dispatch change immediately when code actually changed. This ensures
+		// callers like the Reset button and copilot trigger on:change handlers.
+		// The debounced onDidChangeModelContent handler will no-op since code
+		// will already match by the time it fires.
+		if (changed) {
+			dispatch('change', ncode)
+		}
 		updateRawAppLintDiagnostics()
 	}
 
@@ -995,7 +1004,6 @@
 			}
 		}
 
-		const wsProtocol = BROWSER && window.location.protocol == 'https:' ? 'wss' : 'ws'
 		const hostname = getHostname()
 
 		let encodedImportMap = ''
@@ -1023,7 +1031,7 @@
 				}
 				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
 				await connectToLanguageServer(
-					`${wsProtocol}://${window.location.host}/ws/deno`,
+					buildWsUrl('/ws/deno'),
 					'deno',
 					{
 						certificateStores: null,
@@ -1065,7 +1073,7 @@
 				)
 			} else if (lang === 'python') {
 				await connectToLanguageServer(
-					`${wsProtocol}://${window.location.host}/ws/pyright`,
+					buildWsUrl('/ws/pyright'),
 					'pyright',
 					{},
 					(params, token, next) => {
@@ -1095,15 +1103,10 @@
 					}
 				)
 
-				connectToLanguageServer(
-					`${wsProtocol}://${window.location.host}/ws/ruff`,
-					'ruff',
-					{},
-					undefined
-				)
+				connectToLanguageServer(buildWsUrl('/ws/ruff'), 'ruff', {}, undefined)
 			} else if (lang === 'go') {
 				connectToLanguageServer(
-					`${wsProtocol}://${window.location.host}/ws/go`,
+					buildWsUrl('/ws/go'),
 					'go',
 					{
 						'build.allowImplicitNetworkAccess': true
@@ -1112,7 +1115,7 @@
 				)
 			} else if (lang === 'shell') {
 				connectToLanguageServer(
-					`${wsProtocol}://${window.location.host}/ws/diagnostic`,
+					buildWsUrl('/ws/diagnostic'),
 					'shellcheck',
 					{
 						linters: {
@@ -1912,15 +1915,12 @@
 		})
 	})
 
-	let isTsWorkerInitialized = resource(
-		[() => lang, () => initialized],
-		async () => {
-			if (lang !== 'typescript' || !initialized) return false
-			// Use the stable model URI (computed once at mount), not filePath which changes on rename
-			await waitForWorkerInitialization(uri)
-			return true
-		}
-	)
+	let isTsWorkerInitialized = resource([() => lang, () => initialized], async () => {
+		if (lang !== 'typescript' || !initialized) return false
+		// Use the stable model URI (computed once at mount), not filePath which changes on rename
+		await waitForWorkerInitialization(uri)
+		return true
+	})
 
 	// Update SQL query type information in the TypeScript worker
 	// This enables TypeScript to show proper types for SQL template literals
@@ -1939,16 +1939,9 @@
 		updateSqlQueriesInWorker(uri, $state.snapshot(preparedAssetsSqlQueries))
 	}, 250)
 
-	watch(
-		[
-			() => preparedAssetsSqlQueries,
-			() => lang,
-			() => isTsWorkerInitialized.current
-		],
-		() => {
-			handleSqlTypingInTs()
-		}
-	)
+	watch([() => preparedAssetsSqlQueries, () => lang, () => isTsWorkerInitialized.current], () => {
+		handleSqlTypingInTs()
+	})
 
 	watch([() => customTsTypesData.current], setTypescriptCustomTypes)
 </script>

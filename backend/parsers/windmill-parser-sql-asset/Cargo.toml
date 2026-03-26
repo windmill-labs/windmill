@@ -1,0 +1,17 @@
+[package]
+name = "windmill-parser-sql-asset"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[lib]
+name = "windmill_parser_sql_asset"
+path = "./src/lib.rs"
+
+[dependencies]
+windmill-parser.workspace = true
+windmill-types.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+sqlparser = { version = "0.59.0", features = ["visitor"] }

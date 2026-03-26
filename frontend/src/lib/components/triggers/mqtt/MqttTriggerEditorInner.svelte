@@ -24,11 +24,13 @@
 	import MqttEditorConfigSection from './MqttEditorConfigSection.svelte'
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveMqttTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -97,6 +99,9 @@
 	let isValid: boolean = $state(false)
 	let initialConfig: Record<string, any> | undefined = {}
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
@@ -214,6 +219,9 @@
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			activateV5Options.topic_alias_maximum = Boolean(v5_config.topic_alias_maximum)
 			activateV5Options.session_expiry_interval = Boolean(v5_config.session_expiry_interval)
+			permissionedAs = cfg?.permissioned_as
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 		} catch (error) {
 			sendUserToast(`Could not load mqtt trigger config: ${error.body}`, true)
 		}
@@ -250,7 +258,9 @@
 			is_flow,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 	}
 
@@ -391,6 +401,15 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}
@@ -469,7 +488,17 @@
 			/>
 
 			<Section label="Advanced" collapsable>
-				<div class="flex flex-col gap-4">
+				{#snippet header()}
+					<TriggerAdvancedBadges
+						{error_handler_path}
+						{retry}
+						extraBadges={[
+							{ name: 'Custom Client ID', active: !!client_id },
+							{ name: 'MQTT v3', active: client_version === 'v3' }
+						]}
+					/>
+				{/snippet}
+				<div class="flex flex-col gap-6">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
 							<Tab value="connection_options" label="Connection Options" />
@@ -606,6 +635,7 @@
 					</div>
 				</div>
 			</Section>
+			<div class="pb-8" />
 		</div>
 	{/if}
 {/snippet}

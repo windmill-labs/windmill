@@ -33,8 +33,10 @@ use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::assets::{clear_static_asset_usage, AssetUsageKind};
+use windmill_common::flows::FlowModule;
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
+    MIN_VERSION_SUPPORTS_NODE_DEBOUNCING,
 };
 use windmill_common::runnable_settings::RunnableSettingsTrait;
 use windmill_common::utils::query_elems_from_hub;
@@ -452,7 +454,7 @@ async fn create_flow(
                 .await?;
         if nb_flows.unwrap_or(0) >= 1000 {
             return Err(Error::BadRequest(
-                    "You have reached the maximum number of flows (1000) on cloud. Contact support@windmill.dev to increase the limit"
+                    "You have reached the maximum number of flows (1000) on cloud. Check your usage in Workspace Settings > General > Cloud Quotas. Contact support@windmill.dev to increase the limit"
                         .to_string(),
                 ));
         }
@@ -1576,30 +1578,54 @@ async fn archive_flow_by_path(
 /// Validates that flow debouncing configuration is supported by all workers
 /// Returns an error if debouncing is configured but workers are behind required version
 async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
-    if !MIN_VERSION_SUPPORTS_DEBOUNCING.met().await
-        && !nf.parse_flow_value()?.debouncing_settings.is_default()
+    let flow_value = nf.parse_flow_value()?;
+
+    if !MIN_VERSION_SUPPORTS_DEBOUNCING.met().await && !flow_value.debouncing_settings.is_default()
     {
         tracing::warn!(
             "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
         );
-        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.566.0".into() })
-    } else if !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
-        && !nf
-            .parse_flow_value()?
-            .debouncing_settings
-            .is_legacy_compatible()
+        return Err(Error::WorkersAreBehind {
+            feature: "Debouncing".into(),
+            min_version: "1.566.0".into(),
+        });
+    }
+
+    if !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
+        && !flow_value.debouncing_settings.is_legacy_compatible()
         && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
     {
         tracing::warn!(
             "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
         );
-        Err(Error::WorkersAreBehind {
+        return Err(Error::WorkersAreBehind {
             feature: "V2 Debouncing".into(),
             min_version: "1.597.0".into(),
-        })
-    } else {
-        Ok(())
+        });
     }
+
+    // Check node-level debouncing on all modules (including nested branches/loops)
+    let mut has_node_debouncing = false;
+    let check_result = FlowModule::traverse_modules(&flow_value.modules, &mut |m| {
+        if m.debouncing
+            .as_ref()
+            .is_some_and(|d| d.debounce_delay_s.is_some_and(|s| s > 0))
+        {
+            has_node_debouncing = true;
+        }
+        Ok(())
+    });
+    if let Err(e) = check_result {
+        tracing::warn!("Failed to traverse flow modules for debounce guard: {e}");
+    }
+    if has_node_debouncing && !MIN_VERSION_SUPPORTS_NODE_DEBOUNCING.met().await {
+        return Err(Error::WorkersAreBehind {
+            feature: "Flow node debouncing".into(),
+            min_version: "1.658.0".into(),
+        });
+    }
+
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -1768,6 +1794,7 @@ mod tests {
                     skip_if: None,
                     apply_preprocessor: None,
                     pass_flow_input_directly: None,
+                    debouncing: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1801,6 +1828,7 @@ mod tests {
                     skip_if: None,
                     apply_preprocessor: None,
                     pass_flow_input_directly: None,
+                    debouncing: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -1834,6 +1862,7 @@ mod tests {
                     skip_if: None,
                     apply_preprocessor: None,
                     pass_flow_input_directly: None,
+                    debouncing: None,
                 },
             ],
             failure_module: Some(Box::new(FlowModule {
@@ -1866,6 +1895,7 @@ mod tests {
                 skip_if: None,
                 apply_preprocessor: None,
                 pass_flow_input_directly: None,
+                debouncing: None,
             })),
             preprocessor_module: None,
             same_worker: false,

@@ -145,6 +145,8 @@ pub async fn get_or_refresh_mcp_client(
         tracing::debug!("Cached MCP client expired, re-registering");
     }
 
+    windmill_common::ssrf::validate_url_for_ssrf(mcp_server_url).await?;
+
     let manager = AuthorizationManager::new(mcp_server_url)
         .await
         .map_err(|e| error::Error::BadRequest(format!("Failed to create auth manager: {e}")))?;

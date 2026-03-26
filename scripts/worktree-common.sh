@@ -65,6 +65,11 @@ wm_copy_dependencies() {
   local repo_root=$1
   local main_repo_root=$2
 
+  if [[ -f "${main_repo_root}/backend/.env" ]]; then
+    cp "${main_repo_root}/backend/.env" "${repo_root}/backend/"
+    echo "Copied backend/.env"
+  fi
+
   if [[ -d "${main_repo_root}/frontend/node_modules" ]]; then
     cp -a "${main_repo_root}/frontend/node_modules" "${repo_root}/frontend/"
     echo "Copied frontend/node_modules (with symlinks preserved)"
@@ -79,6 +84,13 @@ wm_copy_dependencies() {
     (cd "${repo_root}/cli" && npm install && npm run gen-client) \
       && echo "CLI deps installed and client generated" \
       || echo "WARNING: CLI setup failed" >&2
+  fi
+
+  local nav_bin="${main_repo_root}/wm-ts-nav/target/release/wm-ts-nav"
+  if [[ -f "$nav_bin" ]]; then
+    mkdir -p "${repo_root}/wm-ts-nav/target/release"
+    cp "$nav_bin" "${repo_root}/wm-ts-nav/target/release/"
+    echo "Copied wm-ts-nav binary"
   fi
 }
 
@@ -261,5 +273,4 @@ wm_shared_pre_remove() {
     fi
   fi
 
-  tmux kill-session -t "cursor-${wt_basename}" 2>/dev/null || true
 }

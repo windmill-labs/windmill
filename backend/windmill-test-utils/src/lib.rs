@@ -623,11 +623,12 @@ pub async fn assert_lockfile(
                 deployment_message: None,
                 concurrency_key: None,
                 visible_to_runner_only: None,
-                no_main_func: None,
+                auto_kind: None,
                 codebase: None,
                 has_preprocessor: None,
                 on_behalf_of_email: None,
                 assets: vec![],
+                modules: None,
             },
         )
         .await
@@ -720,11 +721,12 @@ pub async fn run_deployed_relative_imports(
                 deployment_message: None,
                 concurrency_key: None,
                 visible_to_runner_only: None,
-                no_main_func: None,
+                auto_kind: None,
                 codebase: None,
                 has_preprocessor: None,
                 on_behalf_of_email: None,
                 assets: vec![],
+                modules: None,
             },
         )
         .await
@@ -810,6 +812,7 @@ pub async fn run_preview_relative_imports(
                     windmill_common::runnable_settings::ConcurrencySettings::default().into(),
                 debouncing_settings:
                     windmill_common::runnable_settings::DebouncingSettings::default(),
+                modules: None,
             }))
             .push(&db2)
             .await;
@@ -896,6 +899,8 @@ pub enum DedicatedWorkerResult {
     Start,
     /// Worker returned a successful result
     Success(serde_json::Value),
+    /// Worker returned preprocessed args (from exec_preprocess)
+    PreprocessedArgs(serde_json::Value),
     /// Worker returned an error result
     Error(serde_json::Value),
     /// Line is not a protocol message (e.g., logs)
@@ -905,6 +910,7 @@ pub enum DedicatedWorkerResult {
 /// Parse a line from dedicated worker stdout according to the protocol:
 /// - "start" -> Ready signal
 /// - "wm_res[success]:JSON" -> Success with result
+/// - "wm_res[preprocessed_args]:JSON" -> Preprocessed args
 /// - "wm_res[error]:JSON" -> Error with details
 /// - anything else -> Other (logs)
 pub fn parse_dedicated_worker_line(line: &str) -> DedicatedWorkerResult {
@@ -915,6 +921,13 @@ pub fn parse_dedicated_worker_line(line: &str) -> DedicatedWorkerResult {
     if let Some(json_str) = line.strip_prefix("wm_res[success]:") {
         match serde_json::from_str(json_str) {
             Ok(value) => return DedicatedWorkerResult::Success(value),
+            Err(_) => return DedicatedWorkerResult::Other(line.to_string()),
+        }
+    }
+
+    if let Some(json_str) = line.strip_prefix("wm_res[preprocessed_args]:") {
+        match serde_json::from_str(json_str) {
+            Ok(value) => return DedicatedWorkerResult::PreprocessedArgs(value),
             Err(_) => return DedicatedWorkerResult::Other(line.to_string()),
         }
     }

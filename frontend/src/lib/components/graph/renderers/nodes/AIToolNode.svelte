@@ -1,10 +1,29 @@
 <script module lang="ts">
-	export function validateToolName(name: string, type?: string) {
-		if (type === 'websearch') return true
+	import { forbiddenIds } from '$lib/components/flows/idUtils'
+
+	export function getToolNameError(
+		name: string,
+		type?: string,
+		siblingNames?: string[]
+	): string | undefined {
+		if (type === 'websearch') return undefined
 		if (type === 'mcp') {
-			return name.length > 0
+			return name.length > 0 ? undefined : 'Tool name must not be empty'
 		}
-		return /^[a-zA-Z0-9_]+$/.test(name)
+		if (!/^[a-zA-Z0-9_]+$/.test(name)) {
+			return 'Tool name must only contain letters, numbers and underscores'
+		}
+		if (forbiddenIds.includes(name)) {
+			return `'${name}' is a reserved name`
+		}
+		if (siblingNames && siblingNames.filter((n) => n === name).length > 1) {
+			return 'Duplicate tool name'
+		}
+		return undefined
+	}
+
+	export function validateToolName(name: string, type?: string) {
+		return getToolNameError(name, type) === undefined
 	}
 
 	export const AI_TOOL_BASE_OFFSET = 5
@@ -56,7 +75,6 @@
 	): {
 		toolNodes: (Node & NodeLayout)[]
 		toolEdges: Edge[]
-		newNodePositions: Record<string, { x: number; y: number }>
 	} {
 		if (
 			computeAIToolNodesCache &&
@@ -68,14 +86,6 @@
 
 		const allToolNodes: (Node & NodeLayout)[] = []
 		const allToolEdges: Edge[] = []
-
-		const yPosMap: Record<
-			number,
-			{
-				rows: number
-				placement: 'above' | 'below'
-			}
-		> = {}
 
 		for (const node of nodes) {
 			if (node.type !== 'module' || node.data.module.value.type !== 'aiagent') continue
@@ -135,18 +145,8 @@
 			}
 
 			const totalRows = Math.ceil(tools.length / MAX_TOOLS_PER_ROW) + (insertable ? 1 : 0) // + 1 for add tool node when insertable
-			if (agentActions) {
-				yPosMap[node.position.y] = {
-					rows: totalRows,
-					placement: 'below'
-				}
-			} else {
-				yPosMap[node.position.y] = {
-					rows: totalRows,
-					placement: 'above'
-				}
-			}
 
+			const siblingNames = tools.map((t) => t.name)
 			const toolNodes: (Node & AiToolN)[] = tools.map((tool, i) => {
 				let inputToolXGap = 12
 				let inputToolWidth = (ROW_WIDTH - inputToolXGap) / 2
@@ -160,6 +160,7 @@
 					data: {
 						tool: tool.name,
 						type: tool.type,
+						nameError: getToolNameError(tool.name, tool.type, siblingNames),
 						eventHandlers,
 						moduleId: tool.id,
 						insertable,
@@ -169,13 +170,13 @@
 					width: inputToolWidth,
 					position: {
 						x:
-							(tools.length === 1
+							tools.length === 1
 								? (ROW_WIDTH - inputToolWidth) / 2
 								: (i + 1) % 2 === 0
 									? inputToolWidth + inputToolXGap
 									: isLastRow && tools.length % 2 === 1
 										? (ROW_WIDTH - inputToolWidth) / 2
-										: 0),
+										: 0,
 						y:
 							baseOffset +
 							rowOffset *
@@ -215,36 +216,9 @@
 			}
 		}
 
-		const sortedNewNodes = nodes
-			.filter((n) => n.type !== 'asset')
-			.map((n) => ({ id: n.id, position: $state.snapshot(n.position) }))
-			.sort((a, b) => a.position.y - b.position.y)
-		let currentYOffset = 0
-		let prevYPos = NaN
-		for (const node of sortedNewNodes) {
-			if (node.position.y !== prevYPos) {
-				// if agent actions, we need to shift the node above
-				if (yPosMap[prevYPos]?.placement === 'below') {
-					currentYOffset += AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET * yPosMap[prevYPos].rows
-				}
-				if (yPosMap[node.position.y]?.placement === 'above') {
-					currentYOffset += AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET * yPosMap[node.position.y].rows
-				}
-
-				prevYPos = node.position.y
-			}
-
-			node.position.y += currentYOffset
-		}
-
 		let ret: ReturnType<typeof computeAIToolNodes> = {
 			toolNodes: allToolNodes,
-			toolEdges: allToolEdges,
-			newNodePositions: Object.fromEntries(
-				sortedNewNodes.map((n) => {
-					return [n.id, n.position]
-				})
-			)
+			toolEdges: allToolEdges
 		}
 
 		computeAIToolNodesCache = {
@@ -287,7 +261,7 @@
 	const flowModuleState = $derived(data.flowModuleStates?.[data.moduleId])
 	let colorClasses = $derived(
 		getNodeColorClasses(
-			!validateToolName(data.tool, data.type) ? 'Failure' : flowModuleState?.type,
+			data.nameError ? 'Failure' : flowModuleState?.type,
 			selectionManager?.getSelectedId() === data.moduleId
 		)
 	)
@@ -324,12 +298,7 @@
 					<Wrench size={16} class="ml-1 shrink-0" />
 				{/if}
 
-				<span
-					class={twMerge(
-						'text-3xs truncate flex-1',
-						!validateToolName(data.tool, data.type) && 'text-red-400'
-					)}
-				>
+				<span class={twMerge('text-3xs truncate flex-1', data.nameError && 'text-red-400')}>
 					{data.tool || 'Missing name'}
 				</span>
 			</button>

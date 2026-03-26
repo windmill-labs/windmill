@@ -18,18 +18,19 @@ const NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT: &str =
     include_str!("../nsjail/run.powershell.config.proto");
 
 lazy_static::lazy_static! {
-    static ref RE_POWERSHELL_IMPORTS: Regex = Regex::new(r#"^Import-Module\s+(?:-Name\s+)?"?([^\s"]+)"?(?:\s+-RequiredVersion\s+"?([^\s"]+)"?)?"#).unwrap();
+    static ref RE_POWERSHELL_IMPORTS: Regex = Regex::new(r#"^\s*Import-Module\s+(?:-Name\s+)?"?([^\s"]+)"?(?:\s+-RequiredVersion\s+"?([^\s"]+)"?)?"#).unwrap();
 }
 
 use crate::{
     common::{
         build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
-        read_file_content, start_child_process, OccupancyMetrics,
+        read_file_content, resolve_nsjail_timeout, start_child_process, MaybeLock,
+        OccupancyMetrics,
     },
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, PROXY_ENVS,
-    TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry_with_workspace_override, DISABLE_NUSER, HOME_ENV,
+    NSJAIL_PATH, PATH_ENV, POWERSHELL_CACHE_DIR, POWERSHELL_PATH, POWERSHELL_REPO_PAT,
+    POWERSHELL_REPO_URL, PROXY_ENVS, TZ_ENV,
 };
 
 fn val_to_pwsh_param(v: serde_json::Value) -> String {
@@ -196,17 +197,41 @@ async fn get_module_versions(module_path: &str) -> Result<Vec<String>, Error> {
                         .to_string();
 
                     // Check if this looks like a version (contains dots and numbers)
+                    // and verify a module manifest (.psd1) or script (.psm1) actually exists
                     if version.chars().any(|c| c.is_numeric()) && version.contains('.') {
-                        versions.push(version);
+                        let has_module_files = fs::read_dir(&version_path)
+                            .map(|entries| {
+                                entries.filter_map(|e| e.ok()).any(|e| {
+                                    let name = e.file_name();
+                                    let name = name.to_string_lossy();
+                                    name.ends_with(".psd1") || name.ends_with(".psm1")
+                                })
+                            })
+                            .unwrap_or(false);
+                        if has_module_files {
+                            versions.push(version);
+                        }
                     }
                 }
             }
         }
     }
 
-    // If no version subdirectories found, treat as single version installation
+    // If no version subdirectories found, check if module files exist directly
+    // in the module directory (flat/single-version installation)
     if versions.is_empty() {
-        versions.push("unknown".to_string());
+        let has_module_files = fs::read_dir(module_path)
+            .map(|entries| {
+                entries.filter_map(|e| e.ok()).any(|e| {
+                    let name = e.file_name();
+                    let name = name.to_string_lossy();
+                    name.ends_with(".psd1") || name.ends_with(".psm1")
+                })
+            })
+            .unwrap_or(false);
+        if has_module_files {
+            versions.push("unknown".to_string());
+        }
     }
 
     Ok(versions)
@@ -237,8 +262,67 @@ struct ModuleRequest {
     version: Option<String>,
 }
 
+/// Parse Import-Module statements from PowerShell code into module requests.
+fn parse_script_imports(code: &str) -> Vec<ModuleRequest> {
+    let mut modules = Vec::new();
+    for line in code.lines() {
+        for cap in RE_POWERSHELL_IMPORTS.captures_iter(line) {
+            let name = cap.get(1).unwrap().as_str().to_string();
+            let version = cap.get(2).map(|m| m.as_str().to_string());
+            modules.push(ModuleRequest { name, version });
+        }
+    }
+    modules
+}
+
+/// Parse a modules.json workspace dependencies content into module requests.
+/// Format: { "modules": { "ModuleName": "1.0.0", "Another": null } }
+fn parse_modules_json(content: &str) -> Result<Vec<ModuleRequest>, Error> {
+    let parsed: serde_json::Value = serde_json::from_str(content).map_err(|e| {
+        Error::internal_err(format!("Failed to parse PowerShell modules.json: {e}"))
+    })?;
+    let modules = parsed
+        .get("modules")
+        .and_then(|m| m.as_object())
+        .ok_or_else(|| {
+            Error::internal_err(
+                "PowerShell modules.json must have a \"modules\" object".to_string(),
+            )
+        })?;
+    let mut result = Vec::new();
+    for (name, version) in modules {
+        let version = match version {
+            serde_json::Value::String(v) if v != "*" => Some(v.clone()),
+            _ => None,
+        };
+        result.push(ModuleRequest { name: name.clone(), version });
+    }
+    Ok(result)
+}
+
+/// Merge workspace dependency modules with script import modules.
+/// Workspace dependency versions take precedence on overlap.
+fn merge_module_requests(
+    workspace_modules: Vec<ModuleRequest>,
+    script_modules: Vec<ModuleRequest>,
+) -> Vec<ModuleRequest> {
+    let mut seen: HashMap<String, ModuleRequest> = HashMap::new();
+    // Script imports first (lower priority)
+    for m in script_modules {
+        let key = m.name.to_lowercase();
+        seen.entry(key).or_insert(m);
+    }
+    // Workspace deps override
+    for m in workspace_modules {
+        let key = m.name.to_lowercase();
+        seen.insert(key, m);
+    }
+    seen.into_values().collect()
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_powershell_job(
+    maybe_lock: MaybeLock,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
@@ -303,18 +387,29 @@ pub async fn handle_powershell_job(
             .join(" ")
     };
 
-    // First, collect all imported modules
-    let mut imported_modules: Vec<(String, Option<String>)> = Vec::new();
-    for line in content.lines() {
-        for cap in RE_POWERSHELL_IMPORTS.captures_iter(line) {
-            let module_name = cap.get(1).unwrap().as_str().to_string();
-            let required_version = cap.get(2).map(|m| m.as_str().to_string());
-            imported_modules.push((module_name, required_version));
+    // Resolve modules from workspace dependencies and/or script imports
+    let all_modules = match &maybe_lock {
+        MaybeLock::Resolved { lock } if !lock.is_empty() => {
+            // Deployed script with lock: parse workspace deps from lock, merge with script imports
+            let ws_modules = parse_modules_json(lock)?;
+            let script_modules = parse_script_imports(content);
+            merge_module_requests(ws_modules, script_modules)
         }
-    }
+        MaybeLock::Unresolved { workspace_dependencies } => {
+            let script_modules = parse_script_imports(content);
+            match workspace_dependencies.get_powershell()? {
+                Some(modules_json) => {
+                    let ws_modules = parse_modules_json(&modules_json)?;
+                    merge_module_requests(ws_modules, script_modules)
+                }
+                None => script_modules,
+            }
+        }
+        _ => parse_script_imports(content),
+    };
 
     // Only scan the top-level cache directory if there are modules to check
-    let module_dirs = if !imported_modules.is_empty() {
+    let module_dirs = if !all_modules.is_empty() {
         scan_module_directories().await?
     } else {
         HashMap::new()
@@ -323,19 +418,20 @@ pub async fn handle_powershell_job(
     let mut modules_to_install: Vec<ModuleRequest> = Vec::new();
     let mut logs1 = String::new();
 
-    for (module_name, required_version) in imported_modules {
+    for module_req in all_modules {
         // Check if this specific module is already installed, only scanning versions if needed
-        let (is_installed, installed_versions) =
-            check_module_installed(&module_dirs, &module_name, required_version.as_deref()).await?;
+        let (is_installed, installed_versions) = check_module_installed(
+            &module_dirs,
+            &module_req.name,
+            module_req.version.as_deref(),
+        )
+        .await?;
 
         if !is_installed {
-            modules_to_install.push(ModuleRequest {
-                name: module_name.clone(),
-                version: required_version.clone(),
-            });
+            modules_to_install.push(module_req);
         } else {
             // Log what versions are actually installed
-            let version_info = if let Some(version) = &required_version {
+            let version_info = if let Some(version) = &module_req.version {
                 format!(" version {} found in cache", version)
             } else if installed_versions.len() == 1 {
                 format!(" (version {}) found in cache", installed_versions[0])
@@ -347,7 +443,7 @@ pub async fn handle_powershell_job(
             } else {
                 " found in cache".to_string()
             };
-            logs1.push_str(&format!("\n{}{}", module_name, version_info));
+            logs1.push_str(&format!("\n{}{}", module_req.name, version_info));
         }
     }
 
@@ -356,16 +452,18 @@ pub async fn handle_powershell_job(
     }
 
     if !modules_to_install.is_empty() {
-        let powershell_repo_url = read_ee_registry(
+        let powershell_repo_url = read_ee_registry_with_workspace_override(
             POWERSHELL_REPO_URL.read().await.clone(),
+            "powershell_repo_url",
             "powershell repo url",
             &job.id,
             &job.workspace_id,
             db,
         )
         .await;
-        let powershell_repo_pat = read_ee_registry(
+        let powershell_repo_pat = read_ee_registry_with_workspace_override(
             POWERSHELL_REPO_PAT.read().await.clone(),
+            "powershell_repo_pat",
             "powershell repo pat",
             &job.id,
             &job.workspace_id,
@@ -466,8 +564,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
     let strict_termination_end = "\n\
         } catch {\n\
-            Write-Output \"An error occurred:\n\"\
-            Write-Output $_
+            Write-Output \"An error occurred:\"\n\
+            Write-Output $_\n\
             exit 1\n\
         }\n";
 
@@ -518,6 +616,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
     let nsjail = is_sandboxing_enabled() && is_regular_job;
     let child = if nsjail {
+        let nsjail_timeout =
+            resolve_nsjail_timeout(db, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -525,7 +625,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
-                .replace("{CACHE_DIR}", &*POWERSHELL_CACHE_DIR),
+                .replace("{CACHE_DIR}", &*POWERSHELL_CACHE_DIR)
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let cmd_args = vec![
             "--config",
@@ -671,4 +772,318 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
     Ok(to_raw_value(&json!(
         "No result.out, result2.out or result.json found"
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    // --- RE_POWERSHELL_IMPORTS regex tests ---
+
+    fn match_import(line: &str) -> Option<(String, Option<String>)> {
+        RE_POWERSHELL_IMPORTS.captures(line).map(|cap| {
+            let name = cap.get(1).unwrap().as_str().to_string();
+            let version = cap.get(2).map(|m| m.as_str().to_string());
+            (name, version)
+        })
+    }
+
+    #[test]
+    fn test_import_module_basic() {
+        let (name, version) = match_import("Import-Module WindmillClient").unwrap();
+        assert_eq!(name, "WindmillClient");
+        assert_eq!(version, None);
+    }
+
+    #[test]
+    fn test_import_module_with_leading_whitespace() {
+        let (name, _) = match_import("    Import-Module WindmillClient").unwrap();
+        assert_eq!(name, "WindmillClient");
+    }
+
+    #[test]
+    fn test_import_module_with_tab_indent() {
+        let (name, _) = match_import("\tImport-Module WindmillClient").unwrap();
+        assert_eq!(name, "WindmillClient");
+    }
+
+    #[test]
+    fn test_import_module_with_name_flag() {
+        let (name, _) = match_import("Import-Module -Name WindmillClient").unwrap();
+        assert_eq!(name, "WindmillClient");
+    }
+
+    #[test]
+    fn test_import_module_with_required_version() {
+        let (name, version) =
+            match_import(r#"Import-Module WindmillClient -RequiredVersion "1.655.0""#).unwrap();
+        assert_eq!(name, "WindmillClient");
+        assert_eq!(version, Some("1.655.0".to_string()));
+    }
+
+    #[test]
+    fn test_import_module_quoted_name() {
+        let (name, _) = match_import(r#"Import-Module "WindmillClient""#).unwrap();
+        assert_eq!(name, "WindmillClient");
+    }
+
+    #[test]
+    fn test_import_module_name_flag_quoted_with_version() {
+        let (name, version) =
+            match_import(r#"Import-Module -Name "WindmillClient" -RequiredVersion "2.0.0""#)
+                .unwrap();
+        assert_eq!(name, "WindmillClient");
+        assert_eq!(version, Some("2.0.0".to_string()));
+    }
+
+    #[test]
+    fn test_import_module_indented_with_version() {
+        let (name, version) =
+            match_import(r#"    Import-Module WindmillClient -RequiredVersion 1.0.0"#).unwrap();
+        assert_eq!(name, "WindmillClient");
+        assert_eq!(version, Some("1.0.0".to_string()));
+    }
+
+    #[test]
+    fn test_commented_import_not_matched() {
+        assert!(match_import("# Import-Module WindmillClient").is_none());
+    }
+
+    // --- get_module_versions / check_module_installed tests ---
+
+    #[tokio::test]
+    async fn test_empty_module_dir_not_installed() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("WindmillClient");
+        fs::create_dir(&module_dir).unwrap();
+
+        let versions = get_module_versions(module_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        assert!(versions.is_empty(), "empty dir should have no versions");
+    }
+
+    #[tokio::test]
+    async fn test_empty_version_subdir_not_installed() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("WindmillClient");
+        let version_dir = module_dir.join("1.655.0");
+        fs::create_dir_all(&version_dir).unwrap();
+
+        let versions = get_module_versions(module_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        assert!(
+            versions.is_empty(),
+            "version dir without .psd1/.psm1 should not count"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_valid_versioned_module_detected() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("WindmillClient");
+        let version_dir = module_dir.join("1.655.0");
+        fs::create_dir_all(&version_dir).unwrap();
+        fs::write(version_dir.join("WindmillClient.psd1"), "# manifest").unwrap();
+        fs::write(version_dir.join("WindmillClient.psm1"), "# module").unwrap();
+
+        let versions = get_module_versions(module_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(versions, vec!["1.655.0"]);
+    }
+
+    #[tokio::test]
+    async fn test_flat_module_with_files_detected() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("MyModule");
+        fs::create_dir(&module_dir).unwrap();
+        fs::write(module_dir.join("MyModule.psm1"), "# module").unwrap();
+
+        let versions = get_module_versions(module_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(versions, vec!["unknown"]);
+    }
+
+    #[tokio::test]
+    async fn test_flat_module_without_files_not_detected() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("MyModule");
+        fs::create_dir(&module_dir).unwrap();
+        fs::write(module_dir.join("readme.txt"), "not a module").unwrap();
+
+        let versions = get_module_versions(module_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        assert!(versions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_check_module_installed_empty_dir_returns_false() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("WindmillClient");
+        fs::create_dir(&module_dir).unwrap();
+
+        let mut dirs = HashMap::new();
+        dirs.insert(
+            "windmillclient".to_string(),
+            module_dir.to_str().unwrap().to_string(),
+        );
+
+        let (installed, _) = check_module_installed(&dirs, "WindmillClient", None)
+            .await
+            .unwrap();
+        assert!(
+            !installed,
+            "empty module dir should not be considered installed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_check_module_installed_valid_module_returns_true() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("WindmillClient");
+        let version_dir = module_dir.join("1.655.0");
+        fs::create_dir_all(&version_dir).unwrap();
+        fs::write(version_dir.join("WindmillClient.psd1"), "# manifest").unwrap();
+
+        let mut dirs = HashMap::new();
+        dirs.insert(
+            "windmillclient".to_string(),
+            module_dir.to_str().unwrap().to_string(),
+        );
+
+        let (installed, versions) = check_module_installed(&dirs, "WindmillClient", None)
+            .await
+            .unwrap();
+        assert!(installed);
+        assert_eq!(versions, vec!["1.655.0"]);
+    }
+
+    #[tokio::test]
+    async fn test_check_module_installed_wrong_version_returns_false() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("WindmillClient");
+        let version_dir = module_dir.join("1.0.0");
+        fs::create_dir_all(&version_dir).unwrap();
+        fs::write(version_dir.join("WindmillClient.psd1"), "# manifest").unwrap();
+
+        let mut dirs = HashMap::new();
+        dirs.insert(
+            "windmillclient".to_string(),
+            module_dir.to_str().unwrap().to_string(),
+        );
+
+        let (installed, _) = check_module_installed(&dirs, "WindmillClient", Some("2.0.0"))
+            .await
+            .unwrap();
+        assert!(!installed, "wrong version should not match");
+    }
+
+    // --- parse_modules_json tests ---
+
+    #[test]
+    fn test_parse_modules_json_basic() {
+        let json = r#"{"modules": {"PSWriteColor": "1.0.0", "ImportExcel": null}}"#;
+        let modules = parse_modules_json(json).unwrap();
+        assert_eq!(modules.len(), 2);
+        let by_name: HashMap<String, Option<String>> =
+            modules.into_iter().map(|m| (m.name, m.version)).collect();
+        assert_eq!(by_name["PSWriteColor"], Some("1.0.0".to_string()));
+        assert_eq!(by_name["ImportExcel"], None);
+    }
+
+    #[test]
+    fn test_parse_modules_json_wildcard_treated_as_none() {
+        let json = r#"{"modules": {"Mod": "*"}}"#;
+        let modules = parse_modules_json(json).unwrap();
+        assert_eq!(modules[0].version, None);
+    }
+
+    #[test]
+    fn test_parse_modules_json_empty() {
+        let json = r#"{"modules": {}}"#;
+        let modules = parse_modules_json(json).unwrap();
+        assert!(modules.is_empty());
+    }
+
+    #[test]
+    fn test_parse_modules_json_missing_modules_key() {
+        let json = r#"{"deps": {}}"#;
+        assert!(parse_modules_json(json).is_err());
+    }
+
+    #[test]
+    fn test_parse_modules_json_invalid_json() {
+        assert!(parse_modules_json("not json").is_err());
+    }
+
+    // --- parse_script_imports tests ---
+
+    #[test]
+    fn test_parse_script_imports() {
+        let code = r#"Import-Module PSWriteColor
+Import-Module ImportExcel -RequiredVersion "7.8.6"
+# Import-Module Commented
+Write-Host "Hello""#;
+        let modules = parse_script_imports(code);
+        assert_eq!(modules.len(), 2);
+        assert_eq!(modules[0].name, "PSWriteColor");
+        assert_eq!(modules[0].version, None);
+        assert_eq!(modules[1].name, "ImportExcel");
+        assert_eq!(modules[1].version, Some("7.8.6".to_string()));
+    }
+
+    // --- merge_module_requests tests ---
+
+    #[test]
+    fn test_merge_workspace_overrides_script() {
+        let ws = vec![ModuleRequest { name: "Mod".to_string(), version: Some("2.0".to_string()) }];
+        let script =
+            vec![ModuleRequest { name: "Mod".to_string(), version: Some("1.0".to_string()) }];
+        let merged = merge_module_requests(ws, script);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].version, Some("2.0".to_string()));
+    }
+
+    #[test]
+    fn test_merge_combines_distinct_modules() {
+        let ws = vec![ModuleRequest { name: "WsMod".to_string(), version: None }];
+        let script = vec![ModuleRequest { name: "ScriptMod".to_string(), version: None }];
+        let merged = merge_module_requests(ws, script);
+        assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn test_merge_case_insensitive() {
+        let ws =
+            vec![ModuleRequest { name: "MyModule".to_string(), version: Some("2.0".to_string()) }];
+        let script =
+            vec![ModuleRequest { name: "mymodule".to_string(), version: Some("1.0".to_string()) }];
+        let merged = merge_module_requests(ws, script);
+        assert_eq!(merged.len(), 1);
+        // Workspace version wins
+        assert_eq!(merged[0].version, Some("2.0".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_multiple_versions_detected() {
+        let tmp = TempDir::new().unwrap();
+        let module_dir = tmp.path().join("WindmillClient");
+        for ver in &["1.0.0", "1.655.0"] {
+            let version_dir = module_dir.join(ver);
+            fs::create_dir_all(&version_dir).unwrap();
+            fs::write(version_dir.join("WindmillClient.psd1"), "# manifest").unwrap();
+        }
+
+        let mut versions = get_module_versions(module_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        versions.sort();
+        assert_eq!(versions, vec!["1.0.0", "1.655.0"]);
+    }
 }

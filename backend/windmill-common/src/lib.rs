@@ -29,6 +29,7 @@ use sqlx::{Acquire, Postgres};
 pub mod agent_workers;
 #[cfg(feature = "bedrock")]
 pub mod ai_bedrock;
+pub mod ai_cache;
 pub mod ai_google;
 pub mod ai_providers;
 pub mod ai_types;
@@ -77,6 +78,7 @@ pub mod oidc_oss;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 pub mod otel_oss;
+pub mod query_builders;
 pub mod queue;
 pub mod result_stream;
 pub mod runnable_settings;
@@ -85,6 +87,7 @@ pub mod schema;
 pub mod scripts;
 pub mod secret_backend;
 pub mod server;
+pub mod ssrf;
 #[cfg(feature = "private")]
 pub mod stats_ee;
 pub mod stats_oss;
@@ -205,6 +208,7 @@ lazy_static::lazy_static! {
     pub static ref CRITICAL_ALERTS_ON_DB_OVERSIZE: Arc<RwLock<Option<f32>>> = Arc::new(RwLock::new(None));
 
     pub static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
+    pub static ref AUDIT_LOG_RETENTION_DAYS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 

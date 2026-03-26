@@ -139,6 +139,13 @@ pub async fn handle_dependency_job(
         .map(|x| x.get("triggered_by_relative_import").is_some())
         .unwrap_or_default();
 
+    // Extract temp_script_refs from job args (path -> hash mapping for temp storage)
+    let temp_script_refs: Option<HashMap<String, String>> = job
+        .args
+        .as_ref()
+        .and_then(|x| x.get("temp_script_refs"))
+        .and_then(|v| serde_json::from_str(v.get()).ok());
+
     let content = capture_dependency_job(
         &job.id,
         job.script_lang.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
@@ -164,6 +171,7 @@ pub async fn handle_dependency_job(
         script_path,
         None,
         "script",
+        &temp_script_refs,
     )
     .await;
 
@@ -182,13 +190,63 @@ pub async fn handle_dependency_job(
             let (deployment_message, parent_path) =
                 get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
+            // Generate lockfiles for module files (if any)
+            let updated_modules = if let Some(modules) = &script_data.modules {
+                let mut updated = modules.clone();
+                for (module_path, module) in updated.iter_mut() {
+                    if module.content.is_empty() {
+                        continue;
+                    }
+                    match capture_dependency_job(
+                        &job.id,
+                        &module.language,
+                        &module.content,
+                        mem_peak,
+                        canceled_by,
+                        job_dir,
+                        db,
+                        worker_name,
+                        &job.workspace_id,
+                        worker_dir,
+                        base_internal_url,
+                        token,
+                        script_path,
+                        occupancy_metrics,
+                        &raw_workspace_dependencies_o,
+                        module.lock.as_deref(),
+                        triggered_by_relative_import,
+                        script_path,
+                        None,
+                        "script",
+                        &None,
+                    )
+                    .await
+                    {
+                        Ok(lock) => {
+                            module.lock = Some(lock);
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to generate lockfile for module {module_path}: {e}"
+                            );
+                        }
+                    }
+                }
+                Some(updated)
+            } else {
+                None
+            };
+
             // We do not create new row for this update
             // That means we can keep current hash and just update lock
             // Also store lockfile hash for dependency change detection
             let lockfile_hash = windmill_common::scripts::hash_script(&content);
+            let updated_modules_json = updated_modules
+                .as_ref()
+                .and_then(|m| serde_json::to_value(m).ok());
             sqlx::query!(
                 "WITH update_lock AS (
-                    UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3
+                    UPDATE script SET lock = $1, modules = COALESCE($6, modules) WHERE hash = $2 AND workspace_id = $3
                 )
                 INSERT INTO lock_hash (workspace_id, path, lockfile_hash)
                 VALUES ($3, $4, $5)
@@ -197,7 +255,8 @@ pub async fn handle_dependency_job(
                 &current_hash.0,
                 w_id,
                 script_path,
-                &lockfile_hash
+                &lockfile_hash,
+                updated_modules_json
             )
             .execute(db)
             .await?;
@@ -318,6 +377,13 @@ pub async fn handle_flow_dependency_job(
         .map(|x| x.get("triggered_by_relative_import").is_some())
         .unwrap_or_default();
 
+    // Extract temp_script_refs from job args (path -> hash mapping for temp storage)
+    let temp_script_refs: Option<HashMap<String, String>> = job
+        .args
+        .as_ref()
+        .and_then(|x| x.get("temp_script_refs"))
+        .and_then(|v| serde_json::from_str(v.get()).ok());
+
     let version = if skip_flow_update {
         None
     } else {
@@ -361,13 +427,13 @@ pub async fn handle_flow_dependency_job(
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
     // - Preview raw flow in the `queue` or `job` table.
-    let (mut flow, notes) = match job.runnable_id {
+    let (mut flow, extras) = match job.runnable_id {
         Some(ScriptHash(id)) => {
             let flow = cache::flow::fetch_version(db, id).await?;
-            (flow.value().clone(), flow.notes())
+            (flow.value().clone(), flow.extras())
         }
         _ => match preview_data {
-            Some(RawData::Flow(data)) => (data.value().clone(), data.notes()),
+            Some(RawData::Flow(data)) => (data.value().clone(), data.extras()),
             _ => return Err(Error::internal_err("expected script hash")),
         },
     };
@@ -417,6 +483,7 @@ pub async fn handle_flow_dependency_job(
         &mut dependency_map,
         &raw_workspace_dependencies_o,
         triggered_by_relative_import,
+        &temp_script_refs,
     )
     .await?;
 
@@ -461,18 +528,22 @@ pub async fn handle_flow_dependency_job(
     }
 
     #[derive(Debug, Clone, Serialize)]
-    struct FlowValueWithNotes<'a> {
+    struct FlowValueWithExtras<'a> {
         #[serde(flatten)]
         value: &'a FlowValue,
 
         #[serde(skip_serializing_if = "Option::is_none")]
-        notes: Option<Box<RawValue>>, // TODO: Make this a Vec<FlowNote>
+        notes: Option<Box<RawValue>>,
+
+        #[serde(skip_serializing_if = "Option::is_none")]
+        groups: Option<Box<RawValue>>,
     }
 
     let new_flow_value = Json(
-        serde_json::value::to_raw_value(&FlowValueWithNotes {
+        serde_json::value::to_raw_value(&FlowValueWithExtras {
             value: &flow,
-            notes: notes.and_then(|n| n.notes).map(|n| n.into()),
+            notes: extras.as_ref().and_then(|e| e.notes.clone()),
+            groups: extras.as_ref().and_then(|e| e.groups.clone()),
         })
         .map_err(to_anyhow)?,
     );
@@ -531,11 +602,19 @@ pub async fn handle_flow_dependency_job(
         )
         .await?;
 
+        let value_lite_with_extras = Json(
+            serde_json::value::to_raw_value(&FlowValueWithExtras {
+                value: &value_lite,
+                notes: extras.as_ref().and_then(|e| e.notes.clone()),
+                groups: extras.as_ref().and_then(|e| e.groups.clone()),
+            })
+            .map_err(to_anyhow)?,
+        );
         sqlx::query!(
             "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
              ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
             version,
-            Json(value_lite) as Json<FlowValue>,
+            &value_lite_with_extras as &Json<Box<RawValue>>,
         )
         .execute(&mut *tx)
         .await?;
@@ -631,6 +710,7 @@ async fn lock_flow_value<'c>(
     dependency_map: &mut ScopedDependencyMap,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     triggered_by_relative_import: bool,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> Result<(
     FlowValue,
     sqlx::Transaction<'c, sqlx::Postgres>,
@@ -661,6 +741,7 @@ async fn lock_flow_value<'c>(
         dependency_map,
         &raw_workspace_dependencies_o,
         triggered_by_relative_import,
+        temp_script_refs,
     )
     .await?;
 
@@ -692,6 +773,7 @@ async fn lock_flow_value<'c>(
                 dependency_map,
                 &raw_workspace_dependencies_o,
                 triggered_by_relative_import,
+                temp_script_refs,
             )
             .await?;
 
@@ -729,6 +811,7 @@ async fn lock_flow_value<'c>(
             dependency_map,
             raw_workspace_dependencies_o,
             triggered_by_relative_import,
+            temp_script_refs,
         )
         .await?;
 
@@ -767,6 +850,7 @@ async fn lock_modules<'c>(
     dependency_map: &mut ScopedDependencyMap, // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     triggered_by_relative_import: bool,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> Result<(
     Vec<FlowModule>,
     sqlx::Transaction<'c, sqlx::Postgres>,
@@ -822,6 +906,7 @@ async fn lock_modules<'c>(
                         dependency_map,
                         &raw_workspace_dependencies_o,
                         triggered_by_relative_import,
+                        temp_script_refs,
                     ))
                     .await?;
                     e.value = FlowModuleValue::ForloopFlow {
@@ -861,6 +946,7 @@ async fn lock_modules<'c>(
                             dependency_map,
                             raw_workspace_dependencies_o,
                             triggered_by_relative_import,
+                            temp_script_refs,
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -892,6 +978,7 @@ async fn lock_modules<'c>(
                         dependency_map,
                         raw_workspace_dependencies_o,
                         triggered_by_relative_import,
+                        temp_script_refs,
                     ))
                     .await?;
                     e.value = FlowModuleValue::WhileloopFlow {
@@ -928,6 +1015,7 @@ async fn lock_modules<'c>(
                             dependency_map,
                             raw_workspace_dependencies_o,
                             triggered_by_relative_import,
+                            temp_script_refs,
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -958,6 +1046,7 @@ async fn lock_modules<'c>(
                         dependency_map,
                         raw_workspace_dependencies_o,
                         triggered_by_relative_import,
+                        temp_script_refs,
                     ))
                     .await?;
                     errors.extend(ninner_errors);
@@ -1028,6 +1117,7 @@ async fn lock_modules<'c>(
                         dependency_map,
                         raw_workspace_dependencies_o,
                         triggered_by_relative_import,
+                        temp_script_refs,
                     ))
                     .await?;
 
@@ -1129,6 +1219,7 @@ async fn lock_modules<'c>(
             job_path,
             Some(&e.id),
             "flow",
+            &temp_script_refs,
         )
         .await;
         //
@@ -1536,6 +1627,7 @@ async fn lock_modules_app(
     dependency_map: &mut ScopedDependencyMap,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     triggered_by_relative_import: bool,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> Result<Value> {
     match value {
         Value::Object(mut m) => {
@@ -1646,6 +1738,7 @@ async fn lock_modules_app(
                                 &job.runnable_path(),
                                 container_id.as_deref(),
                                 "app",
+                                temp_script_refs,
                             )
                             .await;
                             match new_lock {
@@ -1723,6 +1816,7 @@ async fn lock_modules_app(
                         dependency_map,
                         raw_workspace_dependencies_o,
                         triggered_by_relative_import,
+                        temp_script_refs,
                     )
                     .await?,
                 );
@@ -1751,6 +1845,7 @@ async fn lock_modules_app(
                         dependency_map,
                         raw_workspace_dependencies_o,
                         triggered_by_relative_import,
+                        temp_script_refs,
                     )
                     .await?,
                 );
@@ -1802,6 +1897,13 @@ pub async fn handle_app_dependency_job(
         .map(|x| x.get("triggered_by_relative_import").is_some())
         .unwrap_or_default();
 
+    // Extract temp_script_refs from job args (path -> hash mapping for temp storage)
+    let temp_script_refs: Option<HashMap<String, String>> = job
+        .args
+        .as_ref()
+        .and_then(|x| x.get("temp_script_refs"))
+        .and_then(|v| serde_json::from_str(v.get()).ok());
+
     sqlx::query!(
         "DELETE FROM workspace_runnable_dependencies WHERE app_path = $1 AND workspace_id = $2",
         job_path,
@@ -1849,6 +1951,7 @@ pub async fn handle_app_dependency_job(
             &mut dependency_map,
             &raw_workspace_dependencies_o,
             triggered_by_relative_import,
+            &temp_script_refs,
         )
         .await?;
 
@@ -2348,6 +2451,8 @@ async fn capture_dependency_job(
     base_path: &str,
     step_id: Option<&str>,
     runnable_type: &str, // "script", "flow", or "app"
+    // Map of script path -> content hash for resolving imports from temp storage (CLI).
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<String> {
     // Check if we can skip relocking:
     // - Must be triggered by relative import
@@ -2406,12 +2511,13 @@ async fn capture_dependency_job(
                     let (mut version_specifiers, mut locked_v) = (vec![], None);
                     let reqs = windmill_parser_py_imports::parse_python_imports(
                         job_raw_code,
-                        &w_id,
+                        w_id,
                         script_path,
                         &db,
                         &mut version_specifiers,
                         &mut locked_v,
                         raw_workspace_dependencies_o,
+                        temp_script_refs,
                     )
                     .await?
                     .0
@@ -2535,6 +2641,8 @@ async fn capture_dependency_job(
                 &workspace_dependencies,
                 windmill_common::worker::TypeScriptAnnotations::parse(job_raw_code).npm,
                 &mut Some(occupancy_metrics),
+                temp_script_refs,
+                false,
             )
             .await?
             {
@@ -2551,6 +2659,7 @@ async fn capture_dependency_job(
                         worker_name,
                         &token,
                         &mut Some(occupancy_metrics),
+                        temp_script_refs,
                     )
                     .await?;
                 }

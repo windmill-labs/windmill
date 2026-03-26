@@ -237,6 +237,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_workspaced_route: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_route_workspaced_route: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub no_default_maven: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_tags_per_workspace: Option<bool>,
@@ -244,6 +246,8 @@ pub struct GlobalSettings {
     pub disable_hub: Option<bool>,
 
     // String settings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email_domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -258,6 +262,8 @@ pub struct GlobalSettings {
     pub scim_token: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub saml_metadata: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_events_webhook: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openai_azure_base_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -336,6 +342,23 @@ pub struct GlobalSettings {
         schemars(schema_with = "opaque_json_schema")
     )]
     pub teams: Option<serde_json::Value>,
+
+    // Workspace-specific registry overrides
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
+    pub workspace_registries: Option<
+        std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+    >,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
+    pub ai_config: Option<serde_json::Value>,
 
     /// Catch-all for settings not yet covered by typed fields.
     #[serde(flatten)]
@@ -865,6 +888,7 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "maven_repos",
     "ruby_repos",
     "powershell_repo_pat",
+    "workspace_registries",
 ];
 
 /// Object-valued settings that contain sensitive sub-fields.

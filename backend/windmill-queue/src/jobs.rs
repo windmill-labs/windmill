@@ -52,6 +52,10 @@ use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
+use windmill_common::otel_oss::{
+    otel_incr_queue_delete_count, otel_incr_queue_pull_count, otel_incr_queue_push_count,
+    otel_incr_worker_execution_failed,
+};
 use windmill_common::{
     auth::permissioned_as_to_username,
     cache::{self, FlowData},
@@ -466,6 +470,7 @@ pub async fn push_init_job<'c>(
             dedicated_worker: None,
             concurrency_settings: ConcurrencySettingsWithCustom::default(),
             debouncing_settings: DebouncingSettings::default(),
+            modules: None,
         }),
         PushArgs::from(&ehm),
         worker_name,
@@ -523,6 +528,7 @@ pub async fn push_periodic_bash_job<'c>(
             dedicated_worker: None,
             concurrency_settings: ConcurrencySettingsWithCustom::default(),
             debouncing_settings: DebouncingSettings::default(),
+            modules: None,
         }),
         PushArgs::from(&ehm),
         worker_name,
@@ -762,6 +768,8 @@ pub async fn add_completed_job_error(
         |c| c.inc(),
     )
     .await;
+
+    otel_incr_worker_execution_failed(&completed_job.tag);
 
     let result = WrappedError { error: e };
     tracing::error!(
@@ -1039,6 +1047,35 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             .ok()
             .flatten();
             wac_job_ids = row.flatten();
+
+            // If parent was already completed (e.g. cancelled), update v2_job_completed instead
+            if wac_job_ids.is_none() {
+                let _ = sqlx::query!(
+                    r#"UPDATE v2_job_completed SET
+                            workflow_as_code_status = jsonb_set(
+                                jsonb_set(
+                                    workflow_as_code_status,
+                                    array[$1],
+                                    COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
+                                ),
+                                array[$1, 'duration_ms'],
+                                to_jsonb($2::bigint)
+                            )
+                        WHERE id = $3 AND workflow_as_code_status IS NOT NULL"#,
+                    &completed_job.id.to_string(),
+                    duration,
+                    parent_job
+                )
+                .execute(&mut *tx)
+                .warn_after_seconds(10)
+                .await
+                .inspect_err(|e| {
+                    tracing::error!(
+                        "Could not update completed parent job `duration_ms` in workflow as code status: {}",
+                        e,
+                    )
+                });
+            }
         }
     }
     // tracing::error!("Added completed job {:#?}", queued_job);
@@ -1832,9 +1869,20 @@ pub async fn try_schedule_next_job<'c>(
         &job.workspace_id
     );
 
+    let permissioned_as = schedule.permissioned_as.clone();
+    let email = match windmill_common::users::get_email_from_permissioned_as(
+        &permissioned_as,
+        &job.workspace_id,
+        db,
+    )
+    .await
+    {
+        Ok(email) => email,
+        Err(e) => return (tx, Some(e)),
+    };
     let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
-        &windmill_common::users::username_to_permissioned_as(&schedule.edited_by),
-        &schedule.email,
+        &permissioned_as,
+        &email,
         &job.workspace_id,
         &mut *tx,
     )
@@ -3030,8 +3078,16 @@ impl PulledJobResult {
                     if let Some(s) = str_o.as_ref() {
                         match serde_json::from_str::<Vec<Box<RawValue>>>(s) {
                             Ok(ref mut vec) => accumulated_arg.append(vec),
-                            Err(e) => {
-                                return Err(error::Error::ArgumentErr(format!("cannot consolidate arguments of non-list type. Type provided for argument `{arg_name_to_accumulate}` is not a list\nUnwrapped Error: {e}")));
+                            Err(_) => {
+                                // Value is not an array — wrap the scalar into a
+                                // single-element array. This supports union types
+                                // like T | T[] where the caller may pass a bare T.
+                                match RawValue::from_string(s.to_string()) {
+                                    Ok(raw) => accumulated_arg.push(raw),
+                                    Err(e) => {
+                                        return Err(error::Error::ArgumentErr(format!("cannot consolidate argument `{arg_name_to_accumulate}`: value is neither a valid list nor a valid JSON value\nUnwrapped Error: {e}")));
+                                    }
+                                }
                             }
                         }
                     }
@@ -3044,43 +3100,58 @@ impl PulledJobResult {
                     "Accumulated arguments from debounced jobs in batch"
                 );
 
-                let new_value = to_raw_value(&accumulated_arg);
+                // If the batch query returned no entries (e.g. CE where
+                // v2_job_debounce_batch is never populated), keep the
+                // original value unchanged instead of replacing it with [].
+                if !accumulated_arg.is_empty() {
+                    let new_value = to_raw_value(&accumulated_arg);
 
-                let original_value = j
-                    .args
-                    .as_ref()
-                    .and_then(|a| a.get(arg_name_to_accumulate))
-                    .map(|v| v.get().to_string())
-                    .unwrap_or_else(|| "null".to_string());
+                    let original_value = j
+                        .args
+                        .as_ref()
+                        .and_then(|a| a.get(arg_name_to_accumulate))
+                        .map(|v| v.get().to_string())
+                        .unwrap_or_else(|| "null".to_string());
 
-                append_logs(
-                    &j_id,
-                    &j.workspace_id,
-                    format!(
-                        "Accumulating debounced argument `{arg_name_to_accumulate}`:\n  original: {original_value}\n  accumulated: {}\n\n",
-                        &new_value
-                    ),
-                    &(db.into()),
-                )
-                .await;
-
-                j.args
-                    .get_or_insert(Json(Default::default()))
-                    .as_mut()
-                    .insert(arg_name_to_accumulate.to_owned(), new_value);
-
-                // Persist accumulated args to v2_job so that flow steps
-                // re-reading from the DB (via get_mini_pulled_job) see them
-                if let Some(ref args) = j.args {
-                    sqlx::query!(
-                        "UPDATE v2_job SET args = $2 WHERE id = $1",
-                        j_id,
-                        args as &Json<HashMap<String, Box<RawValue>>>,
+                    append_logs(
+                        &j_id,
+                        &j.workspace_id,
+                        format!(
+                            "Accumulating debounced argument `{arg_name_to_accumulate}`:\n  original: {original_value}\n  accumulated: {}\n\n",
+                            &new_value
+                        ),
+                        &(db.into()),
                     )
-                    .execute(db)
-                    .await?;
+                    .await;
+
+                    j.args
+                        .get_or_insert(Json(Default::default()))
+                        .as_mut()
+                        .insert(arg_name_to_accumulate.to_owned(), new_value);
+
+                    // Persist accumulated args to v2_job so that flow steps
+                    // re-reading from the DB (via get_mini_pulled_job) see them
+                    if let Some(ref args) = j.args {
+                        sqlx::query!(
+                            "UPDATE v2_job SET args = $2 WHERE id = $1",
+                            j_id,
+                            args as &Json<HashMap<String, Box<RawValue>>>,
+                        )
+                        .execute(db)
+                        .await?;
+                    }
                 }
             }
+
+            // Clean up the debounce batch entries now that the job has been pulled
+            sqlx::query!(
+                "DELETE FROM v2_job_debounce_batch WHERE debounce_batch = (
+                    SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1
+                )",
+                j_id,
+            )
+            .execute(db)
+            .await?;
 
             // Handle dependency job debouncing cleanup when a job is pulled for execution
             if is_djob_to_debounce {
@@ -3362,6 +3433,7 @@ pub async fn pull(
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
+            otel_incr_queue_pull_count();
             return Ok(PulledJobResult {
                 job: Some(pulled_job),
                 suspended,
@@ -4116,6 +4188,7 @@ pub async fn delete_job<'c>(
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_DELETE_COUNT.inc();
     }
+    otel_incr_queue_delete_count();
 
     let job_removed =
         sqlx::query_scalar!("DELETE FROM v2_job_queue WHERE id = $1 RETURNING 1", job_id,)
@@ -4443,7 +4516,7 @@ async fn push_inner<'c, 'd>(
     mut tx: PushIsolationLevel<'c>,
     workspace_id: &str,
     job_payload: JobPayload,
-    args: PushArgs<'d>,
+    mut args: PushArgs<'d>,
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
@@ -4798,19 +4871,34 @@ async fn push_inner<'c, 'd>(
             dedicated_worker,
             concurrency_settings,
             debouncing_settings,
-        }) => JobPayloadUntagged {
-            runnable_id: hash,
-            runnable_path: path,
-            raw_code_tuple: Some((content, lock)),
-            job_kind: JobKind::Preview,
-            language: Some(language),
-            concurrency_settings: concurrency_settings.into(),
-            debouncing_settings,
-            cache_ttl,
-            cache_ignore_s3_path,
-            dedicated_worker,
-            ..Default::default()
-        },
+            modules,
+        }) => {
+            // Inject modules into job args as _MODULES so the worker can extract them
+            if let Some(ref modules) = modules {
+                match serde_json::to_string(modules).and_then(|s| RawValue::from_string(s)) {
+                    Ok(raw) => {
+                        let extra = args.extra.get_or_insert_with(HashMap::new);
+                        extra.insert("_MODULES".to_string(), raw);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to serialize modules for preview job: {e}");
+                    }
+                }
+            }
+            JobPayloadUntagged {
+                runnable_id: hash,
+                runnable_path: path,
+                raw_code_tuple: Some((content, lock)),
+                job_kind: JobKind::Preview,
+                language: Some(language),
+                concurrency_settings: concurrency_settings.into(),
+                debouncing_settings,
+                cache_ttl,
+                cache_ignore_s3_path,
+                dedicated_worker,
+                ..Default::default()
+            }
+        }
         JobPayload::Dependencies {
             hash,
             language,
@@ -5513,10 +5601,11 @@ async fn push_inner<'c, 'd>(
                 &mut *tx,
             )
             .await
-            .map_err(|e| {
-                Error::internal_err(format!(
+            .map_err(|e| match e {
+                Error::NotFound(_) => e,
+                _ => Error::internal_err(format!(
                     "Could not get permissions directly for job {job_id}: {e:#}"
-                ))
+                )),
             })?
         }
     };
@@ -5721,6 +5810,7 @@ async fn push_inner<'c, 'd>(
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_PUSH_COUNT.inc();
     }
+    otel_incr_queue_push_count();
 
     {
         let uuid_string = job_id.to_string();
@@ -5758,7 +5848,7 @@ async fn push_inner<'c, 'd>(
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {
             AuditAuthor {
                 email: email.to_string(),
-                username: permissioned_as.trim_start_matches("u/").to_string(),
+                username: windmill_common::auth::permissioned_as_to_username(&permissioned_as),
                 username_override: Some(user.to_string()),
                 token_prefix: token_prefix.map(|s| s.to_string()),
             }

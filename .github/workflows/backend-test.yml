@@ -89,6 +89,18 @@ jobs:
         with:
           cache-workspaces: backend
           toolchain: 1.93.0
+      - name: Fix stale v8 build cache
+        working-directory: ./backend
+        run: |
+          # Cargo cache may preserve v8 build fingerprints without the actual
+          # librusty_v8.a library. Since fingerprints look valid, cargo skips
+          # build.rs re-run, causing "could not find native static library rusty_v8".
+          for profile in debug release; do
+            if [ -d "target/$profile/.fingerprint" ] && [ ! -f "target/$profile/gn_out/obj/librusty_v8.a" ]; then
+              echo "Cleaning stale v8 build artifacts in target/$profile"
+              rm -rf "target/$profile/build/v8-"* "target/$profile/.fingerprint/v8-"*
+            fi
+          done
       - name: Read EE repo commit hash
         run: |
           echo "ee_repo_ref=$(cat ./ee-repo-ref.txt)" >> "$GITHUB_ENV"

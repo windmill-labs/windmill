@@ -14,11 +14,13 @@
 	import NatsTriggersConfigSection from './NatsTriggersConfigSection.svelte'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveNatsTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
@@ -88,6 +90,9 @@
 		use_jetstream: false
 	})
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
 	let isValid = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
@@ -200,6 +205,9 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		permissionedAs = cfg?.permissioned_as
+		selectedPermissionedAs = undefined
+		preservePermissionedAs = false
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -228,7 +236,9 @@
 			use_jetstream: natsCfg.use_jetstream,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 	}
 
@@ -375,6 +385,15 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}
@@ -452,7 +471,10 @@
 			/>
 
 			<Section label="Advanced" collapsable>
-				<div class="flex flex-col gap-4">
+				{#snippet header()}
+					<TriggerAdvancedBadges {error_handler_path} {retry} />
+				{/snippet}
+				<div class="flex flex-col gap-6">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
 							<Tab value="error_handler" label="Error Handler" />
@@ -472,6 +494,7 @@
 					</div>
 				</div>
 			</Section>
+			<div class="pb-8" />
 		</div>
 	{/if}
 {/snippet}

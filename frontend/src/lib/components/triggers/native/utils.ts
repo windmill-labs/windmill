@@ -111,7 +111,7 @@ export function validateCommonFields(config: Record<string, any>): Record<string
 }
 
 export function formatTriggerDisplayName(trigger: NativeTrigger): string {
-	return `${trigger.script_path} (external id: ${trigger.external_id})`
+	return `${trigger.summary ?? ''} ${trigger.script_path} (external id: ${trigger.external_id})`
 }
 
 export function getTriggerIconName(service: NativeServiceName): string {
@@ -199,7 +199,8 @@ export async function saveNativeTriggerFromCfg(
 	const requestBody: NativeTriggerData = {
 		script_path: triggerCfg.script_path,
 		is_flow: triggerCfg.is_flow,
-		service_config: triggerCfg.service_config
+		service_config: triggerCfg.service_config,
+		summary: triggerCfg.summary
 	}
 
 	const serviceName = NATIVE_TRIGGER_SERVICES[service].serviceDisplayName

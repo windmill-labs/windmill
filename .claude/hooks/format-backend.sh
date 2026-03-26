@@ -13,8 +13,10 @@ fi
 # Check if the file is in the backend directory and is a Rust file
 if [[ "$FILE_PATH" == *"/backend/"* ]] && [[ "$FILE_PATH" =~ \.rs$ ]]; then
     cd "$CLAUDE_PROJECT_DIR/backend" || exit 0
-    # Run rustfmt with config from rustfmt.toml (edition=2021)
-    rustfmt --config-path rustfmt.toml "$FILE_PATH" 2>/dev/null || true
+    # Run rustfmt, surface errors as context but don't block Claude
+    if rustfmt --config-path rustfmt.toml "$FILE_PATH" 2>&1; then
+        echo "Formatted $(basename "$FILE_PATH")"
+    fi
 fi
 
 exit 0

@@ -50,9 +50,13 @@
 		if (!x || typeof x !== 'object') return {}
 		const result: Record<string, WorkflowStatus> = {}
 		for (const [k, v] of Object.entries(x)) {
-			if (!k.startsWith('_')) result[k] = v as WorkflowStatus
+			if (!k.startsWith('_') || k.startsWith('_step/')) result[k] = v as WorkflowStatus
 		}
 		return result
+	}
+
+	function getStepResults(x: any): Record<string, any> {
+		return x?._checkpoint?.completed_steps ?? {}
 	}
 
 	function handleFilterByConcurrencyKey(key: string) {
@@ -156,6 +160,10 @@
 					<WorkflowTimeline
 						flow_status={asWorkflowStatus(job.workflow_as_code_status)}
 						flowDone={job.type == 'CompletedJob'}
+						stepResults={getStepResults(job.workflow_as_code_status)}
+						result={(job as any).result}
+						success={(job as any).success !== false}
+						jobId={job.id}
 					/>
 				</div>
 			{/if}

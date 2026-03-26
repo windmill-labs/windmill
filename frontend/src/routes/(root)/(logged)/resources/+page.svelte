@@ -30,7 +30,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
-	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
+	import { FolderService, OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
 	import {
 		enterpriseLicense,
 		userStore,
@@ -127,6 +127,7 @@
 	})
 
 	let showCreateButtons = $state(false)
+	let folders: string[] = $state([])
 
 	// FilterSearchbar setup
 	let userFoldersFilterType = $derived(
@@ -147,6 +148,12 @@
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => resourcesFilterSchema))
+	let folderPresets = $derived([
+		...folders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
+		...(resourcesFilterSchema.user_folders_only
+			? [{ name: resourcesFilterSchema.user_folders_only.label ?? '?', value: 'user_folders_only:\\ true' }]
+			: [])
+	])
 
 	async function loadResources(): Promise<void> {
 		resources = await loadResourceInternal(undefined, 'cache,state,app_theme')
@@ -538,11 +545,16 @@
 			})
 		}
 	})
+	async function loadFolders() {
+		folders = await FolderService.listFolderNames({ workspace: $workspaceStore! })
+	}
+
 	$effect(() => {
 		if ($workspaceStore && $userStore) {
 			untrack(() => {
 				loadResources()
 				loadResourceTypes()
+				loadFolders()
 			})
 		}
 	})
@@ -895,12 +907,7 @@
 					class="max-w-[26rem] grow"
 					bind:value={filters.val}
 					placeholder="Filter resources..."
-					presets={[
-						{
-							name: resourcesFilterSchema.user_folders_only?.label ?? '?',
-							value: 'user_folders_only:\\ true'
-						}
-					]}
+					presets={folderPresets}
 				/>
 			</div>
 		</div>

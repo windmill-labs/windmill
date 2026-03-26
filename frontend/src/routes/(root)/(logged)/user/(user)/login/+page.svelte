@@ -24,7 +24,11 @@
 	const email = page.url.searchParams.get('email') ?? ''
 	const password = page.url.searchParams.get('password') ?? ''
 	const error = page.url.searchParams.get('error') ?? undefined
-	const rd = page.url.searchParams.get('rd') ?? undefined
+	const rdFromStorage = localStorage.getItem('rd') || undefined
+	if (rdFromStorage) {
+		localStorage.removeItem('rd')
+	}
+	const rd = page.url.searchParams.get('rd') ?? rdFromStorage
 
 	let showPassword = false
 	let firstTime = $state(false)
@@ -83,7 +87,8 @@
 						workspace: $workspaceStore!
 					})
 					if (!emptyString(defaultApp.default_app_path)) {
-						goto(`/apps/get/${defaultApp.default_app_path}`)
+						const prefix = defaultApp.default_app_raw ? '/apps_raw/get' : '/apps/get'
+						goto(`${prefix}/${defaultApp.default_app_path}`)
 					} else {
 						goto(rd ?? '/')
 					}

@@ -440,17 +440,29 @@ async fn get_raw_app_data(
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = object_store {
         let path = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
-        let stream = os
+        match os
             .get(&windmill_object_store::object_store_reexports::Path::from(
                 path,
             ))
             .await
-            .map_err(windmill_object_store::object_store_error_to_error)?
-            .bytes()
-            .await
-            .map_err(windmill_object_store::object_store_error_to_error)?;
-        tracing::info!("stream: {}", stream.len());
-        body = Some(Body::from(stream));
+        {
+            Ok(result) => {
+                let stream = result
+                    .bytes()
+                    .await
+                    .map_err(windmill_object_store::object_store_error_to_error)?;
+                tracing::info!("stream: {}", stream.len());
+                body = Some(Body::from(stream));
+            }
+            Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound {
+                ..
+            }) => {
+                // S3 key not found, fall through to DB lookup below
+            }
+            Err(e) => {
+                return Err(windmill_object_store::object_store_error_to_error(e));
+            }
+        }
     }
 
     if body.is_none() {
@@ -1179,7 +1191,7 @@ async fn create_app_internal<'a>(
                 .await?;
         if nb_apps.unwrap_or(0) >= 1000 {
             return Err(Error::BadRequest(
-                    "You have reached the maximum number of apps (1000) on cloud. Contact support@windmill.dev to increase the limit"
+                    "You have reached the maximum number of apps (1000) on cloud. Check your usage in Workspace Settings > General > Cloud Quotas. Contact support@windmill.dev to increase the limit"
                         .to_string(),
                 ));
         }
@@ -2053,6 +2065,7 @@ async fn execute_component(
                 .triggerables_v2
                 .as_ref()
                 .ok_or_else(|| Error::BadRequest(format!("Policy is missing triggerables")))?;
+
             let policy_triggerables = triggerables_v2
                 .get(path) // start with `path` in case we can avoid the next` format!`.
                 .or_else(|| triggerables_v2.get(&format!("{}:{}", payload.component, &path)))

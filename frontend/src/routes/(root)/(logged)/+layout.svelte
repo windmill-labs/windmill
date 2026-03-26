@@ -26,6 +26,7 @@
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
+		wsBaseUrlStore,
 		disableHubStore,
 		usedTriggerKinds,
 		devopsRole,
@@ -49,6 +50,7 @@
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { ArrowLeft, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
+	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
@@ -124,7 +126,9 @@
 				console.error('Could not persist workspace to local storage', e)
 			}
 			const user = await getUserExt(workspace)
-			userStore.set(user)
+			if (!deepEqual(user, $userStore)) {
+				userStore.set(user)
+			}
 			if (isCloudHosted() && user?.is_admin) {
 				isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
 			}
@@ -158,6 +162,7 @@
 		loadUsage()
 		syncTutorialsTodos()
 		loadHubBaseUrl()
+		loadWsBaseUrl()
 		loadDisableHub()
 		loadUsedTriggerKinds()
 	}
@@ -176,6 +181,13 @@
 			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
 			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
 			DEFAULT_HUB_BASE_URL
+	}
+
+	async function loadWsBaseUrl() {
+		const val = (await SettingService.getGlobal({ key: 'ws_base_url' })) as string
+		if (val) {
+			$wsBaseUrlStore = val
+		}
 	}
 
 	async function loadDisableHub() {

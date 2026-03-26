@@ -23,6 +23,7 @@ mod schedule_push {
             args: None,
             extra_perms: serde_json::json!({}),
             email: "test@windmill.dev".to_string(),
+            permissioned_as: "u/test-user".to_string(),
             error: None,
             on_failure: None,
             on_failure_times: None,
@@ -423,8 +424,7 @@ mod schedule_push {
         // Pass a now_cutoff far in the future — simulates clock shift
         let future_cutoff = Utc::now() + chrono::Duration::hours(24);
         let tx = db.begin().await?;
-        let tx =
-            push_scheduled_job(&db, tx, &schedule, Some(&authed), Some(future_cutoff)).await?;
+        let tx = push_scheduled_job(&db, tx, &schedule, Some(&authed), Some(future_cutoff)).await?;
         tx.commit().await?;
 
         assert_eq!(count_queued_jobs(&db).await, 1);
@@ -451,14 +451,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         tx.commit().await?;
         assert!(err.is_none());
         assert_eq!(count_queued_jobs(&db).await, 0);
@@ -475,14 +469,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            "f/system/different_script",
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, "f/system/different_script").await;
         tx.commit().await?;
         assert!(err.is_none());
         assert_eq!(count_queued_jobs(&db).await, 0);
@@ -499,14 +487,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         tx.commit().await?;
         assert!(err.is_none());
         assert_eq!(count_queued_jobs(&db).await, 1);
@@ -531,14 +513,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         tx.commit().await?;
         assert!(err.is_none());
         assert_eq!(count_queued_jobs(&db).await, 1);
@@ -560,8 +536,8 @@ mod schedule_push {
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
     async fn test_handle_push_failure_disables_schedule(db: Pool<Postgres>) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-             VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false)"
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+             VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
         )
         .execute(&db)
         .await?;
@@ -573,14 +549,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         // NotFound: schedule disabled internally, no error returned (caller commits)
         assert!(err.is_none());
         tx.commit().await?;
@@ -605,8 +575,8 @@ mod schedule_push {
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
     async fn test_success_atomic_with_commit(db: Pool<Postgres>) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-             VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false)"
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+             VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
         )
         .execute(&db)
         .await?;
@@ -615,14 +585,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         assert!(err.is_none());
         tx.commit().await?;
 
@@ -650,14 +614,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         assert!(err.is_none());
 
         // Intentionally drop tx without committing (simulates caller failure)
@@ -676,8 +634,8 @@ mod schedule_push {
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
     async fn test_failure_disable_rolls_back_on_drop(db: Pool<Postgres>) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-             VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false)"
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+             VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
         )
         .execute(&db)
         .await?;
@@ -689,14 +647,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         // NotFound: schedule disabled in tx, no error returned
         assert!(err.is_none());
 
@@ -725,29 +677,24 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (mut tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (mut tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         assert!(err.is_none());
 
         // Write something else on the same tx
-        sqlx::query("INSERT INTO global_settings (name, value) VALUES ('_test_after_push', '42'::jsonb)")
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "INSERT INTO global_settings (name, value) VALUES ('_test_after_push', '42'::jsonb)",
+        )
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
 
         // Both the pushed job and the extra write should be visible
         assert_eq!(count_queued_jobs(&db).await, 1);
-        let val: serde_json::Value = sqlx::query_scalar(
-            "SELECT value FROM global_settings WHERE name = '_test_after_push'",
-        )
-        .fetch_one(&db)
-        .await?;
+        let val: serde_json::Value =
+            sqlx::query_scalar("SELECT value FROM global_settings WHERE name = '_test_after_push'")
+                .fetch_one(&db)
+                .await?;
         assert_eq!(val, serde_json::json!(42));
         Ok(())
     }
@@ -760,8 +707,8 @@ mod schedule_push {
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
     async fn test_tx_usable_after_failure(db: Pool<Postgres>) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-             VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false)"
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+             VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
         )
         .execute(&db)
         .await?;
@@ -773,21 +720,17 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (mut tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (mut tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         // NotFound: schedule disabled in tx, no error returned
         assert!(err.is_none());
 
         // Write something else on the returned tx — tx is still usable
-        sqlx::query("INSERT INTO global_settings (name, value) VALUES ('_test_after_fail', '99'::jsonb)")
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "INSERT INTO global_settings (name, value) VALUES ('_test_after_fail', '99'::jsonb)",
+        )
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
 
         // Schedule should be disabled (NotFound is non-retryable)
@@ -800,11 +743,10 @@ mod schedule_push {
         assert!(error.is_some());
 
         // Extra write should still be committed (tx is usable after push failure)
-        let val: serde_json::Value = sqlx::query_scalar(
-            "SELECT value FROM global_settings WHERE name = '_test_after_fail'",
-        )
-        .fetch_one(&db)
-        .await?;
+        let val: serde_json::Value =
+            sqlx::query_scalar("SELECT value FROM global_settings WHERE name = '_test_after_fail'")
+                .fetch_one(&db)
+                .await?;
         assert_eq!(val, serde_json::json!(99));
         Ok(())
     }
@@ -823,14 +765,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         tx.commit().await?;
         assert!(err.is_none());
         assert_eq!(count_queued_jobs(&db).await, 1);
@@ -855,14 +791,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         tx.commit().await?;
         assert!(err.is_none());
         assert_eq!(count_queued_jobs(&db).await, 1);
@@ -883,8 +813,8 @@ mod schedule_push {
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
     async fn test_push_failure_stores_error_message(db: Pool<Postgres>) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-             VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false)"
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+             VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
         )
         .execute(&db)
         .await?;
@@ -896,14 +826,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         // NotFound: schedule disabled in tx, no error returned (caller commits)
         assert!(err.is_none());
         tx.commit().await?;
@@ -928,8 +852,8 @@ mod schedule_push {
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
     async fn test_disabled_schedule_no_side_effects(db: Pool<Postgres>) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-             VALUES ('test-workspace', 'f/system/disabled_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', false, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false)"
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+             VALUES ('test-workspace', 'f/system/disabled_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', false, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
         )
         .execute(&db)
         .await?;
@@ -941,14 +865,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         tx.commit().await?;
         assert!(err.is_none());
 
@@ -959,7 +877,10 @@ mod schedule_push {
         .fetch_one(&db)
         .await?;
         assert!(!enabled);
-        assert!(error.is_none(), "disabled schedule should not get an error set");
+        assert!(
+            error.is_none(),
+            "disabled schedule should not get an error set"
+        );
         assert_eq!(count_queued_jobs(&db).await, 0);
         Ok(())
     }
@@ -971,8 +892,8 @@ mod schedule_push {
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
     async fn test_path_mismatch_no_side_effects(db: Pool<Postgres>) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-             VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false)"
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+             VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
         )
         .execute(&db)
         .await?;
@@ -981,14 +902,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            "f/system/different_script",
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, "f/system/different_script").await;
         tx.commit().await?;
         assert!(err.is_none());
 
@@ -1020,14 +935,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         drop(tx);
         // NotFound: disable succeeds (UPDATE 0 rows is not an error), no error returned
         assert!(err.is_none());
@@ -1045,8 +954,8 @@ mod schedule_push {
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
     async fn test_invariant_success_means_tick_committed(db: Pool<Postgres>) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-             VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false)"
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+             VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
         )
         .execute(&db)
         .await?;
@@ -1055,14 +964,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         assert!(err.is_none());
         tx.commit().await?;
 
@@ -1092,8 +995,8 @@ mod schedule_push {
         db: Pool<Postgres>,
     ) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-             VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false)"
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+             VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
         )
         .execute(&db)
         .await?;
@@ -1105,14 +1008,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         // NotFound: schedule disabled in tx, no error returned (caller commits)
         assert!(err.is_none());
         tx.commit().await?;
@@ -1142,8 +1039,8 @@ mod schedule_push {
         db: Pool<Postgres>,
     ) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-             VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false)"
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+             VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
         )
         .execute(&db)
         .await?;
@@ -1155,14 +1052,8 @@ mod schedule_push {
         let job = make_completed_job(&schedule);
 
         let tx = db.begin().await?;
-        let (tx, err) = try_schedule_next_job(
-            &db,
-            tx,
-            &job,
-            &schedule,
-            &schedule.script_path,
-        )
-        .await;
+        let (tx, err) =
+            try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path).await;
         // NotFound: schedule disabled in tx, no error returned
         assert!(err.is_none());
 
@@ -1195,10 +1086,12 @@ mod schedule_push {
         // ---------------------------------------------------------------
 
         #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
-        async fn test_failpoint_savepoint_create_disables(db: Pool<Postgres>) -> anyhow::Result<()> {
+        async fn test_failpoint_savepoint_create_disables(
+            db: Pool<Postgres>,
+        ) -> anyhow::Result<()> {
             sqlx::query(
-                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-                 VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false)"
+                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+                 VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
             )
             .execute(&db)
             .await?;
@@ -1234,8 +1127,8 @@ mod schedule_push {
         #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
         async fn test_failpoint_push_disables(db: Pool<Postgres>) -> anyhow::Result<()> {
             sqlx::query(
-                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-                 VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false)"
+                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+                 VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
             )
             .execute(&db)
             .await?;
@@ -1269,10 +1162,12 @@ mod schedule_push {
         // ---------------------------------------------------------------
 
         #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
-        async fn test_failpoint_savepoint_commit_disables(db: Pool<Postgres>) -> anyhow::Result<()> {
+        async fn test_failpoint_savepoint_commit_disables(
+            db: Pool<Postgres>,
+        ) -> anyhow::Result<()> {
             sqlx::query(
-                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-                 VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false)"
+                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+                 VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
             )
             .execute(&db)
             .await?;
@@ -1306,10 +1201,12 @@ mod schedule_push {
         // ---------------------------------------------------------------
 
         #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
-        async fn test_failpoint_schedule_disable_returns_err(db: Pool<Postgres>) -> anyhow::Result<()> {
+        async fn test_failpoint_schedule_disable_returns_err(
+            db: Pool<Postgres>,
+        ) -> anyhow::Result<()> {
             sqlx::query(
-                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-                 VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false)"
+                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+                 VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
             )
             .execute(&db)
             .await?;
@@ -1320,13 +1217,15 @@ mod schedule_push {
             });
             let job = make_completed_job(&schedule);
 
-            ACTIVE.scope(ScheduleFailPoint::ScheduleDisable, async {
-                let tx = db.begin().await.unwrap();
-                let (_tx, err) = try_schedule_next_job(
-                    &db, tx, &job, &schedule, &schedule.script_path,
-                ).await;
-                assert!(err.is_some(), "must return Some(err) when disable fails");
-            }).await;
+            ACTIVE
+                .scope(ScheduleFailPoint::ScheduleDisable, async {
+                    let tx = db.begin().await.unwrap();
+                    let (_tx, err) =
+                        try_schedule_next_job(&db, tx, &job, &schedule, &schedule.script_path)
+                            .await;
+                    assert!(err.is_some(), "must return Some(err) when disable fails");
+                })
+                .await;
             Ok(())
         }
 
@@ -1337,8 +1236,8 @@ mod schedule_push {
         #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
         async fn test_failpoint_disable_failure_rollback(db: Pool<Postgres>) -> anyhow::Result<()> {
             sqlx::query(
-                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-                 VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false)"
+                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+                 VALUES ('test-workspace', 'f/system/bad_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/nonexistent', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
             )
             .execute(&db)
             .await?;
@@ -1375,10 +1274,12 @@ mod schedule_push {
         // ---------------------------------------------------------------
 
         #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
-        async fn test_failpoint_push_quota_exceeded_script(db: Pool<Postgres>) -> anyhow::Result<()> {
+        async fn test_failpoint_push_quota_exceeded_script(
+            db: Pool<Postgres>,
+        ) -> anyhow::Result<()> {
             sqlx::query(
-                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-                 VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false)"
+                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+                 VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_script', false, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
             )
             .execute(&db)
             .await?;
@@ -1416,8 +1317,8 @@ mod schedule_push {
         #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
         async fn test_failpoint_push_quota_exceeded_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
             sqlx::query(
-                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-                 VALUES ('test-workspace', 'f/system/flow_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_flow', true, 'test@windmill.dev', '{}', false, false)"
+                "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+                 VALUES ('test-workspace', 'f/system/flow_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_flow', true, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
             )
             .execute(&db)
             .await?;
@@ -1481,8 +1382,8 @@ mod schedule_push {
 
         // Schedule still enabled — simulates both push and disable failing
         sqlx::query(
-            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap)
-             VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_flow', true, 'test@windmill.dev', '{}', false, false)"
+            "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, extra_perms, ws_error_handler_muted, no_flow_overlap, permissioned_as)
+             VALUES ('test-workspace', 'f/system/test_schedule', 'test-user', now(), '0 0 */5 * * *', 'UTC', true, 'f/system/test_flow', true, 'test@windmill.dev', '{}', false, false, 'u/test-user')"
         )
         .execute(&db)
         .await?;
@@ -1583,14 +1484,16 @@ mod schedule_push {
         .await?;
 
         // Flow is re-queued for processing
-        let (running, started_at): (bool, Option<chrono::DateTime<Utc>>) = sqlx::query_as(
-            "SELECT running, started_at FROM v2_job_queue WHERE id = $1",
-        )
-        .bind(flow_job_id)
-        .fetch_one(&db)
-        .await?;
+        let (running, started_at): (bool, Option<chrono::DateTime<Utc>>) =
+            sqlx::query_as("SELECT running, started_at FROM v2_job_queue WHERE id = $1")
+                .bind(flow_job_id)
+                .fetch_one(&db)
+                .await?;
         assert!(!running, "flow must not be running after zombie restart");
-        assert!(started_at.is_none(), "started_at must be null after zombie restart");
+        assert!(
+            started_at.is_none(),
+            "started_at must be null after zombie restart"
+        );
 
         // Schedule still enabled — will be retried when flow re-executes
         let enabled: bool = sqlx::query_scalar(
@@ -1598,16 +1501,21 @@ mod schedule_push {
         )
         .fetch_one(&db)
         .await?;
-        assert!(enabled, "schedule must remain enabled for retry after zombie restart");
+        assert!(
+            enabled,
+            "schedule must remain enabled for retry after zombie restart"
+        );
 
         // Flow job is NOT in v2_job_completed (it was never completed with error)
-        let completed_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM v2_job_completed WHERE id = $1",
-        )
-        .bind(flow_job_id)
-        .fetch_one(&db)
-        .await?;
-        assert_eq!(completed_count, 0, "flow must not be in completed_job — it's a zombie, not an error");
+        let completed_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM v2_job_completed WHERE id = $1")
+                .bind(flow_job_id)
+                .fetch_one(&db)
+                .await?;
+        assert_eq!(
+            completed_count, 0,
+            "flow must not be in completed_job — it's a zombie, not an error"
+        );
 
         Ok(())
     }

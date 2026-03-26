@@ -28,6 +28,7 @@ import {
   isRawAppPath,
   extractResourceName,
   buildFolderPath,
+  isScriptModulePath,
 } from "./utils/resource_folders.ts";
 import type { PermissionedAsContext } from "./core/permissioned_as.ts";
 
@@ -261,6 +262,9 @@ export function getTypeStrFromPath(
   | "settings"
   | "encryption_key"
   | "workspace_dependencies" {
+  if (isScriptModulePath(p)) {
+    return "script";
+  }
   if (isFlowPath(p)) {
     return "flow";
   }

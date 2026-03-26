@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
+	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import CronInput from '$lib/components/CronInput.svelte'
@@ -37,6 +38,7 @@
 	import { handleConfigChange } from '../utils'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 
 	let {
 		useDrawer = true,
@@ -110,6 +112,9 @@
 	let isValid = $state(true)
 	let allowSchedule = $derived(isValid && validCRON && script_path != '')
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
 
 	const saveDisabled = $derived(
 		!allowSchedule ||
@@ -506,6 +511,9 @@
 		extraPerms = cfg.extra_perms ?? {}
 		can_write = canWrite(cfg.path, cfg.extra_perms, $userStore)
 		tag = cfg.tag
+		permissionedAs = cfg.permissioned_as
+		selectedPermissionedAs = undefined
+		preservePermissionedAs = false
 
 		loading = false
 	}
@@ -604,7 +612,9 @@
 			paused_until: paused_until,
 			cron_version: cronVersion,
 			extra_perms: extraPerms,
-			dynamic_skip: dynamicSkipPath
+			dynamic_skip: dynamicSkipPath,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 	}
 
@@ -681,6 +691,15 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-8">
 			<Section label="Metadata">
 				<div class="flex flex-col gap-6">
@@ -911,8 +930,21 @@
 			</Section>
 
 			<Section label="Advanced" collapsable>
+				{#snippet header()}
+					<TriggerAdvancedBadges
+						error_handler_path={errorHandlerPath}
+						{retry}
+						extraBadges={[
+							{ name: 'Recovery Handler', active: !!recoveryHandlerPath },
+							{ name: 'Success Handler', active: !!successHandlerPath },
+							{ name: 'Dynamic Skip', active: !!dynamicSkipPath },
+							{ name: 'Custom Tag', active: !!tag }
+						]}
+					/>
+				{/snippet}
 				{@render errorHandler()}
 			</Section>
+			<div class="pb-8" />
 		</div>
 	{/if}
 {/snippet}

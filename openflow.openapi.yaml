@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.653.0
+  version: 1.664.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -70,7 +70,7 @@ components:
           type: number
           description: Time window in seconds for concurrent_limit
         debounce_delay_s:
-          type: number
+          type: integer
           description: Delay in seconds to debounce flow executions
         debounce_key:
           type: string
@@ -81,10 +81,10 @@ components:
           items:
             type: string
         max_total_debouncing_time:
-          type: number
+          type: integer
           description: Maximum total time in seconds that a job can be debounced
         max_total_debounces_amount:
-          type: number
+          type: integer
           description: Maximum number of times a job can be debounced
         skip_expr:
           type: string
@@ -112,6 +112,11 @@ components:
           description: Sticky notes attached to the flow
           items:
             $ref: '#/components/schemas/FlowNote'
+        groups:
+          type: array
+          description: Semantic groups of modules for organizational purposes
+          items:
+            $ref: '#/components/schemas/FlowGroup'
       required:
         - modules
 
@@ -209,6 +214,33 @@ components:
         - color
         - type
 
+    FlowGroup:
+      type: object
+      description: A semantic group of flow modules for organizational purposes. Does not affect execution — modules remain in their original position in the flow. Groups provide naming and collapsibility in the editor. Members are computed dynamically from all nodes on paths between start_id and end_id.
+      properties:
+        summary:
+          type: string
+          description: Display name for this group
+        note:
+          type: string
+          description: Markdown note shown below the group header
+        autocollapse:
+          type: boolean
+          default: false
+          description: If true, this group is collapsed by default in the flow editor. UI hint only.
+        start_id:
+          type: string
+          description: ID of the first flow module in this group (topological entry point)
+        end_id:
+          type: string
+          description: ID of the last flow module in this group (topological exit point)
+        color:
+          type: string
+          description: Color for the group in the flow editor
+      required:
+        - start_id
+        - end_id
+
     RetryIf:
       type: object
       description: Conditional retry based on error or result
@@ -231,7 +263,8 @@ components:
           description: JavaScript expression evaluated after the module runs. Can use 'result' (step's result) or 'flow_input'. Return true to stop
         error_message:
           type: string
-          description: Custom error message shown when stopping
+          nullable: true
+          description: Custom error message when stopping with an error. Mutually exclusive with skip_if_stopped. If set to a non-empty string, the flow stops with this error. If empty string, a default error message is used. If null or omitted, no error is raised.
       required:
         - expr
 
@@ -326,6 +359,27 @@ components:
         retry:
           description: Retry configuration if this step fails
           $ref: '#/components/schemas/Retry'
+        debouncing:
+          description: "Debounce configuration for this step (EE only)"
+          type: object
+          properties:
+            debounce_delay_s:
+              type: integer
+              description: Delay in seconds to debounce this step's executions across flow runs
+            debounce_key:
+              type: string
+              description: "Expression to group debounced executions. Supports $workspace and $args[name]. Default: $workspace/flow/<flow_path>-<step_id>"
+            debounce_args_to_accumulate:
+              type: array
+              description: Array-type arguments to accumulate across debounced executions
+              items:
+                type: string
+            max_total_debouncing_time:
+              type: integer
+              description: Maximum total time in seconds before forced execution
+            max_total_debounces_amount:
+              type: integer
+              description: Maximum number of debounces before forced execution
       required:
         - value
         - id

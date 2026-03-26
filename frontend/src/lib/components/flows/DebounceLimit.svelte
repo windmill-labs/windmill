@@ -30,11 +30,37 @@
 		fontClass?: string
 	} = $props()
 
-	// Get list of array-type arguments from schema
+	// Check if an originalType like "string | string[]" is a top-level
+	// union where at least one member is an array type (ends with "[]").
+	// Splits on "|" only at the top level (not inside {}, <>, or ()).
+	function isUnionWithArray(originalType: string | undefined): boolean {
+		if (!originalType) return false
+		let depth = 0
+		const parts: string[] = []
+		let cur = ''
+		for (const ch of originalType) {
+			if (ch === '{' || ch === '<' || ch === '(') depth++
+			else if (ch === '}' || ch === '>' || ch === ')') depth--
+			else if (ch === '|' && depth === 0) {
+				parts.push(cur.trim())
+				cur = ''
+				continue
+			}
+			cur += ch
+		}
+		parts.push(cur.trim())
+		// Match TS array syntax (T[]) and Python list syntax (list[T] / List[T])
+		return parts.length > 1 && parts.some((p) => p.endsWith('[]') || /^[Ll]ist\[.+\]$/.test(p))
+	}
+
+	// Get list of arguments eligible for accumulation from schema.
+	// Includes array-type arguments and union types like T | T[]
+	// whose scalar values are wrapped into single-element arrays
+	// at aggregation time.
 	let arrayArgs = $derived(
 		schema?.properties
 			? Object.entries(schema.properties)
-					.filter(([_, prop]) => prop.type === 'array')
+					.filter(([_, prop]) => prop.type === 'array' || isUnionWithArray(prop.originalType))
 					.map(([key, _]) => key)
 			: []
 	)
@@ -111,8 +137,8 @@
 			<Label label="Argument to accumulate (optional)">
 				{#snippet header()}
 					<Tooltip>
-						Select a list-type argument to accumulate across debounced executions. Values from
-						each debounced execution will be appended together.</Tooltip
+						Select a list-type argument to accumulate across debounced executions. Values from each
+						debounced execution will be appended together.</Tooltip
 					>
 				{/snippet}
 				<select disabled={!$enterpriseLicense} bind:value={selectedArg}>
@@ -131,8 +157,8 @@
 			<Label label="Max total debouncing time (optional)">
 				{#snippet header()}
 					<Tooltip>
-						Maximum total time (in seconds) that a job can be debounced before it must execute.
-						Once this time is reached, the job will run regardless of ongoing debouncing.</Tooltip
+						Maximum total time (in seconds) that a job can be debounced before it must execute. Once
+						this time is reached, the job will run regardless of ongoing debouncing.</Tooltip
 					>
 				{/snippet}
 				<SecondsInput disabled={!$enterpriseLicense} bind:seconds={max_total_debouncing_time} />
@@ -140,11 +166,16 @@
 			<Label label="Max total debounces amount (optional)">
 				{#snippet header()}
 					<Tooltip>
-						Maximum number of times a job can be debounced before it must execute. Once this
-						count is reached, the job will run regardless of ongoing debouncing.</Tooltip
+						Maximum number of times a job can be debounced before it must execute. Once this count
+						is reached, the job will run regardless of ongoing debouncing.</Tooltip
 					>
 				{/snippet}
-				<input type="number" disabled={!$enterpriseLicense} bind:value={max_total_debounces_amount} min="0" />
+				<input
+					type="number"
+					disabled={!$enterpriseLicense}
+					bind:value={max_total_debounces_amount}
+					min="0"
+				/>
 			</Label>
 		</div>
 	{/if}

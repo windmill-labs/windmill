@@ -63,7 +63,9 @@ After code changes compile and type-check, verify the feature works:
 
 ## End-of-Task Summary
 
-When done, provide:
+When done, directly open or update a **draft PR** against `main` once the work and validation are complete. Do not stop at a local summary or ask a human to create the PR manually.
+
+In your final summary, provide:
 - What was changed and why (files modified, approach taken)
 - What checks passed (cargo check, npm run check, etc.)
 - What was manually tested and the results

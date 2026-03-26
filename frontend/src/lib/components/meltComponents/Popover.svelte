@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-	import { run, createBubbler } from 'svelte/legacy'
+	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
 	import { createPopover, createSync, melt } from '@melt-ui/svelte'
@@ -33,6 +33,7 @@
 	import { onDestroy } from 'svelte'
 	import type { MeltEventHandler } from '@melt-ui/svelte/internal/types'
 	import { onCustomEvent } from '$lib/svelte5Utils.svelte'
+	import { watch } from 'runed'
 	onDestroy(clearTimers)
 
 	interface Props {
@@ -197,16 +198,17 @@
 		}
 	}
 	// Update portal reactively when fullscreen state changes
-	run(() => {
+	$effect(() => {
 		if (portalOption) {
 			$portalOption = dynamicPortal
 		}
 	})
-	run(() => {
-		sync.open(isOpen, (v) => (isOpen = v))
-	})
+	watch(
+		() => isOpen,
+		() => sync.open(isOpen, (v) => (isOpen = v))
+	)
 	// Allow for dynamic closeOnOutsideClick
-	run(() => {
+	$effect(() => {
 		$closeOnOutsideClickOption = usePointerDownOutside ? false : closeOnOutsideClick
 	})
 </script>

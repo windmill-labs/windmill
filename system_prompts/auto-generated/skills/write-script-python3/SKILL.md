@@ -5,9 +5,11 @@ description: MUST use when writing Python scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, run:
+Place scripts in a folder. After writing, tell the user they can run:
 - `wmill script generate-metadata` - Generate .script.yaml and .lock files
 - `wmill sync push` - Deploy to Windmill
+
+Do NOT run these commands yourself. Instead, inform the user that they should run them.
 
 Use `wmill resource-type list --schema` to discover available resource types.
 
@@ -781,12 +783,17 @@ async def sleep(seconds: int)
 # 
 # Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
 # 
+# Args:
+#     timeout: Approval timeout in seconds (default 1800).
+#     form: Optional form schema for the approval page.
+#     self_approval: Whether the user who triggered the flow can approve it (default True).
+# 
 # Example::
 # 
 #     urls = await step("urls", lambda: get_resume_urls())
 #     await step("notify", lambda: send_email(urls["approvalPage"]))
 #     result = await wait_for_approval(timeout=3600)
-async def wait_for_approval(timeout: int = 1800, form: dict | None = None) -> dict
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True) -> dict
 
 # Process items in parallel with optional concurrency control.
 # 
@@ -801,4 +808,13 @@ async def wait_for_approval(timeout: int = 1800, form: dict | None = None) -> di
 # 
 #     results = await parallel(items, process, concurrency=5)
 async def parallel(items, fn, concurrency: Optional[int] = None)
+
+# Commit Kafka offsets for a trigger with auto_commit disabled.
+# 
+# Args:
+#     trigger_path: Path to the Kafka trigger (from event['wm_trigger']['trigger_path'])
+#     topic: Kafka topic name (from event['topic'])
+#     partition: Partition number (from event['partition'])
+#     offset: Message offset to commit (from event['offset'])
+def commit_kafka_offsets(trigger_path: str, topic: str, partition: int, offset: int) -> None
 

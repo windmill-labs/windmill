@@ -437,7 +437,8 @@
 							startIcon={{ icon: isRunning ? RefreshCw : Play }}
 							size="sm"
 							btnClasses="w-full max-w-lg"
-							on:click={() => recordingMode ? recordAndTest() : runPreview(previewArgs.val, undefined)}
+							on:click={() =>
+								recordingMode ? recordAndTest() : runPreview(previewArgs.val, undefined)}
 							id="flow-editor-test-flow-drawer"
 							shortCut={{ Icon: CornerDownLeft }}
 						>
@@ -652,6 +653,13 @@
 					onDone={async ({ job: completedJob }) => {
 						isRunning = false
 						$executionCount = $executionCount + 1
+						// Reset 'initial' flags for modules that were part of this flow test,
+						// so OutputPicker no longer shows "Run loaded from history"
+						for (const mod of completedJob.flow_status?.modules ?? []) {
+							if (mod.id) {
+								stepHistoryLoader?.resetInitial(mod.id)
+							}
+						}
 						if (flowRecording.active) {
 							lastRecording = flowRecording.stop()
 							setActiveRecording(undefined)
@@ -668,6 +676,8 @@
 					{render}
 					{customUi}
 					showLogsWithResult
+					notes={flowStore.val.value.notes}
+					groups={flowStore.val.value.groups}
 				/>
 			{:else if loadingHistory}
 				<div class="italic text-primary h-full grow mx-auto flex flex-row items-center gap-2">

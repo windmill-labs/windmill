@@ -1,8 +1,14 @@
 <script lang="ts">
-	import { BROWSER } from 'esm-env'
-
+	import { buildWsUrl } from '$lib/wsUrl'
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
+	import {
+		type CompletedJob,
+		type Job,
+		JobService,
+		type Preview,
+		type ScriptLang,
+		type ScriptModule
+	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		copyToClipboard,
@@ -25,8 +31,10 @@
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 	import * as Y from 'yjs'
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import { langToExt } from '$lib/editorLangUtils'
 	import { WebsocketProvider } from 'y-websocket'
 	import Modal from './common/modal/Modal.svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import DiffEditor from './DiffEditor.svelte'
 	import {
 		AlertTriangle,
@@ -40,8 +48,11 @@
 		GitBranch,
 		Play,
 		PlayIcon,
+		Plus,
 		Terminal,
-		WandSparkles
+		Pencil,
+		WandSparkles,
+		X
 	} from 'lucide-svelte'
 	import {
 		DebugToolbar,
@@ -56,6 +67,7 @@
 		getDebugFileExtension,
 		fetchContextualVariables,
 		signDebugRequest,
+		signMultiplayerRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
 	import { SvelteSet } from 'svelte/reactivity'
@@ -100,7 +112,16 @@
 		path: string | undefined
 		lang: Preview['language']
 		kind?: string | undefined
-		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox'
+		template?:
+			| 'pgsql'
+			| 'mysql'
+			| 'script'
+			| 'docker'
+			| 'powershell'
+			| 'bunnative'
+			| 'claudesandbox'
+			| 'wac_python'
+			| 'wac_typescript'
 		tag: string | undefined
 		initialArgs?: Record<string, any>
 		fixedOverflowWidgets?: boolean
@@ -123,6 +144,7 @@
 		lastDeployedCode?: string | undefined
 		disableAi?: boolean
 		assets?: AssetWithAltAccessType[]
+		modules?: { [key: string]: ScriptModule } | null
 		editorBarRight?: import('svelte').Snippet
 		enablePreprocessorSnippet?: boolean
 	}
@@ -155,6 +177,7 @@
 		lastDeployedCode = undefined,
 		disableAi = false,
 		assets = $bindable(),
+		modules = $bindable(undefined),
 		editorBarRight,
 		enablePreprocessorSnippet = false
 	}: Props = $props()
@@ -162,6 +185,288 @@
 	let initialArgs = structuredClone($state.snapshot(args))
 	let jsonView = $state(false)
 	let schemaHeight = $state(0)
+
+	// Module tab state
+	let activeModuleTab: string | null = $state(null)
+	// Per-module test panel state (args + schema), persisted across tab switches
+	let moduleTestState: Record<string, { args: Record<string, any>; schema: Schema }> = $state({})
+	let testPanelArgs: Record<string, any> = $state({})
+	let testPanelSchema: Schema = $state(emptySchema())
+	// editorCode is what the editor shows; code always holds the main script content
+	let editorCode: string = $state(code)
+	// Sync editorCode when code changes externally (template reset, copilot, etc.)
+	let lastSyncedCode = code
+	$effect.pre(() => {
+		if (activeModuleTab === null && code !== lastSyncedCode) {
+			editorCode = code
+			lastSyncedCode = code
+		}
+	})
+
+	function switchToModule(modulePath: string) {
+		if (activeModuleTab !== null && modules && activeModuleTab !== modulePath) {
+			// Switching from another module: save its content and test state
+			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
+			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
+		}
+		if (modules && modules[modulePath]) {
+			activeModuleTab = modulePath
+			editorCode = modules[modulePath].content
+			editor?.setCode(editorCode)
+			// Restore or initialize test state for the new module
+			if (moduleTestState[modulePath]) {
+				testPanelArgs = moduleTestState[modulePath].args
+				testPanelSchema = moduleTestState[modulePath].schema
+			} else {
+				testPanelArgs = {}
+				testPanelSchema = emptySchema()
+				inferModuleSchema()
+			}
+		}
+	}
+
+	function switchToMain() {
+		if (activeModuleTab !== null && modules) {
+			// Save current module content and test state
+			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
+			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
+		}
+		activeModuleTab = null
+		editorCode = code
+		lastSyncedCode = code
+		editor?.setCode(editorCode)
+	}
+
+	let effectiveLang = $derived(
+		activeModuleTab && modules?.[activeModuleTab]
+			? (modules[activeModuleTab].language as Preview['language'])
+			: lang
+	)
+
+	let isWacV2 = $derived.by(() => {
+		const mainCode = code
+		const isTsWac =
+			mainCode.includes('windmill-client') &&
+			mainCode.includes('workflow') &&
+			mainCode.includes('task')
+		const isPyWac =
+			(mainCode.includes('import wmill') || mainCode.includes('from wmill')) &&
+			mainCode.includes('workflow') &&
+			mainCode.includes('task')
+		return isTsWac || isPyWac
+	})
+	let supportsModules = $derived((lang === 'bun' || lang === 'python3') && isWacV2)
+	let mainFileName = $derived('script.' + langToExt(scriptLangToEditorLang(lang)))
+
+	let modulePathInput = $state('')
+	let showAddModulePopover = $state(false)
+	let modulePathInputEl: HTMLInputElement | undefined = $state(undefined)
+	let modulePathError = $state('')
+
+	let renameModuleInput = $state('')
+	let renameModuleError = $state('')
+	let renameModuleInputEl: HTMLInputElement | undefined = $state(undefined)
+
+	const ALL_MODULE_EXTENSIONS: Record<string, ScriptModule['language']> = {
+		'.ts': 'bun',
+		'.py': 'python3',
+		'.go': 'go',
+		'.sh': 'bash',
+		'.ps1': 'powershell',
+		'.sql': 'postgresql',
+		'.gql': 'graphql',
+		'.php': 'php',
+		'.rs': 'rust',
+		'.yml': 'ansible',
+		'.cs': 'csharp',
+		'.nu': 'nu',
+		'.java': 'java',
+		'.rb': 'ruby'
+	}
+
+	/** Map main script language to allowed module file extensions. */
+	const LANG_MODULE_EXTENSIONS: Partial<Record<Preview['language'] & string, string[]>> = {
+		python3: ['.py'],
+		bun: ['.ts'],
+		deno: ['.ts'],
+		nativets: ['.ts'],
+		go: ['.go'],
+		bash: ['.sh'],
+		powershell: ['.ps1'],
+		postgresql: ['.sql'],
+		mysql: ['.sql'],
+		bigquery: ['.sql'],
+		snowflake: ['.sql'],
+		mssql: ['.sql'],
+		oracledb: ['.sql'],
+		duckdb: ['.sql'],
+		graphql: ['.gql'],
+		php: ['.php'],
+		rust: ['.rs'],
+		ansible: ['.yml'],
+		csharp: ['.cs'],
+		nu: ['.nu'],
+		java: ['.java'],
+		ruby: ['.rb'],
+		bunnative: ['.ts']
+	}
+
+	let allowedModuleExtensions = $derived(
+		lang
+			? (LANG_MODULE_EXTENSIONS[lang] ?? Object.keys(ALL_MODULE_EXTENSIONS))
+			: Object.keys(ALL_MODULE_EXTENSIONS)
+	)
+
+	function inferModuleLang(filePath: string): ScriptModule['language'] | undefined {
+		for (const [ext, moduleLang] of Object.entries(ALL_MODULE_EXTENSIONS)) {
+			if (filePath.endsWith(ext)) return moduleLang
+		}
+		return undefined
+	}
+
+	function getModuleDefaultContent(filePath: string): string {
+		if (filePath.endsWith('.py')) {
+			return `def hello() -> str:\n    return "world"\n`
+		} else if (filePath.endsWith('.ts')) {
+			return `export function hello(): string {\n  return "world"\n}\n`
+		} else if (filePath.endsWith('.go')) {
+			return `package inner\n\nfunc Hello() string {\n\treturn "world"\n}\n`
+		} else if (filePath.endsWith('.sh')) {
+			return `#!/bin/bash\necho "world"\n`
+		} else if (filePath.endsWith('.ps1')) {
+			return `function Hello {\n    return "world"\n}\n`
+		} else if (filePath.endsWith('.sql')) {
+			return `SELECT 'world' as result;\n`
+		} else if (filePath.endsWith('.gql')) {
+			return `query Hello {\n  hello\n}\n`
+		} else if (filePath.endsWith('.php')) {
+			return `<?php\nfunction hello(): string {\n    return "world";\n}\n`
+		} else if (filePath.endsWith('.rs')) {
+			return `pub fn hello() -> String {\n    "world".to_string()\n}\n`
+		} else if (filePath.endsWith('.yml')) {
+			return `---\n- name: Hello\n  debug:\n    msg: "world"\n`
+		} else if (filePath.endsWith('.cs')) {
+			return `public static string Hello() {\n    return "world";\n}\n`
+		} else if (filePath.endsWith('.nu')) {
+			return `def hello [] {\n    "world"\n}\n`
+		} else if (filePath.endsWith('.java')) {
+			return `public class Helper {\n    public static String hello() {\n        return "world";\n    }\n}\n`
+		} else if (filePath.endsWith('.rb')) {
+			return `def hello\n  "world"\nend\n`
+		}
+		return ''
+	}
+
+	function validateModulePath(path: string): string {
+		if (!path.trim()) return ''
+		const moduleLang = inferModuleLang(path)
+		if (!moduleLang) {
+			const exts = allowedModuleExtensions.join(', ')
+			return `File must end with a supported extension: ${exts}`
+		}
+		const matchedExt = allowedModuleExtensions.find((ext) => path.endsWith(ext))
+		if (!matchedExt) {
+			const exts = allowedModuleExtensions.join(', ')
+			return `File must end with a supported extension for this language: ${exts}`
+		}
+		if (modules?.[path.trim()]) {
+			return `Module ${path.trim()} already exists`
+		}
+		return ''
+	}
+
+	function addModule() {
+		const modulePath = modulePathInput.trim()
+		if (!modulePath) return
+		const error = validateModulePath(modulePath)
+		if (error) {
+			modulePathError = error
+			return
+		}
+		if (!modules) {
+			modules = {}
+		}
+		modules[modulePath] = {
+			content: getModuleDefaultContent(modulePath),
+			language: inferModuleLang(modulePath)!
+		}
+		modulePathInput = ''
+		modulePathError = ''
+		showAddModulePopover = false
+		switchToModule(modulePath)
+	}
+
+	function removeModule(modulePath: string) {
+		if (!modules) return
+		if (activeModuleTab === modulePath) {
+			switchToMain()
+		}
+		delete modules[modulePath]
+		delete moduleTestState[modulePath]
+		modules = { ...modules }
+	}
+
+	function validateRenameModulePath(newPath: string, oldPath: string): string {
+		if (!newPath.trim()) return ''
+		const moduleLang = inferModuleLang(newPath)
+		if (!moduleLang) {
+			const exts = allowedModuleExtensions.join(', ')
+			return `File must end with a supported extension: ${exts}`
+		}
+		const matchedExt = allowedModuleExtensions.find((ext) => newPath.endsWith(ext))
+		if (!matchedExt) {
+			const exts = allowedModuleExtensions.join(', ')
+			return `File must end with a supported extension for this language: ${exts}`
+		}
+		if (newPath.trim() !== oldPath && modules?.[newPath.trim()]) {
+			return `Module ${newPath.trim()} already exists`
+		}
+		return ''
+	}
+
+	function renameModule(oldPath: string) {
+		const newPath = renameModuleInput.trim()
+		if (!newPath || newPath === oldPath) {
+			return
+		}
+		const error = validateRenameModulePath(newPath, oldPath)
+		if (error) {
+			renameModuleError = error
+			return
+		}
+		if (!modules) return
+		const mod = modules[oldPath]
+		const newLang = inferModuleLang(newPath)
+		delete modules[oldPath]
+		modules[newPath] = { ...mod, language: newLang ?? mod.language }
+		modules = { ...modules }
+		if (moduleTestState[oldPath]) {
+			moduleTestState[newPath] = moduleTestState[oldPath]
+			delete moduleTestState[oldPath]
+		}
+		if (activeModuleTab === oldPath) {
+			activeModuleTab = newPath
+		}
+		renameModuleInput = ''
+		renameModuleError = ''
+	}
+
+	/** Save the active module tab's editor content back into the modules map (no UI side-effects). */
+	function flushModuleContent() {
+		if (activeModuleTab !== null && modules) {
+			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
+		}
+	}
+
+	/** Flush module content and reset the editor back to the main script tab. */
+	export function flushModuleState() {
+		if (activeModuleTab !== null && modules) {
+			flushModuleContent()
+			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
+			activeModuleTab = null
+			editorCode = code
+		}
+	}
 
 	$effect.pre(() => {
 		if (schema == undefined) {
@@ -329,14 +634,24 @@
 	export async function runTest() {
 		// Not defined if JobProgressBar not loaded
 		jobProgressBar?.reset()
+		// Flush module edits back to modules map before running preview
+		flushModuleContent()
+
+		const testCode = activeModuleTab !== null ? editorCode : code
+		const testLang = activeModuleTab !== null ? effectiveLang : lang
+		const testArgs =
+			activeModuleTab !== null
+				? testPanelArgs
+				: selectedTab === 'preprocessor' || kind === 'preprocessor'
+					? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
+					: (args ?? {})
+
 		//@ts-ignore
 		let job = await jobLoader.runPreview(
 			path,
-			code,
-			lang,
-			selectedTab === 'preprocessor' || kind === 'preprocessor'
-				? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
-				: (args ?? {}),
+			testCode,
+			testLang,
+			testArgs,
 			tag,
 			undefined,
 			undefined,
@@ -355,7 +670,9 @@
 					}
 					console.error(error)
 				}
-			}
+			},
+			undefined,
+			activeModuleTab !== null ? undefined : modules
 		)
 		logPanel?.setFocusToLogs()
 		return job
@@ -410,8 +727,7 @@
 				selectedTab = 'main'
 			} else {
 				hasPreprocessor =
-					(selectedTab === 'preprocessor' ? !result?.no_main_func : result?.has_preprocessor) ??
-					false
+					(selectedTab === 'preprocessor' ? !result?.auto_kind : result?.has_preprocessor) ?? false
 
 				if (!hasPreprocessor && selectedTab === 'preprocessor') {
 					selectedTab = 'main'
@@ -429,6 +745,16 @@
 			schema = nschema
 		} catch (e) {
 			validCode = false
+		}
+	}
+
+	async function inferModuleSchema() {
+		if (activeModuleTab === null) return
+		try {
+			await inferArgs(effectiveLang, editorCode, testPanelSchema)
+			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
+		} catch (e) {
+			// Module code may be in-progress; silently ignore
 		}
 	}
 
@@ -786,19 +1112,26 @@
 			return
 		}
 
+		let token: string | undefined
+		try {
+			token = await signMultiplayerRequest($workspaceStore ?? '')
+		} catch (e) {
+			console.error('Failed to sign multiplayer request:', e)
+			sendUserToast('Failed to authorize multiplayer session', true)
+			return
+		}
+
 		const ydoc = new Y.Doc()
 		if (wsProvider) {
 			wsProvider.destroy()
 		}
 		let yContentInit = ydoc.getText('content')
 
-		const wsProtocol = BROWSER && window.location.protocol == 'https:' ? 'wss' : 'ws'
-
 		wsProvider = new WebsocketProvider(
-			`${wsProtocol}://${window.location.host}/ws_mp/`,
+			buildWsUrl('/ws_mp/'),
 			$workspaceStore + '/' + (path ?? 'no-room-name'),
 			ydoc,
-			{ connect: false }
+			{ connect: false, params: { token } }
 		)
 
 		wsProvider.on('sync', (isSynced: boolean) => {
@@ -872,7 +1205,11 @@
 		!hasPreprocessor && (selectedTab = 'main')
 	})
 	$effect(() => {
-		selectedTab && code && untrack(() => inferSchema(code))
+		// Only depend on selectedTab (preprocessor ↔ main toggle).
+		// Code changes are handled by the editor on:change handler and
+		// explicit inferSchema calls (initContent, onMount), so we read
+		// `code` inside untrack to avoid a redundant double-inference race.
+		selectedTab && untrack(() => code && inferSchema(code))
 	})
 
 	let argsRender = $state(0)
@@ -1221,7 +1558,11 @@
 								<JsonInputs
 									on:select={(e) => {
 										if (e.detail) {
-											args = e.detail
+											if (activeModuleTab !== null) {
+												testPanelArgs = e.detail
+											} else {
+												args = e.detail
+											}
 										}
 									}}
 									updateOnBlur={false}
@@ -1232,20 +1573,37 @@
 							<div class="px-4">
 								<div class="break-words relative font-sans" bind:clientHeight={schemaHeight}>
 									{#key argsRender}
-										<SchemaForm
-											helperScript={{
-												source: 'inline',
-												code,
-												//@ts-ignore
-												lang
-											}}
-											compact
-											{schema}
-											bind:args
-											bind:isValid
-											noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
-											showSchemaExplorer
-										/>
+										{#if activeModuleTab !== null}
+											<SchemaForm
+												helperScript={{
+													source: 'inline',
+													code: editorCode,
+													//@ts-ignore
+													lang: effectiveLang
+												}}
+												compact
+												schema={testPanelSchema}
+												bind:args={testPanelArgs}
+												bind:isValid
+												noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
+												showSchemaExplorer
+											/>
+										{:else}
+											<SchemaForm
+												helperScript={{
+													source: 'inline',
+													code,
+													//@ts-ignore
+													lang
+												}}
+												compact
+												{schema}
+												bind:args
+												bind:isValid
+												noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
+												showSchemaExplorer
+											/>
+										{/if}
 									{/key}
 								</div>
 							</div>
@@ -1270,7 +1628,7 @@
 								: testIsLoading}
 							{editor}
 							{diffEditor}
-							{args}
+							args={activeModuleTab !== null ? testPanelArgs : args}
 							{showCaptures}
 							customUi={customUi?.previewPanel}
 							showCustomResultPanel={showDebugPanel}
@@ -1316,140 +1674,334 @@
 	</Splitpanes>
 </SplitPanesWrapper>
 
+{#snippet addModuleForm(close: () => void)}
+	<div class="flex flex-col gap-2">
+		<label for="module-name-input" class="text-xs font-semibold text-emphasis">File name</label>
+		<input
+			id="module-name-input"
+			type="text"
+			class="border rounded px-2 py-1.5 text-sm bg-surface"
+			bind:this={modulePathInputEl}
+			bind:value={modulePathInput}
+			placeholder={'helper' + (allowedModuleExtensions[0] ?? '.ts')}
+			oninput={() => {
+				modulePathError = validateModulePath(modulePathInput)
+			}}
+			onkeydown={(e) => {
+				if (e.key === 'Enter') addModule()
+				if (e.key === 'Escape') close()
+			}}
+		/>
+		{#if modulePathError}
+			<p class="text-red-500 text-2xs">{modulePathError}</p>
+		{/if}
+		<p class="text-tertiary text-2xs"
+			>Supports subfolders, e.g. <code class="text-2xs"
+				>utils/math{allowedModuleExtensions[0] ?? '.ts'}</code
+			></p
+		>
+		<div class="flex justify-end gap-2">
+			<Button
+				variant="default"
+				size="xs"
+				onclick={() => {
+					modulePathInput = ''
+					modulePathError = ''
+					close()
+				}}>Cancel</Button
+			>
+			<Button
+				variant="accent"
+				size="xs"
+				onclick={addModule}
+				disabled={!modulePathInput.trim() || !!modulePathError}>Add</Button
+			>
+		</div>
+	</div>
+{/snippet}
+
+{#snippet renameModuleForm(oldPath: string, close: () => void)}
+	<div class="flex flex-col gap-2">
+		<label for="rename-module-input" class="text-xs font-semibold text-emphasis"
+			>Rename module</label
+		>
+		<input
+			id="rename-module-input"
+			type="text"
+			class="border rounded px-2 py-1.5 text-sm bg-surface"
+			bind:this={renameModuleInputEl}
+			bind:value={renameModuleInput}
+			oninput={() => {
+				renameModuleError = validateRenameModulePath(renameModuleInput, oldPath)
+			}}
+			onkeydown={(e) => {
+				if (e.key === 'Enter') {
+					renameModule(oldPath)
+					close()
+				}
+				if (e.key === 'Escape') close()
+			}}
+		/>
+		{#if renameModuleError}
+			<p class="text-red-500 text-2xs">{renameModuleError}</p>
+		{/if}
+		<div class="flex justify-end gap-2">
+			<Button
+				variant="default"
+				size="xs"
+				onclick={() => {
+					renameModuleInput = ''
+					renameModuleError = ''
+					close()
+				}}>Cancel</Button
+			>
+			<Button
+				variant="accent"
+				size="xs"
+				onclick={() => {
+					renameModule(oldPath)
+					close()
+				}}
+				disabled={!renameModuleInput.trim() ||
+					renameModuleInput.trim() === oldPath ||
+					!!renameModuleError}>Rename</Button
+			>
+		</div>
+	</div>
+{/snippet}
+
 {#snippet editorContent()}
-	<div class="h-full !overflow-visible bg-surface dark:bg-[#272D38] relative">
-		<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-			{#if assets?.length}
-				<AssetsDropdownButton {assets} />
-			{/if}
-			{#if isDebuggableScript && customUi?.editorBar?.debug != false}
-				<Button
-					variant={debugMode ? 'accent' : 'default'}
-					size="xs"
-					onclick={toggleDebugMode}
-					startIcon={{ icon: Bug }}
-					btnClasses={debugMode
-						? ''
-						: 'bg-surface hover:bg-surface-hover border border-tertiary/30'}
-					title="Toggle Debug Mode"
+	<div class="h-full !overflow-visible bg-surface dark:bg-[#272D38] relative flex flex-col">
+		{#if supportsModules}
+			<div
+				class="flex items-center border-b border-tertiary/30 bg-surface-secondary px-1 gap-0.5 text-xs overflow-x-auto shrink-0"
+			>
+				<button
+					class="px-2 py-1 rounded-t {activeModuleTab === null
+						? 'bg-surface font-semibold border-b-2 border-blue-500'
+						: 'hover:bg-surface-hover'}"
+					onclick={() => switchToMain()}
 				>
-					{debugMode ? 'Exit Debug' : 'Debug'}
-				</Button>
-			{/if}
-			{#if showDebugPanel && !showDebugConsole}
-				<Button
-					variant="default"
-					size="xs"
-					onclick={() => (showDebugConsole = true)}
-					startIcon={{ icon: Terminal }}
-					btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
-					title="Show Debug Console"
+					{mainFileName}
+				</button>
+				{#each Object.keys(modules ?? {}) as modulePath}
+					<div
+						class="group rounded-t flex items-center {activeModuleTab === modulePath
+							? 'bg-surface font-semibold border-b-2 border-blue-500'
+							: 'hover:bg-surface-hover'}"
+					>
+						<button class="pl-2 py-1 flex items-center" onclick={() => switchToModule(modulePath)}>
+							{modulePath}
+						</button>
+						<div class="flex items-center pr-1 w-[32px] justify-end">
+							<Popover
+								placement="bottom-start"
+								openFocus={renameModuleInputEl}
+								contentClasses="p-3 w-72"
+							>
+								{#snippet trigger()}
+									<span
+										class="opacity-0 group-hover:opacity-100 hover:text-blue-500 transition-opacity"
+										role="button"
+										tabindex="0"
+										onclick={(e) => {
+											e.stopPropagation()
+											renameModuleInput = modulePath
+											renameModuleError = ''
+										}}
+										onkeydown={(e) => {
+											if (e.key === 'Enter') {
+												e.stopPropagation()
+												renameModuleInput = modulePath
+												renameModuleError = ''
+											}
+										}}
+									>
+										<Pencil size={12} />
+									</span>
+								{/snippet}
+								{#snippet content({ close })}
+									{@render renameModuleForm(modulePath, close)}
+								{/snippet}
+							</Popover>
+							<span
+								class="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity"
+								role="button"
+								tabindex="0"
+								onclick={(e) => {
+									e.stopPropagation()
+									removeModule(modulePath)
+								}}
+								onkeydown={(e) => {
+									if (e.key === 'Enter') {
+										e.stopPropagation()
+										removeModule(modulePath)
+									}
+								}}
+							>
+								<X size={12} />
+							</span>
+						</div>
+					</div>
+				{/each}
+				<Popover
+					placement="bottom-start"
+					bind:isOpen={showAddModulePopover}
+					openFocus={modulePathInputEl}
+					contentClasses="p-3 w-72"
 				>
-					Console
-				</Button>
-			{/if}
-			{#if lang === 'ansible' && hasDelegateToGitRepo}
-				<Button
-					variant="default"
-					size="xs"
-					onclick={() => (gitRepoResourcePickerOpen = true)}
-					startIcon={{ icon: GitBranch }}
-					btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
-				>
-					Delegating to git repo
-				</Button>
-			{/if}
-			{#if testPanelSize === 0}
-				<HideButton
-					hidden={true}
-					direction="right"
-					size="md"
-					panelName="Test"
-					shortcut="U"
-					customHiddenIcon={{
-						icon: PlayIcon
-					}}
-					on:click={() => {
-						toggleTestPanel()
-					}}
-					btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
-					color="marine"
-				/>
-			{/if}
-			{#if !aiChatManager.open && !disableAi}
-				{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
+					{#snippet trigger()}
+						<span class="px-2 py-1 rounded-t hover:bg-surface-hover inline-flex items-center">
+							<Plus size={12} />
+						</span>
+					{/snippet}
+					{#snippet content({ close })}
+						{@render addModuleForm(close)}
+					{/snippet}
+				</Popover>
+			</div>
+		{/if}
+		<div class="relative flex-1 !overflow-visible">
+			<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+				{#if assets?.length}
+					<AssetsDropdownButton {assets} />
+				{/if}
+				{#if isDebuggableScript && customUi?.editorBar?.debug != false}
+					<Button
+						variant={debugMode ? 'accent' : 'default'}
+						size="xs"
+						onclick={toggleDebugMode}
+						startIcon={{ icon: Bug }}
+						btnClasses={debugMode
+							? ''
+							: 'bg-surface hover:bg-surface-hover border border-tertiary/30'}
+						title="Toggle Debug Mode"
+					>
+						{debugMode ? 'Exit Debug' : 'Debug'}
+					</Button>
+				{/if}
+				{#if showDebugPanel && !showDebugConsole}
+					<Button
+						variant="default"
+						size="xs"
+						onclick={() => (showDebugConsole = true)}
+						startIcon={{ icon: Terminal }}
+						btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
+						title="Show Debug Console"
+					>
+						Console
+					</Button>
+				{/if}
+				{#if lang === 'ansible' && hasDelegateToGitRepo}
+					<Button
+						variant="default"
+						size="xs"
+						onclick={() => (gitRepoResourcePickerOpen = true)}
+						startIcon={{ icon: GitBranch }}
+						btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
+					>
+						Delegating to git repo
+					</Button>
+				{/if}
+				{#if testPanelSize === 0}
 					<HideButton
 						hidden={true}
 						direction="right"
-						panelName="AI"
-						shortcut="L"
 						size="md"
-						usePopoverOverride={!$copilotInfo.enabled}
+						panelName="Test"
+						shortcut="U"
 						customHiddenIcon={{
-							icon: WandSparkles
+							icon: PlayIcon
 						}}
-						btnClasses="!text-ai border border-gray-200 dark:border-gray-600 bg-surface"
 						on:click={() => {
-							if (!aiChatManager.open) {
-								aiChatManager.changeMode(AIMode.SCRIPT)
-							}
-							aiChatManager.toggleOpen()
+							toggleTestPanel()
 						}}
-					>
-						{#snippet popoverOverride()}
-							<div class="text-sm">
-								Enable Windmill AI in the <a
-									href="{base}/workspace_settings?tab=ai"
-									target="_blank"
-									class="inline-flex flex-row items-center gap-1"
-								>
-									workspace settings <ExternalLink size={16} />
-								</a>
-							</div>
-						{/snippet}
-					</HideButton>
+						btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
+						color="marine"
+					/>
 				{/if}
+				{#if !aiChatManager.open && !disableAi}
+					{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
+						<HideButton
+							hidden={true}
+							direction="right"
+							panelName="AI"
+							shortcut="L"
+							size="md"
+							usePopoverOverride={!$copilotInfo.enabled}
+							customHiddenIcon={{
+								icon: WandSparkles
+							}}
+							btnClasses="!text-ai border border-gray-200 dark:border-gray-600 bg-surface"
+							on:click={() => {
+								if (!aiChatManager.open) {
+									aiChatManager.changeMode(AIMode.SCRIPT)
+								}
+								aiChatManager.toggleOpen()
+							}}
+						>
+							{#snippet popoverOverride()}
+								<div class="text-sm">
+									Enable Windmill AI in the <a
+										href="{base}/workspace_settings?tab=ai"
+										target="_blank"
+										class="inline-flex flex-row items-center gap-1"
+									>
+										workspace settings <ExternalLink size={16} />
+									</a>
+								</div>
+							{/snippet}
+						</HideButton>
+					{/if}
+				{/if}
+			</div>
+
+			{#if debugConsoleVisible}
+				<!-- Use Splitpanes when debug console is visible for resizing -->
+				<Splitpanes horizontal class="h-full !overflow-visible">
+					<Pane bind:size={editorPaneSize} minSize={20} class="!overflow-visible">
+						{@render editorPane()}
+					</Pane>
+					<Pane bind:size={consolePaneSize} minSize={10}>
+						<DebugConsole
+							client={dapClient}
+							currentFrameId={currentDebugFrameId}
+							onClose={() => (showDebugConsole = false)}
+							workspace={$workspaceStore}
+							jobId={debugSessionJobId ?? undefined}
+						/>
+					</Pane>
+				</Splitpanes>
+			{:else}
+				<!-- Normal editor without console -->
+				<div class="h-full !overflow-visible">
+					{@render editorPane()}
+				</div>
 			{/if}
 		</div>
-
-		{#if debugConsoleVisible}
-			<!-- Use Splitpanes when debug console is visible for resizing -->
-			<Splitpanes horizontal class="h-full !overflow-visible">
-				<Pane bind:size={editorPaneSize} minSize={20} class="!overflow-visible">
-					{@render editorPane()}
-				</Pane>
-				<Pane bind:size={consolePaneSize} minSize={10}>
-					<DebugConsole
-						client={dapClient}
-						currentFrameId={currentDebugFrameId}
-						onClose={() => (showDebugConsole = false)}
-						workspace={$workspaceStore}
-						jobId={debugSessionJobId ?? undefined}
-					/>
-				</Pane>
-			</Splitpanes>
-		{:else}
-			<!-- Normal editor without console -->
-			<div class="h-full !overflow-visible">
-				{@render editorPane()}
-			</div>
-		{/if}
 	</div>
 {/snippet}
 
 {#snippet editorPane()}
-	{#key lang}
+	{#key effectiveLang}
 		<Editor
 			lineNumbersMinChars={4}
 			folding
 			{path}
-			bind:code
+			bind:code={editorCode}
 			bind:websocketAlive
 			bind:this={editor}
 			{yContent}
 			awareness={wsProvider?.awareness}
 			on:change={(e) => {
-				inferSchema(e.detail)
+				if (activeModuleTab === null) {
+					code = editorCode
+					lastSyncedCode = code
+					inferSchema(e.detail)
+				} else {
+					flushModuleContent()
+					inferModuleSchema()
+				}
 				// Refresh breakpoint positions when code changes (decorations track their lines)
 				if (debugMode && breakpointDecorations.length > 0) {
 					refreshBreakpointPositions()
@@ -1458,20 +2010,26 @@
 			on:saveDraft
 			on:toggleTestPanel={toggleTestPanel}
 			cmdEnterAction={async () => {
-				await inferSchema(code)
+				if (activeModuleTab === null) {
+					await inferSchema(editorCode)
+				} else {
+					await inferModuleSchema()
+				}
 				runTest()
 			}}
 			formatAction={async () => {
-				await inferSchema(code)
+				if (activeModuleTab === null) {
+					await inferSchema(editorCode)
+				}
 				try {
-					localStorage.setItem(path ?? 'last_save', code)
+					localStorage.setItem(path ?? 'last_save', activeModuleTab === null ? editorCode : code)
 				} catch (e) {
 					console.error('Could not save last_save to local storage', e)
 				}
 				dispatch('format')
 			}}
 			class="flex flex-1 h-full !overflow-visible"
-			scriptLang={lang}
+			scriptLang={effectiveLang}
 			automaticLayout={true}
 			{fixedOverflowWidgets}
 			{args}

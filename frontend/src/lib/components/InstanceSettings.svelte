@@ -20,6 +20,7 @@
 	import Toggle from './Toggle.svelte'
 	import SettingsFooter from './workspaceSettings/SettingsFooter.svelte'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
+	import WorkspaceRegistries from './instanceSettings/WorkspaceRegistries.svelte'
 
 	interface Props {
 		tab?: string
@@ -30,6 +31,7 @@
 		quickSetup?: boolean
 		yamlMode?: boolean
 		hasUnsavedChanges?: boolean
+		hasAnyInvalid?: boolean
 	}
 
 	let {
@@ -40,7 +42,8 @@
 		onNavigateToTab,
 		quickSetup = false,
 		yamlMode = $bindable(false),
-		hasUnsavedChanges = $bindable(false)
+		hasUnsavedChanges = $bindable(false),
+		hasAnyInvalid = $bindable(false)
 	}: Props = $props()
 
 	let values: Writable<Record<string, any>> = writable({})
@@ -77,7 +80,8 @@
 		smtp_settings: {},
 		otel: {},
 		indexer_settings: {},
-		critical_error_channels: []
+		critical_error_channels: [],
+		github_enterprise_app: {}
 	}
 
 	function applyFormDefaults(vals: Record<string, any>): void {
@@ -264,12 +268,13 @@
 	async function downloadStats() {
 		try {
 			downloadingStats = true
-			const encryptedData = await SettingService.getStats()
-			const blob = new Blob([encryptedData], { type: 'application/octet-stream' })
+			const result = await SettingService.getStats()
+			const blob = new Blob([result.data ?? ''], { type: 'application/json' })
 			const url = URL.createObjectURL(blob)
 			const a = document.createElement('a')
 			a.href = url
-			a.download = `windmill-telemetry-${new Date().toISOString().split('T')[0]}.enc`
+			const date = new Date().toISOString().split('T')[0]
+			a.download = `windmill-telemetry-${date}-${result.signature}.json`
 			document.body.appendChild(a)
 			a.click()
 			document.body.removeChild(a)
@@ -398,6 +403,9 @@
 				obj['require_preexisting_user_for_oauth'] = reqPreexisting
 			}
 		}
+		if (category === 'Registries') {
+			obj['workspace_registries'] = vals['workspace_registries'] ?? null
+		}
 		return YAML.stringify(obj)
 	}
 
@@ -438,6 +446,10 @@
 		return result
 	})
 
+	$effect(() => {
+		hasAnyInvalid = Object.values(invalidCategories).some(Boolean)
+	})
+
 	export function isDirty(category: string): boolean {
 		return dirtyCategories[category] ?? false
 	}
@@ -458,6 +470,11 @@
 			for (const s of categorySettings) {
 				const v = initialValues[s.key]
 				$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+			}
+			if (category === 'Registries') {
+				const v = initialValues['workspace_registries']
+				$values['workspace_registries'] =
+					v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 			}
 		}
 	}
@@ -562,6 +579,19 @@
 			}
 		}
 
+		// Handle workspace_registries (saved separately like oauths)
+		if (category === 'Registries') {
+			if (!deepEqual(initialValues['workspace_registries'], $values['workspace_registries'])) {
+				await SettingService.setGlobal({
+					key: 'workspace_registries',
+					requestBody: { value: $values['workspace_registries'] ?? null }
+				})
+				initialValues['workspace_registries'] = $values['workspace_registries']
+					? JSON.parse(JSON.stringify($values['workspace_registries']))
+					: undefined
+			}
+		}
+
 		if (licenseKeySet) setLicense()
 
 		if (shouldReloadPage) {
@@ -588,7 +618,8 @@
 			.filter((s) => s.fieldType === 'password' || s.fieldType === 'license_key')
 			.map((s) => s.key),
 		'ducklake_user_pg_pwd',
-		'jwt_secret'
+		'jwt_secret',
+		'workspace_registries'
 	])
 
 	// Settings that should never appear in YAML export/import
@@ -601,7 +632,8 @@
 		secret_backend: ['token'],
 		object_store_cache_config: ['secret_key', 'serviceAccountKey'],
 		custom_instance_pg_databases: ['user_pwd'],
-		rsa_keys: ['private_key']
+		rsa_keys: ['private_key'],
+		github_enterprise_app: ['private_key']
 	}
 
 	/** Returns SENSITIVE_UNCHANGED if the value is non-empty and matches the initial */
@@ -930,28 +962,28 @@
 			{/if}
 		{:else if category == 'Telemetry'}
 			<SettingsPageHeader title="Telemetry" />
-			<div class="text-primary pb-4 text-xs">
-				Anonymous usage data is collected to help improve Windmill.
-				<br />The following information is collected:
-				<ul class="list-disc list-inside pl-2">
-					<li>version of your instances</li>
-					<li>instance base URL</li>
-					<li>job usage (language, total duration, count)</li>
-					<li>login type usage (login type, count)</li>
-					<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-					<li>user usage (author count, operator count)</li>
-					<li>superadmin email addresses</li>
-					<li>vCPU usage</li>
-					<li>memory usage</li>
-					<li>development instance status</li>
-				</ul>
-			</div>
 			{#if $enterpriseLicense}
 				<div class="text-primary pb-4 text-xs">
-					On Enterprise Edition, you must send data to check that usage is in line with the terms of
-					the subscription. You can either enable telemetry or regularly send usage data by clicking
-					the button below. For air-gapped instances, you can download the telemetry data and send
-					it manually.
+					Telemetry is required on Enterprise Edition for license compliance. When minimal telemetry
+					is enabled, only the following data is sent:
+					<ul class="list-disc list-inside pl-2">
+						<li>version of your instance</li>
+						<li>instance base URL</li>
+						<li>login type usage (login type, count)</li>
+						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
+						<li>user usage (author count, operator count)</li>
+						<li>superadmin email addresses</li>
+						<li>development instance status</li>
+					</ul>
+					<br />When minimal telemetry is disabled, the following is also collected:
+					<ul class="list-disc list-inside pl-2">
+						<li>job usage (language, total duration, count)</li>
+						<li>git sync repo count (sync vs promotion mode)</li>
+						<li
+							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+						>
+					</ul>
+					<br />For air-gapped instances, you can download the telemetry data and send it manually.
 				</div>
 				<div class="flex gap-2 mb-4">
 					<Button
@@ -972,6 +1004,23 @@
 					>
 						Download usage
 					</Button>
+				</div>
+			{:else}
+				<div class="text-primary pb-4 text-xs">
+					Anonymous usage data is collected to help improve Windmill.
+					<br />The following information is collected:
+					<ul class="list-disc list-inside pl-2">
+						<li>version of your instance</li>
+						<li>instance base URL</li>
+						<li>job usage (language, total duration, count)</li>
+						<li>login type usage (login type, count)</li>
+						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
+						<li>user usage (author count, operator count)</li>
+						<li>development instance status</li>
+						<li
+							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+						>
+					</ul>
 				</div>
 			{/if}
 		{:else if category == 'Jobs'}
@@ -997,6 +1046,11 @@
 				title="Secret Storage"
 				description="Configure where secrets (secret variables) are stored."
 				link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
+			/>
+		{:else if category == 'GitHub Enterprise App'}
+			<SettingsPageHeader
+				title="GitHub Enterprise App"
+				description="Configure a self-managed GitHub App for GitHub Enterprise Server git sync."
 			/>
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings
@@ -1080,6 +1134,10 @@
 				{/each}
 			{/if}
 		</div>
+
+		{#if category === 'Registries'}
+			<WorkspaceRegistries {values} {loading} />
+		{/if}
 
 		{#if !loading && !quickSetup && !hideTabs}
 			<SettingsFooter

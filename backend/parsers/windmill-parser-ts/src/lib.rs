@@ -117,6 +117,12 @@ impl Visit for ImportsFinder {
     }
 }
 
+/// Parse TypeScript/JavaScript code and extract all import paths as raw strings.
+///
+/// Returns import paths exactly as written in the code (e.g., `"./module"`, `"../utils"`, `"lodash"`).
+/// Does not resolve relative paths to absolute Windmill paths.
+///
+/// See also: [`parse_relative_imports`] for resolved absolute paths.
 pub fn parse_expr_for_imports(code: &str, skip_type_only: bool) -> anyhow::Result<Vec<String>> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.d.ts".into()).into(), code.into());
@@ -149,6 +155,82 @@ pub fn parse_expr_for_imports(code: &str, skip_type_only: bool) -> anyhow::Resul
     let mut imports: Vec<_> = visitor.imports.into_iter().collect();
     imports.sort();
     Ok(imports)
+}
+
+/// Parse TypeScript/JavaScript code and extract relative imports resolved to absolute Windmill paths.
+///
+/// Takes the script's Windmill path (e.g., `"f/folder/script"`) and resolves relative imports
+/// like `"./module"` or `"../utils"` to absolute paths like `"f/folder/module"` or `"f/utils"`.
+///
+/// Only returns relative imports (those starting with `./`, `../`, or `/`).
+/// External package imports (e.g., `"lodash"`) are filtered out.
+///
+/// See also: [`parse_expr_for_imports`] for raw import strings without resolution.
+///
+/// # Arguments
+/// * `code` - The TypeScript/JavaScript source code
+/// * `path` - The Windmill path of the script (e.g., `"f/folder/script"`)
+///
+/// # Returns
+/// A sorted, deduplicated list of resolved absolute Windmill paths.
+///
+/// # Examples
+/// ```ignore
+/// // Script at "f/folder/script" with: import { x } from "../utils"
+/// // Returns: ["f/utils"]
+/// ```
+pub fn parse_relative_imports(code: &str, path: &str) -> anyhow::Result<Vec<String>> {
+    let imports = parse_expr_for_imports(code, false)?;
+    let script_dir = path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+
+    let mut resolved: Vec<String> = imports
+        .into_iter()
+        .filter(|imp| is_relative_import(imp))
+        .map(|imp| {
+            // Remove .ts extension if present
+            let imp = imp.strip_suffix(".ts").unwrap_or(&imp);
+
+            if imp.starts_with("/") {
+                // Absolute path (e.g., /f/folder/script) - remove leading slash
+                imp[1..].to_string()
+            } else {
+                // Relative path (e.g., ./script or ../folder/script)
+                let combined = format!("{}/{}", script_dir, imp);
+                normalize_path(&combined)
+            }
+        })
+        .collect();
+
+    resolved.sort();
+    resolved.dedup();
+    Ok(resolved)
+}
+
+/// Check if an import path is a relative import (starts with `./`, `../`, or `/`)
+fn is_relative_import(import_path: &str) -> bool {
+    import_path.starts_with("./")
+        || import_path.starts_with("../")
+        || import_path.starts_with("/")
+}
+
+/// Normalize a path by resolving `.` and `..` components
+fn normalize_path(input_path: &str) -> String {
+    let parts: Vec<&str> = input_path.split('/').filter(|p| !p.is_empty()).collect();
+    let mut result: Vec<&str> = Vec::new();
+
+    for part in parts {
+        if part == "." {
+            continue;
+        } else if part == ".." {
+            if !result.is_empty() {
+                result.pop();
+            }
+        } else {
+            result.push(part);
+        }
+    }
+
+    result.join("/")
 }
 
 struct OutputFinder {
@@ -211,8 +293,6 @@ pub enum TypeDecl {
     Interface(TsInterfaceDecl),
     Alias(TsTypeAliasDecl),
 }
-pub mod asset_parser;
-pub use asset_parser::parse_assets;
 
 /// skip_params is a micro optimization for when we just want to find the main
 /// function without parsing all the params.
@@ -242,6 +322,7 @@ pub fn parse_deno_signature(
 
     let mut has_preprocessor = false;
     let mut entrypoint_params = None;
+    let mut is_wac = false;
 
     let ast = parser
         .parse_module()
@@ -279,6 +360,16 @@ pub fn parse_deno_signature(
             }
         }
 
+        // export default workflow(async (...) => { ... })
+        if entrypoint_params.is_none() {
+            if let ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(export_default)) = &item {
+                if let Some(params) = extract_workflow_params(&export_default.expr) {
+                    entrypoint_params = Some(params);
+                    is_wac = true;
+                }
+            }
+        }
+
         if let ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl { decl, .. }))
         | ModuleItem::Stmt(Stmt::Decl(decl)) = item
         {
@@ -310,6 +401,20 @@ pub fn parse_deno_signature(
                         entrypoint_params = Some(fn_decl.function.params.clone());
                     }
                 }
+                Decl::Var(var_decl) if entrypoint_params.is_none() => {
+                    for decl in &var_decl.decls {
+                        if let Some(name) = &decl.name.as_ident() {
+                            if name.sym.as_ref() == entrypoint_function {
+                                if let Some(init) = &decl.init {
+                                    if let Some(params) = extract_workflow_params(init) {
+                                        entrypoint_params = Some(params);
+                                        is_wac = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -317,11 +422,18 @@ pub fn parse_deno_signature(
 
     let mut c: u16 = 0;
 
-    let is_wac_v2 = entrypoint_params.is_none()
-        && code.contains("workflow(")
-        && code.contains("task(")
-        && code.contains("windmill-client");
-    let no_main_func = entrypoint_params.is_none() && !is_wac_v2;
+    let auto_kind = if is_wac {
+        Some("wac".to_string())
+    } else if entrypoint_params.is_none() {
+        if code.contains("workflow(") && code.contains("task(") && code.contains("windmill-client")
+        {
+            Some("wac".to_string())
+        } else {
+            Some("lib".to_string())
+        }
+    } else {
+        None
+    };
     let mut type_resolver = HashMap::new();
     let r = MainArgSignature {
         star_args: false,
@@ -348,10 +460,63 @@ pub fn parse_deno_signature(
                 .transpose()?
                 .unwrap_or_else(|| vec![])
         },
-        no_main_func: Some(no_main_func),
+        auto_kind,
         has_preprocessor: Some(has_preprocessor),
     };
     Ok(r)
+}
+
+/// Extract params from `workflow(async (...) => { ... })` or `workflow(async function(...) { ... })`
+fn extract_workflow_params(expr: &Expr) -> Option<Vec<Param>> {
+    if let Expr::Call(call) = expr {
+        if let swc_ecma_ast::Callee::Expr(callee) = &call.callee {
+            if let Expr::Ident(ident) = callee.as_ref() {
+                if ident.sym.as_ref() == "workflow" {
+                    if let Some(first_arg) = call.args.first() {
+                        match first_arg.expr.as_ref() {
+                            Expr::Arrow(arrow) if arrow.is_async => {
+                                return Some(
+                                    arrow
+                                        .params
+                                        .iter()
+                                        .map(|pat| Param {
+                                            span: pat.span(),
+                                            decorators: vec![],
+                                            pat: pat.clone(),
+                                        })
+                                        .collect(),
+                                );
+                            }
+                            Expr::Fn(fn_expr) if fn_expr.function.is_async => {
+                                return Some(fn_expr.function.params.clone());
+                            }
+                            Expr::Paren(p) => {
+                                return extract_workflow_params_from_inner(&p.expr);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Helper for parenthesized expressions inside workflow()
+fn extract_workflow_params_from_inner(expr: &Expr) -> Option<Vec<Param>> {
+    match expr {
+        Expr::Arrow(arrow) if arrow.is_async => Some(
+            arrow
+                .params
+                .iter()
+                .map(|pat| Param { span: pat.span(), decorators: vec![], pat: pat.clone() })
+                .collect(),
+        ),
+        Expr::Fn(fn_expr) if fn_expr.function.is_async => Some(fn_expr.function.params.clone()),
+        Expr::Paren(p) => extract_workflow_params_from_inner(&p.expr),
+        _ => None,
+    }
 }
 
 fn parse_param(
@@ -365,8 +530,12 @@ fn parse_param(
     let r = match param.pat {
         Pat::Ident(ident) => {
             let (name, typ, nullable) = binding_ident_to_arg(symbol_table, type_resolver, &ident);
+            let otyp = ident
+                .type_ann
+                .as_ref()
+                .and_then(|ta| detect_union_array_otyp(&ta.type_ann));
             Ok(Arg {
-                otyp: None,
+                otyp,
                 name,
                 typ,
                 default: None,
@@ -376,13 +545,21 @@ fn parse_param(
         }
         // Pat::Object(ObjectPat { ... }) = todo!()
         Pat::Assign(AssignPat { left, right, .. }) => {
-            let (name, mut typ, _nullable) = match *left {
-                Pat::Ident(ident) => binding_ident_to_arg(symbol_table, type_resolver, &ident),
+            let (name, mut typ, _nullable, otyp) = match *left {
+                Pat::Ident(ident) => {
+                    let otyp = ident
+                        .type_ann
+                        .as_ref()
+                        .and_then(|ta| detect_union_array_otyp(&ta.type_ann));
+                    let (name, typ, nullable) =
+                        binding_ident_to_arg(symbol_table, type_resolver, &ident);
+                    (name, typ, nullable, otyp)
+                }
                 Pat::Object(ObjectPat { type_ann, .. }) => {
                     let (typ, nullable) = eval_type_ann(symbol_table, type_resolver, &type_ann);
                     *counter += 1;
                     let name = format!("anon{}", counter);
-                    (name, typ, nullable)
+                    (name, typ, nullable, None)
                 }
                 _ => {
                     return Err(anyhow::anyhow!(
@@ -418,7 +595,7 @@ fn parse_param(
             if typ == Typ::Unknown && dflt.is_some() {
                 typ = json_to_typ(dflt.as_ref().unwrap(), false);
             }
-            Ok(Arg { otyp: None, name, typ, default: dflt, has_default: true, oidx: None })
+            Ok(Arg { otyp, name, typ, default: dflt, has_default: true, oidx: None })
         }
         Pat::Object(ObjectPat { type_ann, .. }) => {
             let (typ, nullable) = eval_type_ann(symbol_table, type_resolver, &type_ann);
@@ -961,6 +1138,75 @@ fn one_of_properties(
             Some(ObjectProperty { key: sym.to_string(), typ: Box::new(typ) })
         })
         .collect()
+}
+
+fn ts_type_to_string(ts_type: &TsType) -> Option<String> {
+    match ts_type {
+        TsType::TsKeywordType(t) => Some(
+            match t.kind {
+                TsKeywordTypeKind::TsStringKeyword => "string",
+                TsKeywordTypeKind::TsNumberKeyword => "number",
+                TsKeywordTypeKind::TsBooleanKeyword => "boolean",
+                TsKeywordTypeKind::TsObjectKeyword => "object",
+                TsKeywordTypeKind::TsBigIntKeyword => "bigint",
+                TsKeywordTypeKind::TsAnyKeyword => "any",
+                _ => return None,
+            }
+            .to_string(),
+        ),
+        TsType::TsTypeRef(TsTypeRef { type_name, .. }) => match type_name {
+            TsEntityName::Ident(Ident { sym, .. }) => Some(sym.to_string()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn get_array_elem_type(ts_type: &TsType) -> Option<&TsType> {
+    match ts_type {
+        TsType::TsArrayType(TsArrayType { elem_type, .. }) => Some(elem_type),
+        _ => None,
+    }
+}
+
+/// Detects union types of the form `T | T[]` or `T[] | T` and returns
+/// the original type string (e.g. "string | string[]").
+fn detect_union_array_otyp(ts_type: &TsType) -> Option<String> {
+    let TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(TsUnionType {
+        types,
+        ..
+    })) = ts_type
+    else {
+        return None;
+    };
+
+    if types.len() != 2 {
+        return None;
+    }
+
+    // Check pattern: T | T[]
+    if let (Some(scalar_name), Some(array_elem)) =
+        (ts_type_to_string(&types[0]), get_array_elem_type(&types[1]))
+    {
+        if let Some(elem_name) = ts_type_to_string(array_elem) {
+            if scalar_name == elem_name {
+                return Some(format!("{} | {}[]", scalar_name, elem_name));
+            }
+        }
+    }
+
+    // Check pattern: T[] | T
+    if let (Some(array_elem), Some(scalar_name)) =
+        (get_array_elem_type(&types[0]), ts_type_to_string(&types[1]))
+    {
+        if let Some(elem_name) = ts_type_to_string(array_elem) {
+            if scalar_name == elem_name {
+                return Some(format!("{}[] | {}", elem_name, scalar_name));
+            }
+        }
+    }
+
+    None
 }
 
 fn find_undefined(types: &Vec<Box<TsType>>) -> Option<usize> {

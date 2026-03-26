@@ -8,6 +8,7 @@ use sqlx::PgConnection;
 use std::collections::HashSet;
 use windmill_api_auth::ApiAuthed;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
@@ -61,11 +62,12 @@ pub async fn route_path_key_exists(
         .await?
         .unwrap_or(false)
     } else {
-        let route_path_key = match workspaced_route {
-            Some(true) => {
-                std::borrow::Cow::Owned(format!("{}/{}", w_id, route_path_key.trim_matches('/')))
-            }
-            _ => std::borrow::Cow::Borrowed(route_path_key),
+        let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
+        let effective_workspaced = workspaced_route.unwrap_or(false) || http_route_workspaced;
+        let route_path_key = if effective_workspaced {
+            std::borrow::Cow::Owned(format!("{}/{}", w_id, route_path_key.trim_matches('/')))
+        } else {
+            std::borrow::Cow::Borrowed(route_path_key)
         };
 
         sqlx::query_scalar!(
@@ -138,7 +140,7 @@ fn check_no_duplicates(
 
 pub async fn insert_new_trigger_into_db(
     authed: &ApiAuthed,
-    db: &DB,
+    _db: &DB,
     tx: &mut PgConnection,
     w_id: &str,
     trigger: &TriggerData<HttpConfigRequest>,
@@ -146,9 +148,13 @@ pub async fn insert_new_trigger_into_db(
 ) -> Result<()> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
+    let effective_workspaced =
+        trigger.config.workspaced_route.unwrap_or(false) || http_route_workspaced;
+
     let request_type = trigger.config.request_type;
     let resolved_edited_by = trigger.base.resolve_edited_by(authed);
-    let resolved_email = trigger.base.resolve_email(authed, db, w_id).await?;
+    let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
 
     sqlx::query!(
             r#"
@@ -171,7 +177,7 @@ pub async fn insert_new_trigger_into_db(
                 http_method,
                 static_asset_config,
                 edited_by,
-                email,
+                permissioned_as,
                 edited_at,
                 is_static_website,
                 error_handler_path,
@@ -186,7 +192,7 @@ pub async fn insert_new_trigger_into_db(
             trigger.base.path,
             trigger.config.route_path,
             route_path_key,
-            trigger.config.workspaced_route.unwrap_or(false),
+            effective_workspaced,
             trigger.config.authentication_resource_path,
             trigger.config.wrap_body.unwrap_or(false),
             trigger.config.raw_string.unwrap_or(false),
@@ -200,7 +206,7 @@ pub async fn insert_new_trigger_into_db(
             trigger.config.http_method as _,
             trigger.config.static_asset_config as _,
             &resolved_edited_by,
-            resolved_email,
+            resolved_permissioned_as,
             trigger.config.is_static_website,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
@@ -430,7 +436,7 @@ impl TriggerCrud for HttpTrigger {
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
-        let resolved_email = trigger.base.resolve_email(authed, db, workspace_id).await?;
+        let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
 
         if authed.is_admin {
             if trigger.config.route_path.is_empty() {
@@ -444,6 +450,10 @@ impl TriggerCrud for HttpTrigger {
 
             let route_path_key =
                 check_if_route_exist(db, &trigger.config, workspace_id, Some(path)).await?;
+
+            let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
+            let effective_workspaced =
+                trigger.config.workspaced_route.unwrap_or(false) || http_route_workspaced;
 
             let request_type = trigger.config.request_type;
 
@@ -465,7 +475,7 @@ impl TriggerCrud for HttpTrigger {
                 http_method = $11,
                 static_asset_config = $12,
                 edited_by = $13,
-                email = $14,
+                permissioned_as = $14,
                 request_type = $15,
                 authentication_method = $16,
                 summary = $17,
@@ -481,7 +491,7 @@ impl TriggerCrud for HttpTrigger {
             "#,
                 route_path,
                 &route_path_key,
-                trigger.config.workspaced_route,
+                Some(effective_workspaced),
                 trigger.config.wrap_body,
                 trigger.config.raw_string,
                 trigger.config.authentication_resource_path,
@@ -492,7 +502,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.config.http_method as _,
                 trigger.config.static_asset_config as _,
                 &resolved_edited_by,
-                resolved_email,
+                resolved_permissioned_as,
                 request_type as _,
                 trigger.config.authentication_method as _,
                 trigger.config.summary,
@@ -524,7 +534,7 @@ impl TriggerCrud for HttpTrigger {
                 http_method = $8,
                 static_asset_config = $9,
                 edited_by = $10,
-                email = $11,
+                permissioned_as = $11,
                 request_type = $12,
                 authentication_method = $13,
                 summary = $14,
@@ -548,7 +558,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.config.http_method as _,
                 trigger.config.static_asset_config as _,
                 &resolved_edited_by,
-                resolved_email,
+                resolved_permissioned_as,
                 request_type as _,
                 trigger.config.authentication_method as _,
                 trigger.config.summary,

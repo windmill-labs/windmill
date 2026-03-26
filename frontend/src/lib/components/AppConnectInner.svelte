@@ -1,15 +1,14 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 
-	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
 		OauthService,
 		ResourceService,
 		VariableService,
 		type TokenResponse,
-		type ResourceType,
-		JobService
+		type ResourceType
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
 	import { createEventDispatcher, onDestroy } from 'svelte'
@@ -31,9 +30,8 @@
 	import type { SchemaProperty } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
 	import TextInput from './text_input/TextInput.svelte'
-	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { pollJobResult } from './jobs/utils'
 	import { sameTopDomainOrigin } from '$lib/cookies'
+	import SyncResourceTypes from './SyncResourceTypes.svelte'
 
 	interface Props {
 		step?: number
@@ -42,6 +40,7 @@
 		disabled?: boolean
 		manual?: boolean
 		express?: boolean
+		workspace?: string
 	}
 
 	let {
@@ -50,8 +49,11 @@
 		isGoogleSignin = $bindable(false),
 		disabled = $bindable(false),
 		manual = $bindable(true),
-		express = false
+		express = false,
+		workspace = undefined
 	}: Props = $props()
+
+	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 
 	let isValid = $state(true)
 
@@ -84,14 +86,22 @@
 				)
 	}
 
-	let linkedSecret: string | undefined = $state(undefined)
+	let linkedSecrets: string[] = $state([])
 	let linkedSecretCandidates: string[] | undefined = $state(undefined)
-	function computeLinkedSecret(resourceType: string, argsKeys: string[], passwords: string[]) {
+	function computeDefaultLinkedSecrets(
+		resourceType: string,
+		argsKeys: string[],
+		passwords: string[]
+	): string[] {
 		linkedSecretCandidates = computeCandidates(resourceType, argsKeys, passwords)
-		return (
-			forceSecretValue(resourceType) ??
-			linkedSecretCandidates?.sort((ua, ub) => linkedSecretValue(ub) - linkedSecretValue(ua))?.[0]
-		)
+		const forced = forceSecretValue(resourceType)
+		if (forced) {
+			return [forced]
+		}
+		const best = linkedSecretCandidates?.sort(
+			(ua, ub) => linkedSecretValue(ub) - linkedSecretValue(ua)
+		)?.[0]
+		return best ? [best] : []
 	}
 
 	let scopes: string[] = $state([])
@@ -123,6 +133,7 @@
 	let tokenUrl = $state('')
 
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
+	let resourceTypeNotFound = $state(false)
 
 	let pathError = $state('')
 
@@ -194,7 +205,7 @@
 						args['password'] == '' &&
 						args['api_key'] == '' &&
 						args['key'] == '' &&
-						linkedSecret != undefined
+						linkedSecrets.length > 0
 					: false)) ||
 			step == 3 ||
 			(step == 4 && pathError != '') ||
@@ -206,7 +217,7 @@
 			return
 		}
 		const availableRts = await ResourceService.listResourceTypeNames({
-			workspace: $workspaceStore!
+			workspace: effectiveWorkspace
 		})
 
 		connectsManual = availableRts
@@ -307,23 +318,29 @@
 	}
 
 	async function getResourceTypeInfo() {
-		resourceTypeInfo = await ResourceService.getResourceType({
-			workspace: $workspaceStore!,
-			path: resourceType
-		})
-		const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
-		const newArgsKeys = Object.keys(props).filter((x) => props?.[x]?.type == 'string') ?? []
+		try {
+			resourceTypeNotFound = false
+			resourceTypeInfo = await ResourceService.getResourceType({
+				workspace: effectiveWorkspace,
+				path: resourceType
+			})
+			const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
+			const newArgsKeys = Object.keys(props).filter((x) => props?.[x]?.type == 'string') ?? []
 
-		const passwords = newArgsKeys.filter((x) => {
-			return props?.[x]?.password
-		})
-		if (!linkedSecret) {
-			linkedSecret = computeLinkedSecret(resourceType, newArgsKeys, passwords)
+			const passwords = newArgsKeys.filter((x) => {
+				return props?.[x]?.password
+			})
+			if (linkedSecrets.length === 0) {
+				linkedSecrets = computeDefaultLinkedSecrets(resourceType, newArgsKeys, passwords)
+			}
+		} catch (err) {
+			resourceTypeInfo = undefined
+			resourceTypeNotFound = true
 		}
 	}
 	export async function next() {
 		if (step == 1) {
-			linkedSecret = undefined
+			linkedSecrets = []
 			if (manual) {
 				getResourceTypeInfo()
 				args = {}
@@ -408,15 +425,31 @@
 				if (step == 2) return
 				throw Error('Path is not set')
 			}
-			let exists = await VariableService.existsVariable({
-				workspace: $workspaceStore!,
-				path
-			})
-			if (exists) {
-				throw Error(`Variable at path ${path} already exists. Delete it or pick another path`)
+			// Check if variable paths already exist
+			if (!manual || linkedSecrets.length <= 1) {
+				const exists = await VariableService.existsVariable({
+					workspace: effectiveWorkspace,
+					path
+				})
+				if (exists) {
+					throw Error(`Variable at path ${path} already exists. Delete it or pick another path`)
+				}
+			} else {
+				for (const secretField of linkedSecrets) {
+					const varPath = `${path}_${secretField}`
+					const exists = await VariableService.existsVariable({
+						workspace: effectiveWorkspace,
+						path: varPath
+					})
+					if (exists) {
+						throw Error(
+							`Variable at path ${varPath} already exists. Delete it or pick another path`
+						)
+					}
+				}
 			}
-			exists = await ResourceService.existsResource({
-				workspace: $workspaceStore!,
+			let exists = await ResourceService.existsResource({
+				workspace: effectiveWorkspace,
 				path
 			})
 
@@ -454,7 +487,7 @@
 
 				account = Number(
 					await OauthService.createAccount({
-						workspace: $workspaceStore!,
+						workspace: effectiveWorkspace,
 						requestBody: accountData
 					})
 				)
@@ -462,30 +495,70 @@
 
 			const resourceValue = args
 
-			let saveVariable = false
-			if (!manual || linkedSecret != undefined) {
-				let v = manual ? args[linkedSecret ?? ''] : value
-				if (typeof v == 'string' && v != '' && !v.startsWith('$var:')) {
-					saveVariable = true
+			let savedVariableCount = 0
+			if (!manual) {
+				// OAuth flow: single secret variable for the token
+				if (typeof value == 'string' && value != '' && !value.startsWith('$var:')) {
+					savedVariableCount++
 					await VariableService.createVariable({
-						workspace: $workspaceStore!,
+						workspace: effectiveWorkspace,
+						requestBody: {
+							path,
+							value: value,
+							is_secret: true,
+							description: emptyString(description)
+								? `OAuth token for ${resourceType}`
+								: description,
+							is_oauth: true,
+							account: account
+						}
+					})
+					resourceValue['token'] = `$var:${path}`
+				}
+			} else if (linkedSecrets.length === 1) {
+				// Single secret: use the resource path as variable name (original behavior)
+				const secretField = linkedSecrets[0]
+				const v = args[secretField]
+				if (typeof v == 'string' && v != '' && !v.startsWith('$var:')) {
+					savedVariableCount++
+					await VariableService.createVariable({
+						workspace: effectiveWorkspace,
 						requestBody: {
 							path,
 							value: v,
 							is_secret: true,
-							description: emptyString(description)
-								? `${manual ? 'Token' : 'OAuth token'} for ${resourceType}`
-								: description,
-							is_oauth: !manual,
-							account: account
+							description: emptyString(description) ? `Token for ${resourceType}` : description,
+							is_oauth: false
 						}
 					})
-					resourceValue[linkedSecret ?? 'token'] = `$var:${path}`
+					resourceValue[secretField] = `$var:${path}`
+				}
+			} else if (linkedSecrets.length > 1) {
+				// Multiple secrets: append _field_name to each variable path
+				for (const secretField of linkedSecrets) {
+					const v = args[secretField]
+					if (typeof v == 'string' && v != '' && !v.startsWith('$var:')) {
+						const varPath = `${path}_${secretField}`
+						savedVariableCount++
+						await VariableService.createVariable({
+							workspace: effectiveWorkspace,
+							requestBody: {
+								path: varPath,
+								value: v,
+								is_secret: true,
+								description: emptyString(description)
+									? `${secretField} for ${resourceType}`
+									: description,
+								is_oauth: false
+							}
+						})
+						resourceValue[secretField] = `$var:${varPath}`
+					}
 				}
 			}
 
 			await ResourceService.createResource({
-				workspace: $workspaceStore!,
+				workspace: effectiveWorkspace,
 				requestBody: {
 					resource_type: resourceType,
 					path,
@@ -495,7 +568,9 @@
 			})
 			dispatch('refresh', path)
 			dispatch('close')
-			sendUserToast(`Saved resource${saveVariable ? ' and variable' : ''} path: ${path}`)
+			sendUserToast(
+				`Saved resource${savedVariableCount > 0 ? ` and ${savedVariableCount} variable${savedVariableCount > 1 ? 's' : ''}` : ''} path: ${path}`
+			)
 			step = 1
 			resourceType = ''
 		}
@@ -519,23 +594,6 @@
 	let filteredConnectsManual: { key: string; img?: string; instructions: string[] }[] = $state([])
 
 	let editScopes = $state(false)
-
-	let hubRtSync = usePromise(
-		async () => {
-			let jobUuid = await JobService.runScriptByPath({
-				workspace: 'admins',
-				path: 'u/admin/hub_sync',
-				requestBody: {}
-			})
-			await pollJobResult(jobUuid, 'admins')
-			connectsManual = undefined
-			await loadResourceTypes()
-			connects = undefined
-			await loadConnects()
-			sendUserToast('Hub resource types sync completed')
-		},
-		{ loadInit: false }
-	)
 </script>
 
 {#if !express}
@@ -652,20 +710,16 @@
 				{/each}
 			{/if}
 		</div>
-		{#if $superadmin}
-			<Button
-				loading={hubRtSync.status === 'loading'}
-				onClick={() => hubRtSync.refresh()}
-				wrapperClasses="mt-6"
-			>
-				Sync resource types with Hub
-			</Button>
-			{#if hubRtSync.status === 'error'}
-				<span class="text-red-400 dark:text-red-500 text-xs">
-					Error syncing resource types : {JSON.stringify(hubRtSync.error)}
-				</span>
-			{/if}
-		{/if}
+		<div class="mt-6">
+			<SyncResourceTypes
+				onSynced={async () => {
+					connectsManual = undefined
+					await loadResourceTypes()
+					connects = undefined
+					await loadConnects()
+				}}
+			/>
+		</div>
 	{:else if step == 2 && manual}
 		<div class="flex flex-col gap-8">
 			<Path
@@ -736,15 +790,24 @@
 				{/if}
 			</div>
 
+			{#if resourceTypeNotFound}
+				<div class="flex flex-col gap-2 mb-4">
+					<p class="text-red-500 dark:text-red-400 text-xs">
+						Resource type '{resourceType}' not found in your workspace
+					</p>
+					<SyncResourceTypes onSynced={getResourceTypeInfo} />
+				</div>
+			{/if}
 			{#key resourceTypeInfo}
 				<ApiConnectForm
-					bind:linkedSecret
+					bind:linkedSecrets
 					bind:description
 					{linkedSecretCandidates}
 					{resourceType}
 					{resourceTypeInfo}
 					bind:args
 					bind:isValid
+					onSynced={getResourceTypeInfo}
 				/>
 			{/key}
 		</div>
