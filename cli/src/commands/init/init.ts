@@ -10,7 +10,7 @@ import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
 import { SKILLS, SKILL_CONTENT, SCHEMAS, SCHEMA_MAPPINGS } from "../../guidance/skills.ts";
 import { generateAgentsMdContent } from "../../guidance/core.ts";
-import { generateCommentedTemplate, generateJsonSchema } from "./template.ts";
+import { generateCommentedTemplate } from "./template.ts";
 
 /**
  * Format a YAML schema for inclusion in skill markdown files.
@@ -55,7 +55,6 @@ async function initAction(opts: InitOptions) {
     }
 
     await writeFile("wmill.yaml", generateCommentedTemplate(branchName), "utf-8");
-    await writeFile("wmill.schema.json", JSON.stringify(generateJsonSchema(), null, 2) + "\n", "utf-8");
     log.info(colors.green("wmill.yaml created with default settings"));
 
     // Create lock file
