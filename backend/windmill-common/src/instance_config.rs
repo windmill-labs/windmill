@@ -237,6 +237,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_workspaced_route: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_route_workspaced_route: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub no_default_maven: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_tags_per_workspace: Option<bool>,

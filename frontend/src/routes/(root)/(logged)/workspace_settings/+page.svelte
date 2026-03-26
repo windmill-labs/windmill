@@ -56,6 +56,7 @@
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
 	import VolumeStorageSettings from '$lib/components/workspaceSettings/VolumeStorageSettings.svelte'
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
+	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
 	import { getHandlerType } from '$lib/components/triggers/utils'
 	import DucklakeSettings, {
@@ -473,17 +474,15 @@
 	}
 
 	async function loadSettings(): Promise<void> {
-		const [settings, copilotSettingsState]: [
-			GetSettingsResponse,
-			GetCopilotSettingsStateResponse
-		] = await Promise.all([
-			WorkspaceService.getSettings({
-				workspace: $workspaceStore!
-			}),
-			WorkspaceService.getCopilotSettingsState({
-				workspace: $workspaceStore!
-			})
-		])
+		const [settings, copilotSettingsState]: [GetSettingsResponse, GetCopilotSettingsStateResponse] =
+			await Promise.all([
+				WorkspaceService.getSettings({
+					workspace: $workspaceStore!
+				}),
+				WorkspaceService.getCopilotSettingsState({
+					workspace: $workspaceStore!
+				})
+			])
 		slack_team_name = settings.slack_name
 		teams_team_id = settings.teams_team_id
 		teams_team_name = settings.teams_team_name
@@ -1193,6 +1192,12 @@
 					label: 'Encryption',
 					aiId: 'workspace-settings-encryption',
 					aiDescription: 'Encryption workspace settings'
+				},
+				{
+					id: 'trashbin',
+					label: 'Trashbin',
+					aiId: 'workspace-settings-trashbin',
+					aiDescription: 'Trashbin for recently deleted items'
 				}
 			]
 		}
@@ -1927,6 +1932,14 @@ export async function main(
 								saveLabel="Save & Re-encrypt workspace"
 								disabled={!!encryptionKeyValidationError || workspaceReencryptionInProgress}
 							/>
+						{:else if tab == 'trashbin'}
+							<SettingsPageHeader
+								title="Trashbin"
+								description="When scripts, flows, apps, resources, variables, schedules, or triggers are deleted, they are moved to the trashbin and kept for 3 days before being permanently removed. Admins can restore or permanently delete items from here."
+							/>
+							<div class="mt-4">
+								<Trashbin />
+							</div>
 						{/if}
 					</div>
 				</div>

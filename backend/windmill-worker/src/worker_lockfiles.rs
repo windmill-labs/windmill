@@ -602,11 +602,19 @@ pub async fn handle_flow_dependency_job(
         )
         .await?;
 
+        let value_lite_with_extras = Json(
+            serde_json::value::to_raw_value(&FlowValueWithExtras {
+                value: &value_lite,
+                notes: extras.as_ref().and_then(|e| e.notes.clone()),
+                groups: extras.as_ref().and_then(|e| e.groups.clone()),
+            })
+            .map_err(to_anyhow)?,
+        );
         sqlx::query!(
             "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
              ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
             version,
-            Json(value_lite) as Json<FlowValue>,
+            &value_lite_with_extras as &Json<Box<RawValue>>,
         )
         .execute(&mut *tx)
         .await?;

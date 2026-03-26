@@ -3,6 +3,7 @@
 
 	import {
 		HttpTriggerService,
+		SettingService,
 		WorkspaceService,
 		type HttpTrigger,
 		type TriggerMode,
@@ -71,6 +72,18 @@
 	let routesGenerator: RoutesGenerator | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
+	let globalHttpWorkspacedRoute = $state(false)
+
+	async function loadGlobalHttpWorkspacedRouteSetting() {
+		try {
+			const setting = await SettingService.getGlobal({ key: 'http_route_workspaced_route' })
+			globalHttpWorkspacedRoute = (setting as boolean) ?? false
+		} catch {
+			globalHttpWorkspacedRoute = false
+		}
+	}
+
+	loadGlobalHttpWorkspacedRouteSetting()
 
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
@@ -355,7 +368,7 @@
 											{summary}
 										{:else}
 											{http_method.toUpperCase()}
-											/{isCloudHosted() || workspaced_route
+											/{isCloudHosted() || workspaced_route || globalHttpWorkspacedRoute
 												? workspace_id + '/' + route_path
 												: route_path}
 										{/if}
@@ -399,7 +412,12 @@
 									<Button
 										on:click={() =>
 											copyToClipboard(
-												getHttpRoute('r', route_path, workspaced_route ?? false, workspace_id)
+												getHttpRoute(
+													'r',
+													route_path,
+													(workspaced_route ?? false) || globalHttpWorkspacedRoute,
+													workspace_id
+												)
 											)}
 										variant="subtle"
 										unifiedSize="md"

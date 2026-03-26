@@ -74,7 +74,12 @@
 	let folderPresets = $derived([
 		...folders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
 		...(variablesFilterSchema.user_folders_only
-			? [{ name: variablesFilterSchema.user_folders_only.label ?? '?', value: 'user_folders_only:\\ true' }]
+			? [
+					{
+						name: variablesFilterSchema.user_folders_only.label ?? '?',
+						value: 'user_folders_only:\\ true'
+					}
+				]
 			: [])
 	])
 	let contextualVariables: ContextualVariable[] = $state([])
@@ -576,6 +581,7 @@
 	{open}
 	title="Remove variable"
 	confirmationText="Remove"
+	trashbin
 	on:canceled={() => {
 		deleteConfirmedCallback = undefined
 	}}

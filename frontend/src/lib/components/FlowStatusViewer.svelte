@@ -5,7 +5,7 @@
 	import type { DurationStatus, FlowStatusViewerContext, GraphModuleState } from './graph'
 	import { isOwner as loadIsOwner, type StateStore } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import type { CompletedJob, Job } from '$lib/gen'
+	import type { CompletedJob, FlowNote, FlowValue, Job } from '$lib/gen'
 
 	interface Props {
 		jobId: string
@@ -34,6 +34,8 @@
 		onJobsLoaded?: ({ job, force }: { job: Job; force: boolean }) => void
 		onDone?: ({ job }: { job: CompletedJob }) => void
 		showLogsWithResult?: boolean
+		notes?: FlowNote[]
+		groups?: FlowValue['groups']
 	}
 
 	let {
@@ -60,7 +62,9 @@
 		onStart,
 		onJobsLoaded,
 		onDone,
-		showLogsWithResult = false
+		showLogsWithResult = false,
+		notes: notesProp = undefined,
+		groups: groupsProp = undefined
 	}: Props = $props()
 
 	let lastJobId: string = untrack(() => jobId)
@@ -173,5 +177,7 @@
 		}}
 		{showLogsWithResult}
 		{hideFlowResult}
+		notes={notesProp}
+		groups={groupsProp}
 	/>
 {/key}

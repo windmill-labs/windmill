@@ -15,7 +15,6 @@ use crate::{
     scripts::{ScriptHash, ScriptLang, ScriptModule},
 };
 use anyhow::anyhow;
-use serde_json::value::to_raw_value;
 
 #[cfg(feature = "scoped_cache")]
 use std::thread::ThreadId;
@@ -42,15 +41,14 @@ pub use quick_cache::sync::Cache;
 #[cfg(not(feature = "scoped_cache"))]
 lazy_static! {
     /// Cache directory for windmill server/worker(s).
-    /// 1. If `XDG_CACHE_HOME` is set, use `"${XDG_CACHE_HOME}/windmill"`.
-    /// 2. If `HOME` is set, use `"${HOME}/.cache/windmill"`.
-    /// 3. Otherwise, use `"{std::env::temp_dir()}/windmill/cache"`.
+    /// Lives under `WINDMILL_DIR` (default `/tmp/windmill`) as `cache_db/`.
+    /// If `WINDMILL_CACHE_PREFIX` (or `WEBMUX_BRANCH`) is set, uses `cache_db/{prefix}/`.
     pub static ref CACHE_PATH: PathBuf = {
-        std::env::var("XDG_CACHE_HOME")
-            .map(PathBuf::from)
-            .or_else(|_| std::env::var("HOME").map(|home| PathBuf::from(home).join(".cache")))
-            .map(|cache| cache.join("windmill"))
-            .unwrap_or_else(|_| std::env::temp_dir().join("windmill/cache"))
+        let base = PathBuf::from(&*crate::worker::WINDMILL_DIR).join("cache_db");
+        let prefix = std::env::var("WINDMILL_CACHE_PREFIX")
+            .or_else(|_| std::env::var("WEBMUX_BRANCH"))
+            .unwrap_or_default();
+        if prefix.is_empty() { base } else { base.join(prefix) }
     };
 }
 
@@ -103,7 +101,7 @@ pub trait Import: Sized {
 }
 
 /// A type that can be exported to [`Storage`].
-pub trait Export: Clone {
+pub trait Export: Sized {
     /// The untrusted type that can be imported from [`Storage`].
     type Untrusted: Import;
 
@@ -122,7 +120,9 @@ pub struct FsBackedCache<Key, Val, Root> {
     root: Root,
 }
 
-impl<Key: Eq + Hash + Item + Clone, Val: Export, Root: AsRef<Path>> FsBackedCache<Key, Val, Root> {
+impl<Key: Eq + Hash + Item + Clone, Val: Export + Clone, Root: AsRef<Path>>
+    FsBackedCache<Key, Val, Root>
+{
     /// Create a new file-system backed cache with `items_capacity` capacity.
     /// The cache will be stored in the `root` directory.
     pub fn new(root: Root, items_capacity: usize) -> Self {
@@ -265,7 +265,11 @@ pub mod future {
         ///     assert_eq!(result.unwrap(), 42u64);
         /// };
         /// ```
-        fn cached<Key: Eq + Hash + Item + Clone, Val: Export<Untrusted = T>, Root: AsRef<Path>>(
+        fn cached<
+            Key: Eq + Hash + Item + Clone,
+            Val: Export<Untrusted = T> + Clone,
+            Root: AsRef<Path>,
+        >(
             self,
             cache: &FsBackedCache<Key, Val, Root>,
             key: Key,
@@ -278,11 +282,19 @@ pub mod future {
 }
 
 /// Flow data: i.e. a cached `raw_flow`.
-/// Contains the original json raw value and a pre-parsed [`FlowValue`].
-#[derive(Debug, Clone)]
+/// Contains the original json raw value; [`FlowValue`] is parsed lazily on first access.
 pub struct FlowData {
     pub raw_flow: Box<RawValue>,
-    pub flow: FlowValue,
+    flow: std::sync::OnceLock<FlowValue>,
+}
+
+impl std::fmt::Debug for FlowData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FlowData")
+            .field("raw_flow", &"<raw>")
+            .field("flow", &self.flow.get().map(|_| "<parsed>"))
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -301,38 +313,26 @@ impl FlowData {
             .ok()
     }
 }
-/// !!!Shouldn't be used. Reverted optimization for ai agent steps.!!!
-#[derive(Deserialize)]
-struct RevertedFlowNodeFlow {
-    value: FlowValue,
-}
-
 impl FlowData {
     pub fn from_raw(raw_flow: Box<RawValue>) -> error::Result<Self> {
-        match serde_json::from_str::<FlowValue>(raw_flow.get()) {
-            Ok(flow) => Ok(FlowData { raw_flow, flow }),
-            _ => {
-                // fallback for compatibility with bad version 1.560.0
-                // TODO: remove this in a future version. Reverted optimization for ai agent steps.
-                let flow_node_flow = serde_json::from_str::<RevertedFlowNodeFlow>(raw_flow.get())
-                    .map_err(|e| {
-                    error::Error::internal_err(format!(
-                        "Failed to parse as RevertedFlowNodeFlow: {}",
-                        e
-                    ))
-                })?;
-                let raw_flow = to_raw_value(&flow_node_flow.value)?;
-                Ok(FlowData { raw_flow, flow: flow_node_flow.value })
-            }
-        }
+        let val = serde_json::from_str::<FlowValue>(raw_flow.get()).map_err(|e| {
+            error::Error::internal_err(format!("Failed to parse flow value: {}", e))
+        })?;
+        let flow = std::sync::OnceLock::new();
+        let _ = flow.set(val);
+        Ok(FlowData { raw_flow, flow })
     }
 
+    /// Return the parsed [`FlowValue`]. Already parsed from `from_raw`.
     pub fn value(&self) -> &FlowValue {
-        &self.flow
+        self.flow.get_or_init(|| {
+            serde_json::from_str::<FlowValue>(self.raw_flow.get())
+                .expect("FlowData raw_flow was validated at construction")
+        })
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ScriptData {
     pub lock: Option<String>,
     pub code: String,
@@ -423,8 +423,14 @@ impl From<RawNodeApi> for RawNode {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Entry<T>(Arc<T>);
+
+impl<T> Clone for Entry<T> {
+    fn clone(&self) -> Self {
+        Entry(Arc::clone(&self.0))
+    }
+}
 
 #[derive(Debug, Clone)]
 struct ScriptFull {
@@ -1013,13 +1019,10 @@ pub mod raw_script_temp {
     /// Load content from cache, falling back to DB.
     pub fn load(hash: String, db: &DB) -> impl Future<Output = error::Result<String>> + '_ {
         CACHE.get_or_insert_async(hash.clone(), async move {
-            sqlx::query_scalar!(
-                "SELECT content FROM raw_script_temp WHERE hash = $1",
-                &hash
-            )
-            .fetch_optional(db)
-            .await?
-            .ok_or_else(|| error::Error::NotFound(format!("raw_script_temp hash: {}", hash)))
+            sqlx::query_scalar!("SELECT content FROM raw_script_temp WHERE hash = $1", &hash)
+                .fetch_optional(db)
+                .await?
+                .ok_or_else(|| error::Error::NotFound(format!("raw_script_temp hash: {}", hash)))
         })
     }
 }

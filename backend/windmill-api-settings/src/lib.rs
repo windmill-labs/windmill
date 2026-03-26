@@ -45,8 +45,8 @@ use windmill_common::{
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
-        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
-        WS_BASE_URL_SETTING,
+        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
@@ -424,6 +424,74 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING => {
+            let serde_json::Value::Bool(workspaced_route) = value else {
+                return Err(error::Error::BadRequest(format!(
+                    "{} setting expected to be boolean",
+                    HTTP_ROUTE_WORKSPACED_ROUTE_SETTING
+                )));
+            };
+
+            if !*workspaced_route {
+                #[derive(Debug, Deserialize, Serialize)]
+                #[allow(unused)]
+                struct DuplicateRoute {
+                    route_path: String,
+                    workspace_id: String,
+                    http_method: String,
+                }
+                let duplicate_routes = sqlx::query_as!(
+                    DuplicateRoute,
+                    r#"
+                        SELECT
+                            route_path,
+                            workspace_id,
+                            http_method::TEXT AS "http_method!"
+                        FROM
+                            http_trigger
+                        WHERE
+                            workspaced_route IS FALSE
+                            AND route_path_key IN (
+                                SELECT
+                                    route_path_key
+                                FROM
+                                    http_trigger
+                                WHERE
+                                    workspaced_route IS FALSE
+                                GROUP BY
+                                    route_path_key, http_method
+                                HAVING COUNT(*) > 1
+                            )
+                        ORDER BY route_path_key
+                    "#
+                )
+                .fetch_all(db)
+                .await?;
+
+                if !duplicate_routes.is_empty() {
+                    tracing::error!(
+                        "Cannot disable {} setting as duplicate http routes were found: {:?}",
+                        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+                        &duplicate_routes
+                    );
+
+                    #[derive(Serialize)]
+                    struct ErrorResponse {
+                        error: String,
+                        details: Vec<DuplicateRoute>,
+                    }
+
+                    let error_response = ErrorResponse {
+                        error: "Duplicate HTTP route paths detected".to_string(),
+                        details: duplicate_routes,
+                    };
+
+                    return Err(error::Error::JsonErr(
+                        serde_json::to_value(error_response).unwrap(),
+                    ));
+                }
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -541,6 +609,7 @@ pub async fn get_global_setting(
         && key != DISABLE_HUB_SETTING
         && key != EMAIL_DOMAIN_SETTING
         && key != APP_WORKSPACED_ROUTE_SETTING
+        && key != HTTP_ROUTE_WORKSPACED_ROUTE_SETTING
         && key != WS_BASE_URL_SETTING
     {
         require_super_admin(&db, &authed.email).await?;
