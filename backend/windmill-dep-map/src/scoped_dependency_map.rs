@@ -445,7 +445,7 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
         }
     }
 
-    /// Get dependents of any imported path - returns scripts/flows/apps that depend on it
+    /// Get imports of a given importer path - returns paths that the importer depends on
     pub async fn get_imports<'c>(
         importer_path: &str,
         workspace_id: &str,

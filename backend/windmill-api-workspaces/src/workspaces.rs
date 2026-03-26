@@ -4364,7 +4364,22 @@ async fn get_imports(
     Path((w_id, importer_path)): Path<(String, String)>,
     _authed: ApiAuthed,
 ) -> JsonResult<Vec<String>> {
+    tracing::debug!(
+        workspace_id = %w_id,
+        importer_path = %importer_path,
+        "API: Getting imports for importer path"
+    );
+
     let imports = ScopedDependencyMap::get_imports(&importer_path, &w_id, &db).await?;
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        importer_path = %importer_path,
+        imports_count = imports.len(),
+        "API: Found imports: {:?}",
+        imports
+    );
+
     Ok(Json(imports))
 }
 

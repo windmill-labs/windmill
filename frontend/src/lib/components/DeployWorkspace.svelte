@@ -272,12 +272,15 @@
 			return []
 		}
 		let toProcess = [{ kind, path }]
+		let processedSet = new Set<string>()
 		let processed: { kind: Kind; path: string }[] = []
 		while (toProcess.length > 0) {
 			const { kind, path } = toProcess.pop()!
-			if (processed.some((p) => p.kind === kind && p.path === path)) {
+			const key = `${kind}:${path}`
+			if (processedSet.has(key)) {
 				continue
 			}
+			processedSet.add(key)
 			toProcess.push(...(await rec(kind, path)))
 			processed.push({ kind, path })
 		}
