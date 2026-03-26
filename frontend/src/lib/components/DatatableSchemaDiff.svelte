@@ -6,14 +6,13 @@
 	} from '$lib/components/apps/components/display/dbtable/tableEditor'
 	import {
 		diffTableEditorValues,
-		type AlterTableValues
+		type AlterTableValues,
+		makeAlterTableQueries
 	} from '$lib/components/apps/components/display/dbtable/queries/alterTable'
 	import type { GetDatatableFullSchemaResponse } from '$lib/gen'
 
-	/** Full database schema: { schema_name: { table_name: TableEditorValues } } */
 	export type DatabaseSchema = Record<string, Record<string, TableEditorValues>>
 
-	/** Convert backend schema response to TableEditorValues format */
 	export function apiSchemaToEditorSchema(
 		apiSchema: GetDatatableFullSchemaResponse
 	): DatabaseSchema {
@@ -62,34 +61,29 @@
 		datatableName: string
 		aheadChanges: TableDiff[]
 		behindChanges: TableDiff[]
+		originalSchema: DatabaseSchema
+		parentSchema: DatabaseSchema
+		forkSchema: DatabaseSchema
 	}
 
-	/**
-	 * Diff two full database schemas, returning per-table diffs.
-	 * Uses diffTableEditorValues for tables that exist in both.
-	 */
 	export function diffDatabaseSchemas(
 		original: DatabaseSchema,
 		current: DatabaseSchema
 	): TableDiff[] {
 		const diffs: TableDiff[] = []
-
 		const allSchemas = new Set([...Object.keys(original), ...Object.keys(current)])
 		for (const schemaName of allSchemas) {
 			const origTables = original[schemaName] ?? {}
 			const currTables = current[schemaName] ?? {}
 			const allTables = new Set([...Object.keys(origTables), ...Object.keys(currTables)])
-
 			for (const tableName of allTables) {
 				const origTable = origTables[tableName]
 				const currTable = currTables[tableName]
-
 				if (!origTable && currTable) {
 					diffs.push({ schemaName, tableName, kind: 'added' })
 				} else if (origTable && !currTable) {
 					diffs.push({ schemaName, tableName, kind: 'removed' })
 				} else if (origTable && currTable) {
-					// Set initialName on current columns so diffTableEditorValues can track renames
 					const currWithInitial: TableEditorValues = {
 						...currTable,
 						columns: currTable.columns.map((col) => ({
@@ -104,15 +98,9 @@
 				}
 			}
 		}
-
 		return diffs
 	}
 
-	/**
-	 * For a forked datatable, compute ahead/behind diffs by comparing:
-	 * - (original, parent) → behind changes (parent drifted)
-	 * - (original, fork) → ahead changes (fork drifted)
-	 */
 	export function computeDatatableDiff(
 		datatableName: string,
 		originalSchema: DatabaseSchema,
@@ -122,14 +110,60 @@
 		return {
 			datatableName,
 			behindChanges: diffDatabaseSchemas(originalSchema, parentSchema),
-			aheadChanges: diffDatabaseSchemas(originalSchema, forkSchema)
+			aheadChanges: diffDatabaseSchemas(originalSchema, forkSchema),
+			originalSchema,
+			parentSchema,
+			forkSchema
 		}
+	}
+
+	export function generateMigrationSql(change: TableDiff, sourceSchema: DatabaseSchema): string {
+		if (change.kind === 'modified' && change.operations) {
+			const queries = makeAlterTableQueries(change.operations, 'postgresql', change.schemaName)
+			if (queries.length === 0) return ''
+			return 'BEGIN;\n' + queries.join('\n') + '\nCOMMIT;'
+		}
+		if (change.kind === 'added') {
+			const table = sourceSchema[change.schemaName]?.[change.tableName]
+			if (!table) return ''
+			const colDefs = table.columns
+				.map((c) => {
+					let def = `"${c.name}" ${c.datatype}`
+					if (c.nullable === false) def += ' NOT NULL'
+					if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`
+					return def
+				})
+				.join(',\n  ')
+			const pkCols = table.columns.filter((c) => c.primaryKey).map((c) => `"${c.name}"`)
+			const pkLine = pkCols.length > 0 ? `,\n  PRIMARY KEY (${pkCols.join(', ')})` : ''
+			return `BEGIN;\nCREATE TABLE "${change.schemaName}"."${change.tableName}" (\n  ${colDefs}${pkLine}\n);\nCOMMIT;`
+		}
+		if (change.kind === 'removed') {
+			return `BEGIN;\nDROP TABLE IF EXISTS "${change.schemaName}"."${change.tableName}";\nCOMMIT;`
+		}
+		return ''
 	}
 </script>
 
 <script lang="ts">
 	import { WorkspaceService } from '$lib/gen'
-	import { Loader2, ChevronDown, ChevronRight, Plus, Minus, Pencil } from 'lucide-svelte'
+	import {
+		Loader2,
+		ChevronDown,
+		ChevronRight,
+		Plus,
+		Minus,
+		Pencil,
+		ArrowUp,
+		ArrowDown,
+		Eye
+	} from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { runScriptAndPollResult } from '$lib/components/jobs/utils'
+	import YAML from 'yaml'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -143,18 +177,27 @@
 	let diffs: DatatableDiff[] = $state([])
 	let expandedDatatables: Set<string> = $state(new Set())
 
+	// Review drawer state
+	let reviewDrawerOpen = $state(false)
+	let reviewChange: TableDiff | undefined = $state(undefined)
+	let reviewDiff: DatatableDiff | undefined = $state(undefined)
+
+	// Migration drawer state
+	let migrationDrawerOpen = $state(false)
+	let migrationDirection: 'to_fork' | 'to_parent' | undefined = $state(undefined)
+	let migrationSql = $state('')
+	let migrationRunning = $state(false)
+
 	async function loadDiffs() {
 		loading = true
 		error = undefined
 		diffs = []
 
 		try {
-			// Get datatable config from the fork workspace to find forked datatables
 			const forkSettings = await WorkspaceService.getSettings({
 				workspace: currentWorkspaceId
 			})
 			const datatables = forkSettings.datatable?.datatables ?? {}
-
 			const forkedEntries = Object.entries(datatables).filter(([_, dt]) => dt.forked_from != null)
 
 			if (forkedEntries.length === 0) {
@@ -162,12 +205,10 @@
 				return
 			}
 
-			// For each forked datatable, fetch schemas and compute diff
 			const results: DatatableDiff[] = []
 			for (const [dtName, dt] of forkedEntries) {
 				try {
 					const originalSchema = apiSchemaToEditorSchema((dt.forked_from as any)?.schema ?? {})
-
 					const [parentSchemaRaw, forkSchemaRaw] = await Promise.all([
 						WorkspaceService.getDatatableFullSchema({
 							workspace: parentWorkspaceId,
@@ -178,10 +219,8 @@
 							requestBody: { source: `datatable://${dtName}` }
 						})
 					])
-
 					const parentSchema = apiSchemaToEditorSchema(parentSchemaRaw)
 					const forkSchema = apiSchemaToEditorSchema(forkSchemaRaw)
-
 					const diff = computeDatatableDiff(dtName, originalSchema, parentSchema, forkSchema)
 					if (diff.aheadChanges.length > 0 || diff.behindChanges.length > 0) {
 						results.push(diff)
@@ -190,7 +229,6 @@
 					console.error(`Failed to diff datatable ${dtName}:`, e)
 				}
 			}
-
 			diffs = results
 		} catch (e: any) {
 			error = e?.body ?? e?.message ?? String(e)
@@ -205,12 +243,10 @@
 	})
 
 	function toggleExpanded(name: string) {
-		if (expandedDatatables.has(name)) {
-			expandedDatatables.delete(name)
-		} else {
-			expandedDatatables.add(name)
-		}
-		expandedDatatables = new Set(expandedDatatables)
+		const next = new Set(expandedDatatables)
+		if (next.has(name)) next.delete(name)
+		else next.add(name)
+		expandedDatatables = next
 	}
 
 	function operationSummary(diff: TableDiff): string {
@@ -235,6 +271,98 @@
 		if (fkDrops) parts.push(`-${fkDrops} FK`)
 		if (pkChanges) parts.push('PK changed')
 		return parts.join(', ') || 'Modified'
+	}
+
+	function openReviewDrawer(change: TableDiff, diff: DatatableDiff) {
+		reviewChange = change
+		reviewDiff = diff
+		reviewDrawerOpen = true
+	}
+
+	function getYamlDiff(change: TableDiff, diff: DatatableDiff): { parent: string; fork: string } {
+		const parentTable = diff.parentSchema[change.schemaName]?.[change.tableName]
+		const forkTable = diff.forkSchema[change.schemaName]?.[change.tableName]
+		return {
+			parent: parentTable ? YAML.stringify(parentTable) : '# table does not exist',
+			fork: forkTable ? YAML.stringify(forkTable) : '# table does not exist'
+		}
+	}
+
+	function openMigrationDrawer(
+		direction: 'to_fork' | 'to_parent',
+		change: TableDiff,
+		diff: DatatableDiff
+	) {
+		migrationDirection = direction
+		const sourceSchema = direction === 'to_fork' ? diff.parentSchema : diff.forkSchema
+		migrationSql = generateMigrationSql(change, sourceSchema)
+		migrationDrawerOpen = true
+	}
+
+	async function runMigration() {
+		if (!reviewDiff || !reviewChange || !migrationDirection) return
+		migrationRunning = true
+
+		const targetWorkspace =
+			migrationDirection === 'to_fork' ? currentWorkspaceId : parentWorkspaceId
+		const dtName = reviewDiff.datatableName
+
+		try {
+			await runScriptAndPollResult({
+				workspace: targetWorkspace,
+				requestBody: {
+					args: { database: `datatable://${dtName}` },
+					language: 'postgresql',
+					content: migrationSql
+				}
+			})
+		} catch (e: any) {
+			sendUserToast(e?.body ?? e?.message ?? String(e), true)
+			migrationRunning = false
+			return
+		}
+
+		// Migration succeeded — update forked_from.schema for the migrated table
+		try {
+			const sourceSchema =
+				migrationDirection === 'to_fork' ? reviewDiff.parentSchema : reviewDiff.forkSchema
+
+			const schemaName = reviewChange.schemaName
+			const tableName = reviewChange.tableName
+			const newTableDef = sourceSchema[schemaName]?.[tableName]
+
+			const forkSettings = await WorkspaceService.getSettings({
+				workspace: currentWorkspaceId
+			})
+			const datatableConfig = forkSettings.datatable ?? { datatables: {} }
+			const dtConfig = datatableConfig.datatables[dtName]
+			if (dtConfig?.forked_from) {
+				const forkedFrom = dtConfig.forked_from as any
+				if (!forkedFrom.schema) forkedFrom.schema = {}
+				if (!forkedFrom.schema[schemaName]) forkedFrom.schema[schemaName] = {}
+
+				if (newTableDef) {
+					forkedFrom.schema[schemaName][tableName] = newTableDef
+				} else {
+					delete forkedFrom.schema[schemaName][tableName]
+				}
+
+				await WorkspaceService.editDataTableConfig({
+					workspace: currentWorkspaceId,
+					requestBody: { settings: datatableConfig }
+				})
+			}
+		} catch (e: any) {
+			console.error('Failed to update forked_from schema:', e)
+		}
+
+		migrationRunning = false
+		migrationDrawerOpen = false
+		reviewDrawerOpen = false
+		sendUserToast('Migration applied successfully')
+
+		// Reload diffs
+		await loadDiffs()
 	}
 </script>
 
@@ -273,19 +401,27 @@
 					<div class="border-t divide-y">
 						{#if diff.aheadChanges.length > 0}
 							<div class="px-3 py-1.5">
-								<div class="text-2xs font-semibold text-blue-500 mb-1"> Fork changes (ahead) </div>
+								<div class="text-2xs font-semibold text-blue-500 mb-1">Fork changes (ahead)</div>
 								{#each diff.aheadChanges as change}
 									<div class="flex items-center gap-2 text-xs py-0.5">
 										{#if change.kind === 'added'}
-											<Plus class="w-3 h-3 text-green-500" />
+											<Plus class="w-3 h-3 text-green-500 shrink-0" />
 										{:else if change.kind === 'removed'}
-											<Minus class="w-3 h-3 text-red-500" />
+											<Minus class="w-3 h-3 text-red-500 shrink-0" />
 										{:else}
-											<Pencil class="w-3 h-3 text-yellow-500" />
+											<Pencil class="w-3 h-3 text-yellow-500 shrink-0" />
 										{/if}
 										<span class="text-tertiary">{change.schemaName}.</span>
 										<span class="font-medium">{change.tableName}</span>
-										<span class="text-tertiary text-2xs">{operationSummary(change)}</span>
+										<span class="text-tertiary text-2xs grow">{operationSummary(change)}</span>
+										<Button
+											size="xs"
+											variant="subtle"
+											startIcon={{ icon: Eye }}
+											onclick={() => openReviewDrawer(change, diff)}
+										>
+											Review
+										</Button>
 									</div>
 								{/each}
 							</div>
@@ -298,15 +434,23 @@
 								{#each diff.behindChanges as change}
 									<div class="flex items-center gap-2 text-xs py-0.5">
 										{#if change.kind === 'added'}
-											<Plus class="w-3 h-3 text-green-500" />
+											<Plus class="w-3 h-3 text-green-500 shrink-0" />
 										{:else if change.kind === 'removed'}
-											<Minus class="w-3 h-3 text-red-500" />
+											<Minus class="w-3 h-3 text-red-500 shrink-0" />
 										{:else}
-											<Pencil class="w-3 h-3 text-yellow-500" />
+											<Pencil class="w-3 h-3 text-yellow-500 shrink-0" />
 										{/if}
 										<span class="text-tertiary">{change.schemaName}.</span>
 										<span class="font-medium">{change.tableName}</span>
-										<span class="text-tertiary text-2xs">{operationSummary(change)}</span>
+										<span class="text-tertiary text-2xs grow">{operationSummary(change)}</span>
+										<Button
+											size="xs"
+											variant="subtle"
+											startIcon={{ icon: Eye }}
+											onclick={() => openReviewDrawer(change, diff)}
+										>
+											Review
+										</Button>
 									</div>
 								{/each}
 							</div>
@@ -317,3 +461,79 @@
 		{/each}
 	</div>
 {/if}
+
+<!-- Review Drawer: shows YAML diff of parent vs fork -->
+<Drawer bind:open={reviewDrawerOpen} size="800px">
+	{#if reviewChange && reviewDiff}
+		{@const yaml = getYamlDiff(reviewChange, reviewDiff)}
+		<div class="flex flex-col h-full">
+			<div class="flex items-center justify-between px-4 py-3 border-b">
+				<h3 class="text-sm font-semibold">
+					{reviewChange.schemaName}.{reviewChange.tableName}
+				</h3>
+				<div class="flex items-center gap-2">
+					<Button
+						size="xs"
+						variant="default"
+						startIcon={{ icon: ArrowDown }}
+						onclick={() => openMigrationDrawer('to_fork', reviewChange!, reviewDiff!)}
+					>
+						Update current
+					</Button>
+					<Button
+						size="xs"
+						variant="default"
+						startIcon={{ icon: ArrowUp }}
+						onclick={() => openMigrationDrawer('to_parent', reviewChange!, reviewDiff!)}
+					>
+						Deploy to {parentWorkspaceId}
+					</Button>
+				</div>
+			</div>
+			<div class="flex grow overflow-hidden">
+				<div class="w-1/2 flex flex-col border-r overflow-auto">
+					<div class="px-3 py-1.5 text-2xs font-semibold text-secondary border-b">
+						Parent ({parentWorkspaceId})
+					</div>
+					<pre class="p-3 text-xs whitespace-pre-wrap font-mono grow">{yaml.parent}</pre>
+				</div>
+				<div class="w-1/2 flex flex-col overflow-auto">
+					<div class="px-3 py-1.5 text-2xs font-semibold text-secondary border-b">
+						Fork ({currentWorkspaceId})
+					</div>
+					<pre class="p-3 text-xs whitespace-pre-wrap font-mono grow">{yaml.fork}</pre>
+				</div>
+			</div>
+		</div>
+	{/if}
+</Drawer>
+
+<!-- Migration Drawer: SQL editor + run button -->
+<Drawer bind:open={migrationDrawerOpen} size="700px">
+	{#if reviewChange && reviewDiff && migrationDirection}
+		{@const targetLabel = migrationDirection === 'to_fork' ? currentWorkspaceId : parentWorkspaceId}
+		<div class="flex flex-col h-full">
+			<div class="flex items-center justify-between px-4 py-3 border-b">
+				<h3 class="text-sm font-semibold">
+					Migrate {reviewChange.schemaName}.{reviewChange.tableName} → {targetLabel}
+				</h3>
+			</div>
+			<div class="grow overflow-hidden">
+				<SimpleEditor lang="sql" bind:code={migrationSql} automaticLayout />
+			</div>
+			<div class="flex items-center justify-end gap-2 px-4 py-3 border-t">
+				<Button
+					variant="default"
+					onclick={() => {
+						migrationDrawerOpen = false
+					}}
+				>
+					Cancel
+				</Button>
+				<Button variant="accent" loading={migrationRunning} onclick={runMigration}>
+					Run migration
+				</Button>
+			</div>
+		</div>
+	{/if}
+</Drawer>
