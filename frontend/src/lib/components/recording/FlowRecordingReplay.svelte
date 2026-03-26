@@ -26,11 +26,18 @@
 
 	let {
 		recording,
-		selectedTab = $bindable<TabValue>('ui'),
-		replayState = $bindable<ReplayState>('loaded'),
+		selectedTab = $bindable(),
+		replayState = $bindable(),
 		hideControls = false,
 		hideTabs = false
 	}: Props = $props()
+
+	if (selectedTab === undefined) {
+		selectedTab = 'ui'
+	}
+	if (replayState === undefined) {
+		replayState = 'loaded'
+	}
 
 	let rootJobId: string | undefined = $state(undefined)
 	let rootInitialJob: Job | undefined = $state(undefined)

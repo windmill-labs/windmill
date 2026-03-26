@@ -34,8 +34,8 @@
 
 	let {
 		recording,
-		selectedTab = $bindable<ScriptTabValue>(),
-		replayState = $bindable<ReplayState>('loaded'),
+		selectedTab = $bindable(),
+		replayState = $bindable(),
 		hideControls = false,
 		hideTabs = false
 	}: Props = $props()
@@ -49,22 +49,14 @@
 
 	let schema = $derived(recording.schema)
 
-	function getDefaultTab(): ScriptTabValue {
-		if (schema && recording.args) return 'parameters'
-		if (recording.args && Object.keys(recording.args).length > 0) return 'args'
-		return 'code'
+	if (selectedTab === undefined) {
+		if (schema && recording.args) selectedTab = 'parameters'
+		else if (recording.args && Object.keys(recording.args).length > 0) selectedTab = 'args'
+		else selectedTab = 'code'
 	}
-
-	// Sync bindable selectedTab with internal tab state
-	let internalTab: string = $state(selectedTab ?? getDefaultTab())
-	$effect(() => {
-		selectedTab = internalTab as ScriptTabValue
-	})
-	$effect(() => {
-		if (selectedTab !== undefined && selectedTab !== internalTab) {
-			internalTab = selectedTab
-		}
-	})
+	if (replayState === undefined) {
+		replayState = 'loaded'
+	}
 
 	export function stop() {
 		setActiveReplay(undefined)
@@ -188,7 +180,7 @@
 			<JobLoader noCode={true} bind:this={jobLoader} bind:job />
 		{/if}
 
-		<Tabs bind:selected={internalTab} {hideTabs}>
+		<Tabs bind:selected={selectedTab as string} {hideTabs}>
 			{#if replayState === 'playing'}
 				<Tab value="result" label="Result" />
 			{/if}
