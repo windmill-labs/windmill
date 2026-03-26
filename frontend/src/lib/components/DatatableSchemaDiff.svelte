@@ -125,12 +125,7 @@
 		if (change.kind === 'modified' && change.operations) {
 			const queries = makeAlterTableQueries(change.operations, 'postgresql', change.schemaName)
 			if (queries.length === 0) return ''
-			return (
-				'-- Migration is auto-generated on a best-effort basis. You can adjust it here \n\n' +
-				'BEGIN;\n' +
-				queries.join('\n') +
-				'\nCOMMIT;'
-			)
+			return 'BEGIN;\n' + queries.join('\n') + '\nCOMMIT;'
 		}
 		if (change.kind === 'added') {
 			const table = sourceSchema[change.schemaName]?.[change.tableName]
@@ -166,6 +161,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import Alert from './common/alert/Alert.svelte'
+	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -277,7 +273,9 @@
 		// ahead = fork changed → migration runs on parent to deploy
 		// behind = parent changed → migration runs on fork to update
 		const sourceSchema = direction === 'ahead' ? diff.forkSchema : diff.parentSchema
-		migrationSql = generateMigrationSql(change, sourceSchema)
+		migrationSql =
+			'-- Migration is auto-generated on a best-effort basis. You can adjust it here \n\n' +
+			generateMigrationSql(change, sourceSchema)
 		drawerOpen = true
 	}
 
@@ -364,9 +362,9 @@
 {:else if error}
 	<div class="text-xs text-red-500 py-2">Failed to load datatable diffs: {error}</div>
 {:else if diffs.length > 0}
-	<div class="flex flex-col gap-2">
+	<div class="flex flex-col gap-2 mt-3 mb-1">
 		{#each diffs as diff}
-			<div class="border rounded-md">
+			<ResizeTransitionWrapper class="border rounded-md" innerClass="w-full" vertical>
 				<button
 					class="w-full flex items-center justify-between px-3 py-2 hover:bg-surface-hover"
 					onclick={() => toggleExpanded(diff.datatableName)}
@@ -447,7 +445,7 @@
 						{/if}
 					</div>
 				{/if}
-			</div>
+			</ResizeTransitionWrapper>
 		{/each}
 	</div>
 {:else}
@@ -458,12 +456,12 @@
 	{#if drawerChange && drawerDiff && drawerDirection}
 		{@const yaml = getDiffYaml()}
 		<DrawerContent
+			on:close={() => (drawerOpen = false)}
 			title="{drawerChange.schemaName}.{drawerChange.tableName} ({drawerDirection === 'ahead'
 				? 'Fork → Parent'
 				: 'Parent → Fork'})"
 		>
 			{#snippet actions()}
-				<Button variant="default" onclick={() => (drawerOpen = false)}>Cancel</Button>
 				<Button
 					variant="accent"
 					loading={migrationRunning}
