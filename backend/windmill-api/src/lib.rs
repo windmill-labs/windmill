@@ -165,6 +165,7 @@ pub mod teams_ee;
 mod teams_oss;
 mod token;
 mod tracing_init;
+mod trash;
 pub mod triggers;
 mod users;
 #[cfg(feature = "private")]
@@ -597,6 +598,7 @@ pub async fn run_server(
                         .nest("/resources", resources::workspaced_service())
                         .nest("/schedules", windmill_api_schedule::workspaced_service())
                         .nest("/scripts", scripts::workspaced_service())
+                        .nest("/trash", trash::workspaced_service())
                         .nest(
                             "/users",
                             users::workspaced_service().layer(Extension(argon2.clone())),
