@@ -1,13 +1,4 @@
 /**
- * Single source of truth for wmill.yaml configuration options.
- *
- * Adding a new option:
- *   1. Add an entry to CONFIG_REFERENCE below with name, type, default, description
- *   2. Add template rendering hints (section, commented, templateValue, example, etc.)
- *   3. Both `wmill init` (YAML template) and `wmill config reference` (table) update automatically
- */
-
-/**
  * Configuration option descriptor — drives both the reference table and the YAML template.
  */
 export interface ConfigOption {
@@ -46,35 +37,25 @@ export interface ConfigOption {
  */
 export const CONFIG_REFERENCE: ConfigOption[] = [
   // ── Core ──────────────────────────────────────────────────────────────
-  { name: "defaultTs", type: '"bun" | "deno"', default: "bun", description: "Default TypeScript runtime for new scripts",
-    templateValue: "bun" },
+  { name: "defaultTs", type: '"bun" | "deno"', default: "bun", description: "Default TypeScript runtime for new scripts" },
   { name: "includes", type: "string[]", default: '["f/**"]', description: "Glob patterns for files to include in sync",
     templateValue: '\n  - "f/**"' },
   { name: "extraIncludes", type: "string[]", default: "[]", description: "Additional glob patterns merged with includes (useful in branch overrides)",
-    commented: true, templateValue: "[]" },
-  { name: "excludes", type: "string[]", default: "[]", description: "Glob patterns for files to exclude from sync",
-    templateValue: "[]" },
+    commented: true },
+  { name: "excludes", type: "string[]", default: "[]", description: "Glob patterns for files to exclude from sync" },
 
   // ── What to sync ──────────────────────────────────────────────────────
   { name: "skipVariables", type: "boolean", default: "false", description: "Skip syncing variables",
-    section: "What to sync", sectionNote: '"skip" options default to false (synced), "include" options default to false (not synced)',
-    templateValue: "false" },
-  { name: "skipResources", type: "boolean", default: "false", description: "Skip syncing resources",
-    templateValue: "false" },
-  { name: "skipResourceTypes", type: "boolean", default: "false", description: "Skip syncing resource types",
-    templateValue: "false" },
+    section: "What to sync", sectionNote: '"skip" options default to false (synced), "include" options default to false (not synced)' },
+  { name: "skipResources", type: "boolean", default: "false", description: "Skip syncing resources" },
+  { name: "skipResourceTypes", type: "boolean", default: "false", description: "Skip syncing resource types" },
   { name: "skipSecrets", type: "boolean", default: "true", description: "Skip syncing secrets (true by default for security)",
-    templateValue: "true", inlineComment: "true by default — secrets are not synced for security" },
-  { name: "skipScripts", type: "boolean", default: "false", description: "Skip syncing scripts",
-    templateValue: "false" },
-  { name: "skipFlows", type: "boolean", default: "false", description: "Skip syncing flows",
-    templateValue: "false" },
-  { name: "skipApps", type: "boolean", default: "false", description: "Skip syncing apps",
-    templateValue: "false" },
-  { name: "skipFolders", type: "boolean", default: "false", description: "Skip syncing folders",
-    templateValue: "false" },
-  { name: "skipWorkspaceDependencies", type: "boolean", default: "false", description: "Skip syncing workspace dependencies",
-    templateValue: "false" },
+    inlineComment: "true by default — secrets are not synced for security" },
+  { name: "skipScripts", type: "boolean", default: "false", description: "Skip syncing scripts" },
+  { name: "skipFlows", type: "boolean", default: "false", description: "Skip syncing flows" },
+  { name: "skipApps", type: "boolean", default: "false", description: "Skip syncing apps" },
+  { name: "skipFolders", type: "boolean", default: "false", description: "Skip syncing folders" },
+  { name: "skipWorkspaceDependencies", type: "boolean", default: "false", description: "Skip syncing workspace dependencies" },
 
   { name: "includeSchedules", type: "boolean", default: "false", description: "Include schedules in sync",
     commented: true, templateValue: "true", groupNote: "Uncomment to include these (excluded by default):" },
@@ -97,21 +78,19 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
   { name: "lint", type: "boolean", default: "false", description: "Run linting before push",
     commented: true, templateValue: "true" },
   { name: "plainSecrets", type: "boolean", default: "false", description: "Handle secrets as plain text (not recommended)",
-    commented: true, templateValue: "false" },
+    commented: true },
   { name: "message", type: "string", default: "(unset)", description: "Default commit message for sync operations",
     commented: true, templateValue: '"my commit message"' },
   { name: "promotion", type: "string", default: "(unset)", description: "Branch name to use promotion overrides from during sync",
     commented: true, templateValue: "staging" },
   { name: "skipBranchValidation", type: "boolean", default: "false", description: "Skip validation that current git branch matches a configured branch",
-    commented: true, templateValue: "false" },
-  { name: "nonDottedPaths", type: "boolean", default: "true", description: "Use __flow/__app/__raw_app suffixes instead of .flow/.app/.raw_app",
-    templateValue: "true" },
+    commented: true },
+  { name: "nonDottedPaths", type: "boolean", default: "true", description: "Use __flow/__app/__raw_app suffixes instead of .flow/.app/.raw_app" },
 
   // ── Codebase bundling ─────────────────────────────────────────────────
   { name: "codebases", type: "Codebase[]", default: "[]", description: "Codebase bundling configurations for shared libraries",
     section: "Codebase bundling (shared libraries)",
     sectionNote: "Bundle TypeScript/JavaScript codebases that scripts import from.\nEach entry is bundled and uploaded so scripts can import shared code.",
-    templateValue: "[]",
     example: [
       "# codebases:",
       '#   - relative_path: ./shared          # path to the codebase',
@@ -348,18 +327,19 @@ function typeToJsonSchema(type: string): Record<string, any> {
   return { type: "object" };
 }
 
-/** Build the specificItems sub-schema (shared by per-branch and commonSpecificItems). */
+/** Build the specificItems sub-schema from gitBranches.<branch>.specificItems.* entries. */
 function specificItemsSchema(): Record<string, any> {
+  const prefix = "gitBranches.<branch>.specificItems.";
+  const props: Record<string, any> = {};
+  for (const opt of CONFIG_REFERENCE) {
+    if (!opt.name.startsWith(prefix)) continue;
+    const key = opt.name.slice(prefix.length);
+    props[key] = { ...typeToJsonSchema(opt.type), description: opt.description };
+  }
   return {
     type: "object",
     description: "Sync only specific items",
-    properties: {
-      variables: { type: "array", items: { type: "string" }, description: "Specific variable paths to sync" },
-      resources: { type: "array", items: { type: "string" }, description: "Specific resource paths to sync" },
-      triggers: { type: "array", items: { type: "string" }, description: "Specific trigger paths to sync" },
-      folders: { type: "array", items: { type: "string" }, description: "Specific folder paths to sync" },
-      settings: { type: "boolean", description: "Whether to sync settings" },
-    },
+    properties: props,
     additionalProperties: false,
   };
 }
