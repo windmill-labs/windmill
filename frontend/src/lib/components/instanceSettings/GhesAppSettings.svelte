@@ -22,7 +22,7 @@
 <div class="space-y-6">
 	<Toggle
 		size="xs"
-		options={{ right: 'Self-managed GitHub App (for GHES or custom GitHub App)' }}
+		options={{ right: 'Self-managed GitHub App' }}
 		checked={selfManaged}
 		on:change={() => {
 			$values['github_enterprise_app'] = {
@@ -45,14 +45,14 @@
 			<div class="mt-2 p-3 bg-surface rounded text-2xs text-secondary space-y-2">
 				<p>
 					<strong>1.</strong> On your GitHub instance, go to
-					<strong>Settings &rarr; Developer settings &rarr; GitHub Apps &rarr; New GitHub App</strong
+					<strong
+						>Settings &rarr; Developer settings &rarr; GitHub Apps &rarr; New GitHub App</strong
 					>.
 				</p>
 				<p><strong>2.</strong> Fill in the required fields:</p>
 				<ul class="list-disc ml-4 space-y-1">
 					<li>
-						<strong>GitHub App name</strong>: e.g. <code>windmill-sync</code> (this becomes the app
-						slug)
+						<strong>GitHub App name</strong>: e.g. <code>windmill-sync</code> (this becomes the app slug)
 					</li>
 					<li>
 						<strong>Homepage URL</strong>: your Windmill instance URL
@@ -80,13 +80,12 @@
 					<strong>App ID</strong> and <strong>Client ID</strong>.
 				</p>
 				<p>
-					<strong>6.</strong> Scroll down and click <strong>Generate a private key</strong>. Save the
-					downloaded <code>.pem</code> file — paste its contents into the Private Key field below.
+					<strong>6.</strong> Scroll down and click <strong>Generate a private key</strong>. Save
+					the downloaded <code>.pem</code> file — paste its contents into the Private Key field below.
 				</p>
 				<p>
 					<strong>7.</strong> The <strong>App Slug</strong> is the URL-friendly name shown in the
-					app's URL (e.g. <code>github.com/apps/<strong>windmill-sync</strong></code
-					>).
+					app's URL (e.g. <code>github.com/apps/<strong>windmill-sync</strong></code>).
 				</p>
 				<p>
 					<strong>8.</strong> The <strong>Base URL</strong> is your GitHub instance root (e.g.

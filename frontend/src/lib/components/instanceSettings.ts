@@ -689,20 +689,20 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: 'HashiCorp Vault integration is an Enterprise Edition feature'
 		}
 	],
-	'GitHub Enterprise App': [
+	'GitHub App': [
 		{
-			label: 'GitHub Enterprise App',
+			label: 'GitHub App',
 			description:
-				'Configure a self-managed GitHub App for GitHub Enterprise Server (or any GitHub instance) to enable git sync without stats.windmill.dev.',
+				'Configure a self-managed GitHub App to enable git sync without stats.windmill.dev.',
 			key: 'github_enterprise_app',
 			fieldType: 'github_enterprise_app',
 			storage: 'setting',
 			ee_only: '',
 			error:
-				'When self-managed mode is enabled, Base URL, App ID, App Slug, and Private Key are required.',
+				'When self-managed mode is enabled, Base URL, App ID, App Slug, Client ID, and Private Key are required.',
 			isValid: (v: any) => {
 				if (!v?.self_managed) return true
-				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.private_key)
+				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.client_id && v?.private_key)
 			}
 		}
 	],
@@ -848,9 +848,9 @@ export const instanceSettingsNavigationGroups = [
 		items: [
 			{
 				id: 'github_enterprise_app',
-				label: 'GitHub Enterprise App',
+				label: 'GitHub App',
 				aiId: 'instance-settings-github-enterprise-app',
-				aiDescription: 'Self-managed GitHub App for GitHub Enterprise Server git sync',
+				aiDescription: 'Self-managed GitHub App for git sync',
 				isEE: true
 			},
 			{
@@ -899,7 +899,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	object_storage: 'Object Storage',
 	jobs: 'Jobs',
 	private_hub: 'Private Hub',
-	github_enterprise_app: 'GitHub Enterprise App',
+	github_enterprise_app: 'GitHub App',
 	websocket: 'WebSocket'
 }
 
@@ -932,7 +932,7 @@ export const categoryToTabMap: Record<string, string> = {
 	'Object Storage': 'object_storage',
 	Jobs: 'jobs',
 	'Private Hub': 'private_hub',
-	'GitHub Enterprise App': 'github_enterprise_app',
+	'GitHub App': 'github_enterprise_app',
 	WebSocket: 'websocket'
 }
 
