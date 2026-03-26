@@ -72,7 +72,7 @@
 	let previousVersionId: number | undefined = $state(undefined)
 	let previousFlow: PreviousFlow | undefined = $state(undefined)
 	if (selectedTab === undefined) {
-		selectedTab = untrack(() => initTab) ?? 'diff'
+		selectedTab = initTab ?? 'diff'
 	}
 
 	let previousFlowCache: Record<number, PreviousFlow> = {}
