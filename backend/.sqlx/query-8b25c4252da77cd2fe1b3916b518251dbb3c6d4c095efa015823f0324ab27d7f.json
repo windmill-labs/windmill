@@ -13,7 +13,7 @@
       "Left": [
         "Varchar",
         "Varchar",
-        "Varchar",
+        "Text",
         "Jsonb",
         "Varchar"
       ]

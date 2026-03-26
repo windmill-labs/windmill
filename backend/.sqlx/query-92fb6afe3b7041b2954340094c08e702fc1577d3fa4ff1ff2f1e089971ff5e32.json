@@ -21,7 +21,7 @@
       {
         "ordinal": 3,
         "name": "item_path",
-        "type_info": "Varchar"
+        "type_info": "Text"
       },
       {
         "ordinal": 4,
