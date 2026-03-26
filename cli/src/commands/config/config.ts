@@ -11,7 +11,7 @@ interface ConfigOptions {
 
 async function configAction(opts: ConfigOptions) {
   if (opts.json) {
-    log.info(formatConfigReferenceJson());
+    console.log(formatConfigReferenceJson());
   } else {
     log.info(formatConfigReference());
   }

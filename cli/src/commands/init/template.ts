@@ -211,8 +211,13 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
 
 // ─── Template generator ─────────────────────────────────────────────────────
 
+/** Quote a string for use as a YAML key if it contains special characters. */
+function yamlKey(s: string): string {
+  return /^[a-zA-Z0-9_/.@-]+$/.test(s) ? s : `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 export function generateCommentedTemplate(branchName?: string): string {
-  const branch = branchName ?? "main";
+  const branch = yamlKey(branchName ?? "main");
   const lines: string[] = [
     "# yaml-language-server: $schema=wmill.schema.json",
     "# wmill.yaml — Windmill CLI configuration",
