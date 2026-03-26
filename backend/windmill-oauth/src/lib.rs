@@ -547,7 +547,7 @@ pub async fn exchange_token(
     scopes: Option<&[String]>,
 ) -> Result<TokenResponse, Error> {
     let token_json = match grant_type {
-        "authorization_code" => {
+        "authorization_code" | "" => {
             let mut request = client.exchange_refresh_token(&RefreshToken::from(refresh_token));
             if let Some(scopes) = scopes {
                 if !scopes.is_empty() {
@@ -572,19 +572,6 @@ pub async fn exchange_token(
             }
 
             token_request
-                .with_client(http_client)
-                .execute::<serde_json::Value>()
-                .await
-                .map_err(to_anyhow)?
-        }
-        "" | _ if grant_type.is_empty() => {
-            let mut request = client.exchange_refresh_token(&RefreshToken::from(refresh_token));
-            if let Some(scopes) = scopes {
-                if !scopes.is_empty() {
-                    request = request.param("scope", scopes.join(" "));
-                }
-            }
-            request
                 .with_client(http_client)
                 .execute::<serde_json::Value>()
                 .await
@@ -696,11 +683,11 @@ pub async fn refresh_token_for_account<'c>(
     };
 
     // Account-level scopes override instance-level scopes
-    let effective_scopes = if account.scopes.as_ref().is_some_and(|s| !s.is_empty()) {
-        account.scopes.as_deref().unwrap()
-    } else {
-        &oauth_client_info.scopes
-    };
+    let effective_scopes = account
+        .scopes
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&oauth_client_info.scopes);
 
     if account.grant_type == "client_credentials" {
         for scope in effective_scopes.iter() {
