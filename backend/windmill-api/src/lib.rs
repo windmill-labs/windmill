@@ -717,7 +717,7 @@ pub async fn run_server(
                         .layer(cors.clone()),
                 )
                 .layer(from_extractor::<OptAuthed>())
-                // Deprecated, here for backwards compatibility: user should use /mcp/w/:workspace_id/mcp instead
+                // Deprecated, here for backwards compatibility: user should use /mcp/w/{workspace_id}/mcp instead
                 .nest(
                     "/mcp/w/{workspace_id}/sse",
                     mcp_router.clone().layer(cors.clone()),
@@ -884,7 +884,7 @@ pub async fn run_server(
                 .route("/openapi.json", get(openapi_json)),
         )
         // Clients must use workspace-scoped OAuth metadata at:
-        // /.well-known/oauth-authorization-server/api/w/:workspace_id/mcp/oauth/server
+        // /.well-known/oauth-authorization-server/api/w/{workspace_id}/mcp/oauth/server
         // This is discovered via /.well-known/oauth-protected-resource?workspace_id=...
         .route(
             "/.well-known/oauth-authorization-server/api/w/{workspace_id}/mcp/oauth/server",
@@ -899,7 +899,7 @@ pub async fn run_server(
                 }
             },
         )
-        // RFC 9728 path-based discovery: /.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/mcp
+        // RFC 9728 path-based discovery: /.well-known/oauth-protected-resource/api/mcp/w/{workspace_id}/mcp
         .route(
             "/.well-known/oauth-protected-resource/api/mcp/w/{workspace_id}/mcp",
             {

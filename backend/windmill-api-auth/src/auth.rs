@@ -450,7 +450,11 @@ pub(crate) async fn extract_token<S: Send + Sync>(parts: &mut Parts, state: &S) 
         None => Extension::<Cookies>::from_request_parts(parts, state)
             .await
             .ok()
-            .and_then(|cookies| cookies.get(COOKIE_NAME).map(|c| c.value().to_owned())),
+            .and_then(|cookies| {
+                cookies
+                    .get(COOKIE_NAME)
+                    .map(|c| c.value_trimmed().to_owned())
+            }),
     };
 
     #[derive(Deserialize)]
