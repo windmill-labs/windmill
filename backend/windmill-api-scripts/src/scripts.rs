@@ -605,7 +605,7 @@ impl HandleDeploymentMetadata {
 }
 
 async fn create_script_internal<'c>(
-    ns: NewScript,
+    mut ns: NewScript,
     w_id: String,
     authed: ApiAuthed,
     db: sqlx::Pool<Postgres>,
@@ -687,6 +687,16 @@ async fn create_script_internal<'c>(
         perms: serde_json::Value,
         p_path: String,
     }
+    // When auto_parent is set, resolve parent_hash to the current head for this path
+    // within the transaction, avoiding client-side race conditions during sync push.
+    // This atomically resolves the parent even if another concurrent request just created
+    // a new version, because the clashing_script query runs inside the same transaction.
+    if ns.auto_parent.unwrap_or(false) {
+        if let Some(ref cs) = clashing_script {
+            ns.parent_hash = Some(cs.hash.clone());
+        }
+    }
+
     let parent_hashes_and_perms: Option<ParentInfo> = match (&ns.parent_hash, clashing_script) {
         (None, None) => Ok(None),
         (None, Some(s)) if !s.draft_only.unwrap_or(false) => Err(Error::BadRequest(format!(
