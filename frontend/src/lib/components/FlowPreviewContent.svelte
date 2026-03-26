@@ -437,7 +437,8 @@
 							startIcon={{ icon: isRunning ? RefreshCw : Play }}
 							size="sm"
 							btnClasses="w-full max-w-lg"
-							on:click={() => recordingMode ? recordAndTest() : runPreview(previewArgs.val, undefined)}
+							on:click={() =>
+								recordingMode ? recordAndTest() : runPreview(previewArgs.val, undefined)}
 							id="flow-editor-test-flow-drawer"
 							shortCut={{ Icon: CornerDownLeft }}
 						>
@@ -675,6 +676,8 @@
 					{render}
 					{customUi}
 					showLogsWithResult
+					notes={flowStore.val.value.notes}
+					groups={flowStore.val.value.groups}
 				/>
 			{:else if loadingHistory}
 				<div class="italic text-primary h-full grow mx-auto flex flex-row items-center gap-2">

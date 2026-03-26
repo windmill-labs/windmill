@@ -88,7 +88,13 @@ use windmill_common::{
     MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
     SERVICE_LOG_RETENTION_SECS,
 };
-use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
+use windmill_common::{
+    client::AuthedClient,
+    global_settings::{
+        APP_WORKSPACED_ROUTE_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+    },
+};
 #[cfg(feature = "parquet")]
 use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
@@ -295,6 +301,10 @@ pub async fn initial_load(
 
         if let Err(e) = reload_app_workspaced_route_setting(db).await {
             tracing::error!("Error reloading app workspaced route: {:?}", e)
+        }
+
+        if let Err(e) = reload_http_route_workspaced_route_setting(db).await {
+            tracing::error!("Error reloading http route workspaced route: {:?}", e)
         }
     }
 
@@ -3396,6 +3406,39 @@ pub async fn reload_app_workspaced_route_setting(conn: &DB) -> error::Result<()>
     let mut l = APP_WORKSPACED_ROUTE.write().await;
 
     *l = ws_route;
+    Ok(())
+}
+
+pub async fn reload_http_route_workspaced_route_setting(conn: &DB) -> error::Result<()> {
+    let http_route_workspaced_route =
+        load_value_from_global_settings(conn, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING).await?;
+
+    let ws_route = match http_route_workspaced_route {
+        Some(serde_json::Value::Bool(ws_route)) => ws_route,
+        None => false,
+        _ => {
+            tracing::error!(
+                "Expected {} to be a boolean got: {:?}. Defaulting to false",
+                HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+                http_route_workspaced_route
+            );
+            false
+        }
+    };
+
+    let mut l = HTTP_ROUTE_WORKSPACED_ROUTE.write().await;
+
+    if *l != ws_route {
+        *l = ws_route;
+        drop(l);
+        // Bump the HTTP trigger version so the route cache is rebuilt with
+        // the updated workspaced_route behavior on the next request.
+        sqlx::query!("SELECT nextval('http_trigger_version_seq')")
+            .fetch_one(conn)
+            .await?;
+    } else {
+        *l = ws_route;
+    }
     Ok(())
 }
 

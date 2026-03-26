@@ -329,11 +329,12 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
 
                     let mut tx = db.begin().await?;
                     let mut to_process = vec![];
-                    let mut modules_to_check = flow_data.flow.modules.iter().collect::<Vec<_>>();
-                    if let Some(failure_module) = flow_data.flow.failure_module.as_ref() {
+                    let flow_value = flow_data.value();
+                    let mut modules_to_check = flow_value.modules.iter().collect::<Vec<_>>();
+                    if let Some(failure_module) = flow_value.failure_module.as_ref() {
                         modules_to_check.push(failure_module.as_ref());
                     }
-                    if let Some(preprocessor_module) = flow_data.flow.preprocessor_module.as_ref() {
+                    if let Some(preprocessor_module) = flow_value.preprocessor_module.as_ref() {
                         modules_to_check.push(preprocessor_module.as_ref());
                     }
 

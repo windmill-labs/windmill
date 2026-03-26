@@ -87,6 +87,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/sign", post(sign_debug_request))
         .route("/sign_expression", post(sign_expression))
+        .route("/sign_multiplayer", post(sign_multiplayer))
 }
 
 /// JWKS response containing the public key for debug token verification
@@ -415,4 +416,63 @@ async fn sign_expression(
     tx.commit().await?;
 
     Ok(Json(SignedExpressionPayload { token }))
+}
+
+/// JWT claims for multiplayer session tokens
+#[derive(Serialize, Deserialize)]
+pub struct MultiplayerTokenClaims {
+    /// Workspace ID
+    pub workspace_id: String,
+    /// User email
+    pub email: String,
+    /// Issued at (Unix timestamp)
+    pub iat: i64,
+    /// Expiration (Unix timestamp)
+    pub exp: i64,
+    /// Token purpose (always "multiplayer")
+    pub purpose: String,
+}
+
+#[derive(Serialize)]
+pub struct SignedMultiplayerPayload {
+    pub token: String,
+}
+
+/// Sign a multiplayer session request.
+///
+/// Returns a JWT that the multiplayer server will verify using the public key from /api/debug/jwks.
+async fn sign_multiplayer(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+) -> JsonResult<SignedMultiplayerPayload> {
+    let key_guard = DEBUG_SIGNING_KEY.read().await;
+    let signing_key = key_guard.as_ref().ok_or_else(|| {
+        windmill_common::error::Error::InternalErr("Debug signing key not initialized".to_string())
+    })?;
+
+    let now_ts = Utc::now().timestamp();
+    let exp = now_ts + DEBUG_TOKEN_TTL_SECS;
+
+    let claims = MultiplayerTokenClaims {
+        workspace_id: w_id,
+        email: authed.email,
+        iat: now_ts,
+        exp,
+        purpose: "multiplayer".to_string(),
+    };
+
+    let header = serde_json::json!({
+        "alg": "EdDSA",
+        "typ": "JWT"
+    });
+    let header_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_string(&header).unwrap());
+    let claims_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_string(&claims).unwrap());
+    let message = format!("{}.{}", header_b64, claims_b64);
+
+    let signature = signing_key.sign(message.as_bytes());
+    let signature_b64 = URL_SAFE_NO_PAD.encode(signature.to_bytes());
+
+    let token = format!("{}.{}", message, signature_b64);
+
+    Ok(Json(SignedMultiplayerPayload { token }))
 }
