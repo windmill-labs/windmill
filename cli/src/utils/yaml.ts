@@ -28,7 +28,7 @@ export async function yamlParseFile(path: string, options: YamlParseOptions = {}
   try {
     return yamlParse(await readFile(path, "utf-8"), {
       ...options,
-      customTags: WINDMILL_CUSTOM_TAGS,
+      customTags: [...WINDMILL_CUSTOM_TAGS, ...((options.customTags as ScalarTag[] | undefined) ?? [])],
     });
   } catch (e) {
     throw new Error(`Error parsing yaml ${path}`, { cause: e });
@@ -43,7 +43,7 @@ export function yamlParseContent(
   try {
     return yamlParse(content, {
       ...options,
-      customTags: WINDMILL_CUSTOM_TAGS,
+      customTags: [...WINDMILL_CUSTOM_TAGS, ...((options.customTags as ScalarTag[] | undefined) ?? [])],
     });
   } catch (e) {
     throw new Error(`Error parsing yaml ${path}`, { cause: e });

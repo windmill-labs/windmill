@@ -33,8 +33,9 @@ function extractRawscriptInline(
   if (lock && lock != "") {
     // Derive lock path base from the mapped content path when available,
     // so lock files are named consistently with their content files.
+    const dotIdx = mappedPath ? mappedPath.lastIndexOf('.') : -1;
     const lockBasePath = mappedPath
-      ? mappedPath.substring(0, mappedPath.lastIndexOf('.') + 1)
+      ? (dotIdx > 0 ? mappedPath.substring(0, dotIdx + 1) : mappedPath + '.')
       : basePath;
     const lockPath = lockBasePath + "lock";
     rawscript.lock = "!inline " + lockPath.replaceAll(separator, "/");
