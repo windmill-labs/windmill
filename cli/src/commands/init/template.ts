@@ -176,8 +176,8 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     sectionNote: "Map git branches to Windmill workspaces and override settings per branch.\nUse \"environments\" as an alias if you prefer environment-based terminology.",
     templateValue: "\n  {{BRANCH}}:\n    overrides: {}",
     example: [
-      "    # baseUrl: https://app.windmill.dev    # Windmill instance URL for this branch",
-      "    # workspaceId: my-workspace            # workspace to sync with",
+      "{{BASEURL_LINE}}",
+      "{{WORKSPACE_ID_LINE}}",
       "    # promotionOverrides:                  # overrides applied during --promotion",
       "    #   skipSecrets: false",
       "    # specificItems:                       # only sync these specific items",
@@ -211,12 +211,24 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
 
 // ─── Template generator ─────────────────────────────────────────────────────
 
-/** Quote a string for use as a YAML key if it contains special characters. */
-function yamlKey(s: string): string {
-  return /^[a-zA-Z0-9_/.@-]+$/.test(s) ? s : `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+export interface BranchBinding {
+  baseUrl: string;
+  workspaceId: string;
 }
 
-export function generateCommentedTemplate(branchName?: string): string {
+/** Quote a string for use as a YAML key if it contains special characters. */
+function yamlKey(s: string): string {
+  if (
+    /^[a-zA-Z0-9_/.@-]+$/.test(s) &&
+    !/^(true|false|yes|no|on|off|null|~)$/i.test(s) &&
+    !/^\d+(\.\d+)?$/.test(s)
+  ) {
+    return s;
+  }
+  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+export function generateCommentedTemplate(branchName?: string, binding?: BranchBinding): string {
   const branch = yamlKey(branchName ?? "main");
   const lines: string[] = [
     "# yaml-language-server: $schema=wmill.schema.json",
@@ -259,7 +271,16 @@ export function generateCommentedTemplate(branchName?: string): string {
     }
 
     if (opt.example) {
-      const resolvedExample = opt.example.replace(/\{\{BRANCH\}\}/g, branch);
+      let resolvedExample = opt.example.replace(/\{\{BRANCH\}\}/g, branch);
+      if (binding) {
+        resolvedExample = resolvedExample
+          .replace("{{BASEURL_LINE}}", `    baseUrl: ${binding.baseUrl}`)
+          .replace("{{WORKSPACE_ID_LINE}}", `    workspaceId: ${binding.workspaceId}`);
+      } else {
+        resolvedExample = resolvedExample
+          .replace("{{BASEURL_LINE}}", "    # baseUrl: https://app.windmill.dev    # Windmill instance URL for this branch")
+          .replace("{{WORKSPACE_ID_LINE}}", "    # workspaceId: my-workspace            # workspace to sync with");
+      }
       for (const exLine of resolvedExample.split("\n")) {
         lines.push(exLine);
       }

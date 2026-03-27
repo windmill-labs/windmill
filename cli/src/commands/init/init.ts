@@ -3,7 +3,7 @@ import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import * as log from "../../core/log.ts";
-import { readFileSync } from "node:fs";
+import { type BranchBinding } from "./template.ts";
 import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
@@ -50,39 +50,30 @@ async function initAction(opts: InitOptions) {
       "../../utils/git.ts"
     );
     let branchName: string | undefined;
+    let binding: BranchBinding | undefined;
     if (isGitRepository()) {
       branchName = getCurrentGitBranch() ?? undefined;
     }
 
-    await writeFile("wmill.yaml", generateCommentedTemplate(branchName), "utf-8");
-    log.info(colors.green("wmill.yaml created with default settings"));
-
-    // Create lock file
-    await readLockfile();
-
-    // Offer to bind workspace profile to current branch
-    if (isGitRepository()) {
+    // Determine workspace binding before writing the template
+    if (isGitRepository() && branchName) {
       const activeWorkspace = await getActiveWorkspaceOrFallback(
         opts as GlobalOptions
       );
-      const currentBranch = getCurrentGitBranch();
-      if (activeWorkspace && currentBranch) {
-        // Determine binding behavior based on flags
+      if (activeWorkspace) {
         const shouldBind = opts.bindProfile === true;
         const shouldPrompt =
           opts.bindProfile === undefined &&
           !!process.stdin.isTTY &&
           !opts.useDefault;
-
         const shouldSkip =
           opts.bindProfile != true &&
-          (opts.useDefault || !!!process.stdin.isTTY);
+          (opts.useDefault || !process.stdin.isTTY);
 
         if (!shouldSkip) {
-          // Show workspace info if we're binding or prompting
           if (shouldBind || shouldPrompt) {
             log.info(
-              colors.yellow(`\nCurrent Git branch: ${colors.bold(currentBranch)}`)
+              colors.yellow(`\nCurrent Git branch: ${colors.bold(branchName)}`)
             );
             log.info(
               colors.yellow(
@@ -104,35 +95,30 @@ async function initAction(opts: InitOptions) {
                 default: true,
               })))
           ) {
-            // Update the config with workspace binding, preserving YAML comments
-            // by doing targeted string replacements on the template we just wrote
             log.info(
-              `binding branch ${currentBranch} to workspace ${activeWorkspace.name} on ${activeWorkspace.remote}`
+              `binding branch ${branchName} to workspace ${activeWorkspace.name} on ${activeWorkspace.remote}`
             );
-
-            let yaml = readFileSync("wmill.yaml", "utf-8");
-
-            // Uncomment and set baseUrl/workspaceId under the current branch
-            yaml = yaml.replace(
-              /^(\s*)# baseUrl:.*$/m,
-              `$1baseUrl: ${activeWorkspace.remote}`
-            );
-            yaml = yaml.replace(
-              /^(\s*)# workspaceId:.*$/m,
-              `$1workspaceId: ${activeWorkspace.workspaceId}`
-            );
-
-            await writeFile("wmill.yaml", yaml, "utf-8");
-
-            log.info(
-              colors.green(
-                `✓ Bound branch '${currentBranch}' to workspace '${activeWorkspace.name}'`
-              )
-            );
+            binding = {
+              baseUrl: activeWorkspace.remote,
+              workspaceId: activeWorkspace.workspaceId,
+            };
           }
         }
       }
     }
+
+    await writeFile("wmill.yaml", generateCommentedTemplate(branchName, binding), "utf-8");
+    log.info(colors.green("wmill.yaml created with default settings"));
+    if (binding) {
+      log.info(
+        colors.green(
+          `✓ Bound branch '${branchName}' to workspace`
+        )
+      );
+    }
+
+    // Create lock file
+    await readLockfile();
 
     // Check for backend git-sync settings unless --use-default is specified
     if (!opts.useDefault) {
