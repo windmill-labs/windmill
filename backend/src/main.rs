@@ -2117,16 +2117,22 @@ async fn coordinate_restart_delay(
             .context("read restart coordination")?;
 
     // Parse existing scheduled restarts, filtering out stale entries
-    let mut scheduled: Vec<chrono::DateTime<chrono::Utc>> = Vec::new();
+    // Each entry is (instance_name, restart_at)
+    let mut scheduled: Vec<(String, chrono::DateTime<chrono::Utc>)> = Vec::new();
     if let Some(val) = &existing {
         if let Some(arr) = val.get("restarts").and_then(|v| v.as_array()) {
             for entry in arr {
+                let instance = entry
+                    .get("instance")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
                 if let Some(ts_str) = entry.get("restart_at").and_then(|v| v.as_str()) {
                     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts_str) {
                         let dt = dt.with_timezone(&chrono::Utc);
                         // Keep entries that are not stale (recent past or future)
                         if (now - dt).num_seconds() < STALE_THRESHOLD_SECS {
-                            scheduled.push(dt);
+                            scheduled.push((instance, dt));
                         }
                     }
                 }
@@ -2137,8 +2143,8 @@ async fn coordinate_restart_delay(
     // Adjust our restart time to avoid conflicts with existing schedules
     let mut our_restart = our_planned;
     loop {
-        let has_conflict = scheduled.iter().any(|&existing_time| {
-            let diff = (our_restart - existing_time).num_seconds().unsigned_abs();
+        let has_conflict = scheduled.iter().any(|(_, existing_time)| {
+            let diff = (our_restart - *existing_time).num_seconds().unsigned_abs();
             diff < safety_margin_secs
         });
         if has_conflict {
@@ -2149,11 +2155,11 @@ async fn coordinate_restart_delay(
     }
 
     // Record our restart time
-    scheduled.push(our_restart);
+    scheduled.push((INSTANCE_NAME.clone(), our_restart));
     let new_value = serde_json::json!({
-        "restarts": scheduled.iter().map(|dt| {
+        "restarts": scheduled.iter().map(|(inst, dt)| {
             serde_json::json!({
-                "instance": &*INSTANCE_NAME,
+                "instance": inst,
                 "restart_at": dt.to_rfc3339()
             })
         }).collect::<Vec<_>>()
