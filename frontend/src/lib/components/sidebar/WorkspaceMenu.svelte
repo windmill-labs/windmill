@@ -87,7 +87,7 @@
 	})
 
 	const itemClass =
-		'text-primary flex flex-row gap-2 px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+		'text-primary w-full flex flex-row gap-2 px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 </script>
 
 <Menu {createMenu} usePointerDownOutside>
