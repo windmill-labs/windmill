@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO app_version (id, app_id, value, created_by, created_at)\n           VALUES (3001, 3001, '{\"grid\": []}', 'admin', NOW())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "01c040b04b487e86b7f4ff38b0faacf6af2c284ae446860113c82bc4e1da08ab"
+}

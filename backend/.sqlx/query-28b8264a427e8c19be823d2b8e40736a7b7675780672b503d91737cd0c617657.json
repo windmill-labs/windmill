@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (error_handler->>'muted_on_user_path')::boolean FROM workspace_settings WHERE workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "bool",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "28b8264a427e8c19be823d2b8e40736a7b7675780672b503d91737cd0c617657"
+}

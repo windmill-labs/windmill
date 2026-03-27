@@ -631,7 +631,7 @@ async fn whoami(
 ) -> JsonResult<UserInfo> {
     let ApiAuthed { username, email, is_admin, groups, folders, .. } = authed;
     let user = get_user(&w_id, &username, &db).await?;
-    if let Some(mut user) = user {
+    if let Some(user) = user {
         Ok(Json(user))
     } else {
         Ok(Json(UserInfo {

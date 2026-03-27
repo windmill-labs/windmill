@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO nats_trigger (path, nats_resource_path, subjects, use_jetstream, script_path, is_flow, workspace_id, edited_by, permissioned_as) VALUES ($1, $2, $3, $4, $5, false, 'test-workspace', 'test-user', 'u/test-user')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "VarcharArray",
+        "Bool",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "75b9a2153ba12ef443212d83743605e0f9d8c1f0fbe3271f0e65b1dc5cd47987"
+}
