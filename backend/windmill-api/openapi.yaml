@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.666.0
+  version: 1.667.0
   title: Windmill API
 
   contact:
@@ -2120,6 +2120,87 @@ paths:
       responses:
         "200":
           description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/create_service_account:
+    post:
+      summary: create a service account
+      operationId: createServiceAccount
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+              required:
+                - username
+      responses:
+        "201":
+          description: service account created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/users/impersonate_service_account:
+    post:
+      summary: impersonate a service account
+      operationId: impersonateServiceAccount
+      tags:
+        - user
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+              required:
+                - username
+      responses:
+        "201":
+          description: impersonation token
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/users/exit_impersonation:
+    post:
+      summary: exit service account impersonation
+      operationId: exitImpersonation
+      tags:
+        - user
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+              required:
+                - token
+      responses:
+        "200":
+          description: exited impersonation
           content:
             text/plain:
               schema:
@@ -20123,6 +20204,8 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/UserSource"
+        is_service_account:
+          type: boolean
       required:
         - email
         - username

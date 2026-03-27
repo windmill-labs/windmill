@@ -496,3 +496,81 @@ describe("extractCurrentMapping for failure_module / preprocessor_module", () =>
     expect(mapping["failure"]).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// extractInlineScripts with mapping — path preservation
+// ---------------------------------------------------------------------------
+
+describe("extractInlineScripts with mapping preserves file paths", () => {
+  test("uses mapped path instead of assigner-generated path", () => {
+    const mod = makeRawscriptModule("a", "console.log('hi')", "bun");
+    mod.summary = "Get Users Data";
+
+    const mapping = { a: "get_users.ts" };
+    const scripts = extractInlineScripts([mod], mapping, "/", "bun");
+
+    const contentScript = scripts.find((s) => !s.is_lock);
+    expect(contentScript!.path).toBe("get_users.ts");
+    // Module content should reference the mapped path
+    expect(mod.value.content).toBe("!inline get_users.ts");
+  });
+
+  test("falls through to assigner when module ID not in mapping", () => {
+    const mod = makeRawscriptModule("a", "console.log('hi')", "bun");
+    mod.summary = "Get Users Data";
+
+    const mapping = { other_id: "other.ts" };
+    const scripts = extractInlineScripts([mod], mapping, "/", "bun");
+
+    const contentScript = scripts.find((s) => !s.is_lock);
+    // Should use assigner path based on summary, not mapped
+    expect(contentScript!.path).toContain("get_users_data");
+  });
+
+  test("mapped modules and unmapped modules coexist", () => {
+    const modA = makeRawscriptModule("a", "code_a", "bun");
+    modA.summary = "Step A";
+    const modB = makeRawscriptModule("b", "code_b", "bun");
+    modB.summary = "Step B";
+
+    const mapping = { a: "my_custom_name.ts" }; // only a is mapped
+    const scripts = extractInlineScripts([modA, modB], mapping, "/", "bun");
+
+    const paths = scripts.filter((s) => !s.is_lock).map((s) => s.path);
+    expect(paths[0]).toBe("my_custom_name.ts");
+    expect(paths[1]).toContain("step_b"); // assigner-generated from summary
+  });
+
+  test("lock path is derived from mapped content path", () => {
+    const mod = makeRawscriptModule("a", "code", "bun", "lock-content");
+    mod.summary = "Get Users Data";
+
+    const mapping = { a: "get_users.ts" };
+    const scripts = extractInlineScripts([mod], mapping, "/", "bun");
+
+    const lockScript = scripts.find((s) => s.is_lock);
+    expect(lockScript!.path).toBe("get_users.lock");
+    expect((mod.value as any).lock).toBe("!inline get_users.lock");
+  });
+
+  test("lock path uses assigner basePath when no mapping", () => {
+    const mod = makeRawscriptModule("a", "code", "bun", "lock-content");
+    mod.summary = "Get Users Data";
+
+    const scripts = extractInlineScripts([mod], {}, "/", "bun");
+
+    const lockScript = scripts.find((s) => s.is_lock);
+    expect(lockScript!.path).toContain("get_users_data");
+    expect(lockScript!.path).toEndWith(".lock");
+  });
+
+  test("lock path handles dotted content paths correctly", () => {
+    const mod = makeRawscriptModule("a", "code", "bun", "lock-content");
+
+    const mapping = { a: "my.inline_script.ts" };
+    const scripts = extractInlineScripts([mod], mapping, "/", "bun");
+
+    const lockScript = scripts.find((s) => s.is_lock);
+    expect(lockScript!.path).toBe("my.inline_script.lock");
+  });
+});

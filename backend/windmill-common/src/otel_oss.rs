@@ -59,7 +59,7 @@ pub(crate) fn init_otlp_tracer(
     _mode: &Mode,
     _hostname: &str,
     _env: &str,
-) -> Option<opentelemetry_sdk::trace::Tracer> {
+) -> Option<opentelemetry_sdk::trace::SdkTracer> {
     None
 }
 
