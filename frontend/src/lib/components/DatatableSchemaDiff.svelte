@@ -1,9 +1,11 @@
 <script module lang="ts">
-	import type {
-		TableEditorValues,
-		TableEditorValuesColumn,
-		TableEditorForeignKey
+	import {
+		type TableEditorValues,
+		type TableEditorValuesColumn,
+		type TableEditorForeignKey,
+		columnDefToTableEditorValuesColumn
 	} from '$lib/components/apps/components/display/dbtable/tableEditor'
+	import type { ColumnMetadata } from '$lib/components/apps/components/display/dbtable/utils'
 	import {
 		diffTableEditorValues,
 		type AlterTableValues,
@@ -23,14 +25,16 @@
 				if (!table || typeof table !== 'object') continue
 				result[schemaName][tableName] = {
 					name: table.name ?? tableName,
-					columns: (table.columns ?? []).map(
-						(c: any): TableEditorValuesColumn => ({
-							name: c.name,
-							datatype: c.datatype,
-							primaryKey: c.primary_key ?? c.primaryKey,
-							defaultValue: c.default_value ?? c.defaultValue,
-							nullable: c.nullable
-						})
+					columns: (table.columns ?? []).map((c: any) =>
+						columnDefToTableEditorValuesColumn({
+							field: c.name,
+							datatype: c.datatype ?? '',
+							defaultvalue: c.default_value ?? c.defaultValue ?? '',
+							isprimarykey: c.primary_key ?? c.primaryKey ?? false,
+							isidentity: 'No',
+							isnullable: c.nullable === false ? 'NO' : 'YES',
+							isenum: false
+						} as ColumnMetadata)
 					),
 					foreignKeys: (table.foreign_keys ?? table.foreignKeys ?? []).map(
 						(fk: any): TableEditorForeignKey => ({
