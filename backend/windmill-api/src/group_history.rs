@@ -22,7 +22,7 @@ use serde::Serialize;
 use sqlx::FromRow;
 
 pub fn workspaced_service() -> Router {
-    Router::new().route("/get/:name", get(get_group_permission_history))
+    Router::new().route("/get/{name}", get(get_group_permission_history))
 }
 
 #[derive(Serialize, FromRow)]

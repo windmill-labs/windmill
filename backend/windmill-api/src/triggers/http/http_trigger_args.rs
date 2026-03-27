@@ -25,8 +25,7 @@ use crate::{
 
 pub struct RawHttpTriggerArgs(pub RawWebhookArgs);
 
-#[axum::async_trait]
-impl<S> FromRequest<S, axum::body::Body> for RawHttpTriggerArgs
+impl<S> FromRequest<S> for RawHttpTriggerArgs
 where
     S: Send + Sync,
 {

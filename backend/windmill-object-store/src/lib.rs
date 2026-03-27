@@ -6,11 +6,11 @@ use quick_cache::sync::Cache;
 use windmill_common::error::{self};
 
 #[cfg(feature = "parquet")]
+use async_trait::async_trait;
+#[cfg(feature = "parquet")]
 use aws_config::{default_provider::credentials::DefaultCredentialsChain, Region};
 #[cfg(feature = "parquet")]
 use aws_sdk_sts::config::ProvideCredentials;
-#[cfg(feature = "parquet")]
-use axum::async_trait;
 #[cfg(feature = "parquet")]
 use bytes::Bytes;
 #[cfg(feature = "parquet")]

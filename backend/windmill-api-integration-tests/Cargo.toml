@@ -40,3 +40,4 @@ aws-config = { workspace = true, optional = true }
 aws-credential-types = { workspace = true, optional = true }
 aws-sdk-sqs = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
+axum.workspace = true

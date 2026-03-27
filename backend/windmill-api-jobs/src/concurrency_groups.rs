@@ -25,8 +25,8 @@ use uuid::Uuid;
 pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_concurrency_groups))
-        .route("/prune/*concurrency_key", delete(prune_concurrency_group))
-        .route("/:job_id/key", get(get_concurrency_key))
+        .route("/prune/{*concurrency_key}", delete(prune_concurrency_group))
+        .route("/{job_id}/key", get(get_concurrency_key))
 }
 
 pub fn workspaced_service() -> Router {

@@ -33,9 +33,9 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_saved_inputs))
         .route("/create", post(create_input))
         .route("/update", post(update_input))
-        .route("/delete/:id", post(delete_input))
+        .route("/delete/{id}", post(delete_input))
         .route(
-            "/:job_or_input_id/args",
+            "/{job_or_input_id}/args",
             get(get_args_from_history_or_saved_input),
         )
 }
