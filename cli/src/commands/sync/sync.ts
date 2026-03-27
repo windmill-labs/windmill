@@ -93,6 +93,8 @@ import {
   isAppMetadataFile,
   isRawAppMetadataFile,
   isRawAppFolderMetadataFile,
+  isAppFolderMetadataFile,
+  isFlowFolderMetadataFile,
   getDeleteSuffix,
   transformJsonPathToDir,
   getFolderSuffix,
@@ -3160,16 +3162,88 @@ export async function push(
                   });
                   break;
                 case "flow":
-                  await wmill.deleteFlowByPath({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, getDeleteSuffix("flow", "json")),
-                  });
+                  if (isFlowFolderMetadataFile(target)) {
+                    // Metadata file deleted — delete the entire flow
+                    await wmill.deleteFlowByPath({
+                      workspace: workspaceId,
+                      path: removeSuffix(target, getDeleteSuffix("flow", "json")),
+                    });
+                  } else {
+                    // Inline script file deleted within flow folder
+                    const flowFolder = extractFolderPath(target, "flow");
+                    let flowFolderExists = false;
+                    if (flowFolder) {
+                      try {
+                        await stat(flowFolder);
+                        flowFolderExists = true;
+                      } catch {
+                        // folder doesn't exist
+                      }
+                    }
+                    if (flowFolderExists) {
+                      // Re-push the entire flow so the backend gets the updated definition
+                      await pushObj(
+                        workspaceId,
+                        target,
+                        undefined,
+                        undefined,
+                        opts.plainSecrets ?? false,
+                        alreadySynced,
+                        opts.message,
+                      );
+                    } else {
+                      // Flow folder doesn't exist locally — delete on server
+                      const remotePath = extractResourceName(target, "flow");
+                      if (remotePath) {
+                        await wmill.deleteFlowByPath({
+                          workspace: workspaceId,
+                          path: remotePath,
+                        });
+                      }
+                    }
+                  }
                   break;
                 case "app":
-                  await wmill.deleteApp({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, getDeleteSuffix("app", "json")),
-                  });
+                  if (isAppFolderMetadataFile(target)) {
+                    // Metadata file deleted — delete the entire app
+                    await wmill.deleteApp({
+                      workspace: workspaceId,
+                      path: removeSuffix(target, getDeleteSuffix("app", "json")),
+                    });
+                  } else {
+                    // Inline script file deleted within app folder
+                    const appFolder = extractFolderPath(target, "app");
+                    let appFolderExists = false;
+                    if (appFolder) {
+                      try {
+                        await stat(appFolder);
+                        appFolderExists = true;
+                      } catch {
+                        // folder doesn't exist
+                      }
+                    }
+                    if (appFolderExists) {
+                      // Re-push the entire app so the backend gets the updated definition
+                      await pushObj(
+                        workspaceId,
+                        target,
+                        undefined,
+                        undefined,
+                        opts.plainSecrets ?? false,
+                        alreadySynced,
+                        opts.message,
+                      );
+                    } else {
+                      // App folder doesn't exist locally — delete on server
+                      const remotePath = extractResourceName(target, "app");
+                      if (remotePath) {
+                        await wmill.deleteApp({
+                          workspace: workspaceId,
+                          path: remotePath,
+                        });
+                      }
+                    }
+                  }
                   break;
                 case "raw_app":
                   if (isRawAppFolderMetadataFile(target)) {
