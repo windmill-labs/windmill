@@ -97,14 +97,13 @@ impl ApiServer {
     async fn start_inner(db: Pool<Postgres>, agent_mode: bool) -> anyhow::Result<Self> {
         let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
 
-        let sock = tokio::net::TcpListener::bind("127.0.0.1:0")
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .map_err(|e| anyhow::anyhow!("failed to bind TCP listener: {}", e))?;
 
-        let addr = sock
+        let addr = listener
             .local_addr()
             .map_err(|e| anyhow::anyhow!("failed to get local address: {}", e))?;
-        drop(sock);
         let (port_tx, _port_rx) = tokio::sync::oneshot::channel::<String>();
         let name = next_worker_name();
         tracing::info!("starting api server for name={name}");
@@ -112,7 +111,7 @@ impl ApiServer {
             db.clone(),
             None,
             None,
-            addr,
+            listener,
             rx,
             port_tx,
             agent_mode,

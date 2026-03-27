@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.664.0
+  version: 1.666.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -1027,13 +1027,13 @@ components:
                 JSON Schema object defining structured output format. Used when you need the AI to return data in a specific shape.
                 Supports standard JSON Schema properties: type, properties, required, items, enum, pattern, minLength, maxLength, minimum, maximum, etc.
                 Example: { type: 'object', properties: { name: { type: 'string' }, age: { type: 'integer' } }, required: ['name'] }
-            user_images:
+            user_attachments:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
               description: |
-                Array of image references for vision-capable models.
+                Array of file references (images or PDFs) for the AI agent.
                 Format: Array<{ bucket: string, key: string }> - S3 object references
-                Example: [{ bucket: 'my-bucket', key: 'images/photo.jpg' }]
+                Example: [{ bucket: 'my-bucket', key: 'documents/report.pdf' }]
             max_completion_tokens:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'

@@ -921,6 +921,7 @@
 
 		document.addEventListener('keydown', globalKeyDownHandler)
 
+
 		return () => {
 			document.removeEventListener('keydown', globalKeyDownHandler)
 		}

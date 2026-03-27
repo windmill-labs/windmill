@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.664.0
+  version: 1.666.0
   title: Windmill API
 
   contact:
@@ -2714,6 +2714,30 @@ paths:
                 items:
                   $ref: "#/components/schemas/DependencyDependent"
 
+  /w/{workspace}/workspaces/get_imports/{importer_path}:
+    get:
+      summary: get script imports for an importer path
+      operationId: getImports
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: importer_path
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The script path to get imports for
+      responses:
+        "200":
+          description: list of imported script paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/workspaces/get_dependents_amounts:
     post:
       summary: get dependents amounts for multiple imported paths
@@ -4834,6 +4858,11 @@ paths:
                 mcp_server_url:
                   type: string
                   description: "MCP server URL for MCP OAuth token refresh"
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                  description: "OAuth scopes to use for token refresh. Overrides instance-level scopes."
               required:
                 - refresh_token
                 - expires_in

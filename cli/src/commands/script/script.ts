@@ -494,6 +494,7 @@ export async function handleFile(
       const body = {
         ...requestBodyCommon,
         parent_hash: remote.hash,
+        auto_parent: true,
       };
       const execTime = await createScript(
         bundleContent,

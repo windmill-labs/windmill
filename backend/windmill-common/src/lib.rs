@@ -86,6 +86,7 @@ pub mod schedule;
 pub mod schema;
 pub mod scripts;
 pub mod secret_backend;
+pub mod sensitive_log_masks;
 pub mod server;
 pub mod ssrf;
 #[cfg(feature = "private")]

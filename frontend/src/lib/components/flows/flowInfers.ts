@@ -140,10 +140,10 @@ export const AI_AGENT_SCHEMA: Schema = {
 			format: 'json-schema',
 			showExpr: "fields.output_type === 'text'"
 		},
-		user_images: {
+		user_attachments: {
 			type: 'array',
 			description:
-				'Array of images to give as input to the AI agent. Requires a configured workspace S3 storage.',
+				'Array of files (images or PDFs) to give as input to the AI agent. Requires a configured workspace S3 storage.',
 			items: {
 				type: 'object',
 				resourceType: 's3object'
@@ -176,7 +176,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 		'streaming',
 		'memory',
 		'output_schema',
-		'user_images',
+		'user_attachments',
 		'max_completion_tokens',
 		'temperature',
 		'max_iterations'
@@ -186,6 +186,12 @@ export const AI_AGENT_SCHEMA: Schema = {
 function migrateAiAgentInputTransforms(
 	inputTransforms: Record<string, InputTransform>
 ): Record<string, InputTransform> {
+	// Migrate user_images → user_attachments
+	if ('user_images' in inputTransforms && !('user_attachments' in inputTransforms)) {
+		inputTransforms.user_attachments = inputTransforms.user_images
+		delete inputTransforms.user_images
+	}
+
 	// Check if this has the legacy format
 	if ('messages_context_length' in inputTransforms && !('memory' in inputTransforms)) {
 		const legacyValue = inputTransforms.messages_context_length
