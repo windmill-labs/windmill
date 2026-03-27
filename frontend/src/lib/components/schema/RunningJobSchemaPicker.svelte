@@ -5,7 +5,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { ExternalLink } from 'lucide-svelte'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { Cell, Row } from '$lib/components/table'
 	import { twMerge } from 'tailwind-merge'
 
@@ -75,7 +75,7 @@
 					<div class="center-center {hovering ? '' : '!hidden'}">
 						<a
 							target="_blank"
-							href="{base}/run/{job.id}?workspace={$workspaceStore}"
+							href="{$wsBase}/run/{job.id}"
 							class="text-right float-right text-secondary"
 							title="See run detail in a new tab"
 						>

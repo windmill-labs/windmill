@@ -19,6 +19,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { BellOff, Bell, ExternalLink, Settings } from 'lucide-svelte'
 	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import Notification from '$lib/components/common/alert/Notification.svelte'
 
 	interface Props {
@@ -277,7 +278,7 @@
 								<Button
 									size="xs"
 									color="light"
-									href="{base}/workspace_settings?tab=error_handler"
+									href="{$wsBase}/workspace_settings?tab=error_handler"
 									target="_blank"
 								>
 									Workspace Critical Alert Settings <ExternalLink size="16" />
@@ -290,7 +291,7 @@
 				<Button
 					size="xs"
 					variant="default"
-					href="{base}/workspace_settings?tab=error_handler"
+					href="{$wsBase}/workspace_settings?tab=error_handler"
 					target="_blank"
 				>
 					<List horizontal justify="between" gap="sm">

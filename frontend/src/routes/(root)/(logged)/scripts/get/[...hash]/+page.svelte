@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import {
 		JobService,
 		ScriptService,
@@ -309,7 +309,7 @@
 					skipPreprocessor: true
 				})
 			}
-			await goto('/run/' + run + '?workspace=' + $workspaceStore)
+			await goto('/run/' + run)
 		} catch (err) {
 			runLoading = false
 			sendUserToast(`Could not create job: ${err.body}`, true)
@@ -348,7 +348,7 @@
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
-					href: `${base}/scripts/add?template=${script.path}`,
+					href: `${$wsBase}/scripts/add?template=${script.path}`,
 					unifiedSize: 'md',
 					variant: 'subtle',
 					disabled: !showEditButtons,
@@ -381,7 +381,7 @@
 		buttons.push({
 			label: `Runs`,
 			buttonProps: {
-				href: `${base}/runs/${script.path}`,
+				href: `${$wsBase}/runs/${script.path}`,
 				unifiedSize: 'md',
 				variant: 'subtle',
 				startIcon: Play
@@ -441,7 +441,7 @@
 				buttons.push({
 					label: 'Edit',
 					buttonProps: {
-						href: `${base}/scripts/edit/${script.path}?${
+						href: `${$wsBase}/scripts/edit/${script.path}?${
 							topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
 						}`,
 						unifiedSize: 'md',
@@ -613,7 +613,7 @@
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
-		await goto('/scripts/get/' + e.detail + `?workspace=${$workspaceStore}`)
+		await goto('/scripts/get/' + e.detail)
 		loadScript(page.params.hash ?? '')
 	}}
 />
@@ -632,7 +632,7 @@
 				openDetails
 				on:openDetails={(e) => {
 					if (script) {
-						goto(`/scripts/get/${e.detail.version}?workspace=${$workspaceStore}`)
+						goto(`/scripts/get/${e.detail.version}`)
 					}
 					versionsDrawerOpen = false
 				}}
@@ -663,7 +663,7 @@
 				onSaved={can_write
 					? async (newPath) => {
 							if (newPath !== script?.path) {
-								await goto(`/scripts/get/${newPath}?workspace=${$workspaceStore}`)
+								await goto(`/scripts/get/${newPath}`)
 							} else {
 								loadScript(page.params.hash ?? '')
 							}
@@ -750,7 +750,7 @@
 									<div class="mt-2"></div>
 									<Alert type="warning" title="Not HEAD">
 										This hash is not HEAD (latest non-archived version at this path) :
-										<a href="{base}/scripts/get/{topHash}?workspace={$workspaceStore}"
+										<a href="{$wsBase}/scripts/get/{topHash}"
 											>Go to the HEAD of this path</a
 										>
 									</Alert>
@@ -784,7 +784,7 @@
 								Deployment in progress
 								{#if deploymentJobId}
 									<a
-										href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+										href="/run/{deploymentJobId}"
 										class="underline"
 										target="_blank">view job</a
 									>

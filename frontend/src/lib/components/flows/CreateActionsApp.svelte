@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
 
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -40,12 +39,12 @@
 
 	function selectLowCode() {
 		appTypeModalOpen = false
-		goto(`${base}/apps/add?nodraft=true`)
+		goto('/apps/add?nodraft=true')
 	}
 
 	function selectFullCode() {
 		appTypeModalOpen = false
-		goto(`${base}/apps_raw/add?nodraft=true`)
+		goto('/apps_raw/add?nodraft=true')
 	}
 </script>
 

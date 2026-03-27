@@ -32,7 +32,8 @@
 
 	import { twMerge } from 'tailwind-merge'
 	import ContentSearchInner from '../ContentSearchInner.svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { toWorkspacePath } from '$lib/workspaceUrl'
 	import QuickMenuItem from '../search/QuickMenuItem.svelte'
 	import { devopsRole, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import uFuzzy from '@leeoniya/ufuzzy'
@@ -420,7 +421,7 @@
 			open = false
 			goto(path)
 		} else {
-			window.open(path, '_blank')
+			window.open(toWorkspacePath(path), '_blank')
 		}
 	}
 

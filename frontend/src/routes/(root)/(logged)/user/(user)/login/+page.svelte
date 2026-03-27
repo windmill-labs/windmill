@@ -11,6 +11,7 @@
 		whitelabelNameStore
 	} from '$lib/stores'
 	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
+	import { extractWorkspaceFromPath } from '$lib/workspaceUrl'
 	import { getUserExt } from '$lib/user'
 	import { WindmillIcon } from '$lib/components/icons'
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
@@ -69,7 +70,10 @@
 		if ($workspaceStore) {
 			goto(rd ?? '/')
 		} else {
-			let workspaceTarget = parseQueryParams(rd ?? undefined)['workspace']
+			// Extract workspace from rd path (/w/<ws>/...) or query param (?workspace=X)
+			let workspaceTarget =
+				extractWorkspaceFromPath(rd ?? '') ??
+				parseQueryParams(rd ?? undefined)['workspace']
 			if (rd && workspaceTarget) {
 				$workspaceStore = workspaceTarget
 				goto(rd)

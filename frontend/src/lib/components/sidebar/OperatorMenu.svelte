@@ -16,6 +16,7 @@
 		Table2
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import {
@@ -52,16 +53,16 @@
 
 	let mainMenuLinks = $derived(
 		[
-			{ label: 'Home', id: 'home', href: `${base}/`, icon: Home },
-			{ label: 'Runs', id: 'runs', href: `${base}/runs`, icon: Play },
-			{ label: 'Schedules', id: 'schedules', href: `${base}/schedules`, icon: Calendar },
+			{ label: 'Home', id: 'home', href: `${$wsBase}/`, icon: Home },
+			{ label: 'Runs', id: 'runs', href: `${$wsBase}/runs`, icon: Play },
+			{ label: 'Schedules', id: 'schedules', href: `${$wsBase}/schedules`, icon: Calendar },
 			// Add Tutorials to main menu only if not all completed and not skipped
 			...($tutorialsToDo.length > 0 && !$skippedAll
 				? [
 						{
 							label: 'Tutorials',
 							id: 'tutorials',
-							href: `${base}/tutorials`,
+							href: `${$wsBase}/tutorials`,
 							icon: GraduationCap
 						}
 					]
@@ -88,32 +89,32 @@
 			{
 				label: 'Resources',
 				id: 'resources',
-				href: `${base}/resources`
+				href: `${$wsBase}/resources`
 			},
 			{
 				label: 'Variables',
 				id: 'variables',
-				href: `${base}/variables`
+				href: `${$wsBase}/variables`
 			},
 			{
 				label: 'Assets',
 				id: 'assets',
-				href: `${base}/assets`
+				href: `${$wsBase}/assets`
 			},
 			{
 				label: 'Groups',
 				id: 'groups',
-				href: `${base}/groups`
+				href: `${$wsBase}/groups`
 			},
 			{
 				label: 'Folders',
 				id: 'folders',
-				href: `${base}/folders`
+				href: `${$wsBase}/folders`
 			},
 			{
 				label: 'Workers',
 				id: 'workers',
-				href: `${base}/workers`
+				href: `${$wsBase}/workers`
 			}
 		].filter(filterLink)
 	)
@@ -122,52 +123,52 @@
 			{
 				label: 'Custom HTTP routes',
 				id: 'triggers',
-				href: `${base}/routes`
+				href: `${$wsBase}/routes`
 			},
 			{
 				label: 'Websocket triggers',
 				id: 'triggers',
-				href: `${base}/websocket_triggers`
+				href: `${$wsBase}/websocket_triggers`
 			},
 			{
 				label: 'Postgres triggers',
 				id: 'triggers',
-				href: `${base}/postgres_triggers`
+				href: `${$wsBase}/postgres_triggers`
 			},
 			{
 				label: 'Kafka triggers',
 				id: 'triggers',
-				href: `${base}/kafka_triggers`
+				href: `${$wsBase}/kafka_triggers`
 			},
 			{
 				label: 'NATS triggers',
 				id: 'triggers',
-				href: `${base}/nats_triggers`
+				href: `${$wsBase}/nats_triggers`
 			},
 			{
 				label: 'SQS triggers',
 				id: 'triggers',
-				href: `${base}/sqs_triggers`
+				href: `${$wsBase}/sqs_triggers`
 			},
 			{
 				label: 'GCP Pub/Sub triggers',
 				id: 'triggers',
-				href: `${base}/gcp_triggers`
+				href: `${$wsBase}/gcp_triggers`
 			},
 			{
 				label: 'MQTT triggers',
 				id: 'triggers',
-				href: `${base}/mqtt_triggers`
+				href: `${$wsBase}/mqtt_triggers`
 			},
 			{
 				label: 'Email triggers',
 				id: 'triggers',
-				href: `${base}/email_triggers`
+				href: `${$wsBase}/email_triggers`
 			},
 			{
 				label: 'Audit logs',
 				id: 'audit_logs',
-				href: `${base}/audit_logs`
+				href: `${$wsBase}/audit_logs`
 			}
 		].filter(filterLink)
 	)

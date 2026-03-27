@@ -1,13 +1,19 @@
 import { goto as svelteGoto } from '$app/navigation'
 import { base as svelteBase } from '$app/paths'
+import { toWorkspacePath } from './workspaceUrl'
 
 export function goto(path: string, options = {}) {
-	if (svelteBase == '' || path.startsWith('?')) {
+	if (path.startsWith('?') || path.startsWith('#')) {
 		return svelteGoto(path, options)
-	} else {
-		const fullPath = path.startsWith(svelteBase) ? path : `${svelteBase}${path}`
-		return svelteGoto(fullPath, options)
 	}
+
+	let fullPath = toWorkspacePath(path)
+
+	if (svelteBase && !fullPath.startsWith(svelteBase)) {
+		fullPath = `${svelteBase}${fullPath}`
+	}
+
+	return svelteGoto(fullPath, options)
 }
 
 export async function setQuery(

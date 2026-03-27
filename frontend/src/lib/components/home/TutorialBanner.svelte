@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { GraduationCap, X } from 'lucide-svelte'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { goto } from '$app/navigation'
 	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
@@ -115,7 +115,7 @@
 	}
 
 	function goToTutorials() {
-		goto(`${base}/tutorials`)
+		goto(`${$wsBase}/tutorials`)
 	}
 </script>
 

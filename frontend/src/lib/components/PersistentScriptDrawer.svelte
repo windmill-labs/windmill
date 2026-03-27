@@ -4,7 +4,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { displayDate, sleep, sendUserToast } from '$lib/utils'
 	import TableCustom from './TableCustom.svelte'
 	import { Hourglass, Loader2, Play, RefreshCw } from 'lucide-svelte'
@@ -139,7 +139,7 @@
 							<td class="text-xs">
 								<a
 									class="pr-3"
-									href="{base}/scripts/get/{scriptHash}?workspace={$workspaceStore}"
+									href="{$wsBase}/scripts/get/{scriptHash}"
 									target="_blank"
 								>
 									{scriptHash}
@@ -148,7 +148,7 @@
 							<td class="text-xs">
 								<a
 									class="pr-3"
-									href="{base}/run/{jobId}?workspace={$workspaceStore}"
+									href="{$wsBase}/run/{jobId}"
 									target="_blank">{jobId.substring(24)}</a
 								>
 							</td>

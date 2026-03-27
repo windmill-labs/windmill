@@ -7,6 +7,7 @@
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/state'
 	import { goto as gotoUrl } from '$app/navigation'
@@ -486,7 +487,7 @@
 															{/key}
 															{#if role_source === 'instance_group' && (super_admin || devops)}
 																<a
-																	href="{base}/groups"
+																	href="{$wsBase}/groups"
 																	class="text-2xs text-tertiary mt-0.5 ml-1 hover:underline"
 																	title="Role set by instance group. You can upgrade to a higher role manually, but demoting to &quot;User&quot; requires removing them from the group."
 																	onclick={() => closeDrawer?.()}

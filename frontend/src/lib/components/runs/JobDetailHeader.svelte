@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { type Job } from '$lib/gen'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { displayDate, truncateRev, truncateHash } from '$lib/utils'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
@@ -189,14 +189,14 @@
 				<Tooltip>
 					{#snippet text()}
 						This job was run on worker:
-						<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+						<a href={`${$wsBase}/runs/?job_kinds=all&worker=${job?.worker}`}>
 							{job?.worker}
 						</a>
 						<br />
 						<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
 					{/snippet}
 					<a
-						href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}
+						href={`${$wsBase}/runs/?job_kinds=all&worker=${job?.worker}`}
 						class="flex items-center gap-1 text-primary"
 					>
 						<span class="truncate flex-shrink min-w-0">{displayValue}</span>
@@ -231,7 +231,7 @@
 				Triggered by
 			{/if}
 			<a
-				href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}
+				href={`${$wsBase}/run/${job.parent_job}`}
 				class="flex items-center gap-1"
 			>
 				{displayValue}
@@ -249,7 +249,7 @@
 						icon: Link,
 						action: () =>
 							navigator.clipboard.writeText(
-								`${window.location.origin}${base}/run/${job.id}?workspace=${job.workspace_id}`
+								`${window.location.origin}${$wsBase}/run/${job.id}`
 							)
 					},
 					{
@@ -300,7 +300,7 @@
 						<span class="text-secondary flex-shrink-0">Job ID</span>
 						<span class="text-primary">
 							<a
-								href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
+								href={`${$wsBase}/run/${job.id}`}
 								class="flex items-center gap-1 min-w-0"
 							>
 								<span class="truncate flex-shrink min-w-0">{truncateRev(job.id, 8)}</span>
@@ -388,7 +388,7 @@
 							{#if job.script_path && (job.job_kind === 'script' || job.job_kind === 'flow' || job.job_kind === 'singlestepflow')}
 								{@const stem = job.job_kind === 'script' ? 'scripts' : 'flows'}
 								{@const isScript = job.job_kind === 'script'}
-								{@const viewHref = `${base}/${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+								{@const viewHref = `${$wsBase}/${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 								<a
 									href={viewHref}
 									class="text-emphasis {compact
@@ -479,7 +479,7 @@
 								<span class="text-secondary flex-shrink-0">Job ID</span>
 								<span class="text-primary">
 									<a
-										href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
+										href={`${$wsBase}/run/${job.id}`}
 										class="flex items-center gap-1 min-w-0"
 									>
 										<span class="truncate flex-shrink min-w-0">{truncateRev(job.id, 8)}</span>

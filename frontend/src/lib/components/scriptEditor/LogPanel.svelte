@@ -10,7 +10,7 @@
 		type WorkflowStatus
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { displayDate } from '$lib/utils'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import Tab from '../common/tabs/Tab.svelte'
@@ -244,7 +244,7 @@
 										<Cell first>
 											<a
 												class="pr-3"
-												href="{base}/run/{id}?workspace={workspace ?? $workspaceStore}"
+												href="{$wsBase}/run/{id}"
 												target="_blank">{id.substring(30)}</a
 											>
 										</Cell>

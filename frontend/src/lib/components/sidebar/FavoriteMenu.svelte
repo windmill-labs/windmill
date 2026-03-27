@@ -1,15 +1,18 @@
 <script module lang="ts">
+	import { getWsBase } from '$lib/workspaceUrl'
+
 	export type FavoriteKind = Exclude<
 		NonNullable<StarData['requestBody']>['favorite_kind'],
 		undefined
 	>
 
 	export function getFavoriteHref(path: string, kind: FavoriteKind) {
+		const wsPrefix = getWsBase()
 		return {
-			script: `/scripts/get/${path}`,
-			flow: `/flows/get/${path}`,
-			app: `/apps/get/${path}`,
-			raw_app: `/apps_raw/get/${path}`,
+			script: `${wsPrefix}/scripts/get/${path}`,
+			flow: `${wsPrefix}/flows/get/${path}`,
+			app: `${wsPrefix}/apps/get/${path}`,
+			raw_app: `${wsPrefix}/apps_raw/get/${path}`,
 			asset: '#'
 		}[kind]
 	}

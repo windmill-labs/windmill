@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
@@ -102,8 +102,8 @@
 	aiId={`flow-row-${flow.path}`}
 	aiDescription={`Button to access the form to run the flow ${flow.summary ?? flow.path}`}
 	href={flow.draft_only
-		? `${base}/flows/edit/${flow.path}?nodraft=true`
-		: `${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
+		? `${$wsBase}/flows/edit/${flow.path}?nodraft=true`
+		: `${$wsBase}/flows/get/${flow.path}`}
 	kind="flow"
 	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
 	{marked}
@@ -131,7 +131,7 @@
 							wrapperClasses="w-20"
 							unifiedSize="md"
 							startIcon={{ icon: Pen }}
-							href="{base}/flows/edit/{flow.path}?nodraft=true"
+							href="{$wsBase}/flows/edit/{flow.path}?nodraft=true"
 							aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 							aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 						>
@@ -187,12 +187,12 @@
 					{
 						displayName: 'View runs',
 						icon: List,
-						href: `${base}/runs/${path}`
+						href: `${$wsBase}/runs/${path}`
 					},
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `${base}/flows/add?template=${path}`,
+						href: `${$wsBase}/flows/add?template=${path}`,
 						disabled: !showEditButton,
 						hide: $userStore?.operator
 					},
@@ -205,7 +205,7 @@
 					{
 						displayName: 'Audit logs',
 						icon: Eye,
-						href: `${base}/audit_logs?resource=${path}`,
+						href: `${$wsBase}/audit_logs?resource=${path}`,
 						hide: $userStore?.operator
 					},
 					{

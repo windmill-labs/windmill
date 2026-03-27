@@ -3,7 +3,6 @@
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import { navigating, page } from '$app/stores'
 	import Popover from '../Popover.svelte'
-	import { base } from '$app/paths'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { goto } from '$app/navigation'
 	import { twMerge } from 'tailwind-merge'
@@ -40,7 +39,7 @@
 	let isSelected = $state(false)
 
 	navigating.subscribe(() => {
-		if (href === `${base}/`) {
+		if (href.endsWith('/')) {
 			isSelected = $page.url.pathname === href
 		} else {
 			isSelected = $page.url.pathname.startsWith(href)

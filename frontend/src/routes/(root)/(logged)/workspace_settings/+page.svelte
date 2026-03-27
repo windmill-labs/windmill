@@ -51,6 +51,7 @@
 		type S3ResourceSettings
 	} from '$lib/workspace_settings'
 	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
@@ -1315,8 +1316,8 @@
 										}}
 										onSelect={editSlackCommand}
 										connectHref="{base}/api/oauth/connect_slack"
-										createScriptHref="{base}/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
-										createFlowHref="{base}/flows/add?hub=28"
+										createScriptHref="{$wsBase}/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+										createFlowHref="{$wsBase}/flows/add?hub=28"
 										documentationLink="https://www.windmill.dev/docs/integrations/slack"
 										onLoadSettings={loadSettings}
 										display_name={slack_team_name}
@@ -1451,8 +1452,8 @@
 											}}
 											onSelect={editTeamsCommand}
 											connectHref={undefined}
-											createScriptHref="{base}/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
-											createFlowHref="{base}/flows/add?hub=58"
+											createScriptHref="{$wsBase}/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
+											createFlowHref="{$wsBase}/flows/add?hub=58"
 											documentationLink="https://www.windmill.dev/docs/integrations/teams"
 											onLoadSettings={loadSettings}
 											display_name={teams_team_name}
@@ -1684,7 +1685,7 @@
 											/>
 											<Button
 												variant="default"
-												href={`${base}/scripts/add?lang=bun#` +
+												href={`${$wsBase}/scripts/add?lang=bun#` +
 													encodeState({
 														path: 'f/success_handler',
 														summary: 'Workspace Success Handler',

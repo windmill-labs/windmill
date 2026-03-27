@@ -2,7 +2,7 @@
 	import { ScriptService, FlowService, type Script, AppService } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { createEventDispatcher, untrack } from 'svelte'
 
 	import Select from './select/Select.svelte'
@@ -158,7 +158,7 @@
 						target="_blank"
 						variant="default"
 						size="xs"
-						href="{base}/flows/edit/{scriptPath}">Edit</Button
+						href="{$wsBase}/flows/edit/{scriptPath}">Edit</Button
 					>
 				{/if}
 				{#if allowView}
@@ -181,7 +181,7 @@
 						target="_blank"
 						variant="default"
 						size="xs"
-						href="{base}/apps/edit/{scriptPath}"
+						href="{$wsBase}/apps/edit/{scriptPath}"
 					>
 						Edit
 					</Button>
@@ -192,7 +192,7 @@
 						size="xs"
 						target="_blank"
 						startIcon={{ icon: Code }}
-						href="{base}/apps/get/{scriptPath}"
+						href="{$wsBase}/apps/get/{scriptPath}"
 					>
 						View
 					</Button>
@@ -206,7 +206,7 @@
 						target="_blank"
 						variant="default"
 						size="xs"
-						href="{base}/scripts/edit/{scriptPath}"
+						href="{$wsBase}/scripts/edit/{scriptPath}"
 					>
 						Edit
 					</Button>

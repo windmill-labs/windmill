@@ -1,5 +1,5 @@
 import { get } from 'svelte/store'
-import { base } from '$lib/base'
+import { getWsBase } from '$lib/workspaceUrl'
 import type { Schema, SupportedLanguage } from './common'
 import { FlowService, type Script, ScriptService, ScheduleService } from './gen'
 import { workspaceStore } from './stores'
@@ -125,7 +125,7 @@ export function scriptPathToHref(path: string, hubBaseUrl: string): string {
 	if (path.startsWith('hub/')) {
 		return hubBaseUrl + '/from_version/' + path.substring(4)
 	} else {
-		return `${base}/scripts/get/${path}?workspace=${get(workspaceStore)}`
+		return `${getWsBase()}/scripts/get/${path}`
 	}
 }
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 
@@ -81,7 +81,7 @@
 						size="sm"
 						startIcon={{ icon: Pen }}
 						variant="subtle"
-						href="{base}/apps/edit/{app.path}?nodraft=true">Edit</Button
+						href="{$wsBase}/apps/edit/{app.path}?nodraft=true">Edit</Button
 					>
 				</div>
 			{/if}

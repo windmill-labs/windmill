@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ConcurrencyGroup } from '$lib/gen'
 	import { ConcurrencyGroupsService } from '$lib/gen'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button } from '$lib/components/common'
@@ -91,7 +91,7 @@
 							<tr>
 								<td>
 									<a
-										href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrency_key}`}
+										href={`${$wsBase}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrency_key}`}
 										>{concurrency_key}
 									</a>
 								</td>

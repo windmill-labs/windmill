@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import { Button } from '$lib/components/common'
@@ -41,13 +40,13 @@
 		const parsed =
 			wacImportType === 'yaml' ? YAML.parse(pendingWacRaw ?? '') : JSON.parse(pendingWacRaw ?? '')
 		$importScriptStore = parsed
-		await goto(`${base}/scripts/add?import=true`)
+		await goto('/scripts/add?import=true')
 		wacDrawer?.closeDrawer?.()
 	}
 
 	function handleFlowClick() {
 		if (skipModal) {
-			goto(`${base}/flows/add?nodraft=true`)
+			goto('/flows/add?nodraft=true')
 		} else {
 			flowModalOpen = true
 		}
@@ -55,17 +54,17 @@
 
 	function selectFlowEditor() {
 		flowModalOpen = false
-		goto(`${base}/flows/add?nodraft=true`)
+		goto('/flows/add?nodraft=true')
 	}
 
 	function selectWacPython() {
 		flowModalOpen = false
-		goto(`${base}/scripts/add?nodraft=true&wac=python`)
+		goto('/scripts/add?nodraft=true&wac=python')
 	}
 
 	function selectWacTypescript() {
 		flowModalOpen = false
-		goto(`${base}/scripts/add?nodraft=true&wac=typescript`)
+		goto('/scripts/add?nodraft=true&wac=typescript')
 	}
 
 	function toggleSkipModal() {

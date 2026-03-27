@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { Code2, Plus } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 
@@ -14,7 +14,7 @@
 		unifiedSize="lg"
 		variant="accent"
 		startIcon={{ icon: Plus }}
-		href="{base}/scripts/add"
+		href="{$wsBase}/scripts/add"
 		endIcon={{ icon: Code2 }}
 	>
 		Script

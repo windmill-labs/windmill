@@ -15,7 +15,7 @@
 		type FlowValue
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import WorkflowTimeline from './WorkflowTimeline.svelte'
 	import DisplayResult from './DisplayResult.svelte'
@@ -2058,8 +2058,8 @@
 																			class="text-right text-xs"
 																			rel="noreferrer"
 																			target="_blank"
-																			href="{base}/run/{node.job_id ??
-																				''}?workspace={job?.workspace_id}"
+																			href="{$wsBase}/run/{node.job_id ??
+																				''}"
 																		>
 																			{truncateRev(node.job_id ?? '', 10)}
 																			<ExternalLink size={12} class="inline-block" />

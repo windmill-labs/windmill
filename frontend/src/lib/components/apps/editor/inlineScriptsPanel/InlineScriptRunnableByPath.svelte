@@ -3,7 +3,7 @@
 
 	const bubble = createBubbler()
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
 	import { emptySchema, sendUserToast } from '$lib/utils'
@@ -259,7 +259,7 @@
 				startIcon={{ icon: Eye }}
 				endIcon={{ icon: ExternalLink }}
 				target="_blank"
-				href="{base}/flows/get/{runnable.path}?workspace={$workspaceStore}"
+				href="{$wsBase}/flows/get/{runnable.path}"
 			>
 				Details
 			</Button>

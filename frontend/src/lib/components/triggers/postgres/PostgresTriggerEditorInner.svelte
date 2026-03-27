@@ -30,7 +30,7 @@
 	import RelationPicker from './RelationPicker.svelte'
 	import { invalidRelations, savePostgresTriggerFromCfg } from './utils'
 	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
@@ -431,7 +431,7 @@
 					postgres_resource_path
 				}
 			})
-			window.open(`${base}/scripts/add?id=${templateId}`)
+			window.open(`${$wsBase}/scripts/add?id=${templateId}`)
 			loading = false
 		} catch (error) {
 			loading = false

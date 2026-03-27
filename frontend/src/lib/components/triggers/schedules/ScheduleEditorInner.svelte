@@ -24,7 +24,7 @@
 	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
@@ -664,7 +664,7 @@
 							variant="default"
 							startIcon={{ icon: List }}
 							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-							href={`${base}/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
+							href={`${$wsBase}/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
 						>
 							View runs
 						</Button>
