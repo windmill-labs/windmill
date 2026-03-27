@@ -1,4 +1,3 @@
-use serde_json::json;
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
