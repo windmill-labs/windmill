@@ -79,10 +79,18 @@ if (process.env["DATABASE_URL"]) {
   const { cleanupStaleTestResources } = await import("./cargo_backend.ts");
   await cleanupStaleTestResources();
 
-  const { getTestBackend } = await import("./test_backend.ts");
+  const { getTestBackend, cleanupTestBackend } = await import("./test_backend.ts");
   console.log("Pre-starting test backend...");
   await getTestBackend();
   console.log("Test backend is ready for all tests.");
+
+  // Register afterAll to do full async cleanup (kill processes + drop DB)
+  // when all tests complete. The synchronous "exit" handler alone can't
+  // drop databases or scan /proc for orphaned child processes.
+  const { afterAll } = await import("bun:test");
+  afterAll(async () => {
+    await cleanupTestBackend();
+  });
 }
 
 // When TEST_CLI_RUNTIME=node, also build the npm package so tests

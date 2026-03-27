@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { Subprocess } from "bun";
 
-const USE_PROCESS_GROUPS = process.platform === "linux";
+const IS_LINUX = process.platform === "linux";
 
 export interface CargoBackendConfig {
   /** PostgreSQL connection string (without database name) */
@@ -180,16 +180,10 @@ export class CargoBackend {
 
     console.log("Stopping Cargo backend...");
 
-    // Kill the backend process (and its entire process group on Linux)
+    // Kill the backend process
     if (this.process) {
-      const pid = this.process.pid;
       try {
-        if (USE_PROCESS_GROUPS && pid) {
-          // Kill the entire process group (cargo + windmill child)
-          process.kill(-pid, "SIGTERM");
-        } else {
-          this.process.kill();
-        }
+        this.process.kill();
         // Wait a bit for graceful shutdown
         await Promise.race([
           this.process.exited,
@@ -198,20 +192,12 @@ export class CargoBackend {
       } catch {
         // Process may already be dead
       }
-      // Force-kill any survivors
-      if (pid) {
-        try {
-          if (USE_PROCESS_GROUPS) {
-            process.kill(-pid, "SIGKILL");
-          } else {
-            process.kill(pid, "SIGKILL");
-          }
-        } catch {
-          // Already dead — expected
-        }
-      }
       this.process = null;
     }
+
+    // Kill any child processes (e.g. the windmill binary spawned by cargo)
+    // by matching our unique database name in their environment
+    await this.killProcessesByDbName();
 
     // Drop the test database
     await this.dropDatabase();
@@ -325,6 +311,39 @@ export class CargoBackend {
   }
 
   /**
+   * Kill any processes whose environment contains our unique database name.
+   * This catches child processes (e.g. the windmill binary spawned by cargo run)
+   * that survive after the direct child is killed.
+   */
+  private async killProcessesByDbName(): Promise<void> {
+    if (!IS_LINUX) return;
+    try {
+      const pgrepProc = Bun.spawn(["pgrep", "-f", "windmill"], {
+        stdout: "pipe", stderr: "pipe",
+      });
+      const output = await new Response(pgrepProc.stdout).text();
+      await new Response(pgrepProc.stderr).text();
+      await pgrepProc.exited;
+
+      for (const pidStr of output.trim().split("\n").filter(Boolean)) {
+        const pid = Number(pidStr);
+        if (isNaN(pid)) continue;
+        try {
+          const environ = await readFile(`/proc/${pid}/environ`, "utf-8");
+          if (environ.includes(this.dbName)) {
+            console.log(`Killing child backend process: ${pid}`);
+            process.kill(pid, "SIGKILL");
+          }
+        } catch {
+          // Process exited or we lack permissions
+        }
+      }
+    } catch {
+      // pgrep not available or no matches
+    }
+  }
+
+  /**
    * Start the backend process using cargo run
    */
   private stderrChunks: Uint8Array[] = [];
@@ -374,12 +393,7 @@ export class CargoBackend {
       console.log(`Starting backend using binary: ${this.config.binaryPath}`);
       console.log(`   DATABASE_URL: ${databaseUrl}`);
 
-      // Use setsid on Linux so we can kill the entire process group on cleanup
-      const command = USE_PROCESS_GROUPS
-        ? ["setsid", this.config.binaryPath]
-        : [this.config.binaryPath];
-
-      this.process = Bun.spawn(command, {
+      this.process = Bun.spawn([this.config.binaryPath], {
         env,
         stdout: "pipe",
         stderr: "pipe",
@@ -398,13 +412,7 @@ export class CargoBackend {
       console.log(`   DATABASE_URL: ${databaseUrl}`);
       console.log(`   Backend dir: ${this.config.backendDir}`);
 
-      // Use setsid on Linux so we can kill the entire process group
-      // (both cargo and the windmill binary it spawns) on cleanup
-      const command = USE_PROCESS_GROUPS
-        ? ["setsid", "cargo", ...cargoArgs]
-        : ["cargo", ...cargoArgs];
-
-      this.process = Bun.spawn(command, {
+      this.process = Bun.spawn(["cargo", ...cargoArgs], {
         cwd: this.config.backendDir,
         env,
         stdout: "pipe",
@@ -840,7 +848,7 @@ export async function cleanupStaleTestResources(postgresUrl?: string): Promise<v
   }
 
   // 2. Find and kill orphaned windmill processes from test runs
-  if (process.platform === "linux") {
+  if (IS_LINUX) {
     try {
       const pgrepProc = Bun.spawn(["pgrep", "-f", "target/(debug|release)/windmill"], {
         stdout: "pipe", stderr: "pipe",

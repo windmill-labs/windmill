@@ -592,17 +592,13 @@ function registerCleanup() {
   cleanupRegistered = true;
   process.on("exit", () => {
     if (globalBackend) {
-      // Synchronous kill — can't await in exit handler, but we CAN
-      // kill the entire process group synchronously on Linux
+      // Synchronous kill — can't await in exit handler.
+      // Kill the direct child (cargo); any orphaned windmill child processes
+      // will be cleaned up by cleanupStaleTestResources() on next startup.
       const pid = (globalBackend as any).backend?.process?.pid;
       if (pid) {
         try {
-          if (process.platform === "linux") {
-            // Kill entire process group (cargo + windmill child)
-            process.kill(-pid, "SIGKILL");
-          } else {
-            process.kill(pid, "SIGKILL");
-          }
+          process.kill(pid, "SIGKILL");
         } catch {
           // Best effort — process may already be dead
         }
