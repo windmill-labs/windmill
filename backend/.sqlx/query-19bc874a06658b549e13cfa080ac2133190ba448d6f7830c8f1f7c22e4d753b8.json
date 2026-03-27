@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value FROM metrics WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day' ORDER BY created_at DESC LIMIT 1",
+  "query": "SELECT value FROM global_settings WHERE name = 'slack'",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "4e6e4ecaa7a874b07b6599b6b7b3f307eb201534aa25d8a2049d1949f4ec9e77"
+  "hash": "19bc874a06658b549e13cfa080ac2133190ba448d6f7830c8f1f7c22e4d753b8"
 }

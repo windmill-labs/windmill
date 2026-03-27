@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO otel_traces (\n                trace_id, span_id, trace_state, parent_span_id, flags,\n                name, kind, start_time_unix_nano, end_time_unix_nano,\n                attributes, dropped_attributes_count,\n                events, dropped_events_count,\n                links, dropped_links_count,\n                status\n            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Bytea",
+        "Text",
+        "Bytea",
+        "Int4",
+        "Text",
+        "Int4",
+        "Int8",
+        "Int8",
+        "Jsonb",
+        "Int4",
+        "Jsonb",
+        "Int4",
+        "Jsonb",
+        "Int4",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5b5cb5339208847bd542f8d903d028803a286e69443a151cd1e3d16da7e8e4f7"
+}
