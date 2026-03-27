@@ -1792,7 +1792,7 @@ async fn process_notify_event(
                     reload_otel_tracing_proxy_setting(conn).await;
                     if worker_mode {
                         tracing::info!("OTEL tracing proxy setting changed, restarting worker");
-                        send_graceful_killpill(tx, db, 30, 10, "OTEL tracing proxy setting change")
+                        send_graceful_killpill(tx, db, 10, "OTEL tracing proxy setting change")
                             .await;
                     }
                 }
@@ -1801,12 +1801,12 @@ async fn process_notify_event(
                 }
                 EXPOSE_METRICS_SETTING => {
                     tracing::info!("Metrics setting changed, restarting");
-                    send_graceful_killpill(tx, db, 30, 10, "metrics setting change").await;
+                    send_graceful_killpill(tx, db, 10, "metrics setting change").await;
                 }
                 EMAIL_DOMAIN_SETTING => {
                     tracing::info!("Email domain setting changed");
                     if server_mode {
-                        send_graceful_killpill(tx, db, 30, 10, "email domain setting change").await;
+                        send_graceful_killpill(tx, db, 10, "email domain setting change").await;
                     }
                 }
                 EXPOSE_DEBUG_METRICS_SETTING => {
@@ -1842,19 +1842,19 @@ async fn process_notify_event(
                 }
                 OTEL_SETTING => {
                     tracing::info!("OTEL setting changed, restarting");
-                    send_graceful_killpill(tx, db, 30, 10, "OTEL setting change").await;
+                    send_graceful_killpill(tx, db, 10, "OTEL setting change").await;
                 }
                 REQUEST_SIZE_LIMIT_SETTING => {
                     if server_mode {
                         tracing::info!("Request limit size change detected, killing server expecting to be restarted");
-                        send_graceful_killpill(tx, db, 30, 10, "request size limit change").await;
+                        send_graceful_killpill(tx, db, 10, "request size limit change").await;
                     }
                 }
                 SAML_METADATA_SETTING => {
                     tracing::info!(
                         "SAML metadata change detected, killing server expecting to be restarted"
                     );
-                    send_graceful_killpill(tx, db, 30, 10, "SAML metadata change").await;
+                    send_graceful_killpill(tx, db, 10, "SAML metadata change").await;
                 }
                 HUB_BASE_URL_SETTING => {
                     if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
@@ -2054,28 +2054,28 @@ pub async fn run_workers(
 /// subsequent instances read existing schedules and shift their restart to maintain at least
 /// `safety_margin_secs` between consecutive restarts (must exceed the server startup time).
 ///
-/// With `max_delay_secs=30` and `safety_margin_secs=10`, up to 3 servers are guaranteed to
-/// never have overlapping downtime (given a startup time < 10s).
+/// Every server waits at least `DRAIN_DELAY_SECS` to let in-flight requests complete.
+/// Each subsequent server waits an additional `safety_margin_secs` after the previous one,
+/// guaranteeing zero downtime overlap.
 ///
-/// Falls back to a simple random delay if DB coordination fails.
+/// Falls back to drain-only delay if DB coordination fails.
 async fn send_graceful_killpill(
     tx: &KillpillSender,
     db: &Pool<Postgres>,
-    max_delay_secs: u64,
     safety_margin_secs: u64,
     context: &str,
 ) {
-    let max_delay = max_delay_secs.max(1);
-    let base_delay = rand::rng().random_range(0..max_delay);
+    // Minimum delay before any restart to let in-flight requests drain
+    const DRAIN_DELAY_SECS: u64 = 3;
 
-    let delay = match coordinate_restart_delay(db, base_delay, safety_margin_secs).await {
+    let delay = match coordinate_restart_delay(db, safety_margin_secs, DRAIN_DELAY_SECS).await {
         Ok(d) => d,
         Err(e) => {
             tracing::warn!(
                 "Failed to coordinate restart for {context}: {e:#}, \
-                 falling back to random delay of {base_delay}s"
+                 falling back to drain delay of {DRAIN_DELAY_SECS}s"
             );
-            base_delay
+            DRAIN_DELAY_SECS
         }
     };
 
@@ -2087,17 +2087,18 @@ async fn send_graceful_killpill(
 /// Coordinate a restart delay with other instances via the DB.
 ///
 /// Returns the delay (in seconds from now) at which this instance should restart.
+/// The first server gets `drain_delay_secs` (to let in-flight requests complete).
+/// Each subsequent server is spaced `safety_margin_secs` after the latest scheduled restart.
 async fn coordinate_restart_delay(
     db: &Pool<Postgres>,
-    base_delay: u64,
     safety_margin_secs: u64,
+    drain_delay_secs: u64,
 ) -> anyhow::Result<u64> {
     const RESTART_LOCK_ID: i64 = 737_483_920;
     // Stale threshold: ignore coordination entries older than this
     const STALE_THRESHOLD_SECS: i64 = 120;
 
     let now = chrono::Utc::now();
-    let our_planned = now + chrono::Duration::seconds(base_delay as i64);
 
     let mut tx = db.begin().await.context("begin restart coordination tx")?;
 
@@ -2130,7 +2131,6 @@ async fn coordinate_restart_delay(
                 if let Some(ts_str) = entry.get("restart_at").and_then(|v| v.as_str()) {
                     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts_str) {
                         let dt = dt.with_timezone(&chrono::Utc);
-                        // Keep entries that are not stale (recent past or future)
                         if (now - dt).num_seconds() < STALE_THRESHOLD_SECS {
                             scheduled.push((instance, dt));
                         }
@@ -2140,19 +2140,19 @@ async fn coordinate_restart_delay(
         }
     }
 
-    // Adjust our restart time to avoid conflicts with existing schedules
-    let mut our_restart = our_planned;
-    loop {
-        let has_conflict = scheduled.iter().any(|(_, existing_time)| {
-            let diff = (our_restart - *existing_time).num_seconds().unsigned_abs();
-            diff < safety_margin_secs
-        });
-        if has_conflict {
-            our_restart = our_restart + chrono::Duration::seconds(safety_margin_secs as i64);
-        } else {
-            break;
+    // Find the latest scheduled restart
+    let latest = scheduled.iter().map(|(_, dt)| *dt).max();
+    let earliest_allowed = now + chrono::Duration::seconds(drain_delay_secs as i64);
+
+    // Our restart time: drain_delay from now, or safety_margin after the latest existing restart
+    let our_restart = match latest {
+        Some(last) => {
+            let after_last = last + chrono::Duration::seconds(safety_margin_secs as i64);
+            // Use whichever is later: drain delay or staggered position
+            earliest_allowed.max(after_last)
         }
-    }
+        None => earliest_allowed,
+    };
 
     // Record our restart time
     scheduled.push((INSTANCE_NAME.clone(), our_restart));
