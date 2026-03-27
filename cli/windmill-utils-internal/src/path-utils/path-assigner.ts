@@ -115,8 +115,10 @@ export function getLanguageFromExtension(
  * Sanitizes a summary string for use as a filesystem-safe name.
  * Removes or replaces characters that are invalid on common filesystems.
  */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/;
+
 export function sanitizeForFilesystem(summary: string): string {
-  return summary
+  const name = summary
     .toLowerCase()
     .replaceAll(" ", "_")
     // Remove characters invalid on Windows/Unix/Mac: / \ : * ? " < > |
@@ -125,6 +127,8 @@ export function sanitizeForFilesystem(summary: string): string {
     .replace(/[/\\:*?"<>|\x00-\x1f\x7f]/g, "")
     // Trim leading/trailing dots and underscores (hidden files, Windows edge cases)
     .replace(/^[._]+|[._]+$/g, "");
+  // Prefix Windows reserved device names (CON, PRN, AUX, NUL, COM0-9, LPT0-9)
+  return WINDOWS_RESERVED.test(name) ? `_${name}` : name;
 }
 
 export interface PathAssigner {
