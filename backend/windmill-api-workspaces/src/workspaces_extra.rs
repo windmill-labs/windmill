@@ -908,8 +908,7 @@ async fn drop_forked_datatable_databases(
                     continue;
                 }
             };
-            let admin_pg = PgDatabase { dbname: "postgres".to_string(), ..pg };
-            match admin_pg.connect().await {
+            match pg.connect().await {
                 Ok((client, connection)) => {
                     let join_handle = tokio::spawn(async move { connection.await });
                     match client
