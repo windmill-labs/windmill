@@ -899,8 +899,11 @@ async fn drop_forked_datatable_databases(
         if dt.database.resource_type
             == windmill_common::workspaces::DataTableCatalogResourceType::Instance
         {
-            windmill_common::drop_custom_instance_database(db, db_to_drop).await;
+            if let Err(e) = windmill_common::drop_custom_instance_database(db, db_to_drop).await {
+                tracing::error!("Failed to drop instance database '{}': {}", db_to_drop, e);
+            }
         } else if let Some(original_resource) = forked_from.get("original_resource") {
+            // Connect to the original resource's database to run DROP on the forked db
             let pg = match serde_json::from_value::<PgDatabase>(original_resource.clone()) {
                 Ok(pg) => pg,
                 Err(e) => {

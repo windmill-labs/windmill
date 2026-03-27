@@ -1013,36 +1013,7 @@ async fn drop_custom_instance_pg_database(
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
 
-    let dbname = dbname.trim();
-    if dbname.is_empty() {
-        return Err(error::Error::BadRequest(
-            "Database name cannot be empty".to_string(),
-        ));
-    }
-
-    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
-    if wmill_pg_creds.dbname.trim().eq_ignore_ascii_case(dbname) {
-        return Err(error::Error::BadRequest(
-            "Cannot drop the main Windmill database".to_string(),
-        ));
-    }
-
-    let db_exists = sqlx::query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
-        dbname
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(false);
-
-    if !db_exists {
-        return Err(error::Error::NotFound(format!(
-            "Database '{}' does not exist",
-            dbname
-        )));
-    }
-
-    windmill_common::drop_custom_instance_database(&db, dbname).await;
+    windmill_common::drop_custom_instance_database(&db, &dbname).await?;
 
     Ok(format!("Database '{}' dropped successfully", dbname))
 }

@@ -552,9 +552,37 @@ impl PgDatabase {
     }
 }
 
-/// Drop a custom instance database: terminate connections, DROP DATABASE, remove from global_settings.
-/// Non-fatal variant that logs errors instead of returning them.
-pub async fn drop_custom_instance_database(db: &DB, dbname: &str) {
+/// Drop a custom instance database: validate, terminate connections, DROP DATABASE, remove from global_settings.
+pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Result<()> {
+    let dbname = dbname.trim();
+    if dbname.is_empty() {
+        return Err(error::Error::BadRequest(
+            "Database name cannot be empty".to_string(),
+        ));
+    }
+
+    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+    if wmill_pg_creds.dbname.trim().eq_ignore_ascii_case(dbname) {
+        return Err(error::Error::BadRequest(
+            "Cannot drop the main Windmill database".to_string(),
+        ));
+    }
+
+    let db_exists = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+        dbname
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    if !db_exists {
+        return Err(error::Error::NotFound(format!(
+            "Database '{}' does not exist",
+            dbname
+        )));
+    }
+
     // Terminate active connections
     if let Err(e) = sqlx::query(&format!(
         "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}' AND pid <> pg_backend_pid()",
@@ -567,27 +595,24 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) {
     }
 
     // Drop the database
-    match sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", dbname))
+    sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", dbname))
         .execute(db)
         .await
-    {
-        Ok(_) => tracing::info!("Dropped instance database '{}'", dbname),
-        Err(e) => {
-            tracing::error!("Failed to drop instance database '{}': {}", dbname, e);
-            return;
-        }
-    }
+        .map_err(|e| {
+            error::Error::internal_err(format!("Failed to drop database '{}': {}", dbname, e))
+        })?;
+
+    tracing::info!("Dropped instance database '{}'", dbname);
 
     // Remove from global_settings
-    if let Err(e) = sqlx::query!(
+    sqlx::query!(
         r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
         dbname
     )
     .execute(db)
-    .await
-    {
-        tracing::error!("Failed to remove '{}' from global_settings: {}", dbname, e);
-    }
+    .await?;
+
+    Ok(())
 }
 
 #[derive(Clone)]

@@ -1527,8 +1527,9 @@ async fn fork_pg_database(
     }
 
     // Optionally create the target database before importing
+    // Connect to the source database (which we know exists) to run CREATE DATABASE
     if req.create_target_db {
-        let admin_pg = PgDatabase { dbname: "postgres".to_string(), ..target_pg.clone() };
+        let admin_pg = PgDatabase { dbname: source_pg.dbname.clone(), ..target_pg.clone() };
         let (client, connection) = admin_pg.connect().await?;
         let join_handle = tokio::spawn(async move { connection.await });
 
