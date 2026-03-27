@@ -1479,20 +1479,6 @@ async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<
     Ok(())
 }
 
-/// Export a datatable using pg_dump, returning the dump as a string.
-pub async fn dump_datatable(
-    db: &DB,
-    w_id: &str,
-    datatable_name: &str,
-    schema_only: bool,
-) -> Result<String> {
-    let pg_db = resolve_pg_source(db, w_id, &format!("datatable://{}", datatable_name)).await?;
-    let dump_file = pg_dump_database(&pg_db, schema_only).await?;
-    tokio::fs::read_to_string(&dump_file.path)
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to read dump file: {}", e)))
-}
-
 #[derive(Deserialize)]
 struct ForkPgDatabaseRequest {
     source: String,
