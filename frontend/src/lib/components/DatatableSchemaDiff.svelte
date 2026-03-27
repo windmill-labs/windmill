@@ -13,21 +13,6 @@
 
 	export type DatabaseSchema = Record<string, Record<string, TableEditorValues>>
 
-	/** Wrap raw PG default expressions (e.g. nextval('seq'::regclass)) in {...}
-	 *  so formatDefaultValue treats them as expressions, not string literals. */
-	function wrapDefaultValueExpression(val: string | undefined): string | undefined {
-		if (!val) return val
-		// Already wrapped
-		if (val.startsWith('{') && val.endsWith('}')) return val
-		// Simple literals (numbers, quoted strings) don't need wrapping
-		if (/^-?\d+(\.\d+)?$/.test(val)) return val
-		if (/^'[^']*'(::[\w\s]+)?$/.test(val)) return val
-		if (val.toLowerCase() === 'true' || val.toLowerCase() === 'false') return val
-		if (val.toLowerCase() === 'null') return val
-		// Everything else is an expression
-		return `{${val}}`
-	}
-
 	export function apiSchemaToEditorSchema(
 		apiSchema: GetDatatableFullSchemaResponse
 	): DatabaseSchema {
@@ -43,7 +28,7 @@
 							name: c.name,
 							datatype: c.datatype,
 							primaryKey: c.primary_key ?? c.primaryKey,
-							defaultValue: wrapDefaultValueExpression(c.default_value ?? c.defaultValue),
+							defaultValue: c.default_value ?? c.defaultValue,
 							nullable: c.nullable
 						})
 					),
