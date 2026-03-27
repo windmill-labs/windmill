@@ -939,7 +939,7 @@ async fn drop_forked_datatable_databases(
                 Ok((client, connection)) => {
                     let join_handle = tokio::spawn(async move { connection.await });
                     match client
-                        .execute(&format!("DROP DATABASE IF EXISTS \"{}\"", db_to_drop), &[])
+                        .execute(&format!("DROP DATABASE \"{}\"", db_to_drop), &[])
                         .await
                     {
                         Ok(_) => tracing::info!("Dropped resource database '{}'", db_to_drop),
