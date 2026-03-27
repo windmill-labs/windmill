@@ -516,7 +516,7 @@ pub async fn exchange_code<T: DeserializeOwned>(
     };
     let csrf_state = cookies
         .get(name)
-        .map(|x| x.value().to_string())
+        .map(|x| x.value_trimmed().to_string())
         .unwrap_or("".to_string());
     if callback.state != csrf_state {
         return Err(error::Error::BadRequest("csrf did not match".to_string()));

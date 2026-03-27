@@ -111,17 +111,16 @@ pub async fn handle_google_ai_chat(
 
     let (contents, system_instruction) = openai_messages_to_gemini(&request.messages);
 
-    let generation_config =
-        if request.temperature.is_some() || request.max_tokens.is_some() {
-            Some(GeminiGenerationConfig {
-                temperature: request.temperature,
-                max_output_tokens: request.max_tokens,
-                response_mime_type: None,
-                response_schema: None,
-            })
-        } else {
-            None
-        };
+    let generation_config = if request.temperature.is_some() || request.max_tokens.is_some() {
+        Some(GeminiGenerationConfig {
+            temperature: request.temperature,
+            max_output_tokens: request.max_tokens,
+            response_mime_type: None,
+            response_schema: None,
+        })
+    } else {
+        None
+    };
 
     let gemini_tools = request.tools.as_ref().map(|tools| {
         let declarations: Vec<GeminiFunctionDeclaration> = tools
@@ -136,10 +135,7 @@ pub async fn handle_google_ai_chat(
                 }
             })
             .collect();
-        vec![GeminiTool {
-            function_declarations: Some(declarations),
-            google_search: None,
-        }]
+        vec![GeminiTool { function_declarations: Some(declarations), google_search: None }]
     });
 
     let gemini_request = GeminiTextRequest {
@@ -184,9 +180,10 @@ async fn handle_streaming(
         .body(request_body);
     let request = set_auth(request, api_key, is_vertex);
 
-    let response = request.send().await.map_err(|e| {
-        Error::internal_err(format!("Failed to send request to Gemini API: {}", e))
-    })?;
+    let response = request
+        .send()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to send request to Gemini API: {}", e)))?;
 
     if let Err(e) = response.error_for_status_ref() {
         let status = e.status().map(|s| s.to_string()).unwrap_or_default();
@@ -273,9 +270,10 @@ pub async fn handle_google_ai_models(
     let request = HTTP_CLIENT.get(&endpoint);
     let request = set_auth(request, api_key, is_vertex);
 
-    let response = request.send().await.map_err(|e| {
-        Error::internal_err(format!("Failed to fetch Gemini models: {}", e))
-    })?;
+    let response = request
+        .send()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to fetch Gemini models: {}", e)))?;
 
     if let Err(e) = response.error_for_status_ref() {
         let status = e.status().map(|s| s.to_string()).unwrap_or_default();
@@ -327,9 +325,10 @@ async fn handle_non_streaming(
         .body(request_body);
     let request = set_auth(request, api_key, is_vertex);
 
-    let response = request.send().await.map_err(|e| {
-        Error::internal_err(format!("Failed to send request to Gemini API: {}", e))
-    })?;
+    let response = request
+        .send()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to send request to Gemini API: {}", e)))?;
 
     if let Err(e) = response.error_for_status_ref() {
         let status = e.status().map(|s| s.to_string()).unwrap_or_default();
@@ -337,9 +336,10 @@ async fn handle_non_streaming(
         return Err(Error::AIError(format!("{}: {}", status, body)));
     }
 
-    let body = response.bytes().await.map_err(|e| {
-        Error::internal_err(format!("Failed to read Gemini response body: {}", e))
-    })?;
+    let body = response
+        .bytes()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to read Gemini response body: {}", e)))?;
 
     let parsed = parse_gemini_response(&body)?;
     let openai_response = gemini_response_to_openai(&parsed, model);

@@ -78,8 +78,8 @@ pub fn workspaced_service() -> Router {
         .route("/delete_invite", post(delete_invite))
         .route("/rebuild_dependency_map", post(rebuild_dependency_map))
         .route("/get_dependency_map", get(get_dependency_map))
-        .route("/get_dependents/*imported_path", get(get_dependents))
-        .route("/get_imports/*importer_path", get(get_imports))
+        .route("/get_dependents/{*imported_path}", get(get_dependents))
+        .route("/get_imports/{*importer_path}", get(get_imports))
         .route("/get_dependents_amounts", post(get_dependents_amounts))
         .route("/get_settings", get(get_settings))
         .route(
@@ -152,14 +152,14 @@ pub fn workspaced_service() -> Router {
             post(create_workspace_fork_branch),
         )
         .route(
-            "/reset_diff_tally/:fork_workspace_id",
+            "/reset_diff_tally/{fork_workspace_id}",
             post(reset_workspace_diffs),
         )
-        .route("/compare/:target_workspace_id", get(compare_workspaces))
+        .route("/compare/{target_workspace_id}", get(compare_workspaces))
         .route("/protection_rules", get(list_protection_rules))
         .route("/protection_rules", post(create_protection_rule))
         .route(
-            "/protection_rules/:rule_name",
+            "/protection_rules/{rule_name}",
             post(update_protection_rule).delete(delete_protection_rule),
         )
         .route("/log_chat", post(log_ai_chat))
@@ -176,9 +176,9 @@ pub fn global_service() -> Router {
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
-        .route("/unarchive/:workspace", post(unarchive_workspace))
+        .route("/unarchive/{workspace}", post(unarchive_workspace))
         .route(
-            "/delete/:workspace",
+            "/delete/{workspace}",
             delete(crate::workspaces_extra::delete_workspace),
         )
         .route(

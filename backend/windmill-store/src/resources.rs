@@ -55,26 +55,26 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_resources))
         .route("/list_search", get(list_search_resources))
-        .route("/list_names/:type", get(list_names))
-        .route("/get/*path", get(get_resource))
-        .route("/exists/*path", get(exists_resource))
-        .route("/get_value/*path", get(get_resource_value))
+        .route("/list_names/{type}", get(list_names))
+        .route("/get/{*path}", get(get_resource))
+        .route("/exists/{*path}", get(exists_resource))
+        .route("/get_value/{*path}", get(get_resource_value))
         .route(
-            "/get_value_interpolated/*path",
+            "/get_value_interpolated/{*path}",
             get(get_resource_value_interpolated),
         )
-        .route("/update/*path", post(update_resource))
-        .route("/update_value/*path", post(update_resource_value))
-        .route("/delete/*path", delete(delete_resource))
+        .route("/update/{*path}", post(update_resource))
+        .route("/update_value/{*path}", post(update_resource_value))
+        .route("/delete/{*path}", delete(delete_resource))
         .route("/delete_bulk", delete(delete_resources_bulk))
         .route("/create", post(create_resource))
-        .route("/git_commit_hash/*path", get(get_git_commit_hash))
+        .route("/git_commit_hash/{*path}", get(get_git_commit_hash))
         .route("/type/list", get(list_resource_types))
         .route("/type/listnames", get(list_resource_types_names))
-        .route("/type/get/:name", get(get_resource_type))
-        .route("/type/exists/:name", get(exists_resource_type))
-        .route("/type/update/:name", post(update_resource_type))
-        .route("/type/delete/:name", delete(delete_resource_type))
+        .route("/type/get/{name}", get(get_resource_type))
+        .route("/type/exists/{name}", get(exists_resource_type))
+        .route("/type/update/{name}", post(update_resource_type))
+        .route("/type/delete/{name}", delete(delete_resource_type))
         .route(
             "/file_resource_type_to_file_ext_map",
             get(file_resource_ext_to_resource_type),
@@ -83,7 +83,7 @@ pub fn workspaced_service() -> Router {
 }
 
 pub fn public_service() -> Router {
-    Router::new().route("/custom_component/:name", get(custom_component))
+    Router::new().route("/custom_component/{name}", get(custom_component))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]

@@ -35,5 +35,6 @@ tokio.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 axum.workspace = true
+async-trait.workspace = true
 anyhow.workspace = true
 tracing.workspace = true

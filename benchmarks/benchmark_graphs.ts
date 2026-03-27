@@ -3,32 +3,20 @@ import { UpgradeCommand } from "https://deno.land/x/cliffy@v0.25.7/command/upgra
 import { DenoLandProvider } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
 
 import { drawGraph, drawGraphMulti } from "./graph.ts";
-import { VERSION } from "./lib.ts";
+import { VERSION, loadJsonConfig } from "./lib.ts";
 
-type GraphsConfig = [
-  {
-    graph_title: string;
-    benchmarks: {
-      kind: string;
-      workers: number;
-      label: string;
-    }[];
-    jobs: number;
-  }
-];
+type GraphsConfig = {
+  graph_title: string;
+  benchmarks: {
+    kind: string;
+    workers: number;
+    label: string;
+  }[];
+}[];
 
 async function main({ configPath }: { configPath: string }) {
-  async function getConfig(configPath: string): Promise<GraphsConfig> {
-    if (configPath.startsWith("http")) {
-      const response = await fetch(configPath);
-      return await response.json();
-    } else {
-      return JSON.parse(await Deno.readTextFile(configPath));
-    }
-  }
-
   try {
-    const config = await getConfig(configPath);
+    const config = await loadJsonConfig<GraphsConfig>(configPath);
 
     for (const graphConfig of config || []) {
       const data: {
@@ -81,7 +69,7 @@ async function main({ configPath }: { configPath: string }) {
 }
 
 await new Command()
-  .name("wmillbenchsuite")
+  .name("wmillbenchgraphs")
   .description("Create and save graphs from benchmark data.")
   .version(VERSION)
   .option("-c --config-path <config:string>", "The path of the config file", {
