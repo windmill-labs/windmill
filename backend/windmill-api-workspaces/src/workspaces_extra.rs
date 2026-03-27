@@ -916,8 +916,26 @@ async fn drop_forked_datatable_databases(
                 tracing::error!("Failed to drop instance database '{}': {}", db_to_drop, e);
             }
         } else {
-            // Resource DB: resolve the resource from the parent workspace to get connection info
-            let pg = match crate::workspaces::resolve_pg_source(
+            // Resource DB: resolve from fork to get the forked dbname,
+            // resolve from parent to get connection credentials
+            let fork_pg = match crate::workspaces::resolve_pg_source(
+                db,
+                w_id,
+                &format!("datatable://{}", dt_name),
+            )
+            .await
+            {
+                Ok(pg) => pg,
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to resolve fork resource for datatable '{}': {}",
+                        dt_name,
+                        e
+                    );
+                    continue;
+                }
+            };
+            let parent_pg = match crate::workspaces::resolve_pg_source(
                 db,
                 &parent_w_id,
                 &format!("datatable://{}", dt_name),
@@ -934,8 +952,9 @@ async fn drop_forked_datatable_databases(
                     continue;
                 }
             };
+            let db_to_drop = &fork_pg.dbname;
             // Connect to the parent's database and DROP the forked one
-            match pg.connect().await {
+            match parent_pg.connect().await {
                 Ok((client, connection)) => {
                     let join_handle = tokio::spawn(async move { connection.await });
                     match client
