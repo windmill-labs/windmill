@@ -576,35 +576,32 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
     .await?
     .unwrap_or(false);
 
-    if !db_exists {
-        return Err(error::Error::NotFound(format!(
-            "Database '{}' does not exist",
-            dbname
-        )));
-    }
-
-    // Terminate active connections
-    if let Err(e) = sqlx::query(&format!(
-        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}' AND pid <> pg_backend_pid()",
-        dbname.replace('\'', "''")
-    ))
-    .execute(db)
-    .await
-    {
-        tracing::warn!("Failed to terminate connections to '{}': {}", dbname, e);
-    }
-
-    // Drop the database
-    sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", dbname))
+    if db_exists {
+        // Terminate active connections
+        if let Err(e) = sqlx::query(&format!(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}' AND pid <> pg_backend_pid()",
+            dbname.replace('\'', "''")
+        ))
         .execute(db)
         .await
-        .map_err(|e| {
-            error::Error::internal_err(format!("Failed to drop database '{}': {}", dbname, e))
-        })?;
+        {
+            tracing::warn!("Failed to terminate connections to '{}': {}", dbname, e);
+        }
 
-    tracing::info!("Dropped instance database '{}'", dbname);
+        // Drop the database
+        sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", dbname))
+            .execute(db)
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!("Failed to drop database '{}': {}", dbname, e))
+            })?;
 
-    // Remove from global_settings
+        tracing::info!("Dropped instance database '{}'", dbname);
+    } else {
+        tracing::info!("Database '{}' does not exist, skipping drop", dbname);
+    }
+
+    // Always remove from global_settings
     sqlx::query!(
         r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
         dbname
