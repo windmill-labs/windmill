@@ -58,7 +58,7 @@ use windmill_common::{
 use windmill_common::{BASE_URL, HUB_BASE_URL};
 use windmill_git_sync::handle_deployment_metadata;
 
-const COOKIE_PATH: &str = "/";
+pub const COOKIE_PATH: &str = "/";
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -75,6 +75,11 @@ pub fn workspaced_service() -> Router {
         .route("/whoami", get(whoami))
         .route("/leave", post(leave_workspace))
         .route("/username_to_email/{username}", get(username_to_email))
+        .route(
+            "/impersonate_service_account",
+            post(impersonate_service_account),
+        )
+        .route("/exit_impersonation", post(exit_impersonation))
 }
 
 pub fn global_service() -> Router {
@@ -135,6 +140,7 @@ pub struct User {
     pub role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub added_via: Option<serde_json::Value>,
+    pub is_service_account: bool,
 }
 
 #[derive(Serialize)]
@@ -176,6 +182,7 @@ pub struct UserInfo {
     pub folders: Vec<String>,
     pub folders_owners: Vec<String>,
     pub name: Option<String>,
+    pub is_service_account: bool,
 }
 
 #[derive(FromRow, Serialize)]
@@ -620,10 +627,11 @@ async fn is_valid_logout_redirect(rd: &str) -> bool {
 async fn whoami(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { username, email, is_admin, groups, folders, .. }: ApiAuthed,
+    authed: ApiAuthed,
 ) -> JsonResult<UserInfo> {
+    let ApiAuthed { username, email, is_admin, groups, folders, .. } = authed;
     let user = get_user(&w_id, &username, &db).await?;
-    if let Some(user) = user {
+    if let Some(mut user) = user {
         Ok(Json(user))
     } else {
         Ok(Json(UserInfo {
@@ -648,6 +656,7 @@ async fn whoami(
                 .into_iter()
                 .filter_map(|x| if x.2 { Some(x.0) } else { None })
                 .collect(),
+            is_service_account: false,
         }))
     }
 }
@@ -663,11 +672,11 @@ async fn global_whoami(
          email = $1",
         email
     )
-    .fetch_one(&db)
+    .fetch_optional(&db)
     .await
-    .map_err(|e| Error::internal_err(format!("fetching global identity: {e:#}")));
+    .map_err(|e| Error::internal_err(format!("fetching global identity: {e:#}")))?;
 
-    if let Ok(user) = user {
+    if let Some(user) = user {
         Ok(Json(user))
     } else if std::env::var("SUPERADMIN_SECRET").ok() == Some(token) {
         Ok(Json(GlobalUserInfo {
@@ -685,7 +694,21 @@ async fn global_whoami(
             disabled: false,
         }))
     } else {
-        Err(user.unwrap_err())
+        // Service accounts don't have a password row
+        Ok(Json(GlobalUserInfo {
+            email: email.clone(),
+            login_type: Some("service_account".to_string()),
+            super_admin: false,
+            devops: false,
+            verified: true,
+            name: None,
+            company: None,
+            username: None,
+            operator_only: Some(true),
+            first_time_user: false,
+            role_source: "service_account".to_string(),
+            disabled: false,
+        }))
     }
 }
 
@@ -736,12 +759,13 @@ pub struct User2 {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub added_via: Option<serde_json::Value>,
+    pub is_service_account: bool,
 }
 
 async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo>> {
     let user = sqlx::query_as!(
         User2,
-        "SELECT usr.*, password.super_admin, password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2
+        "SELECT usr.*, COALESCE(password.super_admin, false) as \"super_admin!\", password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2
         ",
         username,
         w_id
@@ -782,6 +806,7 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
             .into_iter()
             .filter_map(|x| if x.2 { Some(x.0) } else { None })
             .collect(),
+        is_service_account: usr.is_service_account,
     }))
 }
 
@@ -2023,6 +2048,44 @@ async fn impersonate(
     .await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, token))
+}
+
+#[derive(Deserialize)]
+pub struct ImpersonateServiceAccountRequest {
+    pub username: String,
+}
+
+async fn impersonate_service_account(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    cookies: Cookies,
+    Tokened { token: current_token }: Tokened,
+    Path(w_id): Path<String>,
+    Json(req): Json<ImpersonateServiceAccountRequest>,
+) -> Result<(StatusCode, String)> {
+    crate::users_oss::impersonate_service_account(db, authed, cookies, current_token, w_id, req)
+        .await
+}
+
+#[derive(Deserialize)]
+struct ExitImpersonationRequest {
+    token: String,
+}
+
+async fn exit_impersonation(
+    cookies: Cookies,
+    Json(req): Json<ExitImpersonationRequest>,
+) -> Result<String> {
+    let mut cookie = tower_cookies::Cookie::new(COOKIE_NAME, req.token);
+    cookie.set_secure(IS_SECURE.read().await.clone());
+    cookie.set_same_site(Some(tower_cookies::cookie::SameSite::Lax));
+    cookie.set_http_only(true);
+    cookie.set_path(COOKIE_PATH);
+    if COOKIE_DOMAIN.is_some() {
+        cookie.set_domain(COOKIE_DOMAIN.clone().unwrap());
+    }
+    cookies.add(cookie);
+    Ok("exited impersonation".to_string())
 }
 
 #[derive(Deserialize)]

@@ -14606,7 +14606,7 @@ checksum = "ebe5ef63511595f1344e2d5cfa636d973292adc0eec1f0ad45fae9f0851ab1d4"
 dependencies = [
  "futures-core",
  "futures-util",
- "indexmap 2.11.1",
+ "indexmap 2.12.0",
  "pin-project-lite",
  "slab",
  "sync_wrapper",
@@ -16253,6 +16253,7 @@ dependencies = [
  "aws-config",
  "aws-credential-types",
  "aws-sdk-sqs",
+ "axum 0.8.4",
  "base64 0.22.1",
  "futures",
  "rand 0.9.0",

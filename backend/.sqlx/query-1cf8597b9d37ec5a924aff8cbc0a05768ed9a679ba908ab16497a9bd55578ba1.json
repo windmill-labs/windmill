@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT *\n          FROM usr\n         WHERE workspace_id = $1\n         ",
+  "query": "SELECT usr.*, COALESCE(password.super_admin, false) as \"super_admin!\", password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2\n        ",
   "describe": {
     "columns": [
       {
@@ -52,10 +52,21 @@
         "ordinal": 9,
         "name": "is_service_account",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "super_admin!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "name",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
         "Text"
       ]
     },
@@ -69,8 +80,10 @@
       false,
       true,
       true,
-      false
+      false,
+      null,
+      true
     ]
   },
-  "hash": "5d6adbe21b9f8dd984d1bfc750fb81763d8650c1316bb0b20816f1a5d61a678c"
+  "hash": "1cf8597b9d37ec5a924aff8cbc0a05768ed9a679ba908ab16497a9bd55578ba1"
 }
