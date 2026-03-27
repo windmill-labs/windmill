@@ -412,12 +412,6 @@ pub struct DataTable {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct DataTableForkedFrom {
-    /// Original instance database name (instance datatables only)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub original_dbname: Option<String>,
-    /// Original resource value before fork (resource datatables only)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub original_resource: Option<serde_json::Value>,
     /// Schema snapshot at fork time
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<serde_json::Value>,

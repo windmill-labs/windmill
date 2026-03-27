@@ -23859,13 +23859,6 @@ components:
                 type: object
                 description: Fork origin info with schema snapshot
                 properties:
-                  original_dbname:
-                    type: string
-                    description: Original instance database name (instance datatables only)
-                  original_resource:
-                    type: object
-                    description: Original resource value before fork (resource datatables only)
-                    additionalProperties: true
                   schema:
                     type: object
                     description: Schema snapshot at fork time

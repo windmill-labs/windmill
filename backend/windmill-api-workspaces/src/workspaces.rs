@@ -1348,7 +1348,7 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
 /// Resolve a source string to PgDatabase credentials.
 /// Supports `datatable://name` (resolves via workspace datatable config)
 /// and `$res:path` (resolves via resource table).
-async fn resolve_pg_source(db: &DB, w_id: &str, source: &str) -> Result<PgDatabase> {
+pub(crate) async fn resolve_pg_source(db: &DB, w_id: &str, source: &str) -> Result<PgDatabase> {
     let db_resource = if let Some(name) = source.strip_prefix("datatable://") {
         get_datatable_resource_from_db_unchecked(db, w_id, name).await?
     } else if source.starts_with("$res:") {

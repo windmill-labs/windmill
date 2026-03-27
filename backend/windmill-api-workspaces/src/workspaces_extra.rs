@@ -26,7 +26,6 @@ use windmill_common::{
     error::{Error, Result},
     utils::require_admin,
     workspaces::DataTable,
-    PgDatabase,
 };
 use windmill_queue::schedule::{get_schedule_opt, push_scheduled_job};
 
@@ -871,6 +870,24 @@ async fn drop_forked_datatable_databases(
     w_id: &str,
     datatable_names: &[String],
 ) {
+    // Get parent workspace ID
+    let parent_w_id = match sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+        w_id
+    )
+    .fetch_optional(&mut **tx)
+    .await
+    {
+        Ok(Some(Some(parent))) => parent,
+        _ => {
+            tracing::error!(
+                "Cannot drop forked databases: no parent workspace for '{}'",
+                w_id
+            );
+            return;
+        }
+    };
+
     let datatable_config = match sqlx::query_scalar!(
         "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = $1",
         w_id
@@ -887,12 +904,8 @@ async fn drop_forked_datatable_databases(
 
     for dt_name in datatable_names {
         let dt = match datatables.get(dt_name) {
-            Some(dt) => dt,
-            None => continue,
-        };
-        let forked_from = match &dt.forked_from {
-            Some(v) => v,
-            None => continue,
+            Some(dt) if dt.forked_from.is_some() => dt,
+            _ => continue,
         };
         let db_to_drop = &dt.database.resource_path;
 
@@ -902,15 +915,26 @@ async fn drop_forked_datatable_databases(
             if let Err(e) = windmill_common::drop_custom_instance_database(db, db_to_drop).await {
                 tracing::error!("Failed to drop instance database '{}': {}", db_to_drop, e);
             }
-        } else if let Some(original_resource) = &forked_from.original_resource {
-            // Connect to the original resource's database to run DROP on the forked db
-            let pg = match serde_json::from_value::<PgDatabase>(original_resource.clone()) {
+        } else {
+            // Resource DB: resolve the resource from the parent workspace to get connection info
+            let pg = match crate::workspaces::resolve_pg_source(
+                db,
+                &parent_w_id,
+                &format!("datatable://{}", dt_name),
+            )
+            .await
+            {
                 Ok(pg) => pg,
                 Err(e) => {
-                    tracing::error!("Failed to parse original_resource for '{}': {}", dt_name, e);
+                    tracing::error!(
+                        "Failed to resolve parent resource for datatable '{}': {}",
+                        dt_name,
+                        e
+                    );
                     continue;
                 }
             };
+            // Connect to the parent's database and DROP the forked one
             match pg.connect().await {
                 Ok((client, connection)) => {
                     let join_handle = tokio::spawn(async move { connection.await });
