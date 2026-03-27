@@ -3447,26 +3447,20 @@ paths:
           application/json:
             schema:
               type: object
-              required: [source, target, fork_behavior]
+              required: [source, target_dbname, fork_behavior]
               properties:
                 source:
                   type: string
                   description: "Source database: 'datatable://name' or '$res:path'"
-                target:
+                target_dbname:
                   type: string
-                  description: "Target database: 'datatable://name' or '$res:path'"
+                  description: "Name for the new database to create"
                 fork_behavior:
                   type: string
                   enum:
                     - schema_only
                     - schema_and_data
                     - keep_original
-                target_override_dbname:
-                  type: string
-                  description: "Optional override for the target database name"
-                create_target_db:
-                  type: boolean
-                  description: "When true, CREATE DATABASE is run on the target server before dump/import"
       responses:
         "200":
           description: status

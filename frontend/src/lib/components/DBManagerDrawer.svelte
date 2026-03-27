@@ -129,7 +129,7 @@
 				workspace: $workspaceStore,
 				requestBody: {
 					source: toSourceIdentifier(importSource),
-					target,
+					target_dbname: target.replace('datatable://', '').replace('$res:', ''),
 					fork_behavior: importBehavior
 				}
 			})

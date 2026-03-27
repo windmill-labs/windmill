@@ -45,13 +45,13 @@ use windmill_common::workspaces::{
     ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
-use windmill_common::PgDatabase;
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
+use windmill_common::{get_database_url, PgDatabase};
 use windmill_dep_map::scoped_dependency_map::{
     DependencyDependent, DependencyMap, ScopedDependencyMap,
 };
@@ -1496,13 +1496,8 @@ pub async fn dump_datatable(
 #[derive(Deserialize)]
 struct ForkPgDatabaseRequest {
     source: String,
-    target: String,
+    target_dbname: String,
     fork_behavior: DataTableForkBehavior,
-    #[serde(default)]
-    target_override_dbname: Option<String>,
-    /// When true, CREATE DATABASE is run on the target server before dump/import
-    #[serde(default)]
-    create_target_db: bool,
 }
 
 async fn fork_pg_database(
@@ -1518,42 +1513,60 @@ async fn fork_pg_database(
     }
 
     let schema_only = req.fork_behavior != DataTableForkBehavior::SchemaAndData || *CLOUD_HOSTED;
-
     let source_pg = resolve_pg_source(&db, &w_id, &req.source).await?;
-    let mut target_pg = resolve_pg_source(&db, &w_id, &req.target).await?;
+    let target_dbname = &req.target_dbname;
 
-    if let Some(override_dbname) = &req.target_override_dbname {
-        target_pg.dbname = override_dbname.clone();
-    }
+    if req.source.starts_with("datatable://") {
+        // Instance datatable: create custom instance DB, then dump/import
+        let db_exists = sqlx::query_scalar!(
+            "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+            target_dbname
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(false);
 
-    // Optionally create the target database before importing
-    // Connect to the source database (which we know exists) to run CREATE DATABASE
-    if req.create_target_db {
-        let admin_pg = PgDatabase { dbname: source_pg.dbname.clone(), ..target_pg.clone() };
-        let (client, connection) = admin_pg.connect().await?;
-        let join_handle = tokio::spawn(async move { connection.await });
+        if db_exists {
+            return Err(Error::BadRequest(format!(
+                "Instance database '{}' already exists",
+                target_dbname
+            )));
+        }
 
-        let row = client
-            .query_one(
-                "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
-                &[&target_pg.dbname],
-            )
+        sqlx::query(&format!("CREATE DATABASE \"{}\"", target_dbname))
+            .execute(&db)
             .await
             .map_err(|e| {
-                Error::internal_err(format!("Failed to check database existence: {}", e))
+                Error::internal_err(format!(
+                    "Failed to create database '{}': {}",
+                    target_dbname, e
+                ))
             })?;
-        let db_exists: bool = row.get(0);
 
-        if !db_exists {
-            client
-                .execute(&format!("CREATE DATABASE \"{}\"", &target_pg.dbname), &[])
-                .await
-                .map_err(|e| {
-                    Error::internal_err(format!(
-                        "Failed to create database '{}': {}",
-                        target_pg.dbname, e
-                    ))
-                })?;
+        // Grant permissions to custom_instance_user
+        let new_pg_creds = PgDatabase {
+            dbname: target_dbname.clone(),
+            ..PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?
+        };
+        let (client, connection) = new_pg_creds.connect().await?;
+        let join_handle = tokio::spawn(async move { connection.await });
+
+        if let Err(e) = client
+            .batch_execute(&format!(
+                "GRANT CONNECT ON DATABASE \"{target_dbname}\" TO custom_instance_user;
+                 GRANT USAGE ON SCHEMA public TO custom_instance_user;
+                 GRANT CREATE ON SCHEMA public TO custom_instance_user;
+                 GRANT CREATE ON DATABASE \"{target_dbname}\" TO custom_instance_user;
+                 ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
+            ))
+            .await
+        {
+            tracing::warn!(
+                "Failed to grant permissions on '{}': {}. Continuing.",
+                target_dbname,
+                e
+            );
         }
 
         drop(client);
@@ -1561,14 +1574,82 @@ async fn fork_pg_database(
             .await
             .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
             .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+
+        // Register in global_settings
+        let status_json = serde_json::json!({
+            "logs": {
+                "created_database": "OK",
+                "db_connect": "OK",
+                "grant_permissions": "OK"
+            },
+            "success": true,
+            "error": null,
+            "tag": "datatable"
+        });
+        sqlx::query!(
+            r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
+            serde_json::json!({ target_dbname: status_json })
+        )
+        .execute(&db)
+        .await?;
+
+        // Dump source → import into new instance DB
+        let target_pg = PgDatabase {
+            dbname: target_dbname.clone(),
+            ..PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?
+        };
+        let dump_file = pg_dump_database(&source_pg, schema_only).await?;
+        pg_import_dump(&target_pg, &dump_file).await?;
+    } else {
+        // Resource datatable: connect to the source server, create DB there, then dump/import
+        let (client, connection) = source_pg.connect().await?;
+        let join_handle = tokio::spawn(async move { connection.await });
+
+        let row = client
+            .query_one(
+                "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+                &[target_dbname],
+            )
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!("Failed to check database existence: {}", e))
+            })?;
+        let db_exists: bool = row.get(0);
+
+        if db_exists {
+            drop(client);
+            let _ = join_handle.await;
+            return Err(Error::BadRequest(format!(
+                "Database '{}' already exists on the resource server",
+                target_dbname
+            )));
+        }
+
+        client
+            .execute(&format!("CREATE DATABASE \"{}\"", target_dbname), &[])
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to create database '{}': {}",
+                    target_dbname, e
+                ))
+            })?;
+
+        drop(client);
+        join_handle
+            .await
+            .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
+            .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+
+        // Dump source → import into new DB on same server
+        let target_pg = PgDatabase { dbname: target_dbname.clone(), ..source_pg.clone() };
+        let dump_file = pg_dump_database(&source_pg, schema_only).await?;
+        pg_import_dump(&target_pg, &dump_file).await?;
     }
 
-    let dump_file = pg_dump_database(&source_pg, schema_only).await?;
-    pg_import_dump(&target_pg, &dump_file).await?;
-
     Ok(format!(
-        "Successfully forked database from '{}' to '{}'",
-        req.source, req.target
+        "Forked '{}' into new database '{}'",
+        req.source, target_dbname
     ))
 }
 

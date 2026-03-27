@@ -20,7 +20,7 @@
 </script>
 
 <script lang="ts">
-	import { SettingService, WorkspaceService } from '$lib/gen'
+	import { WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { resource } from 'runed'
 	import Select from '../select/Select.svelte'
@@ -65,31 +65,16 @@
 				const isInstance = dt.resource_type === 'instance'
 				const newDbName = `${targetWorkspaceId.replace(/-/g, '_')}__${dt.name}`
 
-				const steps: ForkStep[] = isInstance
-					? [
-							{
-								label: `CREATE DATABASE "${newDbName}" + grant permissions`,
-								status: 'pending'
-							},
-							{
-								label: `pg_dump → pg_import (${behavior === 'schema_only' ? 'schema only' : 'schema + data'})`,
-								status: 'pending'
-							},
-							{
-								label: 'Snapshot schema',
-								status: 'pending'
-							}
-						]
-					: [
-							{
-								label: `CREATE DATABASE "${newDbName}" + pg_dump → pg_import (${behavior === 'schema_only' ? 'schema only' : 'schema + data'})`,
-								status: 'pending'
-							},
-							{
-								label: 'Snapshot schema',
-								status: 'pending'
-							}
-						]
+				const steps: ForkStep[] = [
+					{
+						label: `CREATE DATABASE "${newDbName}" + pg_dump → pg_import (${behavior === 'schema_only' ? 'schema only' : 'schema + data'})`,
+						status: 'pending'
+					},
+					{
+						label: 'Snapshot schema',
+						status: 'pending'
+					}
+				]
 
 				return {
 					name: dt.name,
@@ -122,65 +107,22 @@
 		cloneRunning = true
 		let stepIdx = 0
 
-		if (job._isInstance) {
-			job.steps[stepIdx].status = 'running'
-			try {
-				await SettingService.setupCustomInstanceDb({
-					name: job._newDbName,
-					requestBody: { tag: 'datatable' }
-				})
-				job.steps[stepIdx].status = 'done'
-			} catch (e: any) {
-				const msg = e?.body ?? e?.message ?? String(e)
-				if (msg.includes('already exists')) {
-					job.steps[stepIdx].status = 'done'
-				} else {
-					job.steps[stepIdx].status = 'error'
-					job.steps[stepIdx].error = msg
-					cloneRunning = false
-					return
+		job.steps[stepIdx].status = 'running'
+		try {
+			await WorkspaceService.forkPgDatabase({
+				workspace: job._sourceWorkspace,
+				requestBody: {
+					source: `datatable://${job.name}`,
+					target_dbname: job._newDbName,
+					fork_behavior: job.behavior
 				}
-			}
-			stepIdx++
-
-			job.steps[stepIdx].status = 'running'
-			try {
-				await WorkspaceService.forkPgDatabase({
-					workspace: job._sourceWorkspace,
-					requestBody: {
-						source: `datatable://${job.name}`,
-						target: `datatable://${job.name}`,
-						fork_behavior: job.behavior,
-						target_override_dbname: job._newDbName
-					}
-				})
-				job.steps[stepIdx].status = 'done'
-			} catch (e: any) {
-				job.steps[stepIdx].status = 'error'
-				job.steps[stepIdx].error = e?.body ?? e?.message ?? String(e)
-				cloneRunning = false
-				return
-			}
-		} else {
-			job.steps[stepIdx].status = 'running'
-			try {
-				await WorkspaceService.forkPgDatabase({
-					workspace: job._sourceWorkspace,
-					requestBody: {
-						source: `datatable://${job.name}`,
-						target: `datatable://${job.name}`,
-						fork_behavior: job.behavior,
-						target_override_dbname: job._newDbName,
-						create_target_db: true
-					}
-				})
-				job.steps[stepIdx].status = 'done'
-			} catch (e: any) {
-				job.steps[stepIdx].status = 'error'
-				job.steps[stepIdx].error = e?.body ?? e?.message ?? String(e)
-				cloneRunning = false
-				return
-			}
+			})
+			job.steps[stepIdx].status = 'done'
+		} catch (e: any) {
+			job.steps[stepIdx].status = 'error'
+			job.steps[stepIdx].error = e?.body ?? e?.message ?? String(e)
+			cloneRunning = false
+			return
 		}
 		stepIdx++
 
