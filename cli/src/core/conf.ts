@@ -57,6 +57,7 @@ export interface SyncOptions {
       variables?: string[];
       resources?: string[];
       triggers?: string[];
+      schedules?: string[];
       folders?: string[];
       settings?: boolean;
     };
@@ -70,6 +71,7 @@ export interface SyncOptions {
         variables?: string[];
         resources?: string[];
         triggers?: string[];
+        schedules?: string[];
         folders?: string[];
         settings?: boolean;
       };
@@ -83,6 +85,7 @@ export interface SyncOptions {
       variables?: string[];
       resources?: string[];
       triggers?: string[];
+      schedules?: string[];
       folders?: string[];
       settings?: boolean;
     };
@@ -96,6 +99,7 @@ export interface SyncOptions {
         variables?: string[];
         resources?: string[];
         triggers?: string[];
+        schedules?: string[];
         folders?: string[];
         settings?: boolean;
       };
