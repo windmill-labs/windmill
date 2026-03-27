@@ -23,14 +23,20 @@ function extractRawscriptInline(
   assigner: PathAssigner
 ): InlineScript[] {
   const [basePath, ext] = assigner.assignPath(summary ?? id, rawscript.language);
-  const path = mapping[id] ?? basePath + ext;
+  const mappedPath = mapping[id];
+  const path = mappedPath ?? basePath + ext;
   const language = rawscript.language;
   const content = rawscript.content;
   const r = [{ path: path, content: content, language, is_lock: false}];
   rawscript.content = "!inline " + path.replaceAll(separator, "/");
   const lock = rawscript.lock;
   if (lock && lock != "") {
-    const lockPath = basePath + "lock";
+    // Derive lock path base from the mapped content path when available,
+    // so lock files are named consistently with their content files.
+    const lockBasePath = mappedPath
+      ? mappedPath.substring(0, mappedPath.lastIndexOf('.') + 1)
+      : basePath;
+    const lockPath = lockBasePath + "lock";
     rawscript.lock = "!inline " + lockPath.replaceAll(separator, "/");
     r.push({ path: lockPath, content: lock, language, is_lock: true});
   }
