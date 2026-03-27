@@ -223,18 +223,24 @@
 		}
 	})
 
+	async function getCachedRunnables(workspace: string, folder: string): Promise<string[]> {
+		const cacheKey = `${workspace}-false-${folder}`
+		if (runnablesCache.has(cacheKey)) {
+			return runnablesCache.get(cacheKey) || []
+		}
+		const [scripts, flows] = await Promise.all([
+			getScripts(false, workspace, folder),
+			getFlows(false, workspace, folder)
+		])
+		const combined = [...scripts, ...flows]
+		runnablesCache.set(cacheKey, combined)
+		return combined
+	}
+
 	async function loadRunnablesForFolders(workspace: string, folders: string[]) {
 		try {
 			loadingRunnables = true
-			const results = await Promise.all(
-				folders.map(async (folder) => {
-					const [scripts, flows] = await Promise.all([
-						getScripts(false, workspace, folder),
-						getFlows(false, workspace, folder)
-					])
-					return [...scripts, ...flows]
-				})
-			)
+			const results = await Promise.all(folders.map((f) => getCachedRunnables(workspace, f)))
 			includedRunnables = [...new Set(results.flat())]
 		} finally {
 			loadingRunnables = false
