@@ -169,6 +169,8 @@ lazy_static::lazy_static! {
 
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
     static ref QUEUE_RUNNING_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
+    static ref OTEL_QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
+    static ref OTEL_QUEUE_RUNNING_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
     static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
 
     //legacy typo
@@ -2372,8 +2374,20 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             }
         }
 
+        let otel_enabled = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
+
+        if otel_enabled {
+            for q in OTEL_QUEUE_COUNT_TAGS.read().await.iter() {
+                if queue_counts.get(q).is_none() {
+                    otel_set_queue_count(q, 0);
+                }
+            }
+        }
+
         #[allow(unused_mut)]
         let mut tags_to_watch = vec![];
+        #[allow(unused_mut)]
+        let mut otel_tags_to_watch = vec![];
         for q in queue_counts {
             let count = q.1;
             let tag = q.0;
@@ -2385,6 +2399,9 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
                 tags_to_watch.push(tag.to_string());
             }
 
+            if otel_enabled {
+                otel_tags_to_watch.push(tag.to_string());
+            }
             otel_set_queue_count(&tag, count as i64);
 
             // save queue_count and delay metrics per tag
@@ -2419,9 +2436,13 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             let mut w = QUEUE_COUNT_TAGS.write().await;
             *w = tags_to_watch;
         }
+        if otel_enabled {
+            let mut w = OTEL_QUEUE_COUNT_TAGS.write().await;
+            *w = otel_tags_to_watch;
+        }
 
         // Single DB query for running counts, shared by Prometheus and OTel
-        let otel_running = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
+        let otel_running = otel_enabled;
         #[cfg(feature = "prometheus")]
         let need_running_counts = metrics_enabled || otel_running;
         #[cfg(not(feature = "prometheus"))]
@@ -2439,8 +2460,18 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
                 }
             }
 
+            if otel_running {
+                for q in OTEL_QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
+                    if queue_running_counts.get(q).is_none() {
+                        otel_set_queue_running_count(q, 0);
+                    }
+                }
+            }
+
             #[allow(unused_mut, unused_variables)]
             let mut running_tags_to_watch: Vec<String> = vec![];
+            #[allow(unused_mut, unused_variables)]
+            let mut otel_running_tags_to_watch: Vec<String> = vec![];
             for (tag, count) in &queue_running_counts {
                 #[cfg(feature = "prometheus")]
                 if metrics_enabled {
@@ -2451,6 +2482,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
 
                 if otel_running {
                     otel_set_queue_running_count(tag, *count as i64);
+                    otel_running_tags_to_watch.push(tag.to_string());
                 }
             }
 
@@ -2458,6 +2490,10 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             if metrics_enabled {
                 let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
                 *w = running_tags_to_watch;
+            }
+            if otel_running {
+                let mut w = OTEL_QUEUE_RUNNING_COUNT_TAGS.write().await;
+                *w = otel_running_tags_to_watch;
             }
         }
     }
