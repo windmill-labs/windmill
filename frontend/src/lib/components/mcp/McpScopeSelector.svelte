@@ -97,7 +97,7 @@
 
 	// Clear folders when not in folder mode, load folder names when entering folder mode
 	$effect(() => {
-		if (selectedMode === 'folder' && workspaceId) {
+		if (workspaceId && selectedMode === 'folder') {
 			selectedFolders = []
 			loadFolderNames(workspaceId)
 		} else {
