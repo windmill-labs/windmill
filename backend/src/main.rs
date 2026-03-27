@@ -1792,7 +1792,7 @@ async fn process_notify_event(
                     reload_otel_tracing_proxy_setting(conn).await;
                     if worker_mode {
                         tracing::info!("OTEL tracing proxy setting changed, restarting worker");
-                        send_graceful_killpill(tx, db, 10, "OTEL tracing proxy setting change")
+                        spawn_graceful_killpill(tx, db, 10, "OTEL tracing proxy setting change")
                             .await;
                     }
                 }
@@ -1801,12 +1801,12 @@ async fn process_notify_event(
                 }
                 EXPOSE_METRICS_SETTING => {
                     tracing::info!("Metrics setting changed, restarting");
-                    send_graceful_killpill(tx, db, 10, "metrics setting change").await;
+                    spawn_graceful_killpill(tx, db, 10, "metrics setting change").await;
                 }
                 EMAIL_DOMAIN_SETTING => {
                     tracing::info!("Email domain setting changed");
                     if server_mode {
-                        send_graceful_killpill(tx, db, 10, "email domain setting change").await;
+                        spawn_graceful_killpill(tx, db, 10, "email domain setting change").await;
                     }
                 }
                 EXPOSE_DEBUG_METRICS_SETTING => {
@@ -1842,19 +1842,19 @@ async fn process_notify_event(
                 }
                 OTEL_SETTING => {
                     tracing::info!("OTEL setting changed, restarting");
-                    send_graceful_killpill(tx, db, 10, "OTEL setting change").await;
+                    spawn_graceful_killpill(tx, db, 10, "OTEL setting change").await;
                 }
                 REQUEST_SIZE_LIMIT_SETTING => {
                     if server_mode {
                         tracing::info!("Request limit size change detected, killing server expecting to be restarted");
-                        send_graceful_killpill(tx, db, 10, "request size limit change").await;
+                        spawn_graceful_killpill(tx, db, 10, "request size limit change").await;
                     }
                 }
                 SAML_METADATA_SETTING => {
                     tracing::info!(
                         "SAML metadata change detected, killing server expecting to be restarted"
                     );
-                    send_graceful_killpill(tx, db, 10, "SAML metadata change").await;
+                    spawn_graceful_killpill(tx, db, 10, "SAML metadata change").await;
                 }
                 HUB_BASE_URL_SETTING => {
                     if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
@@ -2058,8 +2058,11 @@ pub async fn run_workers(
 /// Each subsequent server waits an additional `safety_margin_secs` after the previous one,
 /// guaranteeing zero downtime overlap.
 ///
+/// The DB coordination is done synchronously (fast, ~ms) to reserve our restart slot,
+/// then the sleep+kill is spawned in the background so the notification handler is not blocked.
+///
 /// Falls back to drain-only delay if DB coordination fails.
-async fn send_graceful_killpill(
+async fn spawn_graceful_killpill(
     tx: &KillpillSender,
     db: &Pool<Postgres>,
     safety_margin_secs: u64,
@@ -2080,8 +2083,11 @@ async fn send_graceful_killpill(
     };
 
     tracing::info!("Scheduling {context} graceful shutdown in {delay}s");
-    tokio::time::sleep(Duration::from_secs(delay)).await;
-    tx.send();
+    let tx = tx.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(delay)).await;
+        tx.send();
+    });
 }
 
 /// Coordinate a restart delay with other instances via the DB.
@@ -2131,7 +2137,8 @@ async fn coordinate_restart_delay(
                 if let Some(ts_str) = entry.get("restart_at").and_then(|v| v.as_str()) {
                     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts_str) {
                         let dt = dt.with_timezone(&chrono::Utc);
-                        if (now - dt).num_seconds() < STALE_THRESHOLD_SECS {
+                        let stale_cutoff = now - chrono::Duration::seconds(STALE_THRESHOLD_SECS);
+                        if dt > stale_cutoff {
                             scheduled.push((instance, dt));
                         }
                     }
@@ -2154,7 +2161,8 @@ async fn coordinate_restart_delay(
         None => earliest_allowed,
     };
 
-    // Record our restart time
+    // Record our restart time (deduplicate: remove any prior entry for this instance)
+    scheduled.retain(|(inst, _)| inst != &*INSTANCE_NAME);
     scheduled.push((INSTANCE_NAME.clone(), our_restart));
     let new_value = serde_json::json!({
         "restarts": scheduled.iter().map(|(inst, dt)| {
