@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
 import * as path from "node:path";
-import { writeFile, readFile, readdir, stat, rm, mkdir } from "node:fs/promises";
+import { writeFile, readdir, stat, rm } from "node:fs/promises";
 import { getFolderSuffix, getMetadataFileName } from "../src/utils/resource_folders.ts";
 
 // =============================================================================
@@ -80,10 +80,8 @@ test("App: delete inline script file and push does not crash", async () => {
     const inlineScriptPath = path.join(appDir, inlineScriptFiles[0]);
     expect(await fileExists(inlineScriptPath)).toBeTruthy();
 
-    // Read the current app.yaml
     const metadataFile = getMetadataFileName("app", "yaml");
     const appYamlPath = path.join(appDir, metadataFile);
-    const appYaml = await readFile(appYamlPath, "utf-8");
 
     // =========================================================================
     // STEP 2: Remove the inline script from app.yaml and delete the .ts file

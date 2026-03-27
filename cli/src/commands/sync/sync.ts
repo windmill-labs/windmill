@@ -3169,30 +3169,36 @@ export async function push(
                       path: removeSuffix(target, getDeleteSuffix("flow", "json")),
                     });
                   } else {
-                    // Inline script file deleted within flow folder —
-                    // re-push the entire flow so the backend gets the updated definition
+                    // Inline script file deleted within flow folder
                     const flowFolder = extractFolderPath(target, "flow");
+                    let flowFolderExists = false;
                     if (flowFolder) {
                       try {
                         await stat(flowFolder);
-                        await pushObj(
-                          workspaceId,
-                          target,
-                          undefined,
-                          undefined,
-                          opts.plainSecrets ?? false,
-                          alreadySynced,
-                          opts.message,
-                        );
+                        flowFolderExists = true;
                       } catch {
-                        // Flow folder doesn't exist locally — delete on server
-                        const remotePath = extractResourceName(target, "flow");
-                        if (remotePath) {
-                          await wmill.deleteFlowByPath({
-                            workspace: workspaceId,
-                            path: remotePath,
-                          });
-                        }
+                        // folder doesn't exist
+                      }
+                    }
+                    if (flowFolderExists) {
+                      // Re-push the entire flow so the backend gets the updated definition
+                      await pushObj(
+                        workspaceId,
+                        target,
+                        undefined,
+                        undefined,
+                        opts.plainSecrets ?? false,
+                        alreadySynced,
+                        opts.message,
+                      );
+                    } else {
+                      // Flow folder doesn't exist locally — delete on server
+                      const remotePath = extractResourceName(target, "flow");
+                      if (remotePath) {
+                        await wmill.deleteFlowByPath({
+                          workspace: workspaceId,
+                          path: remotePath,
+                        });
                       }
                     }
                   }
@@ -3205,30 +3211,36 @@ export async function push(
                       path: removeSuffix(target, getDeleteSuffix("app", "json")),
                     });
                   } else {
-                    // Inline script file deleted within app folder —
-                    // re-push the entire app so the backend gets the updated definition
+                    // Inline script file deleted within app folder
                     const appFolder = extractFolderPath(target, "app");
+                    let appFolderExists = false;
                     if (appFolder) {
                       try {
                         await stat(appFolder);
-                        await pushObj(
-                          workspaceId,
-                          target,
-                          undefined,
-                          undefined,
-                          opts.plainSecrets ?? false,
-                          alreadySynced,
-                          opts.message,
-                        );
+                        appFolderExists = true;
                       } catch {
-                        // App folder doesn't exist locally — delete on server
-                        const remotePath = extractResourceName(target, "app");
-                        if (remotePath) {
-                          await wmill.deleteApp({
-                            workspace: workspaceId,
-                            path: remotePath,
-                          });
-                        }
+                        // folder doesn't exist
+                      }
+                    }
+                    if (appFolderExists) {
+                      // Re-push the entire app so the backend gets the updated definition
+                      await pushObj(
+                        workspaceId,
+                        target,
+                        undefined,
+                        undefined,
+                        opts.plainSecrets ?? false,
+                        alreadySynced,
+                        opts.message,
+                      );
+                    } else {
+                      // App folder doesn't exist locally — delete on server
+                      const remotePath = extractResourceName(target, "app");
+                      if (remotePath) {
+                        await wmill.deleteApp({
+                          workspace: workspaceId,
+                          path: remotePath,
+                        });
                       }
                     }
                   }
