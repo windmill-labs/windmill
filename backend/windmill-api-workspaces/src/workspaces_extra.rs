@@ -953,6 +953,10 @@ async fn drop_forked_datatable_databases(
                 }
             };
             let db_to_drop = &fork_pg.dbname;
+            if let Err(e) = windmill_common::validate_dbname(db_to_drop) {
+                tracing::error!("Invalid database name '{}': {}", db_to_drop, e);
+                continue;
+            }
             // Connect to the parent's database and DROP the forked one
             match parent_pg.connect().await {
                 Ok((client, connection)) => {

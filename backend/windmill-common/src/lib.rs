@@ -552,14 +552,44 @@ impl PgDatabase {
     }
 }
 
-/// Drop a custom instance database: validate, terminate connections, DROP DATABASE, remove from global_settings.
-pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Result<()> {
+/// Validate a database name to prevent SQL injection.
+/// Must start with a letter, contain only alphanumeric characters or underscores, and be <= 63 chars.
+pub fn validate_dbname(dbname: &str) -> error::Result<()> {
     let dbname = dbname.trim();
     if dbname.is_empty() {
         return Err(error::Error::BadRequest(
             "Database name cannot be empty".to_string(),
         ));
     }
+    if dbname.len() > 63 {
+        return Err(error::Error::BadRequest(
+            "Database name cannot exceed 63 characters".to_string(),
+        ));
+    }
+    if !dbname
+        .chars()
+        .next()
+        .map_or(false, |c| c.is_ascii_alphabetic())
+    {
+        return Err(error::Error::BadRequest(
+            "Database name must start with a letter".to_string(),
+        ));
+    }
+    if !dbname
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(error::Error::BadRequest(
+            "Database name must contain only alphanumeric characters or underscores".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Drop a custom instance database: validate, terminate connections, DROP DATABASE, remove from global_settings.
+pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Result<()> {
+    let dbname = dbname.trim();
+    validate_dbname(dbname)?;
 
     let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
     if wmill_pg_creds.dbname.trim().eq_ignore_ascii_case(dbname) {
@@ -619,6 +649,8 @@ pub async fn create_custom_instance_database(
     dbname: &str,
     tag: &str,
 ) -> error::Result<()> {
+    validate_dbname(dbname)?;
+
     let db_exists = sqlx::query_scalar!(
         "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
         dbname
