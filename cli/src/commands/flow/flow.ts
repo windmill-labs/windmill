@@ -10,6 +10,7 @@ import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { readFile } from "node:fs/promises";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { buildFolderPath, getMetadataFileName, loadNonDottedPathsSetting } from "../../utils/resource_folders.ts";
 
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
@@ -516,7 +517,7 @@ export async function generateLocks(
   }
 }
 
-export function bootstrap(
+export async function bootstrap(
   opts: GlobalOptions & { summary: string; description: string },
   flowPath: string
 ) {
@@ -524,7 +525,9 @@ export function bootstrap(
     return;
   }
 
-  const flowDirFullPath = `${flowPath}.flow`;
+  await loadNonDottedPathsSetting();
+
+  const flowDirFullPath = buildFolderPath(flowPath, "flow");
   mkdirSync(flowDirFullPath, { recursive: false });
 
   const newFlowDefinition = defaultFlowDefinition();
@@ -539,7 +542,8 @@ export function bootstrap(
     newFlowDefinition as Record<string, any>
   );
 
-  const flowYamlPath = `${flowDirFullPath}/flow.yaml`;
+  const metadataFile = getMetadataFileName("flow", "yaml");
+  const flowYamlPath = `${flowDirFullPath}/${metadataFile}`;
   writeFileSync(flowYamlPath, newFlowDefinitionYaml, { flag: "wx", encoding: "utf-8" });
 }
 

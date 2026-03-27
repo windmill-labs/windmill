@@ -58,7 +58,7 @@ pub fn global_service() -> Router {
     let r = Router::new()
         .route("/envs", get(get_local_settings))
         .route(
-            "/global/:key",
+            "/global/{key}",
             post(set_global_setting).get(get_global_setting),
         )
         .route("/list_global", get(list_global_settings))
@@ -80,7 +80,7 @@ pub fn global_service() -> Router {
         .route("/test_critical_channels", post(test_critical_channels))
         .route("/critical_alerts", get(get_critical_alerts))
         .route(
-            "/critical_alerts/:id/acknowledge",
+            "/critical_alerts/{id}/acknowledge",
             post(acknowledge_critical_alert),
         )
         .route(
@@ -92,7 +92,7 @@ pub fn global_service() -> Router {
             post(refresh_custom_instance_user_pwd),
         )
         .route(
-            "/setup_custom_instance_pg_database/:name",
+            "/setup_custom_instance_pg_database/{name}",
             post(setup_custom_instance_pg_database),
         )
         .route(

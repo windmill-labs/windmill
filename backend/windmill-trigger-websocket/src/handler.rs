@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use axum::async_trait;
+use async_trait::async_trait;
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, PgConnection};

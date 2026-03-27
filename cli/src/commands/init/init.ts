@@ -3,13 +3,14 @@ import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import * as log from "../../core/log.ts";
-import { stringify as yamlStringify } from "yaml";
+import { type BranchBinding } from "./template.ts";
 import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
 import { SKILLS, SKILL_CONTENT, SCHEMAS, SCHEMA_MAPPINGS } from "../../guidance/skills.ts";
 import { generateAgentsMdContent } from "../../guidance/core.ts";
+import { generateCommentedTemplate } from "./template.ts";
 
 /**
  * Format a YAML schema for inclusion in skill markdown files.
@@ -44,59 +45,35 @@ async function initAction(opts: InitOptions) {
   if (await stat("wmill.yaml").catch(() => null)) {
     log.error(colors.red("wmill.yaml already exists"));
   } else {
-    // Import DEFAULT_SYNC_OPTIONS from conf.ts
-    const { DEFAULT_SYNC_OPTIONS } = await import("../../core/conf.ts");
-
-    // Create initial config with defaults
-    const initialConfig = { ...DEFAULT_SYNC_OPTIONS } as any;
-
-    // Add branch structure
+    // Detect current git branch for template
     const { isGitRepository, getCurrentGitBranch } = await import(
       "../../utils/git.ts"
     );
+    let branchName: string | undefined;
+    let binding: BranchBinding | undefined;
     if (isGitRepository()) {
-      const currentBranch = getCurrentGitBranch();
-      if (currentBranch) {
-        initialConfig.gitBranches = {
-          [currentBranch]: { overrides: {} },
-        };
-      } else {
-        initialConfig.gitBranches = {};
-      }
-    } else {
-      initialConfig.gitBranches = {};
+      branchName = getCurrentGitBranch() ?? undefined;
     }
 
-    initialConfig.nonDottedPaths = true;
-    await writeFile("wmill.yaml", yamlStringify(initialConfig), "utf-8");
-    log.info(colors.green("wmill.yaml created with default settings"));
-
-    // Create lock file
-    await readLockfile();
-
-    // Offer to bind workspace profile to current branch
-    if (isGitRepository()) {
+    // Determine workspace binding before writing the template
+    if (isGitRepository() && branchName) {
       const activeWorkspace = await getActiveWorkspaceOrFallback(
         opts as GlobalOptions
       );
-      const currentBranch = getCurrentGitBranch();
-      if (activeWorkspace && currentBranch) {
-        // Determine binding behavior based on flags
+      if (activeWorkspace) {
         const shouldBind = opts.bindProfile === true;
         const shouldPrompt =
           opts.bindProfile === undefined &&
           !!process.stdin.isTTY &&
           !opts.useDefault;
-
         const shouldSkip =
           opts.bindProfile != true &&
-          (opts.useDefault || !!!process.stdin.isTTY);
+          (opts.useDefault || !process.stdin.isTTY);
 
         if (!shouldSkip) {
-          // Show workspace info if we're binding or prompting
           if (shouldBind || shouldPrompt) {
             log.info(
-              colors.yellow(`\nCurrent Git branch: ${colors.bold(currentBranch)}`)
+              colors.yellow(`\nCurrent Git branch: ${colors.bold(branchName)}`)
             );
             log.info(
               colors.yellow(
@@ -118,36 +95,30 @@ async function initAction(opts: InitOptions) {
                 default: true,
               })))
           ) {
-            // Update the config with workspace binding
-            const currentConfig = await import("../../core/conf.ts").then((m) =>
-              m.readConfigFile()
-            );
-            if (!currentConfig.gitBranches) {
-              currentConfig.gitBranches = {};
-            }
-            if (!currentConfig.gitBranches[currentBranch]) {
-              currentConfig.gitBranches[currentBranch] = { overrides: {} };
-            }
-
             log.info(
-              `binding branch ${currentBranch} to workspace ${activeWorkspace.name} on ${activeWorkspace.remote}`
+              `binding branch ${branchName} to workspace ${activeWorkspace.name} on ${activeWorkspace.remote}`
             );
-            currentConfig.gitBranches[currentBranch].baseUrl =
-              activeWorkspace.remote;
-            currentConfig.gitBranches[currentBranch].workspaceId =
-              activeWorkspace.workspaceId;
-
-            await writeFile("wmill.yaml", yamlStringify(currentConfig), "utf-8");
-
-            log.info(
-              colors.green(
-                `✓ Bound branch '${currentBranch}' to workspace '${activeWorkspace.name}'`
-              )
-            );
+            binding = {
+              baseUrl: activeWorkspace.remote,
+              workspaceId: activeWorkspace.workspaceId,
+            };
           }
         }
       }
     }
+
+    await writeFile("wmill.yaml", generateCommentedTemplate(branchName, binding), "utf-8");
+    log.info(colors.green("wmill.yaml created with default settings"));
+    if (binding) {
+      log.info(
+        colors.green(
+          `✓ Bound branch '${branchName}' to workspace`
+        )
+      );
+    }
+
+    // Create lock file
+    await readLockfile();
 
     // Check for backend git-sync settings unless --use-default is specified
     if (!opts.useDefault) {

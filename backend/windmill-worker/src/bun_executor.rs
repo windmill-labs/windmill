@@ -1092,7 +1092,12 @@ pub async fn prebundle_bun_script(
     }
     let origin = format!("{job_dir}/main.js");
 
-    write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?)?;
+    let mut content = remove_pinned_imports(inner_content)?;
+    if crate::wac_executor::is_wac_v2_ts(inner_content) {
+        content = crate::wac_executor::inject_wac_task_names(&content);
+        content = format!("export {{ WorkflowCtx, StepSuspend, setWorkflowCtx }} from \"windmill-client\";\n{content}");
+    }
+    write_file(job_dir, "main.ts", &content)?;
     build_loader(
         job_dir,
         base_internal_url,
@@ -1318,28 +1323,11 @@ pub async fn handle_bun_job(
     // Also handles: export const, let, var, and optional generic type parameters.
     // Skips calls that already have a string argument: `task("path", async ...`
     let inner_content = if is_wac_v2 {
-        use regex::Regex;
-        use std::borrow::Cow;
-        lazy_static::lazy_static! {
-            static ref TASK_RE: Regex =
-                Regex::new(r#"(?m)((?:export\s+)?(?:const|let|var)\s+)(\w+)(\s*=\s*task\s*(?:<[^>]*>)?\s*\(\s*)(async\b)"#).unwrap();
-        }
-        let replaced = TASK_RE.replace_all(inner_content, r#"${1}${2}${3}"${2}", ${4}"#);
-        match replaced {
-            Cow::Borrowed(_) => inner_content.to_string(),
-            Cow::Owned(s) => s,
-        }
+        crate::wac_executor::inject_wac_task_names(inner_content)
     } else {
         inner_content.to_string()
     };
     let inner_content = inner_content.as_str();
-
-    // WAC v2 scripts can't use bundle caching because the wrapper imports
-    // windmill-client from node_modules, which isn't available in bundle mode
-    if is_wac_v2 && has_bundle_cache {
-        has_bundle_cache = false;
-        let _ = write_file(job_dir, "main.ts", inner_content)?;
-    }
 
     let mut format = BundleFormat::Cjs;
     if has_bundle_cache {
@@ -1561,6 +1549,12 @@ pub async fn handle_bun_job(
             "./main.ts"
         };
 
+        let wac_client_import = if has_bundle_cache {
+            "./main.js"
+        } else {
+            "windmill-client"
+        };
+
         let preprocessor = if let Some(pre_args) = pre_args {
             let pre_spread = pre_args.into_iter().map(|x| x.name).join(",");
             format!(
@@ -1588,7 +1582,7 @@ pub async fn handle_bun_job(
             format!(
                 r#"
 import * as Main from "{main_import}";
-import {{ WorkflowCtx, StepSuspend, setWorkflowCtx }} from "windmill-client";
+import {{ WorkflowCtx, StepSuspend, setWorkflowCtx }} from "{wac_client_import}";
 
 import * as fs from "fs/promises";
 
@@ -1779,7 +1773,6 @@ try {{
         && !annotation.nobundling
         && !*DISABLE_BUNDLING
         && !codebase.is_some()
-        && !is_wac_v2
         && (maybe_lock.get_lock().is_some() || annotation.native);
 
     let write_loader_f = async {
@@ -1844,6 +1837,17 @@ try {{
         }
     }
 
+    // Prepend WAC re-exports to main.ts so the bundle includes WorkflowCtx etc.
+    if build_cache && is_wac_v2 {
+        let main_path = format!("{job_dir}/main.ts");
+        let current = read_file_content(&main_path).await?;
+        write_file(
+            job_dir,
+            "main.ts",
+            &format!("export {{ WorkflowCtx, StepSuspend, setWorkflowCtx }} from \"windmill-client\";\n{current}"),
+        )?;
+    }
+
     if !codebase.is_some() && !has_bundle_cache {
         if build_cache {
             generate_bun_bundle(
@@ -1882,14 +1886,14 @@ try {{
             }
             if !annotation.native {
                 let ex_wrapper = read_file_content(&format!("{job_dir}/wrapper.mjs")).await?;
-                write_file(
-                    job_dir,
-                    "wrapper.mjs",
-                    &ex_wrapper.replace(
-                        "import * as Main from \"./main.ts\"",
-                        "import * as Main from \"./main.js\"",
-                    ),
-                )?;
+                let mut rewritten = ex_wrapper.replace(
+                    "import * as Main from \"./main.ts\"",
+                    "import * as Main from \"./main.js\"",
+                );
+                if is_wac_v2 {
+                    rewritten = rewritten.replace("from \"windmill-client\"", "from \"./main.js\"");
+                }
+                write_file(job_dir, "wrapper.mjs", &rewritten)?;
                 write_file(job_dir, "package.json", r#"{ "type": "module" }"#)?;
             }
             fs::remove_file(format!("{job_dir}/main.ts"))?;

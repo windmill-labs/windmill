@@ -64,6 +64,7 @@ pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
 pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
 pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
+pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
 
 use std::sync::Arc;
 use tokio::sync::RwLock;

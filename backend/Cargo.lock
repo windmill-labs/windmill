@@ -1363,32 +1363,23 @@ checksum = "edca88bc138befd0323b20752846e6587272d3b03b0343c8ea28a6f819e6e71f"
 dependencies = [
  "async-trait",
  "axum-core 0.4.5",
- "axum-macros",
  "bytes",
  "futures-util",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
- "hyper 1.8.1",
- "hyper-util",
  "itoa",
  "matchit 0.7.3",
  "memchr",
  "mime",
- "multer",
  "percent-encoding",
  "pin-project-lite",
  "rustversion",
  "serde",
- "serde_json",
- "serde_path_to_error",
- "serde_urlencoded",
  "sync_wrapper",
- "tokio",
  "tower 0.5.3",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -1398,6 +1389,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "021e862c184ae977658b36c4500f7feac3221ca5da43e3f25bd04ab6c79a29b5"
 dependencies = [
  "axum-core 0.5.6",
+ "axum-macros",
  "bytes",
  "form_urlencoded",
  "futures-util",
@@ -1410,6 +1402,7 @@ dependencies = [
  "matchit 0.8.4",
  "memchr",
  "mime",
+ "multer",
  "percent-encoding",
  "pin-project-lite",
  "rustversion",
@@ -1443,7 +1436,6 @@ dependencies = [
  "sync_wrapper",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -1467,9 +1459,9 @@ dependencies = [
 
 [[package]]
 name = "axum-macros"
-version = "0.4.2"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57d123550fa8d071b7255cb0cc04dc302baa6c8c4a79f55701552684d8399bce"
+checksum = "604fde5e028fea851ce1d8570bbdc034bec850d157f7569d10f347d06808c05c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2538,16 +2530,6 @@ name = "cooked-waker"
 version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "147be55d677052dabc6b22252d5dd0fd4c29c8c27aa4f2fbef0f94aa003b406f"
-
-[[package]]
-name = "cookie"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7efb37c3e1ccb1ff97164ad95ac1606e8ccd35b3fa0a7d99a304c7f4a428cc24"
-dependencies = [
- "time",
- "version_check",
-]
 
 [[package]]
 name = "cookie"
@@ -4552,9 +4534,9 @@ dependencies = [
  "log",
  "once_cell",
  "opentelemetry 0.27.1",
- "opentelemetry-http",
- "opentelemetry-otlp",
- "opentelemetry-semantic-conventions",
+ "opentelemetry-http 0.27.0",
+ "opentelemetry-otlp 0.27.0",
+ "opentelemetry-semantic-conventions 0.27.0",
  "opentelemetry_sdk 0.27.1",
  "pin-project",
  "serde",
@@ -6333,7 +6315,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-retry2",
- "tonic",
+ "tonic 0.12.3",
  "tower 0.4.13",
  "tracing",
 ]
@@ -6346,7 +6328,7 @@ checksum = "886aa8ec755382a1fdf4651f6e6ec01f2f3bf49f2cb0f068b9a74cafd574a715"
 dependencies = [
  "prost",
  "prost-types",
- "tonic",
+ "tonic 0.12.3",
 ]
 
 [[package]]
@@ -9551,9 +9533,9 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry"
-version = "0.29.1"
+version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e87237e2775f74896f9ad219d26a2081751187eb7c9f5c58dde20a23b95d16c"
+checksum = "aaf416e4cb72756655126f7dd7bb0af49c674f4c1b9903e80c009e0c37e552e6"
 dependencies = [
  "futures-core",
  "futures-sink",
@@ -9565,11 +9547,11 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry-appender-tracing"
-version = "0.27.0"
+version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab5feffc321035ad94088a7e5333abb4d84a8726e54a802e736ce9dd7237e85b"
+checksum = "e68f63eca5fad47e570e00e893094fc17be959c80c79a7d6ec1abdd5ae6ffc16"
 dependencies = [
- "opentelemetry 0.27.1",
+ "opentelemetry 0.30.0",
  "tracing",
  "tracing-core",
  "tracing-subscriber",
@@ -9588,6 +9570,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "opentelemetry-http"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50f6639e842a97dbea8886e3439710ae463120091e2e064518ba8e716e6ac36d"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "http 1.4.0",
+ "opentelemetry 0.30.0",
+ "reqwest 0.12.28",
+]
+
+[[package]]
 name = "opentelemetry-otlp"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9597,14 +9592,33 @@ dependencies = [
  "futures-core",
  "http 1.4.0",
  "opentelemetry 0.27.1",
- "opentelemetry-http",
+ "opentelemetry-http 0.27.0",
  "opentelemetry-proto 0.27.0",
  "opentelemetry_sdk 0.27.1",
  "prost",
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
- "tonic",
+ "tonic 0.12.3",
+ "tracing",
+]
+
+[[package]]
+name = "opentelemetry-otlp"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbee664a43e07615731afc539ca60c6d9f1a9425e25ca09c57bc36c87c55852b"
+dependencies = [
+ "http 1.4.0",
+ "opentelemetry 0.30.0",
+ "opentelemetry-http 0.30.0",
+ "opentelemetry-proto 0.30.0",
+ "opentelemetry_sdk 0.30.0",
+ "prost",
+ "reqwest 0.12.28",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic 0.13.1",
  "tracing",
 ]
 
@@ -9619,23 +9633,22 @@ dependencies = [
  "opentelemetry_sdk 0.27.1",
  "prost",
  "serde",
- "tonic",
+ "tonic 0.12.3",
 ]
 
 [[package]]
 name = "opentelemetry-proto"
-version = "0.29.0"
+version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c40da242381435e18570d5b9d50aca2a4f4f4d8e146231adb4e7768023309b3"
+checksum = "2e046fd7660710fe5a05e8748e70d9058dc15c94ba914e7c4faa7c728f0e8ddc"
 dependencies = [
  "base64 0.22.1",
  "hex",
- "opentelemetry 0.29.1",
- "opentelemetry_sdk 0.29.0",
+ "opentelemetry 0.30.0",
+ "opentelemetry_sdk 0.30.0",
  "prost",
  "serde",
- "tonic",
- "tracing",
+ "tonic 0.13.1",
 ]
 
 [[package]]
@@ -9643,6 +9656,12 @@ name = "opentelemetry-semantic-conventions"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc1b6902ff63b32ef6c489e8048c5e253e2e4a803ea3ea7e783914536eb15c52"
+
+[[package]]
+name = "opentelemetry-semantic-conventions"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83d059a296a47436748557a353c5e6c5705b9470ef6c95cfc52c21a8814ddac2"
 
 [[package]]
 name = "opentelemetry_sdk"
@@ -9660,26 +9679,25 @@ dependencies = [
  "rand 0.8.5",
  "serde_json",
  "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
  "tracing",
 ]
 
 [[package]]
 name = "opentelemetry_sdk"
-version = "0.29.0"
+version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "afdefb21d1d47394abc1ba6c57363ab141be19e27cc70d0e422b7f303e4d290b"
+checksum = "11f644aa9e5e31d11896e024305d7e3c98a88884d9f8919dbf37a9991bc47a4b"
 dependencies = [
  "futures-channel",
  "futures-executor",
  "futures-util",
- "glob",
- "opentelemetry 0.29.1",
+ "opentelemetry 0.30.0",
  "percent-encoding",
  "rand 0.9.0",
  "serde_json",
  "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -11124,6 +11142,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2 0.4.13",
@@ -14516,7 +14535,6 @@ dependencies = [
  "percent-encoding",
  "pin-project",
  "prost",
- "rustls-native-certs 0.8.3",
  "rustls-pemfile 2.2.0",
  "socket2 0.5.10",
  "tokio",
@@ -14527,6 +14545,37 @@ dependencies = [
  "tower-service",
  "tracing",
  "webpki-roots 0.26.11",
+]
+
+[[package]]
+name = "tonic"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e581ba15a835f4d9ea06c55ab1bd4dce26fc53752c69a04aac00703bfb49ba9"
+dependencies = [
+ "async-trait",
+ "axum 0.8.4",
+ "base64 0.22.1",
+ "bytes",
+ "h2 0.4.13",
+ "http 1.4.0",
+ "http-body 1.0.1",
+ "http-body-util",
+ "hyper 1.8.1",
+ "hyper-timeout",
+ "hyper-util",
+ "percent-encoding",
+ "pin-project",
+ "prost",
+ "rustls-native-certs 0.8.3",
+ "socket2 0.5.10",
+ "tokio",
+ "tokio-rustls 0.26.4",
+ "tokio-stream",
+ "tower 0.5.3",
+ "tower-layer",
+ "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -14557,7 +14606,9 @@ checksum = "ebe5ef63511595f1344e2d5cfa636d973292adc0eec1f0ad45fae9f0851ab1d4"
 dependencies = [
  "futures-core",
  "futures-util",
+ "indexmap 2.12.0",
  "pin-project-lite",
+ "slab",
  "sync_wrapper",
  "tokio",
  "tokio-util",
@@ -14568,13 +14619,12 @@ dependencies = [
 
 [[package]]
 name = "tower-cookies"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fd0118512cf0b3768f7fcccf0bef1ae41d68f2b45edc1e77432b36c97c56c6d"
+checksum = "151b5a3e3c45df17466454bb74e9ecedecc955269bdedbf4d150dfa393b55a36"
 dependencies = [
- "async-trait",
- "axum-core 0.4.5",
- "cookie 0.18.1",
+ "axum-core 0.5.6",
+ "cookie",
  "futures-util",
  "http 1.4.0",
  "parking_lot",
@@ -14689,14 +14739,14 @@ dependencies = [
 
 [[package]]
 name = "tracing-opentelemetry"
-version = "0.28.0"
+version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97a971f6058498b5c0f1affa23e7ea202057a7301dbff68e968b2d578bcbd053"
+checksum = "ddcf5959f39507d0d04d6413119c04f33b623f4f951ebcbdddddfad2d0623a9c"
 dependencies = [
  "js-sys",
  "once_cell",
- "opentelemetry 0.27.1",
- "opentelemetry_sdk 0.27.1",
+ "opentelemetry 0.30.0",
+ "opentelemetry_sdk 0.30.0",
  "smallvec",
  "tracing",
  "tracing-core",
@@ -15768,7 +15818,7 @@ dependencies = [
  "aws-config",
  "aws-credential-types",
  "aws-sdk-sqs",
- "axum 0.7.9",
+ "axum 0.8.4",
  "base64 0.22.1",
  "chrono",
  "constant_time_eq 0.3.1",
@@ -15839,7 +15889,7 @@ dependencies = [
 name = "windmill-alerting"
 version = "1.666.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "serde",
  "serde_json",
@@ -15866,14 +15916,14 @@ dependencies = [
  "aws-sdk-config",
  "aws-sigv4",
  "aws-smithy-types",
- "axum 0.7.9",
+ "axum 0.8.4",
  "base32",
  "base64 0.22.1",
  "bytes",
  "chrono",
  "chrono-tz",
  "const_format",
- "cookie 0.17.0",
+ "cookie",
  "cron",
  "dashmap 6.1.0",
  "datafusion",
@@ -15993,7 +16043,7 @@ dependencies = [
 name = "windmill-api-agent-workers"
 version = "1.666.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "http 1.4.0",
  "hyper 1.8.1",
@@ -16016,7 +16066,7 @@ dependencies = [
 name = "windmill-api-assets"
 version = "1.666.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "serde",
  "serde_json",
@@ -16030,7 +16080,7 @@ name = "windmill-api-auth"
 version = "1.666.0"
 dependencies = [
  "anyhow",
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "http 1.4.0",
  "itertools 0.14.0",
@@ -16065,7 +16115,7 @@ dependencies = [
 name = "windmill-api-configs"
 version = "1.666.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "itertools 0.14.0",
  "serde",
@@ -16082,7 +16132,7 @@ dependencies = [
 name = "windmill-api-debug"
 version = "1.666.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.4",
  "base64 0.22.1",
  "chrono",
  "ed25519-dalek",
@@ -16106,7 +16156,7 @@ name = "windmill-api-embeddings"
 version = "1.666.0"
 dependencies = [
  "anyhow",
- "axum 0.7.9",
+ "axum 0.8.4",
  "candle-core",
  "candle-nn",
  "candle-transformers",
@@ -16128,7 +16178,7 @@ dependencies = [
 name = "windmill-api-flow-conversations"
 version = "1.666.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "serde",
  "sql-builder",
@@ -16144,7 +16194,7 @@ dependencies = [
 name = "windmill-api-flows"
 version = "1.666.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "hyper 1.8.1",
  "serde",
@@ -16164,7 +16214,7 @@ dependencies = [
 name = "windmill-api-groups"
 version = "1.666.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "lazy_static",
  "regex",
@@ -16184,7 +16234,7 @@ dependencies = [
 name = "windmill-api-inputs"
 version = "1.666.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "serde",
  "serde_json",
@@ -16203,6 +16253,7 @@ dependencies = [
  "aws-config",
  "aws-credential-types",
  "aws-sdk-sqs",
+ "axum 0.8.4",
  "base64 0.22.1",
  "futures",
  "rand 0.9.0",
@@ -16228,7 +16279,7 @@ name = "windmill-api-jobs"
 version = "1.666.0"
 dependencies = [
  "anyhow",
- "axum 0.7.9",
+ "axum 0.8.4",
  "base64 0.22.1",
  "chrono",
  "http 1.4.0",
@@ -16252,7 +16303,7 @@ dependencies = [
 name = "windmill-api-npm-proxy"
 version = "1.666.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.4",
  "flate2",
  "reqwest 0.13.1",
  "serde",
@@ -16271,7 +16322,7 @@ name = "windmill-api-openapi"
 version = "1.666.0"
 dependencies = [
  "anyhow",
- "axum 0.7.9",
+ "axum 0.8.4",
  "http 1.4.0",
  "indexmap 2.12.0",
  "itertools 0.14.0",
@@ -16292,7 +16343,7 @@ dependencies = [
 name = "windmill-api-schedule"
 version = "1.666.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "chrono-tz",
  "serde",
@@ -16312,7 +16363,7 @@ dependencies = [
 name = "windmill-api-scripts"
 version = "1.666.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "futures",
  "http 1.4.0",
@@ -16343,7 +16394,7 @@ name = "windmill-api-settings"
 version = "1.666.0"
 dependencies = [
  "anyhow",
- "axum 0.7.9",
+ "axum 0.8.4",
  "base64 0.22.1",
  "bytes",
  "chrono",
@@ -16382,7 +16433,7 @@ name = "windmill-api-users"
 version = "1.666.0"
 dependencies = [
  "argon2",
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "http 1.4.0",
  "hyper 1.8.1",
@@ -16405,7 +16456,7 @@ dependencies = [
 name = "windmill-api-workers"
 version = "1.666.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "serde",
  "serde_json",
@@ -16419,7 +16470,7 @@ dependencies = [
 name = "windmill-api-workspaces"
 version = "1.666.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "hex",
  "http 1.4.0",
@@ -16466,7 +16517,7 @@ name = "windmill-autoscaling"
 version = "1.666.0"
 dependencies = [
  "anyhow",
- "axum 0.7.9",
+ "axum 0.8.4",
  "k8s-openapi",
  "kube",
  "serde",
@@ -16497,7 +16548,7 @@ dependencies = [
  "aws-sdk-sts",
  "aws-smithy-types",
  "aws-smithy-types-convert",
- "axum 0.7.9",
+ "axum 0.8.4",
  "backon",
  "base64 0.22.1",
  "bitflags 2.9.4",
@@ -16528,11 +16579,11 @@ dependencies = [
  "native-tls",
  "once_cell",
  "openidconnect",
- "opentelemetry 0.27.1",
+ "opentelemetry 0.30.0",
  "opentelemetry-appender-tracing",
- "opentelemetry-otlp",
- "opentelemetry-semantic-conventions",
- "opentelemetry_sdk 0.27.1",
+ "opentelemetry-otlp 0.30.0",
+ "opentelemetry-semantic-conventions 0.30.0",
+ "opentelemetry_sdk 0.30.0",
  "pep440_rs",
  "phf 0.11.3",
  "pin-project-lite",
@@ -16565,7 +16616,7 @@ dependencies = [
  "tokio-postgres 0.7.13",
  "tokio-stream",
  "tokio-util",
- "tonic",
+ "tonic 0.13.1",
  "tracing",
  "tracing-appender",
  "tracing-opentelemetry",
@@ -16699,7 +16750,7 @@ version = "1.666.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum 0.7.9",
+ "axum 0.8.4",
  "backon",
  "base64 0.22.1",
  "chrono",
@@ -16730,7 +16781,7 @@ version = "1.666.0"
 dependencies = [
  "anyhow",
  "async-oauth2",
- "axum 0.7.9",
+ "axum 0.8.4",
  "base64 0.22.1",
  "chrono",
  "hex",
@@ -16759,7 +16810,7 @@ dependencies = [
  "aws-credential-types",
  "aws-sdk-sts",
  "aws-smithy-types-convert",
- "axum 0.7.9",
+ "axum 0.8.4",
  "bytes",
  "chrono",
  "datafusion",
@@ -17059,7 +17110,7 @@ version = "1.666.0"
 dependencies = [
  "anyhow",
  "async-recursion",
- "axum 0.7.9",
+ "axum 0.8.4",
  "backon",
  "chrono",
  "chrono-tz",
@@ -17145,7 +17196,7 @@ version = "1.666.0"
 dependencies = [
  "anyhow",
  "async-recursion",
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "futures",
  "http 1.4.0",
@@ -17173,7 +17224,8 @@ name = "windmill-test-utils"
 version = "1.666.0"
 dependencies = [
  "anyhow",
- "axum 0.7.9",
+ "async-trait",
+ "axum 0.8.4",
  "chrono",
  "futures",
  "serde",
@@ -17197,7 +17249,7 @@ version = "1.666.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum 0.7.9",
+ "axum 0.8.4",
  "chrono",
  "http 1.4.0",
  "hyper 1.8.1",
@@ -17230,7 +17282,7 @@ version = "1.666.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum 0.7.9",
+ "axum 0.8.4",
  "base64 0.22.1",
  "lazy_static",
  "regex",
@@ -17250,7 +17302,7 @@ version = "1.666.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum 0.7.9",
+ "axum 0.8.4",
  "base64 0.22.1",
  "bytes",
  "chrono",
@@ -17268,7 +17320,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
- "tonic",
+ "tonic 0.13.1",
  "tower-http",
  "tracing",
  "windmill-api-auth",
@@ -17284,7 +17336,7 @@ version = "1.666.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum 0.7.9",
+ "axum 0.8.4",
  "base64 0.22.1",
  "constant_time_eq 0.3.1",
  "futures",
@@ -17319,7 +17371,7 @@ version = "1.666.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum 0.7.9",
+ "axum 0.8.4",
  "base64 0.22.1",
  "itertools 0.14.0",
  "rdkafka",
@@ -17342,7 +17394,7 @@ version = "1.666.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum 0.7.9",
+ "axum 0.8.4",
  "base64 0.22.1",
  "bytes",
  "itertools 0.14.0",
@@ -17367,7 +17419,7 @@ dependencies = [
  "anyhow",
  "async-nats",
  "async-trait",
- "axum 0.7.9",
+ "axum 0.8.4",
  "base64 0.22.1",
  "itertools 0.14.0",
  "nkeys",
@@ -17390,7 +17442,7 @@ version = "1.666.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum 0.7.9",
+ "axum 0.8.4",
  "byteorder",
  "bytes",
  "chrono",
@@ -17430,7 +17482,7 @@ dependencies = [
  "aws-sdk-sqs",
  "aws-sdk-sts",
  "aws-smithy-types",
- "axum 0.7.9",
+ "axum 0.8.4",
  "backon",
  "chrono",
  "itertools 0.14.0",
@@ -17453,7 +17505,7 @@ version = "1.666.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum 0.7.9",
+ "axum 0.8.4",
  "futures",
  "http 1.4.0",
  "itertools 0.14.0",
@@ -17502,7 +17554,7 @@ dependencies = [
  "aws-credential-types",
  "aws-sdk-bedrockruntime",
  "aws-smithy-types",
- "axum 0.7.9",
+ "axum 0.8.4",
  "backon",
  "base64 0.22.1",
  "bit-vec 0.6.3",
@@ -17535,8 +17587,8 @@ dependencies = [
  "native-tls",
  "nix 0.27.1",
  "once_cell",
- "opentelemetry 0.27.1",
- "opentelemetry-proto 0.29.0",
+ "opentelemetry 0.30.0",
+ "opentelemetry-proto 0.30.0",
  "oracle",
  "pem 3.0.6",
  "pep440_rs",
