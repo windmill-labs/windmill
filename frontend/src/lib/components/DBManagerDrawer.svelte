@@ -125,11 +125,11 @@
 		if (!target) return
 		importLoading = true
 		try {
-			await WorkspaceService.forkPgDatabase({
+			await WorkspaceService.importPgDatabase({
 				workspace: $workspaceStore,
 				requestBody: {
 					source: toSourceIdentifier(importSource),
-					target_dbname: target.replace('datatable://', '').replace('$res:', ''),
+					target,
 					fork_behavior: importBehavior
 				}
 			})

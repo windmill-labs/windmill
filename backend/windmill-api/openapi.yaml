@@ -3432,29 +3432,35 @@ paths:
             application/json:
               schema: {}
 
-  /w/{workspace}/workspaces/fork_pg_database:
+  /w/{workspace}/workspaces/import_pg_database:
     post:
-      summary: fork a PostgreSQL database from source to target
-      operationId: forkPgDatabase
+      summary: import a PostgreSQL database from source to target
+      operationId: importPgDatabase
       tags:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: Fork pg database request
+        description: Import pg database request
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [source, target_dbname, fork_behavior]
+              required: [source, target, fork_behavior]
               properties:
                 source:
                   type: string
                   description: "Source database: 'datatable://name' or '$res:path'"
-                target_dbname:
+                target:
                   type: string
-                  description: "Name for the new database to create"
+                  description: "Target database: 'datatable://name' or '$res:path'"
+                target_dbname_override:
+                  type: string
+                  description: "Override the target database name"
+                create_target_db:
+                  type: boolean
+                  description: "When true, CREATE DATABASE is run before importing"
                 fork_behavior:
                   type: string
                   enum:

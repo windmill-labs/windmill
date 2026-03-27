@@ -110,11 +110,13 @@
 
 		job.steps[stepIdx].status = 'running'
 		try {
-			await WorkspaceService.forkPgDatabase({
+			await WorkspaceService.importPgDatabase({
 				workspace: job._sourceWorkspace,
 				requestBody: {
 					source: `datatable://${job.name}`,
-					target_dbname: job._newDbName,
+					target: `datatable://${job.name}`,
+					target_dbname_override: job._newDbName,
+					create_target_db: true,
 					fork_behavior: job.behavior
 				}
 			})
