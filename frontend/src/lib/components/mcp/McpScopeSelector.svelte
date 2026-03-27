@@ -22,6 +22,7 @@
 	let selectedFolders = $state<string[]>([])
 	let allFolders = $state<string[]>([])
 	let loadingFolders = $state(false)
+	let folderNamesCache = new Map<string, string[]>()
 	let selectedScripts = $state<string[]>([])
 	let selectedFlows = $state<string[]>([])
 	let selectedEndpoints = $state<string[]>([])
@@ -96,23 +97,26 @@
 
 	// Clear folders when not in folder mode, load folder names when entering folder mode
 	$effect(() => {
-		if (selectedMode === 'folder') {
-			loadFolderNames()
+		if (selectedMode === 'folder' && workspaceId) {
+			loadFolderNames(workspaceId)
 		} else {
 			selectedFolders = []
 		}
 	})
 
-	async function loadFolderNames() {
-		if (allFolders.length > 0) return
+	async function loadFolderNames(workspace: string) {
+		if (folderNamesCache.has(workspace)) {
+			allFolders = folderNamesCache.get(workspace)!
+			return
+		}
 		try {
 			loadingFolders = true
 			const excludedFolders = ['app_groups', 'app_custom', 'app_themes']
-			allFolders = (
-				await FolderService.listFolderNames({
-					workspace: workspaceId
-				})
+			const names = (
+				await FolderService.listFolderNames({ workspace })
 			).filter((x) => !excludedFolders.includes(x))
+			folderNamesCache.set(workspace, names)
+			allFolders = names
 		} catch {
 			allFolders = []
 		} finally {
