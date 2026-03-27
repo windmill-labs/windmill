@@ -93,9 +93,20 @@
 				} else if (origTable && currTable) {
 					const currWithInitial: TableEditorValues = {
 						...currTable,
-						columns: currTable.columns.map((col) => ({ ...col, initialName: col.name }))
+						columns: currTable.columns.map((col) => ({
+							...col,
+							initialName: col.name,
+							defaultValue: col.defaultValue ? `{${col.defaultValue}}` : undefined
+						}))
 					}
-					const diff = diffTableEditorValues(origTable, currWithInitial)
+					const origTableTransformed: TableEditorValues = {
+						...origTable,
+						columns: origTable.columns.map((col) => ({
+							...col,
+							defaultValue: col.defaultValue ? `{${col.defaultValue}}` : undefined
+						}))
+					}
+					const diff = diffTableEditorValues(origTableTransformed, currWithInitial)
 					if (diff.operations.length > 0) {
 						diffs.push({ schemaName, tableName, kind: 'modified', operations: diff })
 					}
