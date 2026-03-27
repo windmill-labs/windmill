@@ -15828,6 +15828,8 @@ dependencies = [
  "git-version",
  "lazy_static",
  "once_cell",
+ "opentelemetry 0.30.0",
+ "opentelemetry_sdk 0.30.0",
  "prometheus",
  "rand 0.9.0",
  "rdkafka",

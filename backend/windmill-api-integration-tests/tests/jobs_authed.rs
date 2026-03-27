@@ -46,6 +46,7 @@ async fn insert_completed_job(db: &Pool<Postgres>) -> Uuid {
     id
 }
 
+#[allow(dead_code)]
 async fn create_script(port: u16) -> String {
     let base = format!("http://localhost:{port}/api/w/test-workspace/scripts");
     let resp = authed(client().post(format!("{base}/create")))
