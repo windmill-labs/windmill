@@ -804,3 +804,21 @@ async fn test_get_copilot_info_ignores_empty_instance_ai_row(
 
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_get_imports(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    let resp = authed(client().get(format!("{base}/get_imports/u/test-user/nonexistent_script")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let imports = resp.json::<Vec<String>>().await?;
+    assert!(imports.is_empty());
+
+    Ok(())
+}
