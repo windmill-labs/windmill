@@ -533,7 +533,7 @@
 	}}
 >
 	<p class="text-sm">
-		This will run the following SQL on <b>{parentWorkspaceId}</b>:
+		This will run the following SQL on workspace <b>{parentWorkspaceId}</b>:
 	</p>
 	<pre
 		class="mt-2 p-3 bg-surface-secondary rounded text-xs font-mono whitespace-pre-wrap max-h-60 overflow-auto"

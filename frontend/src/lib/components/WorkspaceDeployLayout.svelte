@@ -143,7 +143,7 @@
 		</div>
 	{:else}
 		<div class="flex items-center justify-center h-full">
-			<div class="text-gray-500">{emptyMessage}</div>
+			<div class="text-hint text-xs">{emptyMessage}</div>
 		</div>
 	{/if}
 
