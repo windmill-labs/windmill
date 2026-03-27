@@ -18,6 +18,7 @@
 	import { base } from '$lib/base'
 	import { page } from '$app/state'
 	import { switchWorkspace } from '$lib/storeUtils'
+	import { stripWsPrefix, wsBase } from '$lib/workspaceUrl'
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
@@ -58,14 +59,13 @@
 		]
 		const isOnEditPage = editPages.some((editPage) => page.route.id?.includes(editPage) ?? false)
 
-		if (!isOnEditPage) {
-			switchWorkspace(id)
-			if (page.url.searchParams.get('workspace')) {
-				page.url.searchParams.set('workspace', id)
-			}
-		} else {
-			switchWorkspace(id)
+		switchWorkspace(id)
+		if (isOnEditPage) {
 			await goto('/')
+		} else {
+			// Stay on same page in new workspace
+			const strippedPath = stripWsPrefix(page.url.pathname)
+			await goto(strippedPath)
 		}
 	}
 
@@ -200,7 +200,7 @@
 			{/if}
 			{#if ($userStore?.is_admin || $superadmin) && !strictWorkspaceSelect}
 				<div class="py-1" role="none">
-					<MenuItem href="{base}/workspace_settings" class={itemClass} {item}>
+					<MenuItem href="{$wsBase}/workspace_settings" class={itemClass} {item}>
 						<Settings size={16} />
 						Workspace settings
 					</MenuItem>

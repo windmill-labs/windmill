@@ -10,8 +10,7 @@
 		ExternalLink,
 		Keyboard
 	} from 'lucide-svelte'
-	import { base } from '$lib/base'
-	import { workspaceStore } from '$lib/stores'
+	import { wsBase } from '$lib/workspaceUrl'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import FlowLogViewer from './FlowLogViewer.svelte'
@@ -98,7 +97,7 @@
 
 	function getJobLink(jobId: string | undefined): string {
 		if (!jobId) return ''
-		return `${base}/run/${jobId}?workspace=${workspaceId ?? $workspaceStore}`
+		return `${$wsBase}/run/${jobId}`
 	}
 
 	function getStatusColor(status: FlowStatusModule['type'] | undefined): string {

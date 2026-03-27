@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import YAML from 'yaml'
 	import { yamlStringifyExceptKeys } from './utils'
 	import { sliceModules } from '../flows/flowStateUtils.svelte'
@@ -249,7 +249,7 @@ input_name2: expression2
 						{#if !$copilotInfo.enabled}
 							Enable Windmill AI in the{' '}
 							<a
-								href="{base}/workspace_settings?tab=ai"
+								href="{$wsBase}/workspace_settings?tab=ai"
 								target="_blank"
 								class="inline-flex flex-row items-center gap-1"
 							>

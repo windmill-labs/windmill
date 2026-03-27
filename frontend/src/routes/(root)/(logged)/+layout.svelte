@@ -56,6 +56,7 @@
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
+	import { extractWorkspaceFromPath, stripWsPrefix, isGlobalPath } from '$lib/workspaceUrl'
 	import { setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -107,14 +108,34 @@
 	}
 
 	function onQueryChange() {
-		let queryWorkspace = page.url.searchParams.get('workspace')
-		if (queryWorkspace) {
-			$workspaceStore = queryWorkspace
+		// Extract workspace from URL path /w/<workspace>/...
+		const wsFromUrl = extractWorkspaceFromPath(page.url.pathname)
+		if (wsFromUrl && wsFromUrl !== $workspaceStore) {
+			$workspaceStore = wsFromUrl
 		}
 
+		// Backward compat: support ?workspace=X query param, redirect to /w/X/...
+		let queryWorkspace = page.url.searchParams.get('workspace')
+		if (queryWorkspace && !wsFromUrl) {
+			$workspaceStore = queryWorkspace
+			const strippedPath = stripWsPrefix(page.url.pathname)
+			goto(`${strippedPath}${page.url.search.replace(/[?&]workspace=[^&]+/, '')}`, {
+				replaceState: true
+			})
+			return
+		}
+
+		// Redirect old URLs (no /w/ prefix) to new format
+		if (!wsFromUrl && $workspaceStore && !isGlobalPath(page.url.pathname)) {
+			const strippedPath = stripWsPrefix(page.url.pathname)
+			goto(`${strippedPath}${page.url.search}`, { replaceState: true })
+			return
+		}
+
+		const strippedPathname = stripWsPrefix(page.url.pathname)
 		menuHidden =
 			page.url.searchParams.get('nomenubar') === 'true' ||
-			page.url.pathname.startsWith('/oauth/callback/')
+			strippedPathname.startsWith('/oauth/callback/')
 	}
 
 	async function updateUserStore(workspace: string | undefined) {
@@ -144,8 +165,12 @@
 		// This ensures the cross-origin isolation headers are fetched from the server
 		// which are required for SharedArrayBuffer and TypeScript workers to work correctly
 		const toPath = navigation.to?.url.pathname
+			? stripWsPrefix(navigation.to.url.pathname)
+			: undefined
 		if (toPath && (toPath.startsWith('/apps_raw/add') || toPath.startsWith('/apps_raw/edit'))) {
 			const currentPath = navigation.from?.url.pathname
+				? stripWsPrefix(navigation.from.url.pathname)
+				: undefined
 			// Reload if we're not on an apps_raw path, or if we're on /apps/get_raw/ (viewing a raw app)
 			// The /apps/get_raw/ path doesn't have cross-origin isolation headers, so we need to reload
 			if (!currentPath?.startsWith('/apps_raw/') || currentPath?.startsWith('/apps_raw/get/')) {
@@ -295,12 +320,13 @@
 
 	function pathInAppMode(pathname: string | undefined): boolean {
 		if (!pathname) return false
+		const stripped = stripWsPrefix(pathname)
 		return (
-			pathname.startsWith(base + '/apps') ||
-			pathname.startsWith(base + '/flows/add') ||
-			pathname.startsWith(base + '/flows/edit') ||
-			pathname.startsWith(base + '/scripts/add') ||
-			pathname.startsWith(base + '/scripts/edit')
+			stripped.startsWith(base + '/apps') ||
+			stripped.startsWith(base + '/flows/add') ||
+			stripped.startsWith(base + '/flows/edit') ||
+			stripped.startsWith(base + '/scripts/add') ||
+			stripped.startsWith(base + '/scripts/edit')
 		)
 	}
 	afterNavigate((n) => {
@@ -315,7 +341,7 @@
 		}
 	}
 
-	let devOnly = $derived(page.url.pathname.startsWith(base + '/scripts/dev'))
+	let devOnly = $derived(stripWsPrefix(page.url.pathname).startsWith(base + '/scripts/dev'))
 
 	async function loadDefaultScripts(workspace: string, user: UserExt | undefined) {
 		if (!user?.operator) {

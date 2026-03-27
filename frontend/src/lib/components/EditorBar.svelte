@@ -17,7 +17,7 @@
 	import { ResourceService, VariableService, WorkspaceService, type Script } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import type Editor from './Editor.svelte'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -681,7 +681,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				startIcon={{ icon: Plus }}
 				target="_blank"
 				variant="accent"
-				href="{base}/resources?connect_app=undefined"
+				href="{$wsBase}/resources?connect_app=undefined"
 			>
 				Add resource
 			</Button>
@@ -739,7 +739,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Settings }}
 					target="_blank"
 					variant="accent"
-					href="{base}/workspace_settings?tab=windmill_lfs"
+					href="{$wsBase}/workspace_settings?tab=windmill_lfs"
 				>
 					Go to settings
 				</Button>
@@ -782,7 +782,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Settings }}
 					target="_blank"
 					variant="accent"
-					href="{base}/workspace_settings?tab=windmill_data_tables"
+					href="{$wsBase}/workspace_settings?tab=windmill_data_tables"
 				>
 					Go to settings
 				</Button>

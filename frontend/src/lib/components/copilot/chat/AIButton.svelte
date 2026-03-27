@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { copilotInfo } from '$lib/aiStore'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DarkPopover from '$lib/components/Popover.svelte'
@@ -38,7 +38,7 @@
 			<div class="block text-primary p-4">
 				<p class="text-sm"
 					>Enable Windmill AI in the <a
-						href="{base}/workspace_settings?tab=ai"
+						href="{$wsBase}/workspace_settings?tab=ai"
 						target="_blank"
 						class="inline-flex flex-row items-center gap-1"
 						>workspace settings <ExternalLink size={16} /></a

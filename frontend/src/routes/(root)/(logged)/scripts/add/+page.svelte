@@ -161,7 +161,7 @@
 		lockedLanguage={templatePath != null || hubPath != null}
 		template={importedWacTemplate ?? (wacParam === 'python' ? 'wac_python' : wacParam === 'typescript' ? 'wac_typescript' : 'script')}
 		onDeploy={(e) => {
-			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
+			goto(`/scripts/get/${e.hash}`)
 		}}
 		onSaveInitial={(e) => {
 			goto(`/scripts/edit/${e.path}`)

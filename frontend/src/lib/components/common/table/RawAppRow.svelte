@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
@@ -31,7 +31,7 @@
 </script>
 
 <Row
-	href="{base}/apps/get_raw/{app.version}/{app.path}"
+	href="{$wsBase}/apps/get_raw/{app.version}/{app.path}"
 	kind="raw_app"
 	{marked}
 	path={app.path}

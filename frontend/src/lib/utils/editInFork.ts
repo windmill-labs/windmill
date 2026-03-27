@@ -1,21 +1,23 @@
 import { base } from '$lib/base'
+import { getWsBase } from '$lib/workspaceUrl'
 
 type ItemType = 'script' | 'flow' | 'app' | 'raw_app'
 
 export function buildForkEditUrl(itemType: ItemType, itemPath: string): string {
+	const wsBase = getWsBase()
 	let editPath: string
 	switch (itemType) {
 		case 'script':
-			editPath = `${base}/scripts/edit/${itemPath}`
+			editPath = `${wsBase}/scripts/edit/${itemPath}`
 			break
 		case 'flow':
-			editPath = `${base}/flows/edit/${itemPath}?nodraft=true`
+			editPath = `${wsBase}/flows/edit/${itemPath}?nodraft=true`
 			break
 		case 'app':
-			editPath = `${base}/apps/edit/${itemPath}?nodraft=true`
+			editPath = `${wsBase}/apps/edit/${itemPath}?nodraft=true`
 			break
 		case 'raw_app':
-			editPath = `${base}/apps_raw/edit/${itemPath}?nodraft=true`
+			editPath = `${wsBase}/apps_raw/edit/${itemPath}?nodraft=true`
 			break
 	}
 	return `${base}/user/fork_workspace?rd=${encodeURIComponent(editPath)}`

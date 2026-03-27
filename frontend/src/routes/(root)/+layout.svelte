@@ -9,6 +9,7 @@
 	import { onDestroy, onMount } from 'svelte'
 
 	import { refreshSuperadmin } from '$lib/refreshUser'
+	import { extractWorkspaceFromPath, stripWsPrefix } from '$lib/workspaceUrl'
 	// import EditorTheme from '$lib/components/EditorTheme.svelte'
 	import { computeDrift } from '$lib/forLater'
 	import { setLicense } from '$lib/enterpriseUtils'
@@ -40,6 +41,14 @@
 		try {
 			await refreshSuperadmin()
 
+			// Extract workspace from URL path if present
+			if (!$workspaceStore) {
+				const wsFromUrl = extractWorkspaceFromPath(page.url.pathname)
+				if (wsFromUrl) {
+					$workspaceStore = wsFromUrl
+				}
+			}
+
 			if ($workspaceStore) {
 				if ($userStore) {
 					console.log(`Welcome back ${$userStore.username} to ${$workspaceStore}`)
@@ -50,9 +59,10 @@
 					}
 				}
 			} else {
+				const strippedPath = stripWsPrefix(page.url.pathname)
 				if (
-					(!page.url.pathname.startsWith('/user/') || page.url.pathname.startsWith('/user/cli')) &&
-					!page.url.pathname.startsWith('/oauth/mcp_authorize')
+					(!strippedPath.startsWith('/user/') || strippedPath.startsWith('/user/cli')) &&
+					!strippedPath.startsWith('/oauth/mcp_authorize')
 				) {
 					goto(
 						`/user/workspaces?rd=${encodeURIComponent(page.url.href.replace(page.url.origin, ''))}`
@@ -63,7 +73,8 @@
 			}
 		} catch (e) {
 			console.error(e)
-			if (page.url.pathname != '/user/login' && page.url.pathname != '/user/logout') {
+			const strippedPath = stripWsPrefix(page.url.pathname)
+			if (strippedPath != '/user/login' && strippedPath != '/user/logout') {
 				const url = page.url
 				console.log('logout 5', url.href.replace(url.origin, ''))
 				await logoutWithRedirect(url.href.replace(url.origin, ''))

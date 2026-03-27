@@ -30,6 +30,7 @@
 		workspaceStore,
 		userWorkspaces
 	} from '$lib/stores'
+	import { getWsBase } from '$lib/workspaceUrl'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, retrieveCommonWorkerPrefix, truncate } from '$lib/utils'
 	import {
@@ -1100,7 +1101,7 @@
 													{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
 														<Cell class="text-secondary">
 															{#if last_job_id}
-																<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}>
+																<a href={`${getWsBase(last_job_workspace_id)}/run/${last_job_id}`}>
 																	View last job
 																	<ExternalLink size={12} class="inline-block" />
 																</a>

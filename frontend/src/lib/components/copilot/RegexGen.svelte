@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy';
 
-	import { base } from '$lib/base'
 	import { Button } from '../common'
+	import { wsBase } from '$lib/workspaceUrl'
 
 	import { getNonStreamingCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
@@ -174,7 +174,7 @@
 				{:else}
 					<p class="text-sm">
 						Enable Windmill AI in the <a
-							href="{base}/workspace_settings?tab=ai"
+							href="{$wsBase}/workspace_settings?tab=ai"
 							target="_blank"
 							class="inline-flex flex-row items-center gap-1"
 						>

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
@@ -120,8 +120,8 @@
 	aiId={`script-run-button-${script.path}`}
 	aiDescription={`Button to access the form to run the script ${script.summary ?? script.path}`}
 	href={script.draft_only || (script.auto_kind === 'lib' && script.kind !== 'preprocessor')
-		? `${base}/scripts/edit/${script.path}`
-		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
+		? `${$wsBase}/scripts/edit/${script.path}`
+		: `${$wsBase}/scripts/get/${script.hash}`}
 	kind="script"
 	{marked}
 	path={script.path}
@@ -182,7 +182,7 @@
 								wrapperClasses="w-20"
 								unifiedSize="md"
 								startIcon={{ icon: Pen }}
-								href="{base}/scripts/edit/{script.path}"
+								href="{$wsBase}/scripts/edit/{script.path}"
 							>
 								Edit
 							</Button>
@@ -264,7 +264,7 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `${base}/scripts/add?template=${script.path}`,
+						href: `${$wsBase}/scripts/add?template=${script.path}`,
 						disabled: !showEditButton,
 						hide: $userStore?.operator
 					},
@@ -299,7 +299,7 @@
 					{
 						displayName: 'View runs',
 						icon: List,
-						href: `${base}/runs/${script.path}`
+						href: `${$wsBase}/runs/${script.path}`
 					},
 					{
 						displayName: 'Versions',
@@ -311,7 +311,7 @@
 					{
 						displayName: 'Audit logs',
 						icon: Eye,
-						href: `${base}/audit_logs?resource=${script.path}`,
+						href: `${$wsBase}/audit_logs?resource=${script.path}`,
 						hide: $userStore?.operator
 					},
 					{
@@ -431,7 +431,7 @@
 				openDetails
 				on:openDetails={(e) => {
 					if (script) {
-						goto(`/scripts/get/${e.detail.version}?workspace=${$workspaceStore}`)
+						goto(`/scripts/get/${e.detail.version}`)
 					}
 					versionsDrawerOpen = false
 				}}

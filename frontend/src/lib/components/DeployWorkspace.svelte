@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, untrack } from 'svelte'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
 	import {
 		AppService,
@@ -434,7 +434,7 @@
 	>
 {:else}
 	<Alert type="info" title="Shareable page"
-		>Share this <a href="{base}/deploy/{kind}/{initialPath}">link</a> to have another properly permissioned
+		>Share this <a href="{$wsBase}/deploy/{kind}/{initialPath}">link</a> to have another properly permissioned
 		user do the deployment</Alert
 	>
 

@@ -13,7 +13,7 @@
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
@@ -197,7 +197,7 @@
 				tag: overrideTag,
 				skipPreprocessor: true
 			})
-			await goto('/run/' + run + '?workspace=' + $workspaceStore)
+			await goto('/run/' + run)
 		} catch (e) {
 			throw e
 		} finally {
@@ -247,7 +247,7 @@
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
-					href: `${base}/flows/add?template=${flow.path}`,
+					href: `${$wsBase}/flows/add?template=${flow.path}`,
 					variant: 'subtle',
 					unifiedSize: 'md',
 					disabled: !showEditButtons,
@@ -275,7 +275,7 @@
 		buttons.push({
 			label: `Runs`,
 			buttonProps: {
-				href: `${base}/runs/${flow.path}`,
+				href: `${$wsBase}/runs/${flow.path}`,
 				unifiedSize: 'md',
 				variant: 'subtle',
 				startIcon: Play
@@ -315,7 +315,7 @@
 			buttons.push({
 				label: 'Edit',
 				buttonProps: {
-					href: `${base}/flows/edit/${path}?nodraft=true`,
+					href: `${$wsBase}/flows/edit/${path}?nodraft=true`,
 					variant: 'accent',
 					unifiedSize: 'md',
 					disabled: !can_write || !showEditButtons,
@@ -474,7 +474,7 @@
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
-		await goto('/flows/get/' + e.detail + `?workspace=${$workspaceStore}`)
+		await goto('/flows/get/' + e.detail)
 		loadFlow()
 	}}
 />
@@ -515,7 +515,7 @@
 			onSaved={can_write
 				? async (newPath) => {
 						if (newPath !== flow?.path) {
-							await goto(`/flows/get/${newPath}?workspace=${$workspaceStore}`)
+							await goto(`/flows/get/${newPath}`)
 						} else {
 							loadFlow()
 						}
@@ -593,7 +593,7 @@
 									Deployment in progress
 									{#if deploymentJobId}
 										<a
-											href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+											href="/run/{deploymentJobId}"
 											class="underline"
 											target="_blank">view job</a
 										>

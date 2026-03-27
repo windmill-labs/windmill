@@ -50,7 +50,7 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { onMount } from 'svelte'
-	import { base } from '$lib/base'
+	import { wsBase, stripWsPrefix } from '$lib/workspaceUrl'
 	import { type Changelog, changelogs } from './changelogs'
 	import { page } from '$app/state'
 	import SideBarNotification from './SideBarNotification.svelte'
@@ -140,7 +140,7 @@
 			subItems: [
 				{
 					label: 'Tutorials',
-					href: `${base}/tutorials`,
+					href: `${$wsBase}/tutorials`,
 					icon: GraduationCap,
 					aiId: 'sidebar-menu-link-tutorials',
 					aiDescription: 'Button to navigate to tutorials',
@@ -206,7 +206,7 @@
 	let mainMenuLinks = $derived([
 		{
 			label: 'Home',
-			href: `${base}/`,
+			href: `${$wsBase}/`,
 			icon: Home,
 			aiId: 'sidebar-menu-link-home',
 			aiDescription:
@@ -214,7 +214,7 @@
 		},
 		{
 			label: 'Runs',
-			href: `${base}/runs`,
+			href: `${$wsBase}/runs`,
 			icon: Play,
 			aiId: 'sidebar-menu-link-runs',
 			aiDescription: 'Button to navigate to runs',
@@ -226,7 +226,7 @@
 		},
 		{
 			label: 'Variables',
-			href: `${base}/variables`,
+			href: `${$wsBase}/variables`,
 			icon: DollarSign,
 			disabled: $userStore?.operator,
 			aiId: 'sidebar-menu-link-variables',
@@ -234,7 +234,7 @@
 		},
 		{
 			label: 'Resources',
-			href: `${base}/resources`,
+			href: `${$wsBase}/resources`,
 			icon: Boxes,
 			disabled: $userStore?.operator,
 			aiId: 'sidebar-menu-link-resources',
@@ -242,7 +242,7 @@
 		},
 		{
 			label: 'Assets',
-			href: `${base}/assets`,
+			href: `${$wsBase}/assets`,
 			icon: Pyramid,
 			disabled: $userStore?.operator,
 			aiId: 'sidebar-menu-link-assets',
@@ -253,7 +253,7 @@
 			? [
 					{
 						label: 'Tutorials',
-						href: `${base}/tutorials`,
+						href: `${$wsBase}/tutorials`,
 						icon: GraduationCap,
 						aiId: 'sidebar-menu-link-tutorials-main',
 						aiDescription: 'Button to navigate to tutorials'
@@ -264,7 +264,7 @@
 	let defaultExtraTriggerLinks = $derived([
 		{
 			label: 'HTTP',
-			href: '/routes',
+			href: `${$wsBase}/routes`,
 			icon: Route,
 			disabled: $userStore?.operator,
 			kind: 'http',
@@ -273,7 +273,7 @@
 		},
 		{
 			label: 'WebSockets',
-			href: '/websocket_triggers',
+			href: `${$wsBase}/websocket_triggers`,
 			icon: Unplug,
 			disabled: $userStore?.operator,
 			kind: 'ws',
@@ -282,7 +282,7 @@
 		},
 		{
 			label: 'Postgres',
-			href: '/postgres_triggers',
+			href: `${$wsBase}/postgres_triggers`,
 			icon: Database,
 			disabled: $userStore?.operator,
 			kind: 'postgres',
@@ -291,7 +291,7 @@
 		},
 		{
 			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),
-			href: '/kafka_triggers',
+			href: `${$wsBase}/kafka_triggers`,
 			icon: KafkaIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'kafka',
@@ -300,7 +300,7 @@
 		},
 		{
 			label: 'NATS' + ($enterpriseLicense ? '' : ' (EE)'),
-			href: '/nats_triggers',
+			href: `${$wsBase}/nats_triggers`,
 			icon: NatsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'nats',
@@ -309,7 +309,7 @@
 		},
 		{
 			label: 'SQS' + ($enterpriseLicense ? '' : ' (EE)'),
-			href: '/sqs_triggers',
+			href: `${$wsBase}/sqs_triggers`,
 			icon: AwsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'sqs',
@@ -318,7 +318,7 @@
 		},
 		{
 			label: 'GCP Pub/Sub' + ($enterpriseLicense ? '' : ' (EE)'),
-			href: '/gcp_triggers',
+			href: `${$wsBase}/gcp_triggers`,
 			icon: GoogleCloudIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'gcp',
@@ -327,7 +327,7 @@
 		},
 		{
 			label: 'MQTT',
-			href: '/mqtt_triggers',
+			href: `${$wsBase}/mqtt_triggers`,
 			icon: MqttIcon,
 			disabled: $userStore?.operator,
 			kind: 'mqtt',
@@ -336,7 +336,7 @@
 		},
 		{
 			label: 'Email',
-			href: '/email_triggers',
+			href: `${$wsBase}/email_triggers`,
 			icon: MailIcon,
 			disabled: $userStore?.operator,
 			kind: 'email',
@@ -348,7 +348,7 @@
 	let nativeTriggerLinks = $derived(
 		availableNativeServices.map(({ service, icon, config }) => ({
 			label: config?.serviceDisplayName || service,
-			href: `/native_triggers/${service}`,
+			href: `${$wsBase}/native_triggers/${service}`,
 			icon: icon,
 			disabled: $userStore?.operator,
 			kind: service,
@@ -359,22 +359,28 @@
 
 	let allTriggerLinks = $derived([...defaultExtraTriggerLinks, ...nativeTriggerLinks])
 
+	let strippedPathname = $derived(stripWsPrefix(page.url.pathname))
 	let triggerMenuLinks = $derived([
 		{
 			label: 'Schedules',
-			href: `${base}/schedules`,
+			href: `${$wsBase}/schedules`,
 			icon: Calendar,
 			disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator,
 			aiId: 'sidebar-menu-link-schedules',
 			aiDescription: 'Button to navigate to schedules'
 		},
 		...allTriggerLinks.filter(
-			(link) => $usedTriggerKinds.includes(link.kind) || page.url.pathname.includes(link.href)
+			(link) =>
+				$usedTriggerKinds.includes(link.kind) ||
+				strippedPathname.includes(stripWsPrefix(link.href))
 		)
 	])
 	let extraTriggerLinks = $derived(
 		allTriggerLinks.filter((link) => {
-			return !page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
+			return (
+				!strippedPathname.includes(stripWsPrefix(link.href)) &&
+				!$usedTriggerKinds.includes(link.kind)
+			)
 		})
 	)
 	let secondaryMenuLinks = $derived([
@@ -403,7 +409,7 @@
 					? [
 							{
 								label: 'Workspace',
-								href: `${base}/workspace_settings`,
+								href: `${$wsBase}/workspace_settings`,
 								icon: FolderCog,
 								aiId: 'sidebar-menu-link-workspace',
 								aiDescription: 'Button to navigate to workspace settings',
@@ -453,7 +459,7 @@
 		},
 		{
 			label: 'Workers',
-			href: `${base}/workers`,
+			href: `${$wsBase}/workers`,
 			icon: ServerCog,
 			disabled: $userStore?.operator,
 			aiId: 'sidebar-menu-link-workers',
@@ -467,7 +473,7 @@
 			subItems: [
 				{
 					label: 'Folders',
-					href: `${base}/folders`,
+					href: `${$wsBase}/folders`,
 					icon: FolderOpen,
 					disabled: $userStore?.operator,
 					aiId: 'sidebar-menu-link-folders',
@@ -476,7 +482,7 @@
 				},
 				{
 					label: 'Groups',
-					href: `${base}/groups`,
+					href: `${$wsBase}/groups`,
 					icon: UserCog,
 					disabled: $userStore?.operator,
 					aiId: 'sidebar-menu-link-groups',
@@ -495,7 +501,7 @@
 					subItems: [
 						{
 							label: 'Audit logs',
-							href: `${base}/audit_logs`,
+							href: `${$wsBase}/audit_logs`,
 							icon: Eye,
 							aiId: 'sidebar-menu-link-audit-logs',
 							aiDescription: 'Button to navigate to audit logs'
@@ -504,7 +510,7 @@
 							? [
 									{
 										label: 'Service logs',
-										href: `${base}/service_logs`,
+										href: `${$wsBase}/service_logs`,
 										icon: Logs,
 										aiId: 'sidebar-menu-link-service-logs',
 										aiDescription: 'Button to navigate to service logs'
@@ -529,7 +535,7 @@
 				}
 			: {
 					label: 'Audit logs',
-					href: `${base}/audit_logs`,
+					href: `${$wsBase}/audit_logs`,
 					icon: Eye,
 					disabled: $userStore?.operator,
 					aiId: 'sidebar-menu-link-audit-logs',

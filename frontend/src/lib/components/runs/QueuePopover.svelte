@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { JobService, type QueuedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { getWsBase } from '$lib/workspaceUrl'
 	import { ExternalLink } from 'lucide-svelte'
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import { displayDate } from '$lib/utils'
@@ -41,7 +42,7 @@
 			<div class="flex">
 				<a
 					target="_blank"
-					href={`/run/${job.id}?workspace=${job.workspace_id}`}
+					href={`${getWsBase(job.workspace_id)}/run/${job.id}`}
 					class="flex flex-row gap-2 items-center font-mono mr-8"
 					>{job.id} <ExternalLink size={10} />
 				</a>

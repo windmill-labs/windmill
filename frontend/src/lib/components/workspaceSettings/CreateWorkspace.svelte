@@ -18,6 +18,7 @@
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/state'
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { wsBase } from '$lib/workspaceUrl'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -454,7 +455,7 @@
 									<a
 										target="_blank"
 										class="underline"
-										href={`/run/${job.id}?workspace=${$workspaceStore}`}
+										href={`${$wsBase}/run/${job.id}`}
 									>
 										{job.id}
 									</a>
@@ -479,7 +480,7 @@
 									<a
 										target="_blank"
 										class="underline"
-										href={`/run/${jobId}?workspace=${$workspaceStore}`}
+										href={`${$wsBase}/run/${jobId}`}
 									>
 										{jobId}
 									</a>

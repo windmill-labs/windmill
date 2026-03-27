@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -78,7 +78,7 @@
 {/if}
 
 <Row
-	href="{base}/apps{app.raw_app ? '_raw' : ''}/get/{app.path}"
+	href="{$wsBase}/apps{app.raw_app ? '_raw' : ''}/get/{app.path}"
 	kind="app"
 	{marked}
 	path={app.path}
@@ -109,7 +109,7 @@
 							variant="subtle"
 							wrapperClasses="w-20"
 							startIcon={{ icon: Pen }}
-							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}?nodraft=true"
+							href="{$wsBase}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -172,7 +172,7 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `${base}/apps${app.raw_app ? '_raw' : ''}/add?template=${path}`,
+						href: `${$wsBase}/apps${app.raw_app ? '_raw' : ''}/add?template=${path}`,
 						disabled: !showEditButton,
 						hide: $userStore?.operator
 					},

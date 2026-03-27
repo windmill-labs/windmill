@@ -13,6 +13,7 @@
 	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
 	import { classNames, emptyString, escapeHtml, parseQueryParams } from '$lib/utils'
 	import { base } from '$lib/base'
+	import { extractWorkspaceFromPath } from '$lib/workspaceUrl'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
@@ -140,7 +141,10 @@
 		if ($workspaceStore) {
 			goto(rd ?? '/')
 		} else {
-			let workspaceTarget = parseQueryParams(rd ?? undefined)['workspace']
+			// Extract workspace from rd path (/w/<ws>/...) or query param (?workspace=X)
+			let workspaceTarget =
+				extractWorkspaceFromPath(rd ?? '') ??
+				parseQueryParams(rd ?? undefined)['workspace']
 			if (rd && workspaceTarget) {
 				$workspaceStore = workspaceTarget
 				goto(rd)

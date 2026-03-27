@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { msToSec } from '$lib/utils'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { ExternalLink } from 'lucide-svelte'
 	import Popover from './Popover.svelte'
 
@@ -48,7 +48,7 @@
 				: 'rounded-md'} center-center text-white text-2xs whitespace-nowrap hover:outline outline-1 outline-black"
 	>
 		{#snippet text()}
-			<a href="{base}/run/{id}" class="inline-flex items-center gap-1" target="_blank"
+			<a href="{$wsBase}/run/{id}" class="inline-flex items-center gap-1" target="_blank"
 				>{id} <ExternalLink size={14} /></a
 			>
 		{/snippet}

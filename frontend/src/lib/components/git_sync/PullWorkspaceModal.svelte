@@ -14,6 +14,7 @@
 	import GitDiffPreview from '../GitDiffPreview.svelte'
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { sendUserToast } from '$lib/toast'
 	import hubPaths from '$lib/hubPaths.json'
 	import { jobManager } from '$lib/services/JobManager'
@@ -333,7 +334,7 @@
 				<a
 					target="_blank"
 					class="underline"
-					href={`/run/${previewJobId}?workspace=${$workspaceStore}`}
+					href={`${$wsBase}/run/${previewJobId}`}
 				>
 					{previewJobId}
 				</a>
@@ -550,7 +551,7 @@
 				<a
 					target="_blank"
 					class="underline"
-					href={`/run/${applyJobId}?workspace=${$workspaceStore}`}
+					href={`${$wsBase}/run/${applyJobId}`}
 				>
 					{applyJobId}
 				</a>

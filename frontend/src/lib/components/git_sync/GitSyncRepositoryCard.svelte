@@ -21,6 +21,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { fade } from 'svelte/transition'
 	import { workspaceStore } from '$lib/stores'
+	import { wsBase } from '$lib/workspaceUrl'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 	import { ResourceService, VariableService } from '$lib/gen'
@@ -423,7 +424,7 @@
 					Git sync resource checked via Windmill job
 					<a
 						target="_blank"
-						href={`/run/${gitSyncTestJob.jobId}?workspace=${$workspaceStore}`}
+						href={`${$wsBase}/run/${gitSyncTestJob.jobId}`}
 						class="text-blue-500 hover:underline"
 					>
 						{gitSyncTestJob.jobId}

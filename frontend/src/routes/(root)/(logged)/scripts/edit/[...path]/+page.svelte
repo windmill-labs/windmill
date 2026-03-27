@@ -214,13 +214,13 @@
 		{savedPrimarySchedule}
 		searchParams={page.url.searchParams}
 		onDeploy={(e) => {
-			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
+			goto(`/scripts/get/${e.hash}`)
 		}}
 		onSaveInitial={(e) => {
 			goto(`/scripts/edit/${e.path}`)
 		}}
 		onSeeDetails={(e) => {
-			goto(`/scripts/get/${e.path}?workspace=${$workspaceStore}`)
+			goto(`/scripts/get/${e.path}`)
 		}}
 		replaceStateFn={(path) => {
 			replaceState(path, page.state)

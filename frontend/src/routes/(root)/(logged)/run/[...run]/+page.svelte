@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$lib/base'
+	import { wsBase, getWsBase } from '$lib/workspaceUrl'
 	import {
 		JobService,
 		type Job,
@@ -363,7 +363,7 @@
 					})
 				}
 
-				await goto('/run/' + id + '?workspace=' + $workspaceStore)
+				await goto('/run/' + id)
 			} else {
 				sendUserToast('Cannot run this job immediately', true)
 			}
@@ -456,7 +456,7 @@
 							variant="default"
 							unifiedSize="md"
 							on:click={() => {
-								goto(`/run/${page.params.run}?workspace=${workspace.id}`)
+								goto(`${getWsBase(workspace.id)}/run/${page.params.run}`)
 							}}
 						>
 							See in {workspace.name}
@@ -464,7 +464,7 @@
 					</div>
 				{/each}
 				<div>
-					<Button href="{base}/runs" unifiedSize="md" variant="accent">Go to runs page</Button>
+					<Button href="{$wsBase}/runs" unifiedSize="md" variant="accent">Go to runs page</Button>
 				</div>
 			</div>
 		</div>
@@ -624,7 +624,7 @@
 					{selectedJobStepType}
 					{restartBranchNames}
 					onRestartComplete={(newJobId) => {
-						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
+						goto('/run/' + newJobId)
 					}}
 					flowPath={job.script_path}
 					flowVersionId={job.script_hash ? parseInt(job.script_hash, 16) : undefined}

@@ -40,7 +40,7 @@
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import S3ArgInput from './common/fileUpload/S3ArgInput.svelte'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
@@ -568,7 +568,7 @@
 			{#if value && typeof value == 'string' && value?.startsWith('$res:')}
 				Linked to resource <a
 					target="_blank"
-					href="{base}/resources#/resource/{value.slice(5)}"
+					href="{$wsBase}/resources#/resource/{value.slice(5)}"
 					class="text-blue-500 underline"
 					>{value.slice(5)} <span class="inline-block -mb-0.5"><ExternalLink size={14} /></span></a
 				>

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { CompletedJob, QueuedJob } from '$lib/gen'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 
 	import JobStatus from '../JobStatus.svelte'
 	import { ExternalLinkIcon } from 'lucide-svelte'
@@ -32,7 +32,7 @@
 				<a
 					rel="noreferrer"
 					target="_blank"
-					href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
+					href="{$wsBase}/run/{job?.id}"
 				>
 					{truncateRev(job?.id, 8)}
 					<ExternalLinkIcon size={14} class="inline mb-1 ml-1" />

@@ -6,7 +6,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
-	import { base } from '$app/paths'
+	import { wsBase } from '$lib/workspaceUrl'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -362,7 +362,7 @@
 								/>
 								<div class="flex gap-2 items-center justify-end">
 									<Button
-										href={`${base}/runs/?schedule_path=${path}&show_schedules=true&show_future_jobs=true`}
+										href={`${$wsBase}/runs/?schedule_path=${path}&show_schedules=true&show_future_jobs=true`}
 										unifiedSize="md"
 										startIcon={{ icon: List }}
 										variant="subtle"
@@ -433,7 +433,7 @@
 												displayName: 'View runs',
 												icon: List,
 												href:
-													base +
+													$wsBase +
 													'/runs/?schedule_path=' +
 													path +
 													'&show_schedules=true&show_future_jobs=true'
@@ -441,7 +441,7 @@
 											{
 												displayName: 'Audit logs',
 												icon: Eye,
-												href: `${base}/audit_logs?resource=${path}`
+												href: `${$wsBase}/audit_logs?resource=${path}`
 											},
 											{
 												displayName: 'Run now',
@@ -476,7 +476,7 @@
 										{/if}
 										{#each jobs ?? [] as job}
 											{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
-											<a href="{base}/run/{job.id}?workspace={$workspaceStore}">
+											<a href="{$wsBase}/run/{job.id}">
 												<JobPreview id={job.id} class="p-4">
 													<div>
 														<div

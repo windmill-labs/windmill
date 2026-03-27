@@ -194,10 +194,10 @@
 		goto(`/flows/edit/${e.path}?selected=${e.id}`)
 	}}
 	onDeploy={(e) => {
-		goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
+		goto(`/flows/get/${e.path}`)
 	}}
 	onDetails={(e) => {
-		goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
+		goto(`/flows/get/${e.path}`)
 	}}
 	{initialPath}
 	{pathStoreInit}

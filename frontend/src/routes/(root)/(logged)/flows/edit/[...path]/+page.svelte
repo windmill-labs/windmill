@@ -280,10 +280,10 @@
 {:else}
 	<FlowBuilder
 		onDeploy={(e) => {
-			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
+			goto(`/flows/get/${e.path}`)
 		}}
 		onDetails={(e) => {
-			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
+			goto(`/flows/get/${e.path}`)
 		}}
 		onSaveDraftOnlyAtNewPath={(e) => {
 			goto(`/flows/edit/${e.path}?selected=${e.selectedId}`)

@@ -30,6 +30,7 @@
 		type MoveS3FileResponse
 	} from '$lib/gen'
 	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import {
 		displayDate,
 		displaySize,
@@ -555,7 +556,7 @@
 				<p class="text-clip grow min-w-0">
 					The workspace needs to be connected to an S3 storage to use this feature. You can <a
 						target="_blank"
-						href="{base}/workspace_settings?tab=windmill_lfs">configure it here</a
+						href="{$wsBase}/workspace_settings?tab=windmill_lfs">configure it here</a
 					>.
 				</p>
 				<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />

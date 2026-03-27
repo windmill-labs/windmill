@@ -1,8 +1,7 @@
 <script lang="ts">
 	import SchemaPickerRow from './SchemaPickerRow.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { ExternalLink } from 'lucide-svelte'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 
 	interface Props {
 		job: any
@@ -60,7 +59,7 @@
 			<div class="center-center">
 				<a
 					target="_blank"
-					href="{base}/run/{job.id}?workspace={$workspaceStore}"
+					href="{$wsBase}/run/{job.id}"
 					class="text-right float-right text-secondary px-2"
 					title="See run detail in a new tab"
 				>

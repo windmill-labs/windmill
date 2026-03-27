@@ -3,6 +3,7 @@ import { triggerIconMap } from '$lib/components/triggers/utils'
 import { formatMemory } from '$lib/utils'
 import { Calendar, Bot } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+import { getWsBase } from '$lib/workspaceUrl'
 
 /**
  * Categories of job types for field configuration
@@ -217,7 +218,7 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		label: 'Parent',
 		getValue: (job) => job.parent_job || null,
 		getHref: (job, workspaceId) =>
-			job.parent_job ? `/run/${job.parent_job}?workspace=${workspaceId}` : null
+			job.parent_job ? `${getWsBase(workspaceId)}/run/${job.parent_job}` : null
 	},
 
 	schedule_path: {
@@ -232,7 +233,7 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		getValue: (job) => job.script_hash?.toString() || null,
 		getHref: (job, workspaceId) =>
 			job.script_hash && job.job_kind === 'script'
-				? `/scripts/get/${job.script_hash}?workspace=${workspaceId}`
+				? `${getWsBase(workspaceId)}/scripts/get/${job.script_hash}`
 				: null
 	},
 
@@ -244,7 +245,7 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 			if (!job.script_path) return null
 			const stem = job.job_kind === 'script' ? 'scripts' : 'flows'
 			const isScript = job.job_kind === 'script'
-			return `/${stem}/get/${isScript ? job.script_hash : job.script_path}`
+			return `${getWsBase(workspaceId)}/${stem}/get/${isScript ? job.script_hash : job.script_path}`
 		}
 	},
 

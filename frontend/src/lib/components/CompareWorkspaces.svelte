@@ -57,7 +57,7 @@
 	import type { TriggerKind } from './triggers'
 	import { triggerDisplayNamesMap, triggerKindToTriggerType } from './triggers/utils'
 	import { getEmailAddress, getEmailDomain } from './triggers/email/utils'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
@@ -683,7 +683,7 @@
 
 	function getTriggerHref(triggerKind: TriggerKind): string | undefined {
 		const pagePath = triggerKindToPagePath[triggerKind]
-		return pagePath ? `${base}${pagePath}` : undefined
+		return pagePath ? `${$wsBase}${pagePath}` : undefined
 	}
 
 	// Fetch triggers when workspace is available

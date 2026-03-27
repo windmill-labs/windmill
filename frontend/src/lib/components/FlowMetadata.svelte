@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { type Job } from '$lib/gen'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import { displayDate, truncateRev } from '$lib/utils'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import TimeAgo from './TimeAgo.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
 	import { Clock, MemoryStick, Calendar, Bot, User, Code2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
@@ -57,7 +56,7 @@
 					<BarsStaggered size={SMALL_ICON_SIZE} class="min-w-3.5" />
 					<span class="whitespace-nowrap">
 						Step of flow
-						<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}>
+						<a href={`${$wsBase}/run/${job.parent_job}`}>
 							{truncateRev(job.parent_job, 18)}
 						</a>
 					</span>
@@ -67,7 +66,7 @@
 					<Bot size={SMALL_ICON_SIZE} class="min-w-3.5" />
 					<span class="whitespace-nowrap">
 						Triggered by parent
-						<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}>
+						<a href={`${$wsBase}/run/${job.parent_job}`}>
 							{job.parent_job}</a
 						>
 					</span>
@@ -94,7 +93,7 @@
 		{#if (job && job.job_kind == 'flow') || job?.job_kind == 'script'}
 			{@const stem = `${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
-			{@const viewHref = `${base}/${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+			{@const viewHref = `${$wsBase}/${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 			<div class="flex flex-row gap-2 items-center">
 				{#if isScript}
 					<Code2 size={SMALL_ICON_SIZE} class="min-w-3.5" />
@@ -125,6 +124,6 @@
 	</div>
 	<div class="text-secondary text-2xs pt-2 whitespace-nowrap">
 		run id:
-		<a href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}> {job.id} </a>
+		<a href={`${$wsBase}/run/${job.id}`}> {job.id} </a>
 	</div>
 </div>

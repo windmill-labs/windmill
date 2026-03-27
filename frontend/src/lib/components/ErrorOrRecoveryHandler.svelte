@@ -30,7 +30,7 @@
 	import ChannelSelector from '$lib/components/ChannelSelector.svelte'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
 	import { classNames, emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
@@ -493,7 +493,7 @@
 
 									<a
 										target="_blank"
-										href={`${base}/run/${connectionTestJob.uuid}?workspace=${$workspaceStore}`}
+										href={`${$wsBase}/run/${connectionTestJob.uuid}`}
 										class="inline-flex items-center gap-1"
 									>
 										{connectionTestJob.uuid}
@@ -585,7 +585,7 @@
 								Message sent via Windmill job
 								<a
 									target="_blank"
-									href={`${base}/run/${connectionTestJob.uuid}?workspace=${$workspaceStore}`}
+									href={`${$wsBase}/run/${connectionTestJob.uuid}`}
 								>
 									{connectionTestJob.uuid}
 								</a>

@@ -7,6 +7,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { sendUserToast } from '$lib/toast'
 
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
@@ -422,7 +423,7 @@
 						{#if $userStore?.is_admin}
 							Configure datatables in
 							<a
-								href="/workspace_settings?tab=windmill_data_tables"
+								href="{$wsBase}/workspace_settings?tab=windmill_data_tables"
 								target="_blank"
 								class="inline-flex items-center gap-1"
 								>workspace settings <ExternalLinkIcon size={16} />
@@ -547,7 +548,7 @@
 						{#if $userStore?.is_admin}
 							Configure AI in
 							<a
-								href="/workspace_settings?tab=ai"
+								href="{$wsBase}/workspace_settings?tab=ai"
 								target="_blank"
 								class="inline-flex items-center gap-1 font-semibold"
 								>workspace settings <ExternalLinkIcon size={16} />

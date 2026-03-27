@@ -5,7 +5,7 @@
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
+	import { wsBase } from '$lib/workspaceUrl'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 
 	let { idx, mode } = $props<{ idx: number; mode?: 'sync' | 'promotion' }>()
@@ -188,7 +188,7 @@
 				<a
 					target="_blank"
 					class="underline"
-					href={`/run/${repo.detectionJobId}?workspace=${$workspaceStore}`}
+					href={`${$wsBase}/run/${repo.detectionJobId}`}
 				>
 					{repo.detectionJobId}
 				</a>

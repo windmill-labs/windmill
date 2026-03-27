@@ -7,6 +7,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { Alert, Button } from './common'
 	import { ExternalLink } from 'lucide-svelte'
+	import { getWsBase } from '$lib/workspaceUrl'
 	import TextInput from './text_input/TextInput.svelte'
 	import Label from './Label.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
@@ -189,7 +190,7 @@
 										variant="default"
 										target="_blank"
 										endIcon={{ icon: ExternalLink }}
-										href="/scripts/add?hub=hub%2F9204%2Fhelper%2FScale%20a%20worker%20group%20deployed%20as%20a%20kubernetes%20service&workspace=admins"
+										href="{getWsBase('admins')}/scripts/add?hub=hub%2F9204%2Fhelper%2FScale%20a%20worker%20group%20deployed%20as%20a%20kubernetes%20service"
 										>Create from template
 										{disabled}
 									</Button>
@@ -197,7 +198,7 @@
 									<Button
 										variant="default"
 										target="_blank"
-										href={`/runs/${config.integration.path}?workspace=admins`}
+										href={`${getWsBase('admins')}/runs/${config.integration.path}`}
 										endIcon={{ icon: ExternalLink }}
 										{disabled}
 									>

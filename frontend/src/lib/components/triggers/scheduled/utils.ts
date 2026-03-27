@@ -1,5 +1,6 @@
 import { JobService, ScheduleService } from "$lib/gen"
 import { sendUserToast } from "$lib/utils"
+import { toWorkspacePath } from "$lib/workspaceUrl"
 
 export async function runScheduleNow(
     path: string,
@@ -24,7 +25,7 @@ export async function runScheduleNow(
         sendUserToast(`Schedule ${path} will run now`, false, [
             {
                 label: 'Go to the run page',
-                callback: () => window.open('/run/' + run + '?workspace=' + workspace_id, '_blank')
+                callback: () => window.open(toWorkspacePath('/run/' + run, workspace_id), '_blank')
             }
         ])
     } catch (err) {

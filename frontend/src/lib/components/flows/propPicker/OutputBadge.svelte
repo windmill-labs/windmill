@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Job } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { ExternalLink } from 'lucide-svelte'
 	import { emptyString } from '$lib/utils'
 
@@ -42,7 +42,7 @@
 		{#if !emptyString(job.id)}
 			<a
 				target="_blank"
-				href="{base}/run/{job.id}?workspace={job.workspace_id}"
+				href="{$wsBase}/run/{job.id}"
 				class="text-right float-right text-gray-300 group-hover:text-gray-400 transition-all duration-200 dark:text-gray-500 dark:group-hover:text-gray-300"
 				title="See run detail in a new tab"
 			>

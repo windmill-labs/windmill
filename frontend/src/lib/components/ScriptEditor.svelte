@@ -80,7 +80,7 @@
 	import CaptureButton from './triggers/CaptureButton.svelte'
 	import { setContext } from 'svelte'
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/script/core'
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
@@ -1938,7 +1938,7 @@
 							{#snippet popoverOverride()}
 								<div class="text-sm">
 									Enable Windmill AI in the <a
-										href="{base}/workspace_settings?tab=ai"
+										href="{$wsBase}/workspace_settings?tab=ai"
 										target="_blank"
 										class="inline-flex flex-row items-center gap-1"
 									>
