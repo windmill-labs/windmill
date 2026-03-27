@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { base } from '$app/paths'
 	import { Button, Skeleton } from '$lib/components/common'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { AppService, type AppWithLastVersion } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { canWrite } from '$lib/utils'
@@ -58,7 +58,7 @@
 				size="sm"
 				startIcon={{ icon: Pen }}
 				variant="subtle"
-				href="{base}/apps_raw/edit/{page.params.path}?nodraft=true">Edit</Button
+				href="{$wsBase}/apps_raw/edit/{page.params.path}?nodraft=true">Edit</Button
 			>
 		</div>
 	{/if}

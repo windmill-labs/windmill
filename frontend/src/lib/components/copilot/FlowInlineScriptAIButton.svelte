@@ -3,7 +3,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Button from '../common/button/Button.svelte'
 	import { ExternalLink, WandSparkles } from 'lucide-svelte'
-	import { base } from '$lib/base'
+	import { wsBase } from '$lib/workspaceUrl'
 	import { twMerge } from 'tailwind-merge'
 	import { aiChatManager, AIMode } from './chat/AIChatManager.svelte'
 	import { copilotInfo } from '$lib/aiStore'
@@ -59,7 +59,7 @@
 			<div class="p-4">
 				<p class="text-sm">
 					Enable Windmill AI in the <a
-						href="{base}/workspace_settings?tab=ai"
+						href="{$wsBase}/workspace_settings?tab=ai"
 						target="_blank"
 						class="inline-flex flex-row items-center gap-1"
 					>

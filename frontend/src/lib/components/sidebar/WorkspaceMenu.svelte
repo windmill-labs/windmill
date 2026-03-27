@@ -18,7 +18,7 @@
 	import { base } from '$lib/base'
 	import { page } from '$app/state'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { stripWsPrefix } from '$lib/workspaceUrl'
+	import { stripWsPrefix, wsBase } from '$lib/workspaceUrl'
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
@@ -200,7 +200,7 @@
 			{/if}
 			{#if ($userStore?.is_admin || $superadmin) && !strictWorkspaceSelect}
 				<div class="py-1" role="none">
-					<MenuItem href="{base}/workspace_settings" class={itemClass} {item}>
+					<MenuItem href="{$wsBase}/workspace_settings" class={itemClass} {item}>
 						<Settings size={16} />
 						Workspace settings
 					</MenuItem>

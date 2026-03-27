@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { Button } from '../common'
+	import { wsBase } from '$lib/workspaceUrl'
 
 	import { SUPPORTED_LANGUAGES } from './lib'
 	import type { SupportedLanguage } from '$lib/common'
@@ -57,7 +57,7 @@
 						<p class="text-sm"
 							>Enable Windmill AI in the <a
 								class="inline-flex flex-row items-center gap-1"
-								href="{base}/workspace_settings?tab=ai"
+								href="{$wsBase}/workspace_settings?tab=ai"
 								target="_blank">workspace settings</a
 							></p
 						></div
