@@ -870,6 +870,7 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     "uid",
     "min_keep_alive_version",
     "automate_username_creation",
+    "_restart_coordination",
 ];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.

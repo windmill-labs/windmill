@@ -2,7 +2,8 @@ use super::{
     validate_authentication_method, HttpConfig, HttpConfigRequest, HttpMethod, HttpTrigger,
     RouteExists, ROUTE_PATH_KEY_RE, VALID_ROUTE_PATH_RE,
 };
-use axum::{async_trait, extract::Path, routing::post, Extension, Json, Router};
+use async_trait::async_trait;
+use axum::{extract::Path, routing::post, Extension, Json, Router};
 use http::StatusCode;
 use sqlx::PgConnection;
 use std::collections::HashSet;

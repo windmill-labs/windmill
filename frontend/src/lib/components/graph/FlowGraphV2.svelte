@@ -698,6 +698,19 @@
 			...aiToolNodesResult.toolNodes
 		]
 
+		// Collect module IDs hidden inside collapsed groups so note cleanup preserves them
+		const collapsedModuleIds = new Set<string>()
+		for (const n of finalNodes) {
+			if (n.type === 'collapsedGroup') {
+				const modules = (n.data as any)?.modules as FlowModule[] | undefined
+				if (modules) {
+					for (const m of modules) {
+						collapsedModuleIds.add(m.id)
+					}
+				}
+			}
+		}
+
 		// Compute note nodes (no position remapping)
 		let noteNodesResult = showNotes
 			? computeNoteNodes(
@@ -715,7 +728,8 @@
 						noteManager.render()
 					},
 					editMode,
-					noteEditorContext
+					noteEditorContext,
+					collapsedModuleIds.size > 0 ? collapsedModuleIds : undefined
 				)
 			: undefined
 
@@ -920,7 +934,6 @@
 		}
 
 		document.addEventListener('keydown', globalKeyDownHandler)
-
 
 		return () => {
 			document.removeEventListener('keydown', globalKeyDownHandler)

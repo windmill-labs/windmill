@@ -190,18 +190,18 @@ impl ScriptWDraft<ScriptRunnableSettingsHandle> {
 pub fn global_service() -> Router {
     Router::new()
         .route("/hub/top", get(get_top_hub_scripts))
-        .route("/hub/get/*path", get(get_hub_script_by_path))
-        .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
-        .route("/hub/pick/*path", get(pick_hub_script_by_path))
+        .route("/hub/get/{*path}", get(get_hub_script_by_path))
+        .route("/hub/get_full/{*path}", get(get_full_hub_script_by_path))
+        .route("/hub/pick/{*path}", get(pick_hub_script_by_path))
 }
 
 pub fn global_unauthed_service() -> Router {
     Router::new()
         .route(
-            "/tokened_raw/:workspace/:token/*path",
+            "/tokened_raw/{workspace}/{token}/{*path}",
             get(get_tokened_raw_script_by_path),
         )
-        .route("/empty_ts/*path", get(get_empty_ts_script_by_path))
+        .route("/empty_ts/{*path}", get(get_empty_ts_script_by_path))
 }
 
 pub fn workspaced_service() -> Router {
@@ -210,33 +210,33 @@ pub fn workspaced_service() -> Router {
         .route("/list_search", get(list_search_scripts))
         .route("/create", post(create_script))
         .route("/create_snapshot", post(create_snapshot_script))
-        .route("/archive/p/*path", post(archive_script_by_path))
-        .route("/get/draft/*path", get(get_script_by_path_w_draft))
-        .route("/get/p/*path", get(get_script_by_path))
-        .route("/list_tokens/*path", get(list_tokens))
-        .route("/raw/p/*path", get(raw_script_by_path))
-        .route("/raw_unpinned/p/*path", get(raw_script_by_path_unpinned))
-        .route("/exists/p/*path", get(exists_script_by_path))
-        .route("/archive/h/:hash", post(archive_script_by_hash))
-        .route("/delete/h/:hash", post(delete_script_by_hash))
-        .route("/delete/p/*path", post(delete_script_by_path))
+        .route("/archive/p/{*path}", post(archive_script_by_path))
+        .route("/get/draft/{*path}", get(get_script_by_path_w_draft))
+        .route("/get/p/{*path}", get(get_script_by_path))
+        .route("/list_tokens/{*path}", get(list_tokens))
+        .route("/raw/p/{*path}", get(raw_script_by_path))
+        .route("/raw_unpinned/p/{*path}", get(raw_script_by_path_unpinned))
+        .route("/exists/p/{*path}", get(exists_script_by_path))
+        .route("/archive/h/{hash}", post(archive_script_by_hash))
+        .route("/delete/h/{hash}", post(delete_script_by_hash))
+        .route("/delete/p/{*path}", post(delete_script_by_path))
         .route("/delete_bulk", delete(delete_scripts_bulk))
-        .route("/get/h/:hash", get(get_script_by_hash))
-        .route("/raw/h/:hash", get(raw_script_by_hash))
-        .route("/deployment_status/h/:hash", get(get_deployment_status))
+        .route("/get/h/{hash}", get(get_script_by_hash))
+        .route("/raw/h/{hash}", get(raw_script_by_hash))
+        .route("/deployment_status/h/{hash}", get(get_deployment_status))
         .route("/list_paths", get(list_paths))
         .route(
-            "/toggle_workspace_error_handler/p/*path",
+            "/toggle_workspace_error_handler/p/{*path}",
             post(toggle_workspace_error_handler),
         )
-        .route("/history/p/*path", get(get_script_history))
-        .route("/get_latest_version/*path", get(get_latest_version))
+        .route("/history/p/{*path}", get(get_script_history))
+        .route("/get_latest_version/{*path}", get(get_latest_version))
         .route(
-            "/list_paths_from_workspace_runnable/*path",
+            "/list_paths_from_workspace_runnable/{*path}",
             get(list_paths_from_workspace_runnable),
         )
         .route(
-            "/history_update/h/:hash/p/*path",
+            "/history_update/h/{hash}/p/{*path}",
             post(update_script_history),
         )
         .route("/list_dedicated_with_deps", get(list_dedicated_with_deps))

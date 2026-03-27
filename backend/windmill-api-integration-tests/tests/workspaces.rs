@@ -599,59 +599,60 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
     assert_eq!(resp.status(), 200, "tarball: {}", resp.status());
 
-    // ===== Fork operations (on the newly created workspace) =====
+    // ===== Fork operations (EE-only: CE limits workspace count to 2) =====
+    #[cfg(feature = "enterprise")]
+    {
+        let new_ws_base = format!("http://localhost:{port}/api/w/new-test-ws/workspaces");
+        let resp = authed(client().post(format!("{new_ws_base}/create_fork")))
+            .json(&json!({
+                "id": "wm-fork-test-ws",
+                "name": "Forked Test Workspace"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200, "create_fork: {}", resp.text().await?);
 
-    // --- create_fork (workspace-scoped, from new-test-ws) ---
-    let new_ws_base = format!("http://localhost:{port}/api/w/new-test-ws/workspaces");
-    let resp = authed(client().post(format!("{new_ws_base}/create_fork")))
-        .json(&json!({
-            "id": "wm-fork-test-ws",
-            "name": "Forked Test Workspace"
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200, "create_fork: {}", resp.text().await?);
+        // verify fork exists
+        let resp = authed(client().post(format!("{global_base}/exists")))
+            .json(&json!({"id": "wm-fork-test-ws"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.json::<bool>().await?, true);
 
-    // verify fork exists
-    let resp = authed(client().post(format!("{global_base}/exists")))
-        .json(&json!({"id": "wm-fork-test-ws"}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.json::<bool>().await?, true);
+        // --- change_workspace_id ---
+        let fork_ws_base = format!("http://localhost:{port}/api/w/wm-fork-test-ws/workspaces");
+        let resp = authed(client().post(format!("{fork_ws_base}/change_workspace_id")))
+            .json(&json!({
+                "new_id": "wm-fork-renamed",
+                "new_name": "Renamed Fork"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "change_workspace_id: {}",
+            resp.text().await?
+        );
 
-    // --- change_workspace_id ---
-    let fork_ws_base = format!("http://localhost:{port}/api/w/wm-fork-test-ws/workspaces");
-    let resp = authed(client().post(format!("{fork_ws_base}/change_workspace_id")))
-        .json(&json!({
-            "new_id": "wm-fork-renamed",
-            "new_name": "Renamed Fork"
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(
-        resp.status(),
-        200,
-        "change_workspace_id: {}",
-        resp.text().await?
-    );
+        // verify renamed workspace exists
+        let resp = authed(client().post(format!("{global_base}/exists")))
+            .json(&json!({"id": "wm-fork-renamed"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.json::<bool>().await?, true);
 
-    // verify renamed workspace exists
-    let resp = authed(client().post(format!("{global_base}/exists")))
-        .json(&json!({"id": "wm-fork-renamed"}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.json::<bool>().await?, true);
-
-    // clean up renamed fork
-    let resp = authed(client().delete(format!("{global_base}/delete/wm-fork-renamed")))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
+        // clean up renamed fork
+        let resp = authed(client().delete(format!("{global_base}/delete/wm-fork-renamed")))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+    }
 
     // --- archive workspace (on the newly created one, not our main test workspace) ---
     let new_ws_base = format!("http://localhost:{port}/api/w/new-test-ws/workspaces");
@@ -800,6 +801,24 @@ async fn test_get_copilot_info_ignores_empty_instance_ai_row(
     assert_eq!(resp.status(), 200);
     let settings = resp.json::<serde_json::Value>().await?;
     assert!(settings["providers"].is_null());
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_get_imports(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    let resp = authed(client().get(format!("{base}/get_imports/u/test-user/nonexistent_script")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let imports = resp.json::<Vec<String>>().await?;
+    assert!(imports.is_empty());
 
     Ok(())
 }
