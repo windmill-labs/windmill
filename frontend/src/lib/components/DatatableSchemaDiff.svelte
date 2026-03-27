@@ -1,6 +1,7 @@
 <script module lang="ts">
 	import {
 		type TableEditorValues,
+		type TableEditorValuesColumn,
 		type TableEditorForeignKey,
 		columnDefToTableEditorValuesColumn
 	} from '$lib/components/apps/components/display/dbtable/tableEditor'
@@ -320,17 +321,12 @@
 			return
 		}
 
-		// Update forked_from.schema for the migrated table using raw API format
+		// Update forked_from.schema for the migrated table
 		try {
-			const targetWorkspace = drawerDirection === 'ahead' ? parentWorkspaceId : currentWorkspaceId
+			const sourceSchema =
+				drawerDirection === 'ahead' ? drawerDiff.forkSchema : drawerDiff.parentSchema
 			const { schemaName, tableName } = drawerChange
-
-			// Re-fetch the raw schema from the target (post-migration) to store as new baseline
-			const rawSchema = await WorkspaceService.getDatatableFullSchema({
-				workspace: targetWorkspace,
-				requestBody: { source: `datatable://${dtName}` }
-			})
-			const newTableDef = rawSchema[schemaName]?.[tableName]
+			const newTableDef = sourceSchema[schemaName]?.[tableName]
 
 			const forkSettings = await WorkspaceService.getSettings({
 				workspace: currentWorkspaceId
