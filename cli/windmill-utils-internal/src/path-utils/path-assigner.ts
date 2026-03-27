@@ -125,6 +125,8 @@ export function sanitizeForFilesystem(summary: string): string {
     // Also remove control characters (0x00-0x1F) and DEL (0x7F)
     // deno-lint-ignore no-control-regex
     .replace(/[/\\:*?"<>|\x00-\x1f\x7f]/g, "")
+    // Collapse consecutive underscores
+    .replace(/_+/g, "_")
     // Trim leading/trailing dots and underscores (hidden files, Windows edge cases)
     .replace(/^[._]+|[._]+$/g, "");
   // Prefix Windows reserved device names (CON, PRN, AUX, NUL, COM0-9, LPT0-9)
