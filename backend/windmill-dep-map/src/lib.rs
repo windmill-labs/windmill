@@ -88,7 +88,13 @@ pub fn extract_referenced_paths(
 ) -> Option<Vec<String>> {
     let mut referenced_paths = vec![];
     if let Some(wk_deps_refs) = language
-        .and_then(|l| windmill_common::scripts::extract_workspace_dependencies_annotated_refs(&l, raw_code, script_path))
+        .and_then(|l| {
+            windmill_common::scripts::extract_workspace_dependencies_annotated_refs(
+                &l,
+                raw_code,
+                script_path,
+            )
+        })
         .map(|r| r.external)
     {
         let l = language.expect("should be some");
@@ -135,7 +141,10 @@ pub async fn process_relative_imports(
     use scoped_dependency_map::ScopedDependencyMap;
     use trigger_dependents::trigger_dependents_to_recompute_dependencies;
 
-    // TODO: Should be moved into handle_dependency_job body to be more consistent with how flows and apps are handled
+    let triggered_by_relative_import = args
+        .map(|x| x.get("triggered_by_relative_import").is_some())
+        .unwrap_or(false);
+
     {
         let mut tx = db.begin().await?;
         let mut dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
@@ -147,14 +156,19 @@ pub async fn process_relative_imports(
         )
         .await?;
 
-        tx = dependency_map
-            .patch(
-                extract_referenced_paths(&code, script_path, *script_lang),
-                // Ideally should be None, but due to current implementation will use empty string to represent None.
-                "".into(),
-                tx,
-            )
-            .await?;
+        // When triggered by a relative import change, don't re-confirm the entries
+        // via patch. This causes dissolve to clear stale importer_kind=script entries
+        // (e.g. companion scripts at flow paths), breaking the self-sustaining cycle.
+        if !triggered_by_relative_import {
+            tx = dependency_map
+                .patch(
+                    extract_referenced_paths(&code, script_path, *script_lang),
+                    // Ideally should be None, but due to current implementation will use empty string to represent None.
+                    "".into(),
+                    tx,
+                )
+                .await?;
+        }
 
         dependency_map.dissolve(tx).await.commit().await?;
     }
