@@ -14,9 +14,15 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { CancelablePromise, User, UserUsage } from '$lib/gen'
 	import { UserService, WorkspaceService, GroupService, type WorkspaceInvite } from '$lib/gen'
-	import { userStore, workspaceStore, superadmin, globalEmailInvite } from '$lib/stores'
+	import {
+		userStore,
+		workspaceStore,
+		superadmin,
+		globalEmailInvite,
+		enterpriseLicense
+	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Loader2, Mails, Search, Plus, UserMinus, X } from 'lucide-svelte'
+	import { Loader2, Mails, Search, Plus, UserMinus, X, Bot, LogIn } from 'lucide-svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import SearchItems from '../SearchItems.svelte'
 	import Cell from '../table/Cell.svelte'
@@ -44,6 +50,8 @@
 	// Add new instance group form state
 	let selectedNewInstanceGroup: string | undefined = $state(undefined)
 	let selectedNewRole: string | undefined = $state('developer')
+
+	// Service account creation
 
 	// Available groups for dropdowns - filter out already configured groups
 	let availableGroupItems = $derived(
@@ -488,12 +496,14 @@
 							{#snippet children({ item })}
 								<ToggleButton
 									value="operator"
+									small
 									label="Operator"
 									tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
 									{item}
 								/>
 								<ToggleButton
 									value="developer"
+									small
 									label="Developer"
 									tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
 									{item}
@@ -595,18 +605,21 @@
 													{#snippet children({ item })}
 														<ToggleButton
 															value="operator"
+															small
 															label="Operator"
 															tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
 															{item}
 														/>
 														<ToggleButton
 															value="developer"
+															small
 															label="Developer"
 															tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
 															{item}
 														/>
 														<ToggleButton
 															value="admin"
+															small
 															label="Admin"
 															tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
 															{item}
@@ -663,18 +676,21 @@
 																		{#snippet children({ item })}
 																			<ToggleButton
 																				value="operator"
+																				small
 																				label="Operator"
 																				tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
 																				{item}
 																			/>
 																			<ToggleButton
 																				value="developer"
+																				small
 																				label="Developer"
 																				tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
 																				{item}
 																			/>
 																			<ToggleButton
 																				value="admin"
+																				small
 																				label="Admin"
 																				tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
 																				{item}
@@ -779,8 +795,21 @@
 						</tr>
 					{/if}
 					<tr class={index % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
-						<Cell first><a href="mailto:{email}">{truncate(email, 20)}</a></Cell>
-						<Cell>{truncate(username, 30)}</Cell>
+						<Cell first>
+							{#if user.is_service_account}
+								<span class="flex items-center gap-1.5 max-w-[150px]" title={email}>
+									<Bot size={16} class="text-blue-500 shrink-0" />
+									<span class="truncate">{email}</span>
+								</span>
+							{:else}
+								<a href="mailto:{email}" class="block truncate max-w-[150px]" title={email}
+									>{email}</a
+								>
+							{/if}
+						</Cell>
+						<Cell
+							><span class="block truncate max-w-[120px]" title={username}>{username}</span></Cell
+						>
 						{#if hasNonManualUsers}
 							<Cell>
 								<div class="flex items-center gap-2">
@@ -796,14 +825,21 @@
 							</Cell>
 						{/if}
 						<Cell
-							>{#if usage?.[email] != undefined}{usage?.[email]}{:else}<Loader2
+							>{#if usage != undefined}{usage[email] ?? 0}{:else}<Loader2
 									size={14}
 									class="animate-spin"
 								/>{/if}</Cell
 						>
 						<Cell>
 							<div>
-								{#if added_via?.source === 'instance_group'}
+								{#if user.is_service_account}
+									<div class="flex items-center gap-1">
+										<span class="rounded-md text-xs px-2 py-1 bg-surface shadow-md font-bold">
+											Operator
+										</span>
+										<Tooltip>Service accounts are always operators.</Tooltip>
+									</div>
+								{:else if added_via?.source === 'instance_group'}
 									<div class="flex items-center gap-1">
 										<span class="rounded-md text-xs px-2 py-1 bg-surface shadow-md font-bold">
 											{is_admin ? 'Admin' : operator ? 'Operator' : 'Developer'}
@@ -840,6 +876,7 @@
 										{#snippet children({ item })}
 											<ToggleButton
 												value="operator"
+												small
 												label="Operator"
 												tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
 												{item}
@@ -847,6 +884,7 @@
 
 											<ToggleButton
 												value="developer"
+												small
 												label="Developer"
 												tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
 												{item}
@@ -854,6 +892,7 @@
 
 											<ToggleButton
 												value="admin"
+												small
 												label="Admin"
 												tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
 												{item}
@@ -887,6 +926,32 @@
 						</Cell>
 						<Cell>
 							<div class="flex gap-1">
+								{#if user.is_service_account && $userStore?.is_admin}
+									<Button
+										unifiedSize="sm"
+										variant="default"
+										startIcon={{ icon: LogIn }}
+										disabled={!$enterpriseLicense}
+										title={!$enterpriseLicense ? 'Requires Enterprise Edition' : undefined}
+										onClick={async () => {
+											try {
+												// Backend sets the impersonation cookie and returns the old token
+												const oldToken = await UserService.impersonateServiceAccount({
+													workspace: $workspaceStore ?? '',
+													requestBody: { username }
+												})
+												if (oldToken) {
+													sessionStorage.setItem('pre_impersonation_token', oldToken)
+												}
+												window.location.href = '/'
+											} catch (e) {
+												sendUserToast('Failed to impersonate service account', true)
+											}
+										}}
+									>
+										Impersonate
+									</Button>
+								{/if}
 								{#snippet removeUserButton(disabled: boolean)}
 									<Button
 										unifiedSize="sm"
@@ -1005,6 +1070,7 @@
 										{#snippet children({ item })}
 											<ToggleButton
 												value="operator"
+												small
 												label="Operator"
 												tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
 												{item}
@@ -1012,6 +1078,7 @@
 
 											<ToggleButton
 												value="developer"
+												small
 												label="Developer"
 												tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
 												{item}
@@ -1019,6 +1086,7 @@
 
 											<ToggleButton
 												value="admin"
+												small
 												label="Admin"
 												tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
 												{item}

@@ -47,6 +47,11 @@
         "ordinal": 8,
         "name": "added_via",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_service_account",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -63,7 +68,8 @@
       false,
       false,
       true,
-      true
+      true,
+      false
     ]
   },
   "hash": "e5fb3531f8bc7ef1f7484524f8c3bc9c48f71a44827ba0d01ac5588dc31082a2"

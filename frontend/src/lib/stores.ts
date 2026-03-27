@@ -28,6 +28,7 @@ export interface UserExt {
 	pgroups: string[]
 	folders: string[]
 	folders_owners: string[]
+	is_service_account?: boolean
 }
 
 export interface UserWorkspace {

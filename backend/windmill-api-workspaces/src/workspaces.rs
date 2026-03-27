@@ -75,6 +75,7 @@ pub fn workspaced_service() -> Router {
         .route("/archive", post(archive_workspace))
         .route("/invite_user", post(invite_user))
         .route("/add_user", post(add_user))
+        .route("/create_service_account", post(create_service_account))
         .route("/delete_invite", post(delete_invite))
         .route("/rebuild_dependency_map", post(rebuild_dependency_map))
         .route("/get_dependency_map", get(get_dependency_map))
@@ -4230,6 +4231,20 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
         StatusCode::CREATED,
         format!("user with email {} added", nu.email),
     ))
+}
+
+#[derive(Deserialize)]
+pub struct NewServiceAccount {
+    pub username: String,
+}
+
+async fn create_service_account(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(nu): Json<NewServiceAccount>,
+) -> Result<(StatusCode, String)> {
+    crate::workspaces_oss::create_service_account(authed, db, w_id, nu).await
 }
 
 async fn delete_invite(
