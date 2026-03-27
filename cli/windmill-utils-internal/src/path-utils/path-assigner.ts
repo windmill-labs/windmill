@@ -111,6 +111,22 @@ export function getLanguageFromExtension(
   return undefined;
 }
 
+/**
+ * Sanitizes a summary string for use as a filesystem-safe name.
+ * Removes or replaces characters that are invalid on common filesystems.
+ */
+export function sanitizeForFilesystem(summary: string): string {
+  return summary
+    .toLowerCase()
+    .replaceAll(" ", "_")
+    // Remove characters invalid on Windows/Unix/Mac: / \ : * ? " < > |
+    // Also remove control characters (0x00-0x1F) and DEL (0x7F)
+    // deno-lint-ignore no-control-regex
+    .replace(/[/\\:*?"<>|\x00-\x1f\x7f]/g, "")
+    // Trim leading/trailing dots and underscores (hidden files, Windows edge cases)
+    .replace(/^[._]+|[._]+$/g, "");
+}
+
 export interface PathAssigner {
   assignPath(summary: string | undefined, language: SupportedLanguage): [string, string];
 }
@@ -144,7 +160,7 @@ export function newPathAssigner(defaultTs: "bun" | "deno" | PathAssignerOptions,
   ): [string, string] {
     let name;
 
-    name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
+    name = summary ? sanitizeForFilesystem(summary) : "";
 
     let original_name = name;
 
@@ -185,7 +201,7 @@ export function newRawAppPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
   ): [string, string] {
     let name;
 
-    name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
+    name = summary ? sanitizeForFilesystem(summary) : "";
 
     let original_name = name;
 
