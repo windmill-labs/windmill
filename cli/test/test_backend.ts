@@ -29,7 +29,7 @@
  * If you add new helpers, update cross-links in the files above.
  */
 
-import { CargoBackend, CargoBackendConfig, cleanupStaleTestResources } from "./cargo_backend.ts";
+import { CargoBackend, CargoBackendConfig } from "./cargo_backend.ts";
 import { ContainerizedBackend, ContainerConfig } from "./containerized_backend.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -546,8 +546,6 @@ export function createTestBackend(type?: "cargo" | "docker"): TestBackend {
  */
 export async function getTestBackend(): Promise<TestBackend> {
   if (!globalBackend) {
-    // Clean up stale databases and processes from previous crashed test runs
-    await cleanupStaleTestResources();
     globalBackend = createTestBackend();
     registerCleanup();
     await globalBackend.start();

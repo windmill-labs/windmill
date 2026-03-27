@@ -10,7 +10,6 @@
     "build": "./build.sh",
     "test": "bun test test/",
     "test:unit": "UNIT_ONLY=1 bun test test/*_unit*",
-    "test:integration": "bun test test/",
     "check": "bunx tsc --noEmit",
     "gen-client": "./gen_wm_client.sh && ./windmill-utils-internal/gen_wm_client.sh"
   },

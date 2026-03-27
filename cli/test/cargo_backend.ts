@@ -316,31 +316,7 @@ export class CargoBackend {
    * that survive after the direct child is killed.
    */
   private async killProcessesByDbName(): Promise<void> {
-    if (!IS_LINUX) return;
-    try {
-      const pgrepProc = Bun.spawn(["pgrep", "-f", "windmill"], {
-        stdout: "pipe", stderr: "pipe",
-      });
-      const output = await new Response(pgrepProc.stdout).text();
-      await new Response(pgrepProc.stderr).text();
-      await pgrepProc.exited;
-
-      for (const pidStr of output.trim().split("\n").filter(Boolean)) {
-        const pid = Number(pidStr);
-        if (isNaN(pid)) continue;
-        try {
-          const environ = await readFile(`/proc/${pid}/environ`, "utf-8");
-          if (environ.includes(this.dbName)) {
-            console.log(`Killing child backend process: ${pid}`);
-            process.kill(pid, "SIGKILL");
-          }
-        } catch {
-          // Process exited or we lack permissions
-        }
-      }
-    } catch {
-      // pgrep not available or no matches
-    }
+    await killWindmillProcessesByEnvMatch(this.dbName);
   }
 
   /**
@@ -802,6 +778,38 @@ export class CargoBackend {
 }
 
 /**
+ * Kill windmill processes whose /proc/pid/environ contains the given pattern.
+ * Used by both per-test cleanup (match specific DB name) and stale cleanup (match any test DB).
+ */
+async function killWindmillProcessesByEnvMatch(pattern: string): Promise<void> {
+  if (!IS_LINUX) return;
+  try {
+    const pgrepProc = Bun.spawn(["pgrep", "-f", "target/(debug|release)/windmill"], {
+      stdout: "pipe", stderr: "pipe",
+    });
+    const output = await new Response(pgrepProc.stdout).text();
+    await new Response(pgrepProc.stderr).text();
+    await pgrepProc.exited;
+
+    for (const pidStr of output.trim().split("\n").filter(Boolean)) {
+      const pid = Number(pidStr);
+      if (isNaN(pid)) continue;
+      try {
+        const environ = await readFile(`/proc/${pid}/environ`, "utf-8");
+        if (environ.includes(pattern)) {
+          console.log(`Killing orphaned test backend process: ${pid}`);
+          process.kill(pid, "SIGKILL");
+        }
+      } catch {
+        // Process exited or we lack permissions
+      }
+    }
+  } catch {
+    // pgrep not available or no matches
+  }
+}
+
+/**
  * Clean up stale test databases and orphaned backend processes from previous
  * test runs that crashed or were killed without proper cleanup.
  *
@@ -825,6 +833,8 @@ export async function cleanupStaleTestResources(postgresUrl?: string): Promise<v
 
     const staleDBs = output.trim().split("\n").map(s => s.trim()).filter(Boolean);
     for (const db of staleDBs) {
+      // Only touch databases matching the expected naming pattern
+      if (!/^windmill_test_[a-z0-9_]+$/.test(db)) continue;
       console.log(`Cleaning up stale test database: ${db}`);
       const termProc = Bun.spawn(["psql", `${cleanBaseUrl}/postgres`, "-c",
         `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${db}' AND pid <> pg_backend_pid();`
@@ -848,31 +858,7 @@ export async function cleanupStaleTestResources(postgresUrl?: string): Promise<v
   }
 
   // 2. Find and kill orphaned windmill processes from test runs
-  if (IS_LINUX) {
-    try {
-      const pgrepProc = Bun.spawn(["pgrep", "-f", "target/(debug|release)/windmill"], {
-        stdout: "pipe", stderr: "pipe",
-      });
-      const pgrepOutput = await new Response(pgrepProc.stdout).text();
-      await new Response(pgrepProc.stderr).text();
-      await pgrepProc.exited;
-
-      const pids = pgrepOutput.trim().split("\n").filter(Boolean).map(Number).filter(n => !isNaN(n));
-      for (const pid of pids) {
-        try {
-          const environ = await readFile(`/proc/${pid}/environ`, "utf-8");
-          if (environ.includes("windmill_test_")) {
-            console.log(`Killing orphaned test backend process: ${pid}`);
-            process.kill(pid, "SIGKILL");
-          }
-        } catch {
-          // Process may have exited or we lack permissions
-        }
-      }
-    } catch {
-      // pgrep not available or no matches — fine
-    }
-  }
+  await killWindmillProcessesByEnvMatch("windmill_test_");
 }
 
 // Global backend instance

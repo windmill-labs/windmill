@@ -10,11 +10,13 @@
  *    bear the startup cost inside their per-test timeout window.
  */
 
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { statSync } from "node:fs";
+if (process.env["UNIT_ONLY"]) {
+  // Nothing to do — unit tests don't need backend setup
+} else {
 
-if (!process.env["UNIT_ONLY"]) {
+const { resolve } = await import("node:path");
+const { fileURLToPath } = await import("node:url");
+const { statSync } = await import("node:fs");
 
 const __dirname = resolve(fileURLToPath(import.meta.url), "..");
 
@@ -111,4 +113,4 @@ if (process.env["TEST_CLI_RUNTIME"] === "node") {
   console.log("npm package built — tests will use Node runtime.");
 }
 
-} // end if (!UNIT_ONLY)
+}
