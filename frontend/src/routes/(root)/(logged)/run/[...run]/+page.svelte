@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { wsBase } from '$lib/workspaceUrl'
+	import { wsBase, getWsBase } from '$lib/workspaceUrl'
 	import {
 		JobService,
 		type Job,
@@ -456,7 +456,7 @@
 							variant="default"
 							unifiedSize="md"
 							on:click={() => {
-								goto(`/run/${page.params.run}?workspace=${workspace.id}`)
+								goto(`${getWsBase(workspace.id)}/run/${page.params.run}`)
 							}}
 						>
 							See in {workspace.name}

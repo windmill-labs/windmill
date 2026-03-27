@@ -6,8 +6,7 @@
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
-	import { base } from '$lib/base'
-	import { wsBase } from '$lib/workspaceUrl'
+	import { wsBase, getWsBase } from '$lib/workspaceUrl'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/state'
 	import { goto as gotoUrl } from '$app/navigation'
@@ -202,7 +201,7 @@
 				<Button
 					variant="default"
 					target="_blank"
-					href="{base}/?workspace=admins"
+					href="{getWsBase('admins')}/"
 					endIcon={{ icon: ExternalLink }}
 				>
 					Admins workspace
@@ -223,7 +222,7 @@
 				{#if $workspaceStore !== 'admins'}
 					<div class="mt-4 pt-2 border-t border-surface-hover">
 						<a
-							href="{base}/?workspace=admins"
+							href="{getWsBase('admins')}/"
 							target="_blank"
 							class="flex items-center gap-2 px-2 py-1.5 text-xs text-secondary hover:text-primary transition-colors"
 						>

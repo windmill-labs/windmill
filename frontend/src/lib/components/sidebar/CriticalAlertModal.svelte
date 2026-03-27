@@ -18,8 +18,7 @@
 	import List from '$lib/components/common/layout/List.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { BellOff, Bell, ExternalLink, Settings } from 'lucide-svelte'
-	import { base } from '$lib/base'
-	import { wsBase } from '$lib/workspaceUrl'
+	import { wsBase, getWsBase } from '$lib/workspaceUrl'
 	import Notification from '$lib/components/common/alert/Notification.svelte'
 
 	interface Props {
@@ -263,7 +262,7 @@
 								<Button
 									size="xs"
 									color="light"
-									href="{base}/?workspace=admins#superadmin-settings"
+									href="{getWsBase('admins')}/#superadmin-settings"
 									target="_blank"
 								>
 									<div class="w-full">

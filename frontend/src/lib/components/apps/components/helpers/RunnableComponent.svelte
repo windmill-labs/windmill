@@ -32,6 +32,7 @@
 	import { selectId } from '../../editor/appUtils'
 	import { collectOneOfFields } from '../../editor/appUtilsCore'
 	import { userStore } from '$lib/stores'
+	import { getWsBase } from '$lib/workspaceUrl'
 	import { get } from 'svelte/store'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 	import { ctxRegex } from '../../utils'
@@ -923,7 +924,7 @@
 										{/if}
 										{#if lastJobId}
 											<a
-												href={`/run/${lastJobId}?workspace=${workspace}`}
+												href={`${getWsBase(workspace)}/run/${lastJobId}`}
 												class="font-semibold text-red-800 underline"
 												target="_blank"
 											>

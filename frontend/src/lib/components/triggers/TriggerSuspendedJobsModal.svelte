@@ -38,6 +38,7 @@
 		errorHandlerArgs,
 		slackErrorHandlerHubPathEnding
 	} from '../ErrorOrRecoveryHandler.svelte'
+	import { toWorkspacePath } from '$lib/workspaceUrl'
 
 	type Props = {
 		triggerPath: string
@@ -430,7 +431,7 @@
 
 							<Row
 								hoverable
-								on:click={() => window.open(`/run/${job.id}?workspace=${workspace}`, '_blank')}
+								on:click={() => window.open(toWorkspacePath(`/run/${job.id}`, workspace), '_blank')}
 							>
 								<Cell class="w-12 sm:pl-3" shouldStopPropagation>
 									<div class="h-4 w-4">
