@@ -29,6 +29,7 @@ export interface UserExt {
 	folders: string[]
 	folders_owners: string[]
 	is_service_account?: boolean
+	impersonating_email?: string
 }
 
 export interface UserWorkspace {

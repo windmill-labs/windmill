@@ -799,6 +799,7 @@
 									console.error('Failed to exit impersonation', e)
 								}
 								sessionStorage.removeItem('pre_impersonation_token')
+								sessionStorage.removeItem('pre_impersonation_email')
 							}
 							window.location.href = '/workspace_settings?tab=users'
 						}}

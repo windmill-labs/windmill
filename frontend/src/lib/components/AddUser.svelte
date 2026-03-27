@@ -10,7 +10,6 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { UserPlus } from 'lucide-svelte'
-	import Tooltip from './Tooltip.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -80,7 +79,8 @@
 		dispatch('new')
 	}
 
-	let selected: 'operator' | 'developer' | 'admin' | 'service_account' = $state('developer')
+	type UserRole = 'operator' | 'developer' | 'admin' | 'service_account'
+	let selected: UserRole = $state('developer' as UserRole)
 	let isServiceAccount = $derived(selected === 'service_account')
 </script>
 

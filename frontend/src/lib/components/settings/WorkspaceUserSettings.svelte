@@ -942,6 +942,7 @@
 												})
 												if (oldToken) {
 													sessionStorage.setItem('pre_impersonation_token', oldToken)
+													sessionStorage.setItem('pre_impersonation_email', $userStore?.email ?? '')
 												}
 												window.location.href = '/'
 											} catch (e) {
