@@ -8,9 +8,9 @@ use std::{
     sync::Arc,
 };
 use uuid::Uuid;
+use windmill_ai::ai_providers::AIProvider;
 use windmill_common::flows::FlowModuleValue;
 use windmill_common::{
-    ai_providers::AIProvider,
     db::DB,
     error::Error,
     flow_conversations::{add_message_to_conversation_tx, MessageType},

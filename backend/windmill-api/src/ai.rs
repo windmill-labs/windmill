@@ -16,8 +16,8 @@ use serde_json::{json, value::RawValue};
 use std::collections::HashMap;
 use std::time::Duration;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
-use windmill_common::ai_cache::current_instance_ai_config_revision;
-use windmill_common::ai_providers::{
+use windmill_ai::ai_cache::current_instance_ai_config_revision;
+use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
 use windmill_common::error::{to_anyhow, Error, Result};
@@ -624,8 +624,8 @@ pub fn workspaced_service() -> Router {
 async fn check_bedrock_credentials(
     _authed: ApiAuthed,
     Path(_w_id): Path<String>,
-) -> Result<Json<windmill_common::ai_bedrock::BedrockCredentialsCheck>> {
-    let response = windmill_common::ai_bedrock::check_env_credentials().await;
+) -> Result<Json<windmill_ai::ai_bedrock::BedrockCredentialsCheck>> {
+    let response = windmill_ai::ai_bedrock::check_env_credentials().await;
     Ok(Json(response))
 }
 
@@ -945,7 +945,7 @@ async fn proxy(
             let region = request_config
                 .region
                 .as_deref()
-                .unwrap_or(windmill_common::ai_providers::USE_ENV_REGION);
+                .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
 
             // Audit log before making the SDK request
             let mut tx = db.begin().await?;
@@ -1062,8 +1062,8 @@ async fn proxy(
 mod tests {
     use super::*;
     use std::sync::{LazyLock, Mutex};
-    use windmill_common::ai_cache::bump_instance_ai_config_revision;
-    use windmill_common::ai_providers::AIPlatform;
+    use windmill_ai::ai_cache::bump_instance_ai_config_revision;
+    use windmill_ai::ai_providers::AIPlatform;
 
     static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 

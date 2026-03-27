@@ -1,0 +1,37 @@
+[package]
+name = "windmill-ai"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+bedrock = ["dep:aws-sdk-bedrockruntime", "dep:aws-credential-types", "dep:aws-smithy-types", "dep:aws-config"]
+mcp = ["dep:windmill-mcp"]
+
+[lib]
+name = "windmill_ai"
+path = "src/lib.rs"
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+windmill-types.workspace = true
+windmill-parser.workspace = true
+windmill-mcp = { workspace = true, optional = true }
+
+async-trait.workspace = true
+base64.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx = { workspace = true, features = ["postgres"] }
+uuid.workspace = true
+lazy_static.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+
+# Bedrock (optional)
+aws-config = { workspace = true, optional = true }
+aws-credential-types = { workspace = true, optional = true }
+aws-smithy-types = { workspace = true, optional = true }
+aws-sdk-bedrockruntime = { workspace = true, optional = true }

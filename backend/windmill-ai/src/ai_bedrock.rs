@@ -18,7 +18,7 @@ use aws_sdk_bedrockruntime::types::{
 use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
 use serde::{Deserialize, Serialize};
 
-use crate::error::Error;
+use windmill_common::error::Error;
 
 use crate::ai_types::{
     ContentPart, OpenAIContent, OpenAIFunction, OpenAIMessage, OpenAIToolCall, ToolDef,

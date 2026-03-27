@@ -7,6 +7,7 @@ edition.workspace = true
 [workspace]
 resolver = "2"
 members = [
+    "./windmill-ai",
     "./windmill-object-store",
     "./windmill-api",
     "./windmill-api-scripts",
@@ -132,8 +133,8 @@ dind = ["windmill-worker/dind"]
 websocket = ["windmill-api/websocket"]
 http_trigger = ["windmill-api/http_trigger"]
 postgres_trigger = ["windmill-api/postgres_trigger"]
-mcp = ["windmill-api/mcp", "windmill-worker/mcp"]
-bedrock = ["windmill-api/bedrock", "windmill-worker/bedrock", "windmill-common/bedrock"]
+mcp = ["windmill-ai/mcp", "windmill-api/mcp", "windmill-worker/mcp"]
+bedrock = ["windmill-ai/bedrock", "windmill-api/bedrock", "windmill-worker/bedrock", "windmill-common/bedrock"]
 mqtt_trigger = ["windmill-api/mqtt_trigger"]
 native_trigger = ["windmill-api/native_trigger"]
 sqs_trigger = ["windmill-api/sqs_trigger", "windmill-common/aws_auth", "windmill-api/openidconnect"]
@@ -206,6 +207,7 @@ anyhow.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 dotenv.workspace = true
+windmill-ai = { workspace = true, default-features = false }
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-object-store.workspace = true
@@ -284,6 +286,7 @@ aws-credential-types.workspace = true
 
 
 [workspace.dependencies]
+windmill-ai = { path = "./windmill-ai", default-features = false }
 windmill-api = { path = "./windmill-api", default-features = false  }
 windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }

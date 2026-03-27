@@ -2,8 +2,8 @@
  * This file contains shared AI provider utilities used by both the API and worker.
  */
 
-use crate::db::DB;
-use crate::error::{Error, Result};
+use windmill_common::db::DB;
+use windmill_common::error::{Error, Result};
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Deserializes an Option<String> where empty strings become None.

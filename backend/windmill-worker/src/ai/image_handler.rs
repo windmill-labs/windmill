@@ -80,7 +80,7 @@ pub async fn s3_object_to_content_part(
         download_and_encode_s3_image(s3_object, client, workspace_id).await?;
     let data_url = format!("data:{};base64,{}", mime_type, file_bytes);
 
-    if windmill_common::ai_types::is_document_mime(&mime_type) {
+    if windmill_ai::ai_types::is_document_mime(&mime_type) {
         let filename = s3_object
             .s3
             .rsplit('/')

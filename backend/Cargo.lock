@@ -15804,6 +15804,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "windmill-ai",
  "windmill-api",
  "windmill-api-agent-workers",
  "windmill-api-auth",
@@ -15833,6 +15834,30 @@ dependencies = [
  "windmill-worker-volumes",
  "windows-service",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "windmill-ai"
+version = "1.665.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-credential-types",
+ "aws-sdk-bedrockruntime",
+ "aws-smithy-types",
+ "base64 0.22.1",
+ "lazy_static",
+ "reqwest 0.13.1",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "windmill-common",
+ "windmill-mcp",
+ "windmill-parser",
+ "windmill-types",
 ]
 
 [[package]]
@@ -15934,6 +15959,7 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
+ "windmill-ai",
  "windmill-alerting",
  "windmill-api-agent-workers",
  "windmill-api-assets",
@@ -16359,6 +16385,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "windmill-ai",
  "windmill-alerting",
  "windmill-api-auth",
  "windmill-common",
@@ -17567,6 +17594,7 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
+ "windmill-ai",
  "windmill-audit",
  "windmill-common",
  "windmill-dep-map",
