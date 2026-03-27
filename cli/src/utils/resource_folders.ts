@@ -453,6 +453,28 @@ export function isRawAppFolderMetadataFile(p: string): boolean {
   );
 }
 
+/**
+ * Check if a path ends with a specific app metadata file
+ * (inside the folder, e.g., ".app/app.yaml" or "__app/app.yaml")
+ */
+export function isAppFolderMetadataFile(p: string): boolean {
+  return (
+    p.endsWith(getMetadataPathSuffix("app", "yaml")) ||
+    p.endsWith(getMetadataPathSuffix("app", "json"))
+  );
+}
+
+/**
+ * Check if a path ends with a specific flow metadata file
+ * (inside the folder, e.g., ".flow/flow.yaml" or "__flow/flow.yaml")
+ */
+export function isFlowFolderMetadataFile(p: string): boolean {
+  return (
+    p.endsWith(getMetadataPathSuffix("flow", "yaml")) ||
+    p.endsWith(getMetadataPathSuffix("flow", "json"))
+  );
+}
+
 // ============================================================================
 // Script Module Path Functions
 // ============================================================================

@@ -93,6 +93,8 @@ import {
   isAppMetadataFile,
   isRawAppMetadataFile,
   isRawAppFolderMetadataFile,
+  isAppFolderMetadataFile,
+  isFlowFolderMetadataFile,
   getDeleteSuffix,
   transformJsonPathToDir,
   getFolderSuffix,
@@ -3160,16 +3162,76 @@ export async function push(
                   });
                   break;
                 case "flow":
-                  await wmill.deleteFlowByPath({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, getDeleteSuffix("flow", "json")),
-                  });
+                  if (isFlowFolderMetadataFile(target)) {
+                    // Metadata file deleted — delete the entire flow
+                    await wmill.deleteFlowByPath({
+                      workspace: workspaceId,
+                      path: removeSuffix(target, getDeleteSuffix("flow", "json")),
+                    });
+                  } else {
+                    // Inline script file deleted within flow folder —
+                    // re-push the entire flow so the backend gets the updated definition
+                    const flowFolder = extractFolderPath(target, "flow");
+                    if (flowFolder) {
+                      try {
+                        await stat(flowFolder);
+                        await pushObj(
+                          workspaceId,
+                          target,
+                          undefined,
+                          undefined,
+                          opts.plainSecrets ?? false,
+                          alreadySynced,
+                          opts.message,
+                        );
+                      } catch {
+                        // Flow folder doesn't exist locally — delete on server
+                        const remotePath = extractResourceName(target, "flow");
+                        if (remotePath) {
+                          await wmill.deleteFlowByPath({
+                            workspace: workspaceId,
+                            path: remotePath,
+                          });
+                        }
+                      }
+                    }
+                  }
                   break;
                 case "app":
-                  await wmill.deleteApp({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, getDeleteSuffix("app", "json")),
-                  });
+                  if (isAppFolderMetadataFile(target)) {
+                    // Metadata file deleted — delete the entire app
+                    await wmill.deleteApp({
+                      workspace: workspaceId,
+                      path: removeSuffix(target, getDeleteSuffix("app", "json")),
+                    });
+                  } else {
+                    // Inline script file deleted within app folder —
+                    // re-push the entire app so the backend gets the updated definition
+                    const appFolder = extractFolderPath(target, "app");
+                    if (appFolder) {
+                      try {
+                        await stat(appFolder);
+                        await pushObj(
+                          workspaceId,
+                          target,
+                          undefined,
+                          undefined,
+                          opts.plainSecrets ?? false,
+                          alreadySynced,
+                          opts.message,
+                        );
+                      } catch {
+                        // App folder doesn't exist locally — delete on server
+                        const remotePath = extractResourceName(target, "app");
+                        if (remotePath) {
+                          await wmill.deleteApp({
+                            workspace: workspaceId,
+                            path: remotePath,
+                          });
+                        }
+                      }
+                    }
+                  }
                   break;
                 case "raw_app":
                   if (isRawAppFolderMetadataFile(target)) {
