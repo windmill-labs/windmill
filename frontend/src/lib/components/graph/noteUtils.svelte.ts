@@ -291,6 +291,15 @@ export function computeNoteNodes(
 
 	for (const note of notes) {
 		const isGroupNote = note.type === 'group'
+
+		// Skip group notes whose contained nodes are all inside collapsed groups
+		if (isGroupNote && collapsedModuleIds?.size) {
+			const ids = note.contained_node_ids ?? []
+			if (ids.length > 0 && ids.every((id) => collapsedModuleIds.has(id))) {
+				continue
+			}
+		}
+
 		const zIndex = noteZIndexes[note.id]
 
 		// Calculate position and size using node positions for group notes
