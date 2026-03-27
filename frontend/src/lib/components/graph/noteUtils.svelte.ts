@@ -249,7 +249,8 @@ export function computeNoteNodes(
 	noteTextHeights: Record<string, number>,
 	onTextHeightChange: (noteId: string, height: number) => void,
 	editMode: boolean = false,
-	noteEditorContext: NoteEditorContext | undefined
+	noteEditorContext: NoteEditorContext | undefined,
+	collapsedModuleIds?: Set<string>
 ): NoteComputeResult {
 	// Check cache first
 	if (
@@ -263,7 +264,7 @@ export function computeNoteNodes(
 
 	if (editMode) {
 		if (noteEditorContext?.noteEditor?.isAvailable()) {
-			noteEditorContext.noteEditor.cleanupGroupNotes(nodes)
+			noteEditorContext.noteEditor.cleanupGroupNotes(nodes, collapsedModuleIds)
 		}
 	}
 
