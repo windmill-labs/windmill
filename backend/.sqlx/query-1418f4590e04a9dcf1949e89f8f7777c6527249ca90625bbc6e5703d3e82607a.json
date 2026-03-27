@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT AVG(pg_column_size(result))::bigint as \"avg_size\"\n        FROM (\n            SELECT result FROM v2_job_completed\n            WHERE completed_at > now() - interval '30 days'\n              AND result IS NOT NULL\n            ORDER BY completed_at DESC\n            LIMIT 10000\n        ) sub",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "avg_size",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1418f4590e04a9dcf1949e89f8f7777c6527249ca90625bbc6e5703d3e82607a"
+}

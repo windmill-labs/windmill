@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            schemaname || '.' || relname as \"table_name!\",\n            COALESCE(n_live_tup, 0) as \"live_tuples!\",\n            COALESCE(n_dead_tup, 0) as \"dead_tuples!\",\n            last_autovacuum as \"last_autovacuum\",\n            last_autoanalyze as \"last_autoanalyze\"\n        FROM pg_stat_user_tables\n        ORDER BY n_dead_tup DESC\n        LIMIT 15",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "table_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "live_tuples!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "dead_tuples!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "last_autovacuum",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_autoanalyze",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "bc54ea311580a0525c1f36aaa543c5798e6f7aca1e6e564330766d77038ef0e3"
+}
