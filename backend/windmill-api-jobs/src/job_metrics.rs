@@ -22,13 +22,13 @@ pub fn workspaced_service() -> Router {
         .allow_origin(Any);
 
     Router::new()
-        .route("/get/:id", post(get_job_metrics).layer(cors.clone()))
+        .route("/get/{id}", post(get_job_metrics).layer(cors.clone()))
         .route(
-            "/set_progress/:id",
+            "/set_progress/{id}",
             post(set_job_progress).layer(cors.clone()),
         )
         .route(
-            "/get_progress/:id",
+            "/get_progress/{id}",
             get(get_job_progress).layer(cors.clone()),
         )
 }

@@ -28,11 +28,11 @@ use windmill_api_auth::{require_devops_role, ApiAuthed};
 pub fn global_service() -> Router {
     Router::new()
         .route("/list_worker_groups", get(list_worker_groups))
-        .route("/update/:name", post(update_config).delete(delete_config))
-        .route("/get/:name", get(get_config))
+        .route("/update/{name}", post(update_config).delete(delete_config))
+        .route("/get/{name}", get(get_config))
         .route("/list", get(list_configs))
         .route(
-            "/list_autoscaling_events/:worker_group",
+            "/list_autoscaling_events/{worker_group}",
             get(list_autoscaling_events),
         )
         .route(

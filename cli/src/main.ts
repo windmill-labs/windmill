@@ -41,6 +41,7 @@ import init from "./commands/init/init.ts";
 import jobs from "./commands/jobs/jobs.ts";
 import generateMetadata from "./commands/generate-metadata/generate-metadata.ts";
 import docs from "./commands/docs/docs.ts";
+import config from "./commands/config/config.ts";
 import { fetchVersion } from "./core/context.ts";
 
 export {
@@ -62,6 +63,7 @@ export {
   instance,
   dev,
   docs,
+  config,
   hubPull,
   pull,
   push,
@@ -132,6 +134,7 @@ const command = new Command()
   .command("jobs", jobs)
   .command("generate-metadata", generateMetadata)
   .command("docs", docs)
+  .command("config", config)
   .command("version --version", "Show version information")
   .action(async (opts: any) => {
     console.log("CLI version: " + VERSION);

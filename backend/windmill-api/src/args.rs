@@ -451,8 +451,7 @@ where
     }
 }
 
-#[axum::async_trait]
-impl<S> FromRequest<S, axum::body::Body> for RawWebhookArgs
+impl<S> FromRequest<S> for RawWebhookArgs
 where
     S: Send + Sync,
 {

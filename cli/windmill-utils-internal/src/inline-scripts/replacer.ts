@@ -1,4 +1,4 @@
-import { AiAgent, FlowModule, FlowValue, RawScript } from "../gen/types.gen.ts";
+import { AiAgent, FlowModule, FlowValue, RawScript } from "../gen/types.gen";
 
 export type LocalScriptInfo = {
   content: string;

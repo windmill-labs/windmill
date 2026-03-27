@@ -48,9 +48,9 @@ const KINDS: [&str; 19] = [
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/get/*path", get(get_granular_acls))
-        .route("/add/*path", post(add_granular_acl))
-        .route("/remove/*path", post(remove_granular_acl))
+        .route("/get/{*path}", get(get_granular_acls))
+        .route("/add/{*path}", post(add_granular_acl))
+        .route("/remove/{*path}", post(remove_granular_acl))
 }
 
 #[derive(Serialize, Deserialize)]
