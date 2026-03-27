@@ -17650,6 +17650,7 @@ dependencies = [
  "windmill-runtime-nativets",
  "windmill-types",
  "windmill-worker-volumes",
+ "x509-parser 0.16.0",
  "yaml-rust",
 ]
 

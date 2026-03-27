@@ -146,6 +146,7 @@ rcgen = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true
+x509-parser.workspace = true
 
 [build-dependencies]
 libffi-sys = { workspace = true, optional = true }
