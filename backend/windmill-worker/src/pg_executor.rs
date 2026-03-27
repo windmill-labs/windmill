@@ -287,7 +287,9 @@ pub async fn do_postgresql(
 
     let use_iam_auth = database.use_iam_auth == Some(true);
 
-    // Include use_iam_auth in cache key to distinguish IAM vs non-IAM connections to the same host
+    // Include use_iam_auth in cache key to distinguish IAM vs non-IAM connections to the same host.
+    // The cache key is static (doesn't include the token), which is correct because PostgreSQL
+    // connections remain valid after initial auth — fresh tokens are generated on cache miss.
     let database_string = if use_iam_auth {
         format!("{}?iam=true", database.to_uri())
     } else {

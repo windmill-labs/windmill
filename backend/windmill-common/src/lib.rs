@@ -406,7 +406,6 @@ pub struct PgDatabase {
     pub sslmode: Option<String>,
     pub dbname: String,
     pub root_certificate_pem: Option<String>,
-    #[serde(default)]
     pub use_iam_auth: Option<bool>,
     pub region: Option<String>,
 }
@@ -555,6 +554,7 @@ impl PgDatabase {
                 connector.danger_accept_invalid_hostnames(true);
             }
         } else {
+            tracing::warn!("IAM RDS auth without root certificate: TLS certificate verification is disabled. Consider providing root_certificate_pem for production use.");
             connector
                 .danger_accept_invalid_certs(true)
                 .danger_accept_invalid_hostnames(true);
