@@ -364,6 +364,23 @@ pub fn is_wac_v2_ts(code: &str) -> bool {
     has_wac_import && has_workflow
 }
 
+/// Inject the variable name as the first argument to `task()` calls in WAC v2 scripts.
+/// `const double = task(async ...` → `const double = task("double", async ...`
+/// Skips calls that already have a string argument.
+pub fn inject_wac_task_names(content: &str) -> String {
+    use regex::Regex;
+    use std::borrow::Cow;
+    lazy_static::lazy_static! {
+        static ref TASK_RE: Regex =
+            Regex::new(r#"(?m)((?:export\s+)?(?:const|let|var)\s+)(\w+)(\s*=\s*task\s*(?:<[^>]*>)?\s*\(\s*)(async\b)"#).unwrap();
+    }
+    let replaced = TASK_RE.replace_all(content, r#"${1}${2}${3}"${2}", ${4}"#);
+    match replaced {
+        Cow::Borrowed(_) => content.to_string(),
+        Cow::Owned(s) => s,
+    }
+}
+
 /// Detect WAC v2 patterns in Python code.
 /// Checks for `@workflow` decorator and `@task` decorator with wmill import,
 /// skipping comment lines.
