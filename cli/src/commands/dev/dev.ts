@@ -192,11 +192,11 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
 
   const flowMetadataFile = getMetadataFileName("flow", "yaml");
   async function loadPaths(pathsToLoad: string[]) {
-    const paths = pathsToLoad.filter((path) =>
+    const paths = pathsToLoad.filter((p) =>
       exts.some(
-        (ext) => path.endsWith(ext)
-          || path.endsWith(".flow/" + flowMetadataFile)
-          || path.endsWith("__flow/" + flowMetadataFile)
+        (ext) => p.endsWith(ext)
+          || p.endsWith(".flow/" + flowMetadataFile)
+          || p.endsWith("__flow/" + flowMetadataFile)
       )
     );
     if (paths.length == 0) {
@@ -204,12 +204,23 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     }
     const nativePath = (await realpath(paths[0])).replace(base + SEP, "");
     const cpath = nativePath.replaceAll("\\", "/");
-    if (!ignore(nativePath, false)) {
-      let typ = getTypeStrFromPath(cpath);
-      // If a script file is inside a flow folder, treat it as a flow change
-      // (handles both .flow/ and __flow/ regardless of nonDottedPaths setting)
-      if (typ === "script" && (cpath.includes(".flow/") || cpath.includes("__flow/"))) {
+    // Bypass ignore for paths inside flow folders — ignore() only checks the configured
+    // suffix (dotted or non-dotted), but the workspace may contain both kinds
+    const isInFlowFolder = cpath.includes(".flow/") || cpath.includes("__flow/");
+    if (isInFlowFolder || !ignore(nativePath, false)) {
+      let typ: string;
+      if (isInFlowFolder) {
+        // Force flow type for any file inside a flow folder — getTypeStrFromPath
+        // only recognises the configured suffix (dotted or non-dotted) and would
+        // mis-classify or throw for the other variant
         typ = "flow";
+      } else {
+        typ = getTypeStrFromPath(cpath);
+        // If a script file is inside a flow folder, treat it as a flow change
+        // (handles both .flow/ and __flow/ regardless of nonDottedPaths setting)
+        if (typ === "script" && (cpath.includes(".flow/") || cpath.includes("__flow/"))) {
+          typ = "flow";
+        }
       }
       log.info("Detected change in " + cpath + " (" + typ + ")");
       if (typ == "flow") {
