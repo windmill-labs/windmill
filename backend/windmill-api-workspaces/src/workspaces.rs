@@ -652,25 +652,23 @@ async fn get_settings(
 }
 
 async fn get_copilot_settings_state(
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Path(w_id): Path<String>,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
 ) -> JsonResult<CopilotSettingsState> {
-    let mut tx = user_db.begin(&authed).await?;
     let workspace_ai_config = sqlx::query_scalar!(
         "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&db)
     .await
     .map_err(|e| Error::internal_err(format!("getting workspace ai settings: {e:#}")))?;
     let workspace_ai_config = not_found_if_none(workspace_ai_config, "workspace settings", &w_id)?;
     let instance_ai_config: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT value FROM global_settings WHERE name = 'ai_config'")
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&db)
             .await
             .map_err(|e| Error::internal_err(format!("getting instance ai settings: {e:#}")))?;
-    tx.commit().await?;
 
     Ok(Json(build_copilot_settings_state(
         has_ai_providers(workspace_ai_config.as_ref()),
