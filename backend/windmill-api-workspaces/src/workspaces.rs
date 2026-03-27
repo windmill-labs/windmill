@@ -1364,16 +1364,43 @@ async fn resolve_pg_source(db: &DB, w_id: &str, source: &str) -> Result<PgDataba
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
 }
 
-/// Run pg_dump against a PgDatabase.
-/// If `schema_only` is true, only the schema is exported. Otherwise, schema and data are exported.
-async fn pg_dump_database(pg_db: &PgDatabase, schema_only: bool) -> Result<String> {
+/// A temporary file for pg_dump output that is automatically deleted when dropped.
+struct DumpFile {
+    path: std::path::PathBuf,
+}
+
+impl DumpFile {
+    fn new() -> Result<Self> {
+        let dir = std::path::Path::new("/tmp/windmill");
+        std::fs::create_dir_all(dir)
+            .map_err(|e| Error::internal_err(format!("Failed to create /tmp/windmill: {}", e)))?;
+        let path = dir.join(format!("datatable_dump_{}", uuid::Uuid::new_v4()));
+        Ok(Self { path })
+    }
+}
+
+impl Drop for DumpFile {
+    fn drop(&mut self) {
+        if self.path.exists() {
+            if let Err(e) = std::fs::remove_file(&self.path) {
+                tracing::warn!("Failed to remove dump file {:?}: {}", self.path, e);
+            }
+        }
+    }
+}
+
+/// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
+/// Returns a DumpFile handle; the file is deleted when the handle is dropped.
+async fn pg_dump_database(pg_db: &PgDatabase, schema_only: bool) -> Result<DumpFile> {
+    let dump_file = DumpFile::new()?;
+
     let host = &pg_db.host;
     let port = pg_db.port.unwrap_or(5432).to_string();
     let user = pg_db.user.as_deref().unwrap_or("postgres");
     let dbname = &pg_db.dbname;
 
     let mut cmd = tokio::process::Command::new("pg_dump");
-    cmd.arg("--format=plain");
+    cmd.arg("--format=plain").arg("--file").arg(&dump_file.path);
     if schema_only {
         cmd.arg("--schema-only");
     }
@@ -1403,15 +1430,11 @@ async fn pg_dump_database(pg_db: &PgDatabase, schema_only: bool) -> Result<Strin
         return Err(Error::internal_err(format!("pg_dump failed: {}", stderr)));
     }
 
-    let dump = String::from_utf8(output.stdout)
-        .map_err(|e| Error::internal_err(format!("pg_dump output is not valid UTF-8: {}", e)))?;
-
-    Ok(dump)
+    Ok(dump_file)
 }
 
-/// Import a pg_dump output into a target database using psql.
-/// psql natively handles COPY FROM stdin statements that pg_dump produces for data.
-async fn pg_import_dump(target_db: &PgDatabase, dump: &str) -> Result<()> {
+/// Import a pg_dump file into a target database using psql.
+async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
     let host = &target_db.host;
     let port = target_db.port.unwrap_or(5432).to_string();
     let user = target_db.user.as_deref().unwrap_or("postgres");
@@ -1427,7 +1450,8 @@ async fn pg_import_dump(target_db: &PgDatabase, dump: &str) -> Result<()> {
         .arg("--dbname")
         .arg(dbname)
         .arg("--no-psqlrc")
-        .stdin(std::process::Stdio::piped())
+        .arg("--file")
+        .arg(&dump_file.path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
@@ -1439,23 +1463,10 @@ async fn pg_import_dump(target_db: &PgDatabase, dump: &str) -> Result<()> {
         cmd.env("PGSSLMODE", sslmode);
     }
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| Error::internal_err(format!("Failed to spawn psql: {}", e)))?;
-
-    if let Some(mut stdin) = child.stdin.take() {
-        use tokio::io::AsyncWriteExt;
-        stdin
-            .write_all(dump.as_bytes())
-            .await
-            .map_err(|e| Error::internal_err(format!("Failed to write to psql stdin: {}", e)))?;
-        drop(stdin);
-    }
-
-    let output = child
-        .wait_with_output()
+    let output = cmd
+        .output()
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to wait for psql: {}", e)))?;
+        .map_err(|e| Error::internal_err(format!("Failed to execute psql: {}", e)))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1468,8 +1479,7 @@ async fn pg_import_dump(target_db: &PgDatabase, dump: &str) -> Result<()> {
     Ok(())
 }
 
-/// Export a datatable using pg_dump.
-/// If `schema_only` is true, only the schema is exported. Otherwise, schema and data are exported.
+/// Export a datatable using pg_dump, returning the dump as a string.
 pub async fn dump_datatable(
     db: &DB,
     w_id: &str,
@@ -1477,7 +1487,10 @@ pub async fn dump_datatable(
     schema_only: bool,
 ) -> Result<String> {
     let pg_db = resolve_pg_source(db, w_id, &format!("datatable://{}", datatable_name)).await?;
-    pg_dump_database(&pg_db, schema_only).await
+    let dump_file = pg_dump_database(&pg_db, schema_only).await?;
+    tokio::fs::read_to_string(&dump_file.path)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to read dump file: {}", e)))
 }
 
 #[derive(Deserialize)]
@@ -1549,8 +1562,8 @@ async fn fork_pg_database(
             .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
     }
 
-    let dump = pg_dump_database(&source_pg, schema_only).await?;
-    pg_import_dump(&target_pg, &dump).await?;
+    let dump_file = pg_dump_database(&source_pg, schema_only).await?;
+    pg_import_dump(&target_pg, &dump_file).await?;
 
     Ok(format!(
         "Successfully forked database from '{}' to '{}'",
@@ -1572,7 +1585,10 @@ async fn export_pg_schema(
     require_admin(is_admin, &username)?;
 
     let pg = resolve_pg_source(&db, &w_id, &req.source).await?;
-    pg_dump_database(&pg, true).await
+    let dump_file = pg_dump_database(&pg, true).await?;
+    tokio::fs::read_to_string(&dump_file.path)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to read dump file: {}", e)))
 }
 
 #[derive(Deserialize)]
