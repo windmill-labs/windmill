@@ -1518,12 +1518,34 @@ async fn import_pg_database(
     }
 
     if req.create_target_db {
-        if req.target.starts_with("datatable://") {
-            // Instance: use shared create function
+        // Determine if this is an instance or resource-backed datatable
+        let is_instance_datatable = if let Some(dt_name) = req.target.strip_prefix("datatable://") {
+            let config = sqlx::query_scalar!(
+                "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
+                &w_id,
+                dt_name
+            )
+            .fetch_optional(&db)
+            .await?
+            .flatten();
+            config
+                .and_then(|v| {
+                    v.get("database")
+                        .and_then(|d| d.get("resource_type"))
+                        .and_then(|r| r.as_str())
+                        .map(|s| s == "instance")
+                })
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        if is_instance_datatable {
+            // Instance datatable: create on Windmill PG instance
             windmill_common::create_custom_instance_database(&db, &target_pg.dbname, "datatable")
                 .await?;
         } else {
-            // Resource: CREATE DATABASE on the source server
+            // Resource datatable or $res: CREATE DATABASE on the source server
             let (client, connection) = source_pg.connect().await?;
             let join_handle = tokio::spawn(async move { connection.await });
 
