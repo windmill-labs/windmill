@@ -197,7 +197,7 @@ export function extractCurrentMapping(
     } else if (m.value.type === "aiagent") {
       (m.value.tools ?? []).forEach((tool) => {
         const toolValue = tool.value;
-        if (!toolValue || toolValue.tool_type !== 'flowmodule' || toolValue.type !== 'rawscript' || !toolValue.content || !toolValue.content.startsWith("!inline")) {
+        if (!toolValue || toolValue.tool_type !== 'flowmodule' || toolValue.type !== 'rawscript' || !toolValue.content || !toolValue.content.startsWith("!inline ")) {
           return;
         }
         mapping[tool.id] = toolValue.content.trim().split(" ")[1];

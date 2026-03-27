@@ -1,4 +1,5 @@
-import { parse as yamlParse, type ParseOptions, type ScalarTag } from "yaml";
+import { parse as yamlParse } from "yaml";
+import type { ParseOptions, DocumentOptions, SchemaOptions, ToJSOptions, ScalarTag } from "yaml";
 import { readFile } from "node:fs/promises";
 
 // Custom YAML tags that resolve `!inline value` and `!inline_fileset value`
@@ -21,12 +22,14 @@ const inlineFilesetTag: ScalarTag = {
 
 const WINDMILL_CUSTOM_TAGS: ScalarTag[] = [inlineTag, inlineFilesetTag];
 
-export async function yamlParseFile(path: string, options: ParseOptions = {}) {
+type YamlParseOptions = ParseOptions & DocumentOptions & SchemaOptions & ToJSOptions;
+
+export async function yamlParseFile(path: string, options: YamlParseOptions = {}) {
   try {
     return yamlParse(await readFile(path, "utf-8"), {
       ...options,
       customTags: WINDMILL_CUSTOM_TAGS,
-    } as ParseOptions);
+    });
   } catch (e) {
     throw new Error(`Error parsing yaml ${path}`, { cause: e });
   }
@@ -35,13 +38,13 @@ export async function yamlParseFile(path: string, options: ParseOptions = {}) {
 export function yamlParseContent(
   path: string,
   content: string,
-  options: ParseOptions = {},
+  options: YamlParseOptions = {},
 ) {
   try {
     return yamlParse(content, {
       ...options,
       customTags: WINDMILL_CUSTOM_TAGS,
-    } as ParseOptions);
+    });
   } catch (e) {
     throw new Error(`Error parsing yaml ${path}`, { cause: e });
   }
