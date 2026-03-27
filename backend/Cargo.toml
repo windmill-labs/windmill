@@ -415,6 +415,7 @@ time = "^0"
 serde_urlencoded = "^0"
 astral-tokio-tar = "^0.5.6"
 tempfile = "^3"
+x509-parser = "^0.16"
 tokio-util = { version = "=0.7.17", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0.14.0"
