@@ -615,6 +615,87 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
     Ok(())
 }
 
+/// Create a custom instance database: CREATE DATABASE, grant permissions, register in global_settings.
+/// The `tag` is stored in global_settings metadata (e.g. "datatable" or "ducklake").
+pub async fn create_custom_instance_database(
+    db: &DB,
+    dbname: &str,
+    tag: &str,
+) -> error::Result<()> {
+    let db_exists = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+        dbname
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    if db_exists {
+        return Err(error::Error::BadRequest(format!(
+            "Database '{}' already exists",
+            dbname
+        )));
+    }
+
+    sqlx::query(&format!("CREATE DATABASE \"{}\"", dbname))
+        .execute(db)
+        .await
+        .map_err(|e| {
+            error::Error::internal_err(format!("Failed to create database '{}': {}", dbname, e))
+        })?;
+
+    // Grant permissions to custom_instance_user
+    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+    let new_pg_creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
+    let (client, connection) = new_pg_creds.connect().await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+
+    if let Err(e) = client
+        .batch_execute(&format!(
+            "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
+             GRANT USAGE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
+        ))
+        .await
+    {
+        tracing::warn!(
+            "Failed to grant permissions on '{}': {}. Continuing.",
+            dbname,
+            e
+        );
+    }
+
+    drop(client);
+    join_handle
+        .await
+        .map_err(|e| error::Error::internal_err(format!("join error: {}", e)))?
+        .map_err(|e| error::Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+
+    // Register in global_settings
+    let status_json = serde_json::json!({
+        "logs": {
+            "created_database": "OK",
+            "db_connect": "OK",
+            "grant_permissions": "OK"
+        },
+        "success": true,
+        "error": null,
+        "tag": tag
+    });
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
+        serde_json::json!({ dbname: status_json })
+    )
+    .execute(db)
+    .await?;
+
+    tracing::info!("Created custom instance database '{}'", dbname);
+    Ok(())
+}
+
 #[derive(Clone)]
 pub enum DatabaseUrl {
     #[cfg(all(feature = "enterprise", feature = "private"))]

@@ -1492,94 +1492,27 @@ async fn fork_pg_database(
     Path(w_id): Path<String>,
     Json(req): Json<ForkPgDatabaseRequest>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
-
     if req.fork_behavior == DataTableForkBehavior::KeepOriginal {
         return Ok("No action needed for KeepOriginal behavior".to_string());
     }
 
-    let schema_only = req.fork_behavior != DataTableForkBehavior::SchemaAndData || *CLOUD_HOSTED;
+    if req.fork_behavior == DataTableForkBehavior::SchemaAndData {
+        require_admin(is_admin, &username)?;
+        if *CLOUD_HOSTED {
+            return Err(Error::BadRequest(
+                "Forking schema and data is not available on cloud".to_string(),
+            ));
+        }
+    }
+
+    let schema_only = req.fork_behavior == DataTableForkBehavior::SchemaOnly;
     let source_pg = resolve_pg_source(&db, &w_id, &req.source).await?;
     let target_dbname = &req.target_dbname;
 
     if req.source.starts_with("datatable://") {
         // Instance datatable: create custom instance DB, then dump/import
-        let db_exists = sqlx::query_scalar!(
-            "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
-            target_dbname
-        )
-        .fetch_one(&db)
-        .await?
-        .unwrap_or(false);
+        windmill_common::create_custom_instance_database(&db, target_dbname, "datatable").await?;
 
-        if db_exists {
-            return Err(Error::BadRequest(format!(
-                "Instance database '{}' already exists",
-                target_dbname
-            )));
-        }
-
-        sqlx::query(&format!("CREATE DATABASE \"{}\"", target_dbname))
-            .execute(&db)
-            .await
-            .map_err(|e| {
-                Error::internal_err(format!(
-                    "Failed to create database '{}': {}",
-                    target_dbname, e
-                ))
-            })?;
-
-        // Grant permissions to custom_instance_user
-        let new_pg_creds = PgDatabase {
-            dbname: target_dbname.clone(),
-            ..PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?
-        };
-        let (client, connection) = new_pg_creds.connect().await?;
-        let join_handle = tokio::spawn(async move { connection.await });
-
-        if let Err(e) = client
-            .batch_execute(&format!(
-                "GRANT CONNECT ON DATABASE \"{target_dbname}\" TO custom_instance_user;
-                 GRANT USAGE ON SCHEMA public TO custom_instance_user;
-                 GRANT CREATE ON SCHEMA public TO custom_instance_user;
-                 GRANT CREATE ON DATABASE \"{target_dbname}\" TO custom_instance_user;
-                 ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
-            ))
-            .await
-        {
-            tracing::warn!(
-                "Failed to grant permissions on '{}': {}. Continuing.",
-                target_dbname,
-                e
-            );
-        }
-
-        drop(client);
-        join_handle
-            .await
-            .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
-            .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
-
-        // Register in global_settings
-        let status_json = serde_json::json!({
-            "logs": {
-                "created_database": "OK",
-                "db_connect": "OK",
-                "grant_permissions": "OK"
-            },
-            "success": true,
-            "error": null,
-            "tag": "datatable"
-        });
-        sqlx::query!(
-            r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
-            serde_json::json!({ target_dbname: status_json })
-        )
-        .execute(&db)
-        .await?;
-
-        // Dump source → import into new instance DB
         let target_pg = PgDatabase {
             dbname: target_dbname.clone(),
             ..PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?

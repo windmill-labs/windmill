@@ -21,7 +21,8 @@
 
 <script lang="ts">
 	import { WorkspaceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, userStore } from '$lib/stores'
+	import { isCloudHosted } from '$lib/cloud'
 	import { resource } from 'runed'
 	import Select from '../select/Select.svelte'
 	import Label from '../Label.svelte'
@@ -181,7 +182,9 @@
 						items={[
 							{ value: 'keep_original', label: 'Keep original' },
 							{ value: 'schema_only', label: 'Clone schema only' },
-							{ value: 'schema_and_data', label: 'Clone schema and data' }
+							...(!isCloudHosted() && $userStore?.is_admin
+								? [{ value: 'schema_and_data', label: 'Clone schema and data' }]
+								: [])
 						]}
 					/>
 				</div>
