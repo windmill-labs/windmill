@@ -1,6 +1,10 @@
 /**
  * Global test setup — preloaded before all test files.
  *
+ * When UNIT_ONLY=1, skips all backend setup (cargo build, database, etc.)
+ * so that unit tests can run instantly without any external dependencies.
+ *
+ * Otherwise:
  * 1. Builds the backend binary so `cargo run` starts instantly.
  * 2. Starts a shared backend instance so integration tests don't
  *    bear the startup cost inside their per-test timeout window.
@@ -9,6 +13,8 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { statSync } from "node:fs";
+
+if (!process.env["UNIT_ONLY"]) {
 
 const __dirname = resolve(fileURLToPath(import.meta.url), "..");
 
@@ -69,6 +75,10 @@ console.log("Backend build complete.");
 // This avoids the first integration test timing out while the backend
 // creates its database, starts the process, and waits for the health check.
 if (process.env["DATABASE_URL"]) {
+  // Clean up any stale databases/processes from previous crashed test runs
+  const { cleanupStaleTestResources } = await import("./cargo_backend.ts");
+  await cleanupStaleTestResources();
+
   const { getTestBackend } = await import("./test_backend.ts");
   console.log("Pre-starting test backend...");
   await getTestBackend();
@@ -92,3 +102,5 @@ if (process.env["TEST_CLI_RUNTIME"] === "node") {
   }
   console.log("npm package built — tests will use Node runtime.");
 }
+
+} // end if (!UNIT_ONLY)

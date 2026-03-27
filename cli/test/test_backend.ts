@@ -29,7 +29,7 @@
  * If you add new helpers, update cross-links in the files above.
  */
 
-import { CargoBackend, CargoBackendConfig } from "./cargo_backend.ts";
+import { CargoBackend, CargoBackendConfig, cleanupStaleTestResources } from "./cargo_backend.ts";
 import { ContainerizedBackend, ContainerConfig } from "./containerized_backend.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -546,6 +546,8 @@ export function createTestBackend(type?: "cargo" | "docker"): TestBackend {
  */
 export async function getTestBackend(): Promise<TestBackend> {
   if (!globalBackend) {
+    // Clean up stale databases and processes from previous crashed test runs
+    await cleanupStaleTestResources();
     globalBackend = createTestBackend();
     registerCleanup();
     await globalBackend.start();
@@ -590,11 +592,20 @@ function registerCleanup() {
   cleanupRegistered = true;
   process.on("exit", () => {
     if (globalBackend) {
-      // Synchronous kill — can't await in exit handler
-      try {
-        (globalBackend as any).backend?.process?.kill();
-      } catch {
-        // Best effort
+      // Synchronous kill — can't await in exit handler, but we CAN
+      // kill the entire process group synchronously on Linux
+      const pid = (globalBackend as any).backend?.process?.pid;
+      if (pid) {
+        try {
+          if (process.platform === "linux") {
+            // Kill entire process group (cargo + windmill child)
+            process.kill(-pid, "SIGKILL");
+          } else {
+            process.kill(pid, "SIGKILL");
+          }
+        } catch {
+          // Best effort — process may already be dead
+        }
       }
     }
   });
