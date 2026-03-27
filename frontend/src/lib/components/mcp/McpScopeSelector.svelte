@@ -7,7 +7,6 @@
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { FlowService, FolderService, IntegrationService, ScriptService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { mcpEndpointTools } from '$lib/mcpEndpointTools'
 	import InfoIcon from 'lucide-svelte/icons/info'
 	import { SvelteMap } from 'svelte/reactivity'
@@ -73,7 +72,7 @@
 			}
 		} else if (selectedMode === 'folder') {
 			const folderPaths = selectedFolders.map((f) => `f/${f}/*`).join(',')
-			if (folderPaths.length > 0) {
+			if (selectedFolders.length > 0) {
 				scopeParts = [`mcp:scripts:${folderPaths}`, `mcp:flows:${folderPaths}`, `mcp:endpoints:*`]
 			}
 		} else {
@@ -111,7 +110,7 @@
 			const excludedFolders = ['app_groups', 'app_custom', 'app_themes']
 			allFolders = (
 				await FolderService.listFolderNames({
-					workspace: $workspaceStore!
+					workspace: workspaceId
 				})
 			).filter((x) => !excludedFolders.includes(x))
 		} catch {
@@ -215,8 +214,12 @@
 	// Load runnables based on mode
 	$effect(() => {
 		if (workspaceId) {
-			if (selectedMode === 'folder' && selectedFolders.length > 0) {
-				loadRunnablesForFolders(workspaceId, selectedFolders)
+			if (selectedMode === 'folder') {
+				if (selectedFolders.length > 0) {
+					loadRunnablesForFolders(workspaceId, selectedFolders)
+				} else {
+					includedRunnables = []
+				}
 			} else {
 				getScriptsAndFlows(selectedMode === 'favorites', workspaceId, undefined)
 			}
