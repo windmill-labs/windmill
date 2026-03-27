@@ -560,27 +560,22 @@ impl PgDatabase {
                 .danger_accept_invalid_hostnames(true);
         }
 
-        // Build connection string with the IAM token as password.
-        // The token is passed raw (not URL-encoded) since tokio_postgres::connect
-        // handles the connection string parsing and the token goes directly to
-        // PostgreSQL's SCRAM/password auth, not as a URL component.
-        let uri = format!(
-            "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode=require",
-            user = urlencoding::encode(user),
-            password = urlencoding::encode(&token),
-            host = &self.host,
-            port = port,
-            dbname = &self.dbname,
-        );
-
         tracing::info!("Creating new IAM RDS connection to {}", &self.host);
+
+        // Use Config builder directly to pass the IAM token as the password.
+        // This avoids needing to URL-encode the token into a connection string.
+        let mut config = tokio_postgres::Config::new();
+        config
+            .host(&self.host)
+            .port(port as u16)
+            .user(user)
+            .password(&token)
+            .dbname(&self.dbname)
+            .ssl_mode(tokio_postgres::config::SslMode::Require);
 
         let (client, connection) = tokio::time::timeout(
             std::time::Duration::from_secs(20),
-            tokio_postgres::connect(
-                &uri,
-                MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
-            ),
+            config.connect(MakeTlsConnector::new(connector.build().map_err(to_anyhow)?)),
         )
         .await
         .map_err(to_anyhow)?
