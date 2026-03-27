@@ -2642,4 +2642,162 @@ mod tests {
             "Non-string license keys should always be updated when different"
         );
     }
+
+    // ── OtelSettings tests ──────────────────────────────────────────────
+
+    #[test]
+    fn otel_settings_empty_object() {
+        let s: OtelSettings = serde_json::from_str("{}").unwrap();
+        assert!(s.metrics_enabled.is_none());
+        assert!(s.logs_enabled.is_none());
+        assert!(s.tracing_enabled.is_none());
+        assert!(s.otel_exporter_otlp_endpoint.is_none());
+        assert!(s.otel_exporter_otlp_headers.is_none());
+        assert!(s.otel_exporter_otlp_protocol.is_none());
+        assert!(s.otel_exporter_otlp_compression.is_none());
+    }
+
+    #[test]
+    fn otel_settings_partial_fields() {
+        let json =
+            r#"{"metrics_enabled": true, "otel_exporter_otlp_endpoint": "http://otel:4317"}"#;
+        let s: OtelSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.metrics_enabled, Some(true));
+        assert!(s.logs_enabled.is_none());
+        assert!(s.tracing_enabled.is_none());
+        assert_eq!(
+            s.otel_exporter_otlp_endpoint.as_deref(),
+            Some("http://otel:4317")
+        );
+    }
+
+    #[test]
+    fn otel_settings_all_fields_roundtrip() {
+        let json = r#"{
+            "metrics_enabled": true,
+            "logs_enabled": false,
+            "tracing_enabled": true,
+            "otel_exporter_otlp_endpoint": "https://otel.example.com:4317",
+            "otel_exporter_otlp_headers": "Authorization=Bearer tok",
+            "otel_exporter_otlp_protocol": "grpc",
+            "otel_exporter_otlp_compression": "gzip"
+        }"#;
+        let s: OtelSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.metrics_enabled, Some(true));
+        assert_eq!(s.logs_enabled, Some(false));
+        assert_eq!(s.tracing_enabled, Some(true));
+        assert_eq!(
+            s.otel_exporter_otlp_endpoint.as_deref(),
+            Some("https://otel.example.com:4317")
+        );
+        assert_eq!(
+            s.otel_exporter_otlp_headers.as_deref(),
+            Some("Authorization=Bearer tok")
+        );
+        assert_eq!(s.otel_exporter_otlp_protocol.as_deref(), Some("grpc"));
+        assert_eq!(s.otel_exporter_otlp_compression.as_deref(), Some("gzip"));
+
+        // Roundtrip
+        let serialized = serde_json::to_string(&s).unwrap();
+        let s2: OtelSettings = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(s2.metrics_enabled, s.metrics_enabled);
+        assert_eq!(
+            s2.otel_exporter_otlp_endpoint,
+            s.otel_exporter_otlp_endpoint
+        );
+    }
+
+    #[test]
+    fn otel_settings_skip_serializing_none_fields() {
+        let s = OtelSettings { metrics_enabled: Some(true), ..Default::default() };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("metrics_enabled"));
+        assert!(!json.contains("logs_enabled"));
+        assert!(!json.contains("tracing_enabled"));
+        assert!(!json.contains("otel_exporter_otlp_endpoint"));
+    }
+
+    #[test]
+    fn otel_settings_default_is_all_none() {
+        let s = OtelSettings::default();
+        let json = serde_json::to_string(&s).unwrap();
+        assert_eq!(json, "{}");
+    }
+
+    // ── OtelTracingProxySettings tests ──────────────────────────────────
+
+    #[test]
+    fn otel_tracing_proxy_defaults() {
+        let s: OtelTracingProxySettings = serde_json::from_str("{}").unwrap();
+        assert!(!s.enabled);
+        assert!(s.enabled_languages.is_empty());
+    }
+
+    #[test]
+    fn otel_tracing_proxy_enabled_no_languages() {
+        let json = r#"{"enabled": true}"#;
+        let s: OtelTracingProxySettings = serde_json::from_str(json).unwrap();
+        assert!(s.enabled);
+        assert!(s.enabled_languages.is_empty());
+    }
+
+    #[test]
+    fn otel_tracing_proxy_all_languages() {
+        let json = r#"{
+            "enabled": true,
+            "enabled_languages": ["python3", "deno", "go", "bash", "bun", "nativets", "php", "java", "ruby"]
+        }"#;
+        let s: OtelTracingProxySettings = serde_json::from_str(json).unwrap();
+        assert!(s.enabled);
+        assert_eq!(s.enabled_languages.len(), 9);
+        assert_eq!(s.enabled_languages[0], ScriptLang::Python3);
+        assert_eq!(s.enabled_languages[4], ScriptLang::Bun);
+        assert_eq!(s.enabled_languages[5], ScriptLang::Nativets);
+    }
+
+    #[test]
+    fn otel_tracing_proxy_skip_serializing_empty_languages() {
+        let s = OtelTracingProxySettings { enabled: true, enabled_languages: vec![] };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("enabled"));
+        assert!(!json.contains("enabled_languages"));
+    }
+
+    #[test]
+    fn otel_tracing_proxy_unknown_language_rejected() {
+        let json = r#"{"enabled": true, "enabled_languages": ["cobol"]}"#;
+        let result: Result<OtelTracingProxySettings, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    // ── ScriptLang serde tests ──────────────────────────────────────────
+
+    #[test]
+    fn script_lang_rename_cases() {
+        // Verify special rename_all = "lowercase" and explicit renames
+        assert_eq!(
+            serde_json::to_string(&ScriptLang::Python3).unwrap(),
+            r#""python3""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ScriptLang::OracleDB).unwrap(),
+            r#""oracledb""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ScriptLang::DuckDb).unwrap(),
+            r#""duckdb""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ScriptLang::CSharp).unwrap(),
+            r#""csharp""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ScriptLang::Nativets).unwrap(),
+            r#""nativets""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ScriptLang::Bunnative).unwrap(),
+            r#""bunnative""#
+        );
+    }
 }
