@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.667.0](https://github.com/windmill-labs/windmill/compare/v1.666.0...v1.667.0) (2026-03-27)
+
+
+### Features
+
+* add schedule support to CLI branch-specific items ([#8570](https://github.com/windmill-labs/windmill/issues/8570)) ([b592996](https://github.com/windmill-labs/windmill/commit/b592996eee98ddb664f1b007b95a2096d5d4e3a6))
+* add workspace-level service accounts ([#8560](https://github.com/windmill-labs/windmill/issues/8560)) ([3959fe8](https://github.com/windmill-labs/windmill/commit/3959fe82974f5f0383e94fd83a5d78fe4212d56a))
+* **cli:** generate commented wmill.yaml and add config reference command ([#8546](https://github.com/windmill-labs/windmill/issues/8546)) ([d06b426](https://github.com/windmill-labs/windmill/commit/d06b42613f73c4a7b31c990be22b0c97efab2666))
+* DB-coordinated graceful restart staggering for settings changes ([#8555](https://github.com/windmill-labs/windmill/issues/8555)) ([2f32675](https://github.com/windmill-labs/windmill/commit/2f326758013dd1f1e6ae732e5784a32f1fb6e4bd))
+* improve-replay-ui ([#8250](https://github.com/windmill-labs/windmill/issues/8250)) ([c0aafee](https://github.com/windmill-labs/windmill/commit/c0aafee9a9923d5dc2fa3b99da4378e923933a06))
+* support multiple folder selection in MCP scope selector ([#8557](https://github.com/windmill-labs/windmill/issues/8557)) ([ad19ac9](https://github.com/windmill-labs/windmill/commit/ad19ac9b37b04591c921f93f180bdda961af6cef))
+
+
+### Bug Fixes
+
+* **cli:** preserve inline script files during flow generate-locks ([#8561](https://github.com/windmill-labs/windmill/issues/8561)) ([a8b651d](https://github.com/windmill-labs/windmill/commit/a8b651da9ff86766119e14c0b61652be8a7b453a))
+* emit 0 for OTEL queue metrics when tag queue is empty ([#8559](https://github.com/windmill-labs/windmill/issues/8559)) ([79cc4a9](https://github.com/windmill-labs/windmill/commit/79cc4a92d88486c999799826bd0c9663767103f5))
+* handle inline script deletion in sync push + flow new nonDottedPaths ([#8553](https://github.com/windmill-labs/windmill/issues/8553)) ([943fe9c](https://github.com/windmill-labs/windmill/commit/943fe9c6cc9b046e24007e45b5c37afc4804256a))
+* include importer_kind in dependency debounce key to prevent cross-kind collisions ([#8567](https://github.com/windmill-labs/windmill/issues/8567)) ([bc7007b](https://github.com/windmill-labs/windmill/commit/bc7007bb4265e1f1375c1f0678b74325882a4e92))
+* multi-script dedicated workers race on shared job_dir ([#8551](https://github.com/windmill-labs/windmill/issues/8551)) ([#8569](https://github.com/windmill-labs/windmill/issues/8569)) ([63a3573](https://github.com/windmill-labs/windmill/commit/63a3573951d1f724cc63728ed973d039a5468072))
+* preserve notes on nodes inside collapsed groups ([#8552](https://github.com/windmill-labs/windmill/issues/8552)) ([0fb1153](https://github.com/windmill-labs/windmill/commit/0fb115304afc49812420e9ce24e5048502621059))
+* sanitize flow step summaries for filesystem-safe names ([#8554](https://github.com/windmill-labs/windmill/issues/8554)) ([e15bfbf](https://github.com/windmill-labs/windmill/commit/e15bfbf91ee1517432a6861ebb48e129485006aa))
+* use admin db pool in get_copilot_settings_state ([#8564](https://github.com/windmill-labs/windmill/issues/8564)) ([70f3ee5](https://github.com/windmill-labs/windmill/commit/70f3ee5ed4470e9993be822874f2b38e83a96611))
+
+
+### Performance Improvements
+
+* enable bun bundle caching for WAC v2 scripts ([#8556](https://github.com/windmill-labs/windmill/issues/8556)) ([ab868e9](https://github.com/windmill-labs/windmill/commit/ab868e9ebceadaa55e54770d9d59dc5524da13ff))
+
 ## [1.666.0](https://github.com/windmill-labs/windmill/compare/v1.665.0...v1.666.0) (2026-03-26)
 
 
