@@ -134,10 +134,11 @@ async function createWorkspaceFork(
 
 When doing operations on the forked workspace, it will use the remote setup in gitBranches for the branch it was forked from.
 
-To merge your fork back to the parent workspace:
-\t` + colors.white(`git checkout ${clonedBranchName}`) + `
-\t` + colors.white(`git merge ${newBranchName}`) + `
-\t` + colors.white(`wmill sync push`));
+To merge changes back to the parent workspace, you can:
+  - Use the Merge UI from the forked workspace home page
+  - Deploy individual items via the Deploy to staging/prod UI
+  - Use git: ` + colors.white(`git checkout ${clonedBranchName} && git merge ${newBranchName} && wmill sync push`) + `
+  See: https://www.windmill.dev/docs/advanced/workspace_forks`);
 }
 
 async function deleteWorkspaceFork(
