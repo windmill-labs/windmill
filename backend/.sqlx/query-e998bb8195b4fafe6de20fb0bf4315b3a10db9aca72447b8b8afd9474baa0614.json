@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO kafka_trigger (path, kafka_resource_path, group_id, topics, script_path, is_flow, workspace_id, edited_by, permissioned_as) VALUES ($1, $2, $3, $4, $5, false, 'test-workspace', 'test-user', 'u/test-user')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "VarcharArray",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e998bb8195b4fafe6de20fb0bf4315b3a10db9aca72447b8b8afd9474baa0614"
+}
