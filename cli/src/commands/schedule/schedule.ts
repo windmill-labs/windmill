@@ -163,6 +163,32 @@ export async function pushSchedule(
   }
 }
 
+async function enable(opts: GlobalOptions, path: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  await wmill.setScheduleEnabled({
+    workspace: workspace.workspaceId,
+    path,
+    requestBody: { enabled: true },
+  });
+
+  log.info(colors.green(`Schedule ${path} enabled.`));
+}
+
+async function disable(opts: GlobalOptions, path: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  await wmill.setScheduleEnabled({
+    workspace: workspace.workspaceId,
+    path,
+    requestBody: { enabled: false },
+  });
+
+  log.info(colors.yellow(`Schedule ${path} disabled.`));
+}
+
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -206,6 +232,12 @@ const command = new Command()
     "push a local schedule spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string>")
-  .action(push as any);
+  .action(push as any)
+  .command("enable", "Enable a schedule")
+  .arguments("<path:string>")
+  .action(enable as any)
+  .command("disable", "Disable a schedule")
+  .arguments("<path:string>")
+  .action(disable as any);
 
 export default command;
