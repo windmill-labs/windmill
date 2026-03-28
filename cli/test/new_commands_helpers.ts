@@ -148,6 +148,28 @@ export async function createRemoteFlow(
   await resp.text();
 }
 
+export async function runRemoteFlow(
+  backend: TestBackend,
+  flowPath: string,
+  retries: number = 10
+): Promise<string> {
+  for (let i = 0; i < retries; i++) {
+    const resp = await backend.apiRequest!(
+      `/api/w/${backend.workspace}/jobs/run/f/${flowPath}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }
+    );
+    if (resp.status < 300) {
+      return (await resp.text()).replace(/"/g, "");
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`Failed to run flow ${flowPath} after ${retries} retries`);
+}
+
 export async function createRemoteSchedule(
   backend: TestBackend,
   schedulePath: string,

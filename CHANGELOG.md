@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.668.2](https://github.com/windmill-labs/windmill/compare/v1.668.1...v1.668.2) (2026-03-28)
+
+
+### Bug Fixes
+
+* **cli:** app push crash, lint path, push --message, run validation, history timestamps ([#8585](https://github.com/windmill-labs/windmill/issues/8585)) ([f40cdaf](https://github.com/windmill-labs/windmill/commit/f40cdaf43453d2643800ed730d6abe6873bbe8e7))
+
 ## [1.668.1](https://github.com/windmill-labs/windmill/compare/v1.668.0...v1.668.1) (2026-03-28)
 
 

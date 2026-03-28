@@ -8,7 +8,9 @@ import { withTestBackend } from "./test_backend.ts";
 import {
   setupWorkspaceProfile,
   createRemoteScript,
+  createRemoteFlow,
   runRemoteScript,
+  runRemoteFlow,
   waitForJob,
 } from "./new_commands_helpers.ts";
 
@@ -53,7 +55,7 @@ describe("job command", () => {
       expect(result.code).toEqual(0);
       expect(result.stdout).toContain("ID");
       expect(result.stdout).toContain("Status");
-      expect(result.stdout).toContain(jobId.substring(0, 8));
+      expect(result.stdout).toContain(jobId);
     });
   });
 
@@ -164,6 +166,26 @@ describe("job command", () => {
 
       expect(result.code).toEqual(0);
       expect(result.stdout.length).toBeGreaterThan(0);
+    });
+  });
+
+  test("job logs for flow job shows helpful message", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const flowPath = `f/test/flow_logs_${uniqueId}`;
+      await createRemoteFlow(backend, flowPath);
+      const jobId = await runRemoteFlow(backend, flowPath);
+      await waitForJob(backend, jobId);
+
+      const result = await backend.runCLICommand(
+        ["job", "logs", jobId],
+        tempDir
+      );
+
+      expect(result.code).toEqual(0);
+      expect(result.stdout).toContain("Flow jobs don't have direct logs");
     });
   });
 
