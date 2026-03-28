@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.668.0](https://github.com/windmill-labs/windmill/compare/v1.667.0...v1.668.0) (2026-03-28)
+
+
+### Features
+
+* add DB health diagnostic dashboard for superadmins ([#8574](https://github.com/windmill-labs/windmill/issues/8574)) ([9ceab73](https://github.com/windmill-labs/windmill/commit/9ceab730d7def09c2b46527f8a586789d14f2ce0))
+* **cli:** add job, group, audit, token commands and schedule enable/disable ([#8581](https://github.com/windmill-labs/windmill/issues/8581)) ([d29cb23](https://github.com/windmill-labs/windmill/commit/d29cb234dbff07473b911e5e75e362def8a47650))
+* IAM RDS auth for PostgreSQL worker resources ([#8573](https://github.com/windmill-labs/windmill/issues/8573)) ([56253c0](https://github.com/windmill-labs/windmill/commit/56253c04cb679c58d00750da699a6cb62ed52aca))
+
+
+### Bug Fixes
+
+* add Authority Key Identifier to MITM proxy leaf certs ([#8576](https://github.com/windmill-labs/windmill/issues/8576)) ([ce2e6c8](https://github.com/windmill-labs/windmill/commit/ce2e6c8c015110d0385e6afecdc8313aabca1364))
+* Improve CLI developer experience: error handling, sync workflow, JSON output, workspace forks ([#8578](https://github.com/windmill-labs/windmill/issues/8578)) ([501a4ff](https://github.com/windmill-labs/windmill/commit/501a4ff2a94510145952686d24ccc639781beefe))
+* trigger capture filter and focus issues ([#8579](https://github.com/windmill-labs/windmill/issues/8579)) ([820f28f](https://github.com/windmill-labs/windmill/commit/820f28f8799f8dad5cfab94b51ac9921d664f04a))
+
 ## [1.667.0](https://github.com/windmill-labs/windmill/compare/v1.666.0...v1.667.0) (2026-03-27)
 
 
