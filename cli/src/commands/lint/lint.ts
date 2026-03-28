@@ -746,7 +746,11 @@ export function printReport(report: LintReport, jsonOutput: boolean) {
   }
 }
 
-async function lint(opts: LintOptions, directory?: string) {
+async function lint(opts: LintOptions & { watch?: boolean }, directory?: string) {
+  if (opts.watch) {
+    await lintWatch(opts, directory);
+    return;
+  }
   try {
     const report = await runLint(opts, directory);
     printReport(report, !!opts.json);
@@ -774,6 +778,37 @@ async function lint(opts: LintOptions, directory?: string) {
   }
 }
 
+async function lintWatch(opts: LintOptions, directory?: string) {
+  const { watch } = await import("node:fs");
+  const targetDir = directory ? path.resolve(process.cwd(), directory) : process.cwd();
+
+  log.info(colors.blue(`Watching ${targetDir} for changes... (Ctrl+C to stop)`));
+
+  async function runAndReport() {
+    try {
+      const report = await runLint(opts, directory);
+      // Clear screen for readability
+      process.stdout.write("\x1Bc");
+      log.info(colors.gray(`[${new Date().toLocaleTimeString()}] Lint results:\n`));
+      printReport(report, false);
+    } catch (error) {
+      log.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  await runAndReport();
+
+  let debounce: ReturnType<typeof setTimeout> | null = null;
+  watch(targetDir, { recursive: true }, (_event, filename) => {
+    if (!filename || !filename.toString().endsWith(".yaml") && !filename.toString().endsWith(".yml")) return;
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(runAndReport, 300);
+  });
+
+  // Keep the process alive
+  await new Promise(() => {});
+}
+
 const command = new Command()
   .description(
     "Validate Windmill flow, schedule, and trigger YAML files in a directory",
@@ -785,6 +820,7 @@ const command = new Command()
     "--locks-required",
     "Fail if scripts or flow inline scripts that need locks have no locks",
   )
+  .option("-w, --watch", "Watch for file changes and re-lint automatically")
   .action(lint as any);
 
 export default command;

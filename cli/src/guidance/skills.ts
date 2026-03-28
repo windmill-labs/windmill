@@ -5260,6 +5260,7 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 - \`--json\` - Output results in JSON format
 - \`--fail-on-warn\` - Exit with code 1 when warnings are emitted
 - \`--locks-required\` - Fail if scripts or flow inline scripts that need locks have no locks
+- \`-w, --watch\` - Watch for file changes and re-lint automatically
 
 ### queues
 
