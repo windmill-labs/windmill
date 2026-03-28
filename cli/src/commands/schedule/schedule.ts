@@ -1,4 +1,5 @@
-import { stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 
 import { Command } from "@cliffy/command";
@@ -70,6 +71,7 @@ async function newSchedule(opts: GlobalOptions, path: string) {
     is_flow: false,
     enabled: false,
   };
+  await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, yamlStringify(template as Record<string, any>), {
     flag: "wx",
     encoding: "utf-8",
@@ -78,6 +80,7 @@ async function newSchedule(opts: GlobalOptions, path: string) {
 }
 
 async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const s = await wmill.getSchedule({

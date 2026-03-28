@@ -1,4 +1,5 @@
-import { stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 
 import * as wmill from "../../../gen/services.gen.ts";
@@ -400,6 +401,7 @@ async function newTrigger(opts: GlobalOptions & { kind: string }, path: string) 
     if (e.message?.startsWith("File already exists")) throw e;
   }
   const template = triggerTemplates[kind];
+  await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, yamlStringify(template), {
     flag: "wx",
     encoding: "utf-8",
@@ -408,6 +410,7 @@ async function newTrigger(opts: GlobalOptions & { kind: string }, path: string) 
 }
 
 async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 

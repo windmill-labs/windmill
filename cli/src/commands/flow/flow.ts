@@ -252,6 +252,7 @@ async function list(
   }
 }
 async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const f = await wmill.getFlowByPath({
@@ -328,18 +329,39 @@ async function run(
     i++;
   }
 
-  if (!opts.silent) {
-    log.info(colors.green.underline.bold("Flow ran to completion"));
-    log.info("\n");
+  // Wait for flow completion with retry (handles race when --silent skips module tracking)
+  const MAX_RETRIES = 600; // ~60 seconds at 100ms intervals
+  let retries = 0;
+  while (retries < MAX_RETRIES) {
+    try {
+      const jobInfo = await wmill.getCompletedJob({
+        workspace: workspace.workspaceId,
+        id,
+      });
+
+      if (!opts.silent) {
+        log.info(colors.green.underline.bold("Flow ran to completion"));
+        log.info("\n");
+      }
+
+      if (jobInfo.success === false) {
+        process.exitCode = 1;
+      }
+
+      if (opts.silent) {
+        console.log(JSON.stringify(jobInfo.result ?? {}));
+      } else {
+        log.info(JSON.stringify(jobInfo.result ?? {}, null, 2));
+      }
+
+      break;
+    } catch {
+      retries++;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   }
-  const jobInfo = await wmill.getCompletedJob({
-    workspace: workspace.workspaceId,
-    id,
-  });
-  if (opts.silent) {
-    console.log(JSON.stringify(jobInfo.result ?? {}));
-  } else {
-    log.info(JSON.stringify(jobInfo.result ?? {}, null, 2));
+  if (retries >= MAX_RETRIES) {
+    throw new Error(`Timed out waiting for flow ${id} to complete`);
   }
 }
 
@@ -551,7 +573,7 @@ export async function bootstrap(
   await loadNonDottedPathsSetting();
 
   const flowDirFullPath = buildFolderPath(flowPath, "flow");
-  mkdirSync(flowDirFullPath, { recursive: false });
+  mkdirSync(flowDirFullPath, { recursive: true });
 
   const newFlowDefinition = defaultFlowDefinition();
   if (opts.summary !== undefined) {
