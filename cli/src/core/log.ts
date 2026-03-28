@@ -27,5 +27,5 @@ export function warn(msg: unknown) {
 }
 
 export function error(msg: unknown) {
-  console.log(`\x1b[31m${String(msg)}\x1b[39m`);
+  console.error(`\x1b[31m${String(msg)}\x1b[39m`);
 }

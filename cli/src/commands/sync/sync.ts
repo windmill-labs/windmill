@@ -2629,7 +2629,7 @@ export async function push(
 
   const tracker: ChangeTracker = await buildTracker(changes);
 
-  const autoRegenerate = !!(opts as any).auto;
+  const autoRegenerate = !!(opts as any).autoMetadata;
   const staleScripts: string[] = [];
   const staleFlows: string[] = [];
   const staleApps: string[] = [];
@@ -2750,25 +2750,22 @@ export async function push(
     log.info("");
   }
 
-  // Warn about local files for skipped types
+  // Warn about local files for skipped types (use already-computed local FS tree)
   {
     const skippedWarnings: string[] = [];
-    try {
-      const { readdir: readdirRecursive } = await import("node:fs/promises");
-      const allFiles = await readdirRecursive(process.cwd(), { recursive: true });
-      if (!opts.includeSchedules) {
-        const count = allFiles.filter((f) => String(f).endsWith(".schedule.yaml")).length;
-        if (count > 0) {
-          skippedWarnings.push(`Skipping ${count} schedule file(s). Use --include-schedules or set includeSchedules: true in wmill.yaml`);
-        }
-      }
-      if (!opts.includeTriggers) {
-        const count = allFiles.filter((f) => String(f).endsWith("_trigger.yaml")).length;
-        if (count > 0) {
-          skippedWarnings.push(`Skipping ${count} trigger file(s). Use --include-triggers or set includeTriggers: true in wmill.yaml`);
-        }
-      }
-    } catch { /* ignore readdir errors */ }
+    let scheduleCount = 0;
+    let triggerCount = 0;
+    for await (const entry of readDirRecursiveWithIgnore(() => false, local)) {
+      if (entry.isDirectory) continue;
+      if (!opts.includeSchedules && entry.path.endsWith(".schedule.yaml")) scheduleCount++;
+      if (!opts.includeTriggers && entry.path.endsWith("_trigger.yaml")) triggerCount++;
+    }
+    if (scheduleCount > 0) {
+      skippedWarnings.push(`Skipping ${scheduleCount} schedule file(s). Use --include-schedules or set includeSchedules: true in wmill.yaml`);
+    }
+    if (triggerCount > 0) {
+      skippedWarnings.push(`Skipping ${triggerCount} trigger file(s). Use --include-triggers or set includeTriggers: true in wmill.yaml`);
+    }
     for (const warning of skippedWarnings) {
       log.warn(warning);
     }
@@ -3690,7 +3687,7 @@ const command = new Command()
     "--locks-required",
     "Fail if scripts or flow inline scripts that need locks have no locks",
   )
-  .option("--auto", "Automatically regenerate stale metadata (locks and schemas) before pushing")
+  .option("--auto-metadata", "Automatically regenerate stale metadata (locks and schemas) before pushing")
   .action(push as any);
 
 export default command;
