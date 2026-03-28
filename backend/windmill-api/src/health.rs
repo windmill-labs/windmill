@@ -231,7 +231,7 @@ async fn check_database_with_latency(db: &DB) -> DatabaseCheckResult {
     DatabaseCheckResult { healthy, latency_ms }
 }
 
-fn get_pool_stats(db: &DB) -> PoolStats {
+pub(crate) fn get_pool_stats(db: &DB) -> PoolStats {
     PoolStats {
         size: db.size(),
         idle: db.num_idle() as u32,

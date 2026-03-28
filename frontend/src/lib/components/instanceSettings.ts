@@ -376,6 +376,7 @@ export const settings: Record<string, Setting[]> = {
 		}
 	],
 	'Auth/OAuth/SAML': [],
+	'DB Health': [],
 	Registries: [
 		{
 			label: 'Instance Python Version',
@@ -829,6 +830,12 @@ export const instanceSettingsNavigationGroups = [
 				aiId: 'instance-settings-indexer',
 				aiDescription: 'Instance indexer settings',
 				isEE: true
+			},
+			{
+				id: 'db_health',
+				label: 'DB Health',
+				aiId: 'instance-settings-db-health',
+				aiDescription: 'Database health diagnostics and performance insights'
 			}
 		]
 	},
@@ -900,7 +907,8 @@ export const tabToCategoryMap: Record<string, string> = {
 	jobs: 'Jobs',
 	private_hub: 'Private Hub',
 	github_enterprise_app: 'GitHub App',
-	websocket: 'WebSocket'
+	websocket: 'WebSocket',
+	db_health: 'DB Health'
 }
 
 export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
@@ -933,7 +941,8 @@ export const categoryToTabMap: Record<string, string> = {
 	Jobs: 'jobs',
 	'Private Hub': 'private_hub',
 	'GitHub App': 'github_enterprise_app',
-	WebSocket: 'websocket'
+	WebSocket: 'websocket',
+	'DB Health': 'db_health'
 }
 
 export interface SearchableSettingItem {
