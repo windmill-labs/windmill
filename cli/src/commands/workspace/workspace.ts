@@ -415,7 +415,20 @@ async function whoami(_opts: GlobalOptions) {
   const whoamiInfo = await wmill.globalWhoami();
   log.info(JSON.stringify(whoamiInfo, null, 2));
   const activeName = await getActiveWorkspaceName(_opts);
-  log.info("Active: " + colors.green.bold(activeName || "none"));
+  const { getCurrentGitBranch, getOriginalBranchForWorkspaceForks } = await import("../../utils/git.ts");
+  const branch = getCurrentGitBranch();
+  const originalBranch = branch ? getOriginalBranchForWorkspaceForks(branch) : null;
+  if (originalBranch) {
+    const { resolveWorkspace } = await import("../../core/context.ts");
+    try {
+      const ws = await resolveWorkspace(_opts);
+      log.info("Active: " + colors.green.bold(`${activeName || "none"}`) + ` (fork workspace: ${ws.workspaceId})`);
+    } catch {
+      log.info("Active: " + colors.green.bold(activeName || "none") + " (fork branch)");
+    }
+  } else {
+    log.info("Active: " + colors.green.bold(activeName || "none"));
+  }
 }
 
 async function listRemote(_opts: GlobalOptions) {
@@ -435,22 +448,61 @@ async function listRemote(_opts: GlobalOptions) {
 
   const userWorkspaces = await wmill.listUserWorkspaces();
 
+  const hasForks = userWorkspaces.workspaces.some((x) => x.parent_workspace_id);
+  const headers = hasForks
+    ? ["id", "name", "username", "fork of", "disabled"]
+    : ["id", "name", "username", "disabled"];
+
   new Table()
-    .header(["id", "name", "username", "disabled"])
+    .header(headers)
     .padding(2)
     .border(true)
     .body(
-      userWorkspaces.workspaces.map((x) => [
-        x.id,
-        x.name,
-        x.username,
-        x.disabled ? colors.red("true") : "false",
-      ])
+      userWorkspaces.workspaces.map((x) => {
+        const row = [
+          x.id,
+          x.name,
+          x.username,
+        ];
+        if (hasForks) row.push(x.parent_workspace_id ?? "-");
+        row.push(x.disabled ? colors.red("true") : "false");
+        return row;
+      })
     )
     .render();
 
   log.info(`Remote: ${colors.bold(remote)}`);
   log.info(`Logged in as: ${colors.green.bold(userWorkspaces.email)}`);
+}
+
+async function listForks(_opts: GlobalOptions) {
+  const { resolveWorkspace } = await import("../../core/context.ts");
+  const workspace = await resolveWorkspace(_opts);
+  await requireLogin(_opts);
+
+  const userWorkspaces = await wmill.listUserWorkspaces();
+  const forks = userWorkspaces.workspaces.filter((w) => w.parent_workspace_id);
+
+  if (forks.length === 0) {
+    log.info("No forked workspaces found.");
+    return;
+  }
+
+  new Table()
+    .header(["id", "name", "fork of", "username"])
+    .padding(2)
+    .border(true)
+    .body(
+      forks.map((x) => [
+        x.id,
+        x.name,
+        x.parent_workspace_id ?? "",
+        x.username,
+      ])
+    )
+    .render();
+
+  log.info(`Remote: ${colors.bold(workspace.remote)}`);
 }
 
 export async function getActiveWorkspaceOrFallback(opts: GlobalOptions) {
@@ -581,6 +633,9 @@ const command = new Command()
   .command("list-remote")
   .description("List workspaces on the remote server that you have access to")
   .action(listRemote as any)
+  .command("list-forks")
+  .description("List forked workspaces on the remote server")
+  .action(listForks as any)
   .command("bind")
   .description("Bind the current Git branch to the active workspace. This adds the branch to gitBranches in wmill.yaml so sync operations use the correct workspace for each branch.")
   .option("--branch, --env <branch:string>", "Specify branch/environment (defaults to current)")

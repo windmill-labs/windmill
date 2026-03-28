@@ -458,15 +458,16 @@ export async function resolveWorkspace(
   const branch = branchOverride ?? getCurrentGitBranch();
 
   // Try explicit workspace flag first (should override branch-based resolution). Unless it's a
-  // forked workspace, that we detect through the branch name (only when not using branchOverride)
+  // forked workspace, that we detect through the branch name (only when not using branchOverride
+  // and --workspace was not explicitly provided)
   const res = await tryResolveWorkspace(opts);
   if (!res.isError) {
     const workspace = (res as { isError: false; value: Workspace }).value;
-    if (branchOverride || !branch || !branch.startsWith(WM_FORK_PREFIX)) {
+    if (branchOverride || opts.workspace || !branch || !branch.startsWith(WM_FORK_PREFIX)) {
       return workspace;
     } else {
       log.info(
-        `Found an active workspace \`${workspace.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\``
+        `Found an active workspace \`${workspace.name}\` but the branch name indicates this is a forked workspace. Ignoring active workspace and trying to resolve the correct workspace from the branch name \`${branch}\`. Use --workspace to override.`
       );
     }
   } else if (opts.workspace) {
