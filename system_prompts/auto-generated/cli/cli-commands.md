@@ -370,13 +370,13 @@ schedule related commands
 script related commands
 
 **Options:**
-- `--show-archived` - Enable archived scripts in output
+- `--show-archived` - Show archived scripts instead of active ones
 - `--json` - Output as JSON (for piping to jq)
 
 **Subcommands:**
 
 - `script list` - list all scripts
-  - `--show-archived` - Enable archived scripts in output
+  - `--show-archived` - Show archived scripts instead of active ones
   - `--json` - Output as JSON (for piping to jq)
 - `script push <path:file>` - push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh
   - `--message <message:string>` - Deployment message

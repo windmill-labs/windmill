@@ -154,18 +154,27 @@ export async function pushFlow(
   const localFlow = (await yamlParseFile(localPath + "flow.yaml")) as FlowFile;
 
   const fileReader = async (path: string) => await readFile(localPath + path, "utf-8");
+  const missingFiles: string[] = [];
   await replaceInlineScripts(
     localFlow.value.modules,
     fileReader,
     log,
     localPath,
-    SEP
+    SEP,
+    undefined,
+    missingFiles
   );
   if (localFlow.value.failure_module) {
-    await replaceInlineScripts([localFlow.value.failure_module], fileReader, log, localPath, SEP);
+    await replaceInlineScripts([localFlow.value.failure_module], fileReader, log, localPath, SEP, undefined, missingFiles);
   }
   if (localFlow.value.preprocessor_module) {
-    await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, localPath, SEP);
+    await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, localPath, SEP, undefined, missingFiles);
+  }
+  if (missingFiles.length > 0) {
+    throw new Error(
+      `Cannot push flow: missing inline script file(s): ${missingFiles.join(", ")}. ` +
+      `Ensure all !inline references point to existing files.`
+    );
   }
 
   if (flow) {
@@ -493,7 +502,6 @@ async function preview(
         process.exitCode = 1;
         return;
       }
-      log.error(`Flow preview failed: ${JSON.stringify(e.body)}`);
     }
     throw e;
   }

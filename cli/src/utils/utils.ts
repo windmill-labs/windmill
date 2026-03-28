@@ -107,6 +107,7 @@ export function getHeaders(): Record<string, string> | undefined {
 export async function digestDir(path: string, conf: string) {
   const hashes: string = [];
   const entries = await readdir(path, { withFileTypes: true });
+  entries.sort((a, b) => a.name.localeCompare(b.name));
   for (const e of entries) {
     const npath = path + "/" + e.name;
     if (e.isFile()) {

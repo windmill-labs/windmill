@@ -550,7 +550,7 @@ export async function resolveWorkspace(
   }
 
   // If everything failed, show error
-  log.info(colors.red.bold("No workspace given and no default set."));
+  log.info(colors.red.bold("No workspace given and no default set. Run 'wmill workspace add' to configure one."));
   return process.exit(-1);
 }
 

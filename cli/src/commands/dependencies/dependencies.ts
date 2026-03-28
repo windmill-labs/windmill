@@ -46,7 +46,10 @@ export async function pushWorkspaceDependencies(
   try {
     const res = workspaceDependenciesPathToLanguageAndFilename(path);
     if (!res) {
-      throw new Error(`Unknown workspace dependencies file format: ${path}`);
+      throw new Error(
+        `Unknown workspace dependencies file format: ${path}. ` +
+        `Valid files: package.json, requirements.in, composer.json, go.mod, modules.json`
+      );
     }
 
     const { language, name } = res;
