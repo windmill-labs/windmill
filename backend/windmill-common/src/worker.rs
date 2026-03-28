@@ -730,7 +730,8 @@ pub struct RubyAnnotations {
 
 #[annotations("#")]
 pub struct RlangAnnotations {
-    pub verbose: bool,
+    pub renv_verbose: bool,
+    pub renv_install_verbose: bool,
     pub sandbox: bool,
 }
 

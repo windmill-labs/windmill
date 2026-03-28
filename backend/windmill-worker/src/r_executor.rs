@@ -93,12 +93,12 @@ pub async fn handle_r_job<'a>(
         args.conn,
         args.worker_name,
         &args.job.workspace_id,
-        annotation.verbose,
+        annotation.renv_verbose,
     )
     .await?;
     // --- Install ---
     let lib_path = if !lockfile.is_empty() {
-        Some(install(&mut args, &lockfile, annotation.verbose).await?)
+        Some(install(&mut args, &lockfile, annotation.renv_verbose, annotation.renv_install_verbose).await?)
     } else {
         None
     };
@@ -358,7 +358,7 @@ fn parse_renv_lock(lockfile: &str) -> Result<Vec<RenvPackage>, Error> {
     Ok(result)
 }
 
-async fn install<'a>(args: &mut JobHandlerInput<'a>, lockfile: &str, verbose: bool) -> Result<String, Error> {
+async fn install<'a>(args: &mut JobHandlerInput<'a>, lockfile: &str, verbose: bool, install_verbose: bool) -> Result<String, Error> {
     let lib_path = format!("{}/r_site_library", *R_CACHE_DIR);
     fs::create_dir_all(&lib_path).await?;
 
@@ -449,6 +449,7 @@ async fn install<'a>(args: &mut JobHandlerInput<'a>, lockfile: &str, verbose: bo
             };
 
             let verbose_r = if verbose { "TRUE" } else { "FALSE" };
+            let install_verbose_r = if install_verbose { "TRUE" } else { "FALSE" };
             let install_lib = if jailed { "/install".to_string() } else { lib_path_c };
             cmd.env_clear()
                 .current_dir(&job_dir)
@@ -458,8 +459,9 @@ async fn install<'a>(args: &mut JobHandlerInput<'a>, lockfile: &str, verbose: bo
                 .args(&[
                     "-e",
                     &format!(
-                        r#"options(renv.verbose = {verbose_r}, renv.config.restart.enabled = FALSE); renv::install("{pkg}@{version}", library = "{lib}", dependencies = FALSE)"#,
+                        r#"options(renv.verbose = {verbose_r}, renv.config.install.verbose = {install_verbose_r}, renv.config.restart.enabled = FALSE); renv::install("{pkg}@{version}", library = "{lib}", dependencies = FALSE)"#,
                         verbose_r = verbose_r,
+                        install_verbose_r = install_verbose_r,
                         pkg = dependency.custom_payload.pkg,
                         version = dependency.custom_payload.version,
                         lib = install_lib,

@@ -28,7 +28,8 @@ RUN /usr/bin/java -jar /usr/bin/coursier about
 RUN apt-get install -y ruby ruby-bundler
 
 # R
-RUN apt-get install -y r-base r-cran-renv
+RUN apt-get install -y r-base-dev \
+    && Rscript -e 'install.packages("renv", lib="/usr/lib/R/library", repos="https://cloud.r-project.org")'
 
 # Fix UV cache permissions for non-root user support (uid 1000, etc.)
 # The uv tool install ansible command populates the UV cache with root-owned files

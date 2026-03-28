@@ -8,6 +8,7 @@ time_limit: 900
 disable_rl: true
 
 envar: "HOME=/tmp"
+envar: "R_INSTALL_TAR=/usr/bin/tar --no-same-owner"
 
 cwd: "/tmp"
 
