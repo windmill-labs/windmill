@@ -50,25 +50,9 @@ app related commands
 
 View audit logs (requires admin)
 
-**Options:**
-- `--json` - Output as JSON (for piping to jq)
-- `--username <username:string>` - Filter by username
-- `--operation <operation:string>` - Filter by operation (exact or prefix)
-- `--action-kind <actionKind:string>` - Filter by action kind (Create, Update, Delete, Execute)
-- `--before <before:string>` - Filter events before this timestamp
-- `--after <after:string>` - Filter events after this timestamp
-- `--limit <limit:number>` - Number of entries to return (default 30, max 100)
-
 **Subcommands:**
 
 - `audit list` - List audit log entries
-  - `--json` - Output as JSON (for piping to jq)
-  - `--username <username:string>` - Filter by username
-  - `--operation <operation:string>` - Filter by operation (exact or prefix)
-  - `--action-kind <actionKind:string>` - Filter by action kind (Create, Update, Delete, Execute)
-  - `--before <before:string>` - Filter events before this timestamp
-  - `--after <after:string>` - Filter events after this timestamp
-  - `--limit <limit:number>` - Number of entries to return (default 30, max 100)
 - `audit get <id:string>` - Get a specific audit log entry
   - `--json` - Output as JSON (for piping to jq)
 
