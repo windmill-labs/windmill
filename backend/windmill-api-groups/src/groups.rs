@@ -33,24 +33,24 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_groups))
         .route("/listnames", get(list_group_names))
         .route("/create", post(create_group))
-        .route("/get/:name", get(get_group))
-        .route("/update/:name", post(update_group))
-        .route("/delete/:name", delete(delete_group))
-        .route("/adduser/:name", post(add_user))
-        .route("/removeuser/:name", post(remove_user))
-        .route("/is_owner/:name", get(is_owner))
+        .route("/get/{name}", get(get_group))
+        .route("/update/{name}", post(update_group))
+        .route("/delete/{name}", delete(delete_group))
+        .route("/adduser/{name}", post(add_user))
+        .route("/removeuser/{name}", post(remove_user))
+        .route("/is_owner/{name}", get(is_owner))
 }
 
 pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_igroups))
         .route("/list_with_workspaces", get(list_igroups_with_workspaces))
-        .route("/get/:name", get(get_igroup))
+        .route("/get/{name}", get(get_igroup))
         .route("/create", post(create_igroup))
-        .route("/update/:name", post(update_igroup))
-        .route("/delete/:name", delete(delete_igroup))
-        .route("/adduser/:name", post(add_user_igroup))
-        .route("/removeuser/:name", post(remove_user_igroup))
+        .route("/update/{name}", post(update_igroup))
+        .route("/delete/{name}", delete(delete_igroup))
+        .route("/adduser/{name}", post(add_user_igroup))
+        .route("/removeuser/{name}", post(remove_user_igroup))
         .route("/export", get(export_igroups))
         .route("/overwrite", post(overwrite_igroups))
 }
@@ -656,6 +656,7 @@ async fn delete_group(
     )
     .execute(&mut *tx)
     .await?;
+
     audit_log(
         &mut *tx,
         &authed,

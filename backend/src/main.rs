@@ -36,24 +36,26 @@ use windmill_common::ee_oss::{
 
 use windmill_common::{
     agent_workers::AgentConfig,
+    ai_cache::bump_instance_ai_config_revision,
     global_settings::{
-        APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING,
-        BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
         CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
+        INDEXER_SETTING, INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
         OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
         POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
-        RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING, WORKSPACE_REGISTRIES_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
+        SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        UV_INDEX_STRATEGY_SETTING, WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -66,7 +68,7 @@ use windmill_common::{
         is_native_mode_from_env, reload_custom_tags_setting, Connection, HUB_CACHE_DIR,
         HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR, WINDMILL_DIR, WORKER_GROUP,
     },
-    KillpillSender, DEFAULT_HUB_BASE_URL, METRICS_ENABLED,
+    KillpillSender, DEFAULT_HUB_BASE_URL, INSTANCE_NAME, METRICS_ENABLED,
 };
 
 #[cfg(feature = "enterprise")]
@@ -103,10 +105,10 @@ use crate::monitor::{
     reload_base_url_setting, reload_bunfig_install_scopes_setting,
     reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
     reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
-    reload_hub_api_secret_setting, reload_hub_base_url_setting,
-    reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
-    reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
-    reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
+    reload_http_route_workspaced_route_setting, reload_hub_api_secret_setting,
+    reload_hub_base_url_setting, reload_instance_events_webhook_setting,
+    reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
+    reload_license_key, reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
     reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
     reload_smtp_config, reload_uv_index_strategy_setting, reload_worker_config, MonitorIteration,
 };
@@ -1098,6 +1100,9 @@ Windmill Community Edition {GIT_VERSION}
         }
 
         let addr = SocketAddr::from((server_bind_address, port));
+        let listener = tokio::net::TcpListener::bind(addr)
+            .await
+            .context("binding main windmill server")?;
 
         let (base_internal_tx, base_internal_rx) = tokio::sync::oneshot::channel::<String>();
 
@@ -1231,7 +1236,7 @@ Windmill Community Edition {GIT_VERSION}
                         db.clone(),
                         index_reader,
                         log_index_reader,
-                        addr,
+                        listener,
                         server_killpill_rx,
                         base_internal_tx,
                         server_mode,
@@ -1787,7 +1792,8 @@ async fn process_notify_event(
                     reload_otel_tracing_proxy_setting(conn).await;
                     if worker_mode {
                         tracing::info!("OTEL tracing proxy setting changed, restarting worker");
-                        send_delayed_killpill(tx, 4, "OTEL tracing proxy setting change").await;
+                        spawn_graceful_killpill(tx, db, 10, "OTEL tracing proxy setting change")
+                            .await;
                     }
                 }
                 REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
@@ -1795,12 +1801,12 @@ async fn process_notify_event(
                 }
                 EXPOSE_METRICS_SETTING => {
                     tracing::info!("Metrics setting changed, restarting");
-                    send_delayed_killpill(tx, 40, "metrics setting change").await;
+                    spawn_graceful_killpill(tx, db, 10, "metrics setting change").await;
                 }
                 EMAIL_DOMAIN_SETTING => {
                     tracing::info!("Email domain setting changed");
                     if server_mode {
-                        send_delayed_killpill(tx, 4, "email domain setting change").await;
+                        spawn_graceful_killpill(tx, db, 10, "email domain setting change").await;
                     }
                 }
                 EXPOSE_DEBUG_METRICS_SETTING => {
@@ -1813,21 +1819,42 @@ async fn process_notify_event(
                         tracing::error!(error = %e, "Could not reload app workspaced route setting");
                     }
                 }
+                HTTP_ROUTE_WORKSPACED_ROUTE_SETTING => {
+                    if let Err(e) = reload_http_route_workspaced_route_setting(db).await {
+                        tracing::error!(error = %e, "Could not reload http route workspaced route setting");
+                    }
+                    #[cfg(feature = "http_trigger")]
+                    match windmill_api::triggers::http::refresh_routers(db).await {
+                        Ok((true, _)) => {
+                            tracing::info!(
+                                "Refreshed HTTP routers (http workspaced route setting change)"
+                            );
+                        }
+                        Err(err) => {
+                            tracing::error!("Error refreshing HTTP routers (http workspaced route setting change): {err:#}");
+                        }
+                        _ => {}
+                    }
+                }
+                AI_CONFIG_SETTING => {
+                    tracing::info!("AI config setting changed, bumping instance AI cache revision");
+                    bump_instance_ai_config_revision();
+                }
                 OTEL_SETTING => {
                     tracing::info!("OTEL setting changed, restarting");
-                    send_delayed_killpill(tx, 4, "OTEL setting change").await;
+                    spawn_graceful_killpill(tx, db, 10, "OTEL setting change").await;
                 }
                 REQUEST_SIZE_LIMIT_SETTING => {
                     if server_mode {
                         tracing::info!("Request limit size change detected, killing server expecting to be restarted");
-                        send_delayed_killpill(tx, 4, "request size limit change").await;
+                        spawn_graceful_killpill(tx, db, 10, "request size limit change").await;
                     }
                 }
                 SAML_METADATA_SETTING => {
                     tracing::info!(
                         "SAML metadata change detected, killing server expecting to be restarted"
                     );
-                    send_delayed_killpill(tx, 0, "SAML metadata change").await;
+                    spawn_graceful_killpill(tx, db, 10, "SAML metadata change").await;
                 }
                 HUB_BASE_URL_SETTING => {
                     if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
@@ -1875,6 +1902,9 @@ async fn process_notify_event(
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                     tracing::info!("Workspace telemetry setting changed: enabled={}", enabled);
+                }
+                RESTART_COORDINATION_SETTING => {
+                    // Internal coordination key for staggered restarts, no action needed
                 }
                 _ => {
                     tracing::info!("Unrecognized Global Setting Change Payload: {:?}", payload);
@@ -2017,14 +2047,145 @@ pub async fn run_workers(
     Ok(())
 }
 
-async fn send_delayed_killpill(tx: &KillpillSender, mut max_delay_secs: u64, context: &str) {
-    if max_delay_secs == 0 {
-        max_delay_secs = 1;
-    }
-    // Random delay to avoid all servers/workers shutting down simultaneously
-    let rd_delay = rand::rng().random_range(0..max_delay_secs);
-    tracing::info!("Scheduling {context} shutdown in {rd_delay}s");
-    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+/// Schedule a graceful restart with DB-coordinated staggering.
+///
+/// Uses a PostgreSQL advisory lock to serialize restart scheduling across server instances.
+/// Each instance records its planned restart time in the `_restart_coordination` global setting;
+/// subsequent instances read existing schedules and shift their restart to maintain at least
+/// `safety_margin_secs` between consecutive restarts (must exceed the server startup time).
+///
+/// Every server waits at least `DRAIN_DELAY_SECS` to let in-flight requests complete.
+/// Each subsequent server waits an additional `safety_margin_secs` after the previous one,
+/// guaranteeing zero downtime overlap.
+///
+/// The DB coordination is done synchronously (fast, ~ms) to reserve our restart slot,
+/// then the sleep+kill is spawned in the background so the notification handler is not blocked.
+///
+/// Falls back to drain-only delay if DB coordination fails.
+async fn spawn_graceful_killpill(
+    tx: &KillpillSender,
+    db: &Pool<Postgres>,
+    safety_margin_secs: u64,
+    context: &str,
+) {
+    // Minimum delay before any restart to let in-flight requests drain
+    const DRAIN_DELAY_SECS: u64 = 3;
 
-    tx.send();
+    let delay = match coordinate_restart_delay(db, safety_margin_secs, DRAIN_DELAY_SECS).await {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(
+                "Failed to coordinate restart for {context}: {e:#}, \
+                 falling back to drain delay of {DRAIN_DELAY_SECS}s"
+            );
+            DRAIN_DELAY_SECS
+        }
+    };
+
+    tracing::info!("Scheduling {context} graceful shutdown in {delay}s");
+    let tx = tx.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(delay)).await;
+        tx.send();
+    });
+}
+
+/// Coordinate a restart delay with other instances via the DB.
+///
+/// Returns the delay (in seconds from now) at which this instance should restart.
+/// The first server gets `drain_delay_secs` (to let in-flight requests complete).
+/// Each subsequent server is spaced `safety_margin_secs` after the latest scheduled restart.
+async fn coordinate_restart_delay(
+    db: &Pool<Postgres>,
+    safety_margin_secs: u64,
+    drain_delay_secs: u64,
+) -> anyhow::Result<u64> {
+    const RESTART_LOCK_ID: i64 = 737_483_920;
+    // Stale threshold: ignore coordination entries older than this
+    const STALE_THRESHOLD_SECS: i64 = 120;
+
+    let now = chrono::Utc::now();
+
+    let mut tx = db.begin().await.context("begin restart coordination tx")?;
+
+    // Serialize access across all instances
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(RESTART_LOCK_ID)
+        .execute(&mut *tx)
+        .await
+        .context("acquire restart coordination lock")?;
+
+    // Read existing coordination record
+    let existing: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT value FROM global_settings WHERE name = $1")
+            .bind(RESTART_COORDINATION_SETTING)
+            .fetch_optional(&mut *tx)
+            .await
+            .context("read restart coordination")?;
+
+    // Parse existing scheduled restarts, filtering out stale entries
+    // Each entry is (instance_name, restart_at)
+    let mut scheduled: Vec<(String, chrono::DateTime<chrono::Utc>)> = Vec::new();
+    if let Some(val) = &existing {
+        if let Some(arr) = val.get("restarts").and_then(|v| v.as_array()) {
+            for entry in arr {
+                let instance = entry
+                    .get("instance")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                if let Some(ts_str) = entry.get("restart_at").and_then(|v| v.as_str()) {
+                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts_str) {
+                        let dt = dt.with_timezone(&chrono::Utc);
+                        let stale_cutoff = now - chrono::Duration::seconds(STALE_THRESHOLD_SECS);
+                        if dt > stale_cutoff {
+                            scheduled.push((instance, dt));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Find the latest scheduled restart
+    let latest = scheduled.iter().map(|(_, dt)| *dt).max();
+    let earliest_allowed = now + chrono::Duration::seconds(drain_delay_secs as i64);
+
+    // Our restart time: drain_delay from now, or safety_margin after the latest existing restart
+    let our_restart = match latest {
+        Some(last) => {
+            let after_last = last + chrono::Duration::seconds(safety_margin_secs as i64);
+            // Use whichever is later: drain delay or staggered position
+            earliest_allowed.max(after_last)
+        }
+        None => earliest_allowed,
+    };
+
+    // Record our restart time (deduplicate: remove any prior entry for this instance)
+    scheduled.retain(|(inst, _)| inst != &*INSTANCE_NAME);
+    scheduled.push((INSTANCE_NAME.clone(), our_restart));
+    let new_value = serde_json::json!({
+        "restarts": scheduled.iter().map(|(inst, dt)| {
+            serde_json::json!({
+                "instance": inst,
+                "restart_at": dt.to_rfc3339()
+            })
+        }).collect::<Vec<_>>()
+    });
+
+    sqlx::query(
+        "INSERT INTO global_settings (name, value, updated_at) \
+         VALUES ($1, $2, now()) \
+         ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
+    )
+    .bind(RESTART_COORDINATION_SETTING)
+    .bind(&new_value)
+    .execute(&mut *tx)
+    .await
+    .context("write restart coordination")?;
+
+    tx.commit().await.context("commit restart coordination")?;
+
+    let delay = (our_restart - now).num_seconds().max(0) as u64;
+    Ok(delay)
 }

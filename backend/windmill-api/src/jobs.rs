@@ -103,7 +103,7 @@ use windmill_common::{
     cache,
     db::UserDB,
     error::{self, to_anyhow, Error},
-    flow_status::{Approval, FlowStatus, FlowStatusModule},
+    flow_status::{Approval, ApprovalConditions, FlowStatus, FlowStatusModule},
     flows::{add_virtual_items_if_necessary, resolve_maybe_value, FlowValue},
     jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
@@ -134,14 +134,14 @@ pub fn workspaced_service() -> Router {
 
     Router::new()
         .route(
-            "/run/f/*script_path",
+            "/run/f/{*script_path}",
             post(run_flow_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run/fv/:version",
+            "/run/fv/{version}",
             post(run_flow_by_version)
                 .head(|| async { "" })
                 .layer(cors.clone())
@@ -155,25 +155,25 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run/workflow_as_code/:job_id/:entrypoint",
+            "/run/workflow_as_code/{job_id}/{entrypoint}",
             post(run_workflow_as_code)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/restart/f/:job_id",
+            "/restart/f/{job_id}",
             post(restart_flow).head(|| async { "" }).layer(cors.clone()),
         )
         .route(
-            "/run/p/*script_path",
+            "/run/p/{*script_path}",
             post(run_script_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_wait_result/p/*script_path",
+            "/run_wait_result/p/{*script_path}",
             post(run_wait_result_script_by_path)
                 .get(run_wait_result_job_by_path_get)
                 .head(|| async { "" })
@@ -181,14 +181,14 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_wait_result/h/:hash",
+            "/run_wait_result/h/{hash}",
             post(run_wait_result_script_by_hash)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_wait_result/f/*script_path",
+            "/run_wait_result/f/{*script_path}",
             post(run_wait_result_flow_by_path)
                 .get(run_wait_result_flow_by_path_get)
                 .head(|| async { "" })
@@ -196,7 +196,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_wait_result/fv/:version",
+            "/run_wait_result/fv/{version}",
             post(run_wait_result_flow_by_version)
                 .get(run_wait_result_flow_by_version_get)
                 .head(|| async { "" })
@@ -204,7 +204,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_and_stream/f/*script_path",
+            "/run_and_stream/f/{*script_path}",
             get(stream_flow_by_path)
                 .post(stream_flow_by_path)
                 .head(|| async { "" })
@@ -212,7 +212,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_and_stream/fv/:version",
+            "/run_and_stream/fv/{version}",
             get(stream_flow_by_version)
                 .post(stream_flow_by_version)
                 .head(|| async { "" })
@@ -220,7 +220,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_and_stream/p/*script_path",
+            "/run_and_stream/p/{*script_path}",
             get(stream_script_by_path)
                 .post(stream_script_by_path)
                 .head(|| async { "" })
@@ -228,7 +228,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_and_stream/h/:hash",
+            "/run_and_stream/h/{hash}",
             get(stream_script_by_hash)
                 .post(stream_script_by_hash)
                 .head(|| async { "" })
@@ -236,7 +236,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run/h/:hash",
+            "/run/h/{hash}",
             post(run_job_by_hash)
                 .head(|| async { "" })
                 .layer(cors.clone())
@@ -245,10 +245,10 @@ pub fn workspaced_service() -> Router {
         .route("/run/preview", post(run_preview_script))
         .route("/run_inline/preview", post(run_inline_preview_script))
         .route(
-            "/run_inline/p/*script_path",
+            "/run_inline/p/{*script_path}",
             post(run_inline_script_by_path),
         )
-        .route("/run_inline/h/:hash", post(run_inline_script_by_hash))
+        .route("/run_inline/h/{hash}", post(run_inline_script_by_hash))
         .route(
             "/run_wait_result/preview",
             post(run_wait_result_preview_script),
@@ -257,7 +257,7 @@ pub fn workspaced_service() -> Router {
             "/run/preview_bundle",
             post(run_bundle_preview_script).layer(axum::extract::DefaultBodyLimit::disable()),
         )
-        .route("/add_batch_jobs/:n", post(add_batch_jobs))
+        .route("/add_batch_jobs/{n}", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route(
             "/run_wait_result/preview_flow",
@@ -280,8 +280,8 @@ pub fn workspaced_service() -> Router {
         )
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
-        .route("/queue/position/:timestamp", get(get_queue_position))
-        .route("/queue/scheduled_for/:id", get(get_scheduled_for))
+        .route("/queue/position/{timestamp}", get(get_queue_position))
+        .route("/queue/scheduled_for/{id}", get(get_scheduled_for))
         .route("/queue/cancel_selection", post(cancel_selection))
         .route("/completed/count", get(count_completed_jobs))
         .route("/completed/count_jobs", get(count_completed_jobs_detail))
@@ -299,49 +299,49 @@ pub fn workspaced_service() -> Router {
         )
         .route("/delete", post(crate::jobs_export::delete_jobs))
         .route(
-            "/completed/get/:id",
+            "/completed/get/{id}",
             get(get_completed_job).layer(cors.clone()),
         )
         .route(
-            "/completed/get_result/:id",
+            "/completed/get_result/{id}",
             get(get_completed_job_result).layer(cors.clone()),
         )
         .route(
-            "/completed/get_result_maybe/:id",
+            "/completed/get_result_maybe/{id}",
             get(get_completed_job_result_maybe).layer(cors.clone()),
         )
         .route(
-            "/completed/get_timing/:id",
+            "/completed/get_timing/{id}",
             get(get_completed_job_timing).layer(cors.clone()),
         )
         .route(
-            "/completed/delete/:id",
+            "/completed/delete/{id}",
             post(delete_completed_job).layer(cors.clone()),
         )
         .route(
-            "/flow/resume/:id",
+            "/flow/resume/{id}",
             post(resume_suspended_flow_as_owner).layer(cors.clone()),
         )
         .route(
-            "/job_signature/:job_id/:resume_id",
+            "/job_signature/{job_id}/{resume_id}",
             get(create_job_signature).layer(cors.clone()),
         )
         .route(
-            "/flow/user_states/:job_id/:key",
+            "/flow/user_states/{job_id}/{key}",
             get(get_flow_user_state)
                 .post(set_flow_user_state)
                 .layer(cors.clone()),
         )
         .route(
-            "/resume_urls/:job_id/:resume_id",
+            "/resume_urls/{job_id}/{resume_id}",
             get(get_resume_urls).layer(cors.clone()),
         )
         .route(
-            "/result_by_id/:job_id/:node_id",
+            "/result_by_id/{job_id}/{node_id}",
             get(get_result_by_id).layer(cors.clone()),
         )
         .route(
-            "/flow_env_by_flow_job_id/:flow_job_id/:var_name",
+            "/flow_env_by_flow_job_id/{flow_job_id}/{var_name}",
             get(get_flow_env_by_flow_job_id).layer(cors.clone()),
         )
         .route("/run/dependencies", post(run_dependencies_job))
@@ -350,57 +350,59 @@ pub fn workspaced_service() -> Router {
             "/send_email_with_instance_smtp",
             post(send_email_with_instance_smtp),
         )
-        .route("/get_otel_traces/:id", get(get_otel_traces))
+        .route("/get_otel_traces/{id}", get(get_otel_traces))
 }
 
 pub fn workspace_unauthed_service() -> Router {
     Router::new()
         .route(
-            "/resume/:job_id/:resume_id/:secret",
+            "/resume/{job_id}/{resume_id}/{secret}",
             get(resume_suspended_job),
         )
         .route(
-            "/resume/:job_id/:resume_id/:secret",
+            "/resume/{job_id}/{resume_id}/{secret}",
             post(resume_suspended_job),
         )
         .route(
-            "/cancel/:job_id/:resume_id/:secret",
+            "/cancel/{job_id}/{resume_id}/{secret}",
             get(cancel_suspended_job),
         )
         .route(
-            "/cancel/:job_id/:resume_id/:secret",
+            "/cancel/{job_id}/{resume_id}/{secret}",
             post(cancel_suspended_job),
         )
         .route(
-            "/get_flow/:job_id/:resume_id/:secret",
+            "/get_flow/{job_id}/{resume_id}/{secret}",
             get(get_suspended_job_flow),
         )
-        .route("/get_root_job_id/:id", get(get_root_job))
-        .route("/get/:id", get(get_job))
-        .route("/get_logs/:id", get(get_job_logs))
+        .route("/get_root_job_id/{id}", get(get_root_job))
+        .route("/get/{id}", get(get_job))
+        .route("/get_logs/{id}", get(get_job_logs))
         .route(
-            "/get_completed_logs_tail/:id",
+            "/get_completed_logs_tail/{id}",
             get(get_completed_job_logs_tail),
         )
-        .route("/get_args/:id", get(get_args))
+        .route("/get_args/{id}", get(get_args))
         .route("/queue/get_started_at_by_ids", post(get_started_at_by_ids))
-        .route("/get_flow_debug_info/:id", get(get_flow_job_debug_info))
-        .route("/completed/get/:id", get(get_completed_job))
-        .route("/completed/get_result/:id", get(get_completed_job_result))
+        .route("/get_flow_debug_info/{id}", get(get_flow_job_debug_info))
+        .route("/completed/get/{id}", get(get_completed_job))
+        .route("/completed/get_result/{id}", get(get_completed_job_result))
         .route(
-            "/completed/get_result_maybe/:id",
+            "/completed/get_result_maybe/{id}",
             get(get_completed_job_result_maybe),
         )
-        .route("/completed/get_timing/:id", get(get_completed_job_timing))
-        .route("/getupdate/:id", get(get_job_update))
-        .route("/getupdate_sse/:id", get(get_job_update_sse))
-        .route("/get_log_file/*file_path", get(get_log_file))
-        .route("/queue/cancel/:id", post(cancel_job_api))
+        .route("/completed/get_timing/{id}", get(get_completed_job_timing))
+        .route("/getupdate/{id}", get(get_job_update))
+        .route("/getupdate_sse/{id}", get(get_job_update_sse))
+        .route("/get_log_file/{*file_path}", get(get_log_file))
+        .route("/queue/cancel/{id}", post(cancel_job_api))
         .route(
-            "/queue/cancel_persistent/*script_path",
+            "/queue/cancel_persistent/{*script_path}",
             post(cancel_persistent_script_api),
         )
-        .route("/queue/force_cancel/:id", post(force_cancel))
+        .route("/queue/force_cancel/{id}", post(force_cancel))
+        .route("/flow/resume_suspended/{job_id}", post(resume_suspended))
+        .route("/flow/approval_info/{job_id}", get(get_approval_info))
 }
 
 pub fn global_root_service() -> Router {
@@ -1058,6 +1060,7 @@ impl<'a> GetQuery<'a> {
         Self { with_code: false, ..self }
     }
 
+    #[allow(dead_code)]
     fn without_flow(self) -> Self {
         Self { with_flow: false, ..self }
     }
@@ -2027,10 +2030,7 @@ async fn count_completed_jobs_detail(
     if let Some(tags) = query.tags {
         sqlb.and_where_in(
             "v2_job.tag",
-            &tags
-                .split(",")
-                .map(|t| format!("'{}'", t))
-                .collect::<Vec<_>>(),
+            &tags.split(",").map(|t| quote(t)).collect::<Vec<_>>(),
         );
     }
 
@@ -2184,7 +2184,7 @@ pub async fn resume_suspended_flow_as_owner(
 ) -> error::Result<StatusCode> {
     let mut tx = db.begin().await?;
 
-    let (flow, job_id) = get_suspended_flow_info(flow_id, &mut tx).await?;
+    let (flow, job_id, is_wac) = get_suspended_flow_info(flow_id, &mut tx).await?;
 
     let flow_path = flow.script_path.as_deref().unwrap_or_else(|| "");
     require_owner_of_path(&authed, flow_path)?;
@@ -2192,10 +2192,17 @@ pub async fn resume_suspended_flow_as_owner(
 
     // Check approval conditions (self-approval, required groups, etc.)
     if let Some(ref flow_status_value) = flow.flow_status {
-        if let Ok(flow_status) = serde_json::from_value::<FlowStatus>(flow_status_value.clone()) {
-            let trigger_email = flow.email.as_deref().unwrap_or("");
-            conditionally_require_authed_user(Some(authed.clone()), flow_status, trigger_email)?;
-        }
+        let trigger_email = flow.email.as_deref().unwrap_or("");
+        let ac = serde_json::from_value::<FlowStatus>(flow_status_value.clone())
+            .ok()
+            .and_then(|fs| fs.approval_conditions)
+            .or_else(|| {
+                // WAC flows store approval_conditions directly in flow_status JSONB
+                flow_status_value
+                    .get("approval_conditions")
+                    .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok())
+            });
+        conditionally_require_authed_user(Some(authed.clone()), ac, trigger_email)?;
     }
 
     let value = value.unwrap_or(serde_json::Value::Null);
@@ -2211,11 +2218,425 @@ pub async fn resume_suspended_flow_as_owner(
     )
     .await?;
 
-    resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
+    if is_wac {
+        // WAC: directly decrement suspend counter
+        if flow.suspend > 0 {
+            sqlx::query!(
+                "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1",
+                flow.id,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    } else {
+        resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
+    }
 
     tx.commit().await?;
     Ok(StatusCode::CREATED)
 }
+
+// --- New approval system endpoints ---
+
+use windmill_common::variables::generate_approval_token;
+
+/// Verify an approval token against the workspace key + job_id.
+async fn validate_approval_token(
+    db: &DB,
+    token: &str,
+    job_id: Uuid,
+    workspace_id: &str,
+) -> error::Result<()> {
+    let expected = generate_approval_token(workspace_id, job_id, db).await?;
+    if token != expected {
+        return Err(Error::NotAuthorized("Invalid approval token".to_string()));
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct ResumeSuspendedBody {
+    payload: Option<serde_json::Value>,
+    approval_token: Option<String>,
+    approved: Option<bool>,
+}
+
+async fn resume_suspended(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Json(body): Json<ResumeSuspendedBody>,
+) -> error::Result<StatusCode> {
+    let approved = body.approved.unwrap_or(true);
+    let value = body.payload.unwrap_or(serde_json::Value::Null);
+
+    // Determine if we have a valid authed user or token
+    let has_token = if let Some(ref token) = body.approval_token {
+        validate_approval_token(&db, token, job_id, &w_id)
+            .await
+            .is_ok()
+    } else {
+        false
+    };
+
+    if opt_authed.is_none() && !has_token {
+        return Err(Error::NotAuthorized(
+            "Must be logged in or provide a valid approval token".to_string(),
+        ));
+    }
+
+    let mut tx = db.begin().await?;
+
+    // Resolve the suspended flow (works for both WAC and classic flows)
+    let (flow, resume_job_id, is_wac) = get_suspended_flow_info(job_id, &mut tx).await?;
+
+    // Verify the job belongs to this workspace
+    let job_workspace: Option<String> =
+        sqlx::query_scalar("SELECT workspace_id FROM v2_job WHERE id = $1")
+            .bind(&flow.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if job_workspace.as_deref() != Some(w_id.as_str()) {
+        return Err(Error::NotFound(
+            "Job not found in this workspace".to_string(),
+        ));
+    }
+
+    // Check approval conditions
+    let approval_conditions = if is_wac {
+        flow.flow_status
+            .as_ref()
+            .and_then(|v| v.get("approval_conditions"))
+            .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok())
+    } else {
+        flow.flow_status
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+            .and_then(|fs| fs.approval_conditions)
+    };
+
+    if let Some(ref ac) = approval_conditions {
+        if ac.user_auth_required && opt_authed.is_none() {
+            return Err(Error::NotAuthorized(
+                "This approval requires a logged-in user. Please sign in.".to_string(),
+            ));
+        }
+    }
+
+    // If logged in, check authorization rules
+    if let Some(ref authed) = opt_authed {
+        let is_admin = authed.is_admin;
+        let is_owner = flow
+            .script_path
+            .as_deref()
+            .map(|p| require_owner_of_path(authed, p).is_ok())
+            .unwrap_or(false);
+
+        if !is_admin && !is_owner {
+            let trigger_email = flow.email.as_deref().unwrap_or("");
+            conditionally_require_authed_user(
+                Some(authed.clone()),
+                approval_conditions.clone(),
+                trigger_email,
+            )?;
+        }
+    } else if !has_token {
+        return Err(Error::NotAuthorized(
+            "Must be logged in or provide a valid approval token".to_string(),
+        ));
+    }
+
+    // Generate a unique resume_id
+    let resume_id: u32 = rand::random();
+
+    // Check for duplicate
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM resume_job WHERE id = $1)")
+        .bind(Uuid::from_u128(resume_job_id.as_u128() ^ resume_id as u128))
+        .fetch_one(&mut *tx)
+        .await?;
+
+    if exists {
+        return Err(Error::BadRequest("Resume request already sent".to_string()));
+    }
+
+    let approver_value = opt_authed.as_ref().map(|a| a.username.clone());
+
+    insert_resume_job(
+        resume_id,
+        resume_job_id,
+        &flow,
+        value,
+        approver_value.clone(),
+        approved,
+        &mut tx,
+    )
+    .await?;
+
+    if !approved {
+        sqlx::query("UPDATE v2_job_queue SET suspend = 0 WHERE id = $1")
+            .bind(&flow.id)
+            .execute(&mut *tx)
+            .await?;
+    } else if is_wac {
+        if flow.suspend > 0 {
+            sqlx::query("UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1")
+                .bind(&flow.id)
+                .execute(&mut *tx)
+                .await?;
+        }
+    } else {
+        resume_immediately_if_relevant(flow, resume_job_id, &mut tx).await?;
+    }
+
+    let approver = approver_value.unwrap_or_else(|| "anonymous".to_string());
+    let audit_author = if let Some(ref authed) = opt_authed {
+        AuditAuthor::from(authed)
+    } else {
+        AuditAuthor {
+            email: approver.clone(),
+            username: approver.clone(),
+            username_override: None,
+            token_prefix: None,
+        }
+    };
+
+    audit_log(
+        &mut *tx,
+        &audit_author,
+        "jobs.suspend_resume",
+        ActionKind::Update,
+        &w_id,
+        Some(
+            &serde_json::json!({
+                "approved": approved,
+                "job_id": job_id,
+                "details": if approved {
+                    format!("Approved by {}", &approver)
+                } else {
+                    format!("Cancelled by {}", &approver)
+                }
+            })
+            .to_string(),
+        ),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(StatusCode::CREATED)
+}
+
+#[derive(Deserialize)]
+struct ApprovalInfoQuery {
+    token: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ApprovalInfo {
+    flow_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    form_schema: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    approval_conditions: Option<ApprovalConditions>,
+    can_approve: bool,
+    user_auth_required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hide_cancel: Option<bool>,
+    approvers: Vec<Approval>,
+}
+
+async fn get_approval_info(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Query(query): Query<ApprovalInfoQuery>,
+) -> error::Result<Json<ApprovalInfo>> {
+    // Validate access: either logged in or valid token
+    let has_token = if let Some(ref token) = query.token {
+        validate_approval_token(&db, token, job_id, &w_id)
+            .await
+            .is_ok()
+    } else {
+        false
+    };
+
+    if opt_authed.is_none() && !has_token {
+        return Err(Error::NotAuthorized(
+            "Must be logged in or provide a valid approval token".to_string(),
+        ));
+    }
+
+    // Fetch job info
+    #[derive(sqlx::FromRow)]
+    struct ApprovalJobRow {
+        id: Uuid,
+        script_path: Option<String>,
+        email: String,
+        flow_status: Option<serde_json::Value>,
+        workflow_as_code_status: Option<serde_json::Value>,
+    }
+    let row = sqlx::query_as::<_, ApprovalJobRow>(
+        "SELECT j.id, j.runnable_path as script_path, j.permissioned_as_email as email,
+                s.flow_status, s.workflow_as_code_status
+         FROM v2_job j
+         LEFT JOIN v2_job_status s ON s.id = j.id
+         WHERE j.id = $1 AND j.workspace_id = $2",
+    )
+    .bind(&job_id)
+    .bind(&w_id)
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
+
+    let is_wac = row.workflow_as_code_status.is_some();
+
+    // Extract approval info based on WAC vs classic flow
+    let (form_schema, description, approval_conditions, hide_cancel) = if is_wac {
+        let approval_meta = row
+            .workflow_as_code_status
+            .as_ref()
+            .and_then(|v| v.get("_approval"));
+        let form = approval_meta.and_then(|m| m.get("form").cloned());
+        let ac = row
+            .flow_status
+            .as_ref()
+            .and_then(|v| v.get("approval_conditions"))
+            .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
+        (form, None, ac, None)
+    } else {
+        let fs = row
+            .flow_status
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
+        let ac = fs.as_ref().and_then(|s| s.approval_conditions.clone());
+
+        // For classic flows, form/description come from the flow definition and step result
+        let approval_step = fs.as_ref().map(|s| (s.step as usize).saturating_sub(1));
+
+        // Fetch flow definition to get suspend settings (form schema, hide_cancel).
+        // Try raw_flow on the job first, fall back to flow_version for deployed flows.
+        let raw_flow: Option<FlowValue> = {
+            let from_job: Option<serde_json::Value> = sqlx::query_scalar(
+                "SELECT raw_flow FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            )
+            .bind(&job_id)
+            .bind(&w_id)
+            .fetch_optional(&db)
+            .await?
+            .flatten();
+
+            if let Some(v) = from_job {
+                serde_json::from_value(v).ok()
+            } else {
+                // Deployed flow: fetch from flow_version using runnable_id
+                let from_version: Option<serde_json::Value> = sqlx::query_scalar(
+                    "SELECT fv.value FROM v2_job j JOIN flow_version fv ON fv.id = j.runnable_id \
+                     WHERE j.id = $1 AND j.workspace_id = $2",
+                )
+                .bind(&job_id)
+                .bind(&w_id)
+                .fetch_optional(&db)
+                .await?
+                .flatten();
+                from_version.and_then(|v| serde_json::from_value(v).ok())
+            }
+        };
+
+        let suspend_module = raw_flow
+            .as_ref()
+            .and_then(|rf| approval_step.and_then(|s| rf.modules.get(s)));
+        let suspend_settings = suspend_module.and_then(|m| m.suspend.as_ref());
+
+        let form = suspend_settings
+            .and_then(|s| s.resume_form.as_ref())
+            .map(|rf| serde_json::json!(rf));
+        let hc = suspend_settings.map(|s| s.hide_cancel.unwrap_or(false));
+
+        // Fetch description and default_args from the step's completed job result
+        let step_job_id = fs
+            .as_ref()
+            .and_then(|s| approval_step.and_then(|step| s.modules.get(step)))
+            .and_then(|m| m.job());
+        let (desc, _default_args) = if let Some(sjid) = step_job_id {
+            let result: Option<serde_json::Value> = sqlx::query_scalar(
+                "SELECT result FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
+            )
+            .bind(sjid)
+            .bind(&w_id)
+            .fetch_optional(&db)
+            .await?
+            .flatten();
+            let desc = result.as_ref().and_then(|r| r.get("description").cloned());
+            let da = result.as_ref().and_then(|r| r.get("default_args").cloned());
+            (desc, da)
+        } else {
+            (None, None)
+        };
+
+        (form, desc, ac, hc)
+    };
+
+    let user_auth_required = approval_conditions
+        .as_ref()
+        .map(|ac| ac.user_auth_required)
+        .unwrap_or(false);
+
+    // Determine if current user can approve
+    let can_approve = if let Some(ref authed) = opt_authed {
+        if authed.is_admin {
+            true
+        } else {
+            let is_owner = row
+                .script_path
+                .as_deref()
+                .map(|p| require_owner_of_path(authed, p).is_ok())
+                .unwrap_or(false);
+            if is_owner {
+                true
+            } else {
+                let trigger_email = row.email.as_str();
+                conditionally_require_authed_user(
+                    Some(authed.clone()),
+                    approval_conditions.clone(),
+                    trigger_email,
+                )
+                .is_ok()
+            }
+        }
+    } else {
+        // Not logged in — can approve only if no auth required
+        !user_auth_required
+    };
+
+    // Get existing approvers
+    let approvers: Vec<Approval> = sqlx::query_as::<_, (i32, Option<String>)>(
+        "SELECT resume_id, approver FROM resume_job WHERE flow = $1",
+    )
+    .bind(&job_id)
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .map(|(rid, approver)| Approval {
+        resume_id: rid as u16,
+        approver: approver.unwrap_or_else(|| "anonymous".to_string()),
+    })
+    .collect();
+
+    Ok(Json(ApprovalInfo {
+        flow_id: row.id,
+        form_schema,
+        description,
+        approval_conditions,
+        can_approve,
+        user_auth_required,
+        hide_cancel,
+        approvers,
+    }))
+}
+
+// --- End new approval system endpoints ---
 
 pub async fn resume_suspended_job(
     authed: Option<ApiAuthed>,
@@ -2258,26 +2679,8 @@ async fn resume_suspended_job_internal(
     // Get flow info - works for step-level, flow-level, and WAC approval
     let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &db).await?;
 
-    // For step-level resumes, verify user auth and flow status
-    // For flow-level resumes (pre-approvals), the flow might not be at a suspended step yet
-    // For WAC approvals, skip flow status checks (there is no flow)
-    if !is_flow_level && !is_wac {
-        let parent_flow = GetQuery::new()
-            .without_logs()
-            .without_code()
-            .without_flow()
-            .fetch(&db, &flow_info.id, &w_id)
-            .await?;
-        let flow_status = parent_flow
-            .flow_status()
-            .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
-
-        let trigger_email = match &parent_flow {
-            Job::CompletedJob(job) => &job.email,
-            Job::QueuedJob(job) => &job.email,
-        };
-        conditionally_require_authed_user(authed.clone(), flow_status, trigger_email)?;
-    }
+    // HMAC secret = full capability. Skip approval_conditions checks.
+    // Authorization rules are enforced by the new resume_suspended endpoint instead.
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -2543,7 +2946,7 @@ async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowI
 async fn get_suspended_flow_info<'c>(
     job_id: Uuid,
     tx: &mut Transaction<'c, Postgres>,
-) -> error::Result<(FlowInfo, Uuid)> {
+) -> error::Result<(FlowInfo, Uuid, bool)> {
     let flow = sqlx::query_as!(
             FlowInfo,
             r#"
@@ -2556,7 +2959,9 @@ async fn get_suspended_flow_info<'c>(
         .fetch_optional(&mut **tx)
         .await?
         .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
-    let job_id = flow
+
+    // Try to extract step job_id from FlowStatus modules (classic flow path)
+    let step_job_id = flow
         .flow_status
         .as_ref()
         .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
@@ -2565,8 +2970,31 @@ async fn get_suspended_flow_info<'c>(
             _ => None,
         });
 
-    if let Some(job_id) = job_id {
-        Ok((flow, job_id))
+    if let Some(step_job_id) = step_job_id {
+        // Classic flow
+        Ok((flow, step_job_id, false))
+    } else if flow.suspend > 0 {
+        // WAC approval: no FlowStatus modules, but the job is suspended
+        // The flow_status here comes from COALESCE(flow_status, workflow_as_code_status),
+        // so for WAC it may contain approval_conditions from flow_status column
+        // or the WAC checkpoint from workflow_as_code_status column.
+        // We need the approval_conditions which are in flow_status column.
+        // Re-fetch just flow_status (without COALESCE fallback) for the auth check.
+        let flow_status_only: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT flow_status FROM v2_job_status WHERE id = $1")
+                .bind(&job_id)
+                .fetch_optional(&mut **tx)
+                .await?
+                .flatten();
+
+        let flow = FlowInfo {
+            id: flow.id,
+            flow_status: flow_status_only,
+            suspend: flow.suspend,
+            script_path: flow.script_path,
+            email: flow.email,
+        };
+        Ok((flow, job_id, true))
     } else {
         Err(anyhow::anyhow!("the flow is not in a suspended state anymore").into())
     }
@@ -2643,7 +3071,11 @@ pub async fn get_suspended_job_flow(
         Job::CompletedJob(job) => &job.email,
         Job::QueuedJob(job) => &job.email,
     };
-    conditionally_require_authed_user(authed.clone(), flow_status.clone(), trigger_email)?;
+    conditionally_require_authed_user(
+        authed.clone(),
+        flow_status.approval_conditions.clone(),
+        trigger_email,
+    )?;
 
     let approvers_from_status = match flow_module_status {
         FlowStatusModule::Success { approvers, .. } => approvers.to_owned(),
@@ -2684,15 +3116,24 @@ pub async fn get_suspended_job_flow(
 
 fn conditionally_require_authed_user(
     _authed: Option<ApiAuthed>,
-    flow_status: FlowStatus,
+    approval_conditions_opt: Option<ApprovalConditions>,
     _trigger_email: &str,
 ) -> error::Result<()> {
-    let approval_conditions_opt = flow_status.approval_conditions;
-
     if approval_conditions_opt.is_none() {
         return Ok(());
     }
     let approval_conditions = approval_conditions_opt.unwrap();
+
+    // Check self-approval independently of user_auth_required
+    if approval_conditions.self_approval_disabled {
+        if let Some(ref authed) = _authed {
+            if !authed.is_admin && authed.email.eq(_trigger_email) {
+                return Err(Error::PermissionDenied(
+                    "Self-approval is disabled for this flow step".to_string(),
+                ));
+            }
+        }
+    }
 
     if approval_conditions.user_auth_required {
         {
@@ -2711,13 +3152,6 @@ fn conditionally_require_authed_user(
 
                 let authed = _authed.unwrap();
                 if !authed.is_admin {
-                    if approval_conditions.self_approval_disabled && authed.email.eq(_trigger_email)
-                    {
-                        return Err(Error::PermissionDenied(
-                            "Self-approval is disabled for this flow step".to_string(),
-                        ));
-                    }
-
                     if !approval_conditions.user_groups_required.is_empty() {
                         #[cfg(feature = "enterprise")]
                         {
@@ -2863,11 +3297,18 @@ pub async fn get_resume_urls_internal(
         .map(|x| format!("?approver={}", encode(x)))
         .unwrap_or_else(String::new);
 
+    // Generate approval token for the new approval page URL.
+    // The token targets the parent flow/WAC job for proper resolution.
+    let approval_target_id = get_flow_id_for_job(&db, job_id)
+        .await
+        .unwrap_or(target_job_id);
+    let approval_token = generate_approval_token(&w_id, approval_target_id, &db).await?;
+
     let base_url_str = BASE_URL.read().await.clone();
     let base_url = base_url_str.as_str();
     let res = ResumeUrls {
         approvalPage: format!(
-            "{base_url}/approve/{w_id}/{target_job_id}/{resume_id}/{signature}{approver_query}"
+            "{base_url}/approve/{w_id}/{approval_target_id}?token={approval_token}"
         ),
         cancel: build_resume_url(
             "cancel",

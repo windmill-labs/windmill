@@ -108,7 +108,10 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = authed_get(port, "raw/p", "u/test-user/test_script.ts").await;
     assert_eq!(resp.status(), 200);
     let body = resp.text().await?;
-    assert!(body.contains("return 42"), "expected script content, got: {body}");
+    assert!(
+        body.contains("return 42"),
+        "expected script content, got: {body}"
+    );
 
     // --- raw by hash (requires .ts suffix) ---
     let resp = authed_get(port, "raw/h", &format!("{hash}.ts")).await;
@@ -131,12 +134,10 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(list.iter().any(|s| s["path"] == "u/test-user/test_script"));
 
     // list with path_start filter
-    let resp = authed(client().get(format!(
-        "{base}/list?path_start=u/test-user/another"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("{base}/list?path_start=u/test-user/another")))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let list = resp.json::<Vec<serde_json::Value>>().await?;
     assert_eq!(list.len(), 1);
@@ -233,12 +234,7 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     .send()
     .await
     .unwrap();
-    assert_eq!(
-        resp.status(),
-        200,
-        "history_update: {}",
-        resp.text().await?
-    );
+    assert_eq!(resp.status(), 200, "history_update: {}", resp.text().await?);
 
     // --- toggle_workspace_error_handler (EE-gated, expect 400 in OSS) ---
     let resp = authed(client().post(script_url(
@@ -268,22 +264,13 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await
         .unwrap();
-    assert_eq!(
-        resp.status(),
-        200,
-        "tokened_raw: {}",
-        resp.text().await?
-    );
+    assert_eq!(resp.status(), 200, "tokened_raw: {}", resp.text().await?);
 
     // --- archive by path ---
-    let resp = authed(client().post(script_url(
-        port,
-        "archive/p",
-        "u/test-user/another_script",
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().post(script_url(port, "archive/p", "u/test-user/another_script")))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 
     // archived script should still be gettable
@@ -333,12 +320,10 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     // ===== Hub endpoints (require external network, expect 500 or 200) =====
 
     // --- hub/top ---
-    let resp = authed(client().get(format!(
-        "http://localhost:{port}/api/scripts/hub/top"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("http://localhost:{port}/api/scripts/hub/top")))
+        .send()
+        .await
+        .unwrap();
     assert!(
         resp.status() == 200 || resp.status() == 500,
         "hub/top: unexpected status {}",
@@ -372,16 +357,108 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // --- integrations hub/list ---
-    let resp = authed(client().get(format!(
-        "http://localhost:{port}/api/integrations/hub/list"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("http://localhost:{port}/api/integrations/hub/list")))
+        .send()
+        .await
+        .unwrap();
     assert!(
         resp.status() == 200 || resp.status() == 500,
         "integrations hub/list: unexpected status {}",
         resp.status()
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_auto_parent_resolves_parent_hash(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/scripts");
+
+    // Create v1
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(&new_script(
+            "u/test-user/auto_parent_test",
+            "v1",
+            "export async function main() { return 1; }",
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create v1: {}", resp.text().await?);
+
+    // Get the hash of v1
+    let resp = authed_get(port, "get/p", "u/test-user/auto_parent_test").await;
+    let body = resp.json::<serde_json::Value>().await?;
+    let v1_hash = body["hash"].as_str().unwrap().to_string();
+
+    // Create v2 using auto_parent (no parent_hash provided)
+    let mut v2 = new_script(
+        "u/test-user/auto_parent_test",
+        "v2",
+        "export async function main() { return 2; }",
+    );
+    v2["auto_parent"] = json!(true);
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(&v2)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        201,
+        "create v2 with auto_parent: {}",
+        resp.text().await?
+    );
+
+    // Get v2 and verify its parent_hash points to v1
+    let resp = authed_get(port, "get/p", "u/test-user/auto_parent_test").await;
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["summary"], "v2");
+    let v2_hash = body["hash"].as_str().unwrap().to_string();
+    assert_ne!(v2_hash, v1_hash);
+
+    // v2's parent_hashes should contain v1
+    let parent_hashes = body["parent_hashes"].as_array().unwrap();
+    assert!(
+        parent_hashes
+            .iter()
+            .any(|h| h.as_str() == Some(v1_hash.as_str())),
+        "v2 parent_hashes should contain v1 hash {v1_hash}, got: {parent_hashes:?}"
+    );
+
+    // Create v3 with auto_parent to confirm it chains correctly
+    let mut v3 = new_script(
+        "u/test-user/auto_parent_test",
+        "v3",
+        "export async function main() { return 3; }",
+    );
+    v3["auto_parent"] = json!(true);
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(&v3)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        201,
+        "create v3 with auto_parent: {}",
+        resp.text().await?
+    );
+
+    let resp = authed_get(port, "get/p", "u/test-user/auto_parent_test").await;
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["summary"], "v3");
+
+    // v3's parent_hashes should contain v2 (and transitively v1)
+    let parent_hashes = body["parent_hashes"].as_array().unwrap();
+    assert!(
+        parent_hashes
+            .iter()
+            .any(|h| h.as_str() == Some(v2_hash.as_str())),
+        "v3 parent_hashes should contain v2 hash {v2_hash}, got: {parent_hashes:?}"
     );
 
     Ok(())

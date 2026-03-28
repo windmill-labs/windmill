@@ -1,4 +1,5 @@
 import { OpenAI } from 'openai'
+import Anthropic from '@anthropic-ai/sdk'
 import type {
 	ChatCompletionMessageParam,
 	ChatCompletionMessageFunctionToolCall
@@ -13,19 +14,28 @@ import type {
 	RawMessageStreamEvent
 } from '@anthropic-ai/sdk/resources'
 import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
+import type { AIProviderModel } from '$lib/gen'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
 import { processToolCall, type Tool, type ToolCallbacks } from './shared'
 
 export async function getAnthropicCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	tools?: OpenAI.Chat.Completions.ChatCompletionFunctionTool[]
+	tools?: OpenAI.Chat.Completions.ChatCompletionFunctionTool[],
+	options?: {
+		forceModelProvider?: AIProviderModel
+		anthropicClient?: Anthropic
+	}
 ): Promise<MessageStream> {
-	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true })
+	const { provider, config } = getProviderAndCompletionConfig({
+		messages,
+		stream: true,
+		forceModelProvider: options?.forceModelProvider
+	})
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 	const anthropicTools = convertOpenAIToolsToAnthropic(tools)
 
-	const anthropicClient = workspaceAIClients.getAnthropicClient()
+	const client = options?.anthropicClient ?? workspaceAIClients.getAnthropicClient()
 
 	const anthropicParams = {
 		model: config.model,
@@ -36,7 +46,7 @@ export async function getAnthropicCompletion(
 		...(typeof config.temperature === 'number' && { temperature: config.temperature })
 	}
 
-	const stream = anthropicClient.messages.stream(anthropicParams, {
+	const stream = client.messages.stream(anthropicParams, {
 		signal: abortController.signal,
 		headers: {
 			'X-Provider': provider,
@@ -58,7 +68,8 @@ export async function parseAnthropicCompletion(
 	addedMessages: ChatCompletionMessageParam[],
 	tools: Tool<any>[],
 	helpers: any,
-	abortController?: AbortController
+	abortController?: AbortController,
+	options?: { workspace?: string }
 ): Promise<boolean> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error = null
@@ -209,7 +220,8 @@ export async function parseAnthropicCompletion(
 				tools,
 				toolCall,
 				helpers,
-				toolCallbacks: callbacks
+				toolCallbacks: callbacks,
+				workspace: options?.workspace
 			})
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)

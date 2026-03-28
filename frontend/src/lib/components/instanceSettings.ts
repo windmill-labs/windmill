@@ -197,6 +197,16 @@ export const settings: Record<string, Setting[]> = {
 			hideInQuickSetup: true
 		},
 		{
+			label: 'HTTP route workspace prefix',
+			description:
+				'When enabled HTTP routes will be accessible at /api/r/{workspace_id}/{route} instead of /api/r/{route} allowing you to define same route path in different workspaces without conflict',
+			key: 'http_route_workspaced_route',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
 			label: 'Audit log retention (days)',
 			key: 'audit_log_retention_days',
 			description: 'How long to keep audit log entries in the database. Default: 365 days.',
@@ -366,6 +376,7 @@ export const settings: Record<string, Setting[]> = {
 		}
 	],
 	'Auth/OAuth/SAML': [],
+	'DB Health': [],
 	Registries: [
 		{
 			label: 'Instance Python Version',
@@ -679,20 +690,20 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: 'HashiCorp Vault integration is an Enterprise Edition feature'
 		}
 	],
-	'GitHub Enterprise App': [
+	'GitHub App': [
 		{
-			label: 'GitHub Enterprise App',
+			label: 'GitHub App',
 			description:
-				'Configure a self-managed GitHub App for GitHub Enterprise Server (or any GitHub instance) to enable git sync without stats.windmill.dev.',
+				'Configure a self-managed GitHub App to enable git sync without stats.windmill.dev.',
 			key: 'github_enterprise_app',
 			fieldType: 'github_enterprise_app',
 			storage: 'setting',
 			ee_only: '',
 			error:
-				'When self-managed mode is enabled, Base URL, App ID, App Slug, and Private Key are required.',
+				'When self-managed mode is enabled, Base URL, App ID, App Slug, Client ID, and Private Key are required.',
 			isValid: (v: any) => {
 				if (!v?.self_managed) return true
-				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.private_key)
+				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.client_id && v?.private_key)
 			}
 		}
 	],
@@ -819,6 +830,23 @@ export const instanceSettingsNavigationGroups = [
 				aiId: 'instance-settings-indexer',
 				aiDescription: 'Instance indexer settings',
 				isEE: true
+			},
+			{
+				id: 'db_health',
+				label: 'DB Health',
+				aiId: 'instance-settings-db-health',
+				aiDescription: 'Database health diagnostics and performance insights'
+			}
+		]
+	},
+	{
+		title: 'AI',
+		items: [
+			{
+				id: 'ai',
+				label: 'AI',
+				aiId: 'instance-settings-ai',
+				aiDescription: 'Instance AI settings (providers, models, prompts)'
 			}
 		]
 	},
@@ -827,9 +855,9 @@ export const instanceSettingsNavigationGroups = [
 		items: [
 			{
 				id: 'github_enterprise_app',
-				label: 'GitHub Enterprise App',
+				label: 'GitHub App',
 				aiId: 'instance-settings-github-enterprise-app',
-				aiDescription: 'Self-managed GitHub App for GitHub Enterprise Server git sync',
+				aiDescription: 'Self-managed GitHub App for git sync',
 				isEE: true
 			},
 			{
@@ -863,6 +891,7 @@ export const instanceSettingsNavigationGroups = [
 
 export const tabToCategoryMap: Record<string, string> = {
 	general: 'Core',
+	ai: 'AI',
 	sso: 'Auth/OAuth/SAML',
 	oauth: 'Auth/OAuth/SAML',
 	scim_saml: 'Auth/OAuth/SAML',
@@ -877,8 +906,9 @@ export const tabToCategoryMap: Record<string, string> = {
 	object_storage: 'Object Storage',
 	jobs: 'Jobs',
 	private_hub: 'Private Hub',
-	github_enterprise_app: 'GitHub Enterprise App',
-	websocket: 'WebSocket'
+	github_enterprise_app: 'GitHub App',
+	websocket: 'WebSocket',
+	db_health: 'DB Health'
 }
 
 export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
@@ -897,6 +927,7 @@ export const setupNavigationGroups = instanceSettingsNavigationGroups
 
 export const categoryToTabMap: Record<string, string> = {
 	Core: 'general',
+	AI: 'ai',
 	SMTP: 'smtp',
 	'Auth/OAuth/SAML': 'sso',
 	Registries: 'registries',
@@ -909,8 +940,9 @@ export const categoryToTabMap: Record<string, string> = {
 	'Object Storage': 'object_storage',
 	Jobs: 'jobs',
 	'Private Hub': 'private_hub',
-	'GitHub Enterprise App': 'github_enterprise_app',
-	WebSocket: 'websocket'
+	'GitHub App': 'github_enterprise_app',
+	WebSocket: 'websocket',
+	'DB Health': 'db_health'
 }
 
 export interface SearchableSettingItem {

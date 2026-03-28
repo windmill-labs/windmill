@@ -151,7 +151,8 @@
 				workspace: $workspaceStore!
 			})
 			if (!emptyString(defaultApp.default_app_path)) {
-				await goto(`/apps/get/${defaultApp.default_app_path}`)
+				const prefix = defaultApp.default_app_raw ? '/apps_raw/get' : '/apps/get'
+				await goto(`${prefix}/${defaultApp.default_app_path}`)
 			} else {
 				if (rd?.startsWith('http')) {
 					window.location.href = rd

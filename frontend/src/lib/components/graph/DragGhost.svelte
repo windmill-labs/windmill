@@ -42,7 +42,12 @@
 		return { x: n.position.x, y: n.position.y }
 	}
 
-	function computeGhost(moduleId: string, draggedNodeIds: Set<string>, allNodes: Node[], allEdges: Edge[]) {
+	function computeGhost(
+		moduleId: string,
+		draggedNodeIds: Set<string>,
+		allNodes: Node[],
+		allEdges: Edge[]
+	) {
 		// Use pre-computed draggedNodeIds when available (covers multi-select),
 		// otherwise fall back to single-module subflow computation.
 		let sfNodes: Node[]
@@ -111,7 +116,15 @@
 			zoom: scale
 		}
 
-		return { containerWidth, containerHeight, ghostNodes, ghostEdges, offsetX, offsetY, initialViewport }
+		return {
+			containerWidth,
+			containerHeight,
+			ghostNodes,
+			ghostEdges,
+			offsetX,
+			offsetY,
+			initialViewport
+		}
 	}
 
 	let isNearDrop = $derived(moveManager.nearestDropZone != null)
@@ -128,7 +141,8 @@
 		class="fixed pointer-events-none z-[10001] flex items-center justify-center w-5 h-5 rounded-full shadow border border-border transition-colors duration-150 {isNearDrop
 			? 'bg-surface-accent-primary text-white'
 			: 'bg-surface text-secondary'}"
-		style="left: {moveManager.ghostScreenX + CURSOR_INDICATOR_OFFSET}px; top: {moveManager.ghostScreenY + CURSOR_INDICATOR_OFFSET}px;"
+		style="left: {moveManager.ghostScreenX +
+			CURSOR_INDICATOR_OFFSET}px; top: {moveManager.ghostScreenY + CURSOR_INDICATOR_OFFSET}px;"
 	>
 		<Move size={12} />
 	</div>

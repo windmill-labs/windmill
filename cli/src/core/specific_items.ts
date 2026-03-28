@@ -8,6 +8,7 @@ export interface SpecificItemsConfig {
   variables?: string[];
   resources?: string[];
   triggers?: string[];
+  schedules?: string[];
   folders?: string[];
   settings?: boolean;
 }
@@ -17,6 +18,7 @@ function getBranchSpecificTypes() {
   return {
     variable: '.variable.yaml',
     resource: '.resource.yaml',
+    schedule: '.schedule.yaml',
     // Generate trigger patterns from the list
     ...Object.fromEntries(
       TRIGGER_TYPES.map(t => [`${t}_trigger`, `.${t}_trigger.yaml`])
@@ -29,6 +31,13 @@ function getBranchSpecificTypes() {
  */
 function isTriggerFile(path: string): boolean {
   return TRIGGER_TYPES.some(type => path.endsWith(`.${type}_trigger.yaml`));
+}
+
+/**
+ * Check if a path is a schedule file
+ */
+function isScheduleFile(path: string): boolean {
+  return path.endsWith('.schedule.yaml');
 }
 
 /**
@@ -53,7 +62,7 @@ function getFileTypeSuffix(path: string): string | null {
  * Build regex pattern for all supported yaml file types
  */
 function buildYamlTypePattern(): string {
-  const basicTypes = ['variable', 'resource'];
+  const basicTypes = ['variable', 'resource', 'schedule'];
   const triggerTypes = TRIGGER_TYPES.map(t => `${t}_trigger`);
   return `((${basicTypes.join('|')})|(${triggerTypes.join('|')}))`;
 }
@@ -100,6 +109,9 @@ export function getSpecificItemsForCurrentBranch(config: SyncOptions, branchOver
   if (commonItems?.triggers) {
     merged.triggers = [...commonItems.triggers];
   }
+  if (commonItems?.schedules) {
+    merged.schedules = [...commonItems.schedules];
+  }
   if (commonItems?.folders) {
     merged.folders = [...commonItems.folders];
   }
@@ -116,6 +128,9 @@ export function getSpecificItemsForCurrentBranch(config: SyncOptions, branchOver
   }
   if (branchItems?.triggers) {
     merged.triggers = [...(merged.triggers || []), ...branchItems.triggers];
+  }
+  if (branchItems?.schedules) {
+    merged.schedules = [...(merged.schedules || []), ...branchItems.schedules];
   }
   if (branchItems?.folders) {
     merged.folders = [...(merged.folders || []), ...branchItems.folders];
@@ -157,6 +172,10 @@ export function isItemTypeConfigured(path: string, specificItems: SpecificItemsC
     return specificItems.triggers !== undefined;
   }
 
+  if (isScheduleFile(path)) {
+    return specificItems.schedules !== undefined;
+  }
+
   if (path.endsWith('/folder.meta.yaml')) {
     return specificItems.folders !== undefined;
   }
@@ -192,6 +211,11 @@ export function isSpecificItem(path: string, specificItems: SpecificItemsConfig 
   // Check for any trigger type
   if (isTriggerFile(path)) {
     return specificItems.triggers ? matchesPatterns(path, specificItems.triggers) : false;
+  }
+
+  // Check for schedule files
+  if (isScheduleFile(path)) {
+    return specificItems.schedules ? matchesPatterns(path, specificItems.schedules) : false;
   }
 
   // Check for folder meta files

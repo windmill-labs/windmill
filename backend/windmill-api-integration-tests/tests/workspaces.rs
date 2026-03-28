@@ -82,12 +82,10 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(resp.status(), 200);
 
     // --- allowed_domain_auto_invite ---
-    let resp = authed(client().get(format!(
-        "{global_base}/allowed_domain_auto_invite"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("{global_base}/allowed_domain_auto_invite")))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     resp.json::<bool>().await?;
 
@@ -213,12 +211,10 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     resp.json::<Vec<String>>().await?;
 
     // --- get_dependents (empty, no dependencies exist) ---
-    let resp = authed(client().get(format!(
-        "{base}/get_dependents/u/test-user/nonexistent"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("{base}/get_dependents/u/test-user/nonexistent")))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let dependents = resp.json::<Vec<serde_json::Value>>().await?;
     assert!(dependents.is_empty());
@@ -425,13 +421,11 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // --- edit_large_file_storage_config ---
-    let resp = authed(client().post(format!(
-        "{base}/edit_large_file_storage_config"
-    )))
-    .json(&json!({"large_file_storage": null}))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().post(format!("{base}/edit_large_file_storage_config")))
+        .json(&json!({"large_file_storage": null}))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(
         resp.status(),
         200,
@@ -532,9 +526,7 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
     let invites = resp.json::<Vec<serde_json::Value>>().await?;
     assert!(
-        invites
-            .iter()
-            .any(|i| i["email"] == "invited@example.com"),
+        invites.iter().any(|i| i["email"] == "invited@example.com"),
         "invite not found: {:?}",
         invites
     );
@@ -549,12 +541,7 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await
         .unwrap();
-    assert_eq!(
-        resp.status(),
-        201,
-        "delete_invite: {}",
-        resp.text().await?
-    );
+    assert_eq!(resp.status(), 201, "delete_invite: {}", resp.text().await?);
 
     // ===== Critical alerts (EE-gated, returns 404 in OSS) =====
 
@@ -612,64 +599,60 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
     assert_eq!(resp.status(), 200, "tarball: {}", resp.status());
 
-    // ===== Fork operations (on the newly created workspace) =====
+    // ===== Fork operations (EE-only: CE limits workspace count to 2) =====
+    #[cfg(feature = "enterprise")]
+    {
+        let new_ws_base = format!("http://localhost:{port}/api/w/new-test-ws/workspaces");
+        let resp = authed(client().post(format!("{new_ws_base}/create_fork")))
+            .json(&json!({
+                "id": "wm-fork-test-ws",
+                "name": "Forked Test Workspace"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200, "create_fork: {}", resp.text().await?);
 
-    // --- create_fork (workspace-scoped, from new-test-ws) ---
-    let new_ws_base = format!("http://localhost:{port}/api/w/new-test-ws/workspaces");
-    let resp = authed(client().post(format!("{new_ws_base}/create_fork")))
-        .json(&json!({
-            "id": "wm-fork-test-ws",
-            "name": "Forked Test Workspace"
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(
-        resp.status(),
-        200,
-        "create_fork: {}",
-        resp.text().await?
-    );
+        // verify fork exists
+        let resp = authed(client().post(format!("{global_base}/exists")))
+            .json(&json!({"id": "wm-fork-test-ws"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.json::<bool>().await?, true);
 
-    // verify fork exists
-    let resp = authed(client().post(format!("{global_base}/exists")))
-        .json(&json!({"id": "wm-fork-test-ws"}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.json::<bool>().await?, true);
+        // --- change_workspace_id ---
+        let fork_ws_base = format!("http://localhost:{port}/api/w/wm-fork-test-ws/workspaces");
+        let resp = authed(client().post(format!("{fork_ws_base}/change_workspace_id")))
+            .json(&json!({
+                "new_id": "wm-fork-renamed",
+                "new_name": "Renamed Fork"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "change_workspace_id: {}",
+            resp.text().await?
+        );
 
-    // --- change_workspace_id ---
-    let fork_ws_base = format!("http://localhost:{port}/api/w/wm-fork-test-ws/workspaces");
-    let resp = authed(client().post(format!("{fork_ws_base}/change_workspace_id")))
-        .json(&json!({
-            "new_id": "wm-fork-renamed",
-            "new_name": "Renamed Fork"
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(
-        resp.status(),
-        200,
-        "change_workspace_id: {}",
-        resp.text().await?
-    );
+        // verify renamed workspace exists
+        let resp = authed(client().post(format!("{global_base}/exists")))
+            .json(&json!({"id": "wm-fork-renamed"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.json::<bool>().await?, true);
 
-    // verify renamed workspace exists
-    let resp = authed(client().post(format!("{global_base}/exists")))
-        .json(&json!({"id": "wm-fork-renamed"}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.json::<bool>().await?, true);
-
-    // clean up renamed fork
-    let resp = authed(client().delete(format!("{global_base}/delete/wm-fork-renamed")))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200);
+        // clean up renamed fork
+        let resp = authed(client().delete(format!("{global_base}/delete/wm-fork-renamed")))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+    }
 
     // --- archive workspace (on the newly created one, not our main test workspace) ---
     let new_ws_base = format!("http://localhost:{port}/api/w/new-test-ws/workspaces");
@@ -702,13 +685,140 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(resp.json::<bool>().await?, false);
 
     // --- create_workspace_require_superadmin ---
-    let resp = authed(client().get(format!(
-        "{global_base}/create_workspace_require_superadmin"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("{global_base}/create_workspace_require_superadmin")))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_get_copilot_settings_state_reports_instance_ai_fallback_flags(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    let instance_ai_config = json!({
+        "providers": {
+            "openai": {
+                "resource_path": "u/test-user/openai_instance",
+                "models": ["gpt-4o-mini"]
+            }
+        }
+    });
+    let workspace_ai_config = json!({
+        "providers": {
+            "anthropic": {
+                "resource_path": "u/test-user/anthropic_workspace",
+                "models": ["claude-3-5-haiku-latest"]
+            }
+        }
+    });
+
+    sqlx::query("UPDATE workspace_settings SET ai_config = NULL WHERE workspace_id = $1")
+        .bind("test-workspace")
+        .execute(&db)
+        .await?;
+    sqlx::query(
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2) \
+         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
+    )
+    .bind("ai_config")
+    .bind(instance_ai_config)
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().get(format!("{base}/get_copilot_settings_state")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let settings = resp.json::<serde_json::Value>().await?;
+    assert_eq!(settings["has_instance_ai_config"], true);
+    assert_eq!(settings["uses_instance_ai_config"], true);
+    assert_eq!(
+        settings["instance_ai_summary"]["providers"][0]["provider"],
+        "openai"
+    );
+    assert_eq!(
+        settings["instance_ai_summary"]["providers"][0]["models"][0],
+        "gpt-4o-mini"
+    );
+
+    sqlx::query("UPDATE workspace_settings SET ai_config = $1 WHERE workspace_id = $2")
+        .bind(workspace_ai_config)
+        .bind("test-workspace")
+        .execute(&db)
+        .await?;
+
+    let resp = authed(client().get(format!("{base}/get_copilot_settings_state")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let settings = resp.json::<serde_json::Value>().await?;
+    assert_eq!(settings["has_instance_ai_config"], true);
+    assert_eq!(settings["uses_instance_ai_config"], false);
+    assert_eq!(
+        settings["instance_ai_summary"]["providers"][0]["provider"],
+        "openai"
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_get_copilot_info_ignores_empty_instance_ai_row(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    sqlx::query("UPDATE workspace_settings SET ai_config = NULL WHERE workspace_id = $1")
+        .bind("test-workspace")
+        .execute(&db)
+        .await?;
+    sqlx::query(
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2) \
+         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
+    )
+    .bind("ai_config")
+    .bind(json!({}))
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().get(format!("{base}/get_copilot_info")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let settings = resp.json::<serde_json::Value>().await?;
+    assert!(settings["providers"].is_null());
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_get_imports(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    let resp = authed(client().get(format!("{base}/get_imports/u/test-user/nonexistent_script")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let imports = resp.json::<Vec<String>>().await?;
+    assert!(imports.is_empty());
 
     Ok(())
 }

@@ -237,6 +237,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_workspaced_route: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_route_workspaced_route: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub no_default_maven: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_tags_per_workspace: Option<bool>,
@@ -350,6 +352,13 @@ pub struct GlobalSettings {
     pub workspace_registries: Option<
         std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
     >,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
+    pub ai_config: Option<serde_json::Value>,
 
     /// Catch-all for settings not yet covered by typed fields.
     #[serde(flatten)]
@@ -861,6 +870,7 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     "uid",
     "min_keep_alive_version",
     "automate_username_creation",
+    "_restart_coordination",
 ];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.

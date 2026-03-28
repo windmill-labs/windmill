@@ -9,14 +9,25 @@
 	import { page } from '$app/stores'
 	import { slide } from 'svelte/transition'
 	import { buildWsUrl } from '$lib/wsUrl'
+	import { signMultiplayerRequest } from '$lib/components/debug'
 
 	let awareness: Awareness | undefined = $state(undefined)
 	let wsProvider: WebsocketProvider | undefined = undefined
 
 	let connected = $state(false)
-	function connectWorkspace(workspace: string) {
+	async function connectWorkspace(workspace: string) {
+		let token: string | undefined
+		try {
+			token = await signMultiplayerRequest(workspace)
+		} catch (e) {
+			console.error('Failed to sign multiplayer request:', e)
+			return
+		}
+
 		const ydoc = new Y.Doc()
-		wsProvider = new WebsocketProvider(buildWsUrl('/ws_mp/'), workspace, ydoc)
+		wsProvider = new WebsocketProvider(buildWsUrl('/ws_mp/'), workspace, ydoc, {
+			params: { token }
+		})
 		wsProvider.on('sync', (isSynced: boolean) => {
 			connected = true
 		})

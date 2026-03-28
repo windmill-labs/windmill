@@ -88,7 +88,13 @@ use windmill_common::{
     MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
     SERVICE_LOG_RETENTION_SECS,
 };
-use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
+use windmill_common::{
+    client::AuthedClient,
+    global_settings::{
+        APP_WORKSPACED_ROUTE_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+    },
+};
 #[cfg(feature = "parquet")]
 use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
@@ -163,6 +169,8 @@ lazy_static::lazy_static! {
 
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
     static ref QUEUE_RUNNING_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
+    static ref OTEL_QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
+    static ref OTEL_QUEUE_RUNNING_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
     static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
 
     //legacy typo
@@ -295,6 +303,10 @@ pub async fn initial_load(
 
         if let Err(e) = reload_app_workspaced_route_setting(db).await {
             tracing::error!("Error reloading app workspaced route: {:?}", e)
+        }
+
+        if let Err(e) = reload_http_route_workspaced_route_setting(db).await {
+            tracing::error!("Error reloading http route workspaced route: {:?}", e)
         }
     }
 
@@ -1167,6 +1179,15 @@ pub async fn delete_expired_items(db: &DB) -> () {
         {
             tracing::error!("Error deleting custom concurrency key: {:?}", e);
         }
+    }
+
+    match windmill_common::trashbin::delete_expired_trash(db).await {
+        Ok(count) => {
+            if count > 0 {
+                tracing::info!("deleted {} expired trash items", count);
+            }
+        }
+        Err(e) => tracing::error!("Error deleting expired trash items: {}", e.to_string()),
     }
 }
 
@@ -2353,8 +2374,20 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             }
         }
 
+        let otel_enabled = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
+
+        if otel_enabled {
+            for q in OTEL_QUEUE_COUNT_TAGS.read().await.iter() {
+                if queue_counts.get(q).is_none() {
+                    otel_set_queue_count(q, 0);
+                }
+            }
+        }
+
         #[allow(unused_mut)]
         let mut tags_to_watch = vec![];
+        #[allow(unused_mut)]
+        let mut otel_tags_to_watch = vec![];
         for q in queue_counts {
             let count = q.1;
             let tag = q.0;
@@ -2366,6 +2399,9 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
                 tags_to_watch.push(tag.to_string());
             }
 
+            if otel_enabled {
+                otel_tags_to_watch.push(tag.to_string());
+            }
             otel_set_queue_count(&tag, count as i64);
 
             // save queue_count and delay metrics per tag
@@ -2400,9 +2436,13 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             let mut w = QUEUE_COUNT_TAGS.write().await;
             *w = tags_to_watch;
         }
+        if otel_enabled {
+            let mut w = OTEL_QUEUE_COUNT_TAGS.write().await;
+            *w = otel_tags_to_watch;
+        }
 
         // Single DB query for running counts, shared by Prometheus and OTel
-        let otel_running = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
+        let otel_running = otel_enabled;
         #[cfg(feature = "prometheus")]
         let need_running_counts = metrics_enabled || otel_running;
         #[cfg(not(feature = "prometheus"))]
@@ -2420,8 +2460,18 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
                 }
             }
 
+            if otel_running {
+                for q in OTEL_QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
+                    if queue_running_counts.get(q).is_none() {
+                        otel_set_queue_running_count(q, 0);
+                    }
+                }
+            }
+
             #[allow(unused_mut, unused_variables)]
             let mut running_tags_to_watch: Vec<String> = vec![];
+            #[allow(unused_mut, unused_variables)]
+            let mut otel_running_tags_to_watch: Vec<String> = vec![];
             for (tag, count) in &queue_running_counts {
                 #[cfg(feature = "prometheus")]
                 if metrics_enabled {
@@ -2432,6 +2482,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
 
                 if otel_running {
                     otel_set_queue_running_count(tag, *count as i64);
+                    otel_running_tags_to_watch.push(tag.to_string());
                 }
             }
 
@@ -2439,6 +2490,10 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             if metrics_enabled {
                 let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
                 *w = running_tags_to_watch;
+            }
+            if otel_running {
+                let mut w = OTEL_QUEUE_RUNNING_COUNT_TAGS.write().await;
+                *w = otel_running_tags_to_watch;
             }
         }
     }
@@ -3387,6 +3442,39 @@ pub async fn reload_app_workspaced_route_setting(conn: &DB) -> error::Result<()>
     let mut l = APP_WORKSPACED_ROUTE.write().await;
 
     *l = ws_route;
+    Ok(())
+}
+
+pub async fn reload_http_route_workspaced_route_setting(conn: &DB) -> error::Result<()> {
+    let http_route_workspaced_route =
+        load_value_from_global_settings(conn, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING).await?;
+
+    let ws_route = match http_route_workspaced_route {
+        Some(serde_json::Value::Bool(ws_route)) => ws_route,
+        None => false,
+        _ => {
+            tracing::error!(
+                "Expected {} to be a boolean got: {:?}. Defaulting to false",
+                HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+                http_route_workspaced_route
+            );
+            false
+        }
+    };
+
+    let mut l = HTTP_ROUTE_WORKSPACED_ROUTE.write().await;
+
+    if *l != ws_route {
+        *l = ws_route;
+        drop(l);
+        // Bump the HTTP trigger version so the route cache is rebuilt with
+        // the updated workspaced_route behavior on the next request.
+        sqlx::query!("SELECT nextval('http_trigger_version_seq')")
+            .fetch_one(conn)
+            .await?;
+    } else {
+        *l = ws_route;
+    }
     Ok(())
 }
 

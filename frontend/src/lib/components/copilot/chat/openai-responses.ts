@@ -5,10 +5,14 @@ import type {
 	ChatCompletionCreateParams
 } from 'openai/resources/index.mjs'
 import type { ResponseErrorEvent } from 'openai/resources/responses/responses.mjs'
-import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
+import {
+	createOpenAIProxyClient,
+	getAiProxyBaseURL,
+	getProviderAndCompletionConfig,
+	workspaceAIClients
+} from '../lib'
 import { processToolCall, type Tool, type ToolCallbacks } from './shared'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
-import { OpenAPI } from '$lib/gen'
 import type { AIProviderModel } from '$lib/gen'
 
 // Conversion utilities for Responses API
@@ -121,15 +125,24 @@ function convertCompletionConfigToResponsesConfig(
 export async function getOpenAIResponsesCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
+	options?: {
+		forceModelProvider?: AIProviderModel
+		openaiClient?: OpenAI
+	}
 ) {
-	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
+	const { provider, config } = getProviderAndCompletionConfig({
+		messages,
+		stream: true,
+		tools,
+		forceModelProvider: options?.forceModelProvider
+	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
 	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
 
-	const openaiClient = workspaceAIClients.getOpenaiClient()
+	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
 
-	const runner = openaiClient.responses.stream(
+	const runner = client.responses.stream(
 		{
 			...responsesConfig,
 			input,
@@ -204,7 +217,8 @@ export async function parseOpenAIResponsesCompletion(
 	messages: ChatCompletionMessageParam[],
 	addedMessages: ChatCompletionMessageParam[],
 	tools: Tool<any>[],
-	helpers: any
+	helpers: any,
+	options?: { workspace?: string }
 ): Promise<boolean> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error: OpenAIError | ResponseErrorEvent | null = null
@@ -338,7 +352,8 @@ export async function parseOpenAIResponsesCompletion(
 				tools,
 				toolCall,
 				helpers,
-				toolCallbacks: callbacks
+				toolCallbacks: callbacks,
+				workspace: options?.workspace
 			})
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
@@ -354,6 +369,7 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 	abortController: AbortController,
 	testOptions?: {
 		apiKey?: string
+		workspace?: string
 		resourcePath?: string
 		forceModelProvider: AIProviderModel
 	}
@@ -390,15 +406,10 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 	}
 
 	const openaiClient = testOptions?.apiKey
-		? new OpenAI({
-				baseURL: `${location.origin}${OpenAPI.BASE}/ai/proxy`,
-				apiKey: 'fake-key',
-				defaultHeaders: {
-					Authorization: '' // a non empty string will be unable to access Windmill backend proxy
-				},
-				dangerouslyAllowBrowser: true
-			})
-		: workspaceAIClients.getOpenaiClient()
+		? createOpenAIProxyClient(getAiProxyBaseURL())
+		: testOptions?.workspace
+			? workspaceAIClients.createOpenaiClient(testOptions.workspace)
+			: workspaceAIClients.getOpenaiClient()
 
 	const response = await openaiClient.responses.create(
 		{

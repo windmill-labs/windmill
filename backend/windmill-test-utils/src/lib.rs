@@ -97,14 +97,13 @@ impl ApiServer {
     async fn start_inner(db: Pool<Postgres>, agent_mode: bool) -> anyhow::Result<Self> {
         let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
 
-        let sock = tokio::net::TcpListener::bind("127.0.0.1:0")
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .map_err(|e| anyhow::anyhow!("failed to bind TCP listener: {}", e))?;
 
-        let addr = sock
+        let addr = listener
             .local_addr()
             .map_err(|e| anyhow::anyhow!("failed to get local address: {}", e))?;
-        drop(sock);
         let (port_tx, _port_rx) = tokio::sync::oneshot::channel::<String>();
         let name = next_worker_name();
         tracing::info!("starting api server for name={name}");
@@ -112,7 +111,7 @@ impl ApiServer {
             db.clone(),
             None,
             None,
-            addr,
+            listener,
             rx,
             port_tx,
             agent_mode,
@@ -479,7 +478,7 @@ pub async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
     .unwrap()
 }
 
-#[axum::async_trait(?Send)]
+#[async_trait::async_trait(?Send)]
 pub trait StreamFind: futures::Stream + Unpin + Sized {
     async fn find(self, item: &Self::Item) -> Option<Self::Item>
     where
@@ -899,6 +898,8 @@ pub enum DedicatedWorkerResult {
     Start,
     /// Worker returned a successful result
     Success(serde_json::Value),
+    /// Worker returned preprocessed args (from exec_preprocess)
+    PreprocessedArgs(serde_json::Value),
     /// Worker returned an error result
     Error(serde_json::Value),
     /// Line is not a protocol message (e.g., logs)
@@ -908,6 +909,7 @@ pub enum DedicatedWorkerResult {
 /// Parse a line from dedicated worker stdout according to the protocol:
 /// - "start" -> Ready signal
 /// - "wm_res[success]:JSON" -> Success with result
+/// - "wm_res[preprocessed_args]:JSON" -> Preprocessed args
 /// - "wm_res[error]:JSON" -> Error with details
 /// - anything else -> Other (logs)
 pub fn parse_dedicated_worker_line(line: &str) -> DedicatedWorkerResult {
@@ -918,6 +920,13 @@ pub fn parse_dedicated_worker_line(line: &str) -> DedicatedWorkerResult {
     if let Some(json_str) = line.strip_prefix("wm_res[success]:") {
         match serde_json::from_str(json_str) {
             Ok(value) => return DedicatedWorkerResult::Success(value),
+            Err(_) => return DedicatedWorkerResult::Other(line.to_string()),
+        }
+    }
+
+    if let Some(json_str) = line.strip_prefix("wm_res[preprocessed_args]:") {
+        match serde_json::from_str(json_str) {
+            Ok(value) => return DedicatedWorkerResult::PreprocessedArgs(value),
             Err(_) => return DedicatedWorkerResult::Other(line.to_string()),
         }
     }

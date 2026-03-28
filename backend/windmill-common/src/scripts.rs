@@ -428,6 +428,7 @@ pub async fn clone_script<'c>(
         preserve_on_behalf_of: None,
         assets: s.assets,
         modules: s.modules,
+        auto_parent: None,
     };
 
     let new_hash = hash_script(&ns);

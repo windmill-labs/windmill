@@ -3,57 +3,57 @@
 ## Running Tests
 
 ```bash
-# Run all tests
-deno test -A --no-check test/
+# Run unit tests only (fast — no backend, no database, no cargo build)
+bun run test:unit
+
+# Run all tests (unit + integration — requires PostgreSQL + cargo)
+DATABASE_URL=postgres://postgres:changeme@localhost:5432 bun run test
 
 # Run specific test files
-deno test -A --no-check test/gitsync_settings_features.test.ts
-deno test -A --no-check test/init_no_git_sync.test.ts
-deno test -A --no-check test/multi_instance_workspace.test.ts
-deno test -A --no-check test/override_settings_behavior.test.ts
-deno test -A --no-check test/sync_config_resolution.test.ts
-deno test -A --no-check test/workspace_conflicts.test.ts
-
-# Run with specific test patterns
-deno test -A --no-check test/ --filter "workspace"
-deno test -A --no-check test/ --filter "sync"
+bun test test/sync_pull_push.test.ts
+bun test test/workspace_conflicts_unit.test.ts
 ```
 
-## Test Files
+## Test Categories
 
-- **`gitsync_settings_features.test.ts`** - Git sync settings functionality
-- **`init_no_git_sync.test.ts`** - Init without git sync
-- **`multi_instance_workspace.test.ts`** - Multi-instance workspace handling
-- **`override_settings_behavior.test.ts`** - Settings override behavior
-- **`sync_config_resolution.test.ts`** - Sync configuration resolution
-- **`workspace_conflicts.test.ts`** - Workspace conflict detection
+### Unit tests (`*_unit.test.ts`)
 
-## Docker Requirements
+Pure local tests — no backend, no database. Uses `bunfig.unit.toml` (no preload).
+
+Examples: `git_unit`, `lint_command_unit`, `tar_creation_unit`, `workspace_conflicts_unit`
+
+### Integration tests
+
+Require a running backend and PostgreSQL. The `setup.ts` preload builds the backend
+binary and starts a shared backend instance.
+
+Examples: `sync_pull_push`, `dev_server`, `standalone_commands`
+
+## Environment Variables
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `DATABASE_URL` | PostgreSQL connection string (without database name) | `postgres://postgres:changeme@localhost:5432` |
+| `TEST_BACKEND` | `cargo` or `docker` | `cargo` |
+| `CI_MINIMAL_FEATURES` | `true` for CI mode (zip-only features) | unset |
+| `EE_LICENSE_KEY` | Enterprise license for EE feature tests | unset |
+| `TEST_FEATURES` | Additional cargo features (comma-separated) | unset |
+| `TEST_CLI_RUNTIME` | `node` to test npm package | unset |
+| `UNIT_ONLY` | `1` to skip backend setup in preload (used by `test:unit`) | unset |
+| `VERBOSE` | `1` for backend process output | unset |
+
+## Cleanup
+
+Stale test databases (`windmill_test_*`) and orphaned backend processes from
+previous crashed runs are automatically cleaned up when starting a new test run.
+
+To manually check for leftovers:
 
 ```bash
-# Ensure Docker is running
-docker --version
-docker-compose --version
+# Check for stale test databases
+psql postgres://postgres:changeme@localhost:5432/postgres -c \
+  "SELECT datname FROM pg_database WHERE datname LIKE 'windmill_test_%';"
 
-# Ensure EE license key is available
-echo $EE_LICENSE_KEY
-```
-
-## Debugging Failed Tests
-
-```bash
-# Run with verbose output
-deno test -A --no-check test/ --reporter=verbose
-
-# Check container status
-docker ps
-
-# View backend logs
-docker logs test-test_windmill_server-1
-
-# Manual container management
-cd test
-docker compose -f docker-compose.test.yml up -d
-docker compose -f docker-compose.test.yml down
-docker compose -f docker-compose.test.yml down -v
+# Check for orphaned backend processes
+ps aux | grep "target/debug/windmill" | grep -v grep
 ```

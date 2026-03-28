@@ -139,8 +139,10 @@ describe("resource-type commands", () => {
       );
 
       expect(result.code).toEqual(0);
-      // Table headers should be present
-      expect(result.stdout).toContain("Name");
+      // When empty, shows helpful message; when populated, shows table with Name header
+      const hasTable = result.stdout.includes("Name");
+      const hasEmptyMessage = result.stdout.includes("No custom resource types");
+      expect(hasTable || hasEmptyMessage).toBe(true);
     });
   });
 
@@ -406,6 +408,63 @@ describe("script bootstrap command", () => {
 
       const codeStat = await stat(join(tempDir, "f/test/bash_script.sh"));
       expect(codeStat.isFile()).toBe(true);
+    });
+  });
+
+  test("accepts 'python' as alias for python3", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        `defaultTs: bun\nincludes:\n  - "**"\nexcludes: []\n`,
+        "utf-8"
+      );
+
+      await mkdir(join(tempDir, "f", "test"), { recursive: true });
+
+      const result = await backend.runCLICommand(
+        ["script", "bootstrap", "f/test/py_alias_script", "python"],
+        tempDir
+      );
+
+      expect(result.code).toEqual(0);
+
+      const codeStat = await stat(join(tempDir, "f/test/py_alias_script.py"));
+      expect(codeStat.isFile()).toBe(true);
+
+      const metaStat = await stat(
+        join(tempDir, "f/test/py_alias_script.script.yaml")
+      );
+      expect(metaStat.isFile()).toBe(true);
+    });
+  });
+
+  test("creates parent directories automatically", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        `defaultTs: bun\nincludes:\n  - "**"\nexcludes: []\n`,
+        "utf-8"
+      );
+
+      // Do NOT pre-create f/test — bootstrap should create it
+      const result = await backend.runCLICommand(
+        ["script", "bootstrap", "f/test/auto_dir_script", "bun"],
+        tempDir
+      );
+
+      expect(result.code).toEqual(0);
+
+      const codeStat = await stat(join(tempDir, "f/test/auto_dir_script.ts"));
+      expect(codeStat.isFile()).toBe(true);
+
+      const metaStat = await stat(
+        join(tempDir, "f/test/auto_dir_script.script.yaml")
+      );
+      expect(metaStat.isFile()).toBe(true);
     });
   });
 

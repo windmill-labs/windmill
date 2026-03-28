@@ -965,6 +965,7 @@ async fn get_otel_tracing_proxy_envs(
             TRACING_PROXY_CA_CERT_PATH.to_string(),
         ),
         ("CURL_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("GIT_SSL_CAINFO", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("DENO_CERT", TRACING_PROXY_CA_CERT_PATH.to_string()),
     ])
 }
@@ -2744,6 +2745,8 @@ pub async fn run_worker(
 
                     let arc_job = Arc::new(job);
 
+                    windmill_common::sensitive_log_masks::register_running_job(arc_job.id);
+
                     let span = create_span_with_name(&arc_job, &worker_name, Some(hostname), "job");
 
                     let job_result = handle_queued_job(
@@ -2842,6 +2845,8 @@ pub async fn run_worker(
                         }
                         _ => {}
                     }
+
+                    windmill_common::sensitive_log_masks::unregister_running_job(job_id);
 
                     #[cfg(feature = "prometheus")]
                     if let Some(duration) = _timer.map(|x| x.stop_and_record()) {
@@ -4493,7 +4498,10 @@ pub async fn run_language_executor(
             "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
             reserved_variables
                 .iter()
-                .map(|(k, v)| format!("const {} = '{}';\nprocess.env['{}'] = '{}';\n", k, v, k, v))
+                .map(|(k, v)| {
+                    let escaped = v.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r");
+                    format!("const {} = '{}';\nprocess.env['{}'] = '{}';\n", k, escaped, k, escaped)
+                })
                 .collect::<Vec<String>>()
                 .join("\n"));
 
@@ -5404,3 +5412,4 @@ pub fn get_worker_internal_server_inline_utils(
         )),
     }
 }
+

@@ -1531,6 +1531,16 @@ pub fn dedicated_worker_tag(workspace_id: &str, path: &str) -> String {
     )
 }
 
+/// Configuration for a runner group — a single long-lived subprocess
+/// that can execute multiple scripts sharing the same workspace dependency.
+/// Auto-detected from script content annotations at worker startup.
+#[derive(Clone, PartialEq, Debug)]
+pub struct RunnerGroupConfig {
+    pub workspace_id: String,
+    pub dep_name: String,
+    pub language: String,
+}
+
 pub async fn load_worker_config(
     db: &DB,
     killpill_tx: KillpillSender,
@@ -1638,7 +1648,7 @@ pub async fn load_worker_config(
     let worker_tags = config
         .worker_tags
         .or_else(|| {
-            // Check for multiple dedicated workers first
+            // Check for multiple dedicated workers
             if let Some(ref dws) = dedicated_workers.as_ref() {
                 let mut dedi_tags: Vec<String> = dws
                     .iter()

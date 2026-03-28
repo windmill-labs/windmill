@@ -95,7 +95,7 @@ async fn conditional_cors_middleware(
 pub fn http_route_trigger_handler() -> Router {
     Router::new()
         .route(
-            "/*path",
+            "/{*path}",
             get(route_job)
                 .post(route_job)
                 .delete(route_job)

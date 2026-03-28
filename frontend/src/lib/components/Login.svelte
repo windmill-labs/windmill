@@ -164,7 +164,8 @@
 						workspace: $workspaceStore!
 					})
 					if (!emptyString(defaultApp.default_app_path)) {
-						goto(`/apps/get/${defaultApp.default_app_path}`)
+						const prefix = defaultApp.default_app_raw ? '/apps_raw/get' : '/apps/get'
+						goto(`${prefix}/${defaultApp.default_app_path}`)
 					} else {
 						goto(rd ?? '/')
 					}

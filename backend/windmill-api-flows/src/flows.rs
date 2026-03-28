@@ -61,26 +61,26 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_flows))
         .route("/list_search", get(list_search_flows))
         .route("/create", post(create_flow))
-        .route("/update/*path", post(update_flow))
-        .route("/archive/*path", post(archive_flow_by_path))
-        .route("/delete/*path", delete(delete_flow_by_path))
-        .route("/list_tokens/*path", get(list_tokens))
-        .route("/get/*path", get(get_flow_by_path))
-        .route("/deployment_status/p/*path", get(get_deployment_status))
-        .route("/get/draft/*path", get(get_flow_by_path_w_draft))
-        .route("/exists/*path", get(exists_flow_by_path))
+        .route("/update/{*path}", post(update_flow))
+        .route("/archive/{*path}", post(archive_flow_by_path))
+        .route("/delete/{*path}", delete(delete_flow_by_path))
+        .route("/list_tokens/{*path}", get(list_tokens))
+        .route("/get/{*path}", get(get_flow_by_path))
+        .route("/deployment_status/p/{*path}", get(get_deployment_status))
+        .route("/get/draft/{*path}", get(get_flow_by_path_w_draft))
+        .route("/exists/{*path}", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
-        .route("/history/p/*path", get(get_flow_history))
-        .route("/get_latest_version/*path", get(get_latest_version))
+        .route("/history/p/{*path}", get(get_flow_history))
+        .route("/get_latest_version/{*path}", get(get_latest_version))
         .route(
-            "/list_paths_from_workspace_runnable/:runnable_kind/*path",
+            "/list_paths_from_workspace_runnable/{runnable_kind}/{*path}",
             get(list_paths_from_workspace_runnable),
         )
-        .route("/history_update/v/:version", post(update_flow_history))
-        .route("/get/v/:version", get(get_flow_version_by_id))
-        .route("/get/v/:version/p/*path", get(get_flow_version))
+        .route("/history_update/v/{version}", post(update_flow_history))
+        .route("/get/v/{version}", get(get_flow_version_by_id))
+        .route("/get/v/{version}/p/{*path}", get(get_flow_version))
         .route(
-            "/toggle_workspace_error_handler/*path",
+            "/toggle_workspace_error_handler/{*path}",
             post(toggle_workspace_error_handler),
         )
 }
@@ -88,7 +88,7 @@ pub fn workspaced_service() -> Router {
 pub fn global_service() -> Router {
     Router::new()
         .route("/hub/list", get(list_hub_flows))
-        .route("/hub/get/:id", get(get_hub_flow_by_id))
+        .route("/hub/get/{id}", get(get_hub_flow_by_id))
 }
 
 #[derive(Serialize, FromRow)]
@@ -1657,6 +1657,38 @@ async fn delete_flow_by_path(
     }
     let mut tx = user_db.begin(&authed).await?;
 
+    // Capture all related data for trashbin before deleting (CASCADE will remove flow_version, flow_node)
+    let trash_flow: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT to_jsonb(t) FROM flow t WHERE path = $1 AND workspace_id = $2")
+            .bind(path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let trash_flow_versions: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM flow_version t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let trash_flow_nodes: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM flow_node t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let trash_drafts: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM draft t WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
         path,
@@ -1672,6 +1704,28 @@ async fn delete_flow_by_path(
     )
     .execute(&mut *tx)
     .await?;
+
+    if let Some(flow_data) = trash_flow {
+        let mut trash_data = serde_json::json!({"row": flow_data});
+        if !trash_flow_versions.is_empty() {
+            trash_data["flow_versions"] = serde_json::Value::Array(trash_flow_versions);
+        }
+        if !trash_flow_nodes.is_empty() {
+            trash_data["flow_nodes"] = serde_json::Value::Array(trash_flow_nodes);
+        }
+        if !trash_drafts.is_empty() {
+            trash_data["drafts"] = serde_json::Value::Array(trash_drafts);
+        }
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "flow",
+            path,
+            trash_data,
+            &authed.username,
+        )
+        .await?;
+    }
 
     if !query.keep_captures.unwrap_or(false) {
         sqlx::query!(
