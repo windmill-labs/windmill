@@ -176,7 +176,7 @@ async function logs(
       workspace: workspace.workspaceId,
       id,
     });
-    const jobKind = (job as any).job_kind;
+    const jobKind = (job as any).job_kind; // job_kind not in generated types yet
     if (jobKind === "flow" || jobKind === "flowpreview") {
       log.info(colors.yellow(
         "Flow jobs don't have direct logs. Each step runs as a separate job.\n" +
@@ -196,7 +196,7 @@ async function logs(
   if (jobLogs == null || jobLogs === "") {
     log.info("No logs available for this job.");
   } else {
-    console.log("to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{1,\\}[A-Za-z]//g'");
+    console.error("to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{1,\\}[A-Za-z]//g'");
     console.log(jobLogs);
   }
 }

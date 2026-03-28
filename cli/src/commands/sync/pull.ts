@@ -27,6 +27,21 @@ class TarAsZip {
       };
     }
   }
+
+  /** Return a filtered view containing only entries under the given prefix, with relative paths. */
+  folder(prefix: string): TarAsZip | null {
+    const normalized = prefix.endsWith("/") ? prefix : prefix + "/";
+    const sub = new TarAsZip(new Map());
+    for (const [name, file] of Object.entries(this.files)) {
+      if (name.startsWith(normalized)) {
+        const relative = name.slice(normalized.length);
+        if (relative) {
+          sub.files[relative] = { ...file, name: relative };
+        }
+      }
+    }
+    return Object.keys(sub.files).length > 0 ? sub : null;
+  }
 }
 
 async function parseTarResponse(response: Response): Promise<TarAsZip> {

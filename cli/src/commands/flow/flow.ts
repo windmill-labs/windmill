@@ -330,7 +330,9 @@ async function run(
   }
 
   // Wait for flow completion with retry (handles race when --silent skips module tracking)
-  while (true) {
+  const MAX_RETRIES = 600; // ~60 seconds at 100ms intervals
+  let retries = 0;
+  while (retries < MAX_RETRIES) {
     try {
       const jobInfo = await wmill.getCompletedJob({
         workspace: workspace.workspaceId,
@@ -354,8 +356,12 @@ async function run(
 
       break;
     } catch {
+      retries++;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+  }
+  if (retries >= MAX_RETRIES) {
+    throw new Error(`Timed out waiting for flow ${id} to complete`);
   }
 }
 

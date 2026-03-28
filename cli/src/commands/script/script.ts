@@ -984,7 +984,9 @@ async function run(
     await track_job(workspace.workspaceId, id);
   }
 
-  while (true) {
+  const MAX_RETRIES = 600; // ~60 seconds at 100ms intervals
+  let retries = 0;
+  while (retries < MAX_RETRIES) {
     try {
       const completedJob = await wmill.getCompletedJob({
         workspace: workspace.workspaceId,
@@ -1004,8 +1006,12 @@ async function run(
 
       break;
     } catch {
+      retries++;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+  }
+  if (retries >= MAX_RETRIES) {
+    throw new Error(`Timed out waiting for job ${id} to complete`);
   }
 }
 
