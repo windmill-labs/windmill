@@ -1,18 +1,24 @@
 import type { Policy, ScriptLang } from '$lib/gen'
 import { collectStaticFields, hash, type TriggerableV2 } from '../apps/editor/commonAppUtils'
-import { isRunnableByName, isRunnableByPath, type InlineScript, type RunnableWithFields } from '../apps/inputType'
+import {
+	isRunnableByName,
+	isRunnableByPath,
+	type InlineScript,
+	type RunnableWithFields
+} from '../apps/inputType'
 
 export async function updateRawAppPolicy(
 	runnables: Record<string, Runnable>,
 	currentPolicy: Policy | undefined
 ): Promise<Policy> {
-	const triggerables_v2 = Object.fromEntries(
-		(await Promise.all(
+	const entries = (
+		await Promise.all(
 			Object.entries(runnables).map(async ([id, runnable]) => {
 				return await processRunnable(id, runnable, runnable?.fields ?? {})
 			})
-		)) as [string, TriggerableV2][]
-	)
+		)
+	).filter((entry): entry is [string, TriggerableV2] => entry != null)
+	const triggerables_v2 = Object.fromEntries(entries)
 	return {
 		...currentPolicy,
 		triggerables_v2

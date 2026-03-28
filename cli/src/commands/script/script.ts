@@ -104,7 +104,7 @@ export function isFlowInlineScriptPath(filePath: string): boolean {
   return isFlowInlineScriptPathInternal(filePath);
 }
 
-type PushOptions = GlobalOptions;
+type PushOptions = GlobalOptions & { message?: string };
 async function push(opts: PushOptions, filePath: string) {
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
@@ -148,7 +148,7 @@ async function push(opts: PushOptions, filePath: string) {
     filePath,
     workspace,
     [],
-    undefined,
+    opts.message,
     opts,
     await getRawWorkspaceDependencies(true),
     codebases
@@ -948,6 +948,25 @@ async function run(
   await requireLogin(opts);
 
   const input = opts.data ? await resolve(opts.data) : {};
+
+  // Validate required args against schema when no data provided
+  if (!opts.data) {
+    try {
+      const script = await wmill.getScriptByPath({
+        workspace: workspace.workspaceId,
+        path,
+      });
+      const required = (script.schema as any)?.required ?? [];
+      if (required.length > 0) {
+        throw new Error(
+          `Missing required arguments: ${required.join(", ")}.\nUse -d '{"${required[0]}": ...}' to provide input data.`
+        );
+      }
+    } catch (e: any) {
+      if (e.message?.startsWith("Missing required")) throw e;
+    }
+  }
+
   let id: string;
   try {
     id = await wmill.runScriptByPath({
@@ -1552,13 +1571,14 @@ async function history(
       return;
     }
     new Table()
-      .header(["#", "Hash", "Deployment Message"])
+      .header(["#", "Hash", "Created At", "Deployment Message"])
       .padding(2)
       .border(true)
       .body(
         versions.map((v, i) => [
           String(versions.length - i),
           v.script_hash,
+          v.created_at ? new Date(v.created_at).toLocaleString() : "-",
           v.deployment_msg ?? "-",
         ])
       )
@@ -1580,6 +1600,7 @@ const command = new Command()
     "push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh)"
   )
   .arguments("<path:file>")
+  .option("--message <message:string>", "Deployment message")
   .action(push as any)
   .command("get", "get a script's details")
   .arguments("<path:file>")

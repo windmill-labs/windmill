@@ -43,7 +43,7 @@ export interface InitOptions {
  */
 async function initAction(opts: InitOptions) {
   if (await stat("wmill.yaml").catch(() => null)) {
-    log.error(colors.red("wmill.yaml already exists"));
+    log.info("wmill.yaml already exists, skipping config generation");
   } else {
     // Detect current git branch for template
     const { isGitRepository, getCurrentGitBranch } = await import(
