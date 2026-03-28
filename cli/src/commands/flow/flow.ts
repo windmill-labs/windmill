@@ -154,18 +154,27 @@ export async function pushFlow(
   const localFlow = (await yamlParseFile(localPath + "flow.yaml")) as FlowFile;
 
   const fileReader = async (path: string) => await readFile(localPath + path, "utf-8");
+  const missingFiles: string[] = [];
   await replaceInlineScripts(
     localFlow.value.modules,
     fileReader,
     log,
     localPath,
-    SEP
+    SEP,
+    undefined,
+    missingFiles
   );
   if (localFlow.value.failure_module) {
-    await replaceInlineScripts([localFlow.value.failure_module], fileReader, log, localPath, SEP);
+    await replaceInlineScripts([localFlow.value.failure_module], fileReader, log, localPath, SEP, undefined, missingFiles);
   }
   if (localFlow.value.preprocessor_module) {
-    await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, localPath, SEP);
+    await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, localPath, SEP, undefined, missingFiles);
+  }
+  if (missingFiles.length > 0) {
+    log.warn(colors.yellow(
+      `Warning: missing inline script file(s): ${missingFiles.join(", ")}. ` +
+      `The flow will be pushed with unresolved !inline references.`
+    ));
   }
 
   if (flow) {
@@ -272,11 +281,26 @@ async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
     const modules = (f as any).value?.modules;
     if (modules && Array.isArray(modules) && modules.length > 0) {
       console.log(colors.bold("Steps:"));
-      for (const mod of modules) {
-        const type = mod.value?.type ?? "unknown";
-        const detail = mod.value?.language ?? mod.value?.path ?? "";
-        console.log(`  ${mod.id}: ${type}${detail ? " (" + detail + ")" : ""}`);
+      function printModules(mods: any[], indent: string = "  ") {
+        for (const mod of mods) {
+          const type = mod.value?.type ?? "unknown";
+          const detail = mod.value?.language ?? mod.value?.path ?? "";
+          console.log(`${indent}${mod.id}: ${type}${detail ? " (" + detail + ")" : ""}`);
+          if (type === "branchall" || type === "branchone") {
+            for (const branch of mod.value?.branches ?? []) {
+              console.log(`${indent}  Branch: ${branch.summary || "(default)"}`);
+              if (branch.modules) printModules(branch.modules, indent + "    ");
+            }
+            if (type === "branchone" && mod.value?.default) {
+              console.log(`${indent}  Default:`);
+              printModules(mod.value.default, indent + "    ");
+            }
+          } else if (type === "forloopflow" || type === "whileloopflow") {
+            if (mod.value?.modules) printModules(mod.value.modules, indent + "  ");
+          }
+        }
       }
+      printModules(modules);
     }
   }
 }
@@ -493,7 +517,6 @@ async function preview(
         process.exitCode = 1;
         return;
       }
-      log.error(`Flow preview failed: ${JSON.stringify(e.body)}`);
     }
     throw e;
   }

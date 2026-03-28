@@ -126,20 +126,25 @@ async function push(opts: PushOptions, filePath: string) {
 
   await requireLogin(opts);
 
-  // Warn if metadata appears stale (content changed since last generate-metadata)
+  // Warn about metadata state before pushing
   try {
     const content = await readFile(filePath, "utf-8");
     const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
     const contentHash = await generateHash(content + remotePath);
     const conf = await readLockfile();
-    if (!(await checkifMetadataUptodate(remotePath, contentHash, conf))) {
+    const hasLockEntry = conf.locks && (conf.locks[remotePath] !== undefined || conf.locks[`${remotePath}.ts`] !== undefined);
+    if (!hasLockEntry) {
+      log.warn(colors.yellow(
+        `No metadata generated yet for ${filePath}. Run 'wmill generate-metadata' to generate schema and lock.`
+      ));
+    } else if (!(await checkifMetadataUptodate(remotePath, contentHash, conf))) {
       log.warn(colors.yellow(
         `Metadata for ${filePath} appears stale (content changed since last 'wmill generate-metadata').\n` +
         `The schema and lock may not match the current code. Consider running 'wmill generate-metadata' first.`
       ));
     }
   } catch {
-    // Don't block push if staleness check fails
+    // Don't block push if check fails
   }
 
   const codebases = await listSyncCodebases(opts as SyncOptions);
@@ -1584,11 +1589,11 @@ async function history(
 
 const command = new Command()
   .description("script related commands")
-  .option("--show-archived", "Enable archived scripts in output")
+  .option("--show-archived", "Show archived scripts instead of active ones")
   .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
   .command("list", "list all scripts")
-  .option("--show-archived", "Enable archived scripts in output")
+  .option("--show-archived", "Show archived scripts instead of active ones")
   .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
   .command(

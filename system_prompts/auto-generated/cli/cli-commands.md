@@ -302,6 +302,7 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 - `--json` - Output results in JSON format
 - `--fail-on-warn` - Exit with code 1 when warnings are emitted
 - `--locks-required` - Fail if scripts or flow inline scripts that need locks have no locks
+- `-w, --watch` - Watch for file changes and re-lint automatically
 
 ### queues
 
@@ -370,13 +371,13 @@ schedule related commands
 script related commands
 
 **Options:**
-- `--show-archived` - Enable archived scripts in output
+- `--show-archived` - Show archived scripts instead of active ones
 - `--json` - Output as JSON (for piping to jq)
 
 **Subcommands:**
 
 - `script list` - list all scripts
-  - `--show-archived` - Enable archived scripts in output
+  - `--show-archived` - Show archived scripts instead of active ones
   - `--json` - Output as JSON (for piping to jq)
 - `script push <path:file>` - push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh
   - `--message <message:string>` - Deployment message
