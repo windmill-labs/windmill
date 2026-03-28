@@ -29,7 +29,7 @@ import {
   parseMetadataFile,
   readLockfile,
 } from "../../utils/metadata.ts";
-import { generateHash } from "../../utils/utils.ts";
+import { generateHash, validateRequiredArgs } from "../../utils/utils.ts";
 import {
   WorkspaceDependenciesLanguage,
   ScriptLanguage,
@@ -956,14 +956,10 @@ async function run(
         workspace: workspace.workspaceId,
         path,
       });
-      const required = (script.schema as any)?.required ?? [];
-      if (required.length > 0) {
-        throw new Error(
-          `Missing required arguments: ${required.join(", ")}.\nUse -d '{"${required[0]}": ...}' to provide input data.`
-        );
-      }
+      validateRequiredArgs(script.schema as Record<string, unknown>);
     } catch (e: any) {
       if (e.message?.startsWith("Missing required")) throw e;
+      log.warn(`Could not fetch schema to validate args: ${e.message}`);
     }
   }
 
