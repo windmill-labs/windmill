@@ -29,6 +29,7 @@ export interface ScheduleFile {
 }
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -60,7 +61,7 @@ async function newSchedule(opts: GlobalOptions, path: string) {
     if (e.message?.startsWith("File already exists")) throw e;
   }
   const template: ScheduleFile = {
-    schedule: "0 */6 * * *",
+    schedule: "0 0 */6 * * *",
     on_failure: "",
     script_path: "",
     args: {},

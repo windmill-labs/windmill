@@ -1587,14 +1587,14 @@ workspace dependencies related commands
 
 ### dev
 
-Launch a dev server that will spawn a webserver with HMR
+Launch a dev server that watches for local file changes and auto-pushes them to the remote workspace. Provides live reload for scripts and flows during development.
 
 **Options:**
 - \`--includes <pattern...:string>\` - Filter paths givena glob pattern or path
 
 ### docs
 
-Search Windmill documentation. Requires Enterprise Edition.
+Search Windmill documentation.
 
 **Arguments:** \`<query:string>\`
 
@@ -1752,6 +1752,7 @@ sync local with a remote instance or the opposite (push or pull)
 - \`instance whoami\` - Display information about the currently logged-in user
 - \`instance get-config\` - Dump the current instance config (global settings + worker configs) as YAML
   - \`-o, --output-file <file:string>\` - Write YAML to a file instead of stdout
+  - \`--show-secrets\` - Include sensitive fields (license key, JWT secret) without prompting
   - \`--instance <instance:string>\` - Name of the instance, override the active instance
 
 ### jobs
@@ -1891,6 +1892,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - \`--json\` - Use JSON instead of YAML
   - \`--skip-variables\` - Skip syncing variables (including secrets)
   - \`--skip-secrets\` - Skip syncing only secrets variables
+  - \`--include-secrets\` - Include secrets in sync (overrides skipSecrets in wmill.yaml)
   - \`--skip-resources\` - Skip syncing  resources
   - \`--skip-resource-types\` - Skip syncing  resource types
   - \`--skip-scripts\` - Skip syncing scripts
@@ -1920,6 +1922,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - \`--json\` - Use JSON instead of YAML
   - \`--skip-variables\` - Skip syncing variables (including secrets)
   - \`--skip-secrets\` - Skip syncing only secrets variables
+  - \`--include-secrets\` - Include secrets in sync (overrides skipSecrets in wmill.yaml)
   - \`--skip-resources\` - Skip syncing  resources
   - \`--skip-resource-types\` - Skip syncing  resource types
   - \`--skip-scripts\` - Skip syncing scripts
@@ -1945,6 +1948,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - \`--branch, --env <branch:string>\` - Override the current git branch/environment (works even outside a git repository)
   - \`--lint\` - Run lint validation before pushing
   - \`--locks-required\` - Fail if scripts or flow inline scripts that need locks have no locks
+  - \`--auto-metadata\` - Automatically regenerate stale metadata (locks and schemas) before pushing
 
 ### trigger
 
@@ -1975,7 +1979,7 @@ user related commands
   - \`--company <company:string>\` - Specify to set the company of the new user.
   - \`--name <name:string>\` - Specify to set the name of the new user.
 - \`user remove <email:string>\` - Delete a user
-- \`user create-token\`
+- \`user create-token\` - Create a new API token for the authenticated user
   - \`--email <email:string>\` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
   - \`--password <password:string>\` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
 
@@ -2043,7 +2047,8 @@ workspace related commands
 - \`workspace whoami\` - Show the currently active user
 - \`workspace list\` - List local workspace profiles
 - \`workspace list-remote\` - List workspaces on the remote server that you have access to
-- \`workspace bind\` - Bind the current Git branch to the active workspace
+- \`workspace list-forks\` - List forked workspaces on the remote server
+- \`workspace bind\` - Bind the current Git branch to the active workspace. This adds the branch to gitBranches in wmill.yaml so sync operations use the correct workspace for each branch.
   - \`--branch, --env <branch:string>\` - Specify branch/environment (defaults to current)
 - \`workspace unbind\` - Remove workspace binding from the current Git branch
   - \`--branch, --env <branch:string>\` - Specify branch/environment (defaults to current)

@@ -203,12 +203,12 @@ describe("removeType", () => {
     expect(removeType("f/test/my_var.variable.json", "variable")).toBe("f/test/my_var");
   });
 
-  test("throws for wrong type suffix", () => {
-    expect(() => removeType("f/test/my_var.variable.yaml", "resource")).toThrow();
+  test("passes through path with wrong type suffix as clean path", () => {
+    expect(removeType("f/test/my_var.variable.yaml", "resource")).toBe("f/test/my_var.variable.yaml");
   });
 
-  test("throws for no type suffix", () => {
-    expect(() => removeType("f/test/my_script.ts", "variable")).toThrow();
+  test("passes through path with no type suffix as clean path", () => {
+    expect(removeType("f/test/my_script.ts", "variable")).toBe("f/test/my_script.ts");
   });
 });
 
