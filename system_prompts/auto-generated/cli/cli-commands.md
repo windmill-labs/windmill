@@ -41,6 +41,32 @@ app related commands
   - `--dry-run` - Perform a dry run without making changes
   - `--default-ts <runtime:string>` - Default TypeScript runtime (bun or deno)
 
+### audit
+
+View audit logs (requires admin)
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+- `--username <username:string>` - Filter by username
+- `--operation <operation:string>` - Filter by operation (exact or prefix)
+- `--action-kind <actionKind:string>` - Filter by action kind (Create, Update, Delete, Execute)
+- `--before <before:string>` - Filter events before this timestamp
+- `--after <after:string>` - Filter events after this timestamp
+- `--limit <limit:number>` - Number of entries to return (default 30, max 100)
+
+**Subcommands:**
+
+- `audit list` - List audit log entries
+  - `--json` - Output as JSON (for piping to jq)
+  - `--username <username:string>` - Filter by username
+  - `--operation <operation:string>` - Filter by operation (exact or prefix)
+  - `--action-kind <actionKind:string>` - Filter by action kind (Create, Update, Delete, Execute)
+  - `--before <before:string>` - Filter events before this timestamp
+  - `--after <after:string>` - Filter events after this timestamp
+  - `--limit <limit:number>` - Number of entries to return (default 30, max 100)
+- `audit get <id:string>` - Get a specific audit log entry
+  - `--json` - Output as JSON (for piping to jq)
+
 ### config
 
 Show all available wmill.yaml configuration options
@@ -108,6 +134,10 @@ flow related commands
 - `flow bootstrap <flow_path:string>` - create a new empty flow (alias for new
   - `--summary <summary:string>` - flow summary
   - `--description <description:string>` - flow description
+- `flow history <path:string>` - Show version history for a flow
+  - `--json` - Output as JSON (for piping to jq)
+- `flow show-version <path:string> <version:string>` - Show a specific version of a flow
+  - `--json` - Output as JSON (for piping to jq)
 
 ### folder
 
@@ -170,6 +200,25 @@ Manage git-sync settings between local wmill.yaml and Windmill backend
   - `--yes` - Skip interactive prompts and use default behavior
   - `--promotion <branch:string>` - Use promotionOverrides from the specified branch instead of regular overrides
 
+### group
+
+Manage workspace groups
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- `group list` - List all groups in the workspace
+  - `--json` - Output as JSON (for piping to jq)
+- `group get <name:string>` - Get group details and members
+  - `--json` - Output as JSON (for piping to jq)
+- `group create <name:string>` - Create a new group
+  - `--summary <summary:string>` - Group summary/description
+- `group delete <name:string>` - Delete a group
+- `group add-user <name:string> <username:string>` - Add a user to a group
+- `group remove-user <name:string> <username:string>` - Remove a user from a group
+
 ### hub
 
 Hub related commands. EXPERIMENTAL. INTERNAL USE ONLY.
@@ -227,6 +276,20 @@ sync local with a remote instance or the opposite (push or pull)
   - `-o, --output-file <file:string>` - Write YAML to a file instead of stdout
   - `--show-secrets` - Include sensitive fields (license key, JWT secret) without prompting
   - `--instance <instance:string>` - Name of the instance, override the active instance
+
+### job
+
+Manage jobs (list, inspect, cancel)
+
+**Subcommands:**
+
+- `job list` - List recent jobs
+- `job get <id:string>` - Get job details and result
+  - `--json` - Output as JSON (for piping to jq)
+- `job result <id:string>` - Get the result of a completed job (machine-friendly
+- `job logs <id:string>` - Get job logs
+- `job cancel <id:string>` - Cancel a running or queued job
+  - `--reason <reason:string>` - Reason for cancellation
 
 ### jobs
 
@@ -314,6 +377,8 @@ schedule related commands
   - `--json` - Output as JSON (for piping to jq)
 - `schedule new <path:string>` - create a new schedule locally
 - `schedule push <file_path:string> <remote_path:string>` - push a local schedule spec. This overrides any remote versions.
+- `schedule enable <path:string>` - Enable a schedule
+- `schedule disable <path:string>` - Disable a schedule
 
 ### script
 
@@ -351,6 +416,8 @@ script related commands
   - `--schema-only` - re-generate only script schema
   - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
   - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which file to NOT take into account.
+- `script history <path:string>` - show version history for a script
+  - `--json` - Output as JSON (for piping to jq)
 
 ### sync
 
@@ -422,6 +489,22 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--lint` - Run lint validation before pushing
   - `--locks-required` - Fail if scripts or flow inline scripts that need locks have no locks
   - `--auto-metadata` - Automatically regenerate stale metadata (locks and schemas) before pushing
+
+### token
+
+Manage API tokens
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- `token list` - List API tokens
+  - `--json` - Output as JSON (for piping to jq)
+- `token create` - Create a new API token
+  - `--label <label:string>` - Token label
+  - `--expiration <expiration:string>` - Token expiration (ISO 8601 timestamp)
+- `token delete <token_prefix:string>` - Delete a token by its prefix
 
 ### trigger
 
