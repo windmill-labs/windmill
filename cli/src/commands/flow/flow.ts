@@ -281,11 +281,26 @@ async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
     const modules = (f as any).value?.modules;
     if (modules && Array.isArray(modules) && modules.length > 0) {
       console.log(colors.bold("Steps:"));
-      for (const mod of modules) {
-        const type = mod.value?.type ?? "unknown";
-        const detail = mod.value?.language ?? mod.value?.path ?? "";
-        console.log(`  ${mod.id}: ${type}${detail ? " (" + detail + ")" : ""}`);
+      function printModules(mods: any[], indent: string = "  ") {
+        for (const mod of mods) {
+          const type = mod.value?.type ?? "unknown";
+          const detail = mod.value?.language ?? mod.value?.path ?? "";
+          console.log(`${indent}${mod.id}: ${type}${detail ? " (" + detail + ")" : ""}`);
+          if (type === "branchall" || type === "branchone") {
+            for (const branch of mod.value?.branches ?? []) {
+              console.log(`${indent}  Branch: ${branch.summary || "(default)"}`);
+              if (branch.modules) printModules(branch.modules, indent + "    ");
+            }
+            if (type === "branchone" && mod.value?.default) {
+              console.log(`${indent}  Default:`);
+              printModules(mod.value.default, indent + "    ");
+            }
+          } else if (type === "forloopflow" || type === "whileloopflow") {
+            if (mod.value?.modules) printModules(mod.value.modules, indent + "  ");
+          }
+        }
       }
+      printModules(modules);
     }
   }
 }

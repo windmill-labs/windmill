@@ -625,7 +625,11 @@ export async function runLint(
     throw new Error(`Path is not a directory: ${targetDirectory}`);
   }
 
-  const ignore = await ignoreF(mergedOpts);
+  // When an explicit directory is given, skip include/exclude filtering —
+  // the user explicitly chose what to lint. Otherwise use wmill.yaml patterns.
+  const ignore = explicitTargetDirectory
+    ? (_p: string, _isDir: boolean) => false
+    : await ignoreF(mergedOpts);
   const root = await FSFSElement(targetDirectory, [], false);
   const validator = new WindmillYamlValidator();
 
