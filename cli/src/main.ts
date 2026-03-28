@@ -218,11 +218,18 @@ async function main() {
     await command.parse(args);
   } catch (e) {
     if (e && typeof e === "object" && "name" in e && e.name === "ApiError") {
-      console.log(
+      log.error(
         "Server failed. " + (e as any).statusText + ": " + (e as any).body
       );
+    } else if (e instanceof Error) {
+      log.error(e.message);
     }
-    throw e;
+    const isDebug =
+      process.argv.includes("--verbose") || process.argv.includes("--debug");
+    if (isDebug) {
+      throw e;
+    }
+    process.exitCode = 1;
   }
 }
 

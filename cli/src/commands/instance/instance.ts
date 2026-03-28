@@ -219,6 +219,22 @@ export async function pickInstance(
       prefix: opts.prefix ?? "custom",
     };
   }
+  // Try to use the active workspace profile's remote as a fallback
+  if (instances.length < 1) {
+    try {
+      const ws = await getActiveWorkspace({});
+      if (ws?.remote && ws?.token) {
+        const remote = ws.remote.endsWith("/") ? ws.remote.slice(0, -1) : ws.remote;
+        setClient(ws.token, remote);
+        return {
+          name: ws.name,
+          remote: ws.remote,
+          token: ws.token,
+          prefix: ws.name,
+        };
+      }
+    } catch { /* ignore */ }
+  }
   if (!allowNew && instances.length < 1) {
     throw new Error("No instance found, please add one first");
   }

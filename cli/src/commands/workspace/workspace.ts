@@ -253,8 +253,12 @@ export async function add(
       "On that instance and with those credentials, the workspaces that you can access are:"
     );
     const workspaces = await wmill.listWorkspaces();
-    for (const workspace of workspaces) {
-      log.info(`- ${workspace.id} (name: ${workspace.name})`);
+    if (workspaces.length === 0) {
+      log.info("  (none)");
+    } else {
+      for (const workspace of workspaces) {
+        log.info(`- ${workspace.id} (name: ${workspace.name})`);
+      }
     }
     process.exit(1);
   }
@@ -415,9 +419,20 @@ async function whoami(_opts: GlobalOptions) {
 }
 
 async function listRemote(_opts: GlobalOptions) {
-  const { resolveWorkspace } = await import("../../core/context.ts");
-  const workspace = await resolveWorkspace(_opts);
-  await requireLogin(_opts);
+  let remote: string;
+
+  if (_opts.baseUrl && _opts.token && !_opts.workspace) {
+    // Allow listing workspaces with just --base-url and --token (no --workspace needed)
+    const { setClient } = await import("../../core/client.ts");
+    remote = new URL(_opts.baseUrl).toString();
+    setClient(_opts.token, remote.replace(/\/$/, ""));
+  } else {
+    const { resolveWorkspace } = await import("../../core/context.ts");
+    const workspace = await resolveWorkspace(_opts);
+    await requireLogin(_opts);
+    remote = workspace.remote;
+  }
+
   const userWorkspaces = await wmill.listUserWorkspaces();
 
   new Table()
@@ -434,7 +449,7 @@ async function listRemote(_opts: GlobalOptions) {
     )
     .render();
 
-  log.info(`Remote: ${colors.bold(workspace.remote)}`);
+  log.info(`Remote: ${colors.bold(remote)}`);
   log.info(`Logged in as: ${colors.green.bold(userWorkspaces.email)}`);
 }
 
@@ -567,7 +582,7 @@ const command = new Command()
   .description("List workspaces on the remote server that you have access to")
   .action(listRemote as any)
   .command("bind")
-  .description("Bind the current Git branch to the active workspace")
+  .description("Bind the current Git branch to the active workspace. This adds the branch to gitBranches in wmill.yaml so sync operations use the correct workspace for each branch.")
   .option("--branch, --env <branch:string>", "Specify branch/environment (defaults to current)")
   .action((opts) => bind(opts as any, true))
   .command("unbind")

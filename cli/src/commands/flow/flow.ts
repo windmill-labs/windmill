@@ -265,6 +265,15 @@ async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
     console.log(colors.bold("Description:") + " " + (f.description ?? ""));
     console.log(colors.bold("Edited by:") + " " + (f.edited_by ?? ""));
     console.log(colors.bold("Edited at:") + " " + (f.edited_at ?? ""));
+    const modules = (f as any).value?.modules;
+    if (modules && Array.isArray(modules) && modules.length > 0) {
+      console.log(colors.bold("Steps:"));
+      for (const mod of modules) {
+        const type = mod.value?.type ?? "unknown";
+        const detail = mod.value?.language ?? mod.value?.path ?? "";
+        console.log(`  ${mod.id}: ${type}${detail ? " (" + detail + ")" : ""}`);
+      }
+    }
   }
 }
 
@@ -275,6 +284,9 @@ async function run(
   },
   path: string
 ) {
+  if (opts.silent) {
+    log.setSilent(true);
+  }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -322,7 +334,11 @@ async function run(
     workspace: workspace.workspaceId,
     id,
   });
-  log.info(JSON.stringify(jobInfo.result ?? {}, null, 2));
+  if (opts.silent) {
+    console.log(JSON.stringify(jobInfo.result ?? {}));
+  } else {
+    log.info(JSON.stringify(jobInfo.result ?? {}, null, 2));
+  }
 }
 
 async function preview(
@@ -333,6 +349,9 @@ async function preview(
   } & SyncOptions,
   flowPath: string
 ) {
+  if (opts.silent) {
+    log.setSilent(true);
+  }
   const useLocalPathScripts = !opts.remote;
   if (useLocalPathScripts) {
     opts = await mergeConfigWithConfigFile(opts);
@@ -341,14 +360,16 @@ async function preview(
   await requireLogin(opts);
   const codebases = useLocalPathScripts ? listSyncCodebases(opts) : [];
 
-  // Normalize path - ensure it's a directory path to a .flow folder
-  if (!flowPath.endsWith(".flow") && !flowPath.endsWith(".flow" + SEP)) {
+  // Normalize path - ensure it's a directory path to a .flow or __flow folder
+  const isFlowDir = flowPath.endsWith(".flow") || flowPath.endsWith(".flow" + SEP)
+    || flowPath.endsWith("__flow") || flowPath.endsWith("__flow" + SEP);
+  if (!isFlowDir) {
     // Check if it's a flow.yaml file
     if (flowPath.endsWith("flow.yaml") || flowPath.endsWith("flow.json")) {
       flowPath = flowPath.substring(0, flowPath.lastIndexOf(SEP));
     } else {
       throw new Error(
-        "Flow path must be a .flow directory or a flow.yaml file"
+        "Flow path must be a .flow/__flow directory or a flow.yaml file"
       );
     }
   }
@@ -428,7 +449,7 @@ async function preview(
   }
 
   if (opts.silent) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(result));
   } else {
     log.info(colors.bold.underline.green("Flow preview completed"));
     log.info(JSON.stringify(result, null, 2));

@@ -355,71 +355,102 @@ async function generateMetadata(
     return colors.dim(colors.white(`[${n}/${total}]`.padEnd(maxWidth, " ")));
   };
 
+  const errors: { path: string; error: string }[] = [];
+
   // Process scripts
   for (const item of scripts) {
     current++;
     log.info(`${formatProgress(current)} script ${item.path}`);
-    await generateScriptMetadataInternal(
-      item.path, // originalPath with extension
-      workspace,
-      opts,
-      false, // dryRun
-      true, // noStaleMessage
-      mismatchedWorkspaceDeps,
-      codebases,
-      false,
-      false, // legacyBehaviour
-      tree
-    );
+    try {
+      await generateScriptMetadataInternal(
+        item.path, // originalPath with extension
+        workspace,
+        opts,
+        false, // dryRun
+        true, // noStaleMessage
+        mismatchedWorkspaceDeps,
+        codebases,
+        false,
+        false, // legacyBehaviour
+        tree
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push({ path: item.path, error: msg });
+      log.error(`  Failed: ${msg}`);
+    }
   }
 
   // Process flows
   for (const item of flows) {
     current++;
-    const result = await generateFlowLockInternal(
-      item.folder.replaceAll("/", SEP),
-      false, // dryRun
-      workspace,
-      opts,
-      false,
-      true, // noStaleMessage
-      false, // legacyBehaviour
-      tree
-    );
-    const flowResult = result as FlowLocksResult | undefined;
-    const scriptsInfo = flowResult?.updatedScripts?.length
-      ? colors.dim(colors.white(`: ${flowResult.updatedScripts.join(", ")}`))
-      : "";
-    log.info(`${formatProgress(current)} flow   ${item.path}${scriptsInfo}`);
+    try {
+      const result = await generateFlowLockInternal(
+        item.folder.replaceAll("/", SEP),
+        false, // dryRun
+        workspace,
+        opts,
+        false,
+        true, // noStaleMessage
+        false, // legacyBehaviour
+        tree
+      );
+      const flowResult = result as FlowLocksResult | undefined;
+      const scriptsInfo = flowResult?.updatedScripts?.length
+        ? colors.dim(colors.white(`: ${flowResult.updatedScripts.join(", ")}`))
+        : "";
+      log.info(`${formatProgress(current)} flow   ${item.path}${scriptsInfo}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push({ path: item.path, error: msg });
+      log.info(`${formatProgress(current)} flow   ${item.path}`);
+      log.error(`  Failed: ${msg}`);
+    }
   }
 
   // Process apps
   for (const item of apps) {
     current++;
-    const result = await generateAppLocksInternal(
-      item.folder.replaceAll("/", SEP),
-      item.isRawApp!, // rawApp
-      false, // dryRun
-      workspace,
-      opts,
-      false,
-      true, // noStaleMessage
-      false, // legacyBehaviour
-      tree
-    );
-    const appResult = result as AppLocksResult | undefined;
-    const scriptsInfo = appResult?.updatedScripts?.length
-      ? colors.dim(colors.white(`: ${appResult.updatedScripts.join(", ")}`))
-      : "";
-    log.info(`${formatProgress(current)} app    ${item.path}${scriptsInfo}`);
+    try {
+      const result = await generateAppLocksInternal(
+        item.folder.replaceAll("/", SEP),
+        item.isRawApp!, // rawApp
+        false, // dryRun
+        workspace,
+        opts,
+        false,
+        true, // noStaleMessage
+        false, // legacyBehaviour
+        tree
+      );
+      const appResult = result as AppLocksResult | undefined;
+      const scriptsInfo = appResult?.updatedScripts?.length
+        ? colors.dim(colors.white(`: ${appResult.updatedScripts.join(", ")}`))
+        : "";
+      log.info(`${formatProgress(current)} app    ${item.path}${scriptsInfo}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push({ path: item.path, error: msg });
+      log.info(`${formatProgress(current)} app    ${item.path}`);
+      log.error(`  Failed: ${msg}`);
+    }
   }
 
   // Persist all stale workspace dep hashes (not just filtered — deps are global, not folder-scoped)
   const allStaleDeps = staleItems.filter((i) => i.type === "dependencies");
   await tree.persistDepsHashes(allStaleDeps.map((d) => d.path));
 
+  const succeeded = total - errors.length;
   log.info("");
-  log.info(`Done. Updated ${colors.bold(String(total))} item(s).`);
+  if (errors.length > 0) {
+    log.info(`Done. Updated ${colors.bold(String(succeeded))}/${total} item(s). ${colors.red(String(errors.length) + " failed")}:`);
+    for (const { path, error } of errors) {
+      log.error(`  ${path}: ${error}`);
+    }
+    process.exit(1);
+  } else {
+    log.info(`Done. Updated ${colors.bold(String(total))} item(s).`);
+  }
 }
 
 const command = new Command()
