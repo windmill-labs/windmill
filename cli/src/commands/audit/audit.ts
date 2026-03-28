@@ -42,6 +42,13 @@ async function list(
       log.info("No audit logs found.");
       return;
     }
+    if (logs.every((l) => l.operation === "redacted")) {
+      log.info(colors.yellow(
+        "Audit log details are not available on the Community Edition.\n" +
+        "Upgrade to the Enterprise Edition for full audit logging with operation details."
+      ));
+      return;
+    }
     new Table()
       .header(["ID", "Timestamp", "Username", "Operation", "Action", "Resource"])
       .padding(2)

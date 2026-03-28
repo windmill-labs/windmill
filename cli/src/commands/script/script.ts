@@ -23,10 +23,13 @@ import {
 
 import { Workspace } from "../workspace/workspace.ts";
 import {
+  checkifMetadataUptodate,
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   parseMetadataFile,
+  readLockfile,
 } from "../../utils/metadata.ts";
+import { generateHash } from "../../utils/utils.ts";
 import {
   WorkspaceDependenciesLanguage,
   ScriptLanguage,
@@ -122,6 +125,23 @@ async function push(opts: PushOptions, filePath: string) {
   }
 
   await requireLogin(opts);
+
+  // Warn if metadata appears stale (content changed since last generate-metadata)
+  try {
+    const content = await readFile(filePath, "utf-8");
+    const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
+    const contentHash = await generateHash(content + remotePath);
+    const conf = await readLockfile();
+    if (!(await checkifMetadataUptodate(remotePath, contentHash, conf))) {
+      log.warn(colors.yellow(
+        `Metadata for ${filePath} appears stale (content changed since last 'wmill generate-metadata').\n` +
+        `The schema and lock may not match the current code. Consider running 'wmill generate-metadata' first.`
+      ));
+    }
+  } catch {
+    // Don't block push if staleness check fails
+  }
+
   const codebases = await listSyncCodebases(opts as SyncOptions);
 
   await handleFile(
@@ -966,14 +986,16 @@ async function run(
 
   while (true) {
     try {
-      const result =
-        (
-          await wmill.getCompletedJob({
-            workspace: workspace.workspaceId,
-            id,
-          })
-        ).result ?? {};
+      const completedJob = await wmill.getCompletedJob({
+        workspace: workspace.workspaceId,
+        id,
+      });
 
+      if (completedJob.success === false) {
+        process.exitCode = 1;
+      }
+
+      const result = completedJob.result ?? {};
       if (opts.silent) {
         console.log(JSON.stringify(result));
       } else {
@@ -1081,6 +1103,7 @@ async function show(opts: GlobalOptions, path: string) {
 }
 
 async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const s = await wmill.getScriptByPath({

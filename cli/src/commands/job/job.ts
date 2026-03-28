@@ -92,7 +92,7 @@ async function list(
       .border(true)
       .body(
         jobs.map((j: any) => [
-          j.id.substring(0, 8),
+          j.id,
           getJobStatus(j),
           j.script_path ?? j.raw_code?.substring(0, 30) ?? "-",
           j.created_by ?? j.email ?? "-",
@@ -170,12 +170,35 @@ async function logs(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
+  // Check if this is a flow job (flows don't have top-level logs)
+  try {
+    const job = await wmill.getJob({
+      workspace: workspace.workspaceId,
+      id,
+    });
+    const jobKind = (job as any).job_kind;
+    if (jobKind === "flow" || jobKind === "flowpreview") {
+      log.info(colors.yellow(
+        "Flow jobs don't have direct logs. Each step runs as a separate job.\n" +
+        "Use 'wmill job list --all' to see sub-jobs, then 'wmill job logs <sub-job-id>' for individual step logs."
+      ));
+      return;
+    }
+  } catch {
+    // If we can't get the job info, proceed with trying to get logs anyway
+  }
+
   const jobLogs = await wmill.getJobLogs({
     workspace: workspace.workspaceId,
     id,
   });
 
-  console.log(jobLogs);
+  if (jobLogs == null || jobLogs === "") {
+    log.info("No logs available for this job.");
+  } else {
+    console.log("to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{1,\\}[A-Za-z]//g'");
+    console.log(jobLogs);
+  }
 }
 
 async function cancel(

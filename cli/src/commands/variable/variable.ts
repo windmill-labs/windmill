@@ -1,4 +1,5 @@
-import { stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 
 import { requireLogin } from "../../core/auth.ts";
@@ -63,6 +64,7 @@ async function newVariable(opts: GlobalOptions, path: string) {
     is_secret: false,
     description: "",
   };
+  await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, yamlStringify(template as Record<string, any>), {
     flag: "wx",
     encoding: "utf-8",
@@ -71,6 +73,7 @@ async function newVariable(opts: GlobalOptions, path: string) {
 }
 
 async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const v = await wmill.getVariable({
@@ -215,10 +218,10 @@ async function add(
     undefined,
     {
       value,
-      is_secret: !opts.public && !opts.plainSecrets,
+      is_secret: !opts.public,
       description: "",
     },
-    opts.plainSecrets ?? false
+    true // value from CLI is always plaintext — tell API not to treat it as pre-encrypted
   );
   log.info(colors.bold.underline.green(`Variable ${remotePath} pushed`));
 }

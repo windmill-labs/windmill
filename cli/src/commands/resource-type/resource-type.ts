@@ -97,6 +97,10 @@ async function list(opts: GlobalOptions & { schema?: boolean; json?: boolean }) 
 
   if (opts.json) {
     console.log(JSON.stringify(res));
+  } else if (res.length === 0) {
+    log.info("No custom resource types found in this workspace.");
+    log.info("Built-in types like 'postgresql', 'slack', 'mysql', etc. are available from the Windmill Hub.");
+    return;
   } else if (opts.schema) {
     new Table()
       .header(["Workspace", "Name", "Schema"])
