@@ -204,14 +204,14 @@ export async function pushFlow(
 
 type Options = GlobalOptions;
 
-async function push(opts: Options, filePath: string, remotePath: string) {
+async function push(opts: Options & { message?: string }, filePath: string, remotePath: string) {
   if (!validatePath(remotePath)) {
     return;
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  await pushFlow(workspace.workspaceId, remotePath, filePath);
+  await pushFlow(workspace.workspaceId, remotePath, filePath, opts.message);
   log.info(colors.bold.underline.green("Flow pushed"));
 }
 
@@ -294,6 +294,24 @@ async function run(
   await requireLogin(opts);
 
   const input = opts.data ? await resolve(opts.data) : {};
+
+  // Validate required args against schema when no data provided
+  if (!opts.data) {
+    try {
+      const flow = await wmill.getFlowByPath({
+        workspace: workspace.workspaceId,
+        path,
+      });
+      const required = (flow.schema as any)?.required ?? [];
+      if (required.length > 0) {
+        throw new Error(
+          `Missing required arguments: ${required.join(", ")}.\nUse -d '{"${required[0]}": ...}' to provide input data.`
+        );
+      }
+    } catch (e: any) {
+      if (e.message?.startsWith("Missing required")) throw e;
+    }
+  }
 
   const id = await wmill.runFlowByPath({
     workspace: workspace.workspaceId,
@@ -467,6 +485,17 @@ async function preview(
     });
   } catch (e: any) {
     if (e.body) {
+      // If a failure_module ran, the body contains its result — not an error
+      if (e.body.result !== undefined) {
+        if (opts.silent) {
+          console.log(JSON.stringify(e.body.result));
+        } else {
+          log.info(colors.yellow.bold("Flow failed, error handler result:"));
+          log.info(JSON.stringify(e.body.result, null, 2));
+        }
+        process.exitCode = 1;
+        return;
+      }
       log.error(`Flow preview failed: ${JSON.stringify(e.body)}`);
     }
     throw e;
@@ -675,6 +704,7 @@ const command = new Command()
     "push a local flow spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string>")
+  .option("--message <message:string>", "Deployment message")
   .action(push as any)
   .command("run", "run a flow by path.")
   .arguments("<path:string>")
