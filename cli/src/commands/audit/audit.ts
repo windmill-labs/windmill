@@ -7,11 +7,7 @@ import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-
-function formatTimestamp(ts: string): string {
-  const date = new Date(ts);
-  return date.toISOString().replace("T", " ").substring(0, 19);
-}
+import { formatTimestamp } from "../../utils/utils.ts";
 
 async function list(
   opts: GlobalOptions & {

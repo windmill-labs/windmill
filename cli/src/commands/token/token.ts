@@ -1,22 +1,16 @@
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
-import { resolveWorkspace } from "../../core/context.ts";
 import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-
-function formatTimestamp(ts: string): string {
-  const date = new Date(ts);
-  return date.toISOString().replace("T", " ").substring(0, 19);
-}
+import { formatTimestamp } from "../../utils/utils.ts";
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
   if (opts.json) log.setSilent(true);
   opts = await mergeConfigWithConfigFile(opts);
-  await resolveWorkspace(opts);
   await requireLogin(opts);
 
   const tokens = await wmill.listTokens({
@@ -54,7 +48,6 @@ async function create(
   }
 ) {
   opts = await mergeConfigWithConfigFile(opts);
-  await resolveWorkspace(opts);
   await requireLogin(opts);
 
   const token = await wmill.createToken({
@@ -69,7 +62,6 @@ async function create(
 
 async function deleteToken(opts: GlobalOptions, tokenPrefix: string) {
   opts = await mergeConfigWithConfigFile(opts);
-  await resolveWorkspace(opts);
   await requireLogin(opts);
 
   await wmill.deleteToken({ tokenPrefix });
