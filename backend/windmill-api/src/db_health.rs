@@ -6,8 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use axum::{routing::get, Extension, Json, Router};
-use serde::Serialize;
+use axum::{extract::Query, routing::get, Extension, Json, Router};
+use serde::{Deserialize, Serialize};
 
 use windmill_common::error::JsonResult;
 
@@ -124,11 +124,20 @@ pub struct DatatableInfo {
 
 // --- Handler ---
 
+#[derive(Deserialize)]
+struct DbHealthQuery {
+    /// Max number of recent completed jobs to scan for large results (default 10000)
+    scan_limit: Option<i64>,
+}
+
 async fn get_db_health(
     ApiAuthed { email, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
+    Query(query): Query<DbHealthQuery>,
 ) -> JsonResult<DbHealthResponse> {
     require_super_admin(&db, &email).await?;
+
+    let scan_limit = query.scan_limit.unwrap_or(10_000).clamp(1_000, 1_000_000);
 
     let (
         database_size,
@@ -141,7 +150,7 @@ async fn get_db_health(
     ) = tokio::try_join!(
         fetch_database_size(&db),
         fetch_job_retention(&db),
-        fetch_large_results(&db),
+        fetch_large_results(&db, scan_limit),
         fetch_connection_pool(&db),
         fetch_table_maintenance(&db),
         fetch_slow_queries(&db),
@@ -251,7 +260,10 @@ async fn fetch_job_retention(db: &DB) -> windmill_common::error::Result<JobReten
     })
 }
 
-async fn fetch_large_results(db: &DB) -> windmill_common::error::Result<LargeResultsInfo> {
+async fn fetch_large_results(
+    db: &DB,
+    scan_limit: i64,
+) -> windmill_common::error::Result<LargeResultsInfo> {
     let top_large_results = sqlx::query_as!(
         LargeResultRow,
         r#"SELECT
@@ -260,12 +272,19 @@ async fn fetch_large_results(db: &DB) -> windmill_common::error::Result<LargeRes
             j.runnable_path as "runnable_path",
             pg_column_size(c.result) as "result_size_bytes!",
             c.completed_at as "completed_at!"
-        FROM v2_job_completed c
+        FROM (
+            SELECT id, workspace_id, result, completed_at
+            FROM v2_job_completed
+            WHERE completed_at > now() - interval '30 days'
+              AND result IS NOT NULL
+            ORDER BY completed_at DESC
+            LIMIT $1
+        ) c
         LEFT JOIN v2_job j ON j.id = c.id
-        WHERE c.completed_at > now() - interval '30 days'
-          AND c.result IS NOT NULL
+        WHERE pg_column_size(c.result) > 1024
         ORDER BY pg_column_size(c.result) DESC
-        LIMIT 10"#
+        LIMIT 10"#,
+        scan_limit
     )
     .fetch_all(db)
     .await?;
@@ -277,8 +296,9 @@ async fn fetch_large_results(db: &DB) -> windmill_common::error::Result<LargeRes
             WHERE completed_at > now() - interval '30 days'
               AND result IS NOT NULL
             ORDER BY completed_at DESC
-            LIMIT 10000
-        ) sub"#
+            LIMIT $1
+        ) sub"#,
+        scan_limit
     )
     .fetch_one(db)
     .await?;
@@ -442,33 +462,45 @@ async fn fetch_datatables(db: &DB) -> windmill_common::error::Result<Vec<Datatab
     .fetch_all(db)
     .await?;
 
+    let table_names: Vec<String> = rows.iter().filter_map(|r| r.table_name.clone()).collect();
+
+    if table_names.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Batch lookup: single query for all table sizes
+    let size_rows = sqlx::query!(
+        r#"SELECT
+            c.relname as "table_name!",
+            pg_total_relation_size(c.oid) as "size_bytes!",
+            pg_size_pretty(pg_total_relation_size(c.oid)) as "size_pretty!",
+            COALESCE(c.reltuples, 0) as "estimated_rows!"
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = ANY($1)"#,
+        &table_names
+    )
+    .fetch_all(db)
+    .await?;
+
+    let size_map: std::collections::HashMap<String, _> = size_rows
+        .into_iter()
+        .map(|s| (s.table_name.clone(), s))
+        .collect();
+
     let mut result = Vec::new();
     for row in rows {
         let table_name = match &row.table_name {
             Some(t) => t.clone(),
             None => continue,
         };
-        // Get size for each datatable
-        let size_row = sqlx::query!(
-            r#"SELECT
-                pg_total_relation_size(c.oid) as "size_bytes!",
-                pg_size_pretty(pg_total_relation_size(c.oid)) as "size_pretty!",
-                COALESCE(c.reltuples, 0) as "estimated_rows!"
-            FROM pg_class c
-            JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'public' AND c.relname = $1"#,
-            table_name
-        )
-        .fetch_optional(db)
-        .await?;
-
-        if let Some(s) = size_row {
+        if let Some(s) = size_map.get(&table_name) {
             result.push(DatatableInfo {
                 workspace_id: row.workspace_id,
                 name: row.name,
                 table_name,
                 size_bytes: s.size_bytes,
-                size_pretty: s.size_pretty,
+                size_pretty: s.size_pretty.clone(),
                 estimated_rows: s.estimated_rows as f64,
             });
         }

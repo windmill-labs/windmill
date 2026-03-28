@@ -6,6 +6,14 @@
 	let loading = $state(false)
 	let data: any = $state(null)
 	let error: string | null = $state(null)
+	let scanLimit = $state(10000)
+
+	const scanLimitOptions = [
+		{ label: '10,000', value: 10000 },
+		{ label: '50,000', value: 50000 },
+		{ label: '100,000', value: 100000 },
+		{ label: '500,000', value: 500000 }
+	]
 
 	let expandedSections: Record<string, boolean> = $state({
 		database_size: true,
@@ -25,7 +33,7 @@
 		loading = true
 		error = null
 		try {
-			const response = await fetch('/api/db_health', {
+			const response = await fetch(`/api/db_health?scan_limit=${scanLimit}`, {
 				credentials: 'include'
 			})
 			if (!response.ok) {
@@ -101,6 +109,18 @@
 		>
 			{loading ? 'Running...' : 'Run Diagnostics'}
 		</Button>
+		<label class="text-tertiary flex items-center gap-1 text-xs">
+			Scan last
+			<select
+				class="border-surface-secondary text-secondary rounded border bg-transparent px-1 py-0.5 text-xs"
+				bind:value={scanLimit}
+			>
+				{#each scanLimitOptions as opt}
+					<option value={opt.value}>{opt.label}</option>
+				{/each}
+			</select>
+			jobs
+		</label>
 		{#if loading}
 			<span class="text-tertiary text-xs">This may take a few seconds...</span>
 		{/if}
@@ -210,7 +230,9 @@
 				class="flex w-full items-center justify-between p-3 text-left hover:bg-surface-secondary/50"
 				onclick={() => toggleSection('large_results')}
 			>
-				<h3 class="text-primary text-sm font-semibold">Large Job Results (last 30 days)</h3>
+				<h3 class="text-primary text-sm font-semibold"
+					>Large Job Results (last {scanLimit.toLocaleString()} jobs)</h3
+				>
 				<div class="flex items-center gap-2">
 					{#if data.large_results.avg_result_size_bytes != null}
 						<span class="text-tertiary text-xs"
