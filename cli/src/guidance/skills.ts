@@ -5183,7 +5183,7 @@ sync local with a remote instance or the opposite (push or pull)
 - \`instance whoami\` - Display information about the currently logged-in user
 - \`instance get-config\` - Dump the current instance config (global settings + worker configs) as YAML
   - \`-o, --output-file <file:string>\` - Write YAML to a file instead of stdout
-  - \`--show-secrets\` - Show sensitive fields (license key, JWT secret) instead of masking them
+  - \`--show-secrets\` - Include sensitive fields (license key, JWT secret) without prompting
   - \`--instance <instance:string>\` - Name of the instance, override the active instance
 
 ### jobs
