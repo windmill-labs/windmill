@@ -664,9 +664,13 @@ export async function getActiveInstance(opts: {
   }
 }
 
-async function getConfig(opts: InstanceSyncOptions & { outputFile?: string }) {
+async function getConfig(opts: InstanceSyncOptions & { outputFile?: string; showSecrets?: boolean }) {
   await pickInstance(opts, false);
-  const config = await wmill.getInstanceConfig();
+  const config = await wmill.getInstanceConfig() as any;
+  if (!opts.showSecrets && config?.global_settings) {
+    if (config.global_settings.license_key) config.global_settings.license_key = "***";
+    if (config.global_settings.jwt_secret) config.global_settings.jwt_secret = "***";
+  }
   const yaml = yamlStringify(config as Record<string, unknown>);
   if (opts.outputFile) {
     await writeFile(opts.outputFile, yaml, "utf-8");
@@ -802,6 +806,7 @@ const command = new Command()
   .command("get-config")
   .description("Dump the current instance config (global settings + worker configs) as YAML")
   .option("-o, --output-file <file:string>", "Write YAML to a file instead of stdout")
+  .option("--show-secrets", "Show sensitive fields (license key, JWT secret) instead of masking them")
   .option(
     "--instance <instance:string>",
     "Name of the instance, override the active instance",

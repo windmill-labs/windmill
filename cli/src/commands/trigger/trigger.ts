@@ -450,7 +450,7 @@ async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path
     } else {
       console.log(colors.bold("Path:") + " " + trigger.path);
       console.log(colors.bold("Kind:") + " " + kind);
-      console.log(colors.bold("Enabled:") + " " + (trigger.enabled ?? "-"));
+      console.log(colors.bold("Enabled:") + " " + (trigger.enabled ?? (trigger as any).mode ?? "-"));
       console.log(colors.bold("Script Path:") + " " + (trigger.script_path ?? ""));
       console.log(colors.bold("Is Flow:") + " " + (trigger.is_flow ? "true" : "false"));
     }
@@ -474,6 +474,7 @@ async function listOrEmpty<T>(fn: () => Promise<T[]>): Promise<T[]> {
 }
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 

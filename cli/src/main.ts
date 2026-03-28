@@ -218,8 +218,10 @@ async function main() {
     await command.parse(args);
   } catch (e) {
     if (e && typeof e === "object" && "name" in e && e.name === "ApiError") {
+      const body = (e as any).body;
+      const bodyStr = typeof body === "object" && body !== null ? JSON.stringify(body) : body;
       log.error(
-        "Server failed. " + (e as any).statusText + ": " + (e as any).body
+        "Server failed. " + (e as any).statusText + ": " + bodyStr
       );
     } else if (e instanceof Error) {
       log.error(e.message);

@@ -858,6 +858,7 @@ async function list(
     json?: boolean;
   }
 ) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 

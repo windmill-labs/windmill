@@ -155,6 +155,7 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
 }
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   let page = 0;

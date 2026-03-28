@@ -60,14 +60,14 @@ workspace dependencies related commands
 
 ### dev
 
-Launch a dev server that will spawn a webserver with HMR
+Launch a dev server that watches for local file changes and auto-pushes them to the remote workspace. Provides live reload for scripts and flows during development.
 
 **Options:**
 - `--includes <pattern...:string>` - Filter paths givena glob pattern or path
 
 ### docs
 
-Search Windmill documentation. Requires Enterprise Edition.
+Search Windmill documentation.
 
 **Arguments:** `<query:string>`
 
@@ -225,6 +225,7 @@ sync local with a remote instance or the opposite (push or pull)
 - `instance whoami` - Display information about the currently logged-in user
 - `instance get-config` - Dump the current instance config (global settings + worker configs) as YAML
   - `-o, --output-file <file:string>` - Write YAML to a file instead of stdout
+  - `--show-secrets` - Show sensitive fields (license key, JWT secret) instead of masking them
   - `--instance <instance:string>` - Name of the instance, override the active instance
 
 ### jobs
@@ -364,6 +365,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--json` - Use JSON instead of YAML
   - `--skip-variables` - Skip syncing variables (including secrets)
   - `--skip-secrets` - Skip syncing only secrets variables
+  - `--include-secrets` - Include secrets in sync (overrides skipSecrets in wmill.yaml)
   - `--skip-resources` - Skip syncing  resources
   - `--skip-resource-types` - Skip syncing  resource types
   - `--skip-scripts` - Skip syncing scripts
@@ -393,6 +395,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--json` - Use JSON instead of YAML
   - `--skip-variables` - Skip syncing variables (including secrets)
   - `--skip-secrets` - Skip syncing only secrets variables
+  - `--include-secrets` - Include secrets in sync (overrides skipSecrets in wmill.yaml)
   - `--skip-resources` - Skip syncing  resources
   - `--skip-resource-types` - Skip syncing  resource types
   - `--skip-scripts` - Skip syncing scripts
@@ -418,6 +421,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--branch, --env <branch:string>` - Override the current git branch/environment (works even outside a git repository)
   - `--lint` - Run lint validation before pushing
   - `--locks-required` - Fail if scripts or flow inline scripts that need locks have no locks
+  - `--auto` - Automatically regenerate stale metadata (locks and schemas) before pushing
 
 ### trigger
 

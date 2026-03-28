@@ -218,6 +218,7 @@ async function push(opts: Options, filePath: string, remotePath: string) {
 async function list(
   opts: GlobalOptions & { showArchived?: boolean; includeDraftOnly?: boolean; json?: boolean }
 ) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
