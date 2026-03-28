@@ -2750,7 +2750,8 @@ export async function push(
     log.info("");
   }
 
-  // Warn about local files for skipped types (use already-computed local FS tree)
+  // Warn about local files for skipped types. Walks the in-memory DynFSElement tree
+  // (not a fresh disk scan), but does re-traverse it. Acceptable cost for a one-time check.
   {
     const skippedWarnings: string[] = [];
     let scheduleCount = 0;
