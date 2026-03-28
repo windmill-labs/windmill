@@ -22,7 +22,6 @@ async function list(
     before?: string;
     after?: string;
     limit?: number;
-    resource?: string;
   }
 ) {
   if (opts.json) log.setSilent(true);
@@ -95,24 +94,20 @@ async function get(
   }
 }
 
-const command = new Command()
-  .description("View audit logs (requires admin)")
-  .option("--json", "Output as JSON (for piping to jq)")
-  .option("--username <username:string>", "Filter by username")
-  .option("--operation <operation:string>", "Filter by operation (exact or prefix)")
-  .option("--action-kind <actionKind:string>", "Filter by action kind (Create, Update, Delete, Execute)")
-  .option("--before <before:string>", "Filter events before this timestamp")
-  .option("--after <after:string>", "Filter events after this timestamp")
-  .option("--limit <limit:number>", "Number of entries to return (default 30, max 100)")
+const auditListOptions = (cmd: Command) =>
+  cmd
+    .option("--json", "Output as JSON (for piping to jq)")
+    .option("--username <username:string>", "Filter by username")
+    .option("--operation <operation:string>", "Filter by operation (exact or prefix)")
+    .option("--action-kind <actionKind:string>", "Filter by action kind (Create, Update, Delete, Execute)")
+    .option("--before <before:string>", "Filter events before this timestamp")
+    .option("--after <after:string>", "Filter events after this timestamp")
+    .option("--limit <limit:number>", "Number of entries to return (default 30, max 100)");
+
+const command = auditListOptions(new Command()
+  .description("View audit logs (requires admin)"))
   .action(list as any)
-  .command("list", "List audit log entries")
-  .option("--json", "Output as JSON (for piping to jq)")
-  .option("--username <username:string>", "Filter by username")
-  .option("--operation <operation:string>", "Filter by operation (exact or prefix)")
-  .option("--action-kind <actionKind:string>", "Filter by action kind (Create, Update, Delete, Execute)")
-  .option("--before <before:string>", "Filter events before this timestamp")
-  .option("--after <after:string>", "Filter events after this timestamp")
-  .option("--limit <limit:number>", "Number of entries to return (default 30, max 100)")
+  .command("list", auditListOptions(new Command().description("List audit log entries")))
   .action(list as any)
   .command("get", "Get a specific audit log entry")
   .arguments("<id:string>")

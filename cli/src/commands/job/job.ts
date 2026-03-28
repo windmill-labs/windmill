@@ -77,7 +77,7 @@ async function list(
     createdBy: opts.createdBy,
     running: opts.running,
     success: successFilter,
-    perPage: opts.limit ?? 30,
+    perPage: Math.min(opts.limit ?? 30, 100),
     jobKinds: opts.jobKinds ?? "script,flow,singlestepflow",
     label: opts.label,
     hasNullParent: opts.all ? undefined : true,
@@ -126,24 +126,25 @@ async function get(
   if (opts.json) {
     console.log(JSON.stringify(job));
   } else {
-    console.log(colors.bold("ID:") + " " + (job as any).id);
-    console.log(colors.bold("Status:") + " " + getJobStatusPlain(job as any));
-    console.log(colors.bold("Kind:") + " " + (job as any).job_kind);
-    console.log(colors.bold("Script Path:") + " " + ((job as any).script_path ?? "-"));
-    console.log(colors.bold("Created By:") + " " + ((job as any).created_by ?? "-"));
-    console.log(colors.bold("Created At:") + " " + ((job as any).created_at ? formatTimestamp((job as any).created_at) : "-"));
-    if ((job as any).started_at) {
-      console.log(colors.bold("Started At:") + " " + formatTimestamp((job as any).started_at));
+    const j = job as any;
+    console.log(colors.bold("ID:") + " " + j.id);
+    console.log(colors.bold("Status:") + " " + getJobStatusPlain(j));
+    console.log(colors.bold("Kind:") + " " + j.job_kind);
+    console.log(colors.bold("Script Path:") + " " + (j.script_path ?? "-"));
+    console.log(colors.bold("Created By:") + " " + (j.created_by ?? "-"));
+    console.log(colors.bold("Created At:") + " " + (j.created_at ? formatTimestamp(j.created_at) : "-"));
+    if (j.started_at) {
+      console.log(colors.bold("Started At:") + " " + formatTimestamp(j.started_at));
     }
-    if ((job as any).duration_ms != null) {
-      console.log(colors.bold("Duration:") + " " + formatDuration((job as any).duration_ms));
+    if (j.duration_ms != null) {
+      console.log(colors.bold("Duration:") + " " + formatDuration(j.duration_ms));
     }
-    if ((job as any).schedule_path) {
-      console.log(colors.bold("Schedule:") + " " + (job as any).schedule_path);
+    if (j.schedule_path) {
+      console.log(colors.bold("Schedule:") + " " + j.schedule_path);
     }
-    if ((job as any).result !== undefined) {
+    if (j.result !== undefined) {
       console.log(colors.bold("Result:"));
-      console.log(JSON.stringify((job as any).result, null, 2));
+      console.log(JSON.stringify(j.result, null, 2));
     }
   }
 }

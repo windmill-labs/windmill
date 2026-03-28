@@ -8,6 +8,7 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
 import {
@@ -164,6 +165,7 @@ export async function pushSchedule(
 }
 
 async function enable(opts: GlobalOptions, path: string) {
+  opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -177,6 +179,7 @@ async function enable(opts: GlobalOptions, path: string) {
 }
 
 async function disable(opts: GlobalOptions, path: string) {
+  opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
