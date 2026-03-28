@@ -447,7 +447,7 @@ async function generateMetadata(
     for (const { path, error } of errors) {
       log.error(`  ${path}: ${error}`);
     }
-    process.exit(1);
+    process.exitCode = 1;
   } else {
     log.info(`Done. Updated ${colors.bold(String(total))} item(s).`);
   }

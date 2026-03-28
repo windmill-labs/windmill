@@ -223,6 +223,8 @@ async function main() {
       );
     } else if (e instanceof Error) {
       log.error(e.message);
+    } else if (e !== undefined && e !== null) {
+      log.error(String(e));
     }
     const isDebug =
       process.argv.includes("--verbose") || process.argv.includes("--debug");

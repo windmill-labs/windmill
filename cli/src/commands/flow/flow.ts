@@ -265,6 +265,7 @@ async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
     console.log(colors.bold("Description:") + " " + (f.description ?? ""));
     console.log(colors.bold("Edited by:") + " " + (f.edited_by ?? ""));
     console.log(colors.bold("Edited at:") + " " + (f.edited_at ?? ""));
+    // API response type doesn't include flow value/modules — cast needed to access them
     const modules = (f as any).value?.modules;
     if (modules && Array.isArray(modules) && modules.length > 0) {
       console.log(colors.bold("Steps:"));

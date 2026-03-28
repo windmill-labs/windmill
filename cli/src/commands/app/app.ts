@@ -5,6 +5,7 @@ import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
+import { stat } from "node:fs/promises";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
@@ -247,7 +248,6 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   let hasRawAppYaml = false;
   if (!isRawApp) {
     try {
-      const { stat } = await import("node:fs/promises");
       const rawAppPath = (filePath.endsWith(SEP) ? filePath : filePath + SEP) + "raw_app.yaml";
       await stat(rawAppPath);
       hasRawAppYaml = true;

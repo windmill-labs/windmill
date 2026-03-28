@@ -364,6 +364,9 @@ export function removeType(str: string, type: string) {
     return normalizedStr.slice(0, normalizedStr.length - type.length - 6);
   }
   // Accept clean paths without the type suffix (e.g. "f/folder/name" instead of "f/folder/name.schedule.yaml")
+  if (normalizedStr.includes("." + type)) {
+    log.debug(`Path '${str}' contains '.${type}' but doesn't end with '.${type}.(yaml|json)' — treating as clean path`);
+  }
   return normalizedStr;
 }
 

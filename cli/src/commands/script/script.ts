@@ -949,6 +949,8 @@ async function run(
         }
       } catch (lookupErr: any) {
         if (lookupErr?.message?.includes("deployment error")) throw lookupErr;
+        // Re-throw non-404 lookup errors (e.g. auth/network issues)
+        if (lookupErr?.status && lookupErr.status !== 404) throw lookupErr;
       }
       throw new Error(
         `Script '${path}' not found. Run 'wmill script list' to see available scripts.`
