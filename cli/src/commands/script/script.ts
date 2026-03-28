@@ -858,6 +858,7 @@ async function list(
     json?: boolean;
   }
 ) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -920,15 +921,44 @@ async function run(
   },
   path: string
 ) {
+  if (opts.silent) {
+    log.setSilent(true);
+  }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
   const input = opts.data ? await resolve(opts.data) : {};
-  const id = await wmill.runScriptByPath({
-    workspace: workspace.workspaceId,
-    path,
-    requestBody: input,
-  });
+  let id: string;
+  try {
+    id = await wmill.runScriptByPath({
+      workspace: workspace.workspaceId,
+      path,
+      requestBody: input,
+    });
+  } catch (e: any) {
+    if (e?.status === 404) {
+      // Script might exist but have a lock/deployment error — check before giving up
+      try {
+        const script = await wmill.getScriptByPath({
+          workspace: workspace.workspaceId,
+          path,
+        });
+        if (script.lock_error_logs) {
+          throw new Error(
+            `Script '${path}' has a deployment error and cannot be run:\n${script.lock_error_logs}`
+          );
+        }
+      } catch (lookupErr: any) {
+        if (lookupErr?.message?.includes("deployment error")) throw lookupErr;
+        // Re-throw non-404 lookup errors (e.g. auth/network issues)
+        if (lookupErr?.status && lookupErr.status !== 404) throw lookupErr;
+      }
+      throw new Error(
+        `Script '${path}' not found. Run 'wmill script list' to see available scripts.`
+      );
+    }
+    throw e;
+  }
 
   if (!opts.silent) {
     await track_job(workspace.workspaceId, id);
@@ -945,7 +975,7 @@ async function run(
         ).result ?? {};
 
       if (opts.silent) {
-        console.log(result);
+        console.log(JSON.stringify(result));
       } else {
         log.info(JSON.stringify(result, null, 2));
       }
@@ -1087,7 +1117,10 @@ async function bootstrap(
 
   const scriptInitialCode = scriptBootstrapCode[resolvedLanguage];
   if (scriptInitialCode === undefined) {
-    throw new Error("Language unknown");
+    const validLanguages = Object.keys(scriptBootstrapCode).sort().join(", ");
+    throw new Error(
+      `Unknown language '${language}'. Valid languages: ${validLanguages}`
+    );
   }
 
   const config = await readConfigFile();
@@ -1262,6 +1295,9 @@ async function preview(
   } & SyncOptions,
   filePath: string
 ) {
+  if (opts.silent) {
+    log.setSilent(true);
+  }
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -1465,6 +1501,42 @@ async function preview(
   }
 }
 
+async function history(
+  opts: GlobalOptions & { json?: boolean },
+  scriptPath: string
+) {
+  if (opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const versions = await wmill.getScriptHistoryByPath({
+    workspace: workspace.workspaceId,
+    path: scriptPath,
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(versions));
+  } else {
+    if (versions.length === 0) {
+      log.info("No version history found for " + scriptPath);
+      return;
+    }
+    new Table()
+      .header(["#", "Hash", "Deployment Message"])
+      .padding(2)
+      .border(true)
+      .body(
+        versions.map((v, i) => [
+          String(versions.length - i),
+          v.script_hash,
+          v.deployment_msg ?? "-",
+        ])
+      )
+      .render();
+  }
+}
+
 const command = new Command()
   .description("script related commands")
   .option("--show-archived", "Enable archived scripts in output")
@@ -1539,6 +1611,13 @@ const command = new Command()
     "-e --excludes <patterns:file[]>",
     "Comma separated patterns to specify which file to NOT take into account."
   )
-  .action(generateMetadata as any);
+  .action(generateMetadata as any)
+  .command(
+    "history",
+    "show version history for a script"
+  )
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(history as any);
 
 export default command;

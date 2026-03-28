@@ -218,6 +218,7 @@ async function push(opts: Options, filePath: string, remotePath: string) {
 async function list(
   opts: GlobalOptions & { showArchived?: boolean; includeDraftOnly?: boolean; json?: boolean }
 ) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -265,6 +266,16 @@ async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
     console.log(colors.bold("Description:") + " " + (f.description ?? ""));
     console.log(colors.bold("Edited by:") + " " + (f.edited_by ?? ""));
     console.log(colors.bold("Edited at:") + " " + (f.edited_at ?? ""));
+    // API response type doesn't include flow value/modules — cast needed to access them
+    const modules = (f as any).value?.modules;
+    if (modules && Array.isArray(modules) && modules.length > 0) {
+      console.log(colors.bold("Steps:"));
+      for (const mod of modules) {
+        const type = mod.value?.type ?? "unknown";
+        const detail = mod.value?.language ?? mod.value?.path ?? "";
+        console.log(`  ${mod.id}: ${type}${detail ? " (" + detail + ")" : ""}`);
+      }
+    }
   }
 }
 
@@ -275,6 +286,9 @@ async function run(
   },
   path: string
 ) {
+  if (opts.silent) {
+    log.setSilent(true);
+  }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -322,7 +336,11 @@ async function run(
     workspace: workspace.workspaceId,
     id,
   });
-  log.info(JSON.stringify(jobInfo.result ?? {}, null, 2));
+  if (opts.silent) {
+    console.log(JSON.stringify(jobInfo.result ?? {}));
+  } else {
+    log.info(JSON.stringify(jobInfo.result ?? {}, null, 2));
+  }
 }
 
 async function preview(
@@ -333,6 +351,9 @@ async function preview(
   } & SyncOptions,
   flowPath: string
 ) {
+  if (opts.silent) {
+    log.setSilent(true);
+  }
   const useLocalPathScripts = !opts.remote;
   if (useLocalPathScripts) {
     opts = await mergeConfigWithConfigFile(opts);
@@ -341,14 +362,16 @@ async function preview(
   await requireLogin(opts);
   const codebases = useLocalPathScripts ? listSyncCodebases(opts) : [];
 
-  // Normalize path - ensure it's a directory path to a .flow folder
-  if (!flowPath.endsWith(".flow") && !flowPath.endsWith(".flow" + SEP)) {
+  // Normalize path - ensure it's a directory path to a .flow or __flow folder
+  const isFlowDir = flowPath.endsWith(".flow") || flowPath.endsWith(".flow" + SEP)
+    || flowPath.endsWith("__flow") || flowPath.endsWith("__flow" + SEP);
+  if (!isFlowDir) {
     // Check if it's a flow.yaml file
     if (flowPath.endsWith("flow.yaml") || flowPath.endsWith("flow.json")) {
       flowPath = flowPath.substring(0, flowPath.lastIndexOf(SEP));
     } else {
       throw new Error(
-        "Flow path must be a .flow directory or a flow.yaml file"
+        "Flow path must be a .flow/__flow directory or a flow.yaml file"
       );
     }
   }
@@ -428,7 +451,7 @@ async function preview(
   }
 
   if (opts.silent) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(result));
   } else {
     log.info(colors.bold.underline.green("Flow preview completed"));
     log.info(JSON.stringify(result, null, 2));
@@ -547,6 +570,71 @@ export async function bootstrap(
   writeFileSync(flowYamlPath, newFlowDefinitionYaml, { flag: "wx", encoding: "utf-8" });
 }
 
+async function history(
+  opts: GlobalOptions & { json?: boolean },
+  flowPath: string
+) {
+  if (opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const versions = await wmill.getFlowHistory({
+    workspace: workspace.workspaceId,
+    path: flowPath,
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(versions));
+  } else {
+    if (versions.length === 0) {
+      log.info("No version history found for " + flowPath);
+      return;
+    }
+    new Table()
+      .header(["Version", "Created At", "Deployment Message"])
+      .padding(2)
+      .border(true)
+      .body(
+        versions.map((v) => [
+          String(v.id),
+          new Date(v.created_at).toISOString().replace("T", " ").substring(0, 19),
+          v.deployment_msg ?? "-",
+        ])
+      )
+      .render();
+  }
+}
+
+async function showVersion(
+  opts: GlobalOptions & { json?: boolean },
+  flowPath: string,
+  version: string
+) {
+  if (opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const flow = await wmill.getFlowVersion({
+    workspace: workspace.workspaceId,
+    path: flowPath,
+    version: parseInt(version, 10),
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(flow));
+  } else {
+    console.log(colors.bold("Path:") + " " + flow.path);
+    console.log(colors.bold("Summary:") + " " + (flow.summary ?? "-"));
+    console.log(colors.bold("Description:") + " " + (flow.description ?? "-"));
+    console.log(colors.bold("Schema:"));
+    console.log(JSON.stringify(flow.schema, null, 2));
+    console.log(colors.bold("Value:"));
+    console.log(JSON.stringify(flow.value, null, 2));
+  }
+}
+
 const command = new Command()
   .description("flow related commands")
   .option("--show-archived", "Enable archived flows in output")
@@ -620,6 +708,14 @@ const command = new Command()
   .arguments("<flow_path:string>")
   .option("--summary <summary:string>", "flow summary")
   .option("--description <description:string>", "flow description")
-  .action(bootstrap as any);
+  .action(bootstrap as any)
+  .command("history", "Show version history for a flow")
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(history as any)
+  .command("show-version", "Show a specific version of a flow")
+  .arguments("<path:string> <version:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(showVersion as any);
 
 export default command;

@@ -88,6 +88,7 @@ async function push(opts: PushOptions, filePath: string, name: string) {
 }
 
 async function list(opts: GlobalOptions & { schema?: boolean; json?: boolean }) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const res = await wmill.listResourceType({

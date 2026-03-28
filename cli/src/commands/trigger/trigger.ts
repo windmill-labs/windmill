@@ -308,11 +308,20 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     http_method: "get",
     is_async: false,
     requires_auth: true,
+    request_type: "sync",
+    authentication_method: "none",
+    is_static_website: false,
+    workspaced_route: false,
+    wrap_body: false,
+    raw_string: false,
   },
   websocket: {
     script_path: "",
     is_flow: false,
     url: "",
+    filters: [],
+    can_return_message: false,
+    can_return_error_result: false,
     enabled: false,
   },
   kafka: {
@@ -321,6 +330,7 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     kafka_resource_path: "",
     group_id: "",
     topics: [],
+    filters: [],
     enabled: false,
   },
   nats: {
@@ -328,6 +338,7 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     is_flow: false,
     nats_resource_path: "",
     subjects: [],
+    use_jetstream: false,
     enabled: false,
   },
   postgres: {
@@ -342,23 +353,25 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     script_path: "",
     is_flow: false,
     mqtt_resource_path: "",
-    topics: [],
-    subscribe_qos: 0,
+    subscribe_topics: [],
     enabled: false,
   },
   sqs: {
     script_path: "",
     is_flow: false,
-    sqs_resource_path: "",
     queue_url: "",
+    aws_resource_path: "",
+    aws_auth_resource_type: "credentials",
     enabled: false,
   },
   gcp: {
     script_path: "",
     is_flow: false,
     gcp_resource_path: "",
-    subscription_id: "",
     topic_id: "",
+    subscription_id: "",
+    delivery_type: "pull",
+    subscription_mode: "create_update",
     enabled: false,
   },
   email: {
@@ -437,7 +450,7 @@ async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path
     } else {
       console.log(colors.bold("Path:") + " " + trigger.path);
       console.log(colors.bold("Kind:") + " " + kind);
-      console.log(colors.bold("Enabled:") + " " + (trigger.enabled ?? "-"));
+      console.log(colors.bold("Enabled:") + " " + (trigger.enabled ?? (trigger as any).mode ?? "-"));
       console.log(colors.bold("Script Path:") + " " + (trigger.script_path ?? ""));
       console.log(colors.bold("Is Flow:") + " " + (trigger.is_flow ? "true" : "false"));
     }
@@ -461,6 +474,7 @@ async function listOrEmpty<T>(fn: () => Promise<T[]>): Promise<T[]> {
 }
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 

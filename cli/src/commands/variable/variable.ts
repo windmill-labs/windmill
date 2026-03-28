@@ -20,6 +20,7 @@ import * as wmill from "../../../gen/services.gen.ts";
 import { ListableVariable } from "../../../gen/types.gen.ts";
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
