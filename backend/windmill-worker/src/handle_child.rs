@@ -128,17 +128,22 @@ pub async fn handle_child(
     let pid = child.id();
     #[cfg(target_os = "linux")]
     if let Some(pid) = pid {
-        //set the highest oom priority
-        if let Some(mut file) = File::create(format!("/proc/{pid}/oom_score_adj"))
-            .await
-            .map_err(|e| {
-                tracing::error!("Could not create oom_score_file to pid {pid}: {e:#}");
-                e
-            })
-            .ok()
-        {
-            let _ = file.write_all(b"1000").await;
-            let _ = file.sync_all().await;
+        //set the highest oom priority so OOM killer targets this job, not the worker
+        match File::create(format!("/proc/{pid}/oom_score_adj")).await {
+            Ok(mut file) => {
+                if let Err(e) = file.write_all(b"1000").await {
+                    tracing::error!("Failed to write oom_score_adj for pid {pid}: {e:#}");
+                }
+                if let Err(e) = file.sync_all().await {
+                    tracing::warn!("Failed to sync oom_score_adj for pid {pid}: {e:#}");
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Could not open /proc/{pid}/oom_score_adj: {e:#}. \
+                    OOM killer may target the worker instead of this job"
+                );
+            }
         }
     } else {
         tracing::info!("could not get child pid");
@@ -353,6 +358,7 @@ pub async fn handle_child(
 }
 
 pub const OTEL_PREFIX: &str = "OTEL: ";
+pub const WAC_STEP_PREFIX: &str = "WM_WAC_STEP: ";
 
 pub async fn write_lines(
     output: impl stream::Stream<Item = io::Result<String>> + Send,
@@ -426,16 +432,43 @@ pub async fn write_lines(
         let job_id = job_id.clone();
         let mut nstream = String::new();
 
+        // Snapshot secrets once per batch — no lock needed per line.
+        // Trade-off: secrets registered mid-batch (between snapshot and log line)
+        // won't be masked until the next batch. In practice the async HTTP round-trip
+        // to fetch a secret completes before the script's log line arrives.
+        let mask_snapshot = windmill_common::sensitive_log_masks::snapshot(&job_id);
+
         while let Some(line) = read_lines.next().await {
             match line {
                 Ok(line) => {
                     if line.is_empty() {
                         continue;
                     }
+                    let line = if let Some(ref snap) = mask_snapshot {
+                        match snap.mask(&line) {
+                            std::borrow::Cow::Owned(masked) => masked,
+                            std::borrow::Cow::Borrowed(_) => line,
+                        }
+                    } else {
+                        line
+                    };
                     if *OTEL_JOB_LOGS {
                         if let Some(otel_suffix) = line.strip_prefix(OTEL_PREFIX) {
                             tracing::event!(tracing::Level::INFO, otel_suffix);
                         }
+                    }
+                    if let Some(step_json) = line.strip_prefix(WAC_STEP_PREFIX) {
+                        // Real-time WAC step start marker — fire-and-forget DB write
+                        let conn = conn.clone();
+                        let job_id = job_id.clone();
+                        let step_json = step_json.to_string();
+                        tokio::spawn(async move {
+                            if let Err(e) = handle_wac_step_marker(&conn, &job_id, &step_json).await
+                            {
+                                tracing::warn!(%job_id, "Failed to write WAC step marker: {e}");
+                            }
+                        });
+                        continue;
                     }
                     if let Some(stream) = extract_stream_from_logs(&line) {
                         let len = stream.len();
@@ -564,6 +597,58 @@ pub async fn write_lines(
     }
 }
 
+/// Handle a real-time WAC step start marker emitted via stdout.
+/// Writes a timeline entry (with started_at but no duration_ms) to workflow_as_code_status
+/// so the frontend can show the step immediately while it's still running.
+async fn handle_wac_step_marker(
+    conn: &Connection,
+    job_id: &Uuid,
+    json_str: &str,
+) -> error::Result<()> {
+    #[derive(serde::Deserialize)]
+    struct StepMarker {
+        key: String,
+        started_at: String,
+    }
+    let marker: StepMarker = serde_json::from_str(json_str).map_err(|e| {
+        error::Error::internal_err(format!("Failed to parse WM_WAC_STEP marker: {e}"))
+    })?;
+
+    let step_timeline_key = format!("_step/{}", marker.key);
+    let timeline_val = serde_json::json!({
+        "scheduled_for": marker.started_at,
+        "started_at": marker.started_at,
+        "name": marker.key,
+    });
+
+    match conn {
+        Connection::Sql(db) => {
+            sqlx::query(
+                "INSERT INTO v2_job_status (id, workflow_as_code_status)
+                 VALUES ($1, jsonb_build_object($2, $3::jsonb))
+                 ON CONFLICT (id) DO UPDATE SET
+                 workflow_as_code_status = jsonb_set(
+                     COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+                     ARRAY[$2],
+                     $3::jsonb
+                 )",
+            )
+            .bind(job_id)
+            .bind(&step_timeline_key)
+            .bind(&timeline_val)
+            .execute(db)
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!("DB error writing WAC step marker: {e}"))
+            })?;
+        }
+        Connection::Http(_) => {
+            // Agent workers don't support WAC v2 yet
+        }
+    }
+    Ok(())
+}
+
 pub(crate) async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     if pid.is_none() {
         return -1;
@@ -674,6 +759,96 @@ where
     Ok(rows)
 }
 
+/// Outcome of [`run_future_with_polling_update_job_poller_graceful`].
+pub enum GracefulPollOutcome<T> {
+    /// The future completed normally.
+    Ok(T),
+    /// The job timed out.
+    Timeout(u64),
+    /// The job was cancelled and the future finished within the grace period.
+    Cancelled { canceled_by: Option<CanceledBy> },
+    /// The job was cancelled but the future did NOT finish within the grace period.
+    CancelledTimeout { canceled_by: Option<CanceledBy> },
+    /// The job was already moved to v2_job_completed externally.
+    AlreadyCompleted,
+}
+
+/// Like [`run_future_with_polling_update_job_poller`] but on cancellation, signals
+/// `cancel_tx` and waits up to `grace_period` for the future to finish instead of
+/// dropping it immediately. This lets in-flight work (e.g. AI tool calls) complete
+/// and clean up properly.
+pub async fn run_future_with_polling_update_job_poller_graceful<Fut, T, S>(
+    job_id: Uuid,
+    timeout: Option<i32>,
+    conn: &Connection,
+    mem_peak: &mut i32,
+    canceled_by_ref: &mut Option<CanceledBy>,
+    result_f: Fut,
+    worker_name: &str,
+    w_id: &str,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    get_mem: S,
+    cancel_tx: watch::Sender<bool>,
+    grace_period: std::time::Duration,
+) -> error::Result<GracefulPollOutcome<T>>
+where
+    Fut: Future<Output = error::Result<T>>,
+    S: stream::Stream<Item = i32> + Unpin,
+{
+    let (tx, rx) = broadcast::channel::<()>(3);
+
+    let mut update_job = Box::pin(update_job_poller(
+        job_id,
+        conn,
+        mem_peak,
+        canceled_by_ref,
+        get_mem,
+        worker_name,
+        w_id,
+        rx,
+        occupancy_metrics,
+    ));
+
+    let timeout_ms = u64::try_from(
+        resolve_job_timeout(conn, w_id, job_id, timeout)
+            .await
+            .0
+            .as_millis(),
+    )
+    .unwrap_or(200_000);
+
+    let mut result_f = Box::pin(result_f);
+
+    let outcome = tokio::select! {
+        biased;
+        result = tokio::time::timeout(
+            std::time::Duration::from_millis(timeout_ms),
+            &mut result_f,
+        ) => {
+            match result {
+                Ok(Ok(v)) => GracefulPollOutcome::Ok(v),
+                Ok(Err(e)) => return Err(e),
+                Err(_) => GracefulPollOutcome::Timeout(timeout_ms),
+            }
+        }
+        ex = &mut update_job, if job_id != Uuid::nil() => {
+            match ex {
+                UpdateJobPollingExit::Done(cb) => {
+                    let _ = cancel_tx.send(true);
+                    match tokio::time::timeout(grace_period, &mut result_f).await {
+                        Ok(_) => GracefulPollOutcome::Cancelled { canceled_by: cb },
+                        Err(_) => GracefulPollOutcome::CancelledTimeout { canceled_by: cb },
+                    }
+                }
+                UpdateJobPollingExit::AlreadyCompleted => GracefulPollOutcome::AlreadyCompleted,
+            }
+        }
+    };
+
+    drop(tx);
+    Ok(outcome)
+}
+
 pub enum UpdateJobPollingExit {
     Done(Option<CanceledBy>),
     AlreadyCompleted,
@@ -737,21 +912,24 @@ where
                 let update_job_row = i == 2 || (!*SLOW_LOGS && (i < 20 || (i < 120 && i % 5 == 0) || i % 10 == 0)) || i % 20 == 0;
                 if update_job_row && job_id != Uuid::nil() {
                     if let Connection::Sql(ref db) = conn {
-                        // tracking metric starting at i >= 2 b/c first point it useless and we don't want to track metric for super fast jobs
-                        if i == 2 {
-                            memory_metric_id = job_metrics::register_metric_for_job(
-                                &db,
-                                w_id.to_string(),
-                                job_id,
-                                "memory_kb".to_string(),
-                                job_metrics::MetricKind::TimeseriesInt,
-                                Some("Job Memory Footprint (kB)".to_string()),
-                            )
-                            .await;
-                        }
-                        if let Ok(ref metric_id) = memory_metric_id {
-                            if let Err(err) = job_metrics::record_metric(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem)).await {
-                                tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                        // Only track memory when it's non-zero (avoids storing all-zero timeseries for jobs that don't report memory)
+                        if current_mem > 0 {
+                            // Register on first non-zero reading (deferred from i==2 to avoid metric for jobs with no memory reporting)
+                            if memory_metric_id.is_err() {
+                                memory_metric_id = job_metrics::register_metric_for_job(
+                                    &db,
+                                    w_id.to_string(),
+                                    job_id,
+                                    "memory_kb".to_string(),
+                                    job_metrics::MetricKind::TimeseriesInt,
+                                    Some("Job Memory Footprint (kB)".to_string()),
+                                )
+                                .await;
+                            }
+                            if let Ok(ref metric_id) = memory_metric_id {
+                                if let Err(err) = job_metrics::record_timeseries_value(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem), job_metrics::MetricKind::TimeseriesInt).await {
+                                    tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                                }
                             }
                         }
                     }

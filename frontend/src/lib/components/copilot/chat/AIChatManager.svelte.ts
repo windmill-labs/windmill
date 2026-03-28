@@ -1,4 +1,5 @@
 import type { AIProviderModel, ScriptLang } from '$lib/gen/types.gen'
+import { WorkspaceService } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import {
 	flowTools,
@@ -22,8 +23,7 @@ import {
 } from './shared'
 import type {
 	ChatCompletionMessageParam,
-	ChatCompletionSystemMessageParam,
-	ChatCompletionUserMessageParam
+	ChatCompletionSystemMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import {
 	prepareInlineChatSystemPrompt,
@@ -36,13 +36,14 @@ import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { getCompletion, getModelContextWindow, parseOpenAICompletion } from '../lib'
+import { getModelContextWindow, workspaceAIClients } from '../lib'
 import { dfs } from '$lib/components/flows/previousResults'
 import { getStringError } from './utils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import { type DBSchemas } from '$lib/stores'
+import { get } from 'svelte/store'
+import { workspaceStore, type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import type {
@@ -54,8 +55,7 @@ import type {
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
-import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
-import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
+import { runChatLoop } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 
@@ -411,130 +411,63 @@ class AIChatManager {
 		systemMessage?: ChatCompletionSystemMessageParam
 	}) => {
 		try {
-			let addedMessages: ChatCompletionMessageParam[] = []
-			while (true) {
-				const systemMessage = systemMessageOverride ?? this.systemMessage
-				const helpers = this.helpers
-				const tools = this.tools
-				for (const tool of tools) {
-					if (tool.setSchema) {
-						await tool.setSchema(helpers)
-					}
-				}
-
-				let pendingPrompt = this.pendingPrompt
-				let pendingUserMessage: ChatCompletionUserMessageParam | undefined = undefined
-				if (pendingPrompt) {
+			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
+			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
+			// which reassigns this.tools, this.helpers, this.systemMessage mid-loop.
+			const self = this
+			const result = await runChatLoop({
+				messages,
+				get systemMessage() {
+					return systemMessageOverride ?? self.systemMessage
+				},
+				get tools() {
+					return self.tools
+				},
+				get helpers() {
+					return self.helpers
+				},
+				abortController,
+				callbacks,
+				get modelProvider() {
+					return getCurrentModel()
+				},
+				clients: {
+					openai: workspaceAIClients.getOpenaiClient(),
+					anthropic: workspaceAIClients.getAnthropicClient()
+				},
+				workspace: get(workspaceStore) ?? '',
+				skipResponsesApi: this.skipResponsesApi,
+				onSkipResponsesApi: () => {
+					this.skipResponsesApi = true
+				},
+				getPendingUserMessage: () => {
+					const pendingPrompt = this.pendingPrompt
+					if (!pendingPrompt) return undefined
+					this.pendingPrompt = ''
 					if (this.mode === AIMode.SCRIPT) {
-						pendingUserMessage = prepareScriptUserMessage(
+						return prepareScriptUserMessage(
 							pendingPrompt,
 							this.contextManager.getSelectedContext()
 						)
 					} else if (this.mode === AIMode.FLOW) {
-						pendingUserMessage = prepareFlowUserMessage(
+						return prepareFlowUserMessage(
 							pendingPrompt,
 							this.flowAiChatHelpers!.getFlowAndSelectedId()
 						)
 					} else if (this.mode === AIMode.NAVIGATOR) {
-						pendingUserMessage = prepareNavigatorUserMessage(pendingPrompt)
+						return prepareNavigatorUserMessage(pendingPrompt)
 					}
-					this.pendingPrompt = ''
-				}
-
-				const model = getCurrentModel()
-				const isOpenAI = model.provider === 'openai' || model.provider === 'azure_openai'
-				const isAnthropic = model.provider === 'anthropic'
-
-				const messageParams = [
-					systemMessage,
-					...messages,
-					...(pendingUserMessage ? [pendingUserMessage] : [])
-				]
-				const toolDefs = tools.map((t) => t.def)
-
-				// For OpenAI/Azure, try Responses API first, fallback to Completions API
-				if (isOpenAI) {
-					let useCompletionsApi = this.skipResponsesApi
-					if (!this.skipResponsesApi) {
-						try {
-							const completion = await getOpenAIResponsesCompletion(
-								messageParams,
-								abortController,
-								toolDefs
-							)
-							const continueCompletion = await parseOpenAIResponsesCompletion(
-								completion,
-								callbacks,
-								messages,
-								addedMessages,
-								tools,
-								helpers
-							)
-							if (!continueCompletion) {
-								break
-							}
-						} catch (err) {
-							console.warn('OpenAI Responses API failed, falling back to Completions API:', err)
-							// If the error indicates Responses API is not available in this region, skip it for future requests
-							const errorMessage = err instanceof Error ? err.message : String(err)
-							if (errorMessage.includes('Responses API is not enabled')) {
-								this.skipResponsesApi = true
-							}
-							useCompletionsApi = true
-						}
-					}
-
-					// Use Completions API if Responses API is not available or failed
-					if (useCompletionsApi) {
-						const completion = await getCompletion(messageParams, abortController, toolDefs, {
-							forceCompletions: true
-						})
-						const continueCompletion = await parseOpenAICompletion(
-							completion,
-							callbacks,
-							messages,
-							addedMessages,
-							tools,
-							helpers
-						)
-						if (!continueCompletion) {
-							break
-						}
-					}
-				} else if (isAnthropic) {
-					const completion = await getAnthropicCompletion(messageParams, abortController, toolDefs)
-					if (completion) {
-						const continueCompletion = await parseAnthropicCompletion(
-							completion,
-							callbacks,
-							messages,
-							addedMessages,
-							tools,
-							helpers,
-							abortController
-						)
-						if (!continueCompletion) {
-							break
-						}
-					}
-				} else {
-					const completion = await getCompletion(messageParams, abortController, toolDefs)
-					if (completion) {
-						const continueCompletion = await parseOpenAICompletion(
-							completion,
-							callbacks,
-							messages,
-							addedMessages,
-							tools,
-							helpers
-						)
-						if (!continueCompletion) {
-							break
+					return undefined
+				},
+				onBeforeIteration: async (tools) => {
+					for (const tool of tools) {
+						if (tool.setSchema) {
+							await tool.setSchema(this.helpers)
 						}
 					}
 				}
-			}
-			return addedMessages
+			})
+			return result.addedMessages
 		} catch (err) {
 			console.log('chatRequest error', err)
 			console.error('chatRequest error', err)
@@ -659,6 +592,19 @@ class AIChatManager {
 			this.loading = true
 			this.#automaticScroll = true
 			this.abortController = new AbortController()
+
+			const model = tryGetCurrentModel()
+			if (model) {
+				WorkspaceService.logAiChat({
+					workspace: get(workspaceStore) ?? '',
+					requestBody: {
+						session_id: this.historyManager.getCurrentChatId(),
+						provider: model.provider,
+						model: model.model,
+						mode: this.mode
+					}
+				}).catch(() => {})
+			}
 
 			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
 				throw new Error('No flow helpers found')

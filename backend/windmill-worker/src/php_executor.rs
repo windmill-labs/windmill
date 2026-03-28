@@ -8,6 +8,7 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Result},
     scripts::ScriptLang,
+    utils::calculate_hash,
     worker::{write_file, Connection},
     workspace_dependencies::clean_lock_from_annotations,
 };
@@ -19,10 +20,11 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, start_child_process, MaybeLock, OccupancyMetrics,
+        get_reserved_variables, read_result, resolve_nsjail_timeout, start_child_process,
+        MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
-    COMPOSER_CACHE_DIR, COMPOSER_PATH, is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
+    is_sandboxing_enabled, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
 };
 use windmill_common::client::AuthedClient;
 
@@ -30,6 +32,10 @@ const NSJAIL_CONFIG_RUN_PHP_CONTENT: &str = include_str!("../nsjail/run.php.conf
 
 lazy_static::lazy_static! {
     static ref RE: Regex = Regex::new(r"^//\s?(\S+)\s*$").unwrap();
+    // Set COMPOSER_VENDOR_CACHE_DISABLED=1 to always run `composer install`
+    // instead of reusing a previously cached vendor directory.
+    pub static ref COMPOSER_VENDOR_CACHE_DISABLED: bool =
+        std::env::var("COMPOSER_VENDOR_CACHE_DISABLED").is_ok();
 }
 
 const COMPOSER_LOCK_SPLIT: &str = "\nLOCK\n";
@@ -78,6 +84,59 @@ pub async fn composer_install(
 ) -> Result<String> {
     check_executor_binary_exists("php", PHP_PATH.as_str(), "php")?;
 
+    // When a lock file is available the dependency set is fully pinned, so we
+    // can cache the installed vendor/ directory and reuse it across executions.
+    // Set COMPOSER_VENDOR_CACHE_DISABLED=1 to opt out.
+    let vendor_cache_hit = if !*COMPOSER_VENDOR_CACHE_DISABLED {
+        if let Some(ref lock_content) = lock {
+            let hash = calculate_hash(&format!("{requirements}{lock_content}"));
+            let vendor_cache_path = format!("{}/vendor/{hash}", *COMPOSER_CACHE_DIR);
+            let remote_path = format!("composer/vendor/{hash}");
+
+            let (hit, cache_logs) =
+                crate::global_cache::load_cache(&vendor_cache_path, &remote_path, true).await;
+
+            if hit {
+                append_logs(
+                    job_id,
+                    w_id,
+                    format!("vendor cache hit, skipping composer install\n{cache_logs}"),
+                    conn,
+                )
+                .await;
+
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(&vendor_cache_path, format!("{job_dir}/vendor"))
+                    .map_err(|e| {
+                        error::Error::ExecutionErr(format!(
+                            "could not symlink cached vendor dir: {e}"
+                        ))
+                    })?;
+
+                #[cfg(not(unix))]
+                windmill_common::worker::copy_dir_recursively(
+                    &std::path::PathBuf::from(&vendor_cache_path),
+                    &std::path::PathBuf::from(&format!("{job_dir}/vendor")),
+                )?;
+
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    if vendor_cache_hit {
+        return Ok(match lock {
+            Some(l) => format!("{requirements}{COMPOSER_LOCK_SPLIT}{l}"),
+            None => unreachable!("cache hit requires a lock"),
+        });
+    }
+
     write_file(job_dir, "composer.json", &requirements)?;
 
     if let Some(lock) = lock.as_ref() {
@@ -112,15 +171,35 @@ pub async fn composer_install(
     )
     .await?;
 
-    match lock {
-        Some(lock) => Ok(format!("{requirements}{COMPOSER_LOCK_SPLIT}{lock}")),
+    let resolved_lock = match lock {
+        Some(l) => l,
         None => {
-            let mut lock_content = "".to_string();
+            let mut lock_content = String::new();
             let mut lock_file = File::open(format!("{job_dir}/composer.lock")).await?;
             lock_file.read_to_string(&mut lock_content).await?;
-            Ok(format!("{requirements}{COMPOSER_LOCK_SPLIT}{lock_content}"))
+            lock_content
+        }
+    };
+
+    // Save the freshly installed vendor/ to the cache for future executions.
+    if !*COMPOSER_VENDOR_CACHE_DISABLED {
+        let hash = calculate_hash(&format!("{requirements}{resolved_lock}"));
+        let vendor_cache_path = format!("{}/vendor/{hash}", *COMPOSER_CACHE_DIR);
+        if let Err(e) = crate::global_cache::save_cache(
+            &vendor_cache_path,
+            &format!("composer/vendor/{hash}"),
+            &format!("{job_dir}/vendor"),
+            true,
+        )
+        .await
+        {
+            tracing::warn!("Could not save composer vendor dir to cache: {e:?}");
         }
     }
+
+    Ok(format!(
+        "{requirements}{COMPOSER_LOCK_SPLIT}{resolved_lock}"
+    ))
 }
 
 fn generate_resource_class(rt_name: &str, arg_name: &str) -> String {
@@ -294,13 +373,16 @@ try {{
     let (reserved_variables, _) = tokio::try_join!(reserved_variables_args_out_f, write_wrapper_f)?;
 
     let child = if is_sandboxing_enabled() {
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_PHP_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -316,6 +398,7 @@ try {{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(crate::get_otel_context_envs(&job.id))
             .env("COMPOSER_HOME", &*COMPOSER_CACHE_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(args)
@@ -332,6 +415,7 @@ try {{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(crate::get_otel_context_envs(&job.id))
             .env("COMPOSER_HOME", &*COMPOSER_CACHE_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .stdin(Stdio::null())

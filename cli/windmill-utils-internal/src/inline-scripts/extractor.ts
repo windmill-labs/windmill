@@ -1,5 +1,5 @@
-import { newPathAssigner, PathAssigner } from "../path-utils/path-assigner.ts";
-import { FlowModule, RawScript, ScriptLang } from "../gen/types.gen.ts";
+import { newPathAssigner, PathAssigner } from "../path-utils/path-assigner";
+import { FlowModule, RawScript, ScriptLang } from "../gen/types.gen";
 
 /**
  * Represents an inline script extracted from a flow module
@@ -23,14 +23,21 @@ function extractRawscriptInline(
   assigner: PathAssigner
 ): InlineScript[] {
   const [basePath, ext] = assigner.assignPath(summary ?? id, rawscript.language);
-  const path = mapping[id] ?? basePath + ext;
+  const mappedPath = mapping[id];
+  const path = mappedPath ?? basePath + ext;
   const language = rawscript.language;
   const content = rawscript.content;
   const r = [{ path: path, content: content, language, is_lock: false}];
   rawscript.content = "!inline " + path.replaceAll(separator, "/");
   const lock = rawscript.lock;
   if (lock && lock != "") {
-    const lockPath = basePath + "lock";
+    // Derive lock path base from the mapped content path when available,
+    // so lock files are named consistently with their content files.
+    const dotIdx = mappedPath ? mappedPath.lastIndexOf('.') : -1;
+    const lockBasePath = mappedPath
+      ? (dotIdx > 0 ? mappedPath.substring(0, dotIdx + 1) : mappedPath + '.')
+      : basePath;
+    const lockPath = lockBasePath + "lock";
     rawscript.lock = "!inline " + lockPath.replaceAll(separator, "/");
     r.push({ path: lockPath, content: lock, language, is_lock: true});
   }
@@ -150,8 +157,17 @@ export function extractInlineScripts(
  */
 export function extractCurrentMapping(
   modules: FlowModule[] | undefined,
-  mapping: Record<string, string> = {}
+  mapping: Record<string, string> = {},
+  failureModule?: FlowModule,
+  preprocessorModule?: FlowModule,
 ): Record<string, string> {
+  if (failureModule) {
+    extractCurrentMapping([failureModule], mapping);
+  }
+  if (preprocessorModule) {
+    extractCurrentMapping([preprocessorModule], mapping);
+  }
+
   if (!modules || !Array.isArray(modules)) {
     return mapping;
   }
@@ -182,7 +198,7 @@ export function extractCurrentMapping(
     } else if (m.value.type === "aiagent") {
       (m.value.tools ?? []).forEach((tool) => {
         const toolValue = tool.value;
-        if (!toolValue || toolValue.tool_type !== 'flowmodule' || toolValue.type !== 'rawscript' || !toolValue.content || !toolValue.content.startsWith("!inline")) {
+        if (!toolValue || toolValue.tool_type !== 'flowmodule' || toolValue.type !== 'rawscript' || !toolValue.content || !toolValue.content.startsWith("!inline ")) {
           return;
         }
         mapping[tool.id] = toolValue.content.trim().split(" ")[1];

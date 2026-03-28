@@ -16,8 +16,9 @@ use serde_json::{json, value::RawValue};
 use std::collections::HashMap;
 use std::time::Duration;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::ai_cache::current_instance_ai_config_revision;
 use windmill_common::ai_providers::{
-    empty_string_as_none, AIProvider, ProviderConfig, ProviderModel,
+    empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
@@ -29,7 +30,7 @@ const AI_TIMEOUT_MAX_SECS: u64 = 86400; // 24 hours
 const AI_TIMEOUT_DEFAULT_SECS: u64 = 3600; // 1 hour
 const HTTP_POOL_MAX_IDLE_PER_HOST: usize = 10;
 const HTTP_POOL_IDLE_TIMEOUT_SECS: u64 = 90;
-const KEEPALIVE_INTERVAL_SECS: u64 = 15;
+pub(crate) const KEEPALIVE_INTERVAL_SECS: u64 = 15;
 
 lazy_static::lazy_static! {
     /// AI request timeout in seconds.
@@ -87,7 +88,7 @@ lazy_static::lazy_static! {
         }
     };
 
-    static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
+    pub(crate) static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
         .timeout(std::time::Duration::from_secs(*AI_TIMEOUT_SECS))
         .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
         .pool_idle_timeout(Some(std::time::Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS)))
@@ -127,21 +128,16 @@ lazy_static::lazy_static! {
     };
 }
 
+pub(crate) fn invalidate_ai_request_cache_for_workspace(workspace_id: &str) {
+    AI_REQUEST_CACHE.retain(|(cached_workspace_id, _), _| cached_workspace_id != workspace_id);
+}
+
 #[derive(Deserialize, Debug)]
 struct AIOAuthResource {
     client_id: String,
     client_secret: String,
     token_url: String,
     user: Option<String>,
-}
-
-/// Platform for Anthropic API
-#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
-#[serde(rename_all = "snake_case")]
-enum AnthropicPlatform {
-    #[default]
-    Standard,
-    GoogleVertexAi,
 }
 
 #[derive(Deserialize, Debug)]
@@ -172,12 +168,15 @@ struct AIStandardResource {
         deserialize_with = "empty_string_as_none"
     )]
     aws_session_token: Option<String>,
-    /// Platform for Anthropic API (standard or google_vertex_ai)
+    /// Platform (standard or google_vertex_ai)
     #[serde(default)]
-    platform: AnthropicPlatform,
+    platform: AIPlatform,
     /// Enable 1M context window for Anthropic
     #[serde(alias = "enable_1M_context", default)]
     enable_1m_context: bool,
+    /// Custom HTTP headers to include in AI requests
+    #[serde(default)]
+    headers: HashMap<String, String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -207,8 +206,9 @@ struct AIRequestConfig {
     pub aws_secret_access_key: Option<String>,
     #[allow(dead_code)]
     pub aws_session_token: Option<String>,
-    pub platform: AnthropicPlatform,
+    pub platform: AIPlatform,
     pub enable_1m_context: bool,
+    pub custom_headers: HashMap<String, String>,
 }
 
 impl AIRequestConfig {
@@ -230,11 +230,13 @@ impl AIRequestConfig {
             aws_session_token,
             platform,
             enable_1m_context,
+            custom_headers,
         ) = match resource {
             AIResource::Standard(resource) => {
                 let region = resource.region.clone();
                 let platform = resource.platform.clone();
                 let enable_1m_context = resource.enable_1m_context;
+                let custom_headers = resource.headers.clone();
                 // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
                 let base_url = if matches!(provider, AIProvider::AWSBedrock) {
                     String::new()
@@ -280,6 +282,7 @@ impl AIRequestConfig {
                     aws_session_token,
                     platform,
                     enable_1m_context,
+                    custom_headers,
                 )
             }
             AIResource::OAuth(resource) => {
@@ -301,8 +304,9 @@ impl AIRequestConfig {
                     None,
                     None,
                     None,
-                    AnthropicPlatform::Standard,
+                    AIPlatform::Standard,
                     false,
+                    HashMap::new(),
                 )
             }
         };
@@ -319,6 +323,7 @@ impl AIRequestConfig {
             aws_session_token,
             platform,
             enable_1m_context,
+            custom_headers,
         })
     }
 
@@ -373,17 +378,11 @@ impl AIRequestConfig {
 
         let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
-        let is_anthropic_vertex =
-            is_anthropic && self.platform == AnthropicPlatform::GoogleVertexAi;
+        let is_anthropic_vertex = is_anthropic && self.platform == AIPlatform::GoogleVertexAi;
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
         let is_google_ai = matches!(provider, AIProvider::GoogleAI);
 
-        // GoogleAI uses OpenAI-compatible endpoint in the proxy (for the chat), but not for the ai agent
-        let base_url = if is_google_ai {
-            format!("{}/openai", base_url)
-        } else {
-            base_url.to_string()
-        };
+        let base_url = base_url.to_string();
         let base_url = base_url.as_str();
 
         // Build URL based on provider
@@ -428,6 +427,11 @@ impl AIRequestConfig {
         if let Some(api_key) = self.api_key {
             if is_azure {
                 request = request.header("api-key", api_key.clone())
+            } else if is_google_ai {
+                // Note: GoogleAI requests are intercepted earlier (see the GoogleAI
+                // handler block above) and never reach this code path. This branch
+                // is kept as a safety net for the standard Gemini API auth format.
+                request = request.header("x-goog-api-key", api_key.clone())
             } else {
                 request = request.header("authorization", format!("Bearer {}", api_key.clone()))
             }
@@ -449,6 +453,11 @@ impl AIRequestConfig {
 
         // Apply custom headers from AI_HTTP_HEADERS environment variable
         for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+            request = request.header(header_name.as_str(), header_value.as_str());
+        }
+
+        // Apply custom headers from the resource
+        for (header_name, header_value) in &self.custom_headers {
             request = request.header(header_name.as_str(), header_value.as_str());
         }
 
@@ -478,18 +487,27 @@ impl AIRequestConfig {
 pub struct ExpiringAIRequestConfig {
     config: AIRequestConfig,
     expires_at: std::time::Instant,
+    instance_ai_config_revision: Option<u64>,
 }
 
 impl ExpiringAIRequestConfig {
-    fn new(config: AIRequestConfig) -> Self {
-        Self { config, expires_at: std::time::Instant::now() + std::time::Duration::from_secs(60) }
+    fn new(config: AIRequestConfig, instance_ai_config_revision: Option<u64>) -> Self {
+        Self {
+            config,
+            expires_at: std::time::Instant::now() + std::time::Duration::from_secs(60),
+            instance_ai_config_revision,
+        }
     }
+
     fn is_expired(&self) -> bool {
         self.expires_at < std::time::Instant::now()
+            || self
+                .instance_ai_config_revision
+                .is_some_and(|revision| revision != current_instance_ai_config_revision())
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct AIConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub providers: Option<HashMap<AIProvider, ProviderConfig>>,
@@ -501,6 +519,14 @@ pub struct AIConfig {
     pub custom_prompts: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens_per_model: Option<HashMap<String, i32>>,
+}
+
+impl AIConfig {
+    pub fn has_providers(&self) -> bool {
+        self.providers
+            .as_ref()
+            .is_some_and(|providers| !providers.is_empty())
+    }
 }
 
 /// Anthropic API version for Google Vertex AI
@@ -581,11 +607,11 @@ fn transform_fim_to_chat_completions(body: &Bytes) -> Result<(Bytes, String)> {
 }
 
 pub fn global_service() -> Router {
-    Router::new().route("/proxy/*ai", post(global_proxy).get(global_proxy))
+    Router::new().route("/proxy/{*ai}", post(global_proxy).get(global_proxy))
 }
 
 pub fn workspaced_service() -> Router {
-    let router = Router::new().route("/proxy/*ai", post(proxy).get(proxy));
+    let router = Router::new().route("/proxy/{*ai}", post(proxy).get(proxy));
 
     #[cfg(feature = "bedrock")]
     let router = router.route("/check_bedrock_credentials", get(check_bedrock_credentials));
@@ -611,7 +637,7 @@ fn is_sse_response(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
-fn inject_keepalives<S>(
+pub(crate) fn inject_keepalives<S>(
     upstream: S,
     interval: Duration,
 ) -> impl futures::Stream<Item = std::result::Result<Bytes, reqwest::Error>>
@@ -757,47 +783,76 @@ async fn proxy(
             request_cache.config
         }
         _ => {
-            let (resource_path, save_to_cache) = if let Some(resource_path) = forced_resource_path {
-                // forced resource path
-                (resource_path, false)
-            } else {
-                let ai_config = sqlx::query_scalar!(
-                    "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
-                    &w_id
-                )
-                .fetch_one(&db)
-                .await?;
+            let (resource_path, save_to_cache, resource_workspace, instance_ai_config_revision) =
+                if let Some(resource_path) = forced_resource_path {
+                    // forced resource path
+                    (resource_path, false, w_id.clone(), None)
+                } else {
+                    let workspace_ai_config = sqlx::query_scalar!(
+                        "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
+                        &w_id
+                    )
+                    .fetch_one(&db)
+                    .await?;
 
-                if ai_config.is_none() {
-                    return Err(Error::internal_err(
-                        "AI resource not configured".to_string(),
-                    ));
-                }
+                    let (ai_config_value, resource_workspace, instance_ai_config_revision) = {
+                        let ws_has_config = workspace_ai_config
+                            .as_ref()
+                            .and_then(|v| serde_json::from_value::<AIConfig>(v.clone()).ok())
+                            .is_some_and(|config| config.has_providers());
 
-                let mut ai_config = serde_json::from_value::<AIConfig>(ai_config.unwrap())
-                    .map_err(|e| Error::BadRequest(e.to_string()))?;
+                        if ws_has_config {
+                            (workspace_ai_config.unwrap(), w_id.clone(), None)
+                        } else {
+                            let instance_config = sqlx::query_scalar!(
+                                "SELECT value FROM global_settings WHERE name = 'ai_config'"
+                            )
+                            .fetch_optional(&db)
+                            .await?;
 
-                let provider_config = ai_config
-                    .providers
-                    .as_mut()
-                    .map(|providers| providers.remove(&provider))
-                    .flatten()
-                    .ok_or_else(|| {
-                        Error::BadRequest(format!("Provider {:?} not configured", provider))
-                    })?;
+                            match instance_config {
+                                Some(config) => (
+                                    config,
+                                    "admins".to_string(),
+                                    Some(current_instance_ai_config_revision()),
+                                ),
+                                None => {
+                                    return Err(Error::internal_err(
+                                        "AI resource not configured".to_string(),
+                                    ));
+                                }
+                            }
+                        }
+                    };
 
-                if provider_config.resource_path.is_empty() {
-                    return Err(Error::BadRequest("Resource path is empty".to_string()));
-                }
+                    let mut ai_config = serde_json::from_value::<AIConfig>(ai_config_value)
+                        .map_err(|e| Error::BadRequest(e.to_string()))?;
 
-                (provider_config.resource_path, true)
-            };
+                    let provider_config = ai_config
+                        .providers
+                        .as_mut()
+                        .and_then(|providers| providers.remove(&provider))
+                        .ok_or_else(|| {
+                            Error::BadRequest(format!("Provider {:?} not configured", provider))
+                        })?;
 
-            let resource= sqlx::query_scalar!(
-                "SELECT value as \"value: sqlx::types::Json<Box<RawValue>>\" FROM resource WHERE path = $1 AND workspace_id = $2",
-                &resource_path,
-                &w_id
+                    if provider_config.resource_path.is_empty() {
+                        return Err(Error::BadRequest("Resource path is empty".to_string()));
+                    }
+
+                    (
+                        provider_config.resource_path,
+                        true,
+                        resource_workspace,
+                        instance_ai_config_revision,
+                    )
+                };
+
+            let resource = sqlx::query_scalar::<_, Option<sqlx::types::Json<Box<RawValue>>>>(
+                "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
             )
+            .bind(&resource_path)
+            .bind(&resource_workspace)
             .fetch_optional(&db)
             .await?
             .ok_or_else(|| Error::NotFound(format!("Could not find the resource {}, update the resource path in the workspace settings", resource_path)))?
@@ -806,11 +861,15 @@ async fn proxy(
             let resource = serde_json::from_str::<AIResource>(resource.0.get())
                 .map_err(|e| Error::BadRequest(e.to_string()))?;
 
-            let request_config = AIRequestConfig::new(&provider, &db, &w_id, resource).await?;
+            let request_config =
+                AIRequestConfig::new(&provider, &db, &resource_workspace, resource).await?;
             if save_to_cache {
                 AI_REQUEST_CACHE.insert(
                     (w_id.clone(), provider.clone()),
-                    ExpiringAIRequestConfig::new(request_config.clone()),
+                    ExpiringAIRequestConfig::new(
+                        request_config.clone(),
+                        instance_ai_config_revision,
+                    ),
                 );
             }
             request_config
@@ -828,6 +887,37 @@ async fn proxy(
         let (chat_body, chat_path) = transform_fim_to_chat_completions(&body)?;
         body = chat_body;
         ai_path = chat_path;
+    }
+
+    // Handle GoogleAI (Gemini) using the native Gemini API
+    if matches!(provider, AIProvider::GoogleAI) {
+        let api_key = request_config.api_key.as_deref().unwrap_or("");
+        let base_url = request_config.base_url.trim_end_matches('/');
+        let is_vertex = request_config.platform == AIPlatform::GoogleVertexAi;
+
+        let mut tx = db.begin().await?;
+        audit_log(
+            &mut *tx,
+            &authed,
+            "ai.request",
+            ActionKind::Execute,
+            &w_id,
+            Some(&authed.email),
+            Some([("ai_config_path", &format!("{:?}", ai_path)[..])].into()),
+        )
+        .await?;
+        tx.commit().await?;
+
+        return match ai_path.as_str() {
+            "chat/completions" => {
+                crate::google::handle_google_ai_chat(&body, api_key, base_url, is_vertex).await
+            }
+            "models" => crate::google::handle_google_ai_models(api_key, base_url, is_vertex).await,
+            _ => Err(Error::BadRequest(format!(
+                "Unsupported Google AI path: {}",
+                ai_path
+            ))),
+        };
     }
 
     // Handle Bedrock-specific logic when the feature is enabled
@@ -966,4 +1056,77 @@ async fn proxy(
         axum::body::Body::from_stream(stream)
     };
     Ok((status_code, headers, body))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{LazyLock, Mutex};
+    use windmill_common::ai_cache::bump_instance_ai_config_revision;
+    use windmill_common::ai_providers::AIPlatform;
+
+    static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    fn sample_request_config() -> AIRequestConfig {
+        AIRequestConfig {
+            base_url: "https://example.com".to_string(),
+            api_key: None,
+            access_token: None,
+            organization_id: None,
+            user: None,
+            region: None,
+            aws_access_key_id: None,
+            aws_secret_access_key: None,
+            aws_session_token: None,
+            platform: AIPlatform::Standard,
+            enable_1m_context: false,
+            custom_headers: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn invalidates_all_cached_providers_for_workspace() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        AI_REQUEST_CACHE.clear();
+        AI_REQUEST_CACHE.insert(
+            ("workspace-a".to_string(), AIProvider::OpenAI),
+            ExpiringAIRequestConfig::new(sample_request_config(), None),
+        );
+        AI_REQUEST_CACHE.insert(
+            ("workspace-a".to_string(), AIProvider::Anthropic),
+            ExpiringAIRequestConfig::new(sample_request_config(), None),
+        );
+        AI_REQUEST_CACHE.insert(
+            ("workspace-b".to_string(), AIProvider::OpenAI),
+            ExpiringAIRequestConfig::new(sample_request_config(), None),
+        );
+
+        invalidate_ai_request_cache_for_workspace("workspace-a");
+
+        assert!(AI_REQUEST_CACHE
+            .get(&("workspace-a".to_string(), AIProvider::OpenAI))
+            .is_none());
+        assert!(AI_REQUEST_CACHE
+            .get(&("workspace-a".to_string(), AIProvider::Anthropic))
+            .is_none());
+        assert!(AI_REQUEST_CACHE
+            .get(&("workspace-b".to_string(), AIProvider::OpenAI))
+            .is_some());
+    }
+
+    #[test]
+    fn instance_backed_cache_entries_expire_when_revision_changes() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        AI_REQUEST_CACHE.clear();
+
+        let cached = ExpiringAIRequestConfig::new(
+            sample_request_config(),
+            Some(current_instance_ai_config_revision()),
+        );
+        assert!(!cached.is_expired());
+
+        bump_instance_ai_config_revision();
+
+        assert!(cached.is_expired());
+    }
 }

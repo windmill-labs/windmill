@@ -94,7 +94,7 @@ pub struct OAuthConfig {
 }
 
 /// OAuth client credentials
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct OAuthClient {
     #[serde(default = "empty_string")]
     pub id: String,
@@ -108,6 +108,21 @@ pub struct OAuthClient {
     pub tenant: Option<String>,
     #[serde(default = "default_grant_types")]
     pub grant_types: Vec<String>,
+}
+
+impl std::fmt::Debug for OAuthClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OAuthClient")
+            .field("id", &self.id)
+            .field("secret", &"***")
+            .field("display_name", &self.display_name)
+            .field("allowed_domains", &self.allowed_domains)
+            .field("connect_config", &self.connect_config)
+            .field("login_config", &self.login_config)
+            .field("tenant", &self.tenant)
+            .field("grant_types", &self.grant_types)
+            .finish()
+    }
 }
 
 fn empty_string() -> String {
@@ -501,7 +516,7 @@ pub async fn exchange_code<T: DeserializeOwned>(
     };
     let csrf_state = cookies
         .get(name)
-        .map(|x| x.value().to_string())
+        .map(|x| x.value_trimmed().to_string())
         .unwrap_or("".to_string());
     if callback.state != csrf_state {
         return Err(error::Error::BadRequest("csrf did not match".to_string()));
@@ -529,14 +544,22 @@ pub async fn exchange_token(
     grant_type: &str,
     oauth_client_info: Option<&ClientWithScopes>,
     http_client: &reqwest::Client,
+    scopes: Option<&[String]>,
 ) -> Result<TokenResponse, Error> {
     let token_json = match grant_type {
-        "authorization_code" => client
-            .exchange_refresh_token(&RefreshToken::from(refresh_token))
-            .with_client(http_client)
-            .execute::<serde_json::Value>()
-            .await
-            .map_err(to_anyhow)?,
+        "authorization_code" | "" => {
+            let mut request = client.exchange_refresh_token(&RefreshToken::from(refresh_token));
+            if let Some(scopes) = scopes {
+                if !scopes.is_empty() {
+                    request = request.param("scope", scopes.join(" "));
+                }
+            }
+            request
+                .with_client(http_client)
+                .execute::<serde_json::Value>()
+                .await
+                .map_err(to_anyhow)?
+        }
         "client_credentials" => {
             let mut token_request = client.exchange_client_credentials();
 
@@ -554,12 +577,6 @@ pub async fn exchange_token(
                 .await
                 .map_err(to_anyhow)?
         }
-        "" | _ if grant_type.is_empty() => client
-            .exchange_refresh_token(&RefreshToken::from(refresh_token))
-            .with_client(http_client)
-            .execute::<serde_json::Value>()
-            .await
-            .map_err(to_anyhow)?,
         _ => {
             return Err(Error::BadRequest(format!(
                 "Unsupported grant type: {}",
@@ -584,6 +601,7 @@ pub struct OAuthAccountInfo {
     pub cc_client_id: Option<String>,
     pub cc_client_secret: Option<String>,
     pub cc_token_url: Option<String>,
+    pub scopes: Option<Vec<String>>,
 }
 
 /// Refresh an OAuth token and update the database.
@@ -600,7 +618,7 @@ pub async fn refresh_token<'c>(
 ) -> error::Result<String> {
     let account = sqlx::query_as!(
         OAuthAccountInfo,
-        "SELECT client, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url FROM account WHERE workspace_id = $1 AND id = $2",
+        "SELECT client, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url, scopes FROM account WHERE workspace_id = $1 AND id = $2",
         w_id,
         id,
     )
@@ -608,7 +626,18 @@ pub async fn refresh_token<'c>(
     .await?;
     let account = windmill_common::utils::not_found_if_none(account, "Account", &id.to_string())?;
 
-    refresh_token_for_account(tx, path, w_id, id, db, account, oauth_clients, http_client, connect_configs_json).await
+    refresh_token_for_account(
+        tx,
+        path,
+        w_id,
+        id,
+        db,
+        account,
+        oauth_clients,
+        http_client,
+        connect_configs_json,
+    )
+    .await
 }
 
 /// Refresh an OAuth token given pre-fetched account info (no additional SELECT).
@@ -653,8 +682,15 @@ pub async fn refresh_token_for_account<'c>(
         oauth_client_info.client.to_owned()
     };
 
+    // Account-level scopes override instance-level scopes
+    let effective_scopes = account
+        .scopes
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&oauth_client_info.scopes);
+
     if account.grant_type == "client_credentials" {
-        for scope in oauth_client_info.scopes.iter() {
+        for scope in effective_scopes.iter() {
             client.add_scope(scope);
         }
     }
@@ -673,6 +709,7 @@ pub async fn refresh_token_for_account<'c>(
         &account.grant_type,
         Some(&oauth_client_info),
         http_client,
+        Some(effective_scopes),
     )
     .await;
 

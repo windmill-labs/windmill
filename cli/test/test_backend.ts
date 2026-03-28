@@ -19,6 +19,14 @@
  *       // ...
  *     });
  *   });
+ *
+ * CROSS-LINKS - Related test helper locations (keep in sync when adding new helpers):
+ * @see test_fixtures.ts - Local file fixtures (createLocalScript, createLocalFlow, etc.)
+ * @see sync_pull_push.test.ts - Local fixtures + createRemoteScript (API-based)
+ *
+ * This file contains: API-based creation helpers (createTestApp, createTestResource,
+ *   createAppWithInlineScript, createFlowWithInlineScript, etc.)
+ * If you add new helpers, update cross-links in the files above.
  */
 
 import { CargoBackend, CargoBackendConfig } from "./cargo_backend.ts";
@@ -57,6 +65,10 @@ export interface TestBackend {
   listAllApps?(): Promise<any[]>;
   listAllResources?(): Promise<any[]>;
   listAllVariables?(): Promise<any[]>;
+
+  // Methods for creating apps and flows with custom inline scripts
+  createAppWithInlineScript?(path: string, inlineScriptContent: string, language?: string): Promise<void>;
+  createFlowWithInlineScript?(path: string, inlineScriptContent: string, language?: string): Promise<void>;
 }
 
 /**
@@ -109,6 +121,7 @@ class CargoBackendAdapter implements TestBackend {
     return this.backend.apiRequest(path, options);
   }
 
+  /** Seeds test data via API calls. See file header for cross-links to related helpers. */
   async seedTestData(): Promise<void> {
     // Create test folder first
     await this.createTestFolder("test");
@@ -124,6 +137,7 @@ class CargoBackendAdapter implements TestBackend {
     await this.createTestApp("f/test/test_dashboard");
   }
 
+  /** See file header for cross-links to related helpers. */
   private async createTestApp(path: string): Promise<void> {
     const response = await this.backend.apiRequest(`/api/w/${this.workspace}/apps/create`, {
       method: "POST",
@@ -156,6 +170,7 @@ class CargoBackendAdapter implements TestBackend {
     }
   }
 
+  /** See file header for cross-links to related helpers. */
   private async createTestFolder(name: string): Promise<void> {
     const response = await this.backend.apiRequest(`/api/w/${this.workspace}/folders/create`, {
       method: "POST",
@@ -172,6 +187,7 @@ class CargoBackendAdapter implements TestBackend {
     }
   }
 
+  /** See file header for cross-links to related helpers. */
   private async createTestGroup(name: string): Promise<void> {
     const response = await this.backend.apiRequest(`/api/w/${this.workspace}/groups/create`, {
       method: "POST",
@@ -189,6 +205,7 @@ class CargoBackendAdapter implements TestBackend {
   }
 
 
+  /** See file header for cross-links to related helpers. */
   private async createTestResource(path: string, description: string): Promise<void> {
     // First ensure the folder exists
     const folderPath = path.split("/").slice(0, 2).join("/"); // e.g., "f/test"
@@ -228,6 +245,7 @@ class CargoBackendAdapter implements TestBackend {
     }
   }
 
+  /** See file header for cross-links to related helpers. */
   private async createTestVariable(path: string, value: string): Promise<void> {
     const response = await this.backend.apiRequest(
       `/api/w/${this.workspace}/variables/create`,
@@ -328,6 +346,88 @@ class CargoBackendAdapter implements TestBackend {
     const response = await this.backend.apiRequest(`/api/w/${this.workspace}/variables/list`);
     if (!response.ok) return [];
     return response.json();
+  }
+
+  async createAppWithInlineScript(path: string, inlineScriptContent: string, language: string = "bun"): Promise<void> {
+    const response = await this.backend.apiRequest(`/api/w/${this.workspace}/apps/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path,
+        value: {
+          type: "app",
+          grid: [
+            {
+              id: "button1",
+              data: {
+                type: "buttoncomponent",
+                componentInput: {
+                  type: "runnable",
+                  runnable: {
+                    type: "runnableByName",
+                    inlineScript: {
+                      content: inlineScriptContent,
+                      language,
+                    },
+                  },
+                },
+              },
+            },
+          ],
+          hiddenInlineScripts: [],
+          css: {},
+          norefreshbar: false,
+        },
+        summary: "Test app with inline script",
+        policy: {
+          on_behalf_of: null,
+          on_behalf_of_email: null,
+          triggerables: {},
+          execution_mode: "viewer",
+        },
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to create app ${path}: ${error}`);
+    }
+    await response.text();
+  }
+
+  async createFlowWithInlineScript(path: string, inlineScriptContent: string, language: string = "bun"): Promise<void> {
+    const response = await this.backend.apiRequest(`/api/w/${this.workspace}/flows/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path,
+        summary: "Test flow with inline script",
+        description: `Flow at ${path}`,
+        value: {
+          modules: [
+            {
+              id: "a",
+              value: {
+                type: "rawscript",
+                content: inlineScriptContent,
+                language,
+                input_transforms: {},
+              },
+            },
+          ],
+        },
+        schema: {
+          $schema: "https://json-schema.org/draft/2020-12/schema",
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to create flow ${path}: ${error}`);
+    }
+    await response.text();
   }
 }
 
@@ -490,11 +590,16 @@ function registerCleanup() {
   cleanupRegistered = true;
   process.on("exit", () => {
     if (globalBackend) {
-      // Synchronous kill — can't await in exit handler
-      try {
-        (globalBackend as any).backend?.process?.kill();
-      } catch {
-        // Best effort
+      // Synchronous kill — can't await in exit handler.
+      // Kill the direct child (cargo); any orphaned windmill child processes
+      // will be cleaned up by cleanupStaleTestResources() on next startup.
+      const pid = (globalBackend as any).backend?.process?.pid;
+      if (pid) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          // Best effort — process may already be dead
+        }
       }
     }
   });
@@ -565,6 +670,38 @@ export async function createNonAdminUser(
     throw new Error(`Failed to login as non-admin: ${await loginResp.text()}`);
   }
   return await loginResp.text();
+}
+
+/**
+ * Create workspace dependencies via the API (e.g. a shared package.json for bun scripts).
+ */
+export async function createRemoteWorkspaceDeps(
+  backend: TestBackend,
+  language: string,
+  content: string,
+  name?: string,
+): Promise<void> {
+  if (!backend.apiRequest) {
+    throw new Error("Backend does not support apiRequest");
+  }
+
+  const resp = await backend.apiRequest(
+    `/api/w/${backend.workspace}/workspace_dependencies/create`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspace_id: backend.workspace,
+        language,
+        content,
+        ...(name ? { name } : {}),
+      }),
+    }
+  );
+  if (!resp.ok) {
+    throw new Error(`Failed to create workspace deps (${resp.status}): ${await resp.text()}`);
+  }
+  await resp.text();
 }
 
 // Re-export for convenience

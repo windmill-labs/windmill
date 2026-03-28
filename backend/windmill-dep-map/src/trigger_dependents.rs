@@ -61,14 +61,14 @@ pub async fn trigger_dependents_to_recompute_dependencies(
         );
 
         let mut debouncing_settings = DebouncingSettings {
-            debounce_key: Some(format!("{w_id}:{importer_path}:dependency")),
+            debounce_key: Some(format!("{w_id}:{importer_path}:{importer_kind}:dependency")),
             debounce_delay_s: Some(5),
             ..Default::default()
         };
 
         let job_payload = match importer_kind.as_str() {
             "script" => match sqlx::query_scalar!(
-                "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false ORDER BY created_at DESC LIMIT 1",
+                "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1",
                 importer_path,
                 w_id
             )

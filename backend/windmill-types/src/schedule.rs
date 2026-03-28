@@ -18,6 +18,7 @@ pub struct Schedule {
     pub args: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
     pub extra_perms: serde_json::Value,
     pub email: String,
+    pub permissioned_as: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

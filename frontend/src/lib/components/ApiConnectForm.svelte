@@ -16,25 +16,28 @@
 	import BedrockCredentialsCheck from './BedrockCredentialsCheck.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import ResourceGen from './copilot/ResourceGen.svelte'
+	import SyncResourceTypes from './SyncResourceTypes.svelte'
 
 	interface Props {
 		resourceType: string
 		resourceTypeInfo: ResourceType | undefined
 		args?: Record<string, any> | any
-		linkedSecret?: string | undefined
+		linkedSecrets?: string[]
 		isValid?: boolean
 		linkedSecretCandidates?: string[] | undefined
 		description?: string | undefined
+		onSynced?: () => void
 	}
 
 	let {
 		resourceType,
 		resourceTypeInfo,
 		args = $bindable({}),
-		linkedSecret = $bindable(undefined),
+		linkedSecrets = $bindable([]),
 		isValid = $bindable(true),
 		linkedSecretCandidates = undefined,
-		description = $bindable(undefined)
+		description = $bindable(undefined),
+		onSynced = undefined
 	}: Props = $props()
 
 	let schema = $state(emptySchema())
@@ -152,7 +155,7 @@
 		/>
 		<ResourceGen
 			bind:args
-			resourceType={resourceType}
+			{resourceType}
 			resourceSchema={notFound ? undefined : schema}
 			isFileset={resourceTypeInfo?.is_fileset ?? false}
 		/>
@@ -227,6 +230,7 @@
 		>No corresponding resource type found in your workspace for {resourceType}. Define the value in
 		JSON directly</p
 	>
+	<SyncResourceTypes {onSynced} />
 {/if}
 {#if notFound || viewJsonSchema}
 	{#if !emptyString(error)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
@@ -246,9 +250,7 @@
 		{/await}
 	</div>
 {:else if resourceTypeInfo?.is_fileset}
-	<h5 class="mt-1 inline-flex items-center gap-4">
-		Fileset
-	</h5>
+	<h5 class="mt-1 inline-flex items-center gap-4"> Fileset </h5>
 	<FilesetEditor bind:args />
 {:else if resourceTypeInfo?.format_extension}
 	<h5 class="mt-4 inline-flex items-center gap-4">
@@ -273,7 +275,7 @@
 		onlyMaskPassword
 		noDelete
 		{linkedSecretCandidates}
-		bind:linkedSecret
+		bind:linkedSecrets
 		isValid
 		{schema}
 		bind:args

@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use axum::async_trait;
+use async_trait::async_trait;
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, PgConnection};
@@ -72,14 +72,14 @@ impl TriggerCrud for WebsocketTrigger {
 
     async fn create_trigger(
         &self,
-        db: &DB,
+        _db: &DB,
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
-        let resolved_email = trigger.base.resolve_email(authed, db, w_id).await?;
+        let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let filters = trigger
             .config
             .filters
@@ -108,7 +108,7 @@ impl TriggerCrud for WebsocketTrigger {
                 edited_by,
                 can_return_message,
                 can_return_error_result,
-                email,
+                permissioned_as,
                 edited_at,
                 error_handler_path,
                 error_handler_args,
@@ -132,7 +132,7 @@ impl TriggerCrud for WebsocketTrigger {
             &resolved_edited_by,
             trigger.config.can_return_message,
             trigger.config.can_return_error_result,
-            resolved_email,
+            resolved_permissioned_as,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _
@@ -144,7 +144,7 @@ impl TriggerCrud for WebsocketTrigger {
 
     async fn update_trigger(
         &self,
-        db: &DB,
+        _db: &DB,
         tx: &mut PgConnection,
         authed: &ApiAuthed,
         w_id: &str,
@@ -152,7 +152,7 @@ impl TriggerCrud for WebsocketTrigger {
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
-        let resolved_email = trigger.base.resolve_email(authed, db, w_id).await?;
+        let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let filters = trigger
             .config
             .filters
@@ -181,7 +181,7 @@ impl TriggerCrud for WebsocketTrigger {
             initial_messages = $6,
             url_runnable_args = $7,
             edited_by = $8,
-            email = $9,
+            permissioned_as = $9,
             can_return_message = $10,
             can_return_error_result = $11,
             edited_at = now(),
@@ -205,7 +205,7 @@ impl TriggerCrud for WebsocketTrigger {
                 .map(|v| SqlxJson(serde_json::value::to_raw_value(&v).unwrap()))
                 as Option<SqlxJson<Box<RawValue>>>,
             &resolved_edited_by,
-            resolved_email,
+            resolved_permissioned_as,
             trigger.config.can_return_message,
             trigger.config.can_return_error_result,
             w_id,

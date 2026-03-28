@@ -219,7 +219,10 @@ export class NoteEditor {
 	/**
 	 * Clean up group notes using DAG path completion
 	 */
-	cleanupGroupNotes(flowNodes: { id: string; parentIds?: string[]; offset?: number }[]): void {
+	cleanupGroupNotes(
+		flowNodes: { id: string; parentIds?: string[] }[],
+		collapsedModuleIds?: Set<string>
+	): void {
 		if (!this.isAvailable()) {
 			return
 		}
@@ -230,6 +233,13 @@ export class NoteEditor {
 
 		let hasChanges = false
 		const nodeSet = new Set(flowNodes.map((n) => n.id))
+
+		// Include collapsed module IDs as valid — they are hidden but still exist
+		if (collapsedModuleIds) {
+			for (const id of collapsedModuleIds) {
+				nodeSet.add(id)
+			}
+		}
 
 		// Step 1: Clean invalid nodes from existing group notes
 		for (const note of groupNotes) {
@@ -248,6 +258,12 @@ export class NoteEditor {
 		for (const note of groupNotes) {
 			const originalNodes = note.contained_node_ids || []
 			if (originalNodes.length === 0) continue
+
+			// Skip path completion for notes that reference collapsed modules,
+			// since the DAG is incomplete when groups are collapsed
+			if (collapsedModuleIds && originalNodes.some((id) => collapsedModuleIds.has(id))) {
+				continue
+			}
 
 			// Use the DAG path completion and splitting algorithm
 			const completedGroups = completeAndSplitGroup(originalNodes, flowNodes)

@@ -35,9 +35,9 @@ use windmill_common::{
 pub fn global_service() -> Router {
     windmill_api_users::users::global_service()
         .route("/setpassword", post(set_password))
-        .route("/set_password_of/:user", post(set_password_of_user))
+        .route("/set_password_of/{user}", post(set_password_of_user))
         .route("/create", post(create_user))
-        .route("/rename/:user", post(rename_user))
+        .route("/rename/{user}", post(rename_user))
         .route("/onboarding", post(submit_onboarding_data))
 }
 

@@ -11,7 +11,7 @@ use windmill_common::{
 use windmill_queue::PushArgsOwned;
 
 use crate::{
-    generate_webhook_service_url, get_token_by_prefix,
+    generate_webhook_service_url, rotate_webhook_token,
     sync::{SyncAction, SyncError, TriggerSyncInfo},
     update_native_trigger_error, update_native_trigger_service_config, External, NativeTrigger,
     NativeTriggerData, ServiceName,
@@ -309,14 +309,16 @@ impl Google {
     }
 
     /// Renew an expiring Google watch channel.
-    /// Stops the old channel and creates a new one with the same channel ID.
-    /// Returns the updated service_config with new expiration.
+    /// Rotates the webhook token (creating a new one with the same label),
+    /// stops the old channel and creates a new one with the same channel ID.
+    /// Returns (new_service_config, new_plaintext_token, old_token_hash).
+    /// Callers should delete old_token_hash after successfully updating the trigger.
     pub async fn renew_channel(
         &self,
         w_id: &str,
         trigger: &NativeTrigger,
         db: &DB,
-    ) -> Result<serde_json::Value> {
+    ) -> Result<(serde_json::Value, String, String)> {
         let config: GoogleServiceConfig = trigger
             .service_config
             .as_ref()
@@ -324,10 +326,15 @@ impl Google {
             .transpose()?
             .ok_or_else(|| Error::InternalErr("Missing service config".to_string()))?;
 
-        let webhook_token = get_token_by_prefix(db, &trigger.webhook_token_prefix)
-            .await?
-            .ok_or_else(|| Error::InternalErr("Webhook token not found".to_string()))?;
-
+        let rotated = match rotate_webhook_token(db, &trigger.webhook_token_hash).await? {
+            Some(r) => r,
+            None => {
+                return Err(Error::InternalErr(format!(
+                    "Cannot renew channel {}: webhook token no longer exists and no user context to create a fresh one",
+                    trigger.external_id
+                )));
+            }
+        };
         let base_url = &*BASE_URL.read().await;
         // Reuse the same channel ID so external_id stays permanent
         let channel_id = trigger.external_id.clone();
@@ -338,7 +345,7 @@ impl Google {
             trigger.is_flow,
             Some(&channel_id),
             ServiceName::Google,
-            &webhook_token,
+            &rotated.new_token,
         );
 
         tracing::info!(
@@ -403,8 +410,9 @@ impl Google {
         new_config.google_resource_id = Some(resp.resource_id);
         new_config.expiration = Some(resp.expiration);
 
-        serde_json::to_value(&new_config)
-            .map_err(|e| Error::internal_err(format!("Failed to serialize config: {}", e)))
+        let config_value = serde_json::to_value(&new_config)
+            .map_err(|e| Error::internal_err(format!("Failed to serialize config: {}", e)))?;
+        Ok((config_value, rotated.new_token, rotated.old_token_hash))
     }
 }
 
@@ -461,17 +469,25 @@ async fn renew_expiring_channels(
         );
 
         match handler.renew_channel(workspace_id, trigger, db).await {
-            Ok(new_config) => {
+            Ok((new_config, new_token, old_token_hash)) => {
                 match update_native_trigger_service_config(
                     db,
                     workspace_id,
                     ServiceName::Google,
                     &trigger.external_id,
                     &new_config,
+                    Some(&new_token),
                 )
                 .await
                 {
                     Ok(()) => {
+                        // Trigger updated — clean up old token (best-effort)
+                        if let Err(e) = crate::delete_token_by_hash(db, &old_token_hash).await {
+                            tracing::warn!(
+                                "Failed to delete old webhook token after channel renewal for {}: {}",
+                                trigger.external_id, e
+                            );
+                        }
                         tracing::info!(
                             "Renewed Google channel {} for '{}'",
                             trigger.external_id,

@@ -19,10 +19,12 @@
 	import {
 		OauthService,
 		WorkspaceService,
-		ResourceService,
 		SettingService,
 		type AIConfig,
-		type ErrorHandler
+		type ErrorHandler,
+		type GetCopilotSettingsStateResponse,
+		type InstanceAISummary,
+		type GetSettingsResponse
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -43,6 +45,7 @@
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
 	import ChangeWorkspaceColor from '$lib/components/settings/ChangeWorkspaceColor.svelte'
+	import CloudQuotas from '$lib/components/settings/CloudQuotas.svelte'
 	import {
 		convertBackendSettingsToFrontendSettings,
 		type S3ResourceSettings
@@ -51,14 +54,15 @@
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
+	import VolumeStorageSettings from '$lib/components/workspaceSettings/VolumeStorageSettings.svelte'
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
+	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
 	import { getHandlerType } from '$lib/components/triggers/utils'
 	import DucklakeSettings, {
 		convertDucklakeSettingsFromBackend,
 		type DucklakeSettingsType
 	} from '$lib/components/workspaceSettings/DucklakeSettings.svelte'
-	import { AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import CollapseLink from '$lib/components/CollapseLink.svelte'
@@ -110,19 +114,12 @@
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
 	let initialPublicAppRateLimitPerMinute: number | undefined = $state(undefined)
 
-	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
-	let codeCompletionModel: string | undefined = $state(undefined)
-	let defaultModel: string | undefined = $state(undefined)
-	let customPrompts: Record<string, string> = $state({})
-	let maxTokensPerModel: Record<string, number> = $state({})
-
-	// Track initial AI config for unsaved changes detection
-	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
-	let initialCodeCompletionModel: string | undefined = $state(undefined)
-	let initialDefaultModel: string | undefined = $state(undefined)
-	let initialCustomPrompts: Record<string, string> = $state({})
-	let initialMaxTokensPerModel: Record<string, number> = $state({})
-
+	let hasInstanceAiConfig = $state(false)
+	let usesInstanceAiConfig = $state(false)
+	let instanceAiSummary: InstanceAISummary | undefined = $state(undefined)
+	let aiInitialConfig: AIConfig | undefined = $state(undefined)
+	let aiSettingsComponent: AISettings | undefined = $state(undefined)
+	let hasAiSettingsChanges = $state(false)
 	// Track initial deploy settings for unsaved changes detection
 	let initialWorkspaceToDeployTo: string | undefined = $state(undefined)
 	let initialDeployUiSettings: {
@@ -225,14 +222,6 @@
 		return currentValue !== initialValue
 	})
 
-	// Derived state for checking unsaved changes in AI settings
-	let hasAiSettingsChanges = $derived.by(() => {
-		if (tab !== 'ai') return false
-		const changes = getAiSettingsInitialAndModifiedValues()
-		if (!changes.savedValue || !changes.modifiedValue) return false
-		return hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
-	})
-
 	// Derived state for checking unsaved changes in deployment settings
 	let hasDeploySettingsChanges = $derived.by(() => {
 		if (tab !== 'deploy_to') return false
@@ -295,6 +284,8 @@
 			| 'ai'
 			| 'windmill_data_tables'
 			| 'windmill_lfs'
+			| 'volume_storage'
+			| 'ducklake'
 			| 'git_sync'
 			| 'default_app'
 			| 'native_triggers'
@@ -315,8 +306,6 @@
 	let slack_tabs: 'slack_commands' | 'teams_commands' = $derived(
 		$page.url.searchParams.get('tab') === 'teams' ? 'teams_commands' : 'slack_commands'
 	)
-
-	let usingOpenaiClientCredentialsOauth = $state(false)
 
 	let loadedSettings = $state(false)
 	let oauths: Record<string, any> = $state({})
@@ -485,7 +474,15 @@
 	}
 
 	async function loadSettings(): Promise<void> {
-		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		const [settings, copilotSettingsState]: [GetSettingsResponse, GetCopilotSettingsStateResponse] =
+			await Promise.all([
+				WorkspaceService.getSettings({
+					workspace: $workspaceStore!
+				}),
+				WorkspaceService.getCopilotSettingsState({
+					workspace: $workspaceStore!
+				})
+			])
 		slack_team_name = settings.slack_name
 		teams_team_id = settings.teams_team_id
 		teams_team_name = settings.teams_team_name
@@ -504,23 +501,10 @@
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
 
-		aiProviders = settings.ai_config?.providers ?? {}
-		defaultModel = settings.ai_config?.default_model?.model
-		codeCompletionModel = settings.ai_config?.code_completion_model?.model
-		customPrompts = settings.ai_config?.custom_prompts ?? {}
-		maxTokensPerModel = settings.ai_config?.max_tokens_per_model ?? {}
-		for (const mode of Object.values(AIMode)) {
-			if (!(mode in customPrompts)) {
-				customPrompts[mode] = ''
-			}
-		}
-
-		// Store initial AI config state for unsaved changes detection
-		initialAiProviders = clone(aiProviders)
-		initialDefaultModel = defaultModel
-		initialCodeCompletionModel = codeCompletionModel
-		initialCustomPrompts = clone(customPrompts)
-		initialMaxTokensPerModel = clone(maxTokensPerModel)
+		aiInitialConfig = settings.ai_config ?? {}
+		hasInstanceAiConfig = copilotSettingsState.has_instance_ai_config
+		usesInstanceAiConfig = copilotSettingsState.uses_instance_ai_config
+		instanceAiSummary = copilotSettingsState.instance_ai_summary
 		const errorHandler = settings.error_handler as
 			| { path?: string; extra_args?: any; muted_on_cancel?: boolean; muted_on_user_path?: boolean }
 			| undefined
@@ -595,12 +579,6 @@
 
 		// Store initial success handler state for unsaved changes detection
 		initialSuccessHandlerScriptPath = successHandlerScriptPath
-
-		// check openai_client_credentials_oauth
-		usingOpenaiClientCredentialsOauth = await ResourceService.existsResourceType({
-			workspace: $workspaceStore!,
-			path: 'openai_client_credentials_oauth'
-		})
 
 		loadedSettings = true
 	}
@@ -812,54 +790,42 @@
 		)
 	}
 
-	// Function to check if there are unsaved changes in AI settings
-	function getAiSettingsInitialAndModifiedValues() {
-		const savedValue = {
-			aiProviders: initialAiProviders,
-			defaultModel: initialDefaultModel,
-			codeCompletionModel: initialCodeCompletionModel,
-			customPrompts: initialCustomPrompts,
-			maxTokensPerModel: initialMaxTokensPerModel
-		}
-
-		const modifiedValue = {
-			aiProviders: aiProviders,
-			defaultModel: defaultModel,
-			codeCompletionModel: codeCompletionModel,
-			customPrompts: customPrompts,
-			maxTokensPerModel: maxTokensPerModel
-		}
-
-		return { savedValue, modifiedValue }
-	}
-
-	// Function to discard unsaved AI settings changes
-	function discardAiSettingsChanges() {
-		aiProviders = clone(initialAiProviders)
-		defaultModel = initialDefaultModel
-		codeCompletionModel = initialCodeCompletionModel
-		customPrompts = clone(initialCustomPrompts)
-		maxTokensPerModel = clone(initialMaxTokensPerModel)
-	}
-
 	// Function to check if there are unsaved changes in storage settings
 	function getStorageSettingsInitialAndModifiedValues() {
-		const savedValue = {
-			s3ResourceSettings: s3ResourceSavedSettings,
-			ducklakeSettings: ducklakeSavedSettings
+		return {
+			savedValue: { s3ResourceSettings: s3ResourceSavedSettings },
+			modifiedValue: { s3ResourceSettings: s3ResourceSettings }
 		}
-
-		const modifiedValue = {
-			s3ResourceSettings: s3ResourceSettings,
-			ducklakeSettings: ducklakeSettings
-		}
-
-		return { savedValue, modifiedValue }
 	}
 
 	// Function to discard unsaved storage settings changes
 	function discardStorageSettingsChanges() {
 		s3ResourceSettings = clone(s3ResourceSavedSettings)
+	}
+
+	// Function to check if there are unsaved changes in volume storage settings
+	function getVolumeStorageInitialAndModifiedValues() {
+		return {
+			savedValue: { volumeStorage: s3ResourceSavedSettings.volumeStorage },
+			modifiedValue: { volumeStorage: s3ResourceSettings.volumeStorage }
+		}
+	}
+
+	// Function to discard unsaved volume storage changes
+	function discardVolumeStorageChanges() {
+		s3ResourceSettings.volumeStorage = s3ResourceSavedSettings.volumeStorage
+	}
+
+	// Function to check if there are unsaved changes in ducklake settings
+	function getDucklakeSettingsInitialAndModifiedValues() {
+		return {
+			savedValue: { ducklakeSettings: ducklakeSavedSettings },
+			modifiedValue: { ducklakeSettings: ducklakeSettings }
+		}
+	}
+
+	// Function to discard unsaved ducklake settings changes
+	function discardDucklakeSettingsChanges() {
 		ducklakeSettings = clone(ducklakeSavedSettings)
 	}
 
@@ -995,9 +961,15 @@
 			case 'windmill_data_tables':
 				return dataTableSettingsComponent?.unsavedChanges() ?? { savedValue: {}, modifiedValue: {} }
 			case 'ai':
-				return getAiSettingsInitialAndModifiedValues()
+				return hasAiSettingsChanges
+					? { savedValue: { changed: false }, modifiedValue: { changed: true } }
+					: { savedValue: {}, modifiedValue: {} }
 			case 'windmill_lfs':
 				return getStorageSettingsInitialAndModifiedValues()
+			case 'volume_storage':
+				return getVolumeStorageInitialAndModifiedValues()
+			case 'ducklake':
+				return getDucklakeSettingsInitialAndModifiedValues()
 			case 'deploy_to':
 				return getDeploySettingsInitialAndModifiedValues()
 			case 'webhook':
@@ -1033,10 +1005,16 @@
 	function discardAllChanges() {
 		switch (tab) {
 			case 'ai':
-				discardAiSettingsChanges()
+				aiSettingsComponent?.discard()
 				break
 			case 'windmill_lfs':
 				discardStorageSettingsChanges()
+				break
+			case 'volume_storage':
+				discardVolumeStorageChanges()
+				break
+			case 'ducklake':
+				discardDucklakeSettingsChanges()
 				break
 			case 'deploy_to':
 				discardDeploySettingsChanges()
@@ -1178,6 +1156,18 @@
 					label: 'Object storage (S3)',
 					aiId: 'workspace-settings-windmill-lfs',
 					aiDescription: 'Object Storage (S3) workspace settings'
+				},
+				{
+					id: 'volume_storage',
+					label: 'Volumes',
+					aiId: 'workspace-settings-volume-storage',
+					aiDescription: 'Volume storage workspace settings'
+				},
+				{
+					id: 'ducklake',
+					label: 'Ducklake',
+					aiId: 'workspace-settings-ducklake',
+					aiDescription: 'Ducklake workspace settings'
 				}
 			]
 		},
@@ -1202,6 +1192,12 @@
 					label: 'Encryption',
 					aiId: 'workspace-settings-encryption',
 					aiDescription: 'Encryption workspace settings'
+				},
+				{
+					id: 'trashbin',
+					label: 'Trashbin',
+					aiId: 'workspace-settings-trashbin',
+					aiDescription: 'Trashbin for recently deleted items'
 				}
 			]
 		}
@@ -1481,6 +1477,11 @@
 								description="Configure general workspace settings."
 								link="https://www.windmill.dev/docs/core_concepts/workspace_settings"
 							/>
+
+							{#if isCloudHosted()}
+								<CloudQuotas />
+								<div class="my-4 border-b"></div>
+							{/if}
 
 							<div class="flex flex-col gap-6">
 								<ChangeWorkspaceName />
@@ -1781,21 +1782,19 @@ export async function main(
 							/>
 						{:else if tab == 'ai'}
 							<AISettings
-								bind:aiProviders
-								bind:codeCompletionModel
-								bind:defaultModel
-								bind:customPrompts
-								bind:maxTokensPerModel
-								bind:usingOpenaiClientCredentialsOauth
-								hasUnsavedChanges={hasAiSettingsChanges}
-								onDiscard={discardAiSettingsChanges}
-								onSave={() => {
-									// Update initial state after successful save
-									initialAiProviders = clone(aiProviders)
-									initialDefaultModel = defaultModel
-									initialCodeCompletionModel = codeCompletionModel
-									initialCustomPrompts = clone(customPrompts)
-									initialMaxTokensPerModel = clone(maxTokensPerModel)
+								bind:this={aiSettingsComponent}
+								initialConfig={aiInitialConfig}
+								bind:hasUnsavedChanges={hasAiSettingsChanges}
+								{hasInstanceAiConfig}
+								{usesInstanceAiConfig}
+								{instanceAiSummary}
+								onSave={(copilotSettingsState) => {
+									if (!copilotSettingsState) {
+										return
+									}
+									hasInstanceAiConfig = copilotSettingsState.has_instance_ai_config
+									usesInstanceAiConfig = copilotSettingsState.uses_instance_ai_config
+									instanceAiSummary = copilotSettingsState.instance_ai_summary
 								}}
 							/>
 						{:else if tab == 'windmill_data_tables'}
@@ -1811,6 +1810,18 @@ export async function main(
 									s3ResourceSettings = clone(s3ResourceSavedSettings)
 								}}
 							/>
+						{:else if tab == 'volume_storage'}
+							<VolumeStorageSettings
+								bind:s3ResourceSettings
+								{s3ResourceSavedSettings}
+								onSave={() => {
+									s3ResourceSavedSettings = clone(s3ResourceSettings)
+								}}
+								onDiscard={() => {
+									s3ResourceSettings = clone(s3ResourceSavedSettings)
+								}}
+							/>
+						{:else if tab == 'ducklake'}
 							<DucklakeSettings
 								bind:ducklakeSettings
 								bind:ducklakeSavedSettings
@@ -1921,6 +1932,14 @@ export async function main(
 								saveLabel="Save & Re-encrypt workspace"
 								disabled={!!encryptionKeyValidationError || workspaceReencryptionInProgress}
 							/>
+						{:else if tab == 'trashbin'}
+							<SettingsPageHeader
+								title="Trashbin"
+								description="When scripts, flows, apps, resources, variables, schedules, or triggers are deleted, they are moved to the trashbin and kept for 3 days before being permanently removed. Admins can restore or permanently delete items from here."
+							/>
+							<div class="mt-4">
+								<Trashbin />
+							</div>
 						{/if}
 					</div>
 				</div>

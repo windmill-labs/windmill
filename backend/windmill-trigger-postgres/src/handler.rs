@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
+use async_trait::async_trait;
 use axum::{
-    async_trait,
     extract::Path,
     routing::{delete, get, post},
     Extension, Json, Router,
@@ -71,7 +71,7 @@ impl TriggerCrud for PostgresTrigger {
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
-        let resolved_email = trigger.base.resolve_email(authed, db, w_id).await?;
+        let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let Self::TriggerConfigRequest {
             postgres_resource_path,
             publication_name,
@@ -122,7 +122,7 @@ impl TriggerCrud for PostgresTrigger {
                 is_flow,
                 mode,
                 edited_by,
-                email,
+                permissioned_as,
                 edited_at,
                 error_handler_path,
                 error_handler_args,
@@ -140,7 +140,7 @@ impl TriggerCrud for PostgresTrigger {
             trigger.base.is_flow,
             trigger.base.mode() as _,
             &resolved_edited_by,
-            resolved_email,
+            resolved_permissioned_as,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _
@@ -160,7 +160,7 @@ impl TriggerCrud for PostgresTrigger {
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
-        let resolved_email = trigger.base.resolve_email(authed, db, w_id).await?;
+        let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let Self::TriggerConfigRequest {
             replication_slot_name,
             publication_name,
@@ -223,7 +223,7 @@ impl TriggerCrud for PostgresTrigger {
                 path = $5,
                 is_flow = $6,
                 edited_by = $7,
-                email = $8,
+                permissioned_as = $8,
                 edited_at = now(),
                 server_id = NULL,
                 error = NULL,
@@ -240,7 +240,7 @@ impl TriggerCrud for PostgresTrigger {
             trigger.base.path,
             trigger.base.is_flow,
             &resolved_edited_by,
-            resolved_email,
+            resolved_permissioned_as,
             w_id,
             path,
             trigger.error_handling.error_handler_path,
@@ -282,10 +282,10 @@ impl TriggerCrud for PostgresTrigger {
 
     fn additional_routes(&self) -> Router {
         Router::new()
-            .route("/get_template_script/:id", get(get_template_script))
+            .route("/get_template_script/{id}", get(get_template_script))
             .route("/create_template_script", post(create_template_script))
             .route(
-                "/is_valid_postgres_configuration/*path",
+                "/is_valid_postgres_configuration/{*path}",
                 get(is_database_in_logical_level),
             )
             .nest("/publication", publication_service())
@@ -296,25 +296,31 @@ impl TriggerCrud for PostgresTrigger {
 
 fn publication_service() -> Router {
     Router::new()
-        .route("/get/:publication_name/*path", get(get_publication_info))
-        .route("/create/:publication_name/*path", post(create_publication))
-        .route("/update/:publication_name/*path", post(alter_publication))
+        .route("/get/{publication_name}/{*path}", get(get_publication_info))
         .route(
-            "/delete/:publication_name/*path",
+            "/create/{publication_name}/{*path}",
+            post(create_publication),
+        )
+        .route(
+            "/update/{publication_name}/{*path}",
+            post(alter_publication),
+        )
+        .route(
+            "/delete/{publication_name}/{*path}",
             delete(delete_publication),
         )
-        .route("/list/*path", get(list_database_publication))
+        .route("/list/{*path}", get(list_database_publication))
 }
 
 fn slot_service() -> Router {
     Router::new()
-        .route("/list/*path", get(list_slot_name))
-        .route("/create/*path", post(create_slot))
-        .route("/delete/*path", delete(drop_slot_name))
+        .route("/list/{*path}", get(list_slot_name))
+        .route("/create/{*path}", post(create_slot))
+        .route("/delete/{*path}", delete(drop_slot_name))
 }
 
 fn postgres_service() -> Router {
-    Router::new().route("/version/*path", get(get_postgres_version))
+    Router::new().route("/version/{*path}", get(get_postgres_version))
 }
 
 async fn check_if_logical_replication_slot_exist(

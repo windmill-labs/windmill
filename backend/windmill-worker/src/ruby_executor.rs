@@ -23,11 +23,12 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
+        read_result, resolve_nsjail_timeout, start_child_process, OccupancyMetrics,
+        DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::{self},
-    is_sandboxing_enabled, read_ee_registry,
+    is_sandboxing_enabled, read_ee_registry_url_list_with_workspace_override,
     universal_pkg_installer::{par_install_language_dependencies_seq, InstallDeps, RequiredDependency},
     DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
     TRACING_PROXY_CA_CERT_PATH,
@@ -309,7 +310,8 @@ Your Gemfile syntax will continue to work as-is."
     let mut file = File::create(job_dir.to_owned() + "/Gemfile").await?;
     file.write_all(&gemfile.as_bytes()).await?;
 
-    let req_hash = format!("ruby-{}", calculate_hash(&gemfile));
+    let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
+    let req_hash = format!("ruby-{}{ws_suffix}", calculate_hash(&gemfile));
     if let Some(db) = conn.as_sql() {
         if let Some(cached) = sqlx::query_scalar!(
             "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
@@ -360,8 +362,9 @@ Your Gemfile syntax will continue to work as-is."
             ])
             .envs(RUBY_PROXY_ENVS.clone());
 
-        for repo in read_ee_registry(
+        for repo in read_ee_registry_url_list_with_workspace_override(
             RUBY_REPOS.read().await.clone(),
+            "ruby_repos",
             "ruby repos",
             job_id,
             w_id,
@@ -600,8 +603,9 @@ async fn install<'a>(
     let job_dir = job_dir.to_owned();
     let jailed = !cfg!(windows) && is_sandboxing_enabled();
     let RubyAnnotations { verbose } = RubyAnnotations::parse(&inner_content);
-    let repos = read_ee_registry(
+    let repos = read_ee_registry_url_list_with_workspace_override(
         RUBY_REPOS.read().await.clone(),
+        "ruby_repos",
         "ruby repos",
         &job.id,
         &job.workspace_id,
@@ -792,6 +796,8 @@ mount {{
             })
             .join("\n");
 
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         write_file(
             job_dir,
             "run.config.proto",
@@ -801,7 +807,8 @@ mount {{
                 .replace("{SHARED_DEPENDENCIES}", &shared_deps)
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
         cmd.env_clear()
@@ -812,7 +819,10 @@ mount {{
             .envs(envs)
             .envs(reserved_variables)
             .envs(RUBY_PROXY_ENVS.clone())
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Ruby).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Ruby, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -851,7 +861,10 @@ mount {{
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(reserved_variables)
             .envs(RUBY_PROXY_ENVS.clone())
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Ruby).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Ruby, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .envs(envs);
 
         cmd.stdin(Stdio::null())

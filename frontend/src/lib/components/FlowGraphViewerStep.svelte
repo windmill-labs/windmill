@@ -23,9 +23,10 @@
 		schema?: any | undefined
 		stepDetail?: FlowModule | string | undefined
 		jobScriptHash?: string | undefined
+		hideDefaultInputs?: boolean
 	}
 
-	let { schema = undefined, stepDetail = undefined, jobScriptHash = undefined }: Props = $props()
+	let { schema = undefined, stepDetail = undefined, jobScriptHash = undefined, hideDefaultInputs = false }: Props = $props()
 	let codeViewer: Drawer | undefined = $state()
 </script>
 
@@ -92,10 +93,10 @@
 <div class={twMerge('p-2 overflow-y-scroll')}>
 	{#if stepDetail == undefined}
 		<div>
-			<p class="font-medium text-secondary text-center pt-4 pb-8">
+			<p class="text-secondary text-xs italic px-2 pt-2">
 				Click on a step to see its details
 			</p>
-			{#if schema}
+			{#if schema && !hideDefaultInputs}
 				<h3 class="mb-2 font-semibold">Flow Inputs</h3>
 				<SchemaViewer {schema} />
 			{/if}

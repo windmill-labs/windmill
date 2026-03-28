@@ -29,6 +29,15 @@ pub const GOOGLE_AI_BASE_URL: &str = "https://generativelanguage.googleapis.com/
 /// (e.g., AWS_REGION or AWS_DEFAULT_REGION env vars, or ~/.aws/config)
 pub const USE_ENV_REGION: &str = "";
 
+/// Platform variant for providers that support Google Vertex AI (Anthropic, GoogleAI).
+#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum AIPlatform {
+    #[default]
+    Standard,
+    GoogleVertexAi,
+}
+
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum AIProvider {

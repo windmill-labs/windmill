@@ -31,13 +31,15 @@ export type WorkspaceDependenciesLanguage =
   | { language: "bun", filename /** (raw requirements filename) */: "package.json" }
   | { language: "python3", filename: "requirements.in" }
   | { language: "php", filename: "composer.json" }
-  | { language: "go", filename: "go.mod" };
+  | { language: "go", filename: "go.mod" }
+  | { language: "powershell", filename: "modules.json" };
 
 export const workspaceDependenciesLanguages: WorkspaceDependenciesLanguage[] = [
   { language: "bun", filename: "package.json" },
   { language: "python3", filename: "requirements.in" },
   { language: "php", filename: "composer.json" },
   { language: "go", filename: "go.mod" },
+  { language: "powershell", filename: "modules.json" },
 ] as const;
 
 /**
@@ -46,7 +48,8 @@ export const workspaceDependenciesLanguages: WorkspaceDependenciesLanguage[] = [
  */
 export function languageNeedsLock(language: ScriptLanguage | string): boolean {
   return (
-    workspaceDependenciesLanguages.some((l) => l.language === language) ||
+    (workspaceDependenciesLanguages.some((l) => l.language === language) &&
+      language !== "powershell") ||
     language === "deno" ||
     language === "rust" ||
     language === "ansible"

@@ -35,9 +35,14 @@ use windmill_mcp::server::{
 use windmill_mcp::WorkspaceId;
 
 use axum::{
-    extract::Path, http::Request, middleware::Next, response::Response, routing::get, Json, Router,
+    extract::{Extension, Path},
+    http::Request,
+    middleware::Next,
+    response::Response,
+    routing::get,
+    Json, Router,
 };
-use windmill_common::error::JsonResult;
+use windmill_common::{auth::hash_token, db::GatewayWorkspaceId, error::JsonResult};
 
 // McpAuth impl for ApiAuthed is in windmill-api-auth (same crate as the type)
 
@@ -67,9 +72,16 @@ impl McpBackend for WindmillBackend {
         path_prefix: Option<&str>,
     ) -> BackendResult<Vec<ScriptInfo>> {
         let scope_type = if favorites_only { "favorites" } else { "all" };
-        get_items::<ScriptInfo>(&self.user_db, auth, workspace_id, scope_type, "script", path_prefix)
-            .await
-            .map_err(|e| ErrorData::internal_error(e.message, None))
+        get_items::<ScriptInfo>(
+            &self.user_db,
+            auth,
+            workspace_id,
+            scope_type,
+            "script",
+            path_prefix,
+        )
+        .await
+        .map_err(|e| ErrorData::internal_error(e.message, None))
     }
 
     async fn list_flows(
@@ -80,9 +92,16 @@ impl McpBackend for WindmillBackend {
         path_prefix: Option<&str>,
     ) -> BackendResult<Vec<FlowInfo>> {
         let scope_type = if favorites_only { "favorites" } else { "all" };
-        get_items::<FlowInfo>(&self.user_db, auth, workspace_id, scope_type, "flow", path_prefix)
-            .await
-            .map_err(|e| ErrorData::internal_error(e.message, None))
+        get_items::<FlowInfo>(
+            &self.user_db,
+            auth,
+            workspace_id,
+            scope_type,
+            "flow",
+            path_prefix,
+        )
+        .await
+        .map_err(|e| ErrorData::internal_error(e.message, None))
     }
 
     async fn list_resource_types(
@@ -439,6 +458,72 @@ pub async fn add_www_authenticate_header(
     }
 }
 
+/// Middleware for gateway: extract workspace_id from the Bearer token in the DB
+/// and inject it as WorkspaceId extension so the MCP runner can use it.
+pub async fn extract_workspace_from_token(
+    Extension(db): Extension<DB>,
+    mut request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    if let Some(auth_header) = request
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
+        if let Some(token) = auth_header.strip_prefix("Bearer ") {
+            let t_hash = hash_token(token);
+            match sqlx::query_scalar!(
+                "SELECT workspace_id FROM token WHERE token_hash = $1 AND workspace_id IS NOT NULL AND (expiration > NOW() OR expiration IS NULL)",
+                t_hash
+            )
+            .fetch_optional(&db)
+            .await
+            {
+                Ok(Some(Some(workspace_id))) => {
+                    request
+                        .extensions_mut()
+                        .insert(GatewayWorkspaceId(workspace_id.clone()));
+                    request.extensions_mut().insert(WorkspaceId(workspace_id));
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::error!("Gateway token workspace lookup failed: {}", e);
+                }
+            }
+        }
+    }
+
+    next.run(request).await
+}
+
+/// Middleware that adds WWW-Authenticate header for gateway 401 responses
+pub async fn add_www_authenticate_header_gateway(
+    request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    use axum::http::StatusCode;
+    use windmill_common::BASE_URL;
+
+    let response = next.run(request).await;
+
+    if response.status() == StatusCode::UNAUTHORIZED {
+        let base_url = BASE_URL.read().await;
+        let resource_url = format!("{}/api/mcp/gateway", base_url);
+        let www_authenticate = format!("Bearer resource=\"{}\"", resource_url);
+
+        let (mut parts, body) = response.into_parts();
+        parts.headers.insert(
+            axum::http::header::WWW_AUTHENTICATE,
+            www_authenticate
+                .parse()
+                .unwrap_or_else(|_| "Bearer".parse().unwrap()),
+        );
+        Response::from_parts(parts, body)
+    } else {
+        response
+    }
+}
+
 /// Setup the MCP server with HTTP transport
 pub async fn setup_mcp_server(
     db: DB,
@@ -461,7 +546,7 @@ pub async fn setup_mcp_server(
     let service =
         StreamableHttpService::new(move || Ok(runner.clone()), session_manager, service_config);
 
-    let router = Router::new().nest_service("/", service);
+    let router = Router::new().fallback_service(service);
     Ok((router, cancellation_token))
 }
 

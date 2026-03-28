@@ -10,7 +10,6 @@ use crate::{
         get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result,
         trigger_runnable_inner, RunnableId,
     },
-    users::fetch_api_authed,
     utils::{check_scopes, ExpiringCacheEntry},
 };
 use axum::{
@@ -96,7 +95,7 @@ async fn conditional_cors_middleware(
 pub fn http_route_trigger_handler() -> Router {
     Router::new()
         .route(
-            "/*path",
+            "/{*path}",
             get(route_job)
                 .post(route_job)
                 .delete(route_job)
@@ -214,9 +213,15 @@ async fn get_http_route_trigger(
         None
     };
 
-    let authed = fetch_api_authed(
-        trigger.edited_by.clone(),
-        trigger.email.clone(),
+    let email = windmill_common::users::get_email_from_permissioned_as(
+        &trigger.permissioned_as,
+        &trigger.workspace_id,
+        &db,
+    )
+    .await?;
+    let authed = windmill_api_auth::fetch_api_authed_from_permissioned_as(
+        trigger.permissioned_as.clone(),
+        email,
         &trigger.workspace_id,
         &db,
         Some(username_override.unwrap_or(format!("HTTP-{}", trigger.path))),
@@ -468,6 +473,7 @@ async fn route_job(
         .to_args_from_format(
             &trigger.route_path,
             &called_path,
+            &trigger.path,
             &params,
             runnable_format,
             trigger.wrap_body,

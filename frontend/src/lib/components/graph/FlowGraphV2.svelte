@@ -20,7 +20,6 @@
 	import {
 		graphBuilder,
 		isTriggerStep,
-		topologicalSort,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
@@ -36,7 +35,6 @@
 	import ResultNode from './renderers/nodes/ResultNode.svelte'
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
-	import { sugiyama, dagStratify, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
 	import { Expand, MousePointer, Hand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
@@ -61,8 +59,22 @@
 	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
 	import NoteNode from './renderers/nodes/NoteNode.svelte'
+	import CollapsedGroupNode from './renderers/nodes/CollapsedGroupNode.svelte'
+	import GroupHeadNode from './renderers/nodes/GroupHeadNode.svelte'
+	import GroupEndNode from './renderers/nodes/GroupEndNode.svelte'
 	import NoteTool from './NoteTool.svelte'
 	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
+	import GroupOverlay from './GroupOverlay.svelte'
+	import {
+		GroupDisplayState,
+		getGroupEditorContext,
+		groupKey,
+		type FlowGroup
+	} from './groupEditor.svelte'
+	import { buildStructureTree, computeGroupDepths, type FlowStructureNode } from './flowStructure'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+	import { computeGroupModuleIds } from './groupDetectionUtils'
+	import { getAllModules } from '../flows/flowExplorer'
 	import SelectionTool from './SelectionTool.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
 	import { SelectionManager } from './selectionUtils.svelte'
@@ -71,8 +83,10 @@
 	import type { MoveManager } from './moveManager.svelte'
 	import DragCoordinator from './DragCoordinator.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
+	import { compoundLayout } from './compoundLayout'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
+	import { computeNodeExtraSpace } from './nodeExtraSpace'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { setGraphContext } from './graphContext'
 	import { computeNoteNodes } from './noteUtils.svelte'
@@ -101,6 +115,8 @@
 	interface Props {
 		success?: boolean | undefined
 		modules?: FlowModule[] | undefined
+		groupedModules?: FlowStructureNode[]
+		groupError?: unknown
 		failureModule?: FlowModule | undefined
 		preprocessorModule?: FlowModule | undefined
 		minHeight?: number
@@ -125,7 +141,7 @@
 		workspace?: string
 		editMode?: boolean
 		allowSimplifiedPoll?: boolean
-		expandedSubflows?: Record<string, FlowModule[]>
+		expandedSubflows?: Record<string, { modules: FlowModule[]; groups?: FlowGroup[] }>
 		isOwner?: boolean
 		isRunning?: boolean
 		individualStepTests?: boolean
@@ -134,6 +150,8 @@
 		suspendStatus?: Record<string, { job: Job; nb: number }>
 		noteMode?: boolean
 		notes?: FlowNote[]
+		groups?: FlowGroup[]
+		groupDisplayState?: GroupDisplayState
 		chatInputEnabled?: boolean
 		multiSelectEnabled?: boolean
 		onDeleteMultiple?: (ids: string[]) => void
@@ -153,6 +171,7 @@
 			script?: { path: string; summary: string; hash: string | undefined }
 			flow?: { path: string; summary: string }
 			kind: InsertKind
+			expandGroup?: { groupId: string; position: 'top' | 'bottom' }
 		}) => Promise<void>
 		onNewBranch?: (id: string) => Promise<void>
 		onSelect?: (id: string | FlowModule) => void
@@ -194,6 +213,8 @@
 		onSelectedIteration = undefined,
 		success = undefined,
 		modules = [],
+		groupedModules: groupedModulesProp = undefined,
+		groupError = undefined,
 		failureModule = undefined,
 		preprocessorModule = undefined,
 		minHeight = 0,
@@ -233,6 +254,8 @@
 		flowHasChanged = false,
 		noteMode = false,
 		notes = undefined,
+		groups = undefined,
+		groupDisplayState: groupDisplayStateProp = undefined,
 		exitNoteMode = undefined,
 		onNotePositionUpdate = undefined,
 		chatInputEnabled = false,
@@ -258,12 +281,17 @@
 		() => nodes
 	)
 
+	const groupDisplayState =
+		untrack(() => groupDisplayStateProp) ?? new GroupDisplayState(() => groups ?? [])
+
 	// Runtime text height tracking for notes (not stored in FlowNote)
 	let noteTextHeights = $state<Record<string, number>>({})
 
 	// Reference to pane context menu component
 	let paneContextMenu: PaneContextMenu | undefined = $state(undefined)
 	let flowContainer: HTMLDivElement | undefined = $state(undefined)
+
+	// Hover tracking for group overlay
 
 	// Selection manager - create one if not provided
 	let selectionManager = untrack(() => selectionManagerProp) || new SelectionManager()
@@ -299,7 +327,9 @@
 		moveManager: untrack(() => moveManager),
 		clearFlowSelection,
 		yOffset,
-		diffManager
+		diffManager,
+		getFlowNodes: () => currentGraphNodeDeps,
+		groupDisplayState
 	} as any)
 
 	if (triggerContext && untrack(() => allowSimplifiedPoll)) {
@@ -333,15 +363,36 @@
 	type NodeDep = {
 		id: string
 		parentIds?: string[]
-		offset?: number
-		data?: { assets?: AssetWithAltAccessType[] }
+		data?: { assets?: AssetWithAltAccessType[]; module?: any }
 	}
 	type NodePos = { position: { x: number; y: number } }
-	let lastNodes: [NodeDep[], (NodeDep & NodePos)[]] | undefined = undefined
+	let lastNodes:
+		| [NodeDep[], Map<string, { top: number; bottom: number }> | undefined, (NodeDep & NodePos)[]]
+		| undefined = undefined
+	let currentGraphNodeDeps: { id: string; parentIds?: string[] }[] = $state([])
 
-	function layoutNodes(nodes: NodeDep[]): (NodeDep & NodePos)[] {
-		let lastResult = lastNodes?.[1]
-		if (lastResult && deepEqual(nodes, lastNodes?.[0])) {
+	// Keep canCreateGroup in sync for consumers (SelectionBoundingBox, FlowSelectionPanel, etc.)
+	const groupEditorCtx = getGroupEditorContext()
+
+	$effect(() => {
+		if (!groupEditorCtx) return
+		const ids = selectionManager.selectedIds
+		groupEditorCtx.canCreateGroup.val =
+			ids.length >= 1 && groupEditorCtx.groupEditor.canCreateGroup(ids, currentGraphNodeDeps)
+	})
+
+	let lastGroupDimensions: Map<string, { width: number; height: number }> | undefined = undefined
+
+	function layoutNodes(
+		nodes: NodeDep[],
+		nodeExtraSpace?: Map<string, { top: number; bottom: number; left: number; right: number }>
+	): (NodeDep & NodePos)[] {
+		let lastResult = lastNodes?.[2]
+		if (
+			lastResult &&
+			deepEqual(nodes, lastNodes?.[0]) &&
+			deepEqual(nodeExtraSpace, lastNodes?.[1])
+		) {
 			console.debug('layoutNodes', 'same nodes')
 			return lastResult
 		}
@@ -354,63 +405,32 @@
 			seenId.push(n.id)
 		}
 
-		let nodeWidths: Record<string, number> = {}
-		const nodes2: (NodeDep & NodePos)[] = nodes.map((n) => {
-			return { ...n, position: { x: 0, y: 0 } }
-		})
-		for (const n of topologicalSort(nodes)) {
-			const endId = n.id + '-end'
+		// Run recursive compound layout with pre-computed extra space
+		const layoutResult = compoundLayout(
+			nodes,
+			{
+				nodeWidth: NODE.width,
+				nodeHeight: NODE.height,
+				gapH: NODE.gap.horizontal,
+				gapV: NODE.gap.vertical
+			},
+			nodeExtraSpace
+		)
+		const { positions, bbox } = layoutResult
+		lastGroupDimensions = layoutResult.groupDimensions
 
-			if (nodeWidths[endId] != undefined) {
-				nodeWidths[n.id] = Math.max(nodeWidths[n.id] ?? 0, nodeWidths[endId])
-			}
-			if (n.parentIds && n.parentIds?.length == 1) {
-				const parent = n.parentIds[0]
-				const nodeWidth = nodeWidths[n.id] ?? 1
-				nodeWidths[parent] = (nodeWidths[parent] ?? 0) + nodeWidth
-			}
-		}
+		const xCenter = (fullSize ? fullWidth : width) / 2 - bbox.width / 2 - (width - fullWidth) / 2
 
-		const dag = dagStratify().id(({ id }: NodeDep & NodePos) => id)(nodes2)
-
-		let boxSize: any
-		try {
-			const layout = sugiyama()
-				.decross(nodes.length > 20 ? decrossTwoLayer() : decrossOpt())
-				.coord(coordCenter())
-				.nodeSize((d) => {
-					return [
-						(nodeWidths[d?.data?.['id'] ?? ''] ?? 1) * (NODE.width + NODE.gap.horizontal * 1),
-						NODE.height + NODE.gap.vertical
-					] as readonly [number, number]
-				})
-			boxSize = layout(dag as any)
-		} catch {
-			const layout = sugiyama()
-				.decross(decrossTwoLayer())
-				.coord(coordCenter())
-				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
-			boxSize = layout(dag as any)
-		}
-
-		const newNodes = dag.descendants().map((des) => ({
-			id: des.data.id,
+		// Center horizontally
+		const newNodes = nodes.map((n) => ({
+			id: n.id,
 			position: {
-				x: des.x
-					? // @ts-ignore
-						(des.data.offset ?? 0) +
-						// @ts-ignore
-						des.x +
-						(fullSize ? fullWidth : width) / 2 -
-						boxSize.width / 2 -
-						NODE.width / 2 -
-						(width - fullWidth) / 2
-					: 0,
-				y: des.y || 0
+				x: (positions.get(n.id)?.x ?? 0) + xCenter - NODE.width / 2,
+				y: positions.get(n.id)?.y ?? 0
 			}
 		}))
 
-		lastNodes = [nodes, newNodes]
+		lastNodes = [nodes, nodeExtraSpace, newNodes]
 		return newNodes
 	}
 
@@ -454,12 +474,15 @@
 		},
 		expandSubflow: async (id: string, path: string) => {
 			const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
-			expandedSubflows[id] = flow.value.modules
+			expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
 			expandedSubflows = expandedSubflows
 		},
 		minimizeSubflow: (id: string) => {
 			delete expandedSubflows[id]
 			expandedSubflows = expandedSubflows
+		},
+		expandGroup: (groupId: string) => {
+			groupDisplayState.expandGroup(groupId)
 		},
 		updateMock: (detail) => {
 			onUpdateMock?.(detail)
@@ -625,56 +648,76 @@
 			return
 		}
 
-		// console.log('compute')
+		const graphNodeDeps = Object.values(graph.nodes).map((n) => ({
+			id: n.id,
+			parentIds: n.parentIds,
+			data: { assets: (n.data as any).assets, module: (n.data as any).module }
+		}))
+		currentGraphNodeDeps = graphNodeDeps
 
-		let layoutedNodes = layoutNodes(
-			Object.values(graph.nodes).map((n) => ({
-				id: n.id,
-				parentIds: n.parentIds,
-				offset: n.data.offset ?? 0,
-				data: { assets: (n.data as any).assets }
-			}))
-		)
-		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
+		// Pre-compute extra space per node for assets, AI tools, group notes, group headers
+		const nodeExtraSpace = computeNodeExtraSpace(graphNodeDeps, {
+			showAssets: $showAssets ?? true,
+			showNotes,
+			notes,
+			noteTextHeights,
+			groupDisplayState,
+			insertable,
+			flowModuleStates
+		})
 
+		// Layout with extra space baked into sugiyama
+		let layoutedNodes = layoutNodes(graphNodeDeps, nodeExtraSpace)
+		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => {
+			const merged = { ...n, ...graph.nodes[n.id] }
+			// Augment group head nodes with wrapper dimensions from compound layout
+			if (graph.nodes[n.id]?.type === 'groupHead' && lastGroupDimensions?.has(n.id)) {
+				const dims = lastGroupDimensions.get(n.id)!
+				merged.data = { ...merged.data, wrapperWidth: dims.width, wrapperHeight: dims.height }
+			}
+			return merged
+		})
+
+		// Compute asset visual nodes (no position remapping)
 		let assetNodesResult = $showAssets
 			? computeAssetNodes(
 					newNodes.map((n) => ({
-						data: {
-							assets: n.data?.assets as AssetWithAltAccessType[],
-							offset: n.data?.offset as number
-						},
+						data: { assets: n.data?.assets as AssetWithAltAccessType[] },
 						id: n.id,
 						position: n.position
 					}))
 				)
 			: undefined
-		if (assetNodesResult) {
-			newNodes = newNodes.map((n) => ({
-				...n,
-				position: assetNodesResult.newNodePositions[n.id]
-			}))
-		}
-		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
-		let nodesAfterAITools = newNodes.map((n) => ({
-			...n,
-			position: aiToolNodesResult.newNodePositions[n.id]
-		}))
 
-		let finalNodes = [
-			...nodesAfterAITools,
+		// Compute AI tool visual nodes (no position remapping)
+		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
+
+		let finalNodes: (Node & NodeLayout)[] = [
+			...newNodes,
 			...(assetNodesResult?.newAssetNodes ?? []),
 			...aiToolNodesResult.toolNodes
 		]
 
-		// Compute note nodes and positions
+		// Collect module IDs hidden inside collapsed groups so note cleanup preserves them
+		const collapsedModuleIds = new Set<string>()
+		for (const n of finalNodes) {
+			if (n.type === 'collapsedGroup') {
+				const modules = (n.data as any)?.modules as FlowModule[] | undefined
+				if (modules) {
+					for (const m of modules) {
+						collapsedModuleIds.add(m.id)
+					}
+				}
+			}
+		}
+
+		// Compute note nodes (no position remapping)
 		let noteNodesResult = showNotes
 			? computeNoteNodes(
 					finalNodes.map((n) => ({
 						id: n.id,
 						position: n.position,
 						parentIds: n.parentIds,
-						offset: n.data?.offset ?? 0,
 						data: { assets: (n.data as any)?.assets },
 						type: n.type
 					})),
@@ -685,17 +728,10 @@
 						noteManager.render()
 					},
 					editMode,
-					noteEditorContext
+					noteEditorContext,
+					collapsedModuleIds.size > 0 ? collapsedModuleIds : undefined
 				)
 			: undefined
-
-		// Apply note positioning to nodes if notes are enabled
-		if (noteNodesResult) {
-			finalNodes = finalNodes.map((n) => ({
-				...n,
-				position: noteNodesResult.newNodePositions[n.id] || n.position
-			}))
-		}
 
 		// update nodes
 		nodes = [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])]
@@ -744,7 +780,10 @@
 		assetsOverflowed: AssetsOverflowedNode,
 		aiTool: AiToolNode,
 		newAiTool: NewAiToolNode,
-		note: NoteNode
+		note: NoteNode,
+		collapsedGroup: CollapsedGroupNode,
+		groupHead: GroupHeadNode,
+		groupEnd: GroupEndNode
 	} as any
 
 	const edgeTypes = {
@@ -780,7 +819,41 @@
 	let graph = $derived.by(() => {
 		moduleTracker.counter
 		effectiveModuleActions
-		return graphBuilder(
+		currentGroups
+
+		const collapsedGroupIds = new Set(
+			allGroups
+				.filter((g) => groupDisplayState.isRuntimeCollapsed(groupKey(g)))
+				.map((g) => groupKey(g))
+		)
+
+		if (groupError) {
+			return { nodes: {}, edges: [], error: groupError }
+		}
+
+		// Use provided structure tree (from proxy) or build locally (diff mode / read-only)
+		let gm: FlowStructureNode[] | undefined = groupedModulesProp
+		if (!gm) {
+			const allGroups = groups ?? []
+			const graphGroups = allGroups.map((g) => ({
+				...g,
+				id: groupKey(g),
+				moduleIds: untrack(() =>
+					computeGroupModuleIds(g.start_id, g.end_id, getAllModules(effectiveModules ?? []))
+				)
+			}))
+			try {
+				gm = buildStructureTree(
+					stateSnapshot(untrack(() => effectiveModules) ?? []) as FlowModule[],
+					graphGroups
+				)
+			} catch (e) {
+				return { nodes: {}, edges: [], error: e }
+			}
+		}
+
+		const result = graphBuilder(
+			gm,
 			untrack(() => effectiveModules),
 			{
 				disableAi,
@@ -812,16 +885,43 @@
 			untrack(() => selectedId),
 			simplifiableFlow,
 			triggerNode ? path : undefined,
-			expandedSubflows
+			expandedSubflows,
+			showNotes,
+			collapsedGroupIds
 		)
+		return { ...result, structureTree: gm }
 	})
 	let hideAssetsToggle = $derived(
 		$showAssets && Object.values(nodes).every((n) => n.type !== 'asset')
 	)
-	let hideNotesToggle = $derived(!notes || notes.length === 0)
+	let hideNotesToggle = $derived(
+		(!notes || notes.length === 0) && !(groups ?? []).some((g) => g.note != null)
+	)
+
+	let currentGroupDepths = $derived(
+		'structureTree' in graph && graph.structureTree ? computeGroupDepths(graph.structureTree) : {}
+	)
+
+	// All groups including those from expanded subflows (for overlay rendering)
+	let allGroups = $derived.by(() => {
+		const base = groups ?? []
+		const subflowGroups = Object.values(expandedSubflows).flatMap((sf) => sf.groups ?? [])
+		return subflowGroups.length > 0 ? [...base, ...subflowGroups] : base
+	})
+
+	// Track groups for re-layout when groups change
+	let currentGroups = $derived(groups ?? [])
 
 	$effect(() => {
-		;[graph, allowSimplifiedPoll, $showAssets, showNotes, noteManager.renderCount]
+		;[
+			graph,
+			allowSimplifiedPoll,
+			$showAssets,
+			showNotes,
+			noteManager.renderCount,
+			currentGroups,
+			groupDisplayState.renderCount
+		]
 		untrack(async () => {
 			await updateStores()
 		})
@@ -938,6 +1038,16 @@
 		}
 	}
 
+	export function createGroupFromSelection(ids: string[]) {
+		if (groupEditorCtx?.groupEditor) {
+			groupEditorCtx.groupEditor.createGroup(ids, currentGraphNodeDeps)
+			tick().then(() => {
+				clearFlowSelection()
+				selectionManager.clearSelection()
+			})
+		}
+	}
+
 	const modifierKey = isMac() ? 'Meta' : 'Control'
 </script>
 
@@ -954,7 +1064,7 @@
 	bind:this={flowContainer}
 >
 	{#if graph?.error}
-		<div class="center-center p-2">
+		<div class="center-center p-2 mt-20">
 			<Alert title="Error parsing the flow" type="error" class="max-w-1/2">
 				{graph.error}
 
@@ -1039,8 +1149,8 @@
 
 				{#if multiSelectEnabled}
 					<SelectionBoundingBox
-						selectedNodes={selectionManager.selectedIds.filter(id =>
-							nodesWithOffset.some(n => n.id === id)
+						selectedNodes={selectionManager.selectedIds.filter((id) =>
+							nodesWithOffset.some((n) => n.id === id)
 						)}
 						allNodes={nodesWithOffset as (Node & { type: string })[]}
 						onDeleteSelected={() => onDeleteMultiple?.(resolvedModuleIds)}
@@ -1053,6 +1163,12 @@
 					/>
 				{/if}
 
+				<GroupOverlay
+					allNodes={nodesWithOffset as (Node & { type: string })[]}
+					groups={allGroups}
+					groupDepths={currentGroupDepths}
+				/>
+
 				<!-- SelectionTool for handling selection changes and filtering -->
 				<SelectionTool {selectionManager} clearGraphSelection={clearFlowSelection} />
 
@@ -1061,7 +1177,12 @@
 						{@render leftHeader()}
 					</div>
 				{:else}
-					<Controls position="top-right" orientation="horizontal" showLock={false}>
+					<Controls
+						position="top-right"
+						orientation="horizontal"
+						showLock={false}
+						fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'note') }}
+					>
 						{#if multiSelectEnabled}
 							<div class="flex items-center gap-2">
 								<Tooltip>
@@ -1105,7 +1226,7 @@
 									try {
 										localStorage.setItem(
 											'svelvet',
-											encodeState({ modules, failureModule, preprocessorModule, notes })
+											encodeState({ modules, failureModule, preprocessorModule, notes, groups })
 										)
 									} catch (e) {
 										console.error('error interacting with local storage', e)

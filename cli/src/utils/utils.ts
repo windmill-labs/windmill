@@ -287,3 +287,7 @@ export function toCamel(s: string) {
 export function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
+
+export function formatTimestamp(ts: string): string {
+  return new Date(ts).toISOString().replace("T", " ").substring(0, 19);
+}

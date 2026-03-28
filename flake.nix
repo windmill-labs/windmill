@@ -269,13 +269,19 @@
         # ---------------------------------------------------------------
 
         devEnvVars = {
-          DATABASE_URL =
-            "postgres://postgres:changeme@127.0.0.1:5432/windmill?sslmode=disable";
-          REMOTE = "http://127.0.0.1:8000";
-          REMOTE_LSP = "http://127.0.0.1:3001";
           NODE_ENV = "development";
           NODE_OPTIONS = "--max-old-space-size=16384";
         };
+
+        # Connection-specific defaults — set via shellHook so they respect
+        # pre-existing values (e.g. from webmux runtime.env / .env.local).
+        # Nix attrs are injected unconditionally and would override per-worktree
+        # values set by webmux before the interactive shell starts.
+        devShellHook = ''
+          export DATABASE_URL="''${DATABASE_URL:-postgres://postgres:changeme@127.0.0.1:5432/windmill?sslmode=disable}"
+          export REMOTE="''${REMOTE:-http://127.0.0.1:8000}"
+          export REMOTE_LSP="''${REMOTE_LSP:-http://127.0.0.1:3001}"
+        '';
 
         # ---------------------------------------------------------------
         # Helper scripts — base set (default + full)
@@ -460,9 +466,9 @@
         # Usage: nix develop
         # =============================================================
 
-        devShells.default = pkgs.mkShell (buildEnvVars // commonRuntimeVars
-          // devEnvVars // browserVars // {
-            buildInputs = coreBuildInputs;
+        devShells.default = pkgs.mkShell (buildEnvVars // commonRuntimeVars // devEnvVars // browserVars // {
+          shellHook = devShellHook;
+          buildInputs = coreBuildInputs;
 
             packages = helperScriptsBase ++ [ playwrightWrapper ];
           });
@@ -472,13 +478,13 @@
         # Usage: nix develop .#full
         # =============================================================
 
-        devShells.full = pkgs.mkShell (buildEnvVars // commonRuntimeVars
-          // extraRuntimeVars // devEnvVars // browserVars // {
-            buildInputs = coreBuildInputs ++ extraRuntimes ++ (with pkgs; [
-              # Python extras
-              poetry
-              pyright
-              openapi-python-client
+        devShells.full = pkgs.mkShell (buildEnvVars // commonRuntimeVars // extraRuntimeVars // devEnvVars // browserVars // {
+          shellHook = devShellHook;
+          buildInputs = coreBuildInputs ++ extraRuntimes ++ (with pkgs; [
+            # Python extras
+            poetry
+            pyright
+            openapi-python-client
 
               # LSP / editor
               svelte-language-server

@@ -5,6 +5,7 @@ import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
+import { stat } from "node:fs/promises";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
@@ -241,8 +242,26 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  await pushApp(workspace.workspaceId, remotePath, filePath);
-  log.info(colors.bold.underline.green("App pushed"));
+  // Detect raw apps by checking for raw_app.yaml or __raw_app/.raw_app suffix
+  const normalizedPath = filePath.endsWith(SEP) ? filePath.slice(0, -1) : filePath;
+  const isRawApp = normalizedPath.endsWith("__raw_app") || normalizedPath.endsWith(".raw_app");
+  let hasRawAppYaml = false;
+  if (!isRawApp) {
+    try {
+      const rawAppPath = (filePath.endsWith(SEP) ? filePath : filePath + SEP) + "raw_app.yaml";
+      await stat(rawAppPath);
+      hasRawAppYaml = true;
+    } catch { /* not a raw app */ }
+  }
+
+  if (isRawApp || hasRawAppYaml) {
+    const { pushRawApp } = await import("./raw_apps.ts");
+    await pushRawApp(workspace.workspaceId, remotePath, filePath);
+    log.info(colors.bold.underline.green("Raw app pushed"));
+  } else {
+    await pushApp(workspace.workspaceId, remotePath, filePath);
+    log.info(colors.bold.underline.green("App pushed"));
+  }
 }
 
 const command = new Command()
@@ -275,6 +294,9 @@ const command = new Command()
     "Default TypeScript runtime (bun or deno)"
   )
   .action(async (opts: any, appFolder: string | undefined) => {
+    log.warn(
+      colors.yellow('This command is deprecated. Use "wmill generate-metadata" instead.')
+    );
     const { generateLocksCommand } = await import("./app_metadata.ts");
     await generateLocksCommand(opts, appFolder);
   });

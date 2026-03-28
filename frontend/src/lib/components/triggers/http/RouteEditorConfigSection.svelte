@@ -5,7 +5,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { HttpTriggerService } from '$lib/gen'
+	import { HttpTriggerService, SettingService } from '$lib/gen'
 	// import { page } from '$app/state'
 	import { getHttpRoute } from './utils'
 	import { isCloudHosted } from '$lib/cloud'
@@ -106,6 +106,26 @@
 
 	let userIsAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	let userCanEditConfig = $derived(userIsAdmin || isDraftOnly) // User can edit config if they are admin or if the trigger is a draft which will not be saved
+
+	let globalHttpWorkspacedRoute = $state(false)
+
+	async function loadGlobalHttpWorkspacedRouteSetting() {
+		try {
+			const setting = await SettingService.getGlobal({ key: 'http_route_workspaced_route' })
+			globalHttpWorkspacedRoute = (setting as boolean) ?? false
+		} catch (error) {
+			globalHttpWorkspacedRoute = false
+		}
+	}
+
+	loadGlobalHttpWorkspacedRouteSetting()
+
+	$effect.pre(() => {
+		if (globalHttpWorkspacedRoute && !workspaced_route) {
+			workspaced_route = true
+			dirtyRoutePath = true
+		}
+	})
 </script>
 
 <div>
@@ -172,13 +192,15 @@
 					<Toggle
 						size="sm"
 						checked={workspaced_route}
-						disabled={!can_write || !userCanEditConfig}
+						disabled={!can_write || !userCanEditConfig || globalHttpWorkspacedRoute}
 						on:change={() => {
 							workspaced_route = !workspaced_route
 							dirtyRoutePath = true
 						}}
 						options={{
-							right: 'Prefix with workspace',
+							right: globalHttpWorkspacedRoute
+								? 'Prefix with workspace (enforced by instance setting)'
+								: 'Prefix with workspace',
 							rightTooltip:
 								'Prefixes the route with the workspace ID (e.g., {base_url}/api/r/{workspace_id}/{route}). Note: deploying the HTTP trigger to another workspace updates the route workspace prefix accordingly.',
 							rightDocumentationLink:

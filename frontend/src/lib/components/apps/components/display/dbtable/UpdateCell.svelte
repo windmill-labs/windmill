@@ -64,8 +64,8 @@
 					onCancel: () => {
 						sendUserToast('Error updating value', true)
 					},
-					onError: () => {
-						sendUserToast('Error updating value', true)
+					onError: (e) => {
+						sendUserToast(`Error updating value: ${e?.message ?? e}`, true)
 					}
 				}
 			)

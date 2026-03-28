@@ -65,7 +65,8 @@ use windmill_common::{
     schema::should_validate_schema,
     scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Schema, Script, ScriptHash,
-        ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang, ScriptWithStarred,
+        ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang, ScriptModule,
+        ScriptWithStarred,
     },
     users::username_to_permissioned_as,
     utils::{not_found_if_none, query_elems_from_hub, require_admin, Pagination, StripPath},
@@ -116,7 +117,7 @@ pub struct ScriptWDraft<SR> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visible_to_runner_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub no_main_func: Option<bool>,
+    pub auto_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -124,6 +125,9 @@ pub struct ScriptWDraft<SR> {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(json(nullable))]
     pub assets: Option<Vec<AssetWithAltAccessType>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(json(nullable))]
+    pub modules: Option<HashMap<String, ScriptModule>>,
     #[serde(flatten)]
     #[sqlx(flatten)]
     pub runnable_settings: SR,
@@ -174,10 +178,11 @@ impl ScriptWDraft<ScriptRunnableSettingsHandle> {
             delete_after_use: self.delete_after_use,
             timeout: self.timeout,
             visible_to_runner_only: self.visible_to_runner_only,
-            no_main_func: self.no_main_func,
+            auto_kind: self.auto_kind,
             has_preprocessor: self.has_preprocessor,
             on_behalf_of_email: self.on_behalf_of_email,
             assets: self.assets,
+            modules: self.modules,
         })
     }
 }
@@ -185,18 +190,18 @@ impl ScriptWDraft<ScriptRunnableSettingsHandle> {
 pub fn global_service() -> Router {
     Router::new()
         .route("/hub/top", get(get_top_hub_scripts))
-        .route("/hub/get/*path", get(get_hub_script_by_path))
-        .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
-        .route("/hub/pick/*path", get(pick_hub_script_by_path))
+        .route("/hub/get/{*path}", get(get_hub_script_by_path))
+        .route("/hub/get_full/{*path}", get(get_full_hub_script_by_path))
+        .route("/hub/pick/{*path}", get(pick_hub_script_by_path))
 }
 
 pub fn global_unauthed_service() -> Router {
     Router::new()
         .route(
-            "/tokened_raw/:workspace/:token/*path",
+            "/tokened_raw/{workspace}/{token}/{*path}",
             get(get_tokened_raw_script_by_path),
         )
-        .route("/empty_ts/*path", get(get_empty_ts_script_by_path))
+        .route("/empty_ts/{*path}", get(get_empty_ts_script_by_path))
 }
 
 pub fn workspaced_service() -> Router {
@@ -205,35 +210,39 @@ pub fn workspaced_service() -> Router {
         .route("/list_search", get(list_search_scripts))
         .route("/create", post(create_script))
         .route("/create_snapshot", post(create_snapshot_script))
-        .route("/archive/p/*path", post(archive_script_by_path))
-        .route("/get/draft/*path", get(get_script_by_path_w_draft))
-        .route("/get/p/*path", get(get_script_by_path))
-        .route("/list_tokens/*path", get(list_tokens))
-        .route("/raw/p/*path", get(raw_script_by_path))
-        .route("/raw_unpinned/p/*path", get(raw_script_by_path_unpinned))
-        .route("/exists/p/*path", get(exists_script_by_path))
-        .route("/archive/h/:hash", post(archive_script_by_hash))
-        .route("/delete/h/:hash", post(delete_script_by_hash))
-        .route("/delete/p/*path", post(delete_script_by_path))
+        .route("/archive/p/{*path}", post(archive_script_by_path))
+        .route("/get/draft/{*path}", get(get_script_by_path_w_draft))
+        .route("/get/p/{*path}", get(get_script_by_path))
+        .route("/list_tokens/{*path}", get(list_tokens))
+        .route("/raw/p/{*path}", get(raw_script_by_path))
+        .route("/raw_unpinned/p/{*path}", get(raw_script_by_path_unpinned))
+        .route("/exists/p/{*path}", get(exists_script_by_path))
+        .route("/archive/h/{hash}", post(archive_script_by_hash))
+        .route("/delete/h/{hash}", post(delete_script_by_hash))
+        .route("/delete/p/{*path}", post(delete_script_by_path))
         .route("/delete_bulk", delete(delete_scripts_bulk))
-        .route("/get/h/:hash", get(get_script_by_hash))
-        .route("/raw/h/:hash", get(raw_script_by_hash))
-        .route("/deployment_status/h/:hash", get(get_deployment_status))
+        .route("/get/h/{hash}", get(get_script_by_hash))
+        .route("/raw/h/{hash}", get(raw_script_by_hash))
+        .route("/deployment_status/h/{hash}", get(get_deployment_status))
         .route("/list_paths", get(list_paths))
         .route(
-            "/toggle_workspace_error_handler/p/*path",
+            "/toggle_workspace_error_handler/p/{*path}",
             post(toggle_workspace_error_handler),
         )
-        .route("/history/p/*path", get(get_script_history))
-        .route("/get_latest_version/*path", get(get_latest_version))
+        .route("/history/p/{*path}", get(get_script_history))
+        .route("/get_latest_version/{*path}", get(get_latest_version))
         .route(
-            "/list_paths_from_workspace_runnable/*path",
+            "/list_paths_from_workspace_runnable/{*path}",
             get(list_paths_from_workspace_runnable),
         )
         .route(
-            "/history_update/h/:hash/p/*path",
+            "/history_update/h/{hash}/p/{*path}",
             post(update_script_history),
         )
+        .route("/list_dedicated_with_deps", get(list_dedicated_with_deps))
+        // Temporary raw script storage for CLI lock generation
+        .route("/raw_temp/store", post(store_raw_script_temp))
+        .route("/raw_temp/diff", post(diff_raw_scripts_with_deployed))
 }
 
 #[derive(Serialize, FromRow)]
@@ -295,7 +304,7 @@ async fn list_scripts(
             "draft.path IS NOT NULL as has_draft",
             "draft_only",
             "ws_error_handler_muted",
-            "no_main_func",
+            "auto_kind",
             "codebase IS NOT NULL as use_codebase",
             "kind"
         ])
@@ -330,7 +339,7 @@ async fn list_scripts(
     {
         // only include scripts that have a main function
         // do not hide scripts without main if preprocessor is in the kinds
-        sqlb.and_where("o.no_main_func IS NOT TRUE");
+        sqlb.and_where("o.auto_kind IS NULL");
     }
 
     if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
@@ -596,7 +605,7 @@ impl HandleDeploymentMetadata {
 }
 
 async fn create_script_internal<'c>(
-    ns: NewScript,
+    mut ns: NewScript,
     w_id: String,
     authed: ApiAuthed,
     db: sqlx::Pool<Postgres>,
@@ -631,7 +640,7 @@ async fn create_script_internal<'c>(
                 .await?;
         if nb_scripts.unwrap_or(0) >= 5000 {
             return Err(Error::BadRequest(
-                    "You have reached the maximum number of scripts (5000) on cloud. Contact support@windmill.dev to increase the limit"
+                    "You have reached the maximum number of scripts (5000) on cloud. Check your usage in Workspace Settings > General > Cloud Quotas. Contact support@windmill.dev to increase the limit"
                         .to_string(),
                 ));
         }
@@ -666,6 +675,17 @@ async fn create_script_internal<'c>(
                 .to_owned(),
         ));
     };
+    // When auto_parent is set, serialize concurrent creates for the same (workspace, path)
+    // so the clashing_script query always sees the latest committed head.
+    if ns.auto_parent.unwrap_or(false) {
+        sqlx::query_scalar!(
+            "SELECT pg_advisory_xact_lock(hashtext($1 || '/' || $2))",
+            &w_id,
+            &ns.path
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+    }
     let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
         "SELECT * FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
     )
@@ -678,6 +698,15 @@ async fn create_script_internal<'c>(
         perms: serde_json::Value,
         p_path: String,
     }
+    // When auto_parent is set, resolve parent_hash to the current head for this path
+    // within the transaction. The advisory lock above ensures the second concurrent
+    // request waits until the first commits, so this query sees the updated head.
+    if ns.auto_parent.unwrap_or(false) {
+        if let Some(ref cs) = clashing_script {
+            ns.parent_hash = Some(cs.hash.clone());
+        }
+    }
+
     let parent_hashes_and_perms: Option<ParentInfo> = match (&ns.parent_hash, clashing_script) {
         (None, None) => Ok(None),
         (None, Some(s)) if !s.draft_only.unwrap_or(false) => Err(Error::BadRequest(format!(
@@ -826,21 +855,24 @@ async fn create_script_internal<'c>(
 
     let validate_schema = should_validate_schema(&ns.content, &ns.language);
 
-    let (no_main_func, has_preprocessor) = if matches!(ns.kind, Some(ScriptKind::Preprocessor)) {
-        (ns.no_main_func, ns.has_preprocessor)
+    let (auto_kind, has_preprocessor) = if matches!(ns.kind, Some(ScriptKind::Preprocessor)) {
+        (ns.auto_kind.clone(), ns.has_preprocessor)
     } else {
         match lang {
             ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
                 let args = windmill_parser_ts::parse_deno_signature(&ns.content, true, true, None);
                 match args {
-                    Ok(args) => (args.no_main_func, args.has_preprocessor),
+                    Ok(args) => (
+                        ns.auto_kind.clone().or(args.auto_kind),
+                        args.has_preprocessor,
+                    ),
                     Err(e) => {
                         tracing::warn!(
                             "Error parsing deno signature when deploying script {}: {:?}",
                             ns.path,
                             e
                         );
-                        (None, None)
+                        (ns.auto_kind.clone(), None)
                     }
                 }
             }
@@ -848,18 +880,21 @@ async fn create_script_internal<'c>(
             ScriptLang::Python3 => {
                 let args = windmill_parser_py::parse_python_signature(&ns.content, None, true);
                 match args {
-                    Ok(args) => (args.no_main_func, args.has_preprocessor),
+                    Ok(args) => (
+                        ns.auto_kind.clone().or(args.auto_kind),
+                        args.has_preprocessor,
+                    ),
                     Err(e) => {
                         tracing::warn!(
                             "Error parsing python signature when deploying script {}: {:?}",
                             ns.path,
                             e
                         );
-                        (None, None)
+                        (ns.auto_kind.clone(), None)
                     }
                 }
             }
-            _ => (ns.no_main_func, ns.has_preprocessor),
+            _ => (ns.auto_kind.clone(), ns.has_preprocessor),
         }
     };
 
@@ -895,8 +930,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)",
         &w_id,
         &hash.0,
         ns.path,
@@ -925,7 +960,7 @@ async fn create_script_internal<'c>(
         ns.timeout,
         guarded_concurrency_key,
         ns.visible_to_runner_only,
-        no_main_func.filter(|x: &bool| *x), // should be Some(true) or None
+        auto_kind.as_deref(),
         codebase,
         has_preprocessor.filter(|x: &bool| *x), // should be Some(true) or None
         windmill_common::resolve_on_behalf_of_email(
@@ -938,7 +973,8 @@ async fn create_script_internal<'c>(
         guarded_debounce_key,
         guarded_debounce_delay_s,
         ns.cache_ignore_s3_path,
-        runnable_settings_handle
+        runnable_settings_handle,
+        ns.modules.as_ref().and_then(|m| serde_json::to_value(m).ok())
     )
     .execute(&mut *tx)
     .await?;
@@ -1388,7 +1424,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft<ScriptRunnableSettingsHandle>>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, runnable_settings_handle, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, has_preprocessor, on_behalf_of_email, assets, debounce_key, debounce_delay_s FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, runnable_settings_handle, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, has_preprocessor, on_behalf_of_email, assets, modules, debounce_key, debounce_delay_s FROM script LEFT JOIN draft ON
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2
          ORDER BY script.created_at DESC LIMIT 1",
@@ -1603,6 +1639,9 @@ struct RawScriptByPathQuery {
     cache_key: Option<String>,
     // used specifically for python to cache folders on import success to avoid extra db calls on package fetch
     cache_folders: Option<bool>,
+    // If provided, load content from raw_script_temp table using this hash instead of deployed script.
+    // Used by CLI lock generation to resolve imports from not-yet-deployed scripts.
+    temp_script_hash: Option<String>,
 }
 
 struct StringWithLength(String);
@@ -1661,6 +1700,16 @@ async fn raw_script_by_path_internal(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
+
+    // If temp_script_hash is provided, try loading from temp storage first.
+    // This is used by CLI lock generation to resolve imports from not-yet-deployed scripts.
+    // Falls back to the normal deployed script lookup if not found in temp storage.
+    if let Some(hash) = query.temp_script_hash {
+        if let Ok(content) = windmill_common::cache::raw_script_temp::load(hash, &db).await {
+            return Ok(content);
+        }
+    }
+
     let cache_path = query
         .cache_key
         .map(|x| format!("{w_id}:{path}:{x}{}", if unpin { ":unpinned" } else { "" }));
@@ -2212,33 +2261,58 @@ async fn delete_script_by_path(
     .await?
     .unwrap_or(false);
 
-    let script = if !draft_only {
+    if !draft_only {
         require_admin(authed.is_admin, &authed.username)?;
-        sqlx::query_scalar!(
-            "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
+    }
+
+    // Capture all script versions and drafts for trashbin before deleting
+    let trash_scripts: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM script t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let trash_drafts: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM draft t WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let script = sqlx::query_scalar!(
+        "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
+        path,
+        w_id
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?;
+
+    if !trash_scripts.is_empty() {
+        let mut trash_data = serde_json::json!({"scripts": trash_scripts});
+        if !trash_drafts.is_empty() {
+            trash_data["drafts"] = serde_json::Value::Array(trash_drafts);
+        }
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "script",
             path,
-            w_id
+            trash_data,
+            &authed.username,
         )
-        .fetch_one(&db)
-        .await
-        .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?
-    } else {
-        sqlx::query_scalar!(
-            "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
-            path,
-            w_id
-        )
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?
-    };
+        .await?;
+    }
 
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
         path,
         w_id
     )
-    .execute(&db)
+    .execute(&mut *tx)
     .await?;
 
     if !query.keep_captures.unwrap_or(false) {
@@ -2247,7 +2321,7 @@ async fn delete_script_by_path(
             path,
             w_id
         )
-        .execute(&db)
+        .execute(&mut *tx)
         .await?;
 
         sqlx::query!(
@@ -2255,7 +2329,7 @@ async fn delete_script_by_path(
             path,
             w_id
         )
-        .execute(&db)
+        .execute(&mut *tx)
         .await?;
     }
 
@@ -2341,6 +2415,30 @@ async fn delete_scripts_bulk(
     }
 
     let mut tx = db.begin().await?;
+
+    // Capture scripts for trashbin per path before bulk delete
+    for path in &request.paths {
+        let trash_scripts: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(t) FROM script t WHERE path = $1 AND workspace_id = $2",
+        )
+        .bind(path)
+        .bind(&w_id)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        if !trash_scripts.is_empty() {
+            let trash_data = serde_json::json!({"scripts": trash_scripts});
+            windmill_common::trashbin::move_to_trash(
+                &mut *tx,
+                &w_id,
+                "script",
+                path,
+                trash_data,
+                &authed.username,
+            )
+            .await?;
+        }
+    }
 
     let mut deleted_paths = sqlx::query_scalar!(
         "DELETE FROM script WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
@@ -2451,4 +2549,184 @@ async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+#[derive(Serialize)]
+struct DedicatedScriptDeps {
+    path: String,
+    language: ScriptLang,
+    workspace_dep_names: Vec<String>,
+}
+
+async fn list_dedicated_with_deps(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<DedicatedScriptDeps>> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let rows = sqlx::query!(
+        "SELECT DISTINCT ON (path) path, language AS \"language: ScriptLang\", content FROM script
+         WHERE workspace_id = $1
+           AND archived = false
+           AND dedicated_worker = true
+           AND language = ANY($2::SCRIPT_LANG[])
+         ORDER BY path, created_at DESC",
+        &w_id,
+        &[
+            ScriptLang::Python3,
+            ScriptLang::Bun,
+            ScriptLang::Bunnative,
+            ScriptLang::Deno,
+        ] as &[ScriptLang],
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    let result = rows
+        .into_iter()
+        .map(|row| {
+            let dep_names =
+                windmill_common::scripts::extract_workspace_dependencies_annotated_refs(
+                    &row.language,
+                    &row.content,
+                    &row.path,
+                )
+                .map(|refs| refs.external)
+                .unwrap_or_default();
+            DedicatedScriptDeps {
+                path: row.path,
+                language: row.language,
+                workspace_dep_names: dep_names,
+            }
+        })
+        .collect();
+
+    Ok(Json(result))
+}
+
+// ============================================================================
+// Temporary Raw Script Storage for CLI Lock Generation
+// ============================================================================
+
+/// Store raw script content temporarily for CLI lock generation.
+async fn store_raw_script_temp(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(content): Json<String>,
+) -> Result<Json<String>> {
+    check_scopes(&authed, || "scripts:write".to_string())?;
+
+    let hash = windmill_common::cache::raw_script_temp::compute_hash(&w_id, &content);
+
+    // Store to DB
+    sqlx::query!(
+        "INSERT INTO raw_script_temp (workspace_id, hash, content, created_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (workspace_id, hash) DO UPDATE SET created_at = NOW()",
+        &w_id,
+        &hash,
+        &content
+    )
+    .execute(&db)
+    .await?;
+
+    // Clean up old entries (1 week TTL)
+    sqlx::query!("DELETE FROM raw_script_temp WHERE created_at < NOW() - INTERVAL '1 week'")
+        .execute(&db)
+        .await?;
+
+    Ok(Json(hash))
+}
+
+/// Compare local script content hashes with deployed versions.
+/// Receives a map of path → SHA256(content), returns paths where the hash
+/// differs from the deployed script (or the script doesn't exist on remote).
+/// Hash comparison is done entirely in Postgres to avoid transferring content.
+#[derive(Deserialize)]
+struct WorkspaceDepDiff {
+    path: String,
+    language: ScriptLang,
+    name: Option<String>,
+    hash: String,
+}
+
+#[derive(Deserialize)]
+struct DiffRequest {
+    scripts: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    workspace_deps: Vec<WorkspaceDepDiff>,
+}
+
+async fn diff_raw_scripts_with_deployed(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<DiffRequest>,
+) -> Result<Json<Vec<String>>> {
+    check_scopes(&authed, || "scripts:read".to_string())?;
+
+    let mut matching_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut all_paths: Vec<String> = Vec::new();
+
+    // --- Scripts ---
+    if !req.scripts.is_empty() {
+        let paths: Vec<String> = req.scripts.keys().cloned().collect();
+        let hashes: Vec<String> = paths.iter().map(|p| req.scripts[p].clone()).collect();
+
+        let matching: Vec<String> = sqlx::query_scalar(
+            "SELECT local.path FROM \
+             unnest($1::text[], $2::text[]) AS local(path, hash) \
+             INNER JOIN LATERAL ( \
+               SELECT encode(sha256(convert_to(s.content, 'UTF8')), 'hex') AS deployed_hash \
+               FROM script s \
+               WHERE s.path = local.path AND s.workspace_id = $3 AND s.archived = false \
+               ORDER BY s.created_at DESC LIMIT 1 \
+             ) deployed ON deployed.deployed_hash = local.hash",
+        )
+        .bind(&paths)
+        .bind(&hashes)
+        .bind(&w_id)
+        .fetch_all(&db)
+        .await?;
+
+        matching_set.extend(matching);
+        all_paths.extend(paths);
+    }
+
+    // --- Workspace dependencies ---
+    for dep in &req.workspace_deps {
+        let matching: Option<String> = sqlx::query_scalar(
+            "SELECT $1::text \
+             WHERE EXISTS ( \
+               SELECT 1 FROM workspace_dependencies wd \
+               WHERE wd.workspace_id = $2 AND wd.archived = false \
+                 AND wd.language = $3::SCRIPT_LANG \
+                 AND wd.name IS NOT DISTINCT FROM $4 \
+                 AND encode(sha256(convert_to(wd.content, 'UTF8')), 'hex') = $5 \
+             )",
+        )
+        .bind(&dep.path)
+        .bind(&w_id)
+        .bind(dep.language.as_str())
+        .bind(&dep.name)
+        .bind(&dep.hash)
+        .fetch_optional(&db)
+        .await?;
+
+        if let Some(path) = matching {
+            matching_set.insert(path);
+        }
+        all_paths.push(dep.path.clone());
+    }
+
+    let mismatched: Vec<String> = all_paths
+        .into_iter()
+        .filter(|p| !matching_set.contains(p))
+        .collect();
+
+    Ok(Json(mismatched))
 }

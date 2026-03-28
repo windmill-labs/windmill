@@ -24,14 +24,12 @@ pub fn parse_r_sig_meta(code: &str) -> anyhow::Result<MainArgSignature> {
     let root_node = tree.root_node();
 
     let args = find_main_signature(root_node, code)?;
-    let no_main_func = Some(args.is_none());
-
     let main_sig = MainArgSignature {
         star_args: false,
         star_kwargs: false,
         args: args.unwrap_or_default(),
         has_preprocessor: None,
-        no_main_func,
+        auto_kind: None,
     };
 
     Ok(main_sig)
@@ -243,7 +241,7 @@ helper <- function(x) { x + 1 }
         let sig = parse(code).unwrap();
         assert_eq!(
             sig,
-            windmill_parser::MainArgSignature { no_main_func: Some(true), ..Default::default() }
+            windmill_parser::MainArgSignature { auto_kind: None, ..Default::default() }
         );
     }
 
@@ -257,7 +255,7 @@ main <- function() {
         let sig = parse(code).unwrap();
         assert_eq!(
             sig,
-            windmill_parser::MainArgSignature { no_main_func: Some(false), ..Default::default() }
+            windmill_parser::MainArgSignature { auto_kind: None, ..Default::default() }
         );
     }
 
@@ -273,7 +271,7 @@ main <- function() {
                     windmill_parser::Arg { name: "b".into(), ..Default::default() },
                     windmill_parser::Arg { name: "c".into(), ..Default::default() },
                 ],
-                no_main_func: Some(false),
+                auto_kind: None,
                 ..Default::default()
             }
         );

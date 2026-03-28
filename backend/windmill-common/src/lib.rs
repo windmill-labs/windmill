@@ -29,6 +29,8 @@ use sqlx::{Acquire, Postgres};
 pub mod agent_workers;
 #[cfg(feature = "bedrock")]
 pub mod ai_bedrock;
+pub mod ai_cache;
+pub mod ai_google;
 pub mod ai_providers;
 pub mod ai_types;
 pub mod apps;
@@ -76,6 +78,7 @@ pub mod oidc_oss;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 pub mod otel_oss;
+pub mod query_builders;
 pub mod queue;
 pub mod result_stream;
 pub mod runnable_settings;
@@ -83,7 +86,9 @@ pub mod schedule;
 pub mod schema;
 pub mod scripts;
 pub mod secret_backend;
+pub mod sensitive_log_masks;
 pub mod server;
+pub mod ssrf;
 #[cfg(feature = "private")]
 pub mod stats_ee;
 pub mod stats_oss;
@@ -92,6 +97,7 @@ pub mod stream;
 pub mod teams_ee;
 pub mod teams_oss;
 pub mod tracing_init;
+pub mod trashbin;
 pub mod triggers;
 pub mod usernames;
 pub mod users;
@@ -204,6 +210,7 @@ lazy_static::lazy_static! {
     pub static ref CRITICAL_ALERTS_ON_DB_OVERSIZE: Arc<RwLock<Option<f32>>> = Arc::new(RwLock::new(None));
 
     pub static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
+    pub static ref AUDIT_LOG_RETENTION_DAYS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
@@ -399,6 +406,8 @@ pub struct PgDatabase {
     pub sslmode: Option<String>,
     pub dbname: String,
     pub root_certificate_pem: Option<String>,
+    pub use_iam_auth: Option<bool>,
+    pub region: Option<String>,
 }
 
 // Wrapper enum to hold either Tls or NoTls connection
@@ -506,6 +515,75 @@ impl PgDatabase {
         }
     }
 
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    pub async fn connect_with_iam(
+        &self,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        use native_tls::TlsConnector;
+        use postgres_native_tls::MakeTlsConnector;
+
+        // Resolve region: resource field takes priority, then env var
+        let region = match self.region.as_deref() {
+            Some(r) => r.to_string(),
+            None => std::env::var("AWS_REGION").map_err(|_| {
+                error::Error::BadConfig(
+                    "Region is required for IAM RDS auth. Set 'region' on the resource or AWS_REGION env var".to_string(),
+                )
+            })?,
+        };
+
+        let port = self.port.unwrap_or(5432);
+        let user = self.user.as_deref().unwrap_or("postgres");
+
+        let token = db_iam_ee::generate_auth_token(&region, &self.host, port as u64, user)
+            .await
+            .map_err(|e| {
+                error::Error::InternalErr(format!("IAM token generation failed: {e:#}"))
+            })?;
+
+        // RDS IAM auth requires SSL
+        let mut connector = TlsConnector::builder();
+        if let Some(root_certificate_pem) = &self.root_certificate_pem {
+            if !root_certificate_pem.is_empty() {
+                connector.add_root_certificate(
+                    native_tls::Certificate::from_pem(root_certificate_pem.as_bytes())
+                        .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e:#}")))?,
+                );
+            } else {
+                connector.danger_accept_invalid_certs(true);
+                connector.danger_accept_invalid_hostnames(true);
+            }
+        } else {
+            tracing::warn!("IAM RDS auth without root certificate: TLS certificate verification is disabled. Consider providing root_certificate_pem for production use.");
+            connector
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true);
+        }
+
+        tracing::info!("Creating new IAM RDS connection to {}", &self.host);
+
+        // Use Config builder directly to pass the IAM token as the password.
+        // This avoids needing to URL-encode the token into a connection string.
+        let mut config = tokio_postgres::Config::new();
+        config
+            .host(&self.host)
+            .port(port as u16)
+            .user(user)
+            .password(&token)
+            .dbname(&self.dbname)
+            .ssl_mode(tokio_postgres::config::SslMode::Require);
+
+        let (client, connection) = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            config.connect(MakeTlsConnector::new(connector.build().map_err(to_anyhow)?)),
+        )
+        .await
+        .map_err(to_anyhow)?
+        .map_err(to_anyhow)?;
+
+        Ok((client, TokioPgConnection::Tls(connection)))
+    }
+
     pub fn parse_uri(url: &str) -> Result<Self, Error> {
         let parsed_url = url::Url::parse(url)
             .map_err(|_| Error::BadConfig("Invalid PostgreSQL URL".to_string()))?;
@@ -544,6 +622,8 @@ impl PgDatabase {
             dbname,
             sslmode,
             root_certificate_pem: None,
+            use_iam_auth: None,
+            region: None,
         })
     }
 }

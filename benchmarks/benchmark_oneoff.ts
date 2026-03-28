@@ -10,7 +10,7 @@ import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.174.0/windmill-api/index.ts";
 
-import { VERSION, createBenchScript, getFlowPayload, login } from "./lib.ts";
+import { VERSION, createBenchScript, createWacBenchScript, getFlowPayload, login, WAC_KINDS, STEPS_PER_WORKFLOW } from "./lib.ts";
 
 async function verifyOutputs(uuids: string[], workspace: string) {
   console.log("Verifying outputs");
@@ -38,6 +38,8 @@ async function verifyOutputs(uuids: string[], workspace: string) {
 }
 
 export const NON_TEST_TAGS = ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets", "flow"]
+
+const FLOW_COMPARISON_KINDS = ["flow_seq_2_bun", "flow_par_2_bun", "flow_seq_3_bun"];
 export async function main({
   host,
   email,
@@ -151,6 +153,8 @@ export async function main({
     )
   ) {
     await createBenchScript(kind, workspace);
+  } else if (WAC_KINDS.includes(kind)) {
+    await createWacBenchScript(kind, workspace);
   }
 
 
@@ -173,6 +177,20 @@ export async function main({
       kind: "script",
       path: "f/benchmarks/" + kind,
     });
+  } else if (WAC_KINDS.includes(kind)) {
+    // WAC v2 scripts are deployed as bun scripts, run via script path
+    nStepsFlow = STEPS_PER_WORKFLOW[kind] ?? 0;
+    body = JSON.stringify({
+      kind: "script",
+      path: "f/benchmarks/" + kind,
+    });
+  } else if (FLOW_COMPARISON_KINDS.includes(kind)) {
+    nStepsFlow = STEPS_PER_WORKFLOW[kind] ?? 0;
+    const payload = getFlowPayload(kind);
+    body = JSON.stringify({
+      kind: "flow",
+      flow_value: payload.value,
+    });
   } else if (["2steps", "bigscriptinflow"].includes(kind)) {
     nStepsFlow = kind == "2steps" ? 2 : 1;
     const payload = getFlowPayload(kind);
@@ -182,7 +200,7 @@ export async function main({
     });
   } else if (kind.startsWith("flow:")) {
     console.log("Detected custom flow ");
-    let flow_path = kind.substr(5);
+    let flow_path = kind.substring(5);
     nStepsFlow = await getFlowStepCount(config.workspace_id, flow_path);
     console.log(`Total steps of flow including sub-flows: ${nStepsFlow}`);
     body = JSON.stringify({
@@ -193,7 +211,7 @@ export async function main({
     console.log("Detected custom script");
     body = JSON.stringify({
       kind: "script",
-      path: kind.substr(7),
+      path: kind.substring(7),
     });
   } else if (kind == "bigrawscript") {
     noVerify = true;
@@ -281,6 +299,9 @@ export async function main({
   let lastElapsed = 0;
   let lastCompletedJobs = 0;
 
+  // Timeout: 10 minutes for the polling loop to prevent hanging forever
+  // (e.g. if WAC suspend/resume fails or jobs get stuck)
+  const POLL_TIMEOUT_MS = 10 * 60 * 1000;
   let didStart = false;
   while (completedJobs < jobsSent) {
     const loopStart = Date.now();
@@ -292,6 +313,10 @@ export async function main({
       }
     } else {
       const elapsed = start ? Date.now() - start : 0;
+      if (elapsed > POLL_TIMEOUT_MS) {
+        console.error(`\nTimeout: benchmark did not complete within ${POLL_TIMEOUT_MS / 1000}s (${completedJobs}/${jobsSent} completed)`);
+        break;
+      }
       completedJobs = await getCompletedJobsCount(NON_TEST_TAGS);
       if (nStepsFlow > 0) {
         completedJobs = Math.floor(completedJobs / (nStepsFlow + 1));
@@ -338,7 +363,9 @@ export async function main({
     kind !== "nativets" &&
     kind !== "dedicated_nativets" &&
     !kind.startsWith("flow:") &&
-    !kind.startsWith("script:")
+    !kind.startsWith("script:") &&
+    !WAC_KINDS.includes(kind) &&
+    !FLOW_COMPARISON_KINDS.includes(kind)
   ) {
     await verifyOutputs(uuids, config.workspace_id);
   }
@@ -387,7 +414,7 @@ if (import.meta.main) {
     )
     .option(
       "--kind <kind:string>",
-      "Specifiy the benchmark kind among: deno, identity, python, go, bash, dedicated, bun, noop, 2steps, nativets, dedicated_nativets",
+      "Specifiy the benchmark kind among: deno, identity, python, go, bash, dedicated, bun, noop, 2steps, nativets, dedicated_nativets, wac_seq_2, wac_par_2, wac_seq_3, wac_inline_2, flow_seq_2_bun, flow_par_2_bun, flow_seq_3_bun",
       {
         required: true,
       }

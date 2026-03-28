@@ -10,6 +10,7 @@ import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { readFile } from "node:fs/promises";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { buildFolderPath, getMetadataFileName, loadNonDottedPathsSetting } from "../../utils/resource_folders.ts";
 
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
@@ -18,14 +19,109 @@ import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
 import { Flow } from "../../../gen/types.gen.ts";
-import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
+import {
+  collectPathScriptPaths,
+  replaceInlineScripts,
+  replaceAllPathScriptsWithLocal,
+} from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { generateFlowLockInternal } from "./flow_metadata.ts";
+import { exts } from "../script/script.ts";
+import type { SyncCodebase } from "../../utils/codebase.ts";
+import { listSyncCodebases } from "../../utils/codebase.ts";
+import {
+  createPreviewLocalScriptReader,
+  resolvePreviewLocalScriptState,
+} from "../../utils/local_path_scripts.ts";
 
 export interface FlowFile {
   summary: string;
   description?: string;
   value: any;
   schema?: any;
+}
+
+function normalizeOptionalString(value: string | null | undefined): string | undefined {
+  return typeof value === "string" && value.trim() === "" ? undefined : value ?? undefined;
+}
+
+function normalizeComparableContent(value: string | undefined): string | undefined {
+  return value?.replaceAll("\r\n", "\n").replace(/\n$/, "");
+}
+
+async function findDivergedLocalPathScripts(
+  workspaceId: string,
+  scriptPaths: string[],
+  opts: {
+    exts: string[];
+    defaultTs?: "bun" | "deno";
+    codebases: SyncCodebase[];
+  }
+): Promise<{ changed: string[]; missing: string[] }> {
+  const changed: string[] = [];
+  const missing: string[] = [];
+
+  for (const scriptPath of scriptPaths) {
+    const localScript = await resolvePreviewLocalScriptState(scriptPath, opts);
+    if (!localScript) {
+      continue;
+    }
+
+    let remoteScript;
+    try {
+      remoteScript = await wmill.getScriptByPath({
+        workspace: workspaceId,
+        path: scriptPath,
+      });
+    } catch {
+      missing.push(scriptPath);
+      continue;
+    }
+
+    const remoteLock = normalizeOptionalString(remoteScript.lock);
+    const diverged =
+      normalizeComparableContent(localScript.content) !==
+        normalizeComparableContent(remoteScript.content) ||
+      localScript.language !== remoteScript.language ||
+      (localScript.lock !== undefined &&
+        normalizeComparableContent(localScript.lock) !==
+          normalizeComparableContent(remoteLock)) ||
+      localScript.tag !== normalizeOptionalString(remoteScript.tag) ||
+      localScript.codebaseDigest !== normalizeOptionalString(remoteScript.codebase);
+
+    if (diverged) {
+      changed.push(scriptPath);
+    }
+  }
+
+  return { changed, missing };
+}
+
+function warnAboutLocalPathScriptDivergence(
+  divergence: { changed: string[]; missing: string[] }
+): void {
+  if (divergence.changed.length === 0 && divergence.missing.length === 0) {
+    return;
+  }
+
+  const details: string[] = [];
+  if (divergence.changed.length > 0) {
+    details.push(
+      `These workspace scripts differ from the deployed version:\n${divergence.changed
+        .map((path) => `- ${path}`)
+        .join("\n")}`
+    );
+  }
+  if (divergence.missing.length > 0) {
+    details.push(
+      `These scripts do not exist in the workspace yet:\n${divergence.missing
+        .map((path) => `- ${path}`)
+        .join("\n")}`
+    );
+  }
+
+  log.warn(
+    `Using local PathScript files for flow preview.\n${details.join("\n")}\nUse --remote to preview deployed workspace scripts instead.`
+  );
 }
 
 const alreadySynced: string[] = [];
@@ -56,13 +152,20 @@ export async function pushFlow(
   }
   const localFlow = (await yamlParseFile(localPath + "flow.yaml")) as FlowFile;
 
+  const fileReader = async (path: string) => await readFile(localPath + path, "utf-8");
   await replaceInlineScripts(
     localFlow.value.modules,
-    async (path: string) => await readFile(localPath + path, "utf-8"),
+    fileReader,
     log,
     localPath,
     SEP
   );
+  if (localFlow.value.failure_module) {
+    await replaceInlineScripts([localFlow.value.failure_module], fileReader, log, localPath, SEP);
+  }
+  if (localFlow.value.preprocessor_module) {
+    await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, localPath, SEP);
+  }
 
   if (flow) {
     if (isSuperset(localFlow, flow)) {
@@ -115,6 +218,7 @@ async function push(opts: Options, filePath: string, remotePath: string) {
 async function list(
   opts: GlobalOptions & { showArchived?: boolean; includeDraftOnly?: boolean; json?: boolean }
 ) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -148,6 +252,7 @@ async function list(
   }
 }
 async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const f = await wmill.getFlowByPath({
@@ -162,6 +267,16 @@ async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
     console.log(colors.bold("Description:") + " " + (f.description ?? ""));
     console.log(colors.bold("Edited by:") + " " + (f.edited_by ?? ""));
     console.log(colors.bold("Edited at:") + " " + (f.edited_at ?? ""));
+    // API response type doesn't include flow value/modules — cast needed to access them
+    const modules = (f as any).value?.modules;
+    if (modules && Array.isArray(modules) && modules.length > 0) {
+      console.log(colors.bold("Steps:"));
+      for (const mod of modules) {
+        const type = mod.value?.type ?? "unknown";
+        const detail = mod.value?.language ?? mod.value?.path ?? "";
+        console.log(`  ${mod.id}: ${type}${detail ? " (" + detail + ")" : ""}`);
+      }
+    }
   }
 }
 
@@ -172,6 +287,9 @@ async function run(
   },
   path: string
 ) {
+  if (opts.silent) {
+    log.setSilent(true);
+  }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -211,35 +329,71 @@ async function run(
     i++;
   }
 
-  if (!opts.silent) {
-    log.info(colors.green.underline.bold("Flow ran to completion"));
-    log.info("\n");
+  // Wait for flow completion with retry (handles race when --silent skips module tracking)
+  const MAX_RETRIES = 600; // ~60 seconds at 100ms intervals
+  let retries = 0;
+  while (retries < MAX_RETRIES) {
+    try {
+      const jobInfo = await wmill.getCompletedJob({
+        workspace: workspace.workspaceId,
+        id,
+      });
+
+      if (!opts.silent) {
+        log.info(colors.green.underline.bold("Flow ran to completion"));
+        log.info("\n");
+      }
+
+      if (jobInfo.success === false) {
+        process.exitCode = 1;
+      }
+
+      if (opts.silent) {
+        console.log(JSON.stringify(jobInfo.result ?? {}));
+      } else {
+        log.info(JSON.stringify(jobInfo.result ?? {}, null, 2));
+      }
+
+      break;
+    } catch {
+      retries++;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   }
-  const jobInfo = await wmill.getCompletedJob({
-    workspace: workspace.workspaceId,
-    id,
-  });
-  log.info(JSON.stringify(jobInfo.result ?? {}, null, 2));
+  if (retries >= MAX_RETRIES) {
+    throw new Error(`Timed out waiting for flow ${id} to complete`);
+  }
 }
 
 async function preview(
   opts: GlobalOptions & {
     data?: string;
     silent: boolean;
-  },
+    remote?: boolean;
+  } & SyncOptions,
   flowPath: string
 ) {
+  if (opts.silent) {
+    log.setSilent(true);
+  }
+  const useLocalPathScripts = !opts.remote;
+  if (useLocalPathScripts) {
+    opts = await mergeConfigWithConfigFile(opts);
+  }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  const codebases = useLocalPathScripts ? listSyncCodebases(opts) : [];
 
-  // Normalize path - ensure it's a directory path to a .flow folder
-  if (!flowPath.endsWith(".flow") && !flowPath.endsWith(".flow" + SEP)) {
+  // Normalize path - ensure it's a directory path to a .flow or __flow folder
+  const isFlowDir = flowPath.endsWith(".flow") || flowPath.endsWith(".flow" + SEP)
+    || flowPath.endsWith("__flow") || flowPath.endsWith("__flow" + SEP);
+  if (!isFlowDir) {
     // Check if it's a flow.yaml file
     if (flowPath.endsWith("flow.yaml") || flowPath.endsWith("flow.json")) {
       flowPath = flowPath.substring(0, flowPath.lastIndexOf(SEP));
     } else {
       throw new Error(
-        "Flow path must be a .flow directory or a flow.yaml file"
+        "Flow path must be a .flow/__flow directory or a flow.yaml file"
       );
     }
   }
@@ -252,13 +406,45 @@ async function preview(
   const localFlow = (await yamlParseFile(flowPath + "flow.yaml")) as FlowFile;
 
   // Replace inline scripts with their actual content
+  const fileReader = async (path: string) => await readFile(flowPath + path, "utf-8");
   await replaceInlineScripts(
     localFlow.value.modules,
-    async (path: string) => await readFile(flowPath + path, "utf-8"),
+    fileReader,
     log,
     flowPath,
     SEP
   );
+  if (localFlow.value.failure_module) {
+    await replaceInlineScripts([localFlow.value.failure_module], fileReader, log, flowPath, SEP);
+  }
+  if (localFlow.value.preprocessor_module) {
+    await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, flowPath, SEP);
+  }
+
+  if (useLocalPathScripts) {
+    const scriptPaths = collectPathScriptPaths(localFlow.value);
+    if (scriptPaths.length > 0) {
+      const divergence = await findDivergedLocalPathScripts(
+        workspace.workspaceId,
+        scriptPaths,
+        {
+          exts,
+          defaultTs: opts.defaultTs,
+          codebases,
+        }
+      );
+      if (!opts.silent) {
+        warnAboutLocalPathScriptDivergence(divergence);
+      }
+    }
+
+    const localScriptReader = createPreviewLocalScriptReader({
+      exts,
+      defaultTs: opts.defaultTs,
+      codebases,
+    });
+    await replaceAllPathScriptsWithLocal(localFlow.value, localScriptReader, log);
+  }
 
   const input = opts.data ? await resolve(opts.data) : {};
 
@@ -287,19 +473,23 @@ async function preview(
   }
 
   if (opts.silent) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(result));
   } else {
     log.info(colors.bold.underline.green("Flow preview completed"));
     log.info(JSON.stringify(result, null, 2));
   }
 }
 
-async function generateLocks(
+export async function generateLocks(
   opts: GlobalOptions & {
     yes?: boolean;
+    dryRun?: boolean;
   } & SyncOptions,
   folder: string | undefined
 ) {
+  log.warn(
+    colors.yellow('This command is deprecated. Use "wmill generate-metadata" instead.')
+  );
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
@@ -344,6 +534,10 @@ async function generateLocks(
     }
 
     if (hasAny) {
+      if (opts.dryRun) {
+        log.info(colors.gray("Dry run complete."));
+        return;
+      }
       if (
         !opts.yes &&
         !(await Confirm.prompt({
@@ -368,7 +562,7 @@ async function generateLocks(
   }
 }
 
-export function bootstrap(
+export async function bootstrap(
   opts: GlobalOptions & { summary: string; description: string },
   flowPath: string
 ) {
@@ -376,8 +570,10 @@ export function bootstrap(
     return;
   }
 
-  const flowDirFullPath = `${flowPath}.flow`;
-  mkdirSync(flowDirFullPath, { recursive: false });
+  await loadNonDottedPathsSetting();
+
+  const flowDirFullPath = buildFolderPath(flowPath, "flow");
+  mkdirSync(flowDirFullPath, { recursive: true });
 
   const newFlowDefinition = defaultFlowDefinition();
   if (opts.summary !== undefined) {
@@ -391,8 +587,74 @@ export function bootstrap(
     newFlowDefinition as Record<string, any>
   );
 
-  const flowYamlPath = `${flowDirFullPath}/flow.yaml`;
+  const metadataFile = getMetadataFileName("flow", "yaml");
+  const flowYamlPath = `${flowDirFullPath}/${metadataFile}`;
   writeFileSync(flowYamlPath, newFlowDefinitionYaml, { flag: "wx", encoding: "utf-8" });
+}
+
+async function history(
+  opts: GlobalOptions & { json?: boolean },
+  flowPath: string
+) {
+  if (opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const versions = await wmill.getFlowHistory({
+    workspace: workspace.workspaceId,
+    path: flowPath,
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(versions));
+  } else {
+    if (versions.length === 0) {
+      log.info("No version history found for " + flowPath);
+      return;
+    }
+    new Table()
+      .header(["Version", "Created At", "Deployment Message"])
+      .padding(2)
+      .border(true)
+      .body(
+        versions.map((v) => [
+          String(v.id),
+          new Date(v.created_at).toISOString().replace("T", " ").substring(0, 19),
+          v.deployment_msg ?? "-",
+        ])
+      )
+      .render();
+  }
+}
+
+async function showVersion(
+  opts: GlobalOptions & { json?: boolean },
+  flowPath: string,
+  version: string
+) {
+  if (opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const flow = await wmill.getFlowVersion({
+    workspace: workspace.workspaceId,
+    path: flowPath,
+    version: parseInt(version, 10),
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(flow));
+  } else {
+    console.log(colors.bold("Path:") + " " + flow.path);
+    console.log(colors.bold("Summary:") + " " + (flow.summary ?? "-"));
+    console.log(colors.bold("Description:") + " " + (flow.description ?? "-"));
+    console.log(colors.bold("Schema:"));
+    console.log(JSON.stringify(flow.schema, null, 2));
+    console.log(colors.bold("Value:"));
+    console.log(JSON.stringify(flow.value, null, 2));
+  }
 }
 
 const command = new Command()
@@ -427,7 +689,7 @@ const command = new Command()
   .action(run as any)
   .command(
     "preview",
-    "preview a local flow without deploying it. Runs the flow definition from local files."
+    "preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default."
   )
   .arguments("<flow_path:string>")
   .option(
@@ -438,6 +700,10 @@ const command = new Command()
     "-s --silent",
     "Do not output anything other then the final output. Useful for scripting."
   )
+  .option(
+    "--remote",
+    "Use deployed workspace scripts for PathScript steps instead of local files."
+  )
   .action(preview as any)
   .command(
     "generate-locks",
@@ -445,6 +711,7 @@ const command = new Command()
   )
   .arguments("[flow:file]")
   .option("--yes", "Skip confirmation prompt")
+  .option("--dry-run", "Perform a dry run without making changes")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
@@ -463,6 +730,14 @@ const command = new Command()
   .arguments("<flow_path:string>")
   .option("--summary <summary:string>", "flow summary")
   .option("--description <description:string>", "flow description")
-  .action(bootstrap as any);
+  .action(bootstrap as any)
+  .command("history", "Show version history for a flow")
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(history as any)
+  .command("show-version", "Show a specific version of a flow")
+  .arguments("<path:string> <version:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(showVersion as any);
 
 export default command;

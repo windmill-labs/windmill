@@ -34,8 +34,8 @@ use windmill_api_auth::ApiAuthed;
 
 #[cfg(feature = "native_trigger")]
 use crate::{
-    decrypt_oauth_data, delete_token_by_prefix, delete_workspace_integration,
-    nextcloud::OcsResponse, resolve_endpoint, store_workspace_integration, ServiceName,
+    decrypt_oauth_data, delete_token_by_hash, delete_workspace_integration, nextcloud::OcsResponse,
+    resolve_endpoint, store_workspace_integration, ServiceName,
 };
 
 #[cfg(feature = "native_trigger")]
@@ -253,7 +253,7 @@ async fn fetch_nextcloud_user_id(base_url: &str, access_token: &str) -> anyhow::
 #[cfg(feature = "native_trigger")]
 async fn delete_triggers_for_service(db: &DB, workspace_id: &str, service_name: ServiceName) {
     let triggers = sqlx::query!(
-        "SELECT external_id, webhook_token_prefix FROM native_trigger WHERE workspace_id = $1 AND service_name = $2",
+        "SELECT external_id, webhook_token_hash FROM native_trigger WHERE workspace_id = $1 AND service_name = $2",
         workspace_id,
         service_name as ServiceName
     )
@@ -303,10 +303,10 @@ async fn delete_triggers_for_service(db: &DB, workspace_id: &str, service_name: 
 
     // Delete all associated webhook tokens
     for trigger in &triggers {
-        if let Err(e) = delete_token_by_prefix(db, &trigger.webhook_token_prefix).await {
+        if let Err(e) = delete_token_by_hash(db, &trigger.webhook_token_hash).await {
             tracing::error!(
-                "Failed to delete webhook token with prefix {}: {e}",
-                trigger.webhook_token_prefix
+                "Failed to delete webhook token with hash {}: {e}",
+                trigger.webhook_token_hash
             );
         }
     }
@@ -964,22 +964,22 @@ async fn generate_instance_connect_url(
 pub fn workspaced_service() -> Router {
     let router = Router::new()
         .route("/list", get(list_integrations))
-        .route("/:service_name/exists", get(integration_exist))
-        .route("/:service_name/create", post(create_workspace_integration))
+        .route("/{service_name}/exists", get(integration_exist))
+        .route("/{service_name}/create", post(create_workspace_integration))
         .route(
-            "/:service_name/generate_connect_url",
+            "/{service_name}/generate_connect_url",
             post(generate_connect_url),
         )
         .route(
-            "/:service_name/instance_sharing_available",
+            "/{service_name}/instance_sharing_available",
             get(check_instance_sharing_available),
         )
         .route(
-            "/:service_name/generate_instance_connect_url",
+            "/{service_name}/generate_instance_connect_url",
             post(generate_instance_connect_url),
         )
-        .route("/:service_name/delete", delete(delete_integration))
-        .route("/:service_name/callback", post(oauth_callback));
+        .route("/{service_name}/delete", delete(delete_integration))
+        .route("/{service_name}/callback", post(oauth_callback));
 
     Router::new().nest("/integrations", router)
 }

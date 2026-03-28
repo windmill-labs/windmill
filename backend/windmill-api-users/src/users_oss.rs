@@ -1,65 +1,28 @@
-use std::sync::Arc;
+#[cfg(feature = "private")]
+#[allow(unused)]
+pub use crate::users_ee::*;
 
+#[cfg(not(feature = "private"))]
+use crate::users::ImpersonateServiceAccountRequest;
+#[cfg(not(feature = "private"))]
+use http::StatusCode;
+#[cfg(not(feature = "private"))]
+use tower_cookies::Cookies;
+#[cfg(not(feature = "private"))]
 use windmill_api_auth::ApiAuthed;
-
-use crate::users::{EditPassword, NewUser};
-
-use windmill_common::webhook::WebhookShared;
+#[cfg(not(feature = "private"))]
 use windmill_common::DB;
 
-use argon2::Argon2;
-
-use axum::{extract::Extension, Json};
-
-use http::StatusCode;
-
-use serde::Deserialize;
-
-use windmill_common::error::{Error, Result};
-
-pub async fn create_user(
-    _authed: ApiAuthed,
+#[cfg(not(feature = "private"))]
+pub async fn impersonate_service_account(
     _db: DB,
-    _webhook: WebhookShared,
-    _argon2: Arc<Argon2<'_>>,
-    mut _nu: NewUser,
-) -> Result<(StatusCode, String)> {
-    Err(Error::internal_err(
-        "Not implemented in Windmill's Open Source repository".to_string(),
-    ))
-}
-
-pub async fn set_password(
-    _db: DB,
-    _argon2: Arc<Argon2<'_>>,
     _authed: ApiAuthed,
-    _user_email: &str,
-    _ep: EditPassword,
-) -> Result<String> {
-    Err(Error::internal_err(
-        "Not implemented in Windmill's Open Source repository".to_string(),
-    ))
-}
-
-pub fn hash_password(_argon2: Arc<Argon2<'_>>, _password: String) -> Result<String> {
-    Err(Error::internal_err(
-        "Not implemented in Windmill's Open Source repository".to_string(),
-    ))
-}
-
-#[derive(Deserialize, Debug)]
-#[allow(dead_code)]
-pub struct OnboardingData {
-    pub touch_point: String,
-    pub use_case: String,
-}
-
-pub async fn submit_onboarding_data(
-    _authed: ApiAuthed,
-    Extension(_db): Extension<DB>,
-    Json(_data): Json<OnboardingData>,
-) -> Result<String> {
-    Err(Error::internal_err(
-        "Not implemented in Windmill's Open Source repository".to_string(),
+    _cookies: Cookies,
+    _current_token: String,
+    _w_id: String,
+    _req: ImpersonateServiceAccountRequest,
+) -> windmill_common::error::Result<(StatusCode, String)> {
+    Err(windmill_common::error::Error::BadRequest(
+        "Service accounts require Windmill Enterprise Edition".to_string(),
     ))
 }

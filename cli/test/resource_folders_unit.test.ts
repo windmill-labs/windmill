@@ -15,6 +15,7 @@ import {
   isAppPath,
   isRawAppPath,
   isFolderResourcePath,
+  isFolderResourcePathAnyFormat,
   detectFolderResourceType,
   isRawAppBackendPath,
   isAppInlineScriptPath,
@@ -30,8 +31,12 @@ import {
   isAppMetadataFile,
   isRawAppMetadataFile,
   isRawAppFolderMetadataFile,
+  isAppFolderMetadataFile,
+  isFlowFolderMetadataFile,
   getDeleteSuffix,
   transformJsonPathToDir,
+  isModuleEntryPoint,
+  getScriptBasePathFromModulePath,
 } from "../src/utils/resource_folders.ts";
 import { removeWorkerPrefix } from "../src/commands/worker-groups/worker-groups.ts";
 
@@ -209,6 +214,39 @@ describe("isFolderResourcePath", () => {
   test("returns false for non-folder paths", () => {
     expect(isFolderResourcePath("f/script.ts")).toBe(false);
     expect(isFolderResourcePath("f/var.variable.yaml")).toBe(false);
+  });
+});
+
+// This is the bug that isFolderResourcePathAnyFormat fixes:
+// when nonDottedPaths is false (default), isFolderResourcePath misses non-dotted paths
+// like "f/my_raw__raw_app/backend/a.ts", causing raw app backend scripts to leak
+// into the standalone script list during generate-metadata.
+describe("isFolderResourcePathAnyFormat", () => {
+  test("detects non-dotted paths even when global setting is dotted", () => {
+    setNonDottedPaths(false);
+    expect(isFolderResourcePathAnyFormat("f/my_raw__raw_app/backend/a.ts")).toBe(true);
+    expect(isFolderResourcePathAnyFormat("f/my_flow__flow/step.ts")).toBe(true);
+    expect(isFolderResourcePathAnyFormat("f/dashboard__app/inline.ts")).toBe(true);
+  });
+
+  test("detects dotted paths even when global setting is non-dotted", () => {
+    setNonDottedPaths(true);
+    expect(isFolderResourcePathAnyFormat("f/my_raw.raw_app/backend/a.ts")).toBe(true);
+    expect(isFolderResourcePathAnyFormat("f/my_flow.flow/step.ts")).toBe(true);
+    expect(isFolderResourcePathAnyFormat("f/dashboard.app/inline.ts")).toBe(true);
+  });
+
+  test("rejects non-folder-resource paths", () => {
+    expect(isFolderResourcePathAnyFormat("f/my_script.ts")).toBe(false);
+    expect(isFolderResourcePathAnyFormat("f/var.variable.yaml")).toBe(false);
+  });
+
+  test("confirms isFolderResourcePath fails for mismatched format (the bug)", () => {
+    setNonDottedPaths(false);
+    // isFolderResourcePath misses non-dotted paths when setting is dotted
+    expect(isFolderResourcePath("f/my_raw__raw_app/backend/a.ts")).toBe(false);
+    // isFolderResourcePathAnyFormat catches it
+    expect(isFolderResourcePathAnyFormat("f/my_raw__raw_app/backend/a.ts")).toBe(true);
   });
 });
 
@@ -459,6 +497,38 @@ describe("isRawAppFolderMetadataFile", () => {
   });
 });
 
+describe("isAppFolderMetadataFile", () => {
+  test("detects app folder metadata file (dotted)", () => {
+    expect(isAppFolderMetadataFile("f/common/landing.app/app.yaml")).toBe(true);
+    expect(isAppFolderMetadataFile("f/common/landing.app/app.json")).toBe(true);
+  });
+
+  test("rejects inline script files inside app folder", () => {
+    expect(isAppFolderMetadataFile("f/common/landing.app/eval_of_e.inline_script.frontend.js")).toBe(false);
+    expect(isAppFolderMetadataFile("f/common/landing.app/button1.inline_script.bun.ts")).toBe(false);
+  });
+
+  test("rejects top-level app metadata files", () => {
+    expect(isAppFolderMetadataFile("f/common/landing.app.json")).toBe(false);
+    expect(isAppFolderMetadataFile("f/common/landing.app.yaml")).toBe(false);
+  });
+});
+
+describe("isFlowFolderMetadataFile", () => {
+  test("detects flow folder metadata file (dotted)", () => {
+    expect(isFlowFolderMetadataFile("f/common/my_flow.flow/flow.yaml")).toBe(true);
+    expect(isFlowFolderMetadataFile("f/common/my_flow.flow/flow.json")).toBe(true);
+  });
+
+  test("rejects inline script files inside flow folder", () => {
+    expect(isFlowFolderMetadataFile("f/common/my_flow.flow/step_0.inline_script.ts")).toBe(false);
+  });
+
+  test("rejects top-level flow metadata files", () => {
+    expect(isFlowFolderMetadataFile("f/common/my_flow.flow.json")).toBe(false);
+  });
+});
+
 // =============================================================================
 // Sync-related Path Functions
 // =============================================================================
@@ -503,6 +573,70 @@ describe("transformJsonPathToDir", () => {
 // =============================================================================
 // removeWorkerPrefix (from worker-groups.ts)
 // =============================================================================
+
+// =============================================================================
+// Module Path Functions
+// =============================================================================
+
+describe("isModuleEntryPoint", () => {
+  test("detects entry point files in __mod folders", () => {
+    expect(isModuleEntryPoint("f/my_script__mod/script.ts")).toBe(true);
+    expect(isModuleEntryPoint("u/admin/tool__mod/script.py")).toBe(true);
+    expect(isModuleEntryPoint("f/nested/path/script__mod/script.go")).toBe(true);
+  });
+
+  test("rejects non-entry-point files in __mod folders", () => {
+    expect(isModuleEntryPoint("f/my_script__mod/helper.ts")).toBe(false);
+    expect(isModuleEntryPoint("f/my_script__mod/utils/math.py")).toBe(false);
+    expect(isModuleEntryPoint("f/my_script__mod/helper.lock")).toBe(false);
+  });
+
+  test("rejects entry point files in subdirectories of __mod", () => {
+    expect(isModuleEntryPoint("f/my_script__mod/sub/script.ts")).toBe(false);
+  });
+
+  test("rejects paths without __mod", () => {
+    expect(isModuleEntryPoint("f/my_script.ts")).toBe(false);
+    expect(isModuleEntryPoint("f/script.ts")).toBe(false);
+  });
+
+  test("handles windows-style separators", () => {
+    expect(isModuleEntryPoint("f\\my_script__mod\\script.ts")).toBe(true);
+    expect(isModuleEntryPoint("f\\my_script__mod\\helper.ts")).toBe(false);
+  });
+
+  test("matches any extension for script.*", () => {
+    expect(isModuleEntryPoint("f/x__mod/script.yaml")).toBe(true);
+    expect(isModuleEntryPoint("f/x__mod/script.json")).toBe(true);
+    expect(isModuleEntryPoint("f/x__mod/script.lock")).toBe(true);
+    expect(isModuleEntryPoint("f/x__mod/script.sh")).toBe(true);
+  });
+});
+
+describe("getScriptBasePathFromModulePath", () => {
+  test("extracts base path from module entry point", () => {
+    expect(getScriptBasePathFromModulePath("f/my_script__mod/script.ts")).toBe("f/my_script");
+    expect(getScriptBasePathFromModulePath("u/admin/tool__mod/script.py")).toBe("u/admin/tool");
+  });
+
+  test("extracts base path from module helper files", () => {
+    expect(getScriptBasePathFromModulePath("f/my_script__mod/helper.ts")).toBe("f/my_script");
+    expect(getScriptBasePathFromModulePath("f/my_script__mod/utils/math.py")).toBe("f/my_script");
+  });
+
+  test("extracts base path from nested script paths", () => {
+    expect(getScriptBasePathFromModulePath("f/deeply/nested/script__mod/helper.ts")).toBe("f/deeply/nested/script");
+  });
+
+  test("returns undefined for non-module paths", () => {
+    expect(getScriptBasePathFromModulePath("f/my_script.ts")).toBeUndefined();
+    expect(getScriptBasePathFromModulePath("f/my_flow.flow/flow.yaml")).toBeUndefined();
+  });
+
+  test("handles windows-style separators", () => {
+    expect(getScriptBasePathFromModulePath("f\\my_script__mod\\helper.ts")).toBe("f/my_script");
+  });
+});
 
 describe("removeWorkerPrefix", () => {
   test("removes worker__ prefix", () => {

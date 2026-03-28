@@ -57,6 +57,7 @@ export interface SyncOptions {
       variables?: string[];
       resources?: string[];
       triggers?: string[];
+      schedules?: string[];
       folders?: string[];
       settings?: boolean;
     };
@@ -70,17 +71,21 @@ export interface SyncOptions {
         variables?: string[];
         resources?: string[];
         triggers?: string[];
+        schedules?: string[];
         folders?: string[];
         settings?: boolean;
       };
     };
   };
+  // Alias for gitBranches - for users who prefer environment-based terminology
+  environments?: SyncOptions["gitBranches"];
   // Legacy field - deprecated, use gitBranches instead
   git_branches?: {
     commonSpecificItems?: {
       variables?: string[];
       resources?: string[];
       triggers?: string[];
+      schedules?: string[];
       folders?: string[];
       settings?: boolean;
     };
@@ -94,6 +99,7 @@ export interface SyncOptions {
         variables?: string[];
         resources?: string[];
         triggers?: string[];
+        schedules?: string[];
         folders?: string[];
         settings?: boolean;
       };
@@ -189,15 +195,18 @@ export function getWmillYamlPath(): string | null {
   return findWmillYaml();
 }
 
-export async function readConfigFile(): Promise<SyncOptions> {
+export async function readConfigFile(opts?: { warnIfMissing?: boolean }): Promise<SyncOptions> {
+  const warnIfMissing = opts?.warnIfMissing ?? true;
   try {
     // First, try to find wmill.yaml recursively
     const wmillYamlPath = findWmillYaml();
 
     if (!wmillYamlPath) {
-      log.warn(
-        "No wmill.yaml found. Use 'wmill init' to bootstrap it."
-      );
+      if (warnIfMissing) {
+        log.warn(
+          "No wmill.yaml found. Use 'wmill init' to bootstrap it."
+        );
+      }
       return {};
     }
 
@@ -229,6 +238,18 @@ export async function readConfigFile(): Promise<SyncOptions> {
           "ℹ️  Removing empty 'overrides: {}' from wmill.yaml (migrated to gitBranches format)"
         );
       }
+    }
+
+    // Handle environments -> gitBranches alias (permanent alias, not a deprecation)
+    if (conf && "environments" in conf) {
+      if (!conf.gitBranches) {
+        conf.gitBranches = conf.environments as any;
+      } else {
+        log.warn(
+          "⚠️  Both 'environments' and 'gitBranches' found in wmill.yaml. Using 'gitBranches' and ignoring 'environments'."
+        );
+      }
+      delete (conf as any).environments;
     }
 
     // Handle git_branches to gitBranches migration

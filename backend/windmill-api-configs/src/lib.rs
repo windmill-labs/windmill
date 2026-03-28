@@ -28,11 +28,11 @@ use windmill_api_auth::{require_devops_role, ApiAuthed};
 pub fn global_service() -> Router {
     Router::new()
         .route("/list_worker_groups", get(list_worker_groups))
-        .route("/update/:name", post(update_config).delete(delete_config))
-        .route("/get/:name", get(get_config))
+        .route("/update/{name}", post(update_config).delete(delete_config))
+        .route("/get/{name}", get(get_config))
         .route("/list", get(list_configs))
         .route(
-            "/list_autoscaling_events/:worker_group",
+            "/list_autoscaling_events/{worker_group}",
             get(list_autoscaling_events),
         )
         .route(
@@ -129,11 +129,12 @@ async fn update_config(
 
     #[cfg(not(feature = "enterprise"))]
     let config = if name.starts_with("worker__") {
-        // In CE, only allow setting worker_tags, cache_clear, and init_bash
+        // In CE, only allow setting worker_tags, cache_clear, init_bash, and native_mode
         serde_json::json!({
             "worker_tags": config.get("worker_tags"),
             "cache_clear": config.get("cache_clear"),
-            "init_bash": config.get("init_bash")
+            "init_bash": config.get("init_bash"),
+            "native_mode": config.get("native_mode")
         })
     } else {
         config

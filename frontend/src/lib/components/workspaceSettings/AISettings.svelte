@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { WorkspaceService, type AIConfig, type AIProvider } from '$lib/gen'
+	import {
+		ResourceService,
+		WorkspaceService,
+		type AIConfig,
+		type AIProvider,
+		type GetCopilotSettingsStateResponse,
+		type InstanceAISummary
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { AI_PROVIDERS, fetchAvailableModels } from '../copilot/lib'
@@ -19,32 +26,139 @@
 	import { setCopilotInfo } from '$lib/aiStore'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
 	import { Settings } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 	import { slide } from 'svelte/transition'
 	import SettingsFooter from './SettingsFooter.svelte'
+	import InstanceFallbackSettings from './InstanceFallbackSettings.svelte'
 	import SettingCard from '../instanceSettings/SettingCard.svelte'
 
 	let {
-		aiProviders = $bindable(),
-		codeCompletionModel = $bindable(),
-		defaultModel = $bindable(),
-		customPrompts = $bindable(),
-		maxTokensPerModel = $bindable(),
-		usingOpenaiClientCredentialsOauth = $bindable(),
-		onSave,
-		onDiscard,
-		hasUnsavedChanges = false
+		initialConfig = undefined,
+		hasUnsavedChanges = $bindable(false),
+		workspace = undefined,
+		disableChatOffset = false,
+		hasInstanceAiConfig = false,
+		usesInstanceAiConfig = false,
+		instanceAiSummary = undefined,
+		customSave = undefined,
+		onSave = undefined,
+		title = 'Windmill AI',
+		description = 'Windmill AI integrates with your favorite AI providers and models.',
+		link = 'https://www.windmill.dev/docs/core_concepts/ai_generation',
+		promptScope = 'workspace'
 	}: {
-		aiProviders: Exclude<AIConfig['providers'], undefined>
-		codeCompletionModel: string | undefined
-		defaultModel: string | undefined
-		customPrompts: Record<string, string>
-		maxTokensPerModel: Record<string, number>
-		usingOpenaiClientCredentialsOauth: boolean
-		onSave?: () => void
-		onDiscard?: () => void
+		initialConfig?: AIConfig | undefined
 		hasUnsavedChanges?: boolean
+		workspace?: string | undefined
+		disableChatOffset?: boolean
+		hasInstanceAiConfig?: boolean
+		usesInstanceAiConfig?: boolean
+		instanceAiSummary?: InstanceAISummary
+		customSave?: (config: AIConfig) => Promise<void>
+		onSave?: (info?: GetCopilotSettingsStateResponse) => void | Promise<void>
+		title?: string
+		description?: string
+		link?: string
+		promptScope?: 'workspace' | 'instance'
 	} = $props()
 
+	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+
+	// --- Internal state ---
+	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
+	let codeCompletionModel: string | undefined = $state(undefined)
+	let defaultModel: string | undefined = $state(undefined)
+	let customPrompts: Record<string, string> = $state({})
+	let maxTokensPerModel: Record<string, number> = $state({})
+	let usingOpenaiClientCredentialsOauth = $state(false)
+	let workspaceOverrideEditorOpened = $state(false)
+
+	// --- Initial state for dirty tracking ---
+	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
+	let initialCodeCompletionModel: string | undefined = $state(undefined)
+	let initialDefaultModel: string | undefined = $state(undefined)
+	let initialCustomPrompts: Record<string, string> = $state({})
+	let initialMaxTokensPerModel: Record<string, number> = $state({})
+	let initialPrompts: Record<string, string> = $state({})
+	let lastLoadedConfigKey = $state<string | undefined>(undefined)
+
+	function clone<T>(v: T): T {
+		return JSON.parse(JSON.stringify(v))
+	}
+
+	function applyConfig(config: AIConfig | undefined) {
+		aiProviders = clone(config?.providers ?? {})
+		defaultModel = config?.default_model?.model
+		codeCompletionModel = config?.code_completion_model?.model
+		customPrompts = clone(config?.custom_prompts ?? {})
+		maxTokensPerModel = clone(config?.max_tokens_per_model ?? {})
+		for (const mode of ['edit', 'fix', 'gen']) {
+			if (!(mode in customPrompts)) {
+				customPrompts[mode] = ''
+			}
+		}
+	}
+
+	function storeInitialState() {
+		initialAiProviders = clone(aiProviders)
+		initialDefaultModel = defaultModel
+		initialCodeCompletionModel = codeCompletionModel
+		initialCustomPrompts = clone(customPrompts)
+		initialMaxTokensPerModel = clone(maxTokensPerModel)
+		initialPrompts = clone(customPrompts)
+	}
+
+	export function loadFromConfig(config: AIConfig | undefined) {
+		applyConfig(config)
+		storeInitialState()
+	}
+
+	export function discard() {
+		aiProviders = clone(initialAiProviders)
+		defaultModel = initialDefaultModel
+		codeCompletionModel = initialCodeCompletionModel
+		customPrompts = clone(initialCustomPrompts)
+		maxTokensPerModel = clone(initialMaxTokensPerModel)
+	}
+
+	$effect(() => {
+		const configKey = JSON.stringify(initialConfig ?? {})
+		if (configKey === lastLoadedConfigKey) {
+			return
+		}
+		lastLoadedConfigKey = configKey
+		untrack(() => {
+			loadFromConfig(initialConfig)
+		})
+	})
+
+	// Check if openai_client_credentials_oauth resource type exists
+	async function loadOpenaiOauthFlag() {
+		try {
+			usingOpenaiClientCredentialsOauth = await ResourceService.existsResourceType({
+				workspace: effectiveWorkspace,
+				path: 'openai_client_credentials_oauth'
+			})
+		} catch {
+			usingOpenaiClientCredentialsOauth = false
+		}
+	}
+	loadOpenaiOauthFlag()
+
+	// --- Dirty tracking ---
+	let dirty = $derived(
+		JSON.stringify(aiProviders) !== JSON.stringify(initialAiProviders) ||
+			defaultModel !== initialDefaultModel ||
+			codeCompletionModel !== initialCodeCompletionModel ||
+			JSON.stringify(customPrompts) !== JSON.stringify(initialCustomPrompts) ||
+			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel)
+	)
+
+	$effect(() => {
+		hasUnsavedChanges = dirty
+	})
+
+	// --- Model fetching ---
 	let fetchedAiModels = $state(false)
 	let availableAiModels = $state(
 		Object.fromEntries(
@@ -53,7 +167,6 @@
 	)
 
 	let modalOpen = $state(false)
-	let initialPrompts = $state($state.snapshot(customPrompts))
 	let hasPromptsChanges = $derived(
 		Array.from(new Set([...Object.keys(customPrompts), ...Object.keys(initialPrompts)])).some(
 			(key) => {
@@ -65,6 +178,14 @@
 	)
 	let promptCount = $derived(
 		Object.values(customPrompts).filter((p) => p?.trim().length > 0).length
+	)
+	let promptDescription = $derived(
+		promptScope === 'instance'
+			? 'Customize AI behavior with instance-level system prompts. These apply when a workspace uses instance AI defaults.'
+			: 'Customize AI behavior with workspace-level system prompts. These apply to all workspace members.'
+	)
+	let showWorkspaceOverrideEditor = $derived(
+		!usesInstanceAiConfig || Object.keys(aiProviders).length > 0 || workspaceOverrideEditorOpened
 	)
 
 	let selectedAiModels = $derived(Object.values(aiProviders).flatMap((p) => p.models))
@@ -91,7 +212,7 @@
 				try {
 					const models = await fetchAvailableModels(
 						aiProviders[provider].resource_path,
-						$workspaceStore!,
+						effectiveWorkspace,
 						provider as AIProvider
 					)
 					availableAiModels[provider] = models
@@ -109,44 +230,74 @@
 		sendUserToast('Reset to last saved state')
 	}
 
-	async function editCopilotConfig(): Promise<void> {
-		if (Object.keys(aiProviders ?? {}).length > 0) {
-			const code_completion_model =
-				codeCompletionModel && modelProviderMap[codeCompletionModel]
-					? { model: codeCompletionModel, provider: modelProviderMap[codeCompletionModel] }
-					: undefined
-			const default_model =
-				defaultModel && modelProviderMap[defaultModel]
-					? { model: defaultModel, provider: modelProviderMap[defaultModel] }
-					: undefined
-			// Convert customPrompts to include only non-empty prompts
-			const custom_prompts: Record<string, string> = Object.entries(customPrompts)
-				.filter(([_, prompt]) => prompt.trim().length > 0)
-				.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
+	function buildConfig(): AIConfig {
+		const code_completion_model =
+			codeCompletionModel && modelProviderMap[codeCompletionModel]
+				? { model: codeCompletionModel, provider: modelProviderMap[codeCompletionModel] }
+				: undefined
+		const default_model =
+			defaultModel && modelProviderMap[defaultModel]
+				? { model: defaultModel, provider: modelProviderMap[defaultModel] }
+				: undefined
+		const custom_prompts: Record<string, string> = Object.entries(customPrompts)
+			.filter(([_, prompt]) => prompt.trim().length > 0)
+			.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
 
-			const config: AIConfig = {
-				providers: aiProviders,
-				code_completion_model,
-				default_model,
-				custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
-				max_tokens_per_model:
-					Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
-			}
-			await WorkspaceService.editCopilotConfig({
-				workspace: $workspaceStore!,
+		return Object.keys(aiProviders ?? {}).length > 0
+			? {
+					providers: aiProviders,
+					code_completion_model,
+					default_model,
+					custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
+					max_tokens_per_model:
+						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
+				}
+			: {}
+	}
+
+	function isSaveDisabled(): boolean {
+		return (
+			!Object.values(aiProviders).every((p) => p.resource_path) ||
+			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
+			(Object.keys(aiProviders).length > 0 && !defaultModel)
+		)
+	}
+
+	export async function saveIfDirtyAndValid(): Promise<boolean> {
+		if (!dirty) {
+			return true
+		}
+
+		if (isSaveDisabled()) {
+			sendUserToast('Complete AI settings before leaving this page', true)
+			return false
+		}
+
+		await editCopilotConfig()
+		return true
+	}
+
+	async function editCopilotConfig(): Promise<void> {
+		const config = buildConfig()
+		let settingsState: GetCopilotSettingsStateResponse | undefined
+
+		if (customSave) {
+			await customSave(config)
+		} else {
+			const response = await WorkspaceService.editCopilotConfig({
+				workspace: effectiveWorkspace,
 				requestBody: config
 			})
-			setCopilotInfo(config)
-		} else {
-			await WorkspaceService.editCopilotConfig({
-				workspace: $workspaceStore!,
-				requestBody: {}
-			})
-			setCopilotInfo({})
+			setCopilotInfo(response.effective_ai_config)
+			settingsState = {
+				has_instance_ai_config: response.has_instance_ai_config,
+				uses_instance_ai_config: response.uses_instance_ai_config,
+				instance_ai_summary: response.instance_ai_summary
+			}
+			sendUserToast('AI settings updated')
 		}
-		sendUserToast(`AI settings updated`)
-		initialPrompts = { ...customPrompts } // Update initial prompts after successful save
-		onSave?.()
+		storeInitialState()
+		await onSave?.(settingsState)
 	}
 
 	async function onAiProviderChange(provider: AIProvider) {
@@ -154,7 +305,7 @@
 			try {
 				const models = await fetchAvailableModels(
 					aiProviders[provider].resource_path,
-					$workspaceStore!,
+					effectiveWorkspace,
 					provider as AIProvider
 				)
 				availableAiModels[provider] = models
@@ -176,197 +327,214 @@
 	const autocompleteModels = $derived(selectedAiModels.filter(supportsAutocomplete))
 </script>
 
-<SettingsPageHeader
-	title="Windmill AI"
-	description="Windmill AI integrates with your favorite AI providers and models."
-	link="https://www.windmill.dev/docs/core_concepts/ai_generation"
-/>
+<SettingsPageHeader {title} {description} {link} />
 
 <div class="flex flex-col gap-6 mt-4 pb-8">
-	<SettingCard label="AI Providers">
-		<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
-			{#each Object.entries(AI_PROVIDERS) as [provider, details]}
-				<div class="flex flex-col">
-					<div class="flex flex-row gap-2">
-						<Toggle
-							options={{
-								right: details.label
-							}}
-							checked={!!aiProviders[provider]}
-							on:change={(e) => {
-								if (e.detail) {
-									aiProviders = {
-										...aiProviders,
-										[provider]: {
-											resource_path: '',
-											models:
-												availableAiModels[provider].length > 0
-													? [availableAiModels[provider][0]]
-													: []
-										}
-									}
-
-									if (availableAiModels[provider].length > 0 && !defaultModel) {
-										defaultModel = availableAiModels[provider][0]
-									}
-								} else {
-									aiProviders = Object.fromEntries(
-										Object.entries(aiProviders).filter(([key]) => key !== provider)
-									)
-									if (defaultModel) {
-										const currentDefaultModel = Object.values(aiProviders).find(
-											(p) => defaultModel && p.models.includes(defaultModel)
-										)
-										if (!currentDefaultModel) {
-											defaultModel = undefined
-										}
-									}
-									if (codeCompletionModel) {
-										const currentCodeCompletionModel = Object.values(aiProviders).find(
-											(p) => codeCompletionModel && p.models.includes(codeCompletionModel)
-										)
-										if (!currentCodeCompletionModel) {
-											codeCompletionModel = undefined
-										}
-									}
-								}
-							}}
-						/>
-						{#if provider === 'anthropic'}
-							<Badge color="blue">
-								Recommended
-								<Tooltip>
-									Anthropic models handle tool calls better than other providers, which makes them a
-									better choice for AI chat.
-								</Tooltip>
-							</Badge>
-						{/if}
-					</div>
-
-					{#if aiProviders[provider]}
-						<div
-							class="mb-4 flex flex-col gap-6 border p-4 rounded-md mt-2"
-							transition:slide|local={{ duration: 150 }}
-						>
-							<Label label="Resource">
-								<div class="flex flex-row gap-1">
-									<ResourcePicker
-										selectFirst
-										resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
-											? 'openai_client_credentials_oauth'
-											: provider}
-										initialValue={aiProviders[provider].resource_path}
-										bind:value={
-											() => aiProviders[provider].resource_path || undefined,
-											(v) => {
-												aiProviders[provider].resource_path = v ?? ''
-												onAiProviderChange(provider as AIProvider)
+	{#if usesInstanceAiConfig}
+		<div
+			class="p-3 border border-blue-200 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20 rounded-md text-xs text-secondary"
+		>
+			Instance-level AI settings are currently active. Configure workspace-specific settings below
+			to override them.
+		</div>
+		<InstanceFallbackSettings
+			{instanceAiSummary}
+			{showWorkspaceOverrideEditor}
+			onToggleOverride={() => (workspaceOverrideEditorOpened = !workspaceOverrideEditorOpened)}
+		/>
+	{:else if hasInstanceAiConfig && Object.keys(aiProviders).length > 0}
+		<div
+			class="p-3 border border-surface-hover bg-surface-secondary rounded-md text-xs text-secondary"
+		>
+			Workspace AI settings override instance defaults. Remove workspace settings to use instance
+			defaults.
+		</div>
+	{/if}
+	{#if showWorkspaceOverrideEditor}
+		<SettingCard label="AI Providers">
+			<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
+				{#each Object.entries(AI_PROVIDERS) as [provider, details]}
+					<div class="flex flex-col">
+						<div class="flex flex-row gap-2">
+							<Toggle
+								options={{
+									right: details.label
+								}}
+								checked={!!aiProviders[provider]}
+								on:change={(e) => {
+									if (e.detail) {
+										aiProviders = {
+											...aiProviders,
+											[provider]: {
+												resource_path: '',
+												models:
+													availableAiModels[provider].length > 0
+														? [availableAiModels[provider][0]]
+														: []
 											}
 										}
-									/>
-									<TestAiKey
-										aiProvider={provider as AIProvider}
-										resourcePath={aiProviders[provider].resource_path}
-										model={aiProviders[provider].models[0]}
-									/>
-								</div>
-							</Label>
 
-							<Label label="Enabled models">
-								<MultiSelect
-									items={safeSelectItems([
-										...availableAiModels[provider],
-										...aiProviders[provider].models
-									])}
-									bind:value={aiProviders[provider].models}
-									placeholder="Select models"
-									onCreateItem={(item) =>
-										(aiProviders[provider].models = [...aiProviders[provider].models, item])}
-								/>
-								<p class="text-2xs text-hint">
-									If you don't see the model you want, you can type it manually in the selector.
-								</p>
-							</Label>
+										if (availableAiModels[provider].length > 0 && !defaultModel) {
+											defaultModel = availableAiModels[provider][0]
+										}
+									} else {
+										aiProviders = Object.fromEntries(
+											Object.entries(aiProviders).filter(([key]) => key !== provider)
+										)
+										if (defaultModel) {
+											const currentDefaultModel = Object.values(aiProviders).find(
+												(p) => defaultModel && p.models.includes(defaultModel)
+											)
+											if (!currentDefaultModel) {
+												defaultModel = undefined
+											}
+										}
+										if (codeCompletionModel) {
+											const currentCodeCompletionModel = Object.values(aiProviders).find(
+												(p) => codeCompletionModel && p.models.includes(codeCompletionModel)
+											)
+											if (!currentCodeCompletionModel) {
+												codeCompletionModel = undefined
+											}
+										}
+									}
+								}}
+							/>
+							{#if provider === 'anthropic'}
+								<Badge color="blue">
+									Recommended
+									<Tooltip>
+										Anthropic models handle tool calls better than other providers, which makes them
+										a better choice for AI chat.
+									</Tooltip>
+								</Badge>
+							{/if}
 						</div>
-					{/if}
-				</div>
-			{/each}
-		</div>
-	</SettingCard>
 
-	<SettingCard label="Default chat model">
-		{#key Object.keys(aiProviders).length}
-			<Select
-				items={safeSelectItems(selectedAiModels)}
-				bind:value={defaultModel}
-				disabled={false}
-				placeholder="Select a default model"
-				size="sm"
-				class="max-w-lg"
-			/>
-		{/key}
-	</SettingCard>
+						{#if aiProviders[provider]}
+							<div
+								class="mb-4 flex flex-col gap-6 border p-4 rounded-md mt-2"
+								transition:slide|local={{ duration: 150 }}
+							>
+								<Label label="Resource">
+									<div class="flex flex-row gap-1">
+										<ResourcePicker
+											selectFirst
+											{workspace}
+											{disableChatOffset}
+											resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
+												? 'openai_client_credentials_oauth'
+												: provider}
+											initialValue={aiProviders[provider].resource_path}
+											bind:value={
+												() => aiProviders[provider].resource_path || undefined,
+												(v) => {
+													aiProviders[provider].resource_path = v ?? ''
+													onAiProviderChange(provider as AIProvider)
+												}
+											}
+										/>
+										<TestAiKey
+											aiProvider={provider as AIProvider}
+											workspace={effectiveWorkspace}
+											resourcePath={aiProviders[provider].resource_path}
+											model={aiProviders[provider].models[0]}
+										/>
+									</div>
+								</Label>
 
-	<!-- Code completion group for animation purposes -->
-	<div>
-		<SettingCard label="Code completion">
-			<Toggle
-				on:change={(e) => {
-					if (e.detail) {
-						codeCompletionModel = autocompleteModels[0] ?? ''
-					} else {
-						codeCompletionModel = undefined
-					}
-				}}
-				checked={codeCompletionModel != undefined}
-				disabled={autocompleteModels.length == 0}
-				options={{
-					right: 'Enable code completion',
-					rightTooltip: 'We currently only support Mistral Codestral models for code completion.'
-				}}
-			/>
+								<Label label="Enabled models">
+									<MultiSelect
+										items={safeSelectItems([
+											...availableAiModels[provider],
+											...aiProviders[provider].models
+										])}
+										bind:value={aiProviders[provider].models}
+										placeholder="Select models"
+										onCreateItem={(item) =>
+											(aiProviders[provider].models = [...aiProviders[provider].models, item])}
+									/>
+									<p class="text-2xs text-hint">
+										If you don't see the model you want, you can type it manually in the selector.
+									</p>
+								</Label>
+							</div>
+						{/if}
+					</div>
+				{/each}
+			</div>
 		</SettingCard>
 
-		{#if codeCompletionModel != undefined}
-			<div transition:slide|local={{ duration: 150 }} class="mt-6">
-				<SettingCard label="Code completion model">
-					<Select
-						items={safeSelectItems(autocompleteModels)}
-						bind:value={codeCompletionModel}
-						disabled={false}
-						placeholder="Select a code completion model"
-						size="sm"
-					/>
-				</SettingCard>
-			</div>
-		{/if}
-	</div>
+		<SettingCard label="Default chat model">
+			{#key Object.keys(aiProviders).length}
+				<Select
+					items={safeSelectItems(selectedAiModels)}
+					bind:value={defaultModel}
+					disabled={false}
+					placeholder="Select a default model"
+					size="sm"
+					class="max-w-lg"
+				/>
+			{/key}
+		</SettingCard>
 
-	<ModelTokenLimits {aiProviders} bind:maxTokensPerModel />
+		<!-- Code completion group for animation purposes -->
+		<div>
+			<SettingCard label="Code completion">
+				<Toggle
+					on:change={(e) => {
+						if (e.detail) {
+							codeCompletionModel = autocompleteModels[0] ?? ''
+						} else {
+							codeCompletionModel = undefined
+						}
+					}}
+					checked={codeCompletionModel != undefined}
+					disabled={autocompleteModels.length == 0}
+					options={{
+						right: 'Enable code completion',
+						rightTooltip: 'We currently only support Mistral Codestral models for code completion.'
+					}}
+				/>
+			</SettingCard>
 
-	<SettingCard
-		label="Custom system prompts"
-		description="Customize AI behavior with workspace-level system prompts. These apply to all workspace
-			members."
-	>
-		<div class="flex items-center gap-2 pt-1">
-			<Button
-				onclick={() => (modalOpen = true)}
-				variant="default"
-				unifiedSize="sm"
-				startIcon={{ icon: Settings }}
-				disabled={Object.keys(aiProviders ?? {}).length === 0}
-			>
-				Configure AI prompts
-			</Button>
-			{#if promptCount > 0}
-				<span class="text-xs text-secondary">({promptCount} configured)</span>
-			{/if}
-			{#if hasPromptsChanges}
-				<Badge color="yellow">Unsaved changes</Badge>
+			{#if codeCompletionModel != undefined}
+				<div transition:slide|local={{ duration: 150 }} class="mt-6">
+					<SettingCard label="Code completion model">
+						<Select
+							items={safeSelectItems(autocompleteModels)}
+							bind:value={codeCompletionModel}
+							disabled={false}
+							placeholder="Select a code completion model"
+							size="sm"
+						/>
+					</SettingCard>
+				</div>
 			{/if}
 		</div>
-	</SettingCard>
+
+		<ModelTokenLimits {aiProviders} bind:maxTokensPerModel />
+
+		<SettingCard label="Custom system prompts" description={promptDescription}>
+			<div class="flex items-center gap-2 pt-1">
+				<Button
+					onclick={() => (modalOpen = true)}
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: Settings }}
+					disabled={Object.keys(aiProviders ?? {}).length === 0}
+				>
+					Configure AI prompts
+				</Button>
+				{#if promptCount > 0}
+					<span class="text-xs text-secondary">({promptCount} configured)</span>
+				{/if}
+				{#if hasPromptsChanges}
+					<Badge color="yellow">Unsaved changes</Badge>
+				{/if}
+			</div>
+		</SettingCard>
+	{/if}
 </div>
 
 <AIPromptsModal
@@ -374,15 +542,15 @@
 	bind:customPrompts
 	onReset={resetPrompts}
 	hasChanges={hasPromptsChanges}
-	isWorkspaceSettings={true}
+	scope={promptScope}
 />
 
-<SettingsFooter
-	{hasUnsavedChanges}
-	onSave={editCopilotConfig}
-	onDiscard={() => onDiscard?.()}
-	saveLabel="Save AI settings"
-	disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
-		(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-		(Object.keys(aiProviders).length > 0 && !defaultModel)}
-/>
+{#if showWorkspaceOverrideEditor}
+	<SettingsFooter
+		hasUnsavedChanges={dirty}
+		onSave={editCopilotConfig}
+		onDiscard={discard}
+		saveLabel="Save AI settings"
+		disabled={isSaveDisabled()}
+	/>
+{/if}

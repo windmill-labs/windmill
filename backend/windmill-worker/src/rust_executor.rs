@@ -23,13 +23,14 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, start_child_process, OccupancyMetrics,
-        DEV_CONF_NSJAIL,
+        get_reserved_variables, read_result, resolve_nsjail_timeout, start_child_process,
+        OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, CARGO_REGISTRIES, DISABLE_NUSER, HOME_ENV,
-    NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry_with_workspace_override, CARGO_REGISTRIES,
+    DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR,
+    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 use windmill_common::scripts::ScriptLang;
@@ -246,8 +247,9 @@ async fn write_cargo_config(
     w_id: &str,
     conn: &Connection,
 ) -> anyhow::Result<()> {
-    if let Some(cargo_registries) = read_ee_registry(
+    if let Some(cargo_registries) = read_ee_registry_with_workspace_override(
         CARGO_REGISTRIES.read().await.clone(),
+        "cargo_registries",
         "cargo registries",
         job_id,
         w_id,
@@ -623,7 +625,9 @@ pub async fn handle_rust_job(
     ensure_rust_runtime_dirs();
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
-    let hash = compute_rust_hash(inner_content, requirements_o);
+    let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
+    let mut hash = compute_rust_hash(inner_content, requirements_o);
+    hash.push_str(&ws_suffix);
     let bin_path = format!("{}/{hash}", *RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
 
@@ -682,6 +686,8 @@ pub async fn handle_rust_job(
     append_logs(&job.id, &job.workspace_id, logs2, conn).await;
 
     let child = if is_sandboxing_enabled() {
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -692,7 +698,8 @@ pub async fn handle_rust_job(
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
@@ -700,7 +707,10 @@ pub async fn handle_rust_job(
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Rust).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Rust, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -716,7 +726,10 @@ pub async fn handle_rust_job(
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Rust).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Rust, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)

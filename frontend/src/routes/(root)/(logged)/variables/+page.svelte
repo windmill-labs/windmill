@@ -22,7 +22,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import type { ContextualVariable, ListableVariable, WorkspaceDeployUISettings } from '$lib/gen'
-	import { OauthService, VariableService, WorkspaceService } from '$lib/gen'
+	import { FolderService, OauthService, VariableService, WorkspaceService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'
@@ -51,6 +51,7 @@
 	// Collect unique values for filter autocomplete
 	let allPaths: string[] = $state([])
 	let allOwners: string[] = $state([])
+	let folders: string[] = $state([])
 
 	// FilterSearchbar setup
 	let userFoldersFilterType = $derived(
@@ -70,6 +71,17 @@
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => variablesFilterSchema))
+	let folderPresets = $derived([
+		...folders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
+		...(variablesFilterSchema.user_folders_only
+			? [
+					{
+						name: variablesFilterSchema.user_folders_only.label ?? '?',
+						value: 'user_folders_only:\\ true'
+					}
+				]
+			: [])
+	])
 	let contextualVariables: ContextualVariable[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let variableEditor: VariableEditor | undefined = $state()
@@ -175,11 +187,16 @@
 		sendUserToast(`Variable ${path} was deleted`)
 	}
 
+	async function loadFolders() {
+		folders = await FolderService.listFolderNames({ workspace: $workspaceStore! })
+	}
+
 	$effect(() => {
 		if ($workspaceStore && $userStore) {
 			untrack(() => {
 				loadVariables()
 				loadContextualVariables()
+				loadFolders()
 			})
 		}
 	})
@@ -285,12 +302,7 @@
 					schema={variablesFilterSchema}
 					bind:value={filters.val}
 					placeholder="Filter variables..."
-					presets={[
-						{
-							name: variablesFilterSchema.user_folders_only?.label ?? '?',
-							value: 'user_folders_only:\\ true'
-						}
-					]}
+					presets={folderPresets}
 				/>
 			{/if}
 		</div>
@@ -569,6 +581,7 @@
 	{open}
 	title="Remove variable"
 	confirmationText="Remove"
+	trashbin
 	on:canceled={() => {
 		deleteConfirmedCallback = undefined
 	}}

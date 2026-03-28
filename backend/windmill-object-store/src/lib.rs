@@ -6,11 +6,11 @@ use quick_cache::sync::Cache;
 use windmill_common::error::{self};
 
 #[cfg(feature = "parquet")]
+use async_trait::async_trait;
+#[cfg(feature = "parquet")]
 use aws_config::{default_provider::credentials::DefaultCredentialsChain, Region};
 #[cfg(feature = "parquet")]
 use aws_sdk_sts::config::ProvideCredentials;
-#[cfg(feature = "parquet")]
-use axum::async_trait;
 #[cfg(feature = "parquet")]
 use bytes::Bytes;
 #[cfg(feature = "parquet")]
@@ -65,8 +65,8 @@ pub mod object_store_reexports {
     pub use object_store::memory::InMemory;
     pub use object_store::path::Path;
     pub use object_store::{
-        Attribute, Attributes, Error as ObjectStoreError, GetResult, ObjectStore,
-        PutMultipartOpts, PutPayload, PutResult, Result as ObjectStoreResult, WriteMultipart,
+        Attribute, Attributes, Error as ObjectStoreError, GetResult, ObjectStore, PutMultipartOpts,
+        PutPayload, PutResult, Result as ObjectStoreResult, WriteMultipart,
     };
 }
 
@@ -530,10 +530,7 @@ async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<d
 #[cfg(feature = "parquet")]
 pub fn build_filesystem_client(root_path: &str) -> error::Result<Arc<dyn ObjectStore>> {
     let store = object_store::local::LocalFileSystem::new_with_prefix(root_path).map_err(|e| {
-        error::Error::internal_err(format!(
-            "Error building filesystem object store: {:?}",
-            e
-        ))
+        error::Error::internal_err(format!("Error building filesystem object store: {:?}", e))
     })?;
     Ok(Arc::new(store))
 }
@@ -644,36 +641,45 @@ lazy_static::lazy_static! {
     static ref S3_BUCKET_RESTRICTIONS: Option<HashMap<String, Vec<String>>> = {
         parse_bucket_restrictions()
     };
+    static ref AZ_ACCOUNT_NAME_RESTRICTIONS: Option<HashMap<String, Vec<String>>> = {
+        parse_az_account_name_restrictions()
+    };
 }
 
 fn parse_bucket_restrictions() -> Option<HashMap<String, Vec<String>>> {
     let env_var = std::env::var("S3_BUCKETS_WORKSPACE_RESTRICTIONS").ok()?;
-    parse_bucket_restrictions_from_str(&env_var)
+    parse_restrictions_from_str(&env_var, "S3 bucket")
 }
 
-fn parse_bucket_restrictions_from_str(input: &str) -> Option<HashMap<String, Vec<String>>> {
+fn parse_az_account_name_restrictions() -> Option<HashMap<String, Vec<String>>> {
+    let env_var = std::env::var("AZ_ACCOUNT_NAME_WORKSPACE_RESTRICTIONS").ok()?;
+    parse_restrictions_from_str(&env_var, "Azure account name")
+}
+
+fn parse_restrictions_from_str(input: &str, label: &str) -> Option<HashMap<String, Vec<String>>> {
     if input.trim().is_empty() {
         return None;
     }
 
     let mut restrictions = HashMap::new();
 
-    for bucket_rule in input.split(';') {
-        let bucket_rule = bucket_rule.trim();
-        if bucket_rule.is_empty() {
+    for rule in input.split(';') {
+        let rule = rule.trim();
+        if rule.is_empty() {
             continue;
         }
 
-        let parts: Vec<&str> = bucket_rule.splitn(2, ':').collect();
+        let parts: Vec<&str> = rule.splitn(2, ':').collect();
         if parts.len() != 2 {
             tracing::warn!(
-                "Invalid bucket restriction format: '{}'. Expected 'bucket:workspace1,workspace2'",
-                bucket_rule
+                "Invalid {} restriction format: '{}'. Expected 'name:workspace1,workspace2'",
+                label,
+                rule
             );
             continue;
         }
 
-        let bucket_name = parts[0].trim().to_string();
+        let name = parts[0].trim().to_string();
         let workspaces: Vec<String> = parts[1]
             .split(',')
             .map(|w| w.trim().to_string())
@@ -682,24 +688,31 @@ fn parse_bucket_restrictions_from_str(input: &str) -> Option<HashMap<String, Vec
 
         if workspaces.is_empty() {
             tracing::warn!(
-                "No workspaces specified for bucket '{}', skipping restriction",
-                bucket_name
+                "No workspaces specified for {} '{}', skipping restriction",
+                label,
+                name
             );
             continue;
         }
 
-        restrictions.insert(bucket_name, workspaces);
+        restrictions.insert(name, workspaces);
     }
 
     if restrictions.is_empty() {
         None
     } else {
         tracing::info!(
-            "S3 bucket restrictions loaded for {} buckets",
+            "{} restrictions loaded for {} entries",
+            label,
             restrictions.len()
         );
         Some(restrictions)
     }
+}
+
+#[cfg(test)]
+fn parse_bucket_restrictions_from_str(input: &str) -> Option<HashMap<String, Vec<String>>> {
+    parse_restrictions_from_str(input, "S3 bucket")
 }
 
 pub fn check_bucket_workspace_restriction(
@@ -712,6 +725,23 @@ pub fn check_bucket_workspace_restriction(
                 return Err(error::Error::NotAuthorized(format!(
                     "Workspace '{}' is not authorized to access bucket '{}'",
                     workspace_id, bucket_name
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn check_az_account_name_workspace_restriction(
+    account_name: &str,
+    workspace_id: &str,
+) -> error::Result<()> {
+    if let Some(ref restrictions) = *AZ_ACCOUNT_NAME_RESTRICTIONS {
+        if let Some(allowed_workspaces) = restrictions.get(account_name) {
+            if !allowed_workspaces.contains(&workspace_id.to_string()) {
+                return Err(error::Error::NotAuthorized(format!(
+                    "Workspace '{}' is not authorized to access Azure account '{}'",
+                    workspace_id, account_name
                 )));
             }
         }
@@ -739,7 +769,8 @@ pub async fn upload_artifact_to_store(
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     let object_store: Option<()> = None;
     Ok(
-        if &windmill_common::utils::MODE_AND_ADDONS.mode == &windmill_common::utils::Mode::Standalone
+        if &windmill_common::utils::MODE_AND_ADDONS.mode
+            == &windmill_common::utils::Mode::Standalone
             && object_store.is_none()
         {
             let path = format!("{}/{}", standalone_dir, path);
@@ -821,11 +852,11 @@ pub fn lfs_to_object_store_resource(
                 })?;
             Ok(ObjectStoreResource::Gcs(gcs_resource))
         }
-        LargeFileStorage::FilesystemStorage(fs) => Ok(ObjectStoreResource::Filesystem(
-            FilesystemSettings {
+        LargeFileStorage::FilesystemStorage(fs) => {
+            Ok(ObjectStoreResource::Filesystem(FilesystemSettings {
                 root_path: fs.root_path.clone(),
-            },
-        )),
+            }))
+        }
     }
 }
 
@@ -995,13 +1026,9 @@ pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
     drop(file);
 
     let ctx = SessionContext::new();
-    ctx.register_json(
-        "my_table",
-        path_str,
-        NdJsonReadOptions::default(),
-    )
-    .await
-    .map_err(to_anyhow)?;
+    ctx.register_json("my_table", path_str, NdJsonReadOptions::default())
+        .await
+        .map_err(to_anyhow)?;
 
     let df = ctx.sql("SELECT * FROM my_table").await.map_err(to_anyhow)?;
     let schema = df.schema().clone().into();
@@ -1252,8 +1279,7 @@ mod tests {
             advanced_permissions: None,
         });
         // resource_value is ignored for filesystem
-        let result =
-            lfs_to_object_store_resource(&lfs, serde_json::Value::Null).unwrap();
+        let result = lfs_to_object_store_resource(&lfs, serde_json::Value::Null).unwrap();
         match result {
             ObjectStoreResource::Filesystem(fs) => {
                 assert_eq!(fs.root_path, "/tmp/mydata");
@@ -1279,10 +1305,18 @@ mod tests {
             port: None,
         };
         let result = duckdb_connection_settings_internal(s3).unwrap();
-        assert!(result.connection_settings_str.contains("SET s3_region='eu-west-1'"));
-        assert!(result.connection_settings_str.contains("SET s3_access_key_id='AKIA123'"));
-        assert!(result.connection_settings_str.contains("SET s3_secret_access_key='secret456'"));
-        assert!(result.connection_settings_str.contains("SET s3_url_style='path'"));
+        assert!(result
+            .connection_settings_str
+            .contains("SET s3_region='eu-west-1'"));
+        assert!(result
+            .connection_settings_str
+            .contains("SET s3_access_key_id='AKIA123'"));
+        assert!(result
+            .connection_settings_str
+            .contains("SET s3_secret_access_key='secret456'"));
+        assert!(result
+            .connection_settings_str
+            .contains("SET s3_url_style='path'"));
         assert!(!result.connection_settings_str.contains("SET s3_use_ssl=0"));
         assert_eq!(result.s3_bucket, Some("test-bucket".to_string()));
         assert!(result.azure_container_path.is_none());
@@ -1304,7 +1338,9 @@ mod tests {
         };
         let result = duckdb_connection_settings_internal(s3).unwrap();
         assert!(result.connection_settings_str.contains("SET s3_use_ssl=0"));
-        assert!(!result.connection_settings_str.contains("SET s3_url_style='path'"));
+        assert!(!result
+            .connection_settings_str
+            .contains("SET s3_url_style='path'"));
     }
 
     #[test]
@@ -1320,8 +1356,12 @@ mod tests {
             federated_token_file: None,
         });
         let result = format_duckdb_connection_settings(resource).unwrap();
-        assert!(result.connection_settings_str.contains("AccountName=myaccount"));
-        assert!(result.connection_settings_str.contains("AccountKey=base64key=="));
+        assert!(result
+            .connection_settings_str
+            .contains("AccountName=myaccount"));
+        assert!(result
+            .connection_settings_str
+            .contains("AccountKey=base64key=="));
         assert_eq!(
             result.azure_container_path,
             Some("az://mycontainer".to_string())
@@ -1337,7 +1377,10 @@ mod tests {
         });
         let result = format_duckdb_connection_settings(resource);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("GCS is not supported"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("GCS is not supported"));
     }
 
     #[test]
@@ -1361,10 +1404,8 @@ mod tests {
         use windmill_common::error::Error;
 
         // NotFound
-        let err = object_store::Error::NotFound {
-            path: "test/path".into(),
-            source: "missing".into(),
-        };
+        let err =
+            object_store::Error::NotFound { path: "test/path".into(), source: "missing".into() };
         let mapped = object_store_error_to_error(err);
         assert!(matches!(mapped, Error::NotFound(_)));
 
@@ -1388,10 +1429,8 @@ mod tests {
         assert!(matches!(mapped, Error::BadRequest(_)));
 
         // Unauthenticated
-        let err = object_store::Error::Unauthenticated {
-            path: "obj".into(),
-            source: "no creds".into(),
-        };
+        let err =
+            object_store::Error::Unauthenticated { path: "obj".into(), source: "no creds".into() };
         let mapped = object_store_error_to_error(err);
         assert!(matches!(mapped, Error::NotAuthorized(_)));
     }
@@ -1533,15 +1572,10 @@ mod tests {
             .await
             .unwrap();
 
-        let resource = ObjectStoreResource::Filesystem(FilesystemSettings {
-            root_path: root.to_string(),
-        });
-        let s3_obj = S3Object {
-            s3: "etag.txt".to_string(),
-            storage: None,
-            filename: None,
-            presigned: None,
-        };
+        let resource =
+            ObjectStoreResource::Filesystem(FilesystemSettings { root_path: root.to_string() });
+        let s3_obj =
+            S3Object { s3: "etag.txt".to_string(), storage: None, filename: None, presigned: None };
 
         let etag = get_etag_or_empty(&resource, s3_obj).await;
         // LocalFileSystem should return an etag based on file metadata
@@ -1554,9 +1588,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_str().unwrap();
 
-        let resource = ObjectStoreResource::Filesystem(FilesystemSettings {
-            root_path: root.to_string(),
-        });
+        let resource =
+            ObjectStoreResource::Filesystem(FilesystemSettings { root_path: root.to_string() });
         let s3_obj = S3Object {
             s3: "nonexistent.txt".to_string(),
             storage: None,
@@ -1575,9 +1608,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_str().unwrap().to_string();
-        let settings = ObjectSettings::Filesystem(FilesystemSettings {
-            root_path: root,
-        });
+        let settings = ObjectSettings::Filesystem(FilesystemSettings { root_path: root });
 
         let expirable = build_object_store_from_settings(settings, None)
             .await
@@ -1585,10 +1616,7 @@ mod tests {
         let data = bytes::Bytes::from("end to end via settings");
         expirable
             .store
-            .put(
-                &Path::from("e2e.txt"),
-                PutPayload::from(data.clone()),
-            )
+            .put(&Path::from("e2e.txt"), PutPayload::from(data.clone()))
             .await
             .unwrap();
         let result = expirable
@@ -1610,9 +1638,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_str().unwrap().to_string();
-        let resource = ObjectStoreResource::Filesystem(FilesystemSettings {
-            root_path: root,
-        });
+        let resource = ObjectStoreResource::Filesystem(FilesystemSettings { root_path: root });
 
         let client = build_object_store_client(&resource).await.unwrap();
         let data = bytes::Bytes::from("end to end via resource");
@@ -1634,7 +1660,10 @@ mod tests {
 
     #[test]
     fn test_bundle_path_format() {
-        assert_eq!(bundle("my_workspace", "abc123"), "script_bundle/my_workspace/abc123");
+        assert_eq!(
+            bundle("my_workspace", "abc123"),
+            "script_bundle/my_workspace/abc123"
+        );
     }
 
     #[test]
@@ -1646,8 +1675,7 @@ mod tests {
 
     #[test]
     fn test_parse_bucket_restrictions_single_bucket() {
-        let result =
-            parse_bucket_restrictions_from_str("my-bucket:workspace1,workspace2").unwrap();
+        let result = parse_bucket_restrictions_from_str("my-bucket:workspace1,workspace2").unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(
             result.get("my-bucket").unwrap(),
@@ -1657,19 +1685,13 @@ mod tests {
 
     #[test]
     fn test_parse_bucket_restrictions_multiple_buckets() {
-        let result = parse_bucket_restrictions_from_str(
-            "bucket-a:ws1,ws2;bucket-b:ws3",
-        )
-        .unwrap();
+        let result = parse_bucket_restrictions_from_str("bucket-a:ws1,ws2;bucket-b:ws3").unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(
             result.get("bucket-a").unwrap(),
             &vec!["ws1".to_string(), "ws2".to_string()]
         );
-        assert_eq!(
-            result.get("bucket-b").unwrap(),
-            &vec!["ws3".to_string()]
-        );
+        assert_eq!(result.get("bucket-b").unwrap(), &vec!["ws3".to_string()]);
     }
 
     #[test]
@@ -1681,16 +1703,14 @@ mod tests {
     #[test]
     fn test_parse_bucket_restrictions_invalid_format_skipped() {
         // "no-colon" is invalid, only "valid:ws1" should be parsed
-        let result =
-            parse_bucket_restrictions_from_str("no-colon;valid:ws1").unwrap();
+        let result = parse_bucket_restrictions_from_str("no-colon;valid:ws1").unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.contains_key("valid"));
     }
 
     #[test]
     fn test_parse_bucket_restrictions_trailing_semicolons() {
-        let result =
-            parse_bucket_restrictions_from_str(";bucket:ws1;;").unwrap();
+        let result = parse_bucket_restrictions_from_str(";bucket:ws1;;").unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.contains_key("bucket"));
     }

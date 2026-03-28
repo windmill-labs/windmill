@@ -68,7 +68,11 @@ pub fn initialize_tracing(
     mode: &Mode,
     environment: &str,
 ) -> (WorkerGuard, crate::otel_oss::OtelProvider) {
-    let style = std::env::var("RUST_LOG_STYLE").unwrap_or_else(|_| "auto".into());
+    let style = if std::env::var("NO_COLOR").is_ok() {
+        "never".into()
+    } else {
+        std::env::var("RUST_LOG_STYLE").unwrap_or_else(|_| "auto".into())
+    };
 
     let rust_log_env = std::env::var("RUST_LOG");
     let rust_log_stdout_env = std::env::var("RUST_LOG_STDOUT");
@@ -269,3 +273,4 @@ where
         }
     }
 }
+

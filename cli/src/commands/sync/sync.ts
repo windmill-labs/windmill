@@ -31,6 +31,7 @@ import {
   findResourceFile,
   handleScriptMetadata,
   removeExtensionToPath,
+  filePathExtensionFromContentType,
 } from "../script/script.ts";
 
 import { handleFile } from "../script/script.ts";
@@ -68,7 +69,7 @@ import {
   readLockfile,
   workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
-import { OpenFlow, NativeServiceName } from "../../../gen/types.gen.ts";
+import { OpenFlow, NativeServiceName, ScriptModule } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
 import {
   newPathAssigner,
@@ -92,11 +93,17 @@ import {
   isAppMetadataFile,
   isRawAppMetadataFile,
   isRawAppFolderMetadataFile,
+  isAppFolderMetadataFile,
+  isFlowFolderMetadataFile,
   getDeleteSuffix,
   transformJsonPathToDir,
   getFolderSuffix,
   getFolderSuffixWithSep,
   getNonDottedPaths,
+  isScriptModulePath,
+  getModuleFolderSuffix,
+  isModuleEntryPoint,
+  getScriptBasePathFromModulePath,
 } from "../../utils/resource_folders.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -534,6 +541,29 @@ function ZipFSElement(
   resourceTypeToIsFileset: Record<string, boolean>,
   ignoreCodebaseChanges: boolean,
 ): DynFSElement {
+  // Pre-scan: find zip base paths of scripts that have modules.
+  // These scripts use the folder layout: {basePath}__mod/script.{ext}
+  let _moduleScriptPaths: Set<string> | null = null;
+  async function getModuleScriptPaths(): Promise<Set<string>> {
+    if (_moduleScriptPaths === null) {
+      _moduleScriptPaths = new Set();
+      for (const filename in zip.files) {
+        if (filename.endsWith(".script.json") && !zip.files[filename].dir) {
+          try {
+            const content = await zip.files[filename].async("text");
+            const parsed = JSON.parse(content);
+            if (parsed.modules && Object.keys(parsed.modules).length > 0) {
+              _moduleScriptPaths.add(
+                filename.slice(0, -".script.json".length)
+              );
+            }
+          } catch {}
+        }
+      }
+    }
+    return _moduleScriptPaths;
+  }
+
   async function _internal_file(
     p: string,
     f: JSZip.JSZipObject,
@@ -575,7 +605,22 @@ function ZipFSElement(
       }
     }
 
-    const finalPath = transformPath();
+    let finalPath = transformPath();
+
+    // Redirect content files for scripts with modules into __mod/ folder
+    if (kind == "other" && exts.some((ext) => p.endsWith(ext))) {
+      const normalizedP = p.replace(/^\.[\\/]/, "");
+      const moduleScripts = await getModuleScriptPaths();
+      for (const basePath of moduleScripts) {
+        if (normalizedP.startsWith(basePath + ".")) {
+          const ext = normalizedP.slice(basePath.length); // e.g., ".ts", ".py"
+          const dir = path.dirname(finalPath);
+          const base = path.basename(basePath);
+          finalPath = path.join(dir, base + getModuleFolderSuffix(), "script" + ext);
+          break;
+        }
+      }
+    }
 
     const r = [
       {
@@ -592,14 +637,35 @@ function ZipFSElement(
             }
             let inlineScripts;
             try {
+              const assigner = newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() });
               inlineScripts = extractInlineScriptsForFlows(
                 flow.value.modules as any,
                 {},
                 SEP,
                 defaultTs,
-                undefined, // pathAssigner - let it create one
+                assigner,
                 { skipInlineScriptSuffix: getNonDottedPaths() },
               );
+              if (flow.value.failure_module) {
+                inlineScripts.push(...extractInlineScriptsForFlows(
+                  [flow.value.failure_module],
+                  {},
+                  SEP,
+                  defaultTs,
+                  assigner,
+                  { skipInlineScriptSuffix: getNonDottedPaths() },
+                ));
+              }
+              if (flow.value.preprocessor_module) {
+                inlineScripts.push(...extractInlineScriptsForFlows(
+                  [flow.value.preprocessor_module],
+                  {},
+                  SEP,
+                  defaultTs,
+                  assigner,
+                  { skipInlineScriptSuffix: getNonDottedPaths() },
+                ));
+              }
             } catch (error) {
               log.error(
                 `Failed to extract inline scripts for flow at path: ${p}`,
@@ -872,15 +938,23 @@ function ZipFSElement(
               log.error(`Failed to parse script.yaml at path: ${p}`);
               throw error;
             }
+            const hasModules = parsed["modules"] && Object.keys(parsed["modules"]).length > 0;
             if (
               parsed["lock"] &&
               parsed["lock"] != "" &&
               parsed["codebase"] == undefined
             ) {
-              parsed["lock"] =
-                "!inline " +
-                removeSuffix(p.replaceAll(SEP, "/"), ".json") +
-                ".lock";
+              if (hasModules) {
+                // Lock lives inside __mod/ folder as script.lock
+                const scriptBase = removeSuffix(removeSuffix(p.replaceAll(SEP, "/"), ".json"), ".script");
+                parsed["lock"] =
+                  "!inline " + scriptBase + getModuleFolderSuffix() + "/script.lock";
+              } else {
+                parsed["lock"] =
+                  "!inline " +
+                  removeSuffix(p.replaceAll(SEP, "/"), ".json") +
+                  ".lock";
+              }
             } else if (parsed["lock"] == "") {
               parsed["lock"] = "";
             } else {
@@ -889,6 +963,8 @@ function ZipFSElement(
             if (ignoreCodebaseChanges && parsed["codebase"]) {
               parsed["codebase"] = undefined;
             }
+            // Modules are stored as files in __mod/ folder, not in metadata
+            delete parsed["modules"];
             return useYaml
               ? yamlStringify(parsed, yamlOptions)
               : JSON.stringify(parsed, null, 2);
@@ -948,13 +1024,68 @@ function ZipFSElement(
         throw error;
       }
       const lock = parsed["lock"];
+      const scriptModules: Record<string, ScriptModule> | undefined = parsed["modules"];
+      const hasModules = scriptModules && Object.keys(scriptModules).length > 0;
+
+      // Compute base path and module folder
+      const metaExt = useYaml ? ".yaml" : ".json";
+      const scriptBasePath = removeSuffix(
+        removeSuffix(finalPath, metaExt),
+        ".script"
+      );
+      const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
+
+      if (hasModules) {
+        // Redirect metadata into __mod/script.yaml
+        r[0].path = path.join(moduleFolderPath, "script" + metaExt);
+      }
+
       if (lock && lock != "") {
         r.push({
           isDirectory: false,
-          path: removeSuffix(finalPath, ".json") + ".lock",
+          path: hasModules
+            ? path.join(moduleFolderPath, "script.lock")
+            : removeSuffix(finalPath, metaExt) + ".lock",
           async *getChildren() {},
           async getContentText() {
             return lock;
+          },
+        });
+      }
+
+      // Extract script modules into __mod/ folder
+      if (hasModules) {
+        r.push({
+          isDirectory: true,
+          path: moduleFolderPath,
+          async *getChildren() {
+            for (const [relPath, mod] of Object.entries(scriptModules!)) {
+              // Yield the module content file
+              yield {
+                isDirectory: false,
+                path: path.join(moduleFolderPath, relPath),
+                async *getChildren() {},
+                async getContentText() {
+                  return mod.content;
+                },
+              };
+
+              // Yield the module lock file if present
+              if (mod.lock) {
+                const baseName = relPath.replace(/\.[^.]+$/, '');
+                yield {
+                  isDirectory: false,
+                  path: path.join(moduleFolderPath, baseName + ".lock"),
+                  async *getChildren() {},
+                  async getContentText() {
+                    return mod.lock!;
+                  },
+                };
+              }
+            }
+          },
+          async getContentText() {
+            throw new Error("Cannot get content of directory");
           },
         });
       }
@@ -1133,6 +1264,12 @@ export async function elementsToMap(
       continue;
     }
     const path = entry.path;
+    // Include module files in the map so they're compared for changes,
+    // but they're pushed as part of their parent script via handleFile
+    if (isScriptModulePath(path)) {
+      map[path] = await entry.getContentText();
+      continue;
+    }
     if (
       !isFileResource(path) &&
       !isFilesetResource(path) &&
@@ -1580,6 +1717,11 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
     );
   }
 
+  // Files inside __mod/ folders are script module files — always valid wmill files
+  if (isScriptModulePath(p)) {
+    return false;
+  }
+
   try {
     const typ = getTypeStrFromPath(p);
     if (
@@ -1724,6 +1866,37 @@ async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
       if (!tracker.rawApps.includes(folder)) {
         tracker.rawApps.push(folder);
       }
+    } else if (isScriptModulePath(p)) {
+      if (isModuleEntryPoint(p)) {
+        // Entry point (e.g. __mod/script.ts) IS the parent script content file
+        if (!tracker.scripts.includes(p)) {
+          tracker.scripts.push(p);
+        }
+      } else {
+        // Module file changed — find the parent script content file
+        const moduleSuffix = getModuleFolderSuffix() + "/";
+        const idx = p.indexOf(moduleSuffix);
+        if (idx !== -1) {
+          const scriptBasePath = p.substring(0, idx);
+          // Try folder layout first: __mod/script.{ext}
+          try {
+            const contentPath = await findContentFile(scriptBasePath + getModuleFolderSuffix() + "/script.yaml");
+            if (contentPath && !tracker.scripts.includes(contentPath)) {
+              tracker.scripts.push(contentPath);
+            }
+          } catch {
+            // Fall back to flat layout: scriptBasePath.script.yaml
+            try {
+              const contentPath = await findContentFile(scriptBasePath + ".script.yaml");
+              if (contentPath && !tracker.scripts.includes(contentPath)) {
+                tracker.scripts.push(contentPath);
+              }
+            } catch {
+              // ignore — content file not found
+            }
+          }
+        }
+      }
     } else {
       if (!tracker.scripts.includes(p)) {
         tracker.scripts.push(p);
@@ -1756,12 +1929,73 @@ async function buildTracker(changes: Change[]) {
   return tracker;
 }
 
+/**
+ * When a module file changes, find and push the parent script.
+ * The parent script's handleFile will read the __mod/ folder and include all modules.
+ */
+async function pushParentScriptForModule(
+  modulePath: string,
+  workspace: Workspace,
+  alreadySynced: string[],
+  message: string | undefined,
+  opts: (GlobalOptions & { defaultTs?: "bun" | "deno" } & Skips) | undefined,
+  rawWorkspaceDependencies: Record<string, string>,
+  codebases: SyncCodebase[],
+): Promise<void> {
+  const moduleSuffix = getModuleFolderSuffix() + "/";
+  const idx = modulePath.indexOf(moduleSuffix);
+  if (idx === -1) return;
+  const scriptBasePath = modulePath.substring(0, idx);
+  const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
+
+  // Try folder layout first: look for script.{ext} inside __mod/
+  try {
+    const entryPoint = await findContentFile(moduleFolderPath + "/script.yaml");
+    if (entryPoint) {
+      await handleFile(
+        entryPoint,
+        workspace,
+        alreadySynced,
+        message,
+        opts,
+        rawWorkspaceDependencies,
+        codebases,
+      );
+      return;
+    }
+  } catch {}
+
+  // Fall back to flat layout: look for content file alongside __mod/
+  try {
+    const contentPath = await findContentFile(scriptBasePath + ".script.yaml");
+    if (contentPath) {
+      await handleFile(
+        contentPath,
+        workspace,
+        alreadySynced,
+        message,
+        opts,
+        rawWorkspaceDependencies,
+        codebases,
+      );
+    }
+  } catch {
+    log.debug(`Could not find parent script for module: ${modulePath}`);
+  }
+}
+
 export async function pull(
   opts: GlobalOptions &
     SyncOptions & { repository?: string; promotion?: string; branch?: string },
 ) {
+  if ((opts as any).jsonOutput) log.setSilent(true);
   const originalCliOpts = { ...opts };
   opts = await mergeConfigWithConfigFile(opts);
+
+  // --include-secrets overrides skipSecrets from wmill.yaml
+  if ((originalCliOpts as any).includeSecrets) {
+    opts.skipSecrets = false;
+  }
 
   // Validate branch configuration early (skipped when --branch is used)
   try {
@@ -2055,7 +2289,7 @@ export async function pull(
 
     const tracker: ChangeTracker = await buildTracker(changes);
     const rawWorkspaceDependencies: Record<string, string> =
-      await getRawWorkspaceDependencies();
+      await getRawWorkspaceDependencies(true);
 
     for (const change of tracker.scripts) {
       await generateScriptMetadataInternal(
@@ -2251,11 +2485,17 @@ function removeSuffix(str: string, suffix: string) {
 export async function push(
   opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string },
 ) {
+  if ((opts as any).jsonOutput) log.setSilent(true);
   // Save original CLI options before merging with config file
   const originalCliOpts = { ...opts };
 
   // Load configuration from wmill.yaml and merge with CLI options
   opts = await mergeConfigWithConfigFile(opts);
+
+  // --include-secrets overrides skipSecrets from wmill.yaml
+  if ((originalCliOpts as any).includeSecrets) {
+    opts.skipSecrets = false;
+  }
 
   // Validate branch configuration early (skipped when --branch is used)
   try {
@@ -2386,10 +2626,11 @@ export async function push(
     false, // els1 (local) is not the remote source
   );
 
-  const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
+  const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
 
   const tracker: ChangeTracker = await buildTracker(changes);
 
+  const autoRegenerate = !!(opts as any).autoMetadata;
   const staleScripts: string[] = [];
   const staleFlows: string[] = [];
   const staleApps: string[] = [];
@@ -2399,7 +2640,7 @@ export async function push(
       change,
       workspace,
       opts,
-      true,
+      !autoRegenerate, // dryRun=false when --auto is set
       true,
       rawWorkspaceDependencies,
       codebases,
@@ -2412,11 +2653,19 @@ export async function push(
 
   if (staleScripts.length > 0) {
     log.info("");
-    log.warn(
-      "Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:",
-    );
+    if (autoRegenerate) {
+      log.info("Auto-regenerated metadata for stale scripts:");
+    } else {
+      log.warn(
+        "Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:",
+      );
+    }
     for (const stale of staleScripts) {
-      log.warn(stale);
+      if (autoRegenerate) {
+        log.info(`  ${stale}`);
+      } else {
+        log.warn(stale);
+      }
     }
 
     log.info("");
@@ -2425,23 +2674,31 @@ export async function push(
   for (const change of tracker.flows) {
     const stale = await generateFlowLockInternal(
       change,
-      true,
+      !autoRegenerate, // dryRun=false when --auto is set
       workspace,
       opts,
       false,
       true,
     );
     if (stale) {
-      staleFlows.push(stale);
+      staleFlows.push(stale as string);
     }
   }
 
   if (staleFlows.length > 0) {
-    log.warn(
-      "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:",
-    );
+    if (autoRegenerate) {
+      log.info("Auto-regenerated locks for stale flows:");
+    } else {
+      log.warn(
+        "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:",
+      );
+    }
     for (const stale of staleFlows) {
-      log.warn(stale);
+      if (autoRegenerate) {
+        log.info(`  ${stale}`);
+      } else {
+        log.warn(stale);
+      }
     }
     log.info("");
   }
@@ -2450,14 +2707,14 @@ export async function push(
     const stale = await generateAppLocksInternal(
       change,
       false,
-      true,
+      !autoRegenerate,
       workspace,
       opts,
       true,
       true,
     );
     if (stale) {
-      staleApps.push(stale);
+      staleApps.push(stale as string);
     }
   }
 
@@ -2465,25 +2722,56 @@ export async function push(
     const stale = await generateAppLocksInternal(
       change,
       true,
-      true,
+      !autoRegenerate,
       workspace,
       opts,
       true,
       true,
     );
     if (stale) {
-      staleApps.push(stale);
+      staleApps.push(stale as string);
     }
   }
 
   if (staleApps.length > 0) {
-    log.warn(
-      "Stale apps locks found, you may want to update them using 'wmill app generate-locks' before pushing:",
-    );
+    if (autoRegenerate) {
+      log.info("Auto-regenerated locks for stale apps:");
+    } else {
+      log.warn(
+        "Stale apps locks found, you may want to update them using 'wmill app generate-locks' before pushing:",
+      );
+    }
     for (const stale of staleApps) {
-      log.warn(stale);
+      if (autoRegenerate) {
+        log.info(`  ${stale}`);
+      } else {
+        log.warn(stale);
+      }
     }
     log.info("");
+  }
+
+  // Warn about local files for skipped types. Walks the in-memory DynFSElement tree
+  // (not a fresh disk scan), but does re-traverse it. Acceptable cost for a one-time check.
+  {
+    const skippedWarnings: string[] = [];
+    let scheduleCount = 0;
+    let triggerCount = 0;
+    for await (const entry of readDirRecursiveWithIgnore(() => false, local)) {
+      if (entry.isDirectory) continue;
+      if (!opts.includeSchedules && entry.path.endsWith(".schedule.yaml")) scheduleCount++;
+      if (!opts.includeTriggers && entry.path.endsWith("_trigger.yaml")) triggerCount++;
+    }
+    if (scheduleCount > 0) {
+      skippedWarnings.push(`Skipping ${scheduleCount} schedule file(s). Use --include-schedules or set includeSchedules: true in wmill.yaml`);
+    }
+    if (triggerCount > 0) {
+      skippedWarnings.push(`Skipping ${triggerCount} trigger file(s). Use --include-triggers or set includeTriggers: true in wmill.yaml`);
+    }
+    for (const warning of skippedWarnings) {
+      log.warn(warning);
+    }
+    if (skippedWarnings.length > 0) log.info("");
   }
 
   await fetchRemoteVersion(workspace);
@@ -2684,6 +2972,21 @@ export async function push(
                   await writeFile(stateTarget, change.after, "utf-8");
                 }
                 continue;
+              } else if (isScriptModulePath(change.path)) {
+                // Module file changed — push the parent script
+                await pushParentScriptForModule(
+                  change.path,
+                  workspace,
+                  alreadySynced,
+                  opts.message,
+                  opts,
+                  rawWorkspaceDependencies,
+                  codebases,
+                );
+                if (stateTarget) {
+                  await writeFile(stateTarget, change.after, "utf-8");
+                }
+                continue;
               }
               if (stateTarget) {
                 await mkdir(path.dirname(stateTarget), { recursive: true });
@@ -2808,6 +3111,17 @@ export async function push(
                 )
               ) {
                 continue;
+              } else if (isScriptModulePath(change.path)) {
+                await pushParentScriptForModule(
+                  change.path,
+                  workspace,
+                  alreadySynced,
+                  opts.message,
+                  opts,
+                  rawWorkspaceDependencies,
+                  codebases,
+                );
+                continue;
               }
               if (stateTarget) {
                 await mkdir(path.dirname(stateTarget), { recursive: true });
@@ -2847,6 +3161,19 @@ export async function push(
               }
             } else if (change.name === "deleted") {
               if (change.path.endsWith(".lock")) {
+                continue;
+              }
+              if (isScriptModulePath(change.path)) {
+                // Module file deleted — push the parent script (which will now have fewer modules)
+                await pushParentScriptForModule(
+                  change.path,
+                  workspace,
+                  alreadySynced,
+                  opts.message,
+                  opts,
+                  rawWorkspaceDependencies,
+                  codebases,
+                );
                 continue;
               }
               const typ = getTypeStrFromPath(change.path);
@@ -2896,16 +3223,88 @@ export async function push(
                   });
                   break;
                 case "flow":
-                  await wmill.deleteFlowByPath({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, getDeleteSuffix("flow", "json")),
-                  });
+                  if (isFlowFolderMetadataFile(target)) {
+                    // Metadata file deleted — delete the entire flow
+                    await wmill.deleteFlowByPath({
+                      workspace: workspaceId,
+                      path: removeSuffix(target, getDeleteSuffix("flow", "json")),
+                    });
+                  } else {
+                    // Inline script file deleted within flow folder
+                    const flowFolder = extractFolderPath(target, "flow");
+                    let flowFolderExists = false;
+                    if (flowFolder) {
+                      try {
+                        await stat(flowFolder);
+                        flowFolderExists = true;
+                      } catch {
+                        // folder doesn't exist
+                      }
+                    }
+                    if (flowFolderExists) {
+                      // Re-push the entire flow so the backend gets the updated definition
+                      await pushObj(
+                        workspaceId,
+                        target,
+                        undefined,
+                        undefined,
+                        opts.plainSecrets ?? false,
+                        alreadySynced,
+                        opts.message,
+                      );
+                    } else {
+                      // Flow folder doesn't exist locally — delete on server
+                      const remotePath = extractResourceName(target, "flow");
+                      if (remotePath) {
+                        await wmill.deleteFlowByPath({
+                          workspace: workspaceId,
+                          path: remotePath,
+                        });
+                      }
+                    }
+                  }
                   break;
                 case "app":
-                  await wmill.deleteApp({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, getDeleteSuffix("app", "json")),
-                  });
+                  if (isAppFolderMetadataFile(target)) {
+                    // Metadata file deleted — delete the entire app
+                    await wmill.deleteApp({
+                      workspace: workspaceId,
+                      path: removeSuffix(target, getDeleteSuffix("app", "json")),
+                    });
+                  } else {
+                    // Inline script file deleted within app folder
+                    const appFolder = extractFolderPath(target, "app");
+                    let appFolderExists = false;
+                    if (appFolder) {
+                      try {
+                        await stat(appFolder);
+                        appFolderExists = true;
+                      } catch {
+                        // folder doesn't exist
+                      }
+                    }
+                    if (appFolderExists) {
+                      // Re-push the entire app so the backend gets the updated definition
+                      await pushObj(
+                        workspaceId,
+                        target,
+                        undefined,
+                        undefined,
+                        opts.plainSecrets ?? false,
+                        alreadySynced,
+                        opts.message,
+                      );
+                    } else {
+                      // App folder doesn't exist locally — delete on server
+                      const remotePath = extractResourceName(target, "app");
+                      if (remotePath) {
+                        await wmill.deleteApp({
+                          workspace: workspaceId,
+                          path: remotePath,
+                        });
+                      }
+                    }
+                  }
                   break;
                 case "raw_app":
                   if (isRawAppFolderMetadataFile(target)) {
@@ -3184,6 +3583,7 @@ const command = new Command()
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
+  .option("--include-secrets", "Include secrets in sync (overrides skipSecrets in wmill.yaml)")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
   .option("--skip-scripts", "Skip syncing scripts")
@@ -3224,8 +3624,8 @@ const command = new Command()
     "Use promotionOverrides from the specified branch instead of regular overrides",
   )
   .option(
-    "--branch <branch:string>",
-    "Override the current git branch (works even outside a git repository)",
+    "--branch, --env <branch:string>",
+    "Override the current git branch/environment (works even outside a git repository)",
   )
   .action(pull as any)
   .command("push")
@@ -3239,6 +3639,7 @@ const command = new Command()
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
+  .option("--include-secrets", "Include secrets in sync (overrides skipSecrets in wmill.yaml)")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
   .option("--skip-scripts", "Skip syncing scripts")
@@ -3280,14 +3681,15 @@ const command = new Command()
     "Specify repository path (e.g., u/user/repo) when multiple repositories exist",
   )
   .option(
-    "--branch <branch:string>",
-    "Override the current git branch (works even outside a git repository)",
+    "--branch, --env <branch:string>",
+    "Override the current git branch/environment (works even outside a git repository)",
   )
   .option("--lint", "Run lint validation before pushing")
   .option(
     "--locks-required",
     "Fail if scripts or flow inline scripts that need locks have no locks",
   )
+  .option("--auto-metadata", "Automatically regenerate stale metadata (locks and schemas) before pushing")
   .action(push as any);
 
 export default command;

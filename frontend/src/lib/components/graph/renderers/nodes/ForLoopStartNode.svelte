@@ -39,14 +39,15 @@
 		if (!selectedId) return 'none'
 		// Check direct children
 		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
-			if (module.value.modules.some((m) => m.id === selectedId)) {
+			const children = module.value.modules
+			if (children.some((m) => m.id === selectedId)) {
 				return 'child'
 			}
 			// Check grandchildren
-			return module.value.modules.some(
+			return children.some(
 				(m) =>
 					(m.value.type === 'forloopflow' || m.value.type === 'whileloopflow') &&
-					m.value.modules.some((gm) => gm.id === selectedId)
+					m.value.modules.some((gm: FlowModule) => gm.id === selectedId)
 			)
 				? 'grandchild'
 				: 'none'
@@ -56,7 +57,7 @@
 	let filteredInput = $derived(filterIterFromInput($pickablePropertiesFiltered?.flow_input))
 </script>
 
-<NodeWrapper offset={data.offset} nodeId={id}>
+<NodeWrapper nodeId={id}>
 	{#snippet children({ darkMode })}
 		<VirtualItem
 			label={data.simplifiedTriggerView ? 'For each new event' : 'Do one iteration'}

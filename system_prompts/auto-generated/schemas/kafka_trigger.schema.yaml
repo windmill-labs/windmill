@@ -3,6 +3,9 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
+  permissioned_as:
+    type: string
+    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -17,6 +20,26 @@ properties:
     items:
       type: string
     description: Array of Kafka topic names to subscribe to
+  filters:
+    type: array
+    items:
+      type: object
+      properties:
+        key:
+          type: string
+        value: {}
+  auto_offset_reset:
+    type: string
+    enum:
+    - latest
+    - earliest
+    description: Initial offset behavior when consumer group has no committed offset.
+      'latest' starts from new messages only, 'earliest' starts from the beginning.
+  auto_commit:
+    type: boolean
+    description: When true (default), offsets are committed automatically after receiving
+      each message. When false, you must manually commit offsets using the commit_offsets
+      endpoint.
   error_handler_path:
     type: string
     description: Path to a script or flow to run when the triggered job fails
@@ -60,7 +83,9 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
+- permissioned_as
 - is_flow
 - kafka_resource_path
 - group_id
 - topics
+- filters

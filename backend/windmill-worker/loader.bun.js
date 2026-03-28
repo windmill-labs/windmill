@@ -1,8 +1,11 @@
+// Injected by backend: maps normalized paths to temp storage hashes (or null)
+const TEMP_SCRIPT_REFS = TEMP_SCRIPT_REFS_PLACEHOLDER;
+
 const p = {
   name: "windmill-relative-resolver",
   async setup(build) {
     const { writeFileSync, readFileSync, mkdirSync } = await import("fs");
-    const { dirname, resolve } = await import("node:path");
+    const { dirname, resolve, join } = await import("node:path");
 
     const base_internal_url = "BASE_INTERNAL_URL".replace(
       "localhost",
@@ -18,7 +21,7 @@ const p = {
     // On Windows, normalize path to POSIX format to match args.path from Bun's resolver
     const cdirPosix = cdir.replace(/\\/g, "/").replace(/^[a-zA-Z]:/, "");
     const filterResolve = new RegExp(
-      `^(?!\\.\/main\\.ts)(?!${cdir}\/main\\.ts)(?!${cdirPosix}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
+      `^(?!\\.\/main\\.ts)(?!\\.\/_wm_)(?!${cdir}\/main\\.ts)(?!${cdir}\/_wm_)(?!${cdirPosix}\/main\\.ts)(?!${cdirPosix}\/_wm_)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
     );
 
     let cdirNodeModules = `${cdir}/node_modules/`;
@@ -77,17 +80,35 @@ const p = {
       if (args.importer?.startsWith(cdirNodeModules)) {
         return undefined;
       }
+
+      // Check if the import resolves to a local module file (written by write_module_files).
+      // Only check relative paths — absolute/bare specifiers should fall through to the
+      // remote resolver, matching the Windows loader pattern.
+      if (args.path.startsWith(".")) {
+        const localPath = resolve(cdir, args.path);
+        try {
+          readFileSync(localPath);
+          return { path: localPath };
+        } catch {}
+      }
+
       const file_path =
         args.importer == "./main.ts" || args.importer == resolve("./main.ts")
           ? current_path
           : args.importer.replace(cdir + "/", "");
 
       const isRelative = !args.path.startsWith("/");
+      const endExt = args.path.endsWith(".ts") ? "" : ".ts";
+      const pathNoExt = args.path.replace(/\.ts$/, "");
 
-      let endExt = args.path.endsWith(".ts") ? "" : ".ts";
-      const url = isRelative
+      // Lookup temp script hash
+      const normalized = (isRelative ? join(dirname(file_path), pathNoExt) : pathNoExt.slice(1)).replace(/\\/g, "/");
+      const hash = TEMP_SCRIPT_REFS?.[normalized];
+
+      const url = (isRelative
         ? `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${file_path}/../${args.path}${endExt}`
-        : `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${args.path}${endExt}`;
+        : `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${args.path}${endExt}`
+      ) + (hash ? `?temp_script_hash=${hash}` : "");
       const file = isRelative
         ? resolve("./" + file_path + "/../" + args.path + ".url")
         : resolve("./" + args.path + ".url");

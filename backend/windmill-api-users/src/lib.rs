@@ -1,2 +1,4 @@
 pub mod users;
-pub mod users_oss;
+#[cfg(feature = "private")]
+pub mod users_ee;
+mod users_oss;

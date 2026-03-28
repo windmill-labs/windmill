@@ -23,9 +23,10 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process, OccupancyMetrics,
+        read_result, resolve_nsjail_timeout, start_child_process, OccupancyMetrics,
     },
-    handle_child, is_sandboxing_enabled, read_ee_registry,
+    handle_child, is_sandboxing_enabled, read_ee_registry_bool_with_workspace_override,
+    read_ee_registry_with_workspace_override,
     universal_pkg_installer::{par_install_language_dependencies_all_at_once, RequiredDependency},
     COURSIER_CACHE_DIR, DISABLE_NUSER, JAVA_CACHE_DIR, JAVA_HOME_DIR, JAVA_REPOSITORY_DIR,
     MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
@@ -121,6 +122,57 @@ async fn prepare<'a>(
     Ok(())
 }
 
+/// Returns the java home dir to use. If a workspace-specific maven_settings_xml
+/// override exists, writes it to `job_dir/.m2/settings.xml` and returns `job_dir`.
+/// Otherwise returns the global JAVA_HOME_DIR.
+async fn get_java_home_with_ws_settings(
+    job_id: &Uuid,
+    w_id: &str,
+    job_dir: &str,
+    conn: &Connection,
+) -> String {
+    let ws_settings_xml = {
+        let registries = crate::WORKSPACE_REGISTRIES.read().await;
+        registries
+            .as_ref()
+            .and_then(|m| m.get(w_id))
+            .and_then(|ws| ws.get("maven_settings_xml"))
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+    };
+    if let Some(ref content) = ws_settings_xml {
+        if !content.trim().is_empty() {
+            if cfg!(feature = "enterprise") {
+                let m2_dir = format!("{job_dir}/.m2");
+                if let Err(e) = create_dir_all(&m2_dir).await {
+                    tracing::error!("Failed to create per-job .m2 directory: {e:#}");
+                    return JAVA_HOME_DIR.to_string();
+                }
+                if let Err(e) =
+                    windmill_common::worker::write_file(&m2_dir, "settings.xml", content)
+                {
+                    tracing::error!("Failed to write per-job Maven settings.xml: {e:#}");
+                    return JAVA_HOME_DIR.to_string();
+                }
+                tracing::debug!(
+                    "Using workspace-specific Maven settings.xml for job {} in workspace {}",
+                    job_id,
+                    w_id
+                );
+                return job_dir.to_string();
+            } else {
+                append_logs(
+                    job_id,
+                    w_id,
+                    "Private registry (maven settings.xml) configuration ignored: this feature requires Windmill Enterprise Edition\n".to_string(),
+                    conn,
+                )
+                .await;
+            }
+        }
+    }
+    JAVA_HOME_DIR.to_string()
+}
+
 pub async fn resolve<'a>(
     job_id: &Uuid,
     code: &str,
@@ -156,7 +208,8 @@ pub async fn resolve<'a>(
         deps.join("\n")
     };
 
-    let req_hash = format!("java-{}", calculate_hash(&deps));
+    let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
+    let req_hash = format!("java-{}{ws_suffix}", calculate_hash(&deps));
     if let Connection::Sql(db) = conn {
         if let Some(cached) = sqlx::query_scalar!(
             "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
@@ -182,10 +235,11 @@ pub async fn resolve<'a>(
         } else {
             JAVA_PATH.as_str()
         });
+        let java_home = get_java_home_with_ws_settings(job_id, w_id, job_dir, conn).await;
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
-            .env("HOME", &*JAVA_HOME_DIR)
+            .env("HOME", &java_home)
             .env("COURSIER_CACHE", &*COURSIER_CACHE_DIR)
             .envs(PROXY_ENVS.clone());
 
@@ -208,18 +262,19 @@ pub async fn resolve<'a>(
                 cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
             }
         }
-        cmd.arg(&format!("-Duser.home={}", *JAVA_HOME_DIR));
+        cmd.arg(&format!("-Duser.home={}", java_home));
         if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
             cmd.args(&[
                 &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
                 &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
             ]);
         }
+        let no_default = get_no_default(*job_id, w_id, conn).await;
         cmd.args(&[
             "-jar",
             &CS_PATH,
             "resolve",
-            &get_no_default(),
+            &no_default,
             "--parallel",
             &format!("{}", *JAVA_CONCURRENT_DOWNLOADS),
             "--cache",
@@ -307,9 +362,10 @@ async fn install<'a>(
         workspace_id = %job.workspace_id,
         "JAVA classpath: {}", &classpath
     );
+    let java_home = get_java_home_with_ws_settings(&job.id, &job.workspace_id, job_dir, conn).await;
     let (repos, no_default, trust_store_metadata) = (
         get_repos(&job.id, &job.workspace_id, conn).await,
-        get_no_default(),
+        get_no_default(job.id, &job.workspace_id, conn).await,
         metadata(TRUST_STORE_PATH.clone()).await,
     );
     let job_dir = job_dir.to_owned();
@@ -335,7 +391,7 @@ async fn install<'a>(
             cmd.env_clear()
                 .current_dir(&job_dir)
                 .env("PATH", PATH_ENV.as_str())
-                .env("HOME", &*JAVA_HOME_DIR)
+                .env("HOME", &java_home)
                 .env("COURSIER_CACHE", &*COURSIER_CACHE_DIR)
                 .envs(PROXY_ENVS.clone());
             // Configure proxies
@@ -358,7 +414,7 @@ async fn install<'a>(
                 }
             }
 
-            cmd.arg(&format!("-Duser.home={}", *JAVA_HOME_DIR));
+            cmd.arg(&format!("-Duser.home={}", java_home));
             if trust_store_metadata.is_ok() {
                 cmd.args(&[
                     &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
@@ -465,7 +521,9 @@ async fn compile<'a>(
     }
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
-    let hash = compute_hash(inner_content, *requirements_o);
+    let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
+    let mut hash = compute_hash(inner_content, *requirements_o);
+    hash.push_str(&ws_suffix);
     let bin_path = format!("{}/{hash}", *JAVA_CACHE_DIR);
     let remote_path = format!("java_jar/{hash}");
     let (cache, ..) = crate::global_cache::load_cache(&bin_path, &remote_path, true).await;
@@ -600,6 +658,8 @@ async fn run<'a>(
         )
         .await;
 
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         write_file(
             job_dir,
             "run.config.proto",
@@ -608,7 +668,8 @@ async fn run<'a>(
                 .replace("{CACHE_DIR}", &*JAVA_CACHE_DIR)
                 .replace("{SHARED_MOUNT}", &shared_mount)
                 // .replace("{CACHED_TARGET}", &shared_mount)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
         cmd.env_clear()
@@ -618,6 +679,7 @@ async fn run<'a>(
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables)
+            .envs(crate::get_otel_context_envs(&job.id))
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -675,7 +737,8 @@ async fn run<'a>(
             .env("HOME", &*JAVA_HOME_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
-            .envs(reserved_variables);
+            .envs(reserved_variables)
+            .envs(crate::get_otel_context_envs(&job.id));
         if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
             cmd.args(&[
                 &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
@@ -791,8 +854,9 @@ fn parse_proxy() -> anyhow::Result<JavaProxySettings> {
     Ok(jps)
 }
 async fn get_repos(job_id: &Uuid, w_id: &str, conn: &Connection) -> Vec<String> {
-    read_ee_registry(
+    read_ee_registry_with_workspace_override(
         MAVEN_REPOS.read().await.clone(),
+        "maven_repos",
         "maven repos",
         job_id,
         w_id,
@@ -812,14 +876,18 @@ async fn get_repos(job_id: &Uuid, w_id: &str, conn: &Connection) -> Vec<String> 
     .concat()
 }
 
-fn get_no_default() -> String {
-    if NO_DEFAULT_MAVEN.load(std::sync::atomic::Ordering::Relaxed) {
-        "--no-default"
-    } else {
-        // Command does not take empty arguments
-        "-q"
-    }
-    .into()
+async fn get_no_default(job_id: Uuid, w_id: &str, conn: &Connection) -> String {
+    let global_value = NO_DEFAULT_MAVEN.load(std::sync::atomic::Ordering::Relaxed);
+    let value = read_ee_registry_bool_with_workspace_override(
+        global_value,
+        "no_default_maven",
+        "no default maven",
+        &job_id,
+        w_id,
+        conn,
+    )
+    .await;
+    if value { "--no-default" } else { "-q" }.into()
 }
 
 /// Wraps content script

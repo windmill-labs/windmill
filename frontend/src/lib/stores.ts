@@ -28,6 +28,8 @@ export interface UserExt {
 	pgroups: string[]
 	folders: string[]
 	folders_owners: string[]
+	is_service_account?: boolean
+	impersonating_email?: string
 }
 
 export interface UserWorkspace {
@@ -83,6 +85,7 @@ export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
 export const lspTokenStore = writable<string | undefined>(undefined)
 export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
+export const wsBaseUrlStore = writable<string | undefined>(undefined)
 export const disableHubStore = writable<boolean>(false)
 export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 	[usersWorkspaceStore, superadmin],

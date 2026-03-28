@@ -2,8 +2,8 @@ use base64::Engine;
 use futures;
 use ulid;
 use windmill_common::{client::AuthedClient, error::Error};
-use windmill_types::s3::S3Object;
 use windmill_queue::MiniPulledJob;
+use windmill_types::s3::S3Object;
 
 use crate::ai::types::*;
 
@@ -70,6 +70,29 @@ pub async fn download_and_encode_s3_image(
     Ok((mime_type.to_string(), base64_data))
 }
 
+/// Convert an S3Object to the appropriate ContentPart based on MIME type.
+pub async fn s3_object_to_content_part(
+    s3_object: &S3Object,
+    client: &AuthedClient,
+    workspace_id: &str,
+) -> Result<ContentPart, Error> {
+    let (mime_type, file_bytes) =
+        download_and_encode_s3_image(s3_object, client, workspace_id).await?;
+    let data_url = format!("data:{};base64,{}", mime_type, file_bytes);
+
+    if windmill_common::ai_types::is_document_mime(&mime_type) {
+        let filename = s3_object
+            .s3
+            .rsplit('/')
+            .next()
+            .unwrap_or("document.pdf")
+            .to_string();
+        Ok(ContentPart::File { file: FileData { filename, file_data: data_url } })
+    } else {
+        Ok(ContentPart::ImageUrl { image_url: ImageUrlData { url: data_url } })
+    }
+}
+
 /// Prepare messages for API by converting S3Objects to base64 ImageUrls
 pub async fn prepare_messages_for_api(
     messages: &[OpenAIMessage],
@@ -92,15 +115,10 @@ pub async fn prepare_messages_for_api(
                     for part in parts {
                         match part {
                             ContentPart::S3Object { s3_object } => {
-                                // Convert S3Object to base64 image URL
-                                let (mime_type, image_bytes) =
-                                    download_and_encode_s3_image(s3_object, client, workspace_id)
-                                        .await?;
-                                prepared_content.push(ContentPart::ImageUrl {
-                                    image_url: ImageUrlData {
-                                        url: format!("data:{};base64,{}", mime_type, image_bytes),
-                                    },
-                                });
+                                prepared_content.push(
+                                    s3_object_to_content_part(s3_object, client, workspace_id)
+                                        .await?,
+                                );
                             }
                             other => {
                                 // Keep Text and ImageUrl as-is

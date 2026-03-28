@@ -107,7 +107,7 @@
 	$effect(() => {
 		if (noLogs != lastNoLogs) {
 			lastNoLogs = noLogs
-			if (!noLogs) {
+			if (!noLogs && !getActiveReplay()) {
 				currentEventSource?.onerror?.(new Event(noLogsChangeRestartEvent))
 				const lastJobId = lastCompletedJobId
 				if (lastJobId && (job || lastCallbacks?.loadExtraLogs)) {
@@ -255,7 +255,7 @@
 		}
 	}
 	export async function getLogs() {
-		if (job) {
+		if (job && !getActiveReplay()) {
 			refreshLogOffset()
 			const getUpdate = await JobService.getJobUpdates({
 				workspace: workspace!,
@@ -296,7 +296,8 @@
 		lock?: string,
 		hash?: string,
 		callbacks?: Callbacks,
-		flowPath?: string
+		flowPath?: string,
+		modules?: Record<string, import('$lib/gen').ScriptModule> | null
 	): Promise<string> {
 		return abstractRun(
 			() =>
@@ -310,7 +311,8 @@
 						tag,
 						lock,
 						script_hash: hash,
-						flow_path: flowPath
+						flow_path: flowPath,
+						modules: modules ?? undefined
 					}
 				}),
 			callbacks

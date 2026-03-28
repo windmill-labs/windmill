@@ -552,7 +552,7 @@ async fn run<'a>(
             .envs(envs)
             .envs(reserved_variables)
             .envs(R_PROXY_ENVS.clone())
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Rlang).await?);
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Rlang, &job.id, &job.workspace_id, conn).await?);
         if let Some(lp) = lib_path {
             cmd.env("R_LIBS_USER", r_libs_user(lp));
         }
@@ -590,7 +590,7 @@ async fn run<'a>(
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(reserved_variables)
             .envs(R_PROXY_ENVS.clone())
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Rlang).await?)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Rlang, &job.id, &job.workspace_id, conn).await?)
             .envs(envs);
         if let Some(lp) = lib_path {
             cmd.env("R_LIBS_USER", r_libs_user(lp));

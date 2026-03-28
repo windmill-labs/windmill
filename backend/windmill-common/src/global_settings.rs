@@ -2,8 +2,11 @@ pub const CUSTOM_TAGS_SETTING: &str = "custom_tags";
 pub const DEFAULT_TAGS_PER_WORKSPACE_SETTING: &str = "default_tags_per_workspace";
 pub const DEFAULT_TAGS_WORKSPACES_SETTING: &str = "default_tags_workspaces";
 pub const BASE_URL_SETTING: &str = "base_url";
+pub const WS_BASE_URL_SETTING: &str = "ws_base_url";
 pub const OAUTH_SETTING: &str = "oauths";
+pub const AI_CONFIG_SETTING: &str = "ai_config";
 pub const RETENTION_PERIOD_SECS_SETTING: &str = "retention_period_secs";
+pub const AUDIT_LOG_RETENTION_DAYS_SETTING: &str = "audit_log_retention_days";
 pub const MONITOR_LOGS_ON_OBJECT_STORE_SETTING: &str = "monitor_logs_on_s3";
 pub const JOB_DEFAULT_TIMEOUT_SECS_SETTING: &str = "job_default_timeout";
 pub const REQUEST_SIZE_LIMIT_SETTING: &str = "request_size_limit_mb";
@@ -55,8 +58,20 @@ pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
 pub const OTEL_TRACING_PROXY_SETTING: &str = "otel_tracing_proxy";
 pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
+pub const HTTP_ROUTE_WORKSPACED_ROUTE_SETTING: &str = "http_route_workspaced_route";
 pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
 pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
+pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
+pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
+pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
+pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
+
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+lazy_static::lazy_static! {
+    pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+}
 
 pub const ENV_SETTINGS: &[&str] = &[
     "DISABLE_NSJAIL",

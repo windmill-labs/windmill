@@ -4,7 +4,7 @@ use serde_json::value::RawValue;
 use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
 
 use crate::ai::{
-    image_handler::{download_and_encode_s3_image, prepare_messages_for_api},
+    image_handler::{prepare_messages_for_api, s3_object_to_content_part},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     sse::{OpenAIResponsesSSEParser, SSEParser},
     types::*,
@@ -103,6 +103,8 @@ pub enum ImageGenerationContent {
     InputText { text: String },
     #[serde(rename = "input_image")]
     InputImage { image_url: String },
+    #[serde(rename = "input_file")]
+    InputFile { filename: String, file_data: String },
 }
 
 /// Output content for assistant messages in Responses API
@@ -238,6 +240,12 @@ fn convert_content_to_responses_format(
                     ContentPart::ImageUrl { image_url } => {
                         Some(ImageGenerationContent::InputImage {
                             image_url: image_url.url.clone(),
+                        })
+                    }
+                    ContentPart::File { file } => {
+                        Some(ImageGenerationContent::InputFile {
+                            filename: file.filename.clone(),
+                            file_data: file.file_data.clone(),
                         })
                     }
                     // S3 objects should have been resolved earlier, but handle gracefully
@@ -421,15 +429,26 @@ impl OpenAIQueryBuilder {
         let mut content =
             vec![ImageGenerationContent::InputText { text: args.user_message.to_string() }];
 
-        // Add images if provided
-        if let Some(images) = args.images {
-            for image in images.iter() {
-                if !image.s3.is_empty() {
-                    let (mime_type, image_bytes) =
-                        download_and_encode_s3_image(image, client, workspace_id).await?;
-                    content.push(ImageGenerationContent::InputImage {
-                        image_url: format!("data:{};base64,{}", mime_type, image_bytes),
-                    });
+        // Add attachments (images, PDFs, etc.) if provided
+        if let Some(attachments) = args.attachments {
+            for attachment in attachments.iter() {
+                if !attachment.s3.is_empty() {
+                    let part =
+                        s3_object_to_content_part(attachment, client, workspace_id).await?;
+                    match part {
+                        ContentPart::File { file } => {
+                            content.push(ImageGenerationContent::InputFile {
+                                filename: file.filename,
+                                file_data: file.file_data,
+                            });
+                        }
+                        ContentPart::ImageUrl { image_url } => {
+                            content.push(ImageGenerationContent::InputImage {
+                                image_url: image_url.url,
+                            });
+                        }
+                        _ => {}
+                    }
                 }
             }
         }

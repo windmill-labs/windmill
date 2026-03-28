@@ -56,6 +56,7 @@ tokio-util.workspace = true
 datafusion = { workspace = true, optional = true}
 reqwest = { workspace = true }
 tracing-subscriber = { workspace = true }
+aho-corasick = "1"
 lazy_static.workspace = true
 tracing-appender.workspace = true
 gethostname.workspace = true
@@ -124,6 +125,7 @@ opentelemetry = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 opentelemetry-appender-tracing = { workspace = true, optional = true }
 tonic = { workspace = true, optional = true }
+equivalent = "1.0.2"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }

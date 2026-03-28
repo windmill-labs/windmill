@@ -112,17 +112,20 @@ pub async fn create_args_and_out_file(
     conn: &Connection,
 ) -> Result<(), Error> {
     if let Some(args) = job.args.as_ref() {
-        if let Some(x) = transform_json(client, &job.workspace_id, &args.0, job, conn).await? {
+        if let Some(mut x) = transform_json(client, &job.workspace_id, &args.0, job, conn).await? {
+            x.remove("_MODULES");
             write_file(
                 job_dir,
                 "args.json",
                 &serde_json::to_string(&x).unwrap_or_else(|_| "{}".to_string()),
             )?;
         } else {
+            let mut filtered = args.0.clone();
+            filtered.remove("_MODULES");
             write_file(
                 job_dir,
                 "args.json",
-                &serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string()),
+                &serde_json::to_string(&filtered).unwrap_or_else(|_| "{}".to_string()),
             )?;
         }
     } else {
@@ -283,6 +286,18 @@ pub async fn transform_json_value(
                     )
                     .await?;
                     decrypt(&mc, encrypted.to_string()).and_then(|x| {
+                        // Register the raw decrypted string for log masking.
+                        // This covers both string values and their JSON representations
+                        // (numbers, objects, etc.) that could appear in logs.
+                        windmill_common::sensitive_log_masks::register_secret_for_job(job.id, &x);
+                        if let serde_json::Value::String(ref s) =
+                            serde_json::from_str::<serde_json::Value>(&x).unwrap_or_default()
+                        {
+                            // Also register the inner string value (without JSON quotes)
+                            windmill_common::sensitive_log_masks::register_secret_for_job(
+                                job.id, s,
+                            );
+                        }
                         serde_json::from_str(&x).map_err(|e| {
                             Error::internal_err(format!(
                                 "Failed to decrypt '$encrypted:' value: {e}"
@@ -707,10 +722,13 @@ pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
             cmd.args(args);
             cmd
         } else {
-            panic!(
-                "BUG: unshare isolation is enabled but UNSHARE_PATH is None. \
-                This should have been caught at worker startup."
+            tracing::error!(
+                "unshare isolation is enabled but UNSHARE_PATH is not available. \
+                Running job without isolation. Check Instance Settings > Job Isolation."
             );
+            let mut cmd = Command::new(program);
+            cmd.args(args);
+            cmd
         }
     } else {
         let mut cmd = Command::new(program);
@@ -803,6 +821,17 @@ pub async fn resolve_job_timeout(
             (default_timeout, warn_msg, false)
         }
     }
+}
+
+/// Compute the nsjail timeout (in seconds) with a 15s buffer so handle_child fires first.
+pub async fn resolve_nsjail_timeout(
+    conn: &Connection,
+    w_id: &str,
+    job_id: Uuid,
+    custom_timeout: Option<i32>,
+) -> String {
+    let (duration, _, _) = resolve_job_timeout(conn, w_id, job_id, custom_timeout).await;
+    (duration.as_secs() + 15).to_string()
 }
 
 async fn hash_args(
@@ -984,6 +1013,14 @@ pub(crate) async fn get_workspace_s3_resource_path(
 
     if let Some(bucket) = bucket_name {
         windmill_object_store::check_bucket_workspace_restriction(bucket, workspace_id)?;
+    }
+
+    // Check Azure account name workspace restrictions
+    if let ObjectStoreResource::Azure(azure_resource) = &object_store_resource {
+        windmill_object_store::check_az_account_name_workspace_restriction(
+            &azure_resource.account_name,
+            workspace_id,
+        )?;
     }
 
     Ok(Some(object_store_resource))

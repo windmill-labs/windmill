@@ -10,7 +10,7 @@ import type { Schema, SupportedLanguage } from './common.js'
 import { emptySchema, sortObject } from './utils.js'
 import { tick } from 'svelte'
 
-import initTsParser, { parse_assets_ts, parse_deno, parse_outputs } from 'windmill-parser-wasm-ts'
+import initTsParser, { parse_deno, parse_outputs } from 'windmill-parser-wasm-ts'
 import initRegexParsers, {
 	parse_sql,
 	parse_mysql,
@@ -22,10 +22,14 @@ import initRegexParsers, {
 	parse_mssql,
 	parse_db_resource,
 	parse_bash,
-	parse_powershell,
-	parse_assets_sql
+	parse_powershell
 } from 'windmill-parser-wasm-regex'
-import initPythonParser, { parse_assets_py, parse_python } from 'windmill-parser-wasm-py'
+import initPythonParser, { parse_python } from 'windmill-parser-wasm-py'
+import initAssetParser, {
+	parse_assets_ts,
+	parse_assets_py,
+	parse_assets_sql
+} from 'windmill-parser-wasm-asset'
 import initGoParser, { parse_go } from 'windmill-parser-wasm-go'
 import initPhpParser, { parse_php } from 'windmill-parser-wasm-php'
 import initRustParser, { parse_rust } from 'windmill-parser-wasm-rust'
@@ -52,6 +56,7 @@ import wasmUrlNu from 'windmill-parser-wasm-nu/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlJava from 'windmill-parser-wasm-java/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRuby from 'windmill-parser-wasm-ruby/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlR from 'windmill-parser-wasm-r/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlAsset from 'windmill-parser-wasm-asset/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 import { type AssetWithAccessType } from './components/assets/lib.js'
@@ -99,20 +104,23 @@ async function initWasmRuby() {
 async function initWasmR() {
 	await initRParser(wasmUrlR)
 }
+async function initWasmAsset() {
+	await initAssetParser(wasmUrlAsset)
+}
 
 type InferAssetsResult =
 	| {
-			status: 'ok'
-			assets: AssetWithAccessType[]
-			sql_queries?: InferAssetsSqlQueryDetails[]
-			columns?: Record<string, AssetUsageAccessType>
-	  }
+		status: 'ok'
+		assets: AssetWithAccessType[]
+		sql_queries?: InferAssetsSqlQueryDetails[]
+		columns?: Record<string, AssetUsageAccessType>
+	}
 	| {
-			status: 'error'
-			error: string
-			assets?: undefined
-			sql_queries?: undefined
-	  }
+		status: 'error'
+		error: string
+		assets?: undefined
+		sql_queries?: undefined
+	}
 
 export type InferAssetsSqlQueryDetails = {
 	query_string: string // SQL query with $1 placeholders for interpolations
@@ -177,13 +185,13 @@ export async function inferAssets(
 
 	try {
 		if (language === 'duckdb') {
-			await initWasmRegex()
+			await initWasmAsset()
 			result = wrap(parse_assets_sql(code))
 		} else if (language === 'deno' || language === 'nativets' || language === 'bun') {
-			await initWasmTs()
+			await initWasmAsset()
 			result = wrap(parse_assets_ts(code))
 		} else if (language === 'python3') {
-			await initWasmPython()
+			await initWasmAsset()
 			result = wrap(parse_assets_py(code))
 		} else if (language === 'ansible') {
 			await initWasmYaml()
@@ -234,7 +242,7 @@ export async function inferArgs(
 	schema: Schema,
 	mainOverride?: string
 ): Promise<{
-	no_main_func: boolean | null
+	auto_kind: string | null
 	has_preprocessor: boolean | null
 } | null> {
 	const lastRun = get(loadSchemaLastRun)
@@ -389,6 +397,11 @@ export async function inferArgs(
 
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
 
+		// For T | T[] detection for debouncing arg accumulation
+		if ((arg as any).otyp && (arg as any).otyp.includes('[') && (arg as any).otyp.includes('|')) {
+			schema.properties[arg.name].originalType = (arg as any).otyp
+		}
+
 		schema.properties[arg.name].default = arg.default
 
 		if (!arg.has_default && !schema.required.includes(arg.name)) {
@@ -398,7 +411,7 @@ export async function inferArgs(
 	await tick()
 
 	return {
-		no_main_func: inferedSchema.no_main_func,
+		auto_kind: inferedSchema.auto_kind,
 		has_preprocessor: inferedSchema.has_preprocessor
 	}
 }

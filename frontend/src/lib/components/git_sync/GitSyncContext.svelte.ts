@@ -1,4 +1,7 @@
 import { getContext, setContext } from 'svelte'
+import { enterpriseLicense } from '$lib/stores'
+import { get } from 'svelte/store'
+import { sendUserToast } from '$lib/toast'
 import { JobService, WorkspaceService, ResourceService } from '$lib/gen'
 import type {
 	GitRepositorySettings as BackendGitRepositorySettings,
@@ -184,7 +187,7 @@ export function createGitSyncContext(workspace: string) {
 	function addRepository() {
 		repositories.push({
 			git_repo_resource_path: '',
-			script_path: hubPaths.gitSync,
+			script_path: undefined,
 			use_individual_branch: false,
 			group_by_folder: false,
 			settings: {
@@ -541,7 +544,7 @@ export function createGitSyncContext(workspace: string) {
 
 	async function runTestJob(idx: number) {
 		const repo = repositories[idx]
-		if (!repo?.git_repo_resource_path || !repo?.script_path) {
+		if (!repo?.git_repo_resource_path) {
 			return
 		}
 
@@ -564,8 +567,8 @@ export function createGitSyncContext(workspace: string) {
 			// Use JobManager for polling
 			await jobManager.runWithProgress(() => Promise.resolve(jobId), {
 				workspace,
-				timeout: 5000,
-				timeoutMessage: 'Git sync test job timed out after 5s',
+				timeout: 10000,
+				timeoutMessage: 'Git sync test job timed out after 10s',
 				onProgress: (status) => {
 					gitSyncTestJobs[idx].status =
 						status.status === 'success'
@@ -646,9 +649,13 @@ export function createGitSyncContext(workspace: string) {
 	}
 
 	function addSyncRepository() {
+		if (!get(enterpriseLicense) && repositories && repositories.length >= 1) {
+			sendUserToast('Multiple repositories requires Enterprise Edition', true)
+			return
+		}
 		repositories.push({
 			git_repo_resource_path: '',
-			script_path: hubPaths.gitSync,
+			script_path: undefined,
 			use_individual_branch: false,
 			group_by_folder: false,
 			settings: {
@@ -669,9 +676,13 @@ export function createGitSyncContext(workspace: string) {
 	}
 
 	function addPromotionRepository() {
+		if (!get(enterpriseLicense)) {
+			sendUserToast('Promotion mode requires Enterprise Edition', true)
+			return
+		}
 		repositories.push({
 			git_repo_resource_path: '',
-			script_path: hubPaths.gitSync,
+			script_path: undefined,
 			use_individual_branch: true,
 			group_by_folder: false,
 			settings: {

@@ -14,10 +14,12 @@
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { statSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { Subprocess } from "bun";
+
+const IS_LINUX = process.platform === "linux";
 
 export interface CargoBackendConfig {
   /** PostgreSQL connection string (without database name) */
@@ -63,11 +65,11 @@ export class CargoBackend {
 
     // Determine default features based on environment
     // CI mode: minimal features (zip only)
-    // Local mode with license key: full features (zip, private, enterprise, license)
+    // Local mode with license key: full features (zip, private, enterprise, license, python)
     // Local mode without license key: zip only (EE features reject API calls without valid license)
     const isCI = process.env["CI_MINIMAL_FEATURES"] === "true";
     const hasLicenseKey = !!process.env["EE_LICENSE_KEY"];
-    const defaultFeatures = isCI ? ["zip"] : (hasLicenseKey ? ["zip", "private", "enterprise", "license"] : ["zip"]);
+    const defaultFeatures = isCI ? ["zip"] : (hasLicenseKey ? ["zip", "private", "enterprise", "license", "python"] : ["zip", "python"]);
 
     // Parse additional features from environment variable
     const envFeatures = process.env["TEST_FEATURES"]?.split(",").filter(f => f.trim()) || [];
@@ -193,6 +195,10 @@ export class CargoBackend {
       this.process = null;
     }
 
+    // Kill any child processes (e.g. the windmill binary spawned by cargo)
+    // by matching our unique database name in their environment
+    await this.killProcessesByDbName();
+
     // Drop the test database
     await this.dropDatabase();
 
@@ -305,6 +311,15 @@ export class CargoBackend {
   }
 
   /**
+   * Kill any processes whose environment contains our unique database name.
+   * This catches child processes (e.g. the windmill binary spawned by cargo run)
+   * that survive after the direct child is killed.
+   */
+  private async killProcessesByDbName(): Promise<void> {
+    await killWindmillProcessesByEnvMatch(this.dbName);
+  }
+
+  /**
    * Start the backend process using cargo run
    */
   private stderrChunks: Uint8Array[] = [];
@@ -328,6 +343,8 @@ export class CargoBackend {
       SQLX_OFFLINE: "true",
       // Disable embedding to speed up startup
       DISABLE_EMBEDDING: "true",
+      // Skip worker version check for workspace deps (workers need time to report version)
+      WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: "1",
       // Create default admin user
       CREATE_SUPERADMIN_IF_NOT_EXISTS: "1",
       SUPERADMIN_EMAIL: this.config.username,
@@ -708,6 +725,7 @@ export class CargoBackend {
       this.deleteAll("resources"),
       this.deleteAll("variables"),
       this.deleteAll("folders"),
+      this.deleteAllWorkspaceDeps(),
     ]);
 
     console.log("Workspace reset complete");
@@ -735,6 +753,112 @@ export class CargoBackend {
       // Ignore listing failures
     }
   }
+
+  private async deleteAllWorkspaceDeps(): Promise<void> {
+    try {
+      const listResponse = await this.apiRequest(`/api/w/${this.config.workspace}/workspace_dependencies/list`);
+      if (!listResponse.ok) return;
+
+      const items = await listResponse.json() as { language: string; name?: string }[];
+      for (const item of items) {
+        try {
+          const nameParam = item.name ? `?name=${encodeURIComponent(item.name)}` : "";
+          await this.apiRequest(
+            `/api/w/${this.config.workspace}/workspace_dependencies/delete/${item.language}${nameParam}`,
+            { method: "POST" }
+          );
+        } catch {
+          // Ignore individual deletion failures
+        }
+      }
+    } catch {
+      // Ignore failures
+    }
+  }
+}
+
+/**
+ * Kill windmill processes whose /proc/pid/environ contains the given pattern.
+ * Used by both per-test cleanup (match specific DB name) and stale cleanup (match any test DB).
+ */
+async function killWindmillProcessesByEnvMatch(pattern: string): Promise<void> {
+  if (!IS_LINUX) return;
+  try {
+    const pgrepProc = Bun.spawn(["pgrep", "-f", "target/(debug|release)/windmill"], {
+      stdout: "pipe", stderr: "pipe",
+    });
+    const output = await new Response(pgrepProc.stdout).text();
+    await new Response(pgrepProc.stderr).text();
+    await pgrepProc.exited;
+
+    for (const pidStr of output.trim().split("\n").filter(Boolean)) {
+      const pid = Number(pidStr);
+      if (isNaN(pid)) continue;
+      try {
+        const environ = await readFile(`/proc/${pid}/environ`, "utf-8");
+        if (environ.includes(pattern)) {
+          console.log(`Killing orphaned test backend process: ${pid}`);
+          process.kill(pid, "SIGKILL");
+        }
+      } catch {
+        // Process exited or we lack permissions
+      }
+    }
+  } catch {
+    // pgrep not available or no matches
+  }
+}
+
+/**
+ * Clean up stale test databases and orphaned backend processes from previous
+ * test runs that crashed or were killed without proper cleanup.
+ *
+ * Should be called before starting a new test backend.
+ */
+export async function cleanupStaleTestResources(postgresUrl?: string): Promise<void> {
+  const baseUrl = postgresUrl || process.env["DATABASE_URL"] || "postgres://postgres:changeme@localhost:5432";
+  const url = new URL(baseUrl);
+  url.pathname = "";
+  url.search = "";
+  const cleanBaseUrl = url.toString().replace(/\/$/, "");
+
+  // 1. Find and drop stale windmill_test_* databases
+  try {
+    const listProc = Bun.spawn(["psql", `${cleanBaseUrl}/postgres`, "-t", "-c",
+      `SELECT datname FROM pg_database WHERE datname LIKE 'windmill_test_%';`
+    ], { stdout: "pipe", stderr: "pipe" });
+    const output = await new Response(listProc.stdout).text();
+    await new Response(listProc.stderr).text();
+    await listProc.exited;
+
+    const staleDBs = output.trim().split("\n").map(s => s.trim()).filter(Boolean);
+    for (const db of staleDBs) {
+      // Only touch databases matching the expected naming pattern
+      if (!/^windmill_test_[a-z0-9_]+$/.test(db)) continue;
+      console.log(`Cleaning up stale test database: ${db}`);
+      const termProc = Bun.spawn(["psql", `${cleanBaseUrl}/postgres`, "-c",
+        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${db}' AND pid <> pg_backend_pid();`
+      ], { stdout: "pipe", stderr: "pipe" });
+      await new Response(termProc.stdout).text();
+      await new Response(termProc.stderr).text();
+      await termProc.exited;
+
+      const dropProc = Bun.spawn(["psql", `${cleanBaseUrl}/postgres`, "-c",
+        `DROP DATABASE IF EXISTS "${db}";`
+      ], { stdout: "pipe", stderr: "pipe" });
+      await new Response(dropProc.stdout).text();
+      await new Response(dropProc.stderr).text();
+      await dropProc.exited;
+    }
+    if (staleDBs.length > 0) {
+      console.log(`Cleaned up ${staleDBs.length} stale test database(s)`);
+    }
+  } catch (err) {
+    console.warn(`Warning: Failed to clean up stale databases: ${err}`);
+  }
+
+  // 2. Find and kill orphaned windmill processes from test runs
+  await killWindmillProcessesByEnvMatch("windmill_test_");
 }
 
 // Global backend instance

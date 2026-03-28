@@ -146,13 +146,19 @@ pub enum ObjectType {
     Trigger,
     Settings,
     Key,
+    WorkspaceDependencies,
 }
+
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28183/sync-script-to-git-repo-windmill";
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GitRepositorySettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude_types_override: Option<Vec<ObjectType>>,
-    pub script_path: String,
+    /// None means auto-managed: always use LATEST_GIT_SYNC_SCRIPT_PATH.
+    /// Some(path) means pinned to a specific script.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script_path: Option<String>,
     pub git_repo_resource_path: String,
     pub use_individual_branch: Option<bool>,
     pub group_by_folder: Option<bool>,
@@ -163,23 +169,26 @@ pub struct GitRepositorySettings {
 }
 
 impl GitRepositorySettings {
+    pub fn effective_script_path(&self) -> &str {
+        self.script_path
+            .as_deref()
+            .unwrap_or(LATEST_GIT_SYNC_SCRIPT_PATH)
+    }
+
     pub fn is_script_meets_min_version(&self, min_version: u32) -> error::Result<bool> {
+        let path = self.effective_script_path();
         // example: "hub/28102/sync-script-to-git-repo-windmill"
-        let current = self
-            .script_path
+        let current = path
             .split("/") // -> ["hub" "28102" "sync-script-to-git-repo-windmill"]
             .skip(1) // omit "hub"
             .next() // get numeric id
             .ok_or(Error::InternalErr(format!(
                 "cannot get script version id from: {}",
-                &self.script_path
+                path
             )))?
             .parse()
             .unwrap_or_else(|e| {
-                tracing::warn!(
-                    "cannot get script version id from: {}. e: {e}",
-                    &self.script_path
-                );
+                tracing::warn!("cannot get script version id from: {}. e: {e}", path);
 
                 u32::MAX
             });

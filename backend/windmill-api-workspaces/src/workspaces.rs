@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_api_auth::{require_super_admin, ApiAuthed};
+use windmill_api_auth::{require_devops_role, require_super_admin, ApiAuthed};
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
 use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
@@ -35,7 +35,6 @@ use windmill_common::variables::{
     build_crypt, decrypt, encrypt, SECRET_SALT, WORKSPACE_CRYPT_CACHE,
 };
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
-#[cfg(feature = "enterprise")]
 use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
@@ -76,12 +75,18 @@ pub fn workspaced_service() -> Router {
         .route("/archive", post(archive_workspace))
         .route("/invite_user", post(invite_user))
         .route("/add_user", post(add_user))
+        .route("/create_service_account", post(create_service_account))
         .route("/delete_invite", post(delete_invite))
         .route("/rebuild_dependency_map", post(rebuild_dependency_map))
         .route("/get_dependency_map", get(get_dependency_map))
-        .route("/get_dependents/*imported_path", get(get_dependents))
+        .route("/get_dependents/{*imported_path}", get(get_dependents))
+        .route("/get_imports/{*importer_path}", get(get_imports))
         .route("/get_dependents_amounts", post(get_dependents_amounts))
         .route("/get_settings", get(get_settings))
+        .route(
+            "/get_copilot_settings_state",
+            get(get_copilot_settings_state),
+        )
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
         .route(
@@ -111,6 +116,7 @@ pub fn workspaced_service() -> Router {
         .route("/list_datatables", get(list_datatables))
         .route("/list_datatable_schemas", get(list_datatable_schemas))
         .route("/edit_datatable_config", post(edit_datatable_config))
+        .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
         .route(
@@ -147,16 +153,19 @@ pub fn workspaced_service() -> Router {
             post(create_workspace_fork_branch),
         )
         .route(
-            "/reset_diff_tally/:fork_workspace_id",
+            "/reset_diff_tally/{fork_workspace_id}",
             post(reset_workspace_diffs),
         )
-        .route("/compare/:target_workspace_id", get(compare_workspaces))
+        .route("/compare/{target_workspace_id}", get(compare_workspaces))
         .route("/protection_rules", get(list_protection_rules))
         .route("/protection_rules", post(create_protection_rule))
         .route(
-            "/protection_rules/:rule_name",
+            "/protection_rules/{rule_name}",
             post(update_protection_rule).delete(delete_protection_rule),
         )
+        .route("/log_chat", post(log_ai_chat))
+        .route("/cloud_quotas", get(get_cloud_quotas))
+        .route("/prune_versions", post(prune_versions))
 }
 pub fn global_service() -> Router {
     Router::new()
@@ -168,9 +177,9 @@ pub fn global_service() -> Router {
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
-        .route("/unarchive/:workspace", post(unarchive_workspace))
+        .route("/unarchive/{workspace}", post(unarchive_workspace))
         .route(
-            "/delete/:workspace",
+            "/delete/{workspace}",
             delete(crate::workspaces_extra::delete_workspace),
         )
         .route(
@@ -252,6 +261,35 @@ pub struct WorkspaceSettings {
     pub success_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct CopilotSettingsState {
+    pub has_instance_ai_config: bool,
+    pub uses_instance_ai_config: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_ai_summary: Option<InstanceAISummary>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct InstanceAIProviderSummary {
+    pub provider: String,
+    pub models: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct InstanceAIModelSummary {
+    pub provider: String,
+    pub model: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct InstanceAISummary {
+    pub providers: Vec<InstanceAIProviderSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<InstanceAIModelSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_completion_model: Option<InstanceAIModelSummary>,
 }
 
 /// #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
@@ -605,13 +643,102 @@ async fn get_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
 
+    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
 
-    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     if !authed.is_admin {
         settings.slack_oauth_client_secret = None;
     }
     Ok(Json(settings))
+}
+
+async fn get_copilot_settings_state(
+    _authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(db): Extension<DB>,
+) -> JsonResult<CopilotSettingsState> {
+    let workspace_ai_config = sqlx::query_scalar!(
+        "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await
+    .map_err(|e| Error::internal_err(format!("getting workspace ai settings: {e:#}")))?;
+    let workspace_ai_config = not_found_if_none(workspace_ai_config, "workspace settings", &w_id)?;
+    let instance_ai_config: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT value FROM global_settings WHERE name = 'ai_config'")
+            .fetch_optional(&db)
+            .await
+            .map_err(|e| Error::internal_err(format!("getting instance ai settings: {e:#}")))?;
+
+    Ok(Json(build_copilot_settings_state(
+        has_ai_providers(workspace_ai_config.as_ref()),
+        instance_ai_config.as_ref(),
+    )))
+}
+
+pub fn has_ai_providers(config: Option<&serde_json::Value>) -> bool {
+    config
+        .and_then(|value| value.get("providers"))
+        .and_then(|providers| providers.as_object())
+        .map(|providers| !providers.is_empty())
+        .unwrap_or(false)
+}
+
+pub fn build_copilot_settings_state(
+    has_workspace_ai_config: bool,
+    instance_ai_config: Option<&serde_json::Value>,
+) -> CopilotSettingsState {
+    let has_instance_ai_config = has_ai_providers(instance_ai_config);
+    CopilotSettingsState {
+        has_instance_ai_config,
+        uses_instance_ai_config: !has_workspace_ai_config && has_instance_ai_config,
+        instance_ai_summary: build_instance_ai_summary(instance_ai_config),
+    }
+}
+
+pub fn build_instance_ai_summary(config: Option<&serde_json::Value>) -> Option<InstanceAISummary> {
+    let config = config?;
+    if !has_ai_providers(Some(config)) {
+        return None;
+    }
+    let providers = config.get("providers")?.as_object()?;
+
+    let mut provider_summaries = providers
+        .iter()
+        .map(|(provider, provider_config)| InstanceAIProviderSummary {
+            provider: provider.clone(),
+            models: provider_config
+                .get("models")
+                .and_then(|models| models.as_array())
+                .map(|models| {
+                    models
+                        .iter()
+                        .filter_map(|model| model.as_str().map(ToOwned::to_owned))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
+        })
+        .collect::<Vec<_>>();
+
+    provider_summaries.sort_by(|left, right| left.provider.cmp(&right.provider));
+
+    Some(InstanceAISummary {
+        providers: provider_summaries,
+        default_model: extract_instance_ai_model_summary(config, "default_model"),
+        code_completion_model: extract_instance_ai_model_summary(config, "code_completion_model"),
+    })
+}
+
+fn extract_instance_ai_model_summary(
+    config: &serde_json::Value,
+    key: &str,
+) -> Option<InstanceAIModelSummary> {
+    let model_config = config.get(key)?.as_object()?;
+    Some(InstanceAIModelSummary {
+        provider: model_config.get("provider")?.as_str()?.to_owned(),
+        model: model_config.get("model")?.as_str()?.to_owned(),
+    })
 }
 
 #[derive(Serialize)]
@@ -1468,24 +1595,20 @@ async fn edit_datatable_config(
 
 #[derive(Deserialize)]
 pub struct EditGitSyncConfig {
-    #[cfg(feature = "enterprise")]
     pub git_sync_settings: Option<WorkspaceGitSyncSettings>,
 }
 
-#[cfg(feature = "enterprise")]
 #[derive(Deserialize, Debug)]
 pub struct EditGitSyncRepository {
     pub git_repo_resource_path: String,
     pub repository: GitRepositorySettings,
 }
 
-#[cfg(feature = "enterprise")]
 #[derive(Deserialize, Debug)]
 pub struct DeleteGitSyncRepositoryRequest {
     pub git_repo_resource_path: String,
 }
 
-#[cfg(feature = "enterprise")]
 fn validate_git_repo_resource_path(path: &str) -> Result<()> {
     // Resource paths should follow the pattern: $res:f/<folder>/<name> or $res:u/<username>/<name>
     if path.is_empty() {
@@ -1534,7 +1657,6 @@ fn validate_git_repo_resource_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "enterprise")]
 fn cleanup_legacy_git_sync_settings_in_memory(
     git_sync_settings: &mut windmill_common::workspaces::WorkspaceGitSyncSettings,
     workspace_id: &str,
@@ -1561,18 +1683,84 @@ fn cleanup_legacy_git_sync_settings_in_memory(
 }
 
 #[cfg(not(feature = "enterprise"))]
-async fn edit_git_sync_config(
-    _authed: ApiAuthed,
-    Extension(_db): Extension<DB>,
-    Path(_w_id): Path<String>,
-    Json(_new_config): Json<EditGitSyncConfig>,
-) -> Result<String> {
-    return Err(Error::BadRequest(
-        "Git sync is only available on Windmill Enterprise Edition".to_string(),
-    ));
+const CE_GIT_SYNC_MAX_USERS: i64 = 2;
+
+#[cfg(feature = "enterprise")]
+async fn check_git_sync_access(_db: &DB, _w_id: &str) -> Result<()> {
+    Ok(())
+}
+
+// Anchor the CE-only query for `cargo sqlx prepare` (which runs with --features enterprise)
+#[cfg(feature = "enterprise")]
+#[allow(dead_code)]
+async fn _sqlx_anchor_ce_user_count(db: &DB, w_id: &str) {
+    let _ = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM usr WHERE workspace_id = $1 AND disabled = false",
+        w_id
+    )
+    .fetch_one(db)
+    .await;
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn check_git_sync_access(db: &DB, w_id: &str) -> Result<()> {
+    let user_count: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM usr WHERE workspace_id = $1 AND disabled = false",
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+
+    if user_count > CE_GIT_SYNC_MAX_USERS {
+        return Err(Error::BadRequest(format!(
+            "Git sync is available for workspaces with up to {} members. \
+             Upgrade to Windmill Enterprise Edition for unlimited workspace members.",
+            CE_GIT_SYNC_MAX_USERS
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(feature = "enterprise")]
+async fn get_git_sync_enabled(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Path(_w_id): Path<String>,
+) -> JsonResult<serde_json::Value> {
+    Ok(Json(serde_json::json!({
+        "enabled": true,
+        "reason": "enterprise",
+        "max_repos": null,
+        "user_count": null,
+        "max_users": null,
+    })))
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn get_git_sync_enabled(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<serde_json::Value> {
+    let user_count: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM usr WHERE workspace_id = $1 AND disabled = false",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    let enabled = user_count <= CE_GIT_SYNC_MAX_USERS;
+    Ok(Json(serde_json::json!({
+        "enabled": enabled,
+        "reason": if enabled { Some("free_tier") } else { None::<&str> },
+        "max_repos": if enabled { Some(1) } else { None::<i32> },
+        "user_count": user_count,
+        "max_users": CE_GIT_SYNC_MAX_USERS,
+    })))
+}
+
 async fn edit_git_sync_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1581,6 +1769,7 @@ async fn edit_git_sync_config(
     Json(new_config): Json<EditGitSyncConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
+    check_git_sync_access(&db, &w_id).await?;
 
     let mut tx = db.begin().await?;
 
@@ -1637,19 +1826,6 @@ async fn edit_git_sync_config(
     Ok(format!("Edit git sync config for workspace {}", &w_id))
 }
 
-#[cfg(not(feature = "enterprise"))]
-async fn edit_git_sync_repository(
-    _authed: ApiAuthed,
-    Extension(_db): Extension<DB>,
-    Path(_w_id): Path<String>,
-    Json(_new_config): Json<serde_json::Value>,
-) -> Result<String> {
-    return Err(Error::BadRequest(
-        "Git sync is only available on Windmill Enterprise Edition".to_string(),
-    ));
-}
-
-#[cfg(feature = "enterprise")]
 async fn edit_git_sync_repository(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1658,9 +1834,18 @@ async fn edit_git_sync_repository(
     Json(new_config): Json<EditGitSyncRepository>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
+    check_git_sync_access(&db, &w_id).await?;
 
     // Validate the resource path format
     validate_git_repo_resource_path(&new_config.git_repo_resource_path)?;
+
+    // Promotion mode: EE only
+    #[cfg(not(feature = "enterprise"))]
+    if new_config.repository.use_individual_branch.unwrap_or(false) {
+        return Err(Error::BadRequest(
+            "Promotion mode is an Enterprise Edition feature".to_string(),
+        ));
+    }
 
     let mut tx = db.begin().await?;
 
@@ -1682,6 +1867,20 @@ async fn edit_git_sync_repository(
     } else {
         WorkspaceGitSyncSettings::default()
     };
+
+    // Multi-repo: EE only
+    #[cfg(not(feature = "enterprise"))]
+    {
+        let is_new = !git_sync_settings
+            .repositories
+            .iter()
+            .any(|r| r.git_repo_resource_path == new_config.git_repo_resource_path);
+        if is_new && !git_sync_settings.repositories.is_empty() {
+            return Err(Error::BadRequest(
+                "Multiple git sync repositories is an Enterprise Edition feature".to_string(),
+            ));
+        }
+    }
 
     // Audit log before we move the repository
     audit_log(
@@ -1766,19 +1965,6 @@ async fn edit_git_sync_repository(
     ))
 }
 
-#[cfg(not(feature = "enterprise"))]
-async fn delete_git_sync_repository(
-    _authed: ApiAuthed,
-    Extension(_db): Extension<DB>,
-    Path(_w_id): Path<String>,
-    Json(_request): Json<serde_json::Value>,
-) -> Result<String> {
-    return Err(Error::BadRequest(
-        "Git sync is only available on Windmill Enterprise Edition".to_string(),
-    ));
-}
-
-#[cfg(feature = "enterprise")]
 async fn delete_git_sync_repository(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1788,7 +1974,7 @@ async fn delete_git_sync_repository(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
-    // For deletion, only validate that path is not empty to allow cleanup of malformed entries
+    // No check_git_sync_access here — admins should always be able to delete/clean up repos
     if request.git_repo_resource_path.is_empty() {
         return Err(Error::BadRequest(
             "Resource path cannot be empty".to_string(),
@@ -2106,22 +2292,29 @@ async fn edit_default_app(
 #[derive(Serialize)]
 struct WorkspaceDefaultApp {
     pub default_app_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_app_raw: Option<bool>,
 }
 async fn get_default_app(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<WorkspaceDefaultApp> {
-    let mut tx = db.begin().await?;
-    let default_app_path = sqlx::query_scalar!(
-        "SELECT default_app FROM workspace_settings WHERE workspace_id = $1",
+    let row = sqlx::query!(
+        "SELECT ws.default_app AS default_app_path, av.raw_app AS \"default_app_raw: Option<bool>\"
+         FROM workspace_settings ws
+         LEFT JOIN app ON app.path = ws.default_app AND app.workspace_id = ws.workspace_id
+         LEFT JOIN app_version av ON av.id = app.versions[array_upper(app.versions, 1)]
+         WHERE ws.workspace_id = $1",
         &w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&db)
     .await
     .map_err(|err| Error::internal_err(format!("getting default_app: {err}")))?;
-    tx.commit().await?;
 
-    Ok(Json(WorkspaceDefaultApp { default_app_path }))
+    Ok(Json(WorkspaceDefaultApp {
+        default_app_path: row.default_app_path,
+        default_app_raw: row.default_app_raw,
+    }))
 }
 
 async fn edit_error_handler(
@@ -2586,7 +2779,7 @@ async fn list_workspaces_as_super_admin(
     Query(pagination): Query<Pagination>,
     ApiAuthed { email, .. }: ApiAuthed,
 ) -> JsonResult<Vec<Workspace>> {
-    require_super_admin(&db, &email).await?;
+    require_devops_role(&db, &email).await?;
     let (per_page, offset) = paginate(pagination);
 
     let mut tx = user_db.begin(&authed).await?;
@@ -3099,8 +3292,8 @@ async fn clone_scripts(
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, restart_unless_cancelled, concurrency_key,
-            visible_to_runner_only, no_main_func, codebase, has_preprocessor,
-            on_behalf_of_email, assets
+            visible_to_runner_only, auto_kind, codebase, has_preprocessor,
+            on_behalf_of_email, assets, modules
         )
         SELECT
             $1, hash, path, parent_hashes, summary, description, content,
@@ -3109,8 +3302,8 @@ async fn clone_scripts(
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, restart_unless_cancelled, concurrency_key,
-            visible_to_runner_only, no_main_func, codebase, has_preprocessor,
-            on_behalf_of_email, assets
+            visible_to_runner_only, auto_kind, codebase, has_preprocessor,
+            on_behalf_of_email, assets, modules
         FROM script
         WHERE workspace_id = $2"#,
         target_workspace_id,
@@ -3248,10 +3441,12 @@ async fn clone_apps(
         app_id_mapping.insert(app.id, new_app_id);
     }
 
+    let mut version_id_mapping: HashMap<i64, i64> = HashMap::new();
+
     {
         // Clone app versions
         let app_versions = sqlx::query!(
-            "SELECT app_id, value, created_by, created_at, raw_app
+            "SELECT id, app_id, value, created_by, created_at, raw_app
          FROM app_version
          WHERE app_id = ANY(SELECT id FROM app WHERE workspace_id = $1)
          ORDER BY app_id, created_at",
@@ -3262,17 +3457,112 @@ async fn clone_apps(
 
         for version in app_versions {
             if let Some(&new_app_id) = app_id_mapping.get(&version.app_id) {
-                sqlx::query!(
+                let new_version_id = sqlx::query_scalar!(
                     "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
-                 VALUES ($1, $2, $3, $4, $5)",
+                 VALUES ($1, $2, $3, $4, $5) RETURNING id",
                     new_app_id,
                     version.value,
                     version.created_by,
                     version.created_at,
                     version.raw_app,
                 )
+                .fetch_one(&mut **tx)
+                .await?;
+
+                version_id_mapping.insert(version.id, new_version_id);
+            }
+        }
+    }
+
+    // Clone app bundles for raw apps
+    if !version_id_mapping.is_empty() {
+        let old_ids: Vec<i64> = version_id_mapping.keys().copied().collect();
+        let bundles = sqlx::query!(
+            "SELECT app_version_id, file_type, data FROM app_bundles
+             WHERE app_version_id = ANY($1) AND w_id = $2",
+            &old_ids,
+            source_workspace_id
+        )
+        .fetch_all(&mut **tx)
+        .await?;
+
+        let mut cloned_from_db: std::collections::HashSet<(i64, String)> = HashSet::new();
+        for bundle in &bundles {
+            cloned_from_db.insert((bundle.app_version_id, bundle.file_type.clone()));
+        }
+
+        for bundle in bundles {
+            if let Some(&new_version_id) = version_id_mapping.get(&bundle.app_version_id) {
+                sqlx::query!(
+                    "INSERT INTO app_bundles (app_version_id, w_id, file_type, data)
+                     VALUES ($1, $2, $3, $4)",
+                    new_version_id,
+                    target_workspace_id,
+                    bundle.file_type,
+                    bundle.data,
+                )
                 .execute(&mut **tx)
                 .await?;
+            }
+        }
+
+        // Clone bundles from S3 for versions not found in DB
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        {
+            let object_store = windmill_object_store::get_object_store().await;
+            if let Some(os) = object_store {
+                for (&old_version_id, &new_version_id) in &version_id_mapping {
+                    for file_type in &["js", "css"] {
+                        if cloned_from_db.contains(&(old_version_id, file_type.to_string())) {
+                            continue;
+                        }
+                        let src_path = format!(
+                            "/app_bundles/{}/{}.{}",
+                            source_workspace_id, old_version_id, file_type
+                        );
+                        let get_result = os
+                            .get(&windmill_object_store::object_store_reexports::Path::from(
+                                src_path,
+                            ))
+                            .await;
+                        match get_result {
+                            Ok(result) => {
+                                let data = result.bytes().await.map_err(
+                                    windmill_object_store::object_store_error_to_error,
+                                )?;
+                                let dst_path = format!(
+                                    "/app_bundles/{}/{}.{}",
+                                    target_workspace_id, new_version_id, file_type
+                                );
+                                os.put(
+                                    &windmill_object_store::object_store_reexports::Path::from(
+                                        dst_path.clone(),
+                                    ),
+                                    data.into(),
+                                )
+                                .await
+                                .map_err(
+                                    windmill_object_store::object_store_error_to_error,
+                                )?;
+                                tracing::info!(
+                                    "Cloned app bundle from S3: {}.{} -> {}.{}",
+                                    old_version_id,
+                                    file_type,
+                                    new_version_id,
+                                    file_type
+                                );
+                            }
+                            Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound { .. }) => {
+                                // No bundle in S3 for this version/type, skip
+                            }
+                            Err(e) => {
+                                return Err(
+                                    windmill_object_store::object_store_error_to_error(e),
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -3594,7 +3884,7 @@ pub(crate) async fn archive_workspace_impl(
 
     // Delete non-session tokens scoped to this workspace
     let deleted_tokens = sqlx::query_scalar!(
-        "DELETE FROM token WHERE workspace_id = $1 AND label IS DISTINCT FROM 'session' RETURNING token",
+        "DELETE FROM token WHERE workspace_id = $1 AND label IS DISTINCT FROM 'session' RETURNING token_prefix",
         w_id
     )
     .fetch_all(&mut *tx)
@@ -3943,6 +4233,20 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
     ))
 }
 
+#[derive(Deserialize)]
+pub struct NewServiceAccount {
+    pub username: String,
+}
+
+async fn create_service_account(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(nu): Json<NewServiceAccount>,
+) -> Result<(StatusCode, String)> {
+    crate::workspaces_oss::create_service_account(authed, db, w_id, nu).await
+}
+
 async fn delete_invite(
     ApiAuthed { username, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -4066,6 +4370,30 @@ async fn get_dependents(
     );
 
     Ok(Json(dependents))
+}
+
+async fn get_imports(
+    Extension(db): Extension<DB>,
+    Path((w_id, importer_path)): Path<(String, String)>,
+    _authed: ApiAuthed,
+) -> JsonResult<Vec<String>> {
+    tracing::debug!(
+        workspace_id = %w_id,
+        importer_path = %importer_path,
+        "API: Getting imports for importer path"
+    );
+
+    let imports = ScopedDependencyMap::get_imports(&importer_path, &w_id, &db).await?;
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        importer_path = %importer_path,
+        imports_count = imports.len(),
+        "API: Found imports: {:?}",
+        imports
+    );
+
+    Ok(Json(imports))
 }
 
 #[derive(Serialize, Debug)]
@@ -4738,7 +5066,7 @@ async fn compare_workspaces(
                 compare_two_flows(&db, &source_workspace_id, &fork_workspace_id, &item.path)
                     .await?,
             ),
-            "app" => Some(
+            "app" | "raw_app" => Some(
                 compare_two_apps(&db, &source_workspace_id, &fork_workspace_id, &item.path).await?,
             ),
             "resource" => Some(
@@ -4833,7 +5161,10 @@ async fn compare_workspaces(
             .fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
         scripts_changed: visible_diffs.iter().filter(|s| s.kind == "script").count(),
         flows_changed: visible_diffs.iter().filter(|s| s.kind == "flow").count(),
-        apps_changed: visible_diffs.iter().filter(|s| s.kind == "app").count(),
+        apps_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "app" || s.kind == "raw_app")
+            .count(),
         resources_changed: visible_diffs
             .iter()
             .filter(|s| s.kind == "resource")
@@ -4942,7 +5273,7 @@ async fn query_visible_items<'c>(
                 .fetch_all(&mut **tx)
                 .await?
             }
-            "app" => {
+            "app" | "raw_app" => {
                 sqlx::query_scalar!(
                     "SELECT path FROM app
                      WHERE workspace_id = $1 AND path = ANY($2)",
@@ -5371,4 +5702,225 @@ async fn compare_two_folders(
         exists_in_source: source_folder.is_some(),
         exists_in_fork: target_folder.is_some(),
     });
+}
+
+#[derive(Deserialize)]
+struct LogAiChatPayload {
+    session_id: String,
+    provider: String,
+    model: String,
+    mode: String,
+}
+
+async fn log_ai_chat(
+    Extension(db): Extension<DB>,
+    Json(payload): Json<LogAiChatPayload>,
+) -> Result<StatusCode> {
+    sqlx::query!(
+        "INSERT INTO ai_chat_usage (session_id, provider, model, mode) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (session_id) DO UPDATE SET message_count = ai_chat_usage.message_count + 1",
+        &payload.session_id,
+        &payload.provider,
+        &payload.model,
+        &payload.mode
+    )
+    .execute(&db)
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize)]
+struct QuotaInfo {
+    used: i64,
+    limit: i64,
+    prunable: i64,
+}
+
+#[derive(Serialize)]
+struct CloudQuotas {
+    scripts: QuotaInfo,
+    flows: QuotaInfo,
+    apps: QuotaInfo,
+    variables: QuotaInfo,
+    resources: QuotaInfo,
+}
+
+async fn get_cloud_quotas(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<CloudQuotas> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    if !*CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "Cloud quotas are only available on cloud-hosted instances".to_string(),
+        ));
+    }
+
+    let scripts_used =
+        sqlx::query_scalar!("SELECT COUNT(*) FROM script WHERE workspace_id = $1", &w_id)
+            .fetch_one(&db)
+            .await?
+            .unwrap_or(0);
+
+    let scripts_prunable = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM script s WHERE s.workspace_id = $1 AND s.hash NOT IN (
+            SELECT DISTINCT ON (path) hash FROM script
+            WHERE workspace_id = $1 AND deleted = false AND draft_only IS NOT TRUE
+            ORDER BY path, created_at DESC
+        )",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    let flows_used =
+        sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
+            .fetch_one(&db)
+            .await?
+            .unwrap_or(0);
+
+    let flows_prunable = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM flow_version fv
+        JOIN flow f ON f.workspace_id = fv.workspace_id AND f.path = fv.path
+        WHERE fv.workspace_id = $1 AND fv.id != f.versions[array_upper(f.versions, 1)]",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    let apps_used = sqlx::query_scalar!("SELECT COUNT(*) FROM app WHERE workspace_id = $1", &w_id)
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(0);
+
+    let apps_prunable = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM app_version av
+        JOIN app a ON a.id = av.app_id
+        WHERE a.workspace_id = $1 AND av.id != a.versions[array_upper(a.versions, 1)]",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    let variables_used = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM variable WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    let resources_used = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM resource WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    Ok(Json(CloudQuotas {
+        scripts: QuotaInfo { used: scripts_used, limit: 5000, prunable: scripts_prunable },
+        flows: QuotaInfo { used: flows_used, limit: 1000, prunable: flows_prunable },
+        apps: QuotaInfo { used: apps_used, limit: 1000, prunable: apps_prunable },
+        variables: QuotaInfo { used: variables_used, limit: 10000, prunable: 0 },
+        resources: QuotaInfo { used: resources_used, limit: 10000, prunable: 0 },
+    }))
+}
+
+#[derive(Deserialize)]
+struct PruneVersionsRequest {
+    resource_type: String,
+}
+
+#[derive(Serialize)]
+struct PruneVersionsResponse {
+    pruned: u64,
+}
+
+async fn prune_versions(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<PruneVersionsRequest>,
+) -> JsonResult<PruneVersionsResponse> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    if !*CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "Version pruning is only available on cloud-hosted instances".to_string(),
+        ));
+    }
+
+    let pruned = match req.resource_type.as_str() {
+        "scripts" => {
+            let result = sqlx::query(
+                "DELETE FROM script
+                WHERE workspace_id = $1 AND hash NOT IN (
+                    SELECT DISTINCT ON (path) hash FROM script
+                    WHERE workspace_id = $1 AND deleted = false AND draft_only IS NOT TRUE
+                    ORDER BY path, created_at DESC
+                )",
+            )
+            .bind(&w_id)
+            .execute(&db)
+            .await?;
+            result.rows_affected()
+        }
+        "flows" => {
+            let deleted = sqlx::query(
+                "DELETE FROM flow_version fv
+                USING flow f
+                WHERE fv.workspace_id = f.workspace_id AND fv.path = f.path
+                AND fv.workspace_id = $1
+                AND fv.id != f.versions[array_upper(f.versions, 1)]",
+            )
+            .bind(&w_id)
+            .execute(&db)
+            .await?;
+
+            sqlx::query(
+                "UPDATE flow SET versions = ARRAY[versions[array_upper(versions, 1)]]
+                WHERE workspace_id = $1 AND array_length(versions, 1) > 1",
+            )
+            .bind(&w_id)
+            .execute(&db)
+            .await?;
+
+            deleted.rows_affected()
+        }
+        "apps" => {
+            let deleted = sqlx::query(
+                "DELETE FROM app_version av
+                USING app a
+                WHERE av.app_id = a.id AND a.workspace_id = $1
+                AND av.id != a.versions[array_upper(a.versions, 1)]",
+            )
+            .bind(&w_id)
+            .execute(&db)
+            .await?;
+
+            sqlx::query(
+                "UPDATE app SET versions = ARRAY[versions[array_upper(versions, 1)]]
+                WHERE workspace_id = $1 AND array_length(versions, 1) > 1",
+            )
+            .bind(&w_id)
+            .execute(&db)
+            .await?;
+
+            deleted.rows_affected()
+        }
+        _ => {
+            return Err(Error::BadRequest(format!(
+                "Invalid resource type '{}'. Must be 'scripts', 'flows', or 'apps'",
+                req.resource_type
+            )));
+        }
+    };
+
+    Ok(Json(PruneVersionsResponse { pruned }))
 }

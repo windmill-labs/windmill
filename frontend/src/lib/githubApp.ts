@@ -1,4 +1,8 @@
-import { GitSyncService, type GetGlobalConnectedRepositoriesResponse } from '$lib/gen'
+import {
+	GitSyncService,
+	type GetGlobalConnectedRepositoriesResponse,
+	type GetGhesConfigResponse
+} from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { base } from '$lib/base'
 
@@ -129,7 +133,23 @@ export async function loadGithubInstallations(
 			})
 		)
 
-		state.githubInstallationUrl = `https://github.com/apps/windmill-sync-helper/installations/new?state=${stateParam}`
+		// Check if GHES app is configured; if so, use GHES installation URL
+		try {
+			const ghesConfig: GetGhesConfigResponse = await GitSyncService.getGhesConfig()
+			if (ghesConfig?.base_url && ghesConfig?.app_slug) {
+				const ghesBaseUrl = ghesConfig.base_url.replace(/\/$/, '')
+				// GHES (self-hosted) uses /github-apps/, github.com and GHE Cloud (*.ghe.com) use /apps/
+				const hostname = new URL(ghesBaseUrl).hostname
+				const isGHES = hostname !== 'github.com' && !hostname.endsWith('.ghe.com')
+				const appsPath = isGHES ? 'github-apps' : 'apps'
+				state.githubInstallationUrl = `${ghesBaseUrl}/${appsPath}/${ghesConfig.app_slug}/installations/new?state=${stateParam}`
+			} else {
+				state.githubInstallationUrl = `https://github.com/apps/windmill-sync-helper/installations/new?state=${stateParam}`
+			}
+		} catch {
+			// No GHES config — use default github.com URL
+			state.githubInstallationUrl = `https://github.com/apps/windmill-sync-helper/installations/new?state=${stateParam}`
+		}
 	} catch (err) {
 		const githubError = handleGitHubAppError(err, 'load installations')
 		sendUserToast(`Failed to load GitHub installations: ${githubError.message}`, true)

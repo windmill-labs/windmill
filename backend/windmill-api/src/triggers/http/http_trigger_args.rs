@@ -25,8 +25,7 @@ use crate::{
 
 pub struct RawHttpTriggerArgs(pub RawWebhookArgs);
 
-#[axum::async_trait]
-impl<S> FromRequest<S, axum::body::Body> for RawHttpTriggerArgs
+impl<S> FromRequest<S> for RawHttpTriggerArgs
 where
     S: Send + Sync,
 {
@@ -68,6 +67,7 @@ struct HttpTriggerPreprocessorEvent<'a> {
     kind: String,
     route: &'a str,
     path: &'a str,
+    trigger_path: &'a str,
     body: Box<RawValue>,
     raw_string: Option<String>,
     params: &'a HashMap<String, String>,
@@ -117,6 +117,7 @@ impl HttpTriggerArgs {
         self,
         route_path: &str,
         called_path: &str,
+        trigger_path: &str,
         params: &HashMap<String, String>,
         format: RunnableFormat,
         wrap_body: bool,
@@ -126,7 +127,14 @@ impl HttpTriggerArgs {
         match format {
             RunnableFormat { has_preprocessor: true, version: RunnableFormatVersion::V2 } => {
                 // we don't care about wrap_body in v2
-                self.to_v2_preprocessor_args(route_path, called_path, params, headers, query)
+                self.to_v2_preprocessor_args(
+                    route_path,
+                    called_path,
+                    trigger_path,
+                    params,
+                    headers,
+                    query,
+                )
             }
             RunnableFormat { has_preprocessor: true, version: RunnableFormatVersion::V1 } => self
                 .to_v1_preprocessor_args(
@@ -177,6 +185,7 @@ impl HttpTriggerArgs {
         self,
         route_path: &str,
         called_path: &str,
+        trigger_path: &str,
         params: &HashMap<String, String>,
         headers: HashMap<String, Box<RawValue>>,
         query: HashMap<String, Box<RawValue>>,
@@ -193,6 +202,7 @@ impl HttpTriggerArgs {
                 method: (&self.0.metadata.method).try_into()?,
                 route: route_path,
                 path: called_path,
+                trigger_path,
                 params,
             }),
         );

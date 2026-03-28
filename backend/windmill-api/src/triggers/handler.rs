@@ -108,11 +108,11 @@ pub fn generate_trigger_routers() -> Router {
 
         router = router
             .route(
-                "/trigger/:trigger_kind/resume_suspended_trigger_jobs/*trigger_path",
+                "/trigger/{trigger_kind}/resume_suspended_trigger_jobs/{*trigger_path}",
                 post(resume_suspended_trigger_jobs),
             )
             .route(
-                "/trigger/:trigger_kind/cancel_suspended_trigger_jobs/*trigger_path",
+                "/trigger/{trigger_kind}/cancel_suspended_trigger_jobs/{*trigger_path}",
                 post(cancel_suspended_trigger_jobs),
             );
     }
