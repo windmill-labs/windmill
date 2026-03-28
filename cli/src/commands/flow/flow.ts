@@ -7,6 +7,7 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
+import { validateRequiredArgs } from "../../utils/utils.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { readFile } from "node:fs/promises";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -302,14 +303,10 @@ async function run(
         workspace: workspace.workspaceId,
         path,
       });
-      const required = (flow.schema as any)?.required ?? [];
-      if (required.length > 0) {
-        throw new Error(
-          `Missing required arguments: ${required.join(", ")}.\nUse -d '{"${required[0]}": ...}' to provide input data.`
-        );
-      }
+      validateRequiredArgs(flow.schema as Record<string, unknown>);
     } catch (e: any) {
       if (e.message?.startsWith("Missing required")) throw e;
+      log.warn(`Could not fetch schema to validate args: ${e.message}`);
     }
   }
 
