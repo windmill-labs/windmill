@@ -2667,6 +2667,7 @@ async fn capture_dependency_job(
                 &Connection::Sql(db.clone()),
                 worker_name,
                 w_id,
+                false,
             )
             .await?
         }

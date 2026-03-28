@@ -20,14 +20,15 @@ mount {
     src: "/bin"
     dst: "/bin"
     is_bind: true
+    mandatory: false
 }
 
 mount {
     src: "/lib"
     dst: "/lib"
     is_bind: true
+    mandatory: false
 }
-
 
 mount {
     src: "/lib64"
@@ -36,11 +37,11 @@ mount {
     mandatory: false
 }
 
-
 mount {
     src: "/usr"
     dst: "/usr"
     is_bind: true
+    mandatory: false
 }
 
 mount {
@@ -89,6 +90,13 @@ mount {
     src: "/etc"
     dst: "/etc"
     is_bind: true
+}
+
+mount {
+    src: "/sys/devices/system/cpu"
+    dst: "/sys/devices/system/cpu"
+    is_bind: true
+    mandatory: false
 }
 
 mount {

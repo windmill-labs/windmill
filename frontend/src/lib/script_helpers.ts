@@ -1257,9 +1257,8 @@ def main(
   return result
 end
 `
-const R_INIT_CODE = `# Uncomment to use additional packages (must be installed on the worker):
-# library(dplyr)
-# library(ggplot2)
+const R_INIT_CODE = `library(dplyr)
+library(jsonlite)
 
 main <- function(
     x,
@@ -1272,7 +1271,10 @@ main <- function(
     # var <- get_variable("f/my_var")
     # res <- get_resource("f/my_resource")
 
-    return(list(result = x, name = name, age = age))
+    df <- tibble(name = name, age = age, x = x)
+    result <- df %>% mutate(greeting = paste("Hello", name))
+
+    return(toJSON(result, auto_unbox = TRUE))
 }
 `
 // for related places search: ADD_NEW_LANG

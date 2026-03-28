@@ -232,6 +232,10 @@
           hash = "sha256-8E0WtDFc7RcqmftDigMyy1xXUkjgL4X4kpf7h1GdE48=";
         };
 
+        rWithPackages = pkgs.rWrapper.override {
+          packages = with pkgs.rPackages; [ renv ];
+        };
+
         extraRuntimes = with pkgs; [
           dotnet-sdk_9
           php
@@ -257,7 +261,7 @@
           ANSIBLE_PLAYBOOK_PATH = "${pkgs.ansible}/bin/ansible-playbook";
           ANSIBLE_GALAXY_PATH = "${pkgs.ansible}/bin/ansible-galaxy";
           CARGO_SWEEP_PATH = "${pkgs.cargo-sweep}/bin/cargo-sweep";
-          RSCRIPT_PATH = "${pkgs.R}/bin/Rscript";
+          RSCRIPT_PATH = "${rWithPackages}/bin/Rscript";
         };
 
         # ---------------------------------------------------------------

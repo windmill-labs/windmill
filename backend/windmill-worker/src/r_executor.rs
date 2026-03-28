@@ -24,13 +24,18 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::{self},
-    is_sandboxing_enabled, DISABLE_NUSER, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
-    R_CACHE_DIR, TRACING_PROXY_CA_CERT_PATH,
+    is_sandboxing_enabled,
+    universal_pkg_installer::{
+        par_install_language_dependencies_seq, DependencyGraph, InstallDeps, RequiredDependency,
+    },
+    DISABLE_NUSER, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, R_CACHE_DIR,
+    TRACING_PROXY_CA_CERT_PATH,
 };
 use windmill_common::scripts::ScriptLang;
 
 lazy_static::lazy_static! {
     static ref RSCRIPT_PATH: String = std::env::var("RSCRIPT_PATH").unwrap_or_else(|_| "/usr/bin/Rscript".to_string());
+    static ref R_CONCURRENT_DOWNLOADS: usize = std::env::var("R_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
     static ref R_PROXY_ENVS: Vec<(String, String)> = {
         PROXY_ENVS
             .clone()
@@ -41,7 +46,6 @@ lazy_static::lazy_static! {
 }
 
 const NSJAIL_CONFIG_RUN_R_CONTENT: &str = include_str!("../nsjail/run.r.config.proto");
-const NSJAIL_CONFIG_RESOLVE_R_CONTENT: &str = include_str!("../nsjail/resolve.r.config.proto");
 const NSJAIL_CONFIG_INSTALL_R_CONTENT: &str = include_str!("../nsjail/install.r.config.proto");
 
 #[allow(dead_code)]
@@ -89,11 +93,12 @@ pub async fn handle_r_job<'a>(
         args.conn,
         args.worker_name,
         &args.job.workspace_id,
+        annotation.verbose,
     )
     .await?;
     // --- Install ---
     let lib_path = if !lockfile.is_empty() {
-        Some(install(&mut args, &lockfile).await?)
+        Some(install(&mut args, &lockfile, annotation.verbose).await?)
     } else {
         None
     };
@@ -164,10 +169,18 @@ pub async fn resolve<'a>(
     conn: &Connection,
     worker_name: &str,
     w_id: &str,
+    verbose: bool,
 ) -> Result<String, Error> {
-    let packages = parse_r_requirements(inner_content)?;
-    if packages.is_empty() {
-        return Ok(String::new());
+    let mut packages = parse_r_requirements(inner_content)?;
+
+    // jsonlite is always needed by the wrapper for JSON arg parsing and result serialization
+    let has_jsonlite = packages.lines().any(|l| l.trim() == "jsonlite");
+    if !has_jsonlite {
+        if packages.is_empty() {
+            packages = "jsonlite".to_string();
+        } else {
+            packages.push_str("\njsonlite");
+        }
     }
 
     // Check cache
@@ -192,66 +205,28 @@ pub async fn resolve<'a>(
     )
     .await;
 
-    let pkg_vec = packages
-        .lines()
-        .map(|p| format!("\"{}\"", p))
-        .collect_vec()
-        .join(", ");
-
+    // main.r is already written by prepare() and contains the library() calls.
+    // renv will scan it to detect dependencies.
+    // Disable renv's own package cache — Windmill manages its own install cache.
     let resolve_script = format!(
-        r#"pkgs <- c({pkg_vec})
-con <- file("{job_dir}/r.lock", open = "w")
-av <- tryCatch(
-    available.packages(repos = "https://cloud.r-project.org"),
-    error = function(e) NULL
+        r#"options(
+    repos = c(CRAN = "https://cloud.r-project.org"),
+    renv.verbose = {verbose_r},
+    renv.config.cache.enabled = FALSE
 )
-for (pkg in pkgs) {{
-    if (!is.null(av) && pkg %in% rownames(av)) {{
-        cat(paste0(pkg, "==", av[pkg, "Version"], "\n"))
-        writeLines(paste0(pkg, "==", av[pkg, "Version"]), con)
-    }} else if (requireNamespace(pkg, quietly = TRUE)) {{
-        v <- as.character(packageVersion(pkg))
-        cat(paste0(pkg, "==", v, "\n"))
-        writeLines(paste0(pkg, "==", v), con)
-    }} else {{
-        cat(paste0(pkg, "==latest\n"))
-        writeLines(paste0(pkg, "==latest"), con)
-    }}
-}}
-close(con)
-"#
+renv::consent(provided = TRUE)
+renv::init(bare = TRUE, restart = FALSE)
+renv::install(prompt = FALSE)
+renv::snapshot(type = "implicit", prompt = FALSE)
+"#,
+        verbose_r = if verbose { "TRUE" } else { "FALSE" },
     );
 
     let mut file = File::create(format!("{}/resolve.r", job_dir)).await?;
     file.write_all(resolve_script.as_bytes()).await?;
 
-    let child = if !cfg!(windows) && is_sandboxing_enabled() {
-        let nsjail_proto = format!("{}.resolve.config.proto", Uuid::new_v4());
-        write_file(
-            job_dir,
-            &nsjail_proto,
-            &NSJAIL_CONFIG_RESOLVE_R_CONTENT
-                .replace("{JOB_DIR}", job_dir)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
-                .replace("#{DEV}", DEV_CONF_NSJAIL),
-        )?;
-        let mut cmd = Command::new(NSJAIL_PATH.as_str());
-        cmd.env_clear()
-            .current_dir(job_dir)
-            .env("PATH", PATH_ENV.as_str())
-            .envs(R_PROXY_ENVS.clone())
-            .args(vec![
-                "--config",
-                &nsjail_proto,
-                "--",
-                RSCRIPT_PATH.as_str(),
-                "resolve.r",
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
-    } else {
+    let child = {
+        let renv_root = format!("{}/renv", *R_CACHE_DIR);
         let rscript_executable = if cfg!(windows) {
             "Rscript.exe"
         } else {
@@ -260,6 +235,7 @@ close(con)
         let mut cmd = Command::new(rscript_executable);
         cmd.current_dir(job_dir)
             .env("PATH", PATH_ENV.as_str())
+            .env("RENV_PATHS_ROOT", &renv_root)
             .arg("resolve.r")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -283,7 +259,7 @@ close(con)
     )
     .await?;
 
-    let lock_path = format!("{}/r.lock", job_dir);
+    let lock_path = format!("{}/renv.lock", job_dir);
     let mut lock_file = File::open(&lock_path).await?;
     let mut lock = String::new();
     lock_file.read_to_string(&mut lock).await?;
@@ -301,148 +277,226 @@ close(con)
     Ok(lock)
 }
 
-async fn install<'a>(args: &mut JobHandlerInput<'a>, lockfile: &str) -> Result<String, Error> {
+struct RenvPackage {
+    name: String,
+    version: String,
+    repo_url: String,
+    /// Package names from Imports + Depends fields
+    dependencies: Vec<String>,
+}
+
+/// Parse renv.lock JSON and extract package info including dependency edges.
+fn parse_renv_lock(lockfile: &str) -> Result<Vec<RenvPackage>, Error> {
+    let lock: serde_json::Value = serde_json::from_str(lockfile)
+        .map_err(|e| Error::ExecutionErr(format!("Failed to parse renv.lock: {}", e)))?;
+
+    // Build repo name -> URL map from R.Repositories
+    let mut repo_urls: HashMap<String, String> = HashMap::new();
+    if let Some(repos) = lock.get("R").and_then(|r| r.get("Repositories")).and_then(|r| r.as_array())
+    {
+        for repo in repos {
+            if let (Some(name), Some(url)) = (
+                repo.get("Name").and_then(|v| v.as_str()),
+                repo.get("URL").and_then(|v| v.as_str()),
+            ) {
+                repo_urls.insert(name.to_string(), url.to_string());
+            }
+        }
+    }
+
+    let packages = lock
+        .get("Packages")
+        .and_then(|p| p.as_object())
+        .ok_or_else(|| Error::ExecutionErr("renv.lock missing Packages field".to_string()))?;
+
+    let mut result = vec![];
+    for (_name, pkg) in packages {
+        let pkg_name = pkg
+            .get("Package")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let version = pkg
+            .get("Version")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let repo_name = pkg
+            .get("Repository")
+            .and_then(|v| v.as_str())
+            .unwrap_or("CRAN");
+        let repo_url = repo_urls
+            .get(repo_name)
+            .cloned()
+            .unwrap_or_else(|| "https://cloud.r-project.org".to_string());
+
+        let mut dependencies = vec![];
+        if let Some(imports) = pkg.get("Imports").and_then(|v| v.as_array()) {
+            for entry in imports {
+                if let Some(s) = entry.as_str() {
+                    // Entries look like "cli (>= 3.6.2)" — take just the name
+                    let name = s.split_whitespace().next().unwrap_or("");
+                    if !name.is_empty() && name != "R" {
+                        dependencies.push(name.to_string());
+                    }
+                }
+            }
+        }
+
+        if !pkg_name.is_empty() && !version.is_empty() {
+            result.push(RenvPackage { name: pkg_name, version, repo_url, dependencies });
+        }
+    }
+    Ok(result)
+}
+
+async fn install<'a>(args: &mut JobHandlerInput<'a>, lockfile: &str, verbose: bool) -> Result<String, Error> {
     let lib_path = format!("{}/r_site_library", *R_CACHE_DIR);
     fs::create_dir_all(&lib_path).await?;
 
-    // Parse lockfile to find packages that need installing
-    let mut to_install = vec![];
-    for line in lockfile.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let parts: Vec<&str> = line.splitn(2, "==").collect();
-        if parts.len() != 2 {
-            continue;
-        }
-        let pkg = parts[0];
-        let version = parts[1];
-
-        // Check if already installed at the right version
-        let pkg_dir = format!("{}/{}", lib_path, pkg);
-        let desc_file = format!("{}/DESCRIPTION", pkg_dir);
-        if let Ok(desc) = tokio::fs::read_to_string(&desc_file).await {
-            if desc.contains(&format!("Version: {}", version)) {
-                continue; // Already installed at correct version
-            }
-        }
-        to_install.push((pkg.to_string(), version.to_string()));
-    }
-
-    if to_install.is_empty() {
+    let packages = parse_renv_lock(lockfile)?;
+    if packages.is_empty() {
         return Ok(lib_path);
     }
 
-    append_logs(
-        &args.job.id,
-        &args.job.workspace_id,
-        format!(
-            "\n--- INSTALLING R PACKAGES ---\n{}\n",
-            to_install
-                .iter()
-                .map(|(p, v)| format!("{} ({})", p, v))
-                .join(", ")
-        ),
-        args.conn,
-    )
-    .await;
+    #[derive(Clone, Debug)]
+    struct RPackagePayload {
+        pkg: String,
+        version: String,
+        #[allow(dead_code)]
+        repo_url: String,
+    }
 
-    // Build install script
-    let install_calls = to_install
-        .iter()
-        .map(|(pkg, version)| {
-            if version == "latest" {
-                format!(
-                    r#"install.packages("{pkg}", lib = "{lib_path}", repos = "https://cloud.r-project.org", quiet = TRUE)"#
-                )
-            } else {
-                // Try exact version first via remotes, fall back to latest
-                format!(
-                    r#"tryCatch({{
-    if (requireNamespace("remotes", quietly = TRUE)) {{
-        remotes::install_version("{pkg}", version = "{version}", lib = "{lib_path}", repos = "https://cloud.r-project.org", quiet = TRUE)
-    }} else {{
-        install.packages("{pkg}", lib = "{lib_path}", repos = "https://cloud.r-project.org", quiet = TRUE)
-    }}
-}}, error = function(e) {{
-    install.packages("{pkg}", lib = "{lib_path}", repos = "https://cloud.r-project.org", quiet = TRUE)
-}})"#
-                )
-            }
-        })
-        .join("\n");
+    // Build dependency graph for topological layering
+    let mut graph = DependencyGraph::new();
+    for renv_pkg in &packages {
+        let handle = format!("{}-{}", renv_pkg.name, renv_pkg.version);
+        // renv uses staged installation: it builds to a temp dir then rename()s onto
+        // the target. If the target is a bind mount point, rename fails with
+        // "target file already exists". We work around this by mounting the parent
+        // (wrapper) dir at /install so renv can freely create /install/{pkg}/ via rename.
+        let pkg_outer = format!("{}/{}_outer", lib_path, renv_pkg.name);
+        let path = format!("{}/{}", pkg_outer, renv_pkg.name);
+        graph.insert(
+            renv_pkg.name.clone(),
+            RequiredDependency {
+                path,
+                _s3_handle: handle,
+                display_name: format!("{} ({})", renv_pkg.name, renv_pkg.version),
+                custom_payload: RPackagePayload {
+                    pkg: renv_pkg.name.clone(),
+                    version: renv_pkg.version.clone(),
+                    repo_url: renv_pkg.repo_url.clone(),
+                },
+            },
+            renv_pkg.dependencies.clone(),
+        );
+    }
 
-    let install_script = format!(
-        r#".libPaths(c("{lib_path}", .libPaths()))
-{install_calls}
-"#
-    );
+    let jailed = !cfg!(windows) && is_sandboxing_enabled();
+    let job_dir = args.job_dir.to_owned();
 
-    let mut file = File::create(format!("{}/install.r", args.job_dir)).await?;
-    file.write_all(install_script.as_bytes()).await?;
-
-    let child = if !cfg!(windows) && is_sandboxing_enabled() {
-        let nsjail_proto = format!("{}.install.config.proto", Uuid::new_v4());
-        write_file(
-            args.job_dir,
-            &nsjail_proto,
-            &NSJAIL_CONFIG_INSTALL_R_CONTENT
-                .replace("{JOB_DIR}", args.job_dir)
-                .replace("{R_CACHE_DIR}", &*R_CACHE_DIR)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
-                .replace("#{DEV}", DEV_CONF_NSJAIL),
-        )?;
-        let mut cmd = Command::new(NSJAIL_PATH.as_str());
-        cmd.env_clear()
-            .current_dir(args.job_dir)
-            .env("PATH", PATH_ENV.as_str())
-            .envs(R_PROXY_ENVS.clone())
-            .args(vec![
-                "--config",
-                &nsjail_proto,
-                "--",
-                RSCRIPT_PATH.as_str(),
-                "install.r",
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
-    } else {
-        let rscript_executable = if cfg!(windows) {
-            "Rscript.exe"
-        } else {
-            RSCRIPT_PATH.as_str()
-        };
-        let mut cmd = Command::new(rscript_executable);
-        cmd.current_dir(args.job_dir)
-            .env("PATH", PATH_ENV.as_str())
-            .arg("install.r")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        start_child_process(cmd, rscript_executable, false).await?
-    };
-
-    handle_child::handle_child(
-        &args.job.id,
-        args.conn,
-        args.mem_peak,
-        args.canceled_by,
-        child,
-        is_sandboxing_enabled(),
-        args.worker_name,
-        &args.job.workspace_id,
-        "r install",
-        None,
+    par_install_language_dependencies_seq(
+        InstallDeps::Layered(graph),
+        "r",
+        "Rscript",
         false,
-        &mut None,
+        *R_CONCURRENT_DOWNLOADS,
+        move |dependency| {
+            let lib_path_c = lib_path.clone();
+            let job_dir = job_dir.clone();
+            let pkg_name = &dependency.custom_payload.pkg;
+            // pkg_outer is the wrapper dir mounted rw at /install inside nsjail.
+            // renv creates /install/{pkg}/ inside it via staged rename.
+            let pkg_outer = format!("{}/{}_outer", lib_path_c, pkg_name);
+            std::fs::create_dir_all(&pkg_outer)?;
+
+            let mut cmd = if jailed {
+                let nsjail_proto = format!("{}.install.config.proto", Uuid::new_v4());
+                let config_content = NSJAIL_CONFIG_INSTALL_R_CONTENT
+                    .replace("{JOB_DIR}", &job_dir)
+                    .replace("{PKG_DIR}", &pkg_outer)
+                    .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                    .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                    .replace("#{DEV}", DEV_CONF_NSJAIL);
+                let _ = write_file(
+                    &job_dir,
+                    &nsjail_proto,
+                    &config_content,
+                )?;
+                let mut cmd = Command::new(NSJAIL_PATH.as_str());
+                cmd.args(vec![
+                    "--config",
+                    &nsjail_proto,
+                    "--",
+                    RSCRIPT_PATH.as_str(),
+                ]);
+                cmd
+            } else {
+                Command::new(if cfg!(windows) {
+                    "Rscript.exe"
+                } else {
+                    RSCRIPT_PATH.as_str()
+                })
+            };
+
+            let verbose_r = if verbose { "TRUE" } else { "FALSE" };
+            let install_lib = if jailed { "/install".to_string() } else { lib_path_c };
+            cmd.env_clear()
+                .current_dir(&job_dir)
+                .env("PATH", PATH_ENV.as_str())
+                .envs(R_PROXY_ENVS.clone());
+            cmd
+                .args(&[
+                    "-e",
+                    &format!(
+                        r#"options(renv.verbose = {verbose_r}); renv::install("{pkg}@{version}", library = "{lib}", dependencies = FALSE)"#,
+                        verbose_r = verbose_r,
+                        pkg = dependency.custom_payload.pkg,
+                        version = dependency.custom_payload.version,
+                        lib = install_lib,
+                    ),
+                    // install.packages fallback (no version pinning):
+                    // &format!(
+                    //     r#"install.packages("{pkg}", lib = "{lib}", repos = "{repo}", dependencies = FALSE, quiet = {quiet}, INSTALL_opts = "--no-test-load --no-lock")"#,
+                    //     pkg = dependency.custom_payload.pkg,
+                    //     lib = install_lib,
+                    //     repo = dependency.custom_payload.repo_url,
+                    //     quiet = quiet_flag,
+                    // ),
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+
+            Ok(cmd)
+        },
         None,
-        None,
+        &args.job.id,
+        &args.job.workspace_id,
+        args.worker_name,
+        jailed,
+        args.conn,
     )
     .await?;
 
-    Ok(lib_path)
+    Ok(format!("{}/r_site_library", *R_CACHE_DIR))
+}
+
+/// Build R_LIBS_USER from lib_path by listing *_outer subdirs.
+/// Each package wrapper dir ({pkg}_outer) is added so R finds {pkg}_outer/{pkg}/DESCRIPTION.
+fn r_libs_user(lib_path: &str) -> String {
+    std::fs::read_dir(lib_path)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                && e.file_name().to_string_lossy().ends_with("_outer")
+        })
+        .map(|e| e.path().to_string_lossy().to_string())
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 async fn run<'a>(
@@ -498,7 +552,7 @@ async fn run<'a>(
             .envs(R_PROXY_ENVS.clone())
             .envs(get_proxy_envs_for_lang(&ScriptLang::Rlang).await?);
         if let Some(lp) = lib_path {
-            cmd.env("R_LIBS_USER", lp);
+            cmd.env("R_LIBS_USER", r_libs_user(lp));
         }
         cmd.args(vec![
             "--config",
@@ -537,7 +591,7 @@ async fn run<'a>(
             .envs(get_proxy_envs_for_lang(&ScriptLang::Rlang).await?)
             .envs(envs);
         if let Some(lp) = lib_path {
-            cmd.env("R_LIBS_USER", lp);
+            cmd.env("R_LIBS_USER", r_libs_user(lp));
         }
 
         cmd.stdin(Stdio::null())
@@ -587,7 +641,9 @@ fn wrap(inner_content: &str) -> Result<String, Error> {
     let wm_lib_path = format!("{}/r_libs/windmill.r", *R_CACHE_DIR);
     Ok(r#"source("WM_LIB_PATH")
 
+suppressPackageStartupMessages({
 INNER_CONTENT
+})
 
 library(jsonlite)
 args <- fromJSON("args.json")

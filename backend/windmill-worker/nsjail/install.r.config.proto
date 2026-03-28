@@ -27,12 +27,14 @@ mount {
     src: "/bin"
     dst: "/bin"
 	is_bind: true
+    mandatory: false
 }
 
 mount {
     src: "/lib"
     dst: "/lib"
 	is_bind: true
+    mandatory: false
 }
 
 mount {
@@ -46,6 +48,7 @@ mount {
     src: "/usr"
     dst: "/usr"
 	is_bind: true
+    mandatory: false
 }
 
 mount {
@@ -62,26 +65,25 @@ mount {
 }
 
 mount {
-	dst: "/tmp"
-	fstype: "tmpfs"
-	rw: true
-    options: "size=500000000"
-}
-
-mount {
-    src: "{R_CACHE_DIR}"
-    dst: "{R_CACHE_DIR}"
-    is_bind: true
-    mandatory: false
-    rw: true
-}
-
-mount {
     src: "{JOB_DIR}"
-    dst: "{JOB_DIR}"
+    dst: "/tmp"
     is_bind: true
     mandatory: false
     rw: true
+}
+
+mount {
+    src: "{PKG_DIR}"
+    dst: "/install"
+    is_bind: true
+    rw: true
+}
+
+mount {
+    src: "/sys/devices/system/cpu"
+    dst: "/sys/devices/system/cpu"
+    is_bind: true
+    mandatory: false
 }
 
 mount {

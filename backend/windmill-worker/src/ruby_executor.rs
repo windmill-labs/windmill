@@ -28,7 +28,7 @@ use crate::{
     get_proxy_envs_for_lang,
     handle_child::{self},
     is_sandboxing_enabled, read_ee_registry,
-    universal_pkg_installer::{par_install_language_dependencies_seq, RequiredDependency},
+    universal_pkg_installer::{par_install_language_dependencies_seq, InstallDeps, RequiredDependency},
     DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
     TRACING_PROXY_CA_CERT_PATH,
 };
@@ -614,7 +614,7 @@ async fn install<'a>(
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?,
     );
     par_install_language_dependencies_seq(
-        deps.clone(),
+        InstallDeps::Flat(deps.clone()),
         "ruby",
         "gem",
         false,
@@ -717,7 +717,7 @@ async fn install<'a>(
 
             Ok(cmd)
         },
-        // async move |_| Ok(()),
+        None,
         &job.id,
         &job.workspace_id,
         worker_name,
