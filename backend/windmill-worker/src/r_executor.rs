@@ -35,7 +35,7 @@ use windmill_common::scripts::ScriptLang;
 
 lazy_static::lazy_static! {
     static ref RSCRIPT_PATH: String = std::env::var("RSCRIPT_PATH").unwrap_or_else(|_| "/usr/bin/Rscript".to_string());
-    static ref R_CONCURRENT_DOWNLOADS: usize = std::env::var("R_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
+    static ref R_CONCURRENT_DOWNLOADS: usize = std::env::var("R_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(5)).unwrap_or(5);
     static ref R_PROXY_ENVS: Vec<(String, String)> = {
         PROXY_ENVS
             .clone()
@@ -343,7 +343,9 @@ fn parse_renv_lock(lockfile: &str) -> Result<Vec<RenvPackage>, Error> {
             }
         }
 
-        if !pkg_name.is_empty() && !version.is_empty() {
+        // Skip renv itself — it's already loaded and reinstalling it while
+        // loaded triggers a noisy "Restart your R session" message.
+        if !pkg_name.is_empty() && !version.is_empty() && pkg_name != "renv" {
             result.push(RenvPackage { name: pkg_name, version, repo_url, dependencies });
         }
     }
@@ -450,7 +452,7 @@ async fn install<'a>(args: &mut JobHandlerInput<'a>, lockfile: &str, verbose: bo
                 .args(&[
                     "-e",
                     &format!(
-                        r#"options(renv.verbose = {verbose_r}); renv::install("{pkg}@{version}", library = "{lib}", dependencies = FALSE)"#,
+                        r#"options(renv.verbose = {verbose_r}, renv.config.restart.enabled = FALSE); renv::install("{pkg}@{version}", library = "{lib}", dependencies = FALSE)"#,
                         verbose_r = verbose_r,
                         pkg = dependency.custom_payload.pkg,
                         version = dependency.custom_payload.version,
