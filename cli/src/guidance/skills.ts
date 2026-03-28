@@ -5406,7 +5406,7 @@ user related commands
   - \`--company <company:string>\` - Specify to set the company of the new user.
   - \`--name <name:string>\` - Specify to set the name of the new user.
 - \`user remove <email:string>\` - Delete a user
-- \`user create-token\`
+- \`user create-token\` - Create a new API token for the authenticated user
   - \`--email <email:string>\` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
   - \`--password <password:string>\` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
 
@@ -5474,7 +5474,7 @@ workspace related commands
 - \`workspace whoami\` - Show the currently active user
 - \`workspace list\` - List local workspace profiles
 - \`workspace list-remote\` - List workspaces on the remote server that you have access to
-- \`workspace bind\` - Bind the current Git branch to the active workspace
+- \`workspace bind\` - Bind the current Git branch to the active workspace. This adds the branch to gitBranches in wmill.yaml so sync operations use the correct workspace for each branch.
   - \`--branch, --env <branch:string>\` - Specify branch/environment (defaults to current)
 - \`workspace unbind\` - Remove workspace binding from the current Git branch
   - \`--branch, --env <branch:string>\` - Specify branch/environment (defaults to current)
