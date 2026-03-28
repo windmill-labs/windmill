@@ -305,6 +305,46 @@ describe("script run command", () => {
       expect(result.stdout).toContain(`run_result_${uniqueId}`);
     });
   });
+
+  test("exits with code 1 when script fails", { timeout: 60000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/fail_script_${uniqueId}`;
+      const scriptContent = `export async function main() { throw new Error("intentional failure"); }`;
+
+      await createRemoteScript(backend, scriptPath, scriptContent);
+
+      const result = await backend.runCLICommand(
+        ["script", "run", scriptPath, "--silent"],
+        tempDir
+      );
+
+      expect(result.code).toEqual(1);
+    });
+  });
+
+  test("errors when required args are missing", { timeout: 60000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/args_script_${uniqueId}`;
+      const scriptContent = `export async function main(name: string) { return name; }`;
+
+      await createRemoteScript(backend, scriptPath, scriptContent);
+
+      const result = await backend.runCLICommand(
+        ["script", "run", scriptPath],
+        tempDir
+      );
+
+      expect(result.code).not.toEqual(0);
+      const output = result.stdout + result.stderr;
+      expect(output).toContain("Missing required arguments");
+    });
+  });
 });
 
 // =============================================================================
@@ -568,6 +608,81 @@ describe("user commands", () => {
 
       // Clean up
       await backend.runCLICommand(["user", "remove", email], tempDir);
+    });
+  });
+});
+
+// =============================================================================
+// Script Push --message
+// =============================================================================
+
+describe("script push --message", () => {
+  test("deployment message appears in script history", { timeout: 60000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/msg_script_${uniqueId}`;
+      const scriptFile = join(tempDir, scriptPath + ".ts");
+      const metaFile = join(tempDir, scriptPath + ".script.yaml");
+      const deployMsg = `deploy_msg_${uniqueId}`;
+
+      await mkdir(join(tempDir, "f", "test"), { recursive: true });
+      await writeFile(scriptFile, 'export async function main() { return "v1"; }');
+      await writeFile(metaFile, [
+        "summary: test",
+        "description: ''",
+        "lock: ''",
+        "kind: script",
+        "schema:",
+        "  $schema: https://json-schema.org/draft/2020-12/schema",
+        "  type: object",
+        "  properties: {}",
+        "  required: []",
+      ].join("\n"));
+
+      const pushResult = await backend.runCLICommand(
+        ["script", "push", scriptPath + ".ts", "--message", deployMsg],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      const histResult = await backend.runCLICommand(
+        ["script", "history", scriptPath, "--json"],
+        tempDir
+      );
+      expect(histResult.code).toEqual(0);
+      expect(histResult.stdout).toContain(deployMsg);
+    });
+  });
+});
+
+// =============================================================================
+// Variable Add + Get (encryption roundtrip)
+// =============================================================================
+
+describe("variable add encryption", () => {
+  test("variable add creates a retrievable secret variable", { timeout: 30000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const varPath = `f/test/secret_${uniqueId}`;
+      const secretValue = `secret_value_${uniqueId}`;
+
+      const addResult = await backend.runCLICommand(
+        ["variable", "add", secretValue, varPath],
+        tempDir
+      );
+      expect(addResult.code).toEqual(0);
+
+      const getResult = await backend.runCLICommand(
+        ["variable", "get", varPath],
+        tempDir
+      );
+      expect(getResult.code).toEqual(0);
+      expect(getResult.stdout).toContain(secretValue);
+      expect(getResult.stdout).toContain("true"); // is_secret
     });
   });
 });
