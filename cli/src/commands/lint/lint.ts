@@ -625,9 +625,11 @@ export async function runLint(
     throw new Error(`Path is not a directory: ${targetDirectory}`);
   }
 
-  // When an explicit directory is given, skip include/exclude filtering —
-  // the user explicitly chose what to lint. Otherwise use wmill.yaml patterns.
-  const ignore = explicitTargetDirectory
+  // When the user specifies a subdirectory (that doesn't contain wmill.yaml),
+  // skip include/exclude filters since they're relative to the project root.
+  const isSubdirectory = explicitTargetDirectory &&
+    !(await stat(path.join(targetDirectory, "wmill.yaml")).catch(() => null));
+  const ignore = isSubdirectory
     ? (_p: string, _isDir: boolean) => false
     : await ignoreF(mergedOpts);
   const root = await FSFSElement(targetDirectory, [], false);
@@ -644,9 +646,10 @@ export async function runLint(
     if (entry.isDirectory || entry.ignored) {
       continue;
     }
-    scannedFiles += 1;
 
     const normalizedPath = normalizePath(entry.path);
+
+    scannedFiles += 1;
     if (!YAML_FILE_REGEX.test(normalizedPath)) {
       continue;
     }

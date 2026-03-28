@@ -171,10 +171,10 @@ export async function pushFlow(
     await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, localPath, SEP, undefined, missingFiles);
   }
   if (missingFiles.length > 0) {
-    throw new Error(
-      `Cannot push flow: missing inline script file(s): ${missingFiles.join(", ")}. ` +
-      `Ensure all !inline references point to existing files.`
-    );
+    log.warn(colors.yellow(
+      `Warning: missing inline script file(s): ${missingFiles.join(", ")}. ` +
+      `The flow will be pushed with unresolved !inline references.`
+    ));
   }
 
   if (flow) {
