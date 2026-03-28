@@ -212,12 +212,13 @@ pub async fn resolve<'a>(
         r#"options(
     repos = c(CRAN = "https://cloud.r-project.org"),
     renv.verbose = {verbose_r},
-    renv.config.cache.enabled = FALSE
+    renv.config.cache.enabled = FALSE,
+    renv.config.restart.enabled = FALSE
 )
 renv::consent(provided = TRUE)
-renv::init(bare = TRUE, restart = FALSE)
-renv::install(prompt = FALSE)
-renv::snapshot(type = "implicit", prompt = FALSE)
+suppressMessages(renv::init(bare = TRUE, restart = FALSE))
+suppressMessages(renv::install(prompt = FALSE))
+suppressMessages(renv::snapshot(type = "implicit", prompt = FALSE))
 "#,
         verbose_r = if verbose { "TRUE" } else { "FALSE" },
     );
@@ -273,7 +274,12 @@ renv::snapshot(type = "implicit", prompt = FALSE)
         ).fetch_optional(db).await?;
     }
 
-    append_logs(job_id, w_id, format!("{}", &lock), conn).await;
+    // Log a compact summary instead of the entire renv.lock JSON
+    let pkg_count = serde_json::from_str::<serde_json::Value>(&lock)
+        .ok()
+        .and_then(|v| v.get("Packages")?.as_object().map(|o| o.len()))
+        .unwrap_or(0);
+    append_logs(job_id, w_id, format!("resolved {} packages\n", pkg_count), conn).await;
     Ok(lock)
 }
 

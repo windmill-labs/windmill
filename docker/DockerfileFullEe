@@ -51,6 +51,9 @@ RUN /usr/bin/java -jar /usr/bin/coursier about
 # Ruby
 RUN apt-get install -y ruby ruby-bundler
 
+# R
+RUN apt-get install -y r-base r-cran-renv
+
 # iptables
 RUN apt-get install -y iptables
 
