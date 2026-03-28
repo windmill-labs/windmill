@@ -98,6 +98,7 @@
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
 	let filters: { key: string; value: any }[] = $state([])
+	let filterLogic = $state<'and' | 'or'>('and')
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
@@ -219,6 +220,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		filters = cfg?.filters ?? []
+		filterLogic = cfg?.filter_logic ?? 'and'
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = undefined
@@ -247,6 +249,7 @@
 			group_id: kafkaCfg.group_id,
 			topics: kafkaCfg.topics,
 			filters,
+			filter_logic: filterLogic,
 			auto_offset_reset: autoOffsetReset,
 			auto_commit: autoCommit,
 			mode,
@@ -577,7 +580,7 @@
 						</Label>
 					{/if}
 
-					<TriggerFilters bind:filters disabled={!can_write} />
+					<TriggerFilters bind:filters bind:filterLogic disabled={!can_write} />
 
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
