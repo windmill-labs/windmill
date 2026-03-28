@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.668.3](https://github.com/windmill-labs/windmill/compare/v1.668.2...v1.668.3) (2026-03-28)
+
+
+### Bug Fixes
+
+* **cli:** phantom diffs, flow safety, trigger DX, lint watch, error clarity ([#8588](https://github.com/windmill-labs/windmill/issues/8588)) ([c6ce319](https://github.com/windmill-labs/windmill/commit/c6ce3197a72ceeffd702cf2263b1074ecbf1ca33))
+
 ## [1.668.2](https://github.com/windmill-labs/windmill/compare/v1.668.1...v1.668.2) (2026-03-28)
 
 
