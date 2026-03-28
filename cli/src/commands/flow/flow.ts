@@ -570,6 +570,71 @@ export async function bootstrap(
   writeFileSync(flowYamlPath, newFlowDefinitionYaml, { flag: "wx", encoding: "utf-8" });
 }
 
+async function history(
+  opts: GlobalOptions & { json?: boolean },
+  flowPath: string
+) {
+  if (opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const versions = await wmill.getFlowHistory({
+    workspace: workspace.workspaceId,
+    path: flowPath,
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(versions));
+  } else {
+    if (versions.length === 0) {
+      log.info("No version history found for " + flowPath);
+      return;
+    }
+    new Table()
+      .header(["Version", "Created At", "Deployment Message"])
+      .padding(2)
+      .border(true)
+      .body(
+        versions.map((v) => [
+          String(v.id),
+          new Date(v.created_at).toISOString().replace("T", " ").substring(0, 19),
+          v.deployment_msg ?? "-",
+        ])
+      )
+      .render();
+  }
+}
+
+async function showVersion(
+  opts: GlobalOptions & { json?: boolean },
+  flowPath: string,
+  version: string
+) {
+  if (opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const flow = await wmill.getFlowVersion({
+    workspace: workspace.workspaceId,
+    path: flowPath,
+    version: parseInt(version, 10),
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(flow));
+  } else {
+    console.log(colors.bold("Path:") + " " + flow.path);
+    console.log(colors.bold("Summary:") + " " + (flow.summary ?? "-"));
+    console.log(colors.bold("Description:") + " " + (flow.description ?? "-"));
+    console.log(colors.bold("Schema:"));
+    console.log(JSON.stringify(flow.schema, null, 2));
+    console.log(colors.bold("Value:"));
+    console.log(JSON.stringify(flow.value, null, 2));
+  }
+}
+
 const command = new Command()
   .description("flow related commands")
   .option("--show-archived", "Enable archived flows in output")
@@ -643,6 +708,14 @@ const command = new Command()
   .arguments("<flow_path:string>")
   .option("--summary <summary:string>", "flow summary")
   .option("--description <description:string>", "flow description")
-  .action(bootstrap as any);
+  .action(bootstrap as any)
+  .command("history", "Show version history for a flow")
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(history as any)
+  .command("show-version", "Show a specific version of a flow")
+  .arguments("<path:string> <version:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(showVersion as any);
 
 export default command;

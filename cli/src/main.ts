@@ -39,6 +39,10 @@ import queues from "./commands/queues/queues.ts";
 import dependencies from "./commands/dependencies/dependencies.ts";
 import init from "./commands/init/init.ts";
 import jobs from "./commands/jobs/jobs.ts";
+import job from "./commands/job/job.ts";
+import group from "./commands/group/group.ts";
+import audit from "./commands/audit/audit.ts";
+import token from "./commands/token/token.ts";
 import generateMetadata from "./commands/generate-metadata/generate-metadata.ts";
 import docs from "./commands/docs/docs.ts";
 import config from "./commands/config/config.ts";
@@ -68,6 +72,10 @@ export {
   pull,
   push,
   workspaceAdd,
+  job,
+  group,
+  audit,
+  token,
 };
 
 export const VERSION = "1.667.0";
@@ -132,6 +140,10 @@ const command = new Command()
   .command("queues", queues)
   .command("dependencies", dependencies)
   .command("jobs", jobs)
+  .command("job", job)
+  .command("group", group)
+  .command("audit", audit)
+  .command("token", token)
   .command("generate-metadata", generateMetadata)
   .command("docs", docs)
   .command("config", config)
