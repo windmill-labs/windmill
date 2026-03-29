@@ -79,7 +79,7 @@ members = [
     "./windmill-test-utils",
     "./windmill-api-integration-tests",
 ]
-exclude = ["./windmill-duckdb-ffi-internal"]
+exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
 version = "1.668.5"

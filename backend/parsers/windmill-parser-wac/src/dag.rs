@@ -27,6 +27,9 @@ pub struct DagNode {
 #[serde(tag = "type")]
 pub enum DagNodeType {
     Step { name: String, script: String },
+    InlineStep { name: String },
+    Sleep { seconds: String },
+    WaitForApproval,
     Branch { condition_source: String },
     ParallelStart,
     ParallelEnd,

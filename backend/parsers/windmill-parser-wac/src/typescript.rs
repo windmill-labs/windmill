@@ -51,22 +51,29 @@ fn extract_var_name(pat: &Pat) -> Option<String> {
     }
 }
 
-/// Check if expr is `task(async fn)` or `task("path", async fn)`.
-/// Returns Some(optional_path) if it is a task() call.
+/// Check if expr is `task(async fn)`, `task("path", async fn)`,
+/// `taskScript("path")`, or `taskFlow("path")`.
+/// Returns Some(optional_path) if it is a task/taskScript/taskFlow call.
 fn extract_task_call_info(expr: &Expr) -> Option<Option<String>> {
     if let Expr::Call(call) = expr {
         if let Callee::Expr(callee) = &call.callee {
             if let Expr::Ident(ident) = callee.as_ref() {
-                if ident.sym.as_ref() == "task" {
+                let name = ident.sym.as_ref();
+                if name == "task" {
                     // task("f/path", async fn) or task(async fn)
                     if call.args.len() == 2 {
-                        // task("f/path", async fn)
                         let path = extract_string_lit(&call.args[0].expr);
                         return Some(path);
                     } else if call.args.len() == 1 {
-                        // task(async fn)
                         return Some(None);
                     }
+                } else if name == "taskScript" || name == "taskFlow" {
+                    // taskScript("./helper.ts") or taskFlow("f/my_flow")
+                    if let Some(first_arg) = call.args.first() {
+                        let path = extract_string_lit(&first_arg.expr);
+                        return Some(path);
+                    }
+                    return Some(None);
                 }
             }
         }
@@ -224,6 +231,9 @@ impl TsWacWalker {
         if self.is_task_call(expr) {
             return true;
         }
+        if Self::is_sdk_call(expr) {
+            return true;
+        }
         match expr {
             Expr::Await(await_expr) => self.expr_contains_step(&await_expr.arg),
             Expr::Call(call) => {
@@ -235,6 +245,19 @@ impl TsWacWalker {
             Expr::Paren(p) => self.expr_contains_step(&p.expr),
             _ => false,
         }
+    }
+
+    /// Check if expr is a call to a known SDK function (step, sleep, waitForApproval)
+    fn is_sdk_call(expr: &Expr) -> bool {
+        if let Expr::Call(call) = expr {
+            if let Callee::Expr(callee) = &call.callee {
+                if let Expr::Ident(ident) = callee.as_ref() {
+                    let name = ident.sym.as_ref();
+                    return name == "step" || name == "sleep" || name == "waitForApproval";
+                }
+            }
+        }
+        false
     }
 
     fn walk_body(&mut self, stmts: &[Stmt]) -> Option<(String, String)> {
@@ -294,11 +317,15 @@ impl TsWacWalker {
     }
 
     fn walk_expr_stmt(&mut self, expr: &Expr) -> Option<(String, String)> {
-        // await task_fn(...)
+        // await task_fn(...) / await step(...) / await sleep(...) / await waitForApproval(...)
         if let Expr::Await(await_expr) = expr {
             if let Expr::Call(call) = await_expr.arg.as_ref() {
                 if self.is_task_call(&Expr::Call(call.clone())) {
                     return self.emit_step(call, expr);
+                }
+                // Check for SDK-level calls: step(), sleep(), waitForApproval()
+                if let Some(result) = self.try_emit_sdk_call(call, expr) {
+                    return Some(result);
                 }
             }
             // await Promise.all([task_fn(...), ...])
@@ -316,6 +343,69 @@ impl TsWacWalker {
         }
 
         None
+    }
+
+    /// Try to emit a node for SDK-level calls: step(), sleep(), waitForApproval()
+    fn try_emit_sdk_call(&mut self, call: &CallExpr, expr: &Expr) -> Option<(String, String)> {
+        let callee_name = match &call.callee {
+            Callee::Expr(callee) => match callee.as_ref() {
+                Expr::Ident(ident) => Some(ident.sym.as_ref().to_string()),
+                _ => None,
+            },
+            _ => None,
+        }?;
+
+        let line = self.span_line(expr.span());
+
+        match callee_name.as_str() {
+            "step" => {
+                // step("name", fn) — extract the name from the first string argument
+                let name = call
+                    .args
+                    .first()
+                    .and_then(|a| extract_string_lit(&a.expr))
+                    .unwrap_or_else(|| "step".to_string());
+                let id = self.next_id();
+                let node_id = self.add_node(DagNode {
+                    id: id.clone(),
+                    node_type: DagNodeType::InlineStep { name: name.clone() },
+                    label: name,
+                    line,
+                });
+                Some((node_id.clone(), node_id))
+            }
+            "sleep" => {
+                // sleep(N) — extract the duration from the first argument
+                let seconds = call
+                    .args
+                    .first()
+                    .map(|a| {
+                        self.cm
+                            .span_to_snippet(a.expr.span())
+                            .unwrap_or_else(|_| "?".to_string())
+                    })
+                    .unwrap_or_else(|| "?".to_string());
+                let id = self.next_id();
+                let node_id = self.add_node(DagNode {
+                    id: id.clone(),
+                    node_type: DagNodeType::Sleep { seconds: seconds.clone() },
+                    label: format!("sleep({seconds})"),
+                    line,
+                });
+                Some((node_id.clone(), node_id))
+            }
+            "waitForApproval" => {
+                let id = self.next_id();
+                let node_id = self.add_node(DagNode {
+                    id: id.clone(),
+                    node_type: DagNodeType::WaitForApproval,
+                    label: "waitForApproval".to_string(),
+                    line,
+                });
+                Some((node_id.clone(), node_id))
+            }
+            _ => None,
+        }
     }
 
     fn emit_step(&mut self, call: &CallExpr, expr: &Expr) -> Option<(String, String)> {
@@ -628,6 +718,19 @@ pub fn parse_ts_workflow(code: &str) -> Result<WorkflowDag, Vec<CompileError>> {
                     if let Some(result) = find_workflow_call(init, &cm) {
                         workflow_body = Some(result);
                         break;
+                    }
+                }
+            }
+        }
+        // export const main = workflow(async (...) => { ... })
+        if let ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) = item {
+            if let Decl::Var(var_decl) = &export.decl {
+                for decl in &var_decl.decls {
+                    if let Some(init) = &decl.init {
+                        if let Some(result) = find_workflow_call(init, &cm) {
+                            workflow_body = Some(result);
+                            break;
+                        }
                     }
                 }
             }

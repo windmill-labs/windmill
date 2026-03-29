@@ -19,6 +19,8 @@
 	} from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs, inferAssets, inferAnsibleExecutionMode } from '$lib/infer'
+	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
+	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
@@ -135,7 +137,7 @@
 		watchChanges?: boolean
 		customUi?: ScriptEditorWhitelabelCustomUi | undefined
 		args: Record<string, any>
-		selectedTab?: 'main' | 'preprocessor'
+		selectedTab?: 'main' | 'preprocessor' | 'diagram'
 		hasPreprocessor?: boolean
 		captureTable?: CaptureTable | undefined
 		showCaptures?: boolean
@@ -1204,7 +1206,8 @@
 		)
 	}
 
-	let showTabs = $derived(hasPreprocessor)
+	let isWac = $derived(code && lang ? isWorkflowAsCode(code, lang) : false)
+	let showTabs = $derived(hasPreprocessor || isWac)
 	$effect(() => {
 		!hasPreprocessor && (selectedTab = 'main')
 	})
@@ -1445,6 +1448,11 @@
 									<Tab value="preprocessor" label="Preprocessor" />
 								</div>
 							{/if}
+							{#if isWac}
+								<div transition:slide={{ duration: 200, axis: 'x' }}>
+									<Tab value="diagram" label="Diagram" />
+								</div>
+							{/if}
 						</Tabs>
 					</div>
 				{/if}
@@ -1467,203 +1475,209 @@
 					</div>
 				{/if}
 
-				<div class="flex justify-center pt-1 relative">
-					<div class="absolute top-2 left-2">
-						<HideButton
-							hidden={false}
-							direction="right"
-							panelName="Test"
-							shortcut="U"
-							size="md"
-							on:click={() => {
-								toggleTestPanel()
-							}}
-						/>
+				{#if selectedTab === 'diagram'}
+					<div class="flex-1 min-h-0">
+						<WacDiagram {code} language={lang} />
 					</div>
-					{#if !(debugMode && isDebuggableScript)}
-						<div class="flex flex-row gap-2">
-							<div
-								class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch"
-							>
-								{#if testIsLoading}
-									<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" unifiedSize="md">
-										<WindmillIcon
-											white={true}
-											class="mr-2 text-white"
-											height="16px"
-											width="20px"
-											spin="fast"
-										/>
-										Cancel
-									</Button>
-								{:else}
-									{@const disableTriggerButton =
-										customUi?.previewPanel?.disableTriggerButton === true}
-									<Button
-										on:click={() => runTest()}
-										unifiedSize="md"
-										btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
-										variant="accent-secondary"
-										startIcon={{ icon: Play, classes: 'animate-none' }}
-										shortCut={{ Icon: CornerDownLeft }}
-									>
-										Test
-									</Button>
-									{#if !disableTriggerButton}
-										<CaptureButton on:openTriggers />
+				{:else}
+					<div class="flex justify-center pt-1 relative">
+						<div class="absolute top-2 left-2">
+							<HideButton
+								hidden={false}
+								direction="right"
+								panelName="Test"
+								shortcut="U"
+								size="md"
+								on:click={() => {
+									toggleTestPanel()
+								}}
+							/>
+						</div>
+						{#if !(debugMode && isDebuggableScript)}
+							<div class="flex flex-row gap-2">
+								<div
+									class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch"
+								>
+									{#if testIsLoading}
+										<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" unifiedSize="md">
+											<WindmillIcon
+												white={true}
+												class="mr-2 text-white"
+												height="16px"
+												width="20px"
+												spin="fast"
+											/>
+											Cancel
+										</Button>
+									{:else}
+										{@const disableTriggerButton =
+											customUi?.previewPanel?.disableTriggerButton === true}
+										<Button
+											on:click={() => runTest()}
+											unifiedSize="md"
+											btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
+											variant="accent-secondary"
+											startIcon={{ icon: Play, classes: 'animate-none' }}
+											shortCut={{ Icon: CornerDownLeft }}
+										>
+											Test
+										</Button>
+										{#if !disableTriggerButton}
+											<CaptureButton on:openTriggers />
+										{/if}
 									{/if}
+								</div>
+								{#if lastRecording}
+									<Button
+										on:click={downloadRecording}
+										unifiedSize="md"
+										startIcon={{ icon: Download }}
+										iconOnly
+										title="Download recording"
+									/>
 								{/if}
 							</div>
-							{#if lastRecording}
-								<Button
-									on:click={downloadRecording}
-									unifiedSize="md"
-									startIcon={{ icon: Download }}
-									iconOnly
-									title="Download recording"
-								/>
-							{/if}
-						</div>
-					{/if}
-					<div class="absolute top-2 right-2 flex items-center gap-2">
-						<Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} />
-						<DropdownV2
-							size="xs"
-							items={[
-								{
-									displayName: 'Test & record',
-									icon: Disc,
-									action: () => recordAndTest()
-								}
-							]}
-						/>
-					</div>
-				</div>
-				<Splitpanes
-					horizontal
-					class="!max-h-[calc(100%-{debugMode && isDebuggableScript ? '83' : '43'}px)]"
-				>
-					<Pane size={33}>
-						{#if jsonView}
-							<div
-								class="py-2"
-								style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
-								data-schema-picker
-							>
-								<JsonInputs
-									on:select={(e) => {
-										if (e.detail) {
-											if (activeModuleTab !== null) {
-												testPanelArgs = e.detail
-											} else {
-												args = e.detail
-											}
-										}
-									}}
-									updateOnBlur={false}
-									placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
-								/>
-							</div>
-						{:else}
-							<div class="px-4">
-								<div class="break-words relative font-sans" bind:clientHeight={schemaHeight}>
-									{#key argsRender}
-										{#if activeModuleTab !== null}
-											<SchemaForm
-												helperScript={{
-													source: 'inline',
-													code: editorCode,
-													//@ts-ignore
-													lang: effectiveLang
-												}}
-												compact
-												schema={testPanelSchema}
-												bind:args={testPanelArgs}
-												bind:isValid
-												noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
-												showSchemaExplorer
-											/>
-										{:else}
-											<SchemaForm
-												helperScript={{
-													source: 'inline',
-													code,
-													//@ts-ignore
-													lang
-												}}
-												compact
-												{schema}
-												bind:args
-												bind:isValid
-												noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
-												showSchemaExplorer
-											/>
-										{/if}
-									{/key}
-								</div>
-							</div>
 						{/if}
-					</Pane>
-					<Pane size={67} class="relative">
-						<LogPanel
-							bind:this={logPanel}
-							{lang}
-							previewJob={debugMode
-								? ({
-										id: 'debug',
-										logs: $debugState.logs,
-										result: $debugState.result,
-										success: !$debugState.error,
-										type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
-									} as any)
-								: testJob}
-							{pastPreviews}
-							previewIsLoading={debugMode
-								? $debugState.running && !$debugState.stopped
-								: testIsLoading}
-							{editor}
-							{diffEditor}
-							args={activeModuleTab !== null ? testPanelArgs : args}
-							{showCaptures}
-							customUi={customUi?.previewPanel}
-							showCustomResultPanel={showDebugPanel}
-						>
-							{#if scriptProgress && !debugMode}
-								<!-- Put to the slot in logpanel -->
-								<JobProgressBar
-									job={testJob}
-									{scriptProgress}
-									bind:this={jobProgressBar}
-									compact={true}
-								/>
-							{/if}
-							{#snippet capturesTab()}
-								<div class="h-full p-2">
-									<CaptureTable
-										bind:this={captureTable}
-										{hasPreprocessor}
-										canHavePreprocessor={canHavePreprocessor(lang)}
-										isFlow={false}
-										path={stablePathForCaptures}
-										canEdit={true}
-										on:applyArgs
-										on:updateSchema
-										on:addPreprocessor
+						<div class="absolute top-2 right-2 flex items-center gap-2">
+							<Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} />
+							<DropdownV2
+								size="xs"
+								items={[
+									{
+										displayName: 'Test & record',
+										icon: Disc,
+										action: () => recordAndTest()
+									}
+								]}
+							/>
+						</div>
+					</div>
+					<Splitpanes
+						horizontal
+						class="!max-h-[calc(100%-{debugMode && isDebuggableScript ? '83' : '43'}px)]"
+					>
+						<Pane size={33}>
+							{#if jsonView}
+								<div
+									class="py-2"
+									style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
+									data-schema-picker
+								>
+									<JsonInputs
+										on:select={(e) => {
+											if (e.detail) {
+												if (activeModuleTab !== null) {
+													testPanelArgs = e.detail
+												} else {
+													args = e.detail
+												}
+											}
+										}}
+										updateOnBlur={false}
+										placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 									/>
 								</div>
-							{/snippet}
-							{#snippet customResultPanel()}
-								<DebugPanel
-									stackFrames={$debugState.stackFrames}
-									scopes={$debugState.scopes}
-									variables={$debugState.variables}
-									client={dapClient}
-									bind:selectedFrameId={selectedDebugFrameId}
-								/>
-							{/snippet}
-						</LogPanel>
-					</Pane>
-				</Splitpanes>
+							{:else}
+								<div class="px-4">
+									<div class="break-words relative font-sans" bind:clientHeight={schemaHeight}>
+										{#key argsRender}
+											{#if activeModuleTab !== null}
+												<SchemaForm
+													helperScript={{
+														source: 'inline',
+														code: editorCode,
+														//@ts-ignore
+														lang: effectiveLang
+													}}
+													compact
+													schema={testPanelSchema}
+													bind:args={testPanelArgs}
+													bind:isValid
+													noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
+													showSchemaExplorer
+												/>
+											{:else}
+												<SchemaForm
+													helperScript={{
+														source: 'inline',
+														code,
+														//@ts-ignore
+														lang
+													}}
+													compact
+													{schema}
+													bind:args
+													bind:isValid
+													noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
+													showSchemaExplorer
+												/>
+											{/if}
+										{/key}
+									</div>
+								</div>
+							{/if}
+						</Pane>
+						<Pane size={67} class="relative">
+							<LogPanel
+								bind:this={logPanel}
+								{lang}
+								previewJob={debugMode
+									? ({
+											id: 'debug',
+											logs: $debugState.logs,
+											result: $debugState.result,
+											success: !$debugState.error,
+											type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
+										} as any)
+									: testJob}
+								{pastPreviews}
+								previewIsLoading={debugMode
+									? $debugState.running && !$debugState.stopped
+									: testIsLoading}
+								{editor}
+								{diffEditor}
+								args={activeModuleTab !== null ? testPanelArgs : args}
+								{showCaptures}
+								customUi={customUi?.previewPanel}
+								showCustomResultPanel={showDebugPanel}
+							>
+								{#if scriptProgress && !debugMode}
+									<!-- Put to the slot in logpanel -->
+									<JobProgressBar
+										job={testJob}
+										{scriptProgress}
+										bind:this={jobProgressBar}
+										compact={true}
+									/>
+								{/if}
+								{#snippet capturesTab()}
+									<div class="h-full p-2">
+										<CaptureTable
+											bind:this={captureTable}
+											{hasPreprocessor}
+											canHavePreprocessor={canHavePreprocessor(lang)}
+											isFlow={false}
+											path={stablePathForCaptures}
+											canEdit={true}
+											on:applyArgs
+											on:updateSchema
+											on:addPreprocessor
+										/>
+									</div>
+								{/snippet}
+								{#snippet customResultPanel()}
+									<DebugPanel
+										stackFrames={$debugState.stackFrames}
+										scopes={$debugState.scopes}
+										variables={$debugState.variables}
+										client={dapClient}
+										bind:selectedFrameId={selectedDebugFrameId}
+									/>
+								{/snippet}
+							</LogPanel>
+						</Pane>
+					</Splitpanes>
+				{/if}
 			</div>
 		</Pane>
 	</Splitpanes>

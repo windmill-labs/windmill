@@ -55,6 +55,8 @@ import wasmUrlNu from 'windmill-parser-wasm-nu/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlJava from 'windmill-parser-wasm-java/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRuby from 'windmill-parser-wasm-ruby/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlAsset from 'windmill-parser-wasm-asset/windmill_parser_wasm_bg.wasm?url'
+import initWacParser, { parse_workflow_as_code } from 'windmill-parser-wasm-wac'
+import wasmUrlWac from 'windmill-parser-wasm-wac/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 import { type AssetWithAccessType } from './components/assets/lib.js'
@@ -102,20 +104,76 @@ async function initWasmRuby() {
 async function initWasmAsset() {
 	await initAssetParser(wasmUrlAsset)
 }
+let initializeWacPromise: Promise<any> | undefined = undefined
+async function initWasmWac() {
+	if (initializeWacPromise == undefined) {
+		initializeWacPromise = initWacParser(wasmUrlWac)
+	}
+	await initializeWacPromise
+}
+
+export type WacDagNode = {
+	id: string
+	node_type:
+		| { type: 'Step'; name: string; script: string }
+		| { type: 'InlineStep'; name: string }
+		| { type: 'Sleep'; seconds: string }
+		| { type: 'WaitForApproval' }
+		| { type: 'Branch'; condition_source: string }
+		| { type: 'ParallelStart' }
+		| { type: 'ParallelEnd' }
+		| { type: 'LoopStart'; iter_source: string }
+		| { type: 'LoopEnd' }
+		| { type: 'Return' }
+	label: string
+	line: number
+}
+
+export type WacDagEdge = {
+	from: string
+	to: string
+	label?: string
+}
+
+export type WacWorkflowDag = {
+	nodes: WacDagNode[]
+	edges: WacDagEdge[]
+	params: { name: string; typ?: string }[]
+	source_hash: string
+}
+
+export async function parseWacDag(
+	code: string,
+	language: string
+): Promise<WacWorkflowDag | { errors: { message: string; line: number }[] } | null> {
+	try {
+		await initWasmWac()
+		const raw = parse_workflow_as_code(code, language)
+		const result = JSON.parse(raw)
+		if (result.type === 'success') {
+			return result as WacWorkflowDag
+		} else if (result.type === 'error') {
+			return { errors: result.errors }
+		}
+		return null
+	} catch {
+		return null
+	}
+}
 
 type InferAssetsResult =
 	| {
-		status: 'ok'
-		assets: AssetWithAccessType[]
-		sql_queries?: InferAssetsSqlQueryDetails[]
-		columns?: Record<string, AssetUsageAccessType>
-	}
+			status: 'ok'
+			assets: AssetWithAccessType[]
+			sql_queries?: InferAssetsSqlQueryDetails[]
+			columns?: Record<string, AssetUsageAccessType>
+	  }
 	| {
-		status: 'error'
-		error: string
-		assets?: undefined
-		sql_queries?: undefined
-	}
+			status: 'error'
+			error: string
+			assets?: undefined
+			sql_queries?: undefined
+	  }
 
 export type InferAssetsSqlQueryDetails = {
 	query_string: string // SQL query with $1 placeholders for interpolations

@@ -243,3 +243,157 @@ export default workflow(async (x: number) => {
         _ => panic!("expected Step node"),
     }
 }
+
+#[test]
+fn test_task_script_and_task_flow() {
+    let code = r#"
+import { workflow, task, taskScript, taskFlow } from "windmill-client";
+
+const helper = taskScript("./helper.ts");
+const pipeline = taskFlow("f/etl/pipeline");
+const process = task(async (x: string) => {});
+
+export default workflow(async (x: string) => {
+  const a = await process(x);
+  const b = await helper({ a });
+  const c = await pipeline({ b });
+  return { a, b, c };
+});
+"#;
+
+    let dag = parse_ts_workflow(code).expect("should parse");
+    assert_eq!(dag.nodes.len(), 4); // 3 steps + 1 return
+
+    match &dag.nodes[0].node_type {
+        DagNodeType::Step { name, script } => {
+            assert_eq!(name, "process");
+            assert_eq!(script, "process");
+        }
+        _ => panic!("expected Step node"),
+    }
+
+    match &dag.nodes[1].node_type {
+        DagNodeType::Step { name, script } => {
+            assert_eq!(name, "helper");
+            assert_eq!(script, "./helper.ts");
+        }
+        _ => panic!("expected Step node for taskScript"),
+    }
+
+    match &dag.nodes[2].node_type {
+        DagNodeType::Step { name, script } => {
+            assert_eq!(name, "pipeline");
+            assert_eq!(script, "f/etl/pipeline");
+        }
+        _ => panic!("expected Step node for taskFlow"),
+    }
+}
+
+#[test]
+fn test_full_template_with_sdk_calls() {
+    let code = r#"
+import { task, taskScript, step, sleep, waitForApproval, getResumeUrls, workflow } from "windmill-client";
+
+const helper = taskScript("./helper.ts");
+const process = task(async (x: string): Promise<string> => {
+  return `processed: ${x}`;
+});
+
+export const main = workflow(async (x: string) => {
+  const a = await process(x);
+  const b = await helper({ a });
+  const urls = await step("get_urls", () => getResumeUrls());
+  await sleep(1);
+  const approval = await waitForApproval({ timeout: 3600 });
+  return { processed: a, helper_result: b, approval };
+});
+"#;
+
+    let dag = parse_ts_workflow(code).expect("should parse");
+    // process, helper, step("get_urls"), sleep(1), waitForApproval, return = 6
+    assert_eq!(dag.nodes.len(), 6);
+    assert_eq!(dag.edges.len(), 5);
+
+    assert!(matches!(dag.nodes[0].node_type, DagNodeType::Step { .. }));
+
+    match &dag.nodes[1].node_type {
+        DagNodeType::Step { name, script } => {
+            assert_eq!(name, "helper");
+            assert_eq!(script, "./helper.ts");
+        }
+        _ => panic!("expected Step node"),
+    }
+
+    match &dag.nodes[2].node_type {
+        DagNodeType::InlineStep { name } => {
+            assert_eq!(name, "get_urls");
+        }
+        _ => panic!("expected InlineStep node, got {:?}", dag.nodes[2].node_type),
+    }
+
+    match &dag.nodes[3].node_type {
+        DagNodeType::Sleep { seconds } => {
+            assert_eq!(seconds, "1");
+        }
+        _ => panic!("expected Sleep node, got {:?}", dag.nodes[3].node_type),
+    }
+
+    assert!(matches!(
+        dag.nodes[4].node_type,
+        DagNodeType::WaitForApproval
+    ));
+    assert!(matches!(dag.nodes[5].node_type, DagNodeType::Return));
+}
+
+#[test]
+fn test_complex_mixed_workflow() {
+    let code = r#"
+import { workflow, task, step, sleep } from "windmill-client";
+
+const validate = task(async (data: any) => {});
+const process_csv = task(async (data: any) => {});
+const process_json = task(async (data: any) => {});
+const enrich = task(async (item: any) => {});
+const store = task(async (data: any) => {});
+
+export default workflow(async (data: any) => {
+  const validated = await validate(data);
+  if (validated.format === "csv") {
+    const parsed = await process_csv(validated);
+    for (const row of parsed.rows) {
+      await enrich(row);
+    }
+  } else {
+    await process_json(validated);
+  }
+  await sleep(5);
+  const ts = await step("timestamp", () => new Date().toISOString());
+  await store(validated);
+  return { done: true };
+});
+"#;
+
+    let dag = parse_ts_workflow(code).expect("should parse");
+
+    // validate, Branch, process_csv, LoopStart, enrich, LoopEnd, process_json,
+    // sleep(5), step("timestamp"), store, return = 11
+    assert_eq!(dag.nodes.len(), 11);
+
+    assert!(matches!(dag.nodes[0].node_type, DagNodeType::Step { .. }));
+    assert!(matches!(dag.nodes[1].node_type, DagNodeType::Branch { .. }));
+    assert!(matches!(dag.nodes[2].node_type, DagNodeType::Step { .. })); // process_csv
+    assert!(matches!(
+        dag.nodes[3].node_type,
+        DagNodeType::LoopStart { .. }
+    ));
+    assert!(matches!(dag.nodes[4].node_type, DagNodeType::Step { .. })); // enrich
+    assert!(matches!(dag.nodes[5].node_type, DagNodeType::LoopEnd));
+    assert!(matches!(dag.nodes[6].node_type, DagNodeType::Step { .. })); // process_json
+    assert!(matches!(dag.nodes[7].node_type, DagNodeType::Sleep { .. }));
+    assert!(matches!(
+        dag.nodes[8].node_type,
+        DagNodeType::InlineStep { .. }
+    )); // timestamp
+    assert!(matches!(dag.nodes[9].node_type, DagNodeType::Step { .. })); // store
+    assert!(matches!(dag.nodes[10].node_type, DagNodeType::Return));
+}

@@ -264,3 +264,89 @@ async def my_wf(x: int):
         _ => panic!("expected Step node"),
     }
 }
+
+#[test]
+fn test_task_script_and_task_flow_py() {
+    let code = r#"
+from wmill import workflow, task, task_script, task_flow
+
+helper = task_script("./helper.py")
+pipeline = task_flow("f/etl/pipeline")
+
+@task()
+async def process(x: str) -> str:
+    return f"processed: {x}"
+
+@workflow
+async def main(x: str):
+    a = await process(x=x)
+    b = await helper(a=a)
+    c = await pipeline(b=b)
+    return {"a": a, "b": b, "c": c}
+"#;
+
+    let dag = parse_python_workflow(code).expect("should parse");
+    assert_eq!(dag.nodes.len(), 4); // 3 steps + 1 return
+
+    match &dag.nodes[1].node_type {
+        DagNodeType::Step { name, script } => {
+            assert_eq!(name, "helper");
+            assert_eq!(script, "./helper.py");
+        }
+        _ => panic!("expected Step node for task_script"),
+    }
+
+    match &dag.nodes[2].node_type {
+        DagNodeType::Step { name, script } => {
+            assert_eq!(name, "pipeline");
+            assert_eq!(script, "f/etl/pipeline");
+        }
+        _ => panic!("expected Step node for task_flow"),
+    }
+}
+
+#[test]
+fn test_full_template_with_sdk_calls_py() {
+    let code = r#"
+from wmill import workflow, task, task_script, step, sleep, wait_for_approval, get_resume_urls
+
+helper = task_script("./helper.py")
+
+@task()
+async def process(x: str) -> str:
+    return f"processed: {x}"
+
+@workflow
+async def main(x: str):
+    a = await process(x=x)
+    b = await helper(a=a)
+    urls = await step("get_urls", lambda: get_resume_urls())
+    await sleep(1)
+    approval = await wait_for_approval(timeout=3600)
+    return {"processed": a, "helper_result": b, "approval": approval}
+"#;
+
+    let dag = parse_python_workflow(code).expect("should parse");
+    // process, helper, step("get_urls"), sleep(1), wait_for_approval, return = 6
+    assert_eq!(dag.nodes.len(), 6);
+
+    match &dag.nodes[2].node_type {
+        DagNodeType::InlineStep { name } => {
+            assert_eq!(name, "get_urls");
+        }
+        _ => panic!("expected InlineStep node, got {:?}", dag.nodes[2].node_type),
+    }
+
+    match &dag.nodes[3].node_type {
+        DagNodeType::Sleep { seconds } => {
+            assert_eq!(seconds, "1");
+        }
+        _ => panic!("expected Sleep node, got {:?}", dag.nodes[3].node_type),
+    }
+
+    assert!(matches!(
+        dag.nodes[4].node_type,
+        DagNodeType::WaitForApproval
+    ));
+    assert!(matches!(dag.nodes[5].node_type, DagNodeType::Return));
+}

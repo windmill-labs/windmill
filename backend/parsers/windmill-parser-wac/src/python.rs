@@ -37,7 +37,8 @@ impl LineIndex {
 /// Maps task function name → optional external path (from `@task(path="...")`)
 type TaskFunctions = HashMap<String, Option<String>>;
 
-/// First pass: scan top-level `@task async def foo(...)` declarations.
+/// First pass: scan top-level `@task async def foo(...)` declarations
+/// and `foo = task_script("path")` / `foo = task_flow("path")` assignments.
 fn collect_task_functions(stmts: &[Stmt]) -> TaskFunctions {
     let mut tasks = HashMap::new();
     for stmt in stmts {
@@ -58,6 +59,30 @@ fn collect_task_functions(stmts: &[Stmt]) -> TaskFunctions {
                         }
                     }
                     _ => {}
+                }
+            }
+        }
+        // foo = task_script("path") or foo = task_flow("path")
+        if let Stmt::Assign(assign) = stmt {
+            if let Expr::Call(call) = assign.value.as_ref() {
+                if let Expr::Name(ExprName { id, .. }) = call.func.as_ref() {
+                    if id.as_str() == "task_script" || id.as_str() == "task_flow" {
+                        // Extract the path from the first positional argument
+                        let path = call.args.first().and_then(|arg| {
+                            if let Expr::Constant(c) = arg {
+                                if let rustpython_parser::ast::Constant::Str(s) = &c.value {
+                                    return Some(s.to_string());
+                                }
+                            }
+                            None
+                        });
+                        // Extract variable name from target
+                        if let Some(Expr::Name(ExprName { id: var_name, .. })) =
+                            assign.targets.first()
+                        {
+                            tasks.insert(var_name.to_string(), path);
+                        }
+                    }
                 }
             }
         }
@@ -292,6 +317,9 @@ impl WacWalker {
         if self.is_task_fn_call(expr) {
             return true;
         }
+        if Self::is_sdk_call(expr) {
+            return true;
+        }
         match expr {
             Expr::Await(ExprAwait { value, .. }) => self.expr_contains_step(value),
             Expr::Call(call) => {
@@ -305,6 +333,17 @@ impl WacWalker {
             }
             _ => false,
         }
+    }
+
+    /// Check if expr is a call to a known SDK function (step, sleep, wait_for_approval)
+    fn is_sdk_call(expr: &Expr) -> bool {
+        if let Expr::Call(call) = expr {
+            if let Expr::Name(ExprName { id, .. }) = call.func.as_ref() {
+                let name = id.as_str();
+                return name == "step" || name == "sleep" || name == "wait_for_approval";
+            }
+        }
+        false
     }
 
     /// Walk a list of statements, returning (first_node_id, last_node_id)
@@ -353,12 +392,16 @@ impl WacWalker {
     }
 
     fn walk_expr_stmt(&mut self, expr: &Expr) -> Option<(String, String)> {
-        // await task_fn(...)
+        // await task_fn(...) / await step(...) / await sleep(...) / await wait_for_approval(...)
         if let Expr::Await(ExprAwait { value, .. }) = expr {
             // await task_fn(...)
             if let Expr::Call(call) = value.as_ref() {
                 if self.is_task_fn_call(&Expr::Call(call.clone())) {
                     return self.emit_step(call, expr);
+                }
+                // Check for SDK-level calls: step(), sleep(), wait_for_approval()
+                if let Some(result) = self.try_emit_sdk_call(call, expr) {
+                    return Some(result);
                 }
             }
             // await asyncio.gather(task_fn(...), task_fn(...), ...)
@@ -376,6 +419,68 @@ impl WacWalker {
         }
 
         None
+    }
+
+    /// Try to emit a node for SDK-level calls: step(), sleep(), wait_for_approval()
+    fn try_emit_sdk_call(&mut self, call: &ExprCall, expr: &Expr) -> Option<(String, String)> {
+        let callee_name = match call.func.as_ref() {
+            Expr::Name(ExprName { id, .. }) => Some(id.as_str()),
+            _ => None,
+        }?;
+
+        let line = self.line_of_expr(expr);
+
+        match callee_name {
+            "step" => {
+                // step("name", fn) — extract the name from the first string argument
+                let name = call
+                    .args
+                    .first()
+                    .and_then(|arg| {
+                        if let Expr::Constant(c) = arg {
+                            if let rustpython_parser::ast::Constant::Str(s) = &c.value {
+                                return Some(s.to_string());
+                            }
+                        }
+                        None
+                    })
+                    .unwrap_or_else(|| "step".to_string());
+                let id = self.next_id();
+                let node_id = self.add_node(DagNode {
+                    id: id.clone(),
+                    node_type: DagNodeType::InlineStep { name: name.clone() },
+                    label: name,
+                    line,
+                });
+                Some((node_id.clone(), node_id))
+            }
+            "sleep" => {
+                let seconds = call
+                    .args
+                    .first()
+                    .map(|arg| Self::expr_to_source(arg))
+                    .unwrap_or_else(|| "?".to_string());
+                let id = self.next_id();
+                let node_id = self.add_node(DagNode {
+                    id: id.clone(),
+                    node_type: DagNodeType::Sleep { seconds: seconds.clone() },
+                    label: format!("sleep({seconds})"),
+                    line,
+                });
+                Some((node_id.clone(), node_id))
+            }
+            "wait_for_approval" => {
+                let id = self.next_id();
+                let node_id = self.add_node(DagNode {
+                    id: id.clone(),
+                    node_type: DagNodeType::WaitForApproval,
+                    label: "wait_for_approval".to_string(),
+                    line,
+                });
+                Some((node_id.clone(), node_id))
+            }
+            _ => None,
+        }
     }
 
     fn emit_step(&mut self, call: &ExprCall, expr: &Expr) -> Option<(String, String)> {
