@@ -7,9 +7,9 @@ use std::sync::LazyLock;
 use crate::error::{Error, Result};
 use crate::worker::CLOUD_HOSTED;
 
-const DEFAULT_PER_IP_LIMIT: i32 = 30;
-const DEFAULT_PER_ACCOUNT_LIMIT: i32 = 10;
-const DEFAULT_GLOBAL_LIMIT: i32 = 120;
+const DEFAULT_PER_IP_LIMIT: i32 = 60;
+const DEFAULT_PER_ACCOUNT_LIMIT: i32 = 20;
+const DEFAULT_GLOBAL_LIMIT: i32 = 600;
 const EVICTION_INTERVAL: u64 = 256;
 
 struct RateLimitEntry {
