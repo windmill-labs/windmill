@@ -8,6 +8,7 @@
 
 //! Query builders for filtering job lists (queue and completed).
 
+use serde_json;
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use windmill_common::utils::{escape_ilike_pattern, paginate_without_limits, Pagination};
@@ -200,7 +201,11 @@ pub fn filter_list_queue_query(
     }
 
     if let Some(args) = &lq.args {
-        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            sqlb.and_where("args @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
 
     if lq.scheduled_for_before_now.is_some_and(|x| x) {
@@ -499,11 +504,19 @@ pub fn filter_list_completed_query(
     }
 
     if let Some(args) = &lq.args {
-        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            sqlb.and_where("args @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
 
     if let Some(result) = &lq.result {
-        sqlb.and_where("result @> ?".bind(&result.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(result) {
+            sqlb.and_where("result @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
 
     if lq.is_not_schedule.unwrap_or(false) {

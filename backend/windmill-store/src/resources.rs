@@ -297,7 +297,11 @@ async fn list_resources(
     }
 
     if let Some(value) = &lq.value {
-        sqlb.and_where("resource.value @> ?".bind(&value.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(value) {
+            sqlb.and_where("resource.value @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
 
     if let Some(broad_filter) = &lq.broad_filter {

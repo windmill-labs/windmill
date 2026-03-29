@@ -138,7 +138,11 @@ async fn get_input_history(
     let mut tx = user_db.begin(&authed).await?;
 
     let args_query = if let Some(args) = &g.args {
-        sql_builder::bind::Bind::bind(&"and v2_job.args @> ?", &args.replace("'", "''"))
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            sql_builder::bind::Bind::bind(&"and v2_job.args @> ?", &v.to_string())
+        } else {
+            "AND FALSE".to_string()
+        }
     } else {
         "".to_string()
     };
