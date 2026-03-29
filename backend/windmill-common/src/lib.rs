@@ -69,6 +69,7 @@ pub mod git_sync_ee;
 pub mod git_sync_oss;
 pub mod jobs;
 pub mod jwt;
+pub mod login_rate_limit;
 pub mod more_serde;
 pub mod oauth2;
 #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
