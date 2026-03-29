@@ -12,6 +12,23 @@ use sha1::Sha1;
 use sha2::{Sha256, Sha512};
 use std::{borrow::Cow, collections::HashMap};
 
+const MAX_TIMESTAMP_AGE_SECS: i64 = 300; // 5 minutes
+
+fn validate_unix_timestamp(timestamp_str: &str) -> Result<(), AuthenticationError> {
+    let ts: i64 = timestamp_str
+        .parse()
+        .map_err(|_| AuthenticationError::InvalidTimestamp)?;
+    let now = chrono::Utc::now().timestamp();
+    let diff = now - ts;
+    if diff > MAX_TIMESTAMP_AGE_SECS {
+        return Err(AuthenticationError::TimestampTooOldError);
+    }
+    if diff < -MAX_TIMESTAMP_AGE_SECS {
+        return Err(AuthenticationError::FutureTimestampError);
+    }
+    Ok(())
+}
+
 pub type HmacSha256 = Hmac<Sha256>;
 pub type HmacSha512 = Hmac<Sha512>;
 pub type HmacSha1 = Hmac<Sha1>;
@@ -82,6 +99,11 @@ mod slack {
                 SignatureAuthenticationDetails::new(HmacAlgorithm::Sha256, Encoding::Hex),
             ))
         }
+
+        fn validate_timestamp(&self, headers: &HeaderMap) -> Result<(), AuthenticationError> {
+            let ts = headers.try_get_webhook_header("X-Slack-Request-Timestamp")?;
+            validate_unix_timestamp(ts)
+        }
     }
 }
 
@@ -126,6 +148,13 @@ mod stripe {
                 SignatureAuthenticationDetails::new(HmacAlgorithm::Sha256, Encoding::Hex),
             ))
         }
+
+        fn validate_timestamp(&self, headers: &HeaderMap) -> Result<(), AuthenticationError> {
+            let sig_header = headers.try_get_webhook_header("STRIPE-SIGNATURE")?;
+            let sig = parse_signature(sig_header, (",", "="));
+            let ts = *sig.get("t").ok_or(AuthenticationError::InvalidTimestamp)?;
+            validate_unix_timestamp(ts)
+        }
     }
 }
 
@@ -169,6 +198,13 @@ mod tiktok {
                 None,
                 SignatureAuthenticationDetails::new(HmacAlgorithm::Sha256, Encoding::Hex),
             ))
+        }
+
+        fn validate_timestamp(&self, headers: &HeaderMap) -> Result<(), AuthenticationError> {
+            let sig_header = headers.try_get_webhook_header("TikTok-Signature")?;
+            let sig = parse_signature(sig_header, (",", "="));
+            let ts = *sig.get("t").ok_or(AuthenticationError::InvalidTimestamp)?;
+            validate_unix_timestamp(ts)
         }
     }
 }
@@ -243,6 +279,23 @@ mod twitch {
             );
 
             Ok(Some(response.into_response()))
+        }
+
+        fn validate_timestamp(&self, headers: &HeaderMap) -> Result<(), AuthenticationError> {
+            let ts_str = headers.try_get_webhook_header("Twitch-Eventsub-Message-Timestamp")?;
+            let ts: chrono::DateTime<chrono::Utc> = chrono::DateTime::parse_from_rfc3339(ts_str)
+                .map_err(|_| AuthenticationError::InvalidTimestamp)?
+                .into();
+            let now = chrono::Utc::now();
+            let diff = (now - ts).num_seconds();
+            // Twitch recommends 10 minutes tolerance
+            if diff > 600 {
+                return Err(AuthenticationError::TimestampTooOldError);
+            }
+            if diff < -600 {
+                return Err(AuthenticationError::FutureTimestampError);
+            }
+            Ok(())
         }
     }
 }
@@ -321,6 +374,11 @@ mod zoom {
                 SignatureAuthenticationDetails::new(HmacAlgorithm::Sha256, Encoding::Hex),
             ))
         }
+
+        fn validate_timestamp(&self, headers: &HeaderMap) -> Result<(), AuthenticationError> {
+            let ts = headers.try_get_webhook_header("x-zm-request-timestamp")?;
+            validate_unix_timestamp(ts)
+        }
     }
 }
 
@@ -397,6 +455,10 @@ pub trait WebhookHandler {
         headers: &'header HeaderMap,
         raw_payload: &'payload str,
     ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, AuthenticationError>;
+
+    fn validate_timestamp(&self, _headers: &HeaderMap) -> Result<(), AuthenticationError> {
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -592,6 +654,10 @@ impl AuthenticationMethod {
                     return Ok(Some(challenge_response));
                 }
 
+                if let Some(handler) = handler {
+                    handler.validate_timestamp(headers)?;
+                }
+
                 let authentication_data = match handler {
                     Some(handler) => handler.get_hmac_authentication_data(headers, raw_payload)?,
                     None => {
@@ -667,7 +733,6 @@ impl AuthenticationMethod {
 }
 
 #[derive(thiserror::Error, Debug)]
-#[allow(unused)]
 pub enum AuthenticationError {
     #[error("failed to parse timestamp")]
     InvalidTimestamp,
@@ -1207,11 +1272,15 @@ mod tests {
         headers
     }
 
+    fn current_timestamp() -> String {
+        chrono::Utc::now().timestamp().to_string()
+    }
+
     #[test]
     fn test_slack_authenticate_valid() {
         let secret = "slack_signing_secret";
         let payload = "token=xxx&command=%2Ftest".to_string();
-        let timestamp = "1531420618";
+        let timestamp = &current_timestamp();
         let headers = slack_headers(secret, &payload, timestamp);
 
         let method = AuthenticationMethod::Signature(SignatureAuthentication {
@@ -1225,7 +1294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_slack_authenticate_wrong_timestamp() {
+    fn test_slack_authenticate_stale_timestamp_rejected() {
         let secret = "slack_secret";
         let payload = "data".to_string();
         let headers = slack_headers(secret, &payload, "1000000000");
@@ -1235,10 +1304,10 @@ mod tests {
             secret_key: secret.to_string(),
             authentication_config: None,
         });
-        // Constructed with timestamp "1000000000" but that's valid - it just needs to match
-        assert!(method
-            .authenticate_http_request(&headers, Some(&payload))
-            .is_ok());
+        assert!(matches!(
+            method.authenticate_http_request(&headers, Some(&payload)),
+            Err(AuthenticationError::TimestampTooOldError)
+        ));
     }
 
     // --- Stripe webhook end-to-end ---
@@ -1259,7 +1328,7 @@ mod tests {
     fn test_stripe_authenticate_valid() {
         let secret = "whsec_stripe_secret";
         let payload = r#"{"id":"evt_123"}"#.to_string();
-        let timestamp = "1614556800";
+        let timestamp = &current_timestamp();
         let headers = stripe_headers(secret, &payload, timestamp);
 
         let method = AuthenticationMethod::Signature(SignatureAuthentication {
@@ -1305,7 +1374,7 @@ mod tests {
     fn test_tiktok_authenticate_valid() {
         let secret = "tiktok_secret";
         let payload = r#"{"event":"video.upload"}"#.to_string();
-        let timestamp = "1700000000";
+        let timestamp = &current_timestamp();
         let headers = tiktok_headers(secret, &payload, timestamp);
 
         let method = AuthenticationMethod::Signature(SignatureAuthentication {
@@ -1350,17 +1419,16 @@ mod tests {
         headers
     }
 
+    fn current_rfc3339_timestamp() -> String {
+        chrono::Utc::now().to_rfc3339()
+    }
+
     #[test]
     fn test_twitch_authenticate_valid_notification() {
         let secret = "twitch_secret";
         let payload = r#"{"subscription":{},"event":{"user_id":"123"}}"#.to_string();
-        let headers = twitch_headers(
-            secret,
-            &payload,
-            "msg-123",
-            "2024-01-01T00:00:00Z",
-            "notification",
-        );
+        let ts = current_rfc3339_timestamp();
+        let headers = twitch_headers(secret, &payload, "msg-123", &ts, "notification");
 
         let method = AuthenticationMethod::Signature(SignatureAuthentication {
             signature_provider: WebhookType::Twitch,
@@ -1376,11 +1444,12 @@ mod tests {
     fn test_twitch_challenge_response() {
         let secret = "twitch_secret";
         let payload = r#"{"challenge":"test_challenge_string","subscription":{"id":"sub-123"}}"#;
+        let ts = current_rfc3339_timestamp();
         let headers = twitch_headers(
             secret,
             payload,
             "msg-456",
-            "2024-01-01T00:00:00Z",
+            &ts,
             "webhook_callback_verification",
         );
 
@@ -1396,13 +1465,8 @@ mod tests {
     fn test_twitch_non_challenge_returns_none() {
         let secret = "twitch_secret";
         let payload = r#"{"subscription":{},"event":{}}"#;
-        let headers = twitch_headers(
-            secret,
-            payload,
-            "msg-789",
-            "2024-01-01T00:00:00Z",
-            "notification",
-        );
+        let ts = current_rfc3339_timestamp();
+        let headers = twitch_headers(secret, payload, "msg-789", &ts, "notification");
 
         let handler = WebhookType::Twitch.get_webhook_handler().unwrap();
         let config_data = SignatureConfigData { secret_key: secret };
@@ -1434,7 +1498,7 @@ mod tests {
     fn test_zoom_authenticate_valid() {
         let secret = "zoom_secret";
         let payload = r#"{"event":"meeting.started"}"#.to_string();
-        let timestamp = "1700000000";
+        let timestamp = &current_timestamp();
         let headers = zoom_headers(secret, &payload, timestamp);
 
         let method = AuthenticationMethod::Signature(SignatureAuthentication {
@@ -1788,5 +1852,85 @@ mod tests {
     fn test_error_invalid_timestamp_is_400() {
         let response = AuthenticationError::InvalidTimestamp.into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // --- validate_unix_timestamp ---
+
+    #[test]
+    fn test_validate_unix_timestamp_current() {
+        let now = chrono::Utc::now().timestamp().to_string();
+        assert!(validate_unix_timestamp(&now).is_ok());
+    }
+
+    #[test]
+    fn test_validate_unix_timestamp_recent() {
+        let ts = (chrono::Utc::now().timestamp() - 60).to_string();
+        assert!(validate_unix_timestamp(&ts).is_ok());
+    }
+
+    #[test]
+    fn test_validate_unix_timestamp_too_old() {
+        let ts = (chrono::Utc::now().timestamp() - 600).to_string();
+        assert!(matches!(
+            validate_unix_timestamp(&ts),
+            Err(AuthenticationError::TimestampTooOldError)
+        ));
+    }
+
+    #[test]
+    fn test_validate_unix_timestamp_future() {
+        let ts = (chrono::Utc::now().timestamp() + 600).to_string();
+        assert!(matches!(
+            validate_unix_timestamp(&ts),
+            Err(AuthenticationError::FutureTimestampError)
+        ));
+    }
+
+    #[test]
+    fn test_validate_unix_timestamp_invalid() {
+        assert!(matches!(
+            validate_unix_timestamp("not-a-number"),
+            Err(AuthenticationError::InvalidTimestamp)
+        ));
+    }
+
+    // --- Slack timestamp validation ---
+
+    #[test]
+    fn test_slack_validate_timestamp_current() {
+        let handler = slack::Slack;
+        let mut headers = HeaderMap::new();
+        let now = chrono::Utc::now().timestamp().to_string();
+        headers.insert("X-Slack-Request-Timestamp", now.parse().unwrap());
+        assert!(handler.validate_timestamp(&headers).is_ok());
+    }
+
+    #[test]
+    fn test_slack_validate_timestamp_stale() {
+        let handler = slack::Slack;
+        let mut headers = HeaderMap::new();
+        let old = (chrono::Utc::now().timestamp() - 600).to_string();
+        headers.insert("X-Slack-Request-Timestamp", old.parse().unwrap());
+        assert!(handler.validate_timestamp(&headers).is_err());
+    }
+
+    // --- Twitch timestamp validation (ISO 8601) ---
+
+    #[test]
+    fn test_twitch_validate_timestamp_current() {
+        let handler = twitch::Twitch;
+        let mut headers = HeaderMap::new();
+        let now = chrono::Utc::now().to_rfc3339();
+        headers.insert("Twitch-Eventsub-Message-Timestamp", now.parse().unwrap());
+        assert!(handler.validate_timestamp(&headers).is_ok());
+    }
+
+    #[test]
+    fn test_twitch_validate_timestamp_stale() {
+        let handler = twitch::Twitch;
+        let mut headers = HeaderMap::new();
+        let old = (chrono::Utc::now() - chrono::TimeDelta::seconds(1200)).to_rfc3339();
+        headers.insert("Twitch-Eventsub-Message-Timestamp", old.parse().unwrap());
+        assert!(handler.validate_timestamp(&headers).is_err());
     }
 }
