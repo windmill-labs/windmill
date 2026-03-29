@@ -1758,8 +1758,7 @@ async fn login(
     }
 
     let email = email.to_lowercase();
-    let client_ip = windmill_common::login_rate_limit::extract_client_ip(&headers);
-    windmill_common::login_rate_limit::check_login_rate_limit(&client_ip, &email)?;
+    windmill_common::login_rate_limit::check_and_increment_login_attempt(&headers, &email)?;
 
     let mut tx = db.begin().await?;
     let audit_author = AuditAuthor {
@@ -1793,7 +1792,7 @@ async fn login(
                 None,
             )
             .await?;
-            windmill_common::login_rate_limit::record_login_failure(&client_ip, &email);
+            windmill_common::login_rate_limit::record_login_failure(&email);
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
             let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
@@ -1830,7 +1829,7 @@ async fn login(
             None,
         )
         .await?;
-        windmill_common::login_rate_limit::record_login_failure(&client_ip, &email);
+        windmill_common::login_rate_limit::record_login_failure(&email);
         Err(Error::BadRequest("Invalid login".to_string()))
     }
 }
