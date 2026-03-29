@@ -1758,11 +1758,7 @@ async fn login(
     }
 
     let email = email.to_lowercase();
-    let client_ip = windmill_common::login_rate_limit::extract_client_ip(&headers);
-    windmill_common::login_rate_limit::check_and_increment_login_attempt(
-        client_ip.as_deref(),
-        &email,
-    )?;
+    windmill_common::login_rate_limit::check_and_increment_login_attempt(&headers, &email)?;
 
     let mut tx = db.begin().await?;
     let audit_author = AuditAuthor {

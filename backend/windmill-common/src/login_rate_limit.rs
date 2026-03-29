@@ -1,7 +1,7 @@
 use chrono::Utc;
 use dashmap::DashMap;
 use hyper::StatusCode;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicI64, AtomicU64, Ordering};
 use std::sync::LazyLock;
 
 use crate::error::{Error, Result};
@@ -19,7 +19,9 @@ struct RateLimitEntry {
 
 static IP_RATE_LIMIT: LazyLock<DashMap<String, RateLimitEntry>> = LazyLock::new(DashMap::new);
 static ACCOUNT_RATE_LIMIT: LazyLock<DashMap<String, RateLimitEntry>> = LazyLock::new(DashMap::new);
-static GLOBAL_RATE_LIMIT: LazyLock<DashMap<String, RateLimitEntry>> = LazyLock::new(DashMap::new);
+
+static GLOBAL_COUNT: AtomicI32 = AtomicI32::new(0);
+static GLOBAL_MINUTE: AtomicI64 = AtomicI64::new(0);
 
 static EVICTION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -138,21 +140,23 @@ fn record_failure(map: &DashMap<String, RateLimitEntry>, key: &str) {
 }
 
 /// Called BEFORE authentication. Checks and increments global + per-IP counters.
+/// The global counter counts all login attempts (not just failures), so it acts as
+/// a general throttle on login traffic per server instance.
 /// Per-IP is only active on CLOUD_HOSTED or when LOGIN_RATE_LIMIT_PER_IP is explicitly set.
-pub fn check_and_increment_login_attempt(ip: Option<&str>, email: &str) -> Result<()> {
+pub fn check_and_increment_login_attempt(
+    headers: &axum::http::HeaderMap,
+    email: &str,
+) -> Result<()> {
     let current_minute = Utc::now().timestamp() / 60;
-    maybe_evict(
-        &[&IP_RATE_LIMIT, &ACCOUNT_RATE_LIMIT, &GLOBAL_RATE_LIMIT],
-        current_minute,
-    );
+    maybe_evict(&[&IP_RATE_LIMIT, &ACCOUNT_RATE_LIMIT], current_minute);
 
-    // Global limit: always on
-    check_and_increment(&GLOBAL_RATE_LIMIT, "global", *GLOBAL_LIMIT, current_minute)?;
+    // Global limit: always on, uses atomics (single key, no need for DashMap)
+    check_and_increment_global(current_minute)?;
 
     // Per-IP limit: CLOUD_HOSTED or explicit opt-in
     if *CLOUD_HOSTED || *PER_IP_LIMIT_EXPLICIT {
-        if let Some(ip) = ip {
-            check_and_increment(&IP_RATE_LIMIT, ip, *PER_IP_LIMIT, current_minute)?;
+        if let Some(ip) = extract_client_ip(headers) {
+            check_and_increment(&IP_RATE_LIMIT, &ip, *PER_IP_LIMIT, current_minute)?;
         }
     }
 
@@ -167,6 +171,27 @@ pub fn check_and_increment_login_attempt(ip: Option<&str>, email: &str) -> Resul
                 ));
             }
         }
+    }
+
+    Ok(())
+}
+
+fn check_and_increment_global(current_minute: i64) -> Result<()> {
+    let stored_minute = GLOBAL_MINUTE.load(Ordering::Relaxed);
+    if stored_minute != current_minute {
+        // Minute rolled over — reset. Race here is benign: worst case two threads
+        // both reset, and we lose a few counts at the boundary.
+        GLOBAL_MINUTE.store(current_minute, Ordering::Relaxed);
+        GLOBAL_COUNT.store(1, Ordering::Relaxed);
+        return Ok(());
+    }
+
+    let count = GLOBAL_COUNT.fetch_add(1, Ordering::Relaxed);
+    if count >= *GLOBAL_LIMIT {
+        return Err(Error::Generic(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many login attempts. Please try again later.".to_string(),
+        ));
     }
 
     Ok(())
