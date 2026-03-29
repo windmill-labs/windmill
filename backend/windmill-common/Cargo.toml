@@ -117,6 +117,7 @@ pin-project-lite.workspace = true
 futures.workspace = true
 tempfile.workspace = true
 globset.workspace = true
+dashmap.workspace = true
 
 opentelemetry-semantic-conventions = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }

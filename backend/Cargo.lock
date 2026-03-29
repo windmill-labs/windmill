@@ -16564,6 +16564,7 @@ dependencies = [
  "crc",
  "cron",
  "croner",
+ "dashmap 6.1.0",
  "datafusion",
  "equivalent",
  "futures",

@@ -1746,6 +1746,7 @@ async fn set_login_type(
 
 #[allow(unreachable_code, unused_variables)]
 async fn login(
+    headers: axum::http::HeaderMap,
     cookies: Cookies,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
@@ -1756,8 +1757,11 @@ async fn login(
         return Ok("no_auth".to_string());
     }
 
-    let mut tx = db.begin().await?;
     let email = email.to_lowercase();
+    let client_ip = windmill_common::login_rate_limit::extract_client_ip(&headers);
+    windmill_common::login_rate_limit::check_login_rate_limit(&client_ip, &email)?;
+
+    let mut tx = db.begin().await?;
     let audit_author = AuditAuthor {
         email: email.clone(),
         username: email.clone(),
@@ -1789,6 +1793,7 @@ async fn login(
                 None,
             )
             .await?;
+            windmill_common::login_rate_limit::record_login_failure(&client_ip, &email);
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
             let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
@@ -1825,6 +1830,7 @@ async fn login(
             None,
         )
         .await?;
+        windmill_common::login_rate_limit::record_login_failure(&client_ip, &email);
         Err(Error::BadRequest("Invalid login".to_string()))
     }
 }
