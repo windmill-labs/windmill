@@ -621,7 +621,7 @@ impl AuthenticationMethod {
                 let api_key_to_cmp = headers
                     .try_get_webhook_header(&api_key_header)
                     .map_err(|_| AuthenticationError::InvalidApiKey)?;
-                if api_key_to_cmp != api_key_secret {
+                if !constant_time_eq(api_key_to_cmp.as_bytes(), api_key_secret.as_bytes()) {
                     return Err(AuthenticationError::InvalidApiKey);
                 }
             }
@@ -654,8 +654,11 @@ impl AuthenticationMethod {
                     return Err(AuthenticationError::UnauthorizedBasicHttpAuth);
                 }
 
-                if credentials.get(0).unwrap() != username
-                    || credentials.get(1).unwrap() != password
+                if !constant_time_eq(credentials.get(0).unwrap().as_bytes(), username.as_bytes())
+                    || !constant_time_eq(
+                        credentials.get(1).unwrap().as_bytes(),
+                        password.as_bytes(),
+                    )
                 {
                     return Err(AuthenticationError::UnauthorizedBasicHttpAuth);
                 }
