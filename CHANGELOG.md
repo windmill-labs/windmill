@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.668.5](https://github.com/windmill-labs/windmill/compare/v1.668.4...v1.668.5) (2026-03-29)
+
+
+### Bug Fixes
+
+* add per-IP and per-account brute force protection on login endpoint ([#8601](https://github.com/windmill-labs/windmill/issues/8601)) ([06bbe7b](https://github.com/windmill-labs/windmill/commit/06bbe7b94bfb846bd73aaf6abdc83e4c14e70adc))
+* add timestamp validation to webhook signature verification ([#8596](https://github.com/windmill-labs/windmill/issues/8596)) ([74fba2a](https://github.com/windmill-labs/windmill/commit/74fba2abf3dc68b682777c01da360258786fded8))
+* disable workspace webhook events when CLOUD_HOSTED ([#8598](https://github.com/windmill-labs/windmill/issues/8598)) ([be7fbeb](https://github.com/windmill-labs/windmill/commit/be7fbeb8b1f31d15e33b0783b2a504d6a01e532e))
+* harden login rate limiting with CLOUD_HOSTED gating and memory eviction ([#8602](https://github.com/windmill-labs/windmill/issues/8602)) ([754b88a](https://github.com/windmill-labs/windmill/commit/754b88a52c4e76421cb21c1eed87ad9d8385e9aa))
+* prevent SSRF and local file read via git repository resource URLs ([#8600](https://github.com/windmill-labs/windmill/issues/8600)) ([845db72](https://github.com/windmill-labs/windmill/commit/845db72b7344fb87ac9c5e24697750549665c7bf))
+* rename snippet param to avoid svelte compiler shadowing bug in asset usages drawer ([#8595](https://github.com/windmill-labs/windmill/issues/8595)) ([8c770a2](https://github.com/windmill-labs/windmill/commit/8c770a206a3b0704642c0bda2ab2aeb199d8af3f))
+* require mcp: scope for MCP endpoints instead of blanket bypass ([#8597](https://github.com/windmill-labs/windmill/issues/8597)) ([f5fc9f8](https://github.com/windmill-labs/windmill/commit/f5fc9f8485d2ec3e20f8b451305195446b90e5a3))
+* use constant-time comparison for API key and basic auth validation ([#8593](https://github.com/windmill-labs/windmill/issues/8593)) ([b4d1f2a](https://github.com/windmill-labs/windmill/commit/b4d1f2aac789306c2e35e123ac93e12c47c26f99))
+* validate JSON before sql_builder bind to prevent injection via JSONB queries ([#8599](https://github.com/windmill-labs/windmill/issues/8599)) ([970e859](https://github.com/windmill-labs/windmill/commit/970e859a410b0144847a1a30d7059955effdd402))
+
 ## [1.668.4](https://github.com/windmill-labs/windmill/compare/v1.668.3...v1.668.4) (2026-03-29)
 
 
