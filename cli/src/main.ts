@@ -78,7 +78,7 @@ export {
   token,
 };
 
-export const VERSION = "1.668.3";
+export const VERSION = "1.668.4";
 
 // Re-exported from constants.ts to maintain backwards compatibility
 export { WM_FORK_PREFIX } from "./core/constants.ts";
