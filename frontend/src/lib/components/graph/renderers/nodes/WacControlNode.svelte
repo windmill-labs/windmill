@@ -18,9 +18,9 @@
 			case 'ParallelEnd':
 				return 'join'
 			case 'LoopStart':
-				return `for (${nt.iter_source})`
+				return `${dagNode.label} (${nt.iter_source})`
 			case 'LoopEnd':
-				return 'end for'
+				return dagNode.label
 			case 'Sleep':
 				return `sleep(${nt.seconds}s)`
 			case 'WaitForApproval':

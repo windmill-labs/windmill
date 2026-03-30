@@ -129,45 +129,55 @@ export default workflow(async (items: string[]) => {
 }
 
 #[test]
-fn test_reject_step_in_try_catch() {
+fn test_step_in_try_catch() {
     let code = r#"
 import { workflow, task } from "windmill-client";
 
 const extract_data = task(async () => {});
+const handle_error = task(async (e: any) => {});
 
 export default workflow(async () => {
   try {
     await extract_data();
   } catch (e) {
-    console.log(e);
+    await handle_error(e);
   }
 });
 "#;
 
-    let result = parse_ts_workflow(code);
-    assert!(result.is_err());
-    let errors = result.unwrap_err();
-    assert!(errors[0].message.contains("catch"));
+    let dag = parse_ts_workflow(code).expect("should parse try/catch");
+    // Branch(try/catch), extract_data, handle_error = 3
+    assert_eq!(dag.nodes.len(), 3);
+    assert!(matches!(dag.nodes[0].node_type, DagNodeType::Branch { .. }));
+    assert_eq!(dag.nodes[0].label, "try");
+    assert!(matches!(dag.nodes[1].node_type, DagNodeType::Step { .. }));
+    assert!(matches!(dag.nodes[2].node_type, DagNodeType::Step { .. }));
 }
 
 #[test]
-fn test_reject_step_in_while_ts() {
+fn test_step_in_while_ts() {
     let code = r#"
 import { workflow, task } from "windmill-client";
 
-const extract_data = task(async () => {});
+const poll_status = task(async () => {});
 
 export default workflow(async () => {
   while (true) {
-    await extract_data();
+    await poll_status();
   }
 });
 "#;
 
-    let result = parse_ts_workflow(code);
-    assert!(result.is_err());
-    let errors = result.unwrap_err();
-    assert!(errors[0].message.contains("while"));
+    let dag = parse_ts_workflow(code).expect("should parse while loop");
+    // LoopStart, poll_status, LoopEnd = 3
+    assert_eq!(dag.nodes.len(), 3);
+    assert!(matches!(
+        dag.nodes[0].node_type,
+        DagNodeType::LoopStart { .. }
+    ));
+    assert_eq!(dag.nodes[0].label, "while");
+    assert!(matches!(dag.nodes[1].node_type, DagNodeType::Step { .. }));
+    assert!(matches!(dag.nodes[2].node_type, DagNodeType::LoopEnd));
 }
 
 #[test]

@@ -409,16 +409,6 @@ impl TsWacWalker {
     }
 
     fn emit_step(&mut self, call: &CallExpr, expr: &Expr) -> Option<(String, String)> {
-        if self.in_try {
-            self.errors
-                .push(validation::error_step_in_catch(self.span_line(expr.span())));
-            return None;
-        }
-        if self.in_while {
-            self.errors
-                .push(validation::error_step_in_while(self.span_line(expr.span())));
-            return None;
-        }
         if self.in_nested_func {
             self.errors.push(validation::error_step_in_nested_function(
                 self.span_line(expr.span()),
@@ -440,17 +430,6 @@ impl TsWacWalker {
     }
 
     fn emit_parallel(&mut self, promise_call: &CallExpr, expr: &Expr) -> Option<(String, String)> {
-        if self.in_try {
-            self.errors
-                .push(validation::error_step_in_catch(self.span_line(expr.span())));
-            return None;
-        }
-        if self.in_while {
-            self.errors
-                .push(validation::error_step_in_while(self.span_line(expr.span())));
-            return None;
-        }
-
         let line = self.span_line(expr.span());
         let start_id = self.next_id();
         let start_node_id = self.add_node(DagNode {
@@ -563,7 +542,7 @@ impl TsWacWalker {
             return None;
         }
         let iter_source = self.expr_to_source(&for_in.right);
-        self.walk_loop_body_with_iter(&for_in.body, for_in.span, &iter_source)
+        self.walk_loop_body_with_iter(&for_in.body, for_in.span, &iter_source, "for")
     }
 
     fn walk_for_of(&mut self, for_of: &ForOfStmt) -> Option<(String, String)> {
@@ -571,7 +550,7 @@ impl TsWacWalker {
             return None;
         }
         let iter_source = self.expr_to_source(&for_of.right);
-        self.walk_loop_body_with_iter(&for_of.body, for_of.span, &iter_source)
+        self.walk_loop_body_with_iter(&for_of.body, for_of.span, &iter_source, "for")
     }
 
     fn walk_loop_body(
@@ -580,7 +559,7 @@ impl TsWacWalker {
         span: swc_common::Span,
         _label: &str,
     ) -> Option<(String, String)> {
-        self.walk_loop_body_with_iter(body, span, "...")
+        self.walk_loop_body_with_iter(body, span, "...", "for")
     }
 
     fn walk_loop_body_with_iter(
@@ -588,13 +567,14 @@ impl TsWacWalker {
         body: &Stmt,
         span: swc_common::Span,
         iter_source: &str,
+        loop_label: &str,
     ) -> Option<(String, String)> {
         let line = self.span_line(span);
         let start_id = self.next_id();
         let start_node_id = self.add_node(DagNode {
             id: start_id.clone(),
             node_type: DagNodeType::LoopStart { iter_source: iter_source.to_string() },
-            label: "for".to_string(),
+            label: loop_label.to_string(),
             line,
         });
 
@@ -616,12 +596,11 @@ impl TsWacWalker {
     }
 
     fn walk_while(&mut self, while_stmt: &WhileStmt) -> Option<(String, String)> {
-        if self.stmt_contains_step(&while_stmt.body) {
-            self.errors.push(validation::error_step_in_while(
-                self.span_line(while_stmt.span),
-            ));
+        if !self.stmt_contains_step(&while_stmt.body) {
+            return None;
         }
-        None
+        let condition = self.expr_to_source(&while_stmt.test);
+        self.walk_loop_body_with_iter(&while_stmt.body, while_stmt.span, &condition, "while")
     }
 
     fn walk_try(&mut self, try_stmt: &TryStmt) -> Option<(String, String)> {
@@ -635,12 +614,52 @@ impl TsWacWalker {
                 .as_ref()
                 .map_or(false, |f| self.body_contains_step(&f.stmts));
 
-        if has_steps {
-            self.errors.push(validation::error_step_in_catch(
-                self.span_line(try_stmt.span),
-            ));
+        if !has_steps {
+            return None;
         }
-        None
+
+        let line = self.span_line(try_stmt.span);
+        let branch_id = self.next_id();
+        let branch_node_id = self.add_node(DagNode {
+            id: branch_id.clone(),
+            node_type: DagNodeType::Branch { condition_source: "try/catch".to_string() },
+            label: "try".to_string(),
+            line,
+        });
+
+        let mut last_ids = Vec::new();
+
+        // Try body
+        if let Some((try_first, try_last)) = self.walk_body(&try_stmt.block.stmts) {
+            self.add_edge(&branch_node_id, &try_first, Some("try".to_string()));
+            last_ids.push(try_last);
+        } else {
+            last_ids.push(branch_node_id.clone());
+        }
+
+        // Catch body
+        if let Some(handler) = &try_stmt.handler {
+            if let Some((catch_first, catch_last)) = self.walk_body(&handler.body.stmts) {
+                self.add_edge(&branch_node_id, &catch_first, Some("catch".to_string()));
+                last_ids.push(catch_last);
+            }
+        }
+
+        // Finally body — sequential after merge
+        let merge_last = if last_ids.len() == 1 {
+            last_ids.into_iter().next().unwrap()
+        } else {
+            format!("{branch_id}_merge")
+        };
+
+        if let Some(finalizer) = &try_stmt.finalizer {
+            if let Some((finally_first, finally_last)) = self.walk_body(&finalizer.stmts) {
+                self.add_edge(&merge_last, &finally_first, None);
+                return Some((branch_node_id, finally_last));
+            }
+        }
+
+        Some((branch_node_id, merge_last))
     }
 
     fn walk_return(&mut self, ret: &ReturnStmt) -> Option<(String, String)> {

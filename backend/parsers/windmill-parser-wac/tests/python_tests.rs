@@ -147,47 +147,59 @@ async def my_etl(items: list):
 }
 
 #[test]
-fn test_reject_step_in_try() {
+fn test_step_in_try_except() {
     let code = r#"
 import asyncio
 from wmill import workflow, task
 
 @task
 async def extract_data(): ...
+
+@task
+async def handle_error(): ...
 
 @workflow
 async def my_etl():
     try:
         await extract_data()
     except Exception:
-        pass
+        await handle_error()
 "#;
 
-    let result = parse_python_workflow(code);
-    assert!(result.is_err());
-    let errors = result.unwrap_err();
-    assert!(errors[0].message.contains("try/except"));
+    let dag = parse_python_workflow(code).expect("should parse try/except");
+    // Branch(try/except), extract_data, handle_error = 3
+    assert_eq!(dag.nodes.len(), 3);
+    assert!(matches!(dag.nodes[0].node_type, DagNodeType::Branch { .. }));
+    assert_eq!(dag.nodes[0].label, "try");
+    assert!(matches!(dag.nodes[1].node_type, DagNodeType::Step { .. }));
+    assert!(matches!(dag.nodes[2].node_type, DagNodeType::Step { .. }));
 }
 
 #[test]
-fn test_reject_step_in_while() {
+fn test_step_in_while() {
     let code = r#"
 import asyncio
 from wmill import workflow, task
 
 @task
-async def extract_data(): ...
+async def poll_status(): ...
 
 @workflow
 async def my_etl():
     while True:
-        await extract_data()
+        await poll_status()
 "#;
 
-    let result = parse_python_workflow(code);
-    assert!(result.is_err());
-    let errors = result.unwrap_err();
-    assert!(errors[0].message.contains("while"));
+    let dag = parse_python_workflow(code).expect("should parse while loop");
+    // LoopStart, poll_status, LoopEnd = 3
+    assert_eq!(dag.nodes.len(), 3);
+    assert!(matches!(
+        dag.nodes[0].node_type,
+        DagNodeType::LoopStart { .. }
+    ));
+    assert_eq!(dag.nodes[0].label, "while");
+    assert!(matches!(dag.nodes[1].node_type, DagNodeType::Step { .. }));
+    assert!(matches!(dag.nodes[2].node_type, DagNodeType::LoopEnd));
 }
 
 #[test]

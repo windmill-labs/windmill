@@ -484,16 +484,6 @@ impl WacWalker {
     }
 
     fn emit_step(&mut self, call: &ExprCall, expr: &Expr) -> Option<(String, String)> {
-        if self.in_try {
-            self.errors
-                .push(validation::error_step_in_try(self.line_of_expr(expr)));
-            return None;
-        }
-        if self.in_while {
-            self.errors
-                .push(validation::error_step_in_while(self.line_of_expr(expr)));
-            return None;
-        }
         if self.in_nested_func {
             self.errors.push(validation::error_step_in_nested_function(
                 self.line_of_expr(expr),
@@ -521,17 +511,6 @@ impl WacWalker {
     }
 
     fn emit_parallel(&mut self, gather_call: &ExprCall, expr: &Expr) -> Option<(String, String)> {
-        if self.in_try {
-            self.errors
-                .push(validation::error_step_in_try(self.line_of_expr(expr)));
-            return None;
-        }
-        if self.in_while {
-            self.errors
-                .push(validation::error_step_in_while(self.line_of_expr(expr)));
-            return None;
-        }
-
         let line = self.line_of_expr(expr);
         let start_id = self.next_id();
         let start_node_id = self.add_node(DagNode {
@@ -657,11 +636,36 @@ impl WacWalker {
     }
 
     fn walk_while(&mut self, while_stmt: &StmtWhile) -> Option<(String, String)> {
-        if self.body_contains_step(&while_stmt.body) {
-            let line = self.line_index.line_of(while_stmt.range.start().to_usize());
-            self.errors.push(validation::error_step_in_while(line));
+        if !self.body_contains_step(&while_stmt.body) {
+            return None;
         }
-        None
+
+        let line = self.line_index.line_of(while_stmt.range.start().to_usize());
+        let condition = Self::expr_to_source(&while_stmt.test);
+
+        let start_id = self.next_id();
+        let start_node_id = self.add_node(DagNode {
+            id: start_id.clone(),
+            node_type: DagNodeType::LoopStart { iter_source: condition },
+            label: "while".to_string(),
+            line,
+        });
+
+        if let Some((body_first, body_last)) = self.walk_body(&while_stmt.body) {
+            self.add_edge(&start_node_id, &body_first, None);
+            self.add_edge(&body_last, &start_node_id, Some("next".to_string()));
+        }
+
+        let end_id = self.next_id();
+        let end_node_id = self.add_node(DagNode {
+            id: end_id.clone(),
+            node_type: DagNodeType::LoopEnd,
+            label: "end while".to_string(),
+            line,
+        });
+        self.add_edge(&start_node_id, &end_node_id, Some("done".to_string()));
+
+        Some((start_node_id, end_node_id))
     }
 
     fn walk_try(&mut self, try_stmt: &StmtTry) -> Option<(String, String)> {
@@ -674,11 +678,17 @@ impl WacWalker {
                 }
             });
 
-        if has_steps {
-            let line = self.line_index.line_of(try_stmt.range.start().to_usize());
-            self.errors.push(validation::error_step_in_try(line));
+        if !has_steps {
+            return None;
         }
-        None
+
+        let line = self.line_index.line_of(try_stmt.range.start().to_usize());
+        self.emit_try_catch_branch(
+            &try_stmt.body,
+            &try_stmt.handlers,
+            &try_stmt.finalbody,
+            line,
+        )
     }
 
     fn walk_try_star(&mut self, try_stmt: &StmtTryStar) -> Option<(String, String)> {
@@ -691,11 +701,71 @@ impl WacWalker {
                 }
             });
 
-        if has_steps {
-            let line = self.line_index.line_of(try_stmt.range.start().to_usize());
-            self.errors.push(validation::error_step_in_try(line));
+        if !has_steps {
+            return None;
         }
-        None
+
+        let line = self.line_index.line_of(try_stmt.range.start().to_usize());
+        self.emit_try_catch_branch(
+            &try_stmt.body,
+            &try_stmt.handlers,
+            &try_stmt.finalbody,
+            line,
+        )
+    }
+
+    fn emit_try_catch_branch(
+        &mut self,
+        try_body: &[Stmt],
+        handlers: &[rustpython_parser::ast::ExceptHandler],
+        finally_body: &[Stmt],
+        line: usize,
+    ) -> Option<(String, String)> {
+        let branch_id = self.next_id();
+        let branch_node_id = self.add_node(DagNode {
+            id: branch_id.clone(),
+            node_type: DagNodeType::Branch { condition_source: "try/except".to_string() },
+            label: "try".to_string(),
+            line,
+        });
+
+        let mut last_ids = Vec::new();
+
+        // Try body
+        if let Some((try_first, try_last)) = self.walk_body(try_body) {
+            self.add_edge(&branch_node_id, &try_first, Some("try".to_string()));
+            last_ids.push(try_last);
+        } else {
+            last_ids.push(branch_node_id.clone());
+        }
+
+        // Except handlers
+        for handler in handlers {
+            match handler {
+                rustpython_parser::ast::ExceptHandler::ExceptHandler(eh) => {
+                    if let Some((catch_first, catch_last)) = self.walk_body(&eh.body) {
+                        self.add_edge(&branch_node_id, &catch_first, Some("except".to_string()));
+                        last_ids.push(catch_last);
+                    }
+                }
+            }
+        }
+
+        // Finally body — sequential after merge
+        let merge_last = if last_ids.len() == 1 {
+            last_ids.into_iter().next().unwrap()
+        } else {
+            format!("{branch_id}_merge")
+        };
+
+        if !finally_body.is_empty() {
+            if let Some((finally_first, finally_last)) = self.walk_body(finally_body) {
+                self.add_edge(&merge_last, &finally_first, None);
+                return Some((branch_node_id, finally_last));
+            }
+        }
+
+        Some((branch_node_id, merge_last))
     }
 
     fn walk_return(&mut self, ret: &StmtReturn) -> Option<(String, String)> {
