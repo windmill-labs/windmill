@@ -76,7 +76,7 @@ import {
   newRawAppPathAssigner,
   PathAssigner,
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
-import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { extractInlineScripts as extractInlineScriptsForFlows, extractCurrentMapping } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
 import { isExecutionModeAnonymous } from "../app/app.ts";
 import {
@@ -638,9 +638,16 @@ function ZipFSElement(
             let inlineScripts;
             try {
               const assigner = newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() });
-              inlineScripts = extractInlineScriptsForFlows(
+              // Preserve original !inline filenames from the flow to avoid phantom renames
+              const inlineMapping = extractCurrentMapping(
                 flow.value.modules as any,
                 {},
+                flow.value.failure_module,
+                flow.value.preprocessor_module,
+              );
+              inlineScripts = extractInlineScriptsForFlows(
+                flow.value.modules as any,
+                inlineMapping,
                 SEP,
                 defaultTs,
                 assigner,
@@ -649,7 +656,7 @@ function ZipFSElement(
               if (flow.value.failure_module) {
                 inlineScripts.push(...extractInlineScriptsForFlows(
                   [flow.value.failure_module],
-                  {},
+                  inlineMapping,
                   SEP,
                   defaultTs,
                   assigner,
@@ -659,7 +666,7 @@ function ZipFSElement(
               if (flow.value.preprocessor_module) {
                 inlineScripts.push(...extractInlineScriptsForFlows(
                   [flow.value.preprocessor_module],
-                  {},
+                  inlineMapping,
                   SEP,
                   defaultTs,
                   assigner,
@@ -1518,6 +1525,10 @@ async function compareDynFSElement(
         continue;
       }
       if (k.startsWith("dependencies/")) {
+        if (!workspaceDependenciesPathToLanguageAndFilename(k)) {
+          log.warn(`Skipping unrecognized workspace dependencies file: ${k}`);
+          continue;
+        }
         log.info(`Adding workspace dependencies file: ${k}`);
       }
       changes.push({ name: "added", path: k, content: v });
@@ -1987,8 +1998,14 @@ export async function pull(
   opts: GlobalOptions &
     SyncOptions & { repository?: string; promotion?: string; branch?: string },
 ) {
+  if ((opts as any).jsonOutput) log.setSilent(true);
   const originalCliOpts = { ...opts };
   opts = await mergeConfigWithConfigFile(opts);
+
+  // --include-secrets overrides skipSecrets from wmill.yaml
+  if ((originalCliOpts as any).includeSecrets) {
+    opts.skipSecrets = false;
+  }
 
   // Validate branch configuration early (skipped when --branch is used)
   try {
@@ -2478,11 +2495,17 @@ function removeSuffix(str: string, suffix: string) {
 export async function push(
   opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string },
 ) {
+  if ((opts as any).jsonOutput) log.setSilent(true);
   // Save original CLI options before merging with config file
   const originalCliOpts = { ...opts };
 
   // Load configuration from wmill.yaml and merge with CLI options
   opts = await mergeConfigWithConfigFile(opts);
+
+  // --include-secrets overrides skipSecrets from wmill.yaml
+  if ((originalCliOpts as any).includeSecrets) {
+    opts.skipSecrets = false;
+  }
 
   // Validate branch configuration early (skipped when --branch is used)
   try {
@@ -2617,6 +2640,7 @@ export async function push(
 
   const tracker: ChangeTracker = await buildTracker(changes);
 
+  const autoRegenerate = !!(opts as any).autoMetadata;
   const staleScripts: string[] = [];
   const staleFlows: string[] = [];
   const staleApps: string[] = [];
@@ -2626,7 +2650,7 @@ export async function push(
       change,
       workspace,
       opts,
-      true,
+      !autoRegenerate, // dryRun=false when --auto is set
       true,
       rawWorkspaceDependencies,
       codebases,
@@ -2639,11 +2663,19 @@ export async function push(
 
   if (staleScripts.length > 0) {
     log.info("");
-    log.warn(
-      "Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:",
-    );
+    if (autoRegenerate) {
+      log.info("Auto-regenerated metadata for stale scripts:");
+    } else {
+      log.warn(
+        "Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:",
+      );
+    }
     for (const stale of staleScripts) {
-      log.warn(stale);
+      if (autoRegenerate) {
+        log.info(`  ${stale}`);
+      } else {
+        log.warn(stale);
+      }
     }
 
     log.info("");
@@ -2652,7 +2684,7 @@ export async function push(
   for (const change of tracker.flows) {
     const stale = await generateFlowLockInternal(
       change,
-      true,
+      !autoRegenerate, // dryRun=false when --auto is set
       workspace,
       opts,
       false,
@@ -2664,11 +2696,19 @@ export async function push(
   }
 
   if (staleFlows.length > 0) {
-    log.warn(
-      "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:",
-    );
+    if (autoRegenerate) {
+      log.info("Auto-regenerated locks for stale flows:");
+    } else {
+      log.warn(
+        "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:",
+      );
+    }
     for (const stale of staleFlows) {
-      log.warn(stale);
+      if (autoRegenerate) {
+        log.info(`  ${stale}`);
+      } else {
+        log.warn(stale);
+      }
     }
     log.info("");
   }
@@ -2677,7 +2717,7 @@ export async function push(
     const stale = await generateAppLocksInternal(
       change,
       false,
-      true,
+      !autoRegenerate,
       workspace,
       opts,
       true,
@@ -2692,7 +2732,7 @@ export async function push(
     const stale = await generateAppLocksInternal(
       change,
       true,
-      true,
+      !autoRegenerate,
       workspace,
       opts,
       true,
@@ -2704,13 +2744,44 @@ export async function push(
   }
 
   if (staleApps.length > 0) {
-    log.warn(
-      "Stale apps locks found, you may want to update them using 'wmill app generate-locks' before pushing:",
-    );
+    if (autoRegenerate) {
+      log.info("Auto-regenerated locks for stale apps:");
+    } else {
+      log.warn(
+        "Stale apps locks found, you may want to update them using 'wmill app generate-locks' before pushing:",
+      );
+    }
     for (const stale of staleApps) {
-      log.warn(stale);
+      if (autoRegenerate) {
+        log.info(`  ${stale}`);
+      } else {
+        log.warn(stale);
+      }
     }
     log.info("");
+  }
+
+  // Warn about local files for skipped types. Walks the in-memory DynFSElement tree
+  // (not a fresh disk scan), but does re-traverse it. Acceptable cost for a one-time check.
+  {
+    const skippedWarnings: string[] = [];
+    let scheduleCount = 0;
+    let triggerCount = 0;
+    for await (const entry of readDirRecursiveWithIgnore(() => false, local)) {
+      if (entry.isDirectory) continue;
+      if (!opts.includeSchedules && entry.path.endsWith(".schedule.yaml")) scheduleCount++;
+      if (!opts.includeTriggers && entry.path.endsWith("_trigger.yaml")) triggerCount++;
+    }
+    if (scheduleCount > 0) {
+      skippedWarnings.push(`Skipping ${scheduleCount} schedule file(s). Use --include-schedules or set includeSchedules: true in wmill.yaml`);
+    }
+    if (triggerCount > 0) {
+      skippedWarnings.push(`Skipping ${triggerCount} trigger file(s). Use --include-triggers or set includeTriggers: true in wmill.yaml`);
+    }
+    for (const warning of skippedWarnings) {
+      log.warn(warning);
+    }
+    if (skippedWarnings.length > 0) log.info("");
   }
 
   await fetchRemoteVersion(workspace);
@@ -3522,6 +3593,7 @@ const command = new Command()
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
+  .option("--include-secrets", "Include secrets in sync (overrides skipSecrets in wmill.yaml)")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
   .option("--skip-scripts", "Skip syncing scripts")
@@ -3577,6 +3649,7 @@ const command = new Command()
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
+  .option("--include-secrets", "Include secrets in sync (overrides skipSecrets in wmill.yaml)")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
   .option("--skip-scripts", "Skip syncing scripts")
@@ -3626,6 +3699,7 @@ const command = new Command()
     "--locks-required",
     "Fail if scripts or flow inline scripts that need locks have no locks",
   )
+  .option("--auto-metadata", "Automatically regenerate stale metadata (locks and schemas) before pushing")
   .action(push as any);
 
 export default command;

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.666.0"
+version = "1.669.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -79,10 +79,10 @@ members = [
     "./windmill-test-utils",
     "./windmill-api-integration-tests",
 ]
-exclude = ["./windmill-duckdb-ffi-internal"]
+exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.666.0"
+version = "1.669.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -260,6 +260,8 @@ windmill-dep-map.workspace = true
 windmill-test-utils.workspace = true
 windmill-worker-volumes.workspace = true
 windmill-types.workspace = true
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
 windmill-trigger.workspace = true
 windmill-trigger-websocket.workspace = true
 windmill-trigger-postgres.workspace = true
@@ -415,6 +417,7 @@ time = "^0"
 serde_urlencoded = "^0"
 astral-tokio-tar = "^0.5.6"
 tempfile = "^3"
+x509-parser = "^0.16"
 tokio-util = { version = "=0.7.17", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0.14.0"
@@ -568,7 +571,7 @@ async-stream = "^0"
 
 opentelemetry = "0.30.0"
 tracing-opentelemetry = "0.31.0"
-opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio"] }
+opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio", "testing"] }
 opentelemetry-otlp = { version = "0.30.0", features = ["grpc-tonic", "tls"] }
 opentelemetry-appender-tracing = "0.30.0"
 opentelemetry-semantic-conventions = { version = "0.30.0", features = ["semconv_experimental"] }

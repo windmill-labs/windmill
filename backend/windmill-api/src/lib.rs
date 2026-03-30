@@ -77,6 +77,7 @@ mod bedrock;
 mod capture;
 mod concurrency_groups;
 mod db;
+mod db_health;
 mod google;
 
 mod drafts;
@@ -642,6 +643,7 @@ pub async fn run_server(
                 .nest("/inkeep", inkeep_oss::global_service())
                 .nest("/indexer", indexer_oss::management_service())
                 .nest("/mcp/w/{workspace_id}/list_tools", mcp_list_tools_service)
+                .nest("/db_health", db_health::global_service())
                 .nest("/health/detailed", health::detailed_service())
                 .nest(
                     "/saml",

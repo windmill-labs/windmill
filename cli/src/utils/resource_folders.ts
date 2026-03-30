@@ -48,7 +48,7 @@ let _nonDottedPathsLogged = false;
  */
 export function setNonDottedPaths(value: boolean): void {
   if (value && !_nonDottedPathsLogged) {
-    log.info("Using non-dotted paths (__flow, __app, __raw_app)");
+    log.debug("Using non-dotted paths (__flow, __app, __raw_app)");
     _nonDottedPathsLogged = true;
   }
   _nonDottedPaths = value;
