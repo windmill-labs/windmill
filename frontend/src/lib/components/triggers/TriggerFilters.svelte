@@ -8,7 +8,7 @@
 
 	interface Props {
 		filters: { key: string; value: any }[]
-		filterLogic?: 'and' | 'or'
+		filterLogic: 'and' | 'or'
 		disabled?: boolean
 	}
 
@@ -18,15 +18,13 @@
 		disabled = false
 	}: Props = $props()
 
-	let effectiveFilterLogic = $derived(filterLogic ?? 'and')
-
 	const filterLogicItems = [
 		{ label: 'all criteria (AND)', value: 'and' as const },
 		{ label: 'any criterion (OR)', value: 'or' as const }
 	]
 
 	let description = $derived(
-		effectiveFilterLogic === 'or'
+		filterLogic === 'or'
 			? 'Filters will limit the execution of the trigger to only messages that match any criterion.'
 			: 'Filters will limit the execution of the trigger to only messages that match all criteria.'
 	)
