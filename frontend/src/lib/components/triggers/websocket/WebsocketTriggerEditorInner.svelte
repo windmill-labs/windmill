@@ -204,6 +204,7 @@
 			path = defaultValues?.path ?? ''
 			initialPath = ''
 			filters = []
+			filterLogic = 'and'
 			initial_messages = []
 			url_runnable_args = defaultValues?.url_runnable_args ?? {}
 			dirtyPath = false
