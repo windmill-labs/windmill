@@ -2179,12 +2179,24 @@ async fn list_jobs(
 pub async fn resume_suspended_flow_as_owner(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Path((_w_id, flow_id)): Path<(String, Uuid)>,
+    Path((w_id, flow_id)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
     let mut tx = db.begin().await?;
 
     let (flow, job_id, is_wac) = get_suspended_flow_info(flow_id, &mut tx).await?;
+
+    // Verify the job belongs to this workspace
+    let job_workspace: Option<String> =
+        sqlx::query_scalar("SELECT workspace_id FROM v2_job WHERE id = $1")
+            .bind(&flow.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if job_workspace.as_deref() != Some(w_id.as_str()) {
+        return Err(Error::NotFound(
+            "Job not found in this workspace".to_string(),
+        ));
+    }
 
     let flow_path = flow.script_path.as_deref().unwrap_or_else(|| "");
     require_owner_of_path(&authed, flow_path)?;
