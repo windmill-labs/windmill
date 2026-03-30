@@ -9,7 +9,7 @@
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
 	import { emptySchema, getHubFlowIdFromPath, isHubFlowPath, sendUserToast } from '$lib/utils'
-	import { getContext, hasContext, setContext, tick, untrack } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import type {
 		ConnectedAppInput,
 		RowAppInput,
@@ -33,11 +33,8 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import ScriptEditorDrawer from '$lib/components/flows/content/ScriptEditorDrawer.svelte'
 	import FlowEditorDrawer from '$lib/components/flows/content/FlowEditorDrawer.svelte'
-	import { FlowService, ScriptService, type OpenFlow, type TriggersCount } from '$lib/gen'
+	import { FlowService, ScriptService, type OpenFlow } from '$lib/gen'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
-	import type { TriggerContext } from '$lib/components/triggers'
-	import { Triggers } from '$lib/components/triggers/triggers.svelte'
-	import { writable } from 'svelte/store'
 
 	interface Props {
 		runnable: RunnableByPath
@@ -64,16 +61,6 @@
 	}: Props = $props()
 
 	const viewerContext = getContext<AppViewerContext>('AppViewerContext')
-
-	if (!hasContext('TriggerContext')) {
-		const hubFlowTriggersCount = writable<TriggersCount | undefined>(undefined)
-		setContext<TriggerContext>('TriggerContext', {
-			triggersCount: hubFlowTriggersCount,
-			simplifiedPoll: writable(false),
-			showCaptureHint: writable(undefined),
-			triggersState: new Triggers()
-		})
-	}
 
 	let drawerFlowViewer: Drawer | undefined = $state(undefined)
 	let flowPath: string = $state('')
@@ -233,7 +220,7 @@
 	>
 		{#if drawerHubFlowPreview}
 			<div class="flex flex-col flex-1 h-full overflow-auto">
-				<FlowGraphViewer triggerNode flow={drawerHubFlowPreview} />
+				<FlowGraphViewer triggerNode provideTriggerContext flow={drawerHubFlowPreview} />
 			</div>
 		{:else}
 			<FlowPathViewer path={flowPath ?? ''} />
@@ -430,7 +417,11 @@
 				{#if isHubFlowPath(runnable.path)}
 					{#if hubFlowPreview}
 						<div class="flex flex-col flex-1 h-full overflow-auto">
-							<FlowGraphViewer triggerNode flow={{ ...hubFlowPreview, path: runnable.path }} />
+							<FlowGraphViewer
+								triggerNode
+								provideTriggerContext
+								flow={{ ...hubFlowPreview, path: runnable.path }}
+							/>
 						</div>
 					{:else}
 						<Skeleton layout={[[40]]} />

@@ -1,7 +1,10 @@
 <script lang="ts">
-	import type { FlowModule, FlowValue } from '$lib/gen'
+	import type { FlowModule, FlowValue, TriggersCount } from '$lib/gen'
+	import type { TriggerContext } from '$lib/components/triggers'
+	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, hasContext, setContext } from 'svelte'
+	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
@@ -27,6 +30,7 @@
 		minHeight?: number
 		noBorder?: boolean
 		hideDefaultInputs?: boolean
+		provideTriggerContext?: boolean
 	}
 
 	let {
@@ -40,8 +44,19 @@
 		workspace = $workspaceStore,
 		minHeight = 400,
 		noBorder = false,
-		hideDefaultInputs = false
+		hideDefaultInputs = false,
+		provideTriggerContext = false
 	}: Props = $props()
+
+	if (provideTriggerContext && !hasContext('TriggerContext')) {
+		const triggersCount = writable<TriggersCount | undefined>(undefined)
+		setContext<TriggerContext>('TriggerContext', {
+			triggersCount,
+			simplifiedPoll: writable(false),
+			showCaptureHint: writable(undefined),
+			triggersState: new Triggers()
+		})
+	}
 
 	const dispatch = createEventDispatcher()
 </script>
