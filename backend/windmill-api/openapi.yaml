@@ -19518,7 +19518,7 @@ components:
         - kind
         - starred
         - has_preprocessor
-        - labels
+
 
     NewScript:
       type: object
@@ -21183,7 +21183,7 @@ components:
         - enabled
         - email
         - permissioned_as
-        - labels
+
 
     ScheduleWJobs:
       allOf:
@@ -21493,7 +21493,7 @@ components:
         - edited_at
         - is_flow
         - mode
-        - labels
+
 
     AuthenticationMethod:
       type: string
@@ -23861,7 +23861,7 @@ components:
         - edited_at
         - archived
         - extra_perms
-        - labels
+
 
     OpenFlowWPath:
       allOf:
@@ -23999,7 +23999,7 @@ components:
         - extra_perms
         - edited_at
         - execution_mode
-        - labels
+
 
     ScopeDefinition:
       type: object
@@ -24066,7 +24066,7 @@ components:
         - extra_perms
         - version
         - edited_at
-        - labels
+
 
     AppWithLastVersion:
       type: object
@@ -24122,7 +24122,7 @@ components:
         - execution_mode
         - extra_perms
         - raw_app
-        - labels
+
 
     AppWithLastVersionWDraft:
       allOf:

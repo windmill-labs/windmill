@@ -9,6 +9,10 @@ properties:
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
   url:
     type: string
     description: The WebSocket URL to connect to (can be a static URL or computed
