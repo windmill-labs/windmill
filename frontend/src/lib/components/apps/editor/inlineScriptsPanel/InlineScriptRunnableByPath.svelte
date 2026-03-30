@@ -308,7 +308,7 @@
 						target="_blank"
 						href="{base}/flows/add?hub={getHubFlowIdFromPath(runnable.path)}"
 					>
-						Fork to workspace
+						Fork
 					</Button>
 				{:else}
 					<Button
