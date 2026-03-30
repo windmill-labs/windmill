@@ -39,6 +39,8 @@ pub struct ListableApp {
     pub extra_perms: serde_json::Value,
     pub starred: bool,
     pub version: i32,
+    #[serde(default)]
+    pub labels: Vec<String>,
 }
 
 async fn list_apps(
@@ -59,6 +61,7 @@ async fn list_apps(
             "app.extra_perms",
             "app.version",
             "favorite.path IS NOT NULL as starred",
+            "app.labels",
         ])
         .left()
         .join("favorite")
@@ -83,6 +86,10 @@ async fn list_apps(
 
     if let Some(path_exact) = &lq.path_exact {
         sqlb.and_where_eq("app.path", "?".bind(path_exact));
+    }
+
+    if let Some(label) = &lq.label {
+        sqlb.and_where("app.labels @> ARRAY[?]".bind(label));
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;

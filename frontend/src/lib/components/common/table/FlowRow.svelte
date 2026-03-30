@@ -119,6 +119,14 @@
 		{/if}
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
 		<DraftBadge has_draft={flow.has_draft} draft_only={flow.draft_only} />
+		{#if flow.labels?.length}
+			{#each flow.labels.slice(0, 3) as label}
+				<Badge color="blue" small>{label}</Badge>
+			{/each}
+			{#if flow.labels.length > 3}
+				<Badge color="blue" small>+{flow.labels.length - 3}</Badge>
+			{/if}
+		{/if}
 		<div class="w-8 center-center"></div>
 	{/snippet}
 	{#snippet actions()}

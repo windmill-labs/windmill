@@ -26,6 +26,7 @@ pub struct StandardTriggerQuery {
     pub path: Option<String>,
     pub is_flow: Option<bool>,
     pub path_start: Option<String>,
+    pub label: Option<String>,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
@@ -39,6 +40,8 @@ pub struct BaseTrigger {
     pub permissioned_as: String,
     pub edited_at: DateTime<Utc>,
     pub extra_perms: Option<serde_json::Value>,
+    #[serde(default)]
+    pub labels: Vec<String>,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
@@ -109,6 +112,8 @@ pub struct BaseTriggerData {
     /// If true and user is admin/wm_deployers, preserve the provided permissioned_as instead of using deploying user's
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preserve_permissioned_as: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 impl BaseTriggerData {
@@ -165,7 +170,14 @@ impl StandardTriggerQuery {
 
 impl Default for StandardTriggerQuery {
     fn default() -> Self {
-        Self { page: Some(0), per_page: Some(100), path: None, path_start: None, is_flow: None }
+        Self {
+            page: Some(0),
+            per_page: Some(100),
+            path: None,
+            path_start: None,
+            is_flow: None,
+            label: None,
+        }
     }
 }
 
@@ -232,6 +244,7 @@ mod tests {
             path: None,
             is_flow: None,
             path_start: None,
+            label: None,
         };
         assert_eq!(q.offset(), 100);
         assert_eq!(q.limit(), 50);
@@ -245,6 +258,7 @@ mod tests {
             path: None,
             is_flow: None,
             path_start: None,
+            label: None,
         };
         assert_eq!(q.offset(), 0);
         assert_eq!(q.limit(), 100);

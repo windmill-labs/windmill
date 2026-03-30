@@ -374,6 +374,8 @@ pub struct Script<SR> {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(json(nullable))]
     pub modules: Option<HashMap<String, ScriptModule>>,
+    #[serde(default)]
+    pub labels: Vec<String>,
     #[serde(flatten)]
     #[sqlx(flatten)]
     pub runnable_settings: SR,
@@ -439,6 +441,8 @@ pub struct ListableScript {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
     pub kind: ScriptKind,
+    #[serde(default)]
+    pub labels: Vec<String>,
 }
 
 fn is_false(x: &bool) -> bool {
@@ -514,6 +518,8 @@ pub struct NewScript {
     pub modules: Option<HashMap<String, ScriptModule>>,
     #[serde(default)]
     pub auto_parent: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 
 // IMPORTANT: update this Hash impl when adding fields to NewScript
@@ -550,6 +556,7 @@ impl Hash for NewScript {
         self.on_behalf_of_email.hash(state);
         self.preserve_on_behalf_of.hash(state);
         self.assets.hash(state);
+        self.labels.hash(state);
         if let Some(modules) = &self.modules {
             let mut sorted: Vec<_> = modules.iter().collect();
             sorted.sort_by_key(|(k, _)| *k);
@@ -635,6 +642,7 @@ pub struct ListScriptQuery {
     #[serde(default, deserialize_with = "from_seq")]
     pub languages: Option<Vec<ScriptLang>>,
     pub dedicated_worker: Option<bool>,
+    pub label: Option<String>,
 }
 
 fn from_seq<'de, D>(deserializer: D) -> Result<Option<Vec<ScriptLang>>, D::Error>

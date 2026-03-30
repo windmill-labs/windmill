@@ -214,7 +214,8 @@
 					starred: false,
 					schema: hubScript.schema as Script['schema'],
 					auto_kind: undefined,
-					has_preprocessor: false
+					has_preprocessor: false,
+					labels: []
 				}
 				can_write = false
 				return

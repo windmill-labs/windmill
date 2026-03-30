@@ -1,0 +1,14 @@
+ALTER TABLE script ADD COLUMN labels text[] NOT NULL DEFAULT '{}';
+ALTER TABLE flow ADD COLUMN labels text[] NOT NULL DEFAULT '{}';
+ALTER TABLE app ADD COLUMN labels text[] NOT NULL DEFAULT '{}';
+ALTER TABLE raw_app ADD COLUMN labels text[] NOT NULL DEFAULT '{}';
+ALTER TABLE schedule ADD COLUMN labels text[] NOT NULL DEFAULT '{}';
+ALTER TABLE http_trigger ADD COLUMN labels text[] NOT NULL DEFAULT '{}';
+ALTER TABLE websocket_trigger ADD COLUMN labels text[] NOT NULL DEFAULT '{}';
+ALTER TABLE kafka_trigger ADD COLUMN labels text[] NOT NULL DEFAULT '{}';
+ALTER TABLE nats_trigger ADD COLUMN labels text[] NOT NULL DEFAULT '{}';
+ALTER TABLE mqtt_trigger ADD COLUMN labels text[] NOT NULL DEFAULT '{}';
+ALTER TABLE postgres_trigger ADD COLUMN labels text[] NOT NULL DEFAULT '{}';
+ALTER TABLE sqs_trigger ADD COLUMN labels text[] NOT NULL DEFAULT '{}';
+ALTER TABLE gcp_trigger ADD COLUMN labels text[] NOT NULL DEFAULT '{}';
+ALTER TABLE email_trigger ADD COLUMN labels text[] NOT NULL DEFAULT '{}';

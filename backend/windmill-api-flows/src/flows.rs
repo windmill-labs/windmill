@@ -150,7 +150,8 @@ async fn list_flows(
             "favorite.path IS NOT NULL as starred",
             "draft.path IS NOT NULL as has_draft",
             "draft_only",
-            "ws_error_handler_muted"
+            "ws_error_handler_muted",
+            "o.labels"
         ])
         .left()
         .join("favorite")
@@ -195,6 +196,9 @@ async fn list_flows(
     }
     if let Some(dw) = &lq.dedicated_worker {
         sqlb.and_where_eq("dedicated_worker", dw);
+    }
+    if let Some(label) = &lq.label {
+        sqlb.and_where("o.labels @> ARRAY[?]".bind(label));
     }
 
     if lq.with_deployment_msg.unwrap_or(false) {
@@ -489,13 +493,13 @@ async fn create_flow(
         dependency_job, lock_error_logs, draft_only, tag,
         dedicated_worker, visible_to_runner_only, on_behalf_of_email,
         ws_error_handler_muted,
-        value, schema, edited_by, edited_at
+        value, schema, edited_by, edited_at, labels
     ) VALUES (
         $1, $2, $3, $4,
         NULL, '', $5, $6,
         $7, $8, $9,
         $10,
-        $11, $12::text::json, $13, now()
+        $11, $12::text::json, $13, now(), $14
     )"#,
         w_id,
         nf.path,
@@ -514,6 +518,7 @@ async fn create_flow(
         sqlx::types::Json(&nf.value) as _,
         schema_str,
         &authed.username,
+        nf.labels.as_deref().unwrap_or(&[]) as &[String],
     )
     .execute(&mut *tx)
     .await?;
@@ -763,7 +768,7 @@ async fn get_flow_version(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow = sqlx::query_as::<_, Flow>(
-        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
         FROM flow
         LEFT JOIN flow_version ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
         WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
@@ -821,6 +826,7 @@ async fn get_flow_version_by_id(
             flow.timeout,
             flow.visible_to_runner_only,
             flow.on_behalf_of_email,
+            flow.labels,
             flow_version.schema,
             flow_version.value,
             flow_version.created_at as edited_at,
@@ -960,7 +966,8 @@ async fn update_flow(
             value = $9,
             schema = $10::text::json,
             edited_by = $11,
-            edited_at = now()
+            edited_at = now(),
+            labels = $14
         WHERE
             path = $12 AND workspace_id = $13",
         if is_new_path { flow_path } else { &nf.path },
@@ -980,6 +987,7 @@ async fn update_flow(
         authed.username,
         flow_path,
         w_id,
+        nf.labels.as_deref().unwrap_or(&[]) as &[String],
     )
     .execute(&mut *tx)
     .await
@@ -991,8 +999,8 @@ async fn update_flow(
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
         sqlx::query!(
             "INSERT INTO flow
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at)
-            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels)
+            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels
                 FROM flow
                 WHERE path = $2 AND workspace_id = $3",
             nf.path,
@@ -1336,11 +1344,12 @@ async fn get_flow_by_path(
             flow.ws_error_handler_muted, 
             flow.timeout, 
             flow.visible_to_runner_only, 
-            flow.on_behalf_of_email, 
+            flow.on_behalf_of_email,
+            flow.labels,
             flow_version.id AS version_id,
-            flow_version.schema, 
-            flow_version.value, 
-            flow_version.created_at AS edited_at, 
+            flow_version.schema,
+            flow_version.value,
+            flow_version.created_at AS edited_at,
             flow_version.created_by AS edited_by,
             favorite.path IS NOT NULL AS starred
         FROM flow
@@ -1376,12 +1385,13 @@ async fn get_flow_by_path(
             flow.ws_error_handler_muted, 
             flow.timeout, 
             flow.visible_to_runner_only, 
-            flow.on_behalf_of_email, 
+            flow.on_behalf_of_email,
+            flow.labels,
             flow_version.id AS version_id,
-            flow_version.schema, 
+            flow_version.schema,
             flow_version.value,
-            flow_version.created_at AS edited_at, 
-            flow_version.created_by AS edited_by, 
+            flow_version.created_at AS edited_at,
+            flow_version.created_by AS edited_by,
             NULL AS starred
         FROM flow
         LEFT JOIN flow_version

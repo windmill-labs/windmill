@@ -96,6 +96,14 @@
 		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
 		<DraftBadge has_draft={app.has_draft} draft_only={app.draft_only} />
+		{#if app.labels?.length}
+			{#each app.labels.slice(0, 3) as label}
+				<Badge color="blue" small>{label}</Badge>
+			{/each}
+			{#if app.labels.length > 3}
+				<Badge color="blue" small>+{app.labels.length - 3}</Badge>
+			{/if}
+		{/if}
 		<div class="w-8 center-center"></div>
 	{/snippet}
 	{#snippet actions()}

@@ -306,7 +306,8 @@ async fn list_scripts(
             "ws_error_handler_muted",
             "auto_kind",
             "codebase IS NOT NULL as use_codebase",
-            "kind"
+            "kind",
+            "o.labels"
         ])
         .left()
         .join("favorite")
@@ -383,6 +384,9 @@ async fn list_scripts(
     }
     if let Some(dw) = &lq.dedicated_worker {
         sqlb.and_where_eq("dedicated_worker", dw);
+    }
+    if let Some(label) = &lq.label {
+        sqlb.and_where("o.labels @> ARRAY[?]".bind(label));
     }
     if authed.is_operator {
         sqlb.and_where_eq("kind", quote("script"));
@@ -929,8 +933,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)",
         &w_id,
         &hash.0,
         ns.path,
@@ -973,7 +977,8 @@ async fn create_script_internal<'c>(
         guarded_debounce_delay_s,
         ns.cache_ignore_s3_path,
         runnable_settings_handle,
-        ns.modules.as_ref().and_then(|m| serde_json::to_value(m).ok())
+        ns.modules.as_ref().and_then(|m| serde_json::to_value(m).ok()),
+        ns.labels.as_deref().unwrap_or(&[]) as &[String]
     )
     .execute(&mut *tx)
     .await?;
