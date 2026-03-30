@@ -1,12 +1,9 @@
 use std::collections::HashMap;
 
-use windmill_api_auth::ApiAuthed;
-use windmill_trigger::trigger_helpers::{
-    trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs,
-};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, FromRow};
+use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     error::{Error, Result},
     jobs::JobTriggerKind,
@@ -15,6 +12,9 @@ use windmill_common::{
     DB,
 };
 use windmill_queue::PushArgsOwned;
+use windmill_trigger::trigger_helpers::{
+    trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs,
+};
 
 pub mod handler;
 pub mod listener;
@@ -30,11 +30,17 @@ impl TriggerJobArgs for WebsocketTrigger {
     }
 }
 
+fn default_filter_logic() -> String {
+    "and".to_string()
+}
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct WebsocketConfig {
     pub url: String,
     #[serde(default)]
     pub filters: Vec<SqlxJson<Box<RawValue>>>,
+    #[serde(default = "default_filter_logic")]
+    pub filter_logic: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initial_messages: Option<Vec<SqlxJson<Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,6 +55,8 @@ pub struct WebsocketConfig {
 pub struct WebsocketConfigRequest {
     url: String,
     filters: Vec<serde_json::Value>,
+    #[serde(default = "default_filter_logic")]
+    filter_logic: String,
     initial_messages: Option<Vec<serde_json::Value>>,
     url_runnable_args: Option<serde_json::Value>,
     can_return_message: bool,

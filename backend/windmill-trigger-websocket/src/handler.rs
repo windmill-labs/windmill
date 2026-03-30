@@ -36,6 +36,7 @@ impl TriggerCrud for WebsocketTrigger {
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[
         "url",
         "filters",
+        "filter_logic",
         "initial_messages",
         "url_runnable_args",
         "can_return_message",
@@ -103,6 +104,7 @@ impl TriggerCrud for WebsocketTrigger {
                 is_flow,
                 mode,
                 filters,
+                filter_logic,
                 initial_messages,
                 url_runnable_args,
                 edited_by,
@@ -114,7 +116,7 @@ impl TriggerCrud for WebsocketTrigger {
                 error_handler_args,
                 retry
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), $14, $15, $16
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), $15, $16, $17
             )
             "#,
             w_id,
@@ -124,6 +126,7 @@ impl TriggerCrud for WebsocketTrigger {
             trigger.base.is_flow,
             trigger.base.mode() as _,
             &filters as _,
+            trigger.config.filter_logic,
             &initial_messages as _,
             trigger
                 .config
@@ -178,26 +181,28 @@ impl TriggerCrud for WebsocketTrigger {
             path = $3,
             is_flow = $4,
             filters = $5,
-            initial_messages = $6,
-            url_runnable_args = $7,
-            edited_by = $8,
-            permissioned_as = $9,
-            can_return_message = $10,
-            can_return_error_result = $11,
+            filter_logic = $6,
+            initial_messages = $7,
+            url_runnable_args = $8,
+            edited_by = $9,
+            permissioned_as = $10,
+            can_return_message = $11,
+            can_return_error_result = $12,
             edited_at = now(),
             server_id = NULL,
             error = NULL,
-            error_handler_path = $14,
-            error_handler_args = $15,
-            retry = $16
+            error_handler_path = $15,
+            error_handler_args = $16,
+            retry = $17
         WHERE
-            workspace_id = $12 AND path = $13
+            workspace_id = $13 AND path = $14
     ",
             trigger.config.url,
             trigger.base.script_path,
             trigger.base.path,
             trigger.base.is_flow,
             filters.as_slice() as &[SqlxJson<Box<RawValue>>],
+            trigger.config.filter_logic,
             initial_messages.as_slice() as &[SqlxJson<Box<RawValue>>],
             trigger
                 .config

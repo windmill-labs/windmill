@@ -18,7 +18,7 @@ use windmill_common::{
     DB,
 };
 use windmill_queue::PushArgsOwned;
-use windmill_trigger::filter::{is_value_superset, Filter, JsonFilter};
+use windmill_trigger::filter::{check_filters, Filter};
 use windmill_trigger::listener::ListeningTrigger;
 use windmill_trigger::trigger_helpers::{
     trigger_runnable, trigger_runnable_and_wait_for_raw_result,
@@ -267,26 +267,8 @@ impl Listener for WebsocketTrigger {
                                 match msg {
                                     tokio_tungstenite::tungstenite::Message::Text(text) => {
                                         tracing::debug!("Received text message from WebSocket {}: {}", url, text);
-                                        let mut should_handle = true;
-                                        for filter in &filters {
-                                            match filter {
-                                                Filter::JsonFilter(JsonFilter { key, value }) => {
-                                                    let mut deserializer = serde_json::Deserializer::from_str(text.as_str());
-                                                    should_handle = match is_value_superset(&mut deserializer, key, &value) {
-                                                        Ok(filter_match) => {
-                                                            filter_match
-                                                        },
-                                                        Err(err) => {
-                                                            tracing::warn!("Error deserializing filter for WebSocket {}: {:?}", url, err);
-                                                            false
-                                                        }
-                                                    };
-                                                }
-                                            }
-                                            if !should_handle {
-                                                break;
-                                            }
-                                        }
+                                        let use_or = listening_trigger.trigger_config.filter_logic == "or";
+                                        let should_handle = check_filters(&text, &filters, use_or);
                                         if should_handle {
                                             let trigger_info = HashMap::from([
                                                 ("url".to_string(), to_raw_value(&listening_trigger.trigger_config.url)),
