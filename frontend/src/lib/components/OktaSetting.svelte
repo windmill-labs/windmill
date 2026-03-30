@@ -18,17 +18,20 @@
 	function changeDomain(domain, custom) {
 		if (value) {
 			let baseUrl = custom ? `https://${domain}` : `https://${domain}.okta.com`
+			// If baseUrl already contains /oauth2/ (custom authorization server),
+			// only append /v1/... to avoid duplicating the /oauth2 segment
+			let authBase = baseUrl.includes('/oauth2/') ? baseUrl : `${baseUrl}/oauth2`
 			value = {
 				...value,
 				login_config: {
-					auth_url: `${baseUrl}/oauth2/v1/authorize`,
-					token_url: `${baseUrl}/oauth2/v1/token`,
-					userinfo_url: `${baseUrl}/oauth2/v1/userinfo`,
+					auth_url: `${authBase}/v1/authorize`,
+					token_url: `${authBase}/v1/token`,
+					userinfo_url: `${authBase}/v1/userinfo`,
 					scopes: ['openid', 'profile', 'email']
 				},
 				connect_config: {
-					auth_url: `${baseUrl}/oauth2/v1/authorize`,
-					token_url: `${baseUrl}/oauth2/v1/token`,
+					auth_url: `${authBase}/v1/authorize`,
+					token_url: `${authBase}/v1/token`,
 					scopes: ['openid', 'profile', 'email']
 				}
 			}
@@ -77,7 +80,7 @@
 					<div class="grow flex flex-col gap-1">
 						<input type="text" placeholder="yourorg" bind:value={value['domain']} />
 						<span class="text-hint font-normal text-2xs"
-							>{#if value['custom']}Custom ({'https://<domain>'}){:else}
+							>{#if value['custom']}Custom ({'https://<domain>'} or {'https://<domain>/oauth2/<authServerId>'}){:else}
 								Org ({'https://<your org>.okta.com'}){/if}</span
 						>
 					</div>
