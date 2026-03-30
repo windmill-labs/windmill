@@ -84,42 +84,64 @@ pub async fn composer_install(
 ) -> Result<String> {
     check_executor_binary_exists("php", PHP_PATH.as_str(), "php")?;
 
+    // When no lock is provided (previews), try to reuse a previously resolved
+    // lockfile from the DB so we can hit the same vendor cache as deployed scripts.
+    let lock = if lock.is_none() && !*COMPOSER_VENDOR_CACHE_DISABLED {
+        let req_hash = format!("composer-{}", calculate_hash(&requirements));
+        if let Some(db) = conn.as_sql() {
+            sqlx::query_scalar!(
+                "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
+                req_hash
+            )
+            .fetch_optional(db)
+            .await
+            .ok()
+            .flatten()
+        } else {
+            None
+        }
+    } else {
+        lock
+    };
+
     // Cache the installed vendor/ directory keyed by requirements + lock content.
-    // When no lock is available (previews), we fall back to a requirements-only
-    // key so that repeated previews with the same dependency set hit the cache.
     // Set COMPOSER_VENDOR_CACHE_DISABLED=1 to opt out.
     let vendor_cache_hit = if !*COMPOSER_VENDOR_CACHE_DISABLED {
-        let hash = match &lock {
-            Some(lock_content) => calculate_hash(&format!("{requirements}{lock_content}")),
-            None => calculate_hash(&requirements),
-        };
-        let vendor_cache_path = format!("{}/vendor/{hash}", *COMPOSER_CACHE_DIR);
-        let remote_path = format!("composer/vendor/{hash}");
+        if let Some(ref lock_content) = lock {
+            let hash = calculate_hash(&format!("{requirements}{lock_content}"));
+            let vendor_cache_path = format!("{}/vendor/{hash}", *COMPOSER_CACHE_DIR);
+            let remote_path = format!("composer/vendor/{hash}");
 
-        let (hit, cache_logs) =
-            crate::global_cache::load_cache(&vendor_cache_path, &remote_path, true).await;
+            let (hit, cache_logs) =
+                crate::global_cache::load_cache(&vendor_cache_path, &remote_path, true).await;
 
-        if hit {
-            append_logs(
-                job_id,
-                w_id,
-                format!("vendor cache hit, skipping composer install\n{cache_logs}"),
-                conn,
-            )
-            .await;
+            if hit {
+                append_logs(
+                    job_id,
+                    w_id,
+                    format!("vendor cache hit, skipping composer install\n{cache_logs}"),
+                    conn,
+                )
+                .await;
 
-            #[cfg(unix)]
-            std::os::unix::fs::symlink(&vendor_cache_path, format!("{job_dir}/vendor")).map_err(
-                |e| error::Error::ExecutionErr(format!("could not symlink cached vendor dir: {e}")),
-            )?;
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(&vendor_cache_path, format!("{job_dir}/vendor"))
+                    .map_err(|e| {
+                        error::Error::ExecutionErr(format!(
+                            "could not symlink cached vendor dir: {e}"
+                        ))
+                    })?;
 
-            #[cfg(not(unix))]
-            windmill_common::worker::copy_dir_recursively(
-                &std::path::PathBuf::from(&vendor_cache_path),
-                &std::path::PathBuf::from(&format!("{job_dir}/vendor")),
-            )?;
+                #[cfg(not(unix))]
+                windmill_common::worker::copy_dir_recursively(
+                    &std::path::PathBuf::from(&vendor_cache_path),
+                    &std::path::PathBuf::from(&format!("{job_dir}/vendor")),
+                )?;
 
-            true
+                true
+            } else {
+                false
+            }
         } else {
             false
         }
@@ -130,7 +152,7 @@ pub async fn composer_install(
     if vendor_cache_hit {
         return Ok(match lock {
             Some(l) => format!("{requirements}{COMPOSER_LOCK_SPLIT}{l}"),
-            None => requirements,
+            None => unreachable!("cache hit requires a lock"),
         });
     }
 
@@ -168,7 +190,6 @@ pub async fn composer_install(
     )
     .await?;
 
-    let had_no_lock = lock.is_none();
     let resolved_lock = match lock {
         Some(l) => l,
         None => {
@@ -181,11 +202,11 @@ pub async fn composer_install(
 
     // Save the freshly installed vendor/ to the cache for future executions.
     if !*COMPOSER_VENDOR_CACHE_DISABLED {
-        let full_hash = calculate_hash(&format!("{requirements}{resolved_lock}"));
-        let vendor_cache_path = format!("{}/vendor/{full_hash}", *COMPOSER_CACHE_DIR);
+        let hash = calculate_hash(&format!("{requirements}{resolved_lock}"));
+        let vendor_cache_path = format!("{}/vendor/{hash}", *COMPOSER_CACHE_DIR);
         if let Err(e) = crate::global_cache::save_cache(
             &vendor_cache_path,
-            &format!("composer/vendor/{full_hash}"),
+            &format!("composer/vendor/{hash}"),
             &format!("{job_dir}/vendor"),
             true,
         )
@@ -194,22 +215,20 @@ pub async fn composer_install(
             tracing::warn!("Could not save composer vendor dir to cache: {e:?}");
         }
 
-        // Also save under a requirements-only key so previews (which lack a
-        // lock file) can reuse the vendor dir on subsequent runs.
-        if had_no_lock {
-            let req_hash = calculate_hash(&requirements);
-            let req_vendor_cache_path = format!("{}/vendor/{req_hash}", *COMPOSER_CACHE_DIR);
-            if let Err(e) = crate::global_cache::save_cache(
-                &req_vendor_cache_path,
-                &format!("composer/vendor/{req_hash}"),
-                &format!("{job_dir}/vendor"),
-                true,
+        // Cache the resolved lockfile in the DB so future previews (which lack a
+        // lock file) can look it up by requirements hash and hit the same vendor
+        // cache. TTL of 7 days keeps previews reasonably fresh.
+        let req_hash = format!("composer-{}", calculate_hash(&requirements));
+        if let Some(db) = conn.as_sql() {
+            if let Err(e) = sqlx::query!(
+                "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('7 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = EXCLUDED.lockfile, expiration = EXCLUDED.expiration",
+                req_hash,
+                &resolved_lock
             )
+            .execute(db)
             .await
             {
-                tracing::warn!(
-                    "Could not save composer vendor dir to requirements-only cache: {e:?}"
-                );
+                tracing::warn!("Could not cache composer lockfile resolution: {e:?}");
             }
         }
     }
