@@ -19,6 +19,16 @@ export interface FlowEvalCase extends FlowEvalCaseManifest {
 	initialFlow?: Record<string, any>
 }
 
+export interface AppEvalCaseManifest {
+	id: string
+	title: string
+	userPrompt: string
+	initialAppFixturePath?: string
+	minJudgeScore?: number
+}
+
+export interface AppEvalCase extends AppEvalCaseManifest {}
+
 function resolveRepoRoot(): string {
 	const currentDir = dirname(fileURLToPath(import.meta.url))
 	const repoRoot = resolve(currentDir, '../../../../../../../..')
@@ -44,6 +54,19 @@ export function loadFlowEvalCases(): FlowEvalCase[] {
 		expectedFlow: readJsonFile<Record<string, unknown>>(join(repoRoot, testCase.expectedFlowPath)),
 		initialFlow: testCase.initialFlowPath
 			? readJsonFile<Record<string, any>>(join(repoRoot, testCase.initialFlowPath))
+			: undefined
+	}))
+}
+
+export function loadAppEvalCases(): AppEvalCase[] {
+	const repoRoot = resolveRepoRoot()
+	const manifestPath = join(repoRoot, 'ai_evals', 'cases', 'frontend', 'app.json')
+	const manifest = readJsonFile<AppEvalCaseManifest[]>(manifestPath)
+
+	return manifest.map((testCase) => ({
+		...testCase,
+		initialAppFixturePath: testCase.initialAppFixturePath
+			? join(repoRoot, testCase.initialAppFixturePath)
 			: undefined
 	}))
 }
