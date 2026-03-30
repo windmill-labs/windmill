@@ -113,8 +113,6 @@ struct WacWalker {
     node_counter: usize,
     line_index: LineIndex,
     task_functions: TaskFunctions,
-    in_try: bool,
-    in_while: bool,
     in_nested_func: bool,
     in_comprehension: bool,
 }
@@ -128,8 +126,6 @@ impl WacWalker {
             node_counter: 0,
             line_index: LineIndex::new(source),
             task_functions,
-            in_try: false,
-            in_while: false,
             in_nested_func: false,
             in_comprehension: false,
         }

@@ -88,8 +88,6 @@ struct TsWacWalker {
     node_counter: usize,
     cm: Lrc<SourceMap>,
     task_functions: TaskFunctions,
-    in_try: bool,
-    in_while: bool,
     in_nested_func: bool,
 }
 
@@ -102,8 +100,6 @@ impl TsWacWalker {
             node_counter: 0,
             cm,
             task_functions,
-            in_try: false,
-            in_while: false,
             in_nested_func: false,
         }
     }
