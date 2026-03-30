@@ -18,17 +18,18 @@
 	function changeDomain(domain, custom) {
 		if (value) {
 			let baseUrl = custom ? `https://${domain}` : `https://${domain}.okta.com`
+			let authPath = custom ? '/v1' : '/oauth2/v1'
 			value = {
 				...value,
 				login_config: {
-					auth_url: `${baseUrl}/oauth2/v1/authorize`,
-					token_url: `${baseUrl}/oauth2/v1/token`,
-					userinfo_url: `${baseUrl}/oauth2/v1/userinfo`,
+					auth_url: `${baseUrl}${authPath}/authorize`,
+					token_url: `${baseUrl}${authPath}/token`,
+					userinfo_url: `${baseUrl}${authPath}/userinfo`,
 					scopes: ['openid', 'profile', 'email']
 				},
 				connect_config: {
-					auth_url: `${baseUrl}/oauth2/v1/authorize`,
-					token_url: `${baseUrl}/oauth2/v1/token`,
+					auth_url: `${baseUrl}${authPath}/authorize`,
+					token_url: `${baseUrl}${authPath}/token`,
 					scopes: ['openid', 'profile', 'email']
 				}
 			}
