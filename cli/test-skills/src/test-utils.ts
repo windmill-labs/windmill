@@ -1,5 +1,5 @@
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
-import { existsSync } from "fs";
+import { cpSync, existsSync, mkdirSync, rmSync } from "fs";
 import { join } from "path";
 
 export interface ToolInvocation {
@@ -29,26 +29,30 @@ export function getTestFolder(): string {
 }
 
 /**
- * Validate that test-folder exists and has .claude/skills
- * Throws an error if validation fails
+ * Get the generated skills directory from the repo root.
+ */
+export function getGeneratedSkillsSource(): string {
+  return join(getTestSkillsDir(), "..", "..", "system_prompts", "auto-generated", "skills");
+}
+
+/**
+ * Ensure test-folder exists and mirrors the repo's generated skills.
  */
 export function validateTestFolder(): void {
   const testFolder = getTestFolder();
   const skillsFolder = join(testFolder, ".claude", "skills");
+  const generatedSkillsSource = getGeneratedSkillsSource();
 
-  if (!existsSync(testFolder)) {
+  if (!existsSync(generatedSkillsSource)) {
     throw new Error(
-      `test-folder does not exist at: ${testFolder}\n` +
-      `Please create it and add your .claude/skills directory inside.`
+      `Generated skills directory not found at: ${generatedSkillsSource}\n` +
+      `Run system prompt generation first so cli/test-skills can mirror the current repo skill bundle.`
     );
   }
 
-  if (!existsSync(skillsFolder)) {
-    throw new Error(
-      `.claude/skills directory not found in test-folder at: ${skillsFolder}\n` +
-      `Please add your auto-generated Windmill skills to test-folder/.claude/skills/`
-    );
-  }
+  mkdirSync(join(testFolder, ".claude"), { recursive: true });
+  rmSync(skillsFolder, { recursive: true, force: true });
+  cpSync(generatedSkillsSource, skillsFolder, { recursive: true });
 }
 
 /**

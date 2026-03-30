@@ -4,33 +4,20 @@ Test suite for verifying that Claude Code correctly invokes Windmill auto-genera
 
 ## Overview
 
-This framework tests skill invocation behavior by sending prompts through the Claude Agent SDK and verifying that the expected skills are invoked. Users must provide their own `.claude/skills` folder containing auto-generated Windmill skills.
+This framework tests skill invocation behavior by sending prompts through the Claude Agent SDK and verifying that the expected skills are invoked. The suite mirrors the repo's generated Windmill skills into its test workspace before each run.
 
 ## Prerequisites
 
 - [Bun](https://bun.sh/) installed
 - `ANTHROPIC_API_KEY` environment variable set
-- Auto-generated Windmill skills placed in `.claude/skills/`
+- Auto-generated Windmill skills available under `system_prompts/auto-generated/skills/`
 
 ## User Setup
 
-1. Create a `test-folder` directory inside `cli/test-skills/` and copy your auto-generated Windmill skills into it:
+1. Generate the latest system prompts and CLI skills in the repo:
 
-```
-cli/test-skills/
-└── test-folder/
-    └── .claude/
-        └── skills/
-            ├── write-flow/
-            │   └── SKILL.md
-            ├── write-script-python3/
-            │   └── SKILL.md
-            ├── write-script-bun/
-            │   └── SKILL.md
-            ├── schedules/
-            │   └── SKILL.md
-            └── triggers/
-                └── SKILL.md
+```bash
+python3 system_prompts/generate.py
 ```
 
 2. Set your API key:
@@ -99,5 +86,5 @@ The `src/test-utils.ts` module provides:
 - Tests have extended timeouts (120 seconds) due to API latency
 - Tests run against the actual Claude API, so they consume API credits
 - Tests verify skill invocation, not skill execution
-- The working directory for tests is `test-folder/` (where `.claude/skills` should be placed)
-- Tests will fail with a clear error if `test-folder/` or `test-folder/.claude/skills/` don't exist
+- The working directory for tests is `test-folder/`
+- The suite refreshes `test-folder/.claude/skills/` from `system_prompts/auto-generated/skills/` before running
