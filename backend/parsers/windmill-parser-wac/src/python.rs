@@ -571,8 +571,6 @@ impl WacWalker {
             line,
         });
 
-        let merge_id = format!("{branch_id}_merge");
-
         let mut last_ids = Vec::new();
 
         if let Some((true_first, true_last)) = self.walk_body(&if_stmt.body) {
@@ -594,7 +592,17 @@ impl WacWalker {
         if last_ids.len() == 1 {
             Some((branch_node_id, last_ids.into_iter().next().unwrap()))
         } else {
-            Some((branch_node_id, merge_id))
+            let merge_id = format!("{branch_id}_merge");
+            let merge_node_id = self.add_node(DagNode {
+                id: merge_id,
+                node_type: DagNodeType::Merge,
+                label: "merge".to_string(),
+                line,
+            });
+            for last in last_ids {
+                self.add_edge(&last, &merge_node_id, None);
+            }
+            Some((branch_node_id, merge_node_id))
         }
     }
 
@@ -751,7 +759,17 @@ impl WacWalker {
         let merge_last = if last_ids.len() == 1 {
             last_ids.into_iter().next().unwrap()
         } else {
-            format!("{branch_id}_merge")
+            let merge_id = format!("{branch_id}_merge");
+            let merge_node_id = self.add_node(DagNode {
+                id: merge_id,
+                node_type: DagNodeType::Merge,
+                label: "merge".to_string(),
+                line,
+            });
+            for last in last_ids {
+                self.add_edge(&last, &merge_node_id, None);
+            }
+            merge_node_id
         };
 
         if !finally_body.is_empty() {

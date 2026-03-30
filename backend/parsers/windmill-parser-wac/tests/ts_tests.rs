@@ -146,12 +146,13 @@ export default workflow(async () => {
 "#;
 
     let dag = parse_ts_workflow(code).expect("should parse try/catch");
-    // Branch(try/catch), extract_data, handle_error = 3
-    assert_eq!(dag.nodes.len(), 3);
+    // Branch(try/catch), extract_data, handle_error, merge = 4
+    assert_eq!(dag.nodes.len(), 4);
     assert!(matches!(dag.nodes[0].node_type, DagNodeType::Branch { .. }));
     assert_eq!(dag.nodes[0].label, "try");
     assert!(matches!(dag.nodes[1].node_type, DagNodeType::Step { .. }));
     assert!(matches!(dag.nodes[2].node_type, DagNodeType::Step { .. }));
+    assert!(matches!(dag.nodes[3].node_type, DagNodeType::Merge));
 }
 
 #[test]
@@ -386,8 +387,8 @@ export default workflow(async (data: any) => {
     let dag = parse_ts_workflow(code).expect("should parse");
 
     // validate, Branch, process_csv, LoopStart, enrich, LoopEnd, process_json,
-    // sleep(5), step("timestamp"), store, return = 11
-    assert_eq!(dag.nodes.len(), 11);
+    // merge, sleep(5), step("timestamp"), store, return = 12
+    assert_eq!(dag.nodes.len(), 12);
 
     assert!(matches!(dag.nodes[0].node_type, DagNodeType::Step { .. }));
     assert!(matches!(dag.nodes[1].node_type, DagNodeType::Branch { .. }));
@@ -399,11 +400,12 @@ export default workflow(async (data: any) => {
     assert!(matches!(dag.nodes[4].node_type, DagNodeType::Step { .. })); // enrich
     assert!(matches!(dag.nodes[5].node_type, DagNodeType::LoopEnd));
     assert!(matches!(dag.nodes[6].node_type, DagNodeType::Step { .. })); // process_json
-    assert!(matches!(dag.nodes[7].node_type, DagNodeType::Sleep { .. }));
+    assert!(matches!(dag.nodes[7].node_type, DagNodeType::Merge));
+    assert!(matches!(dag.nodes[8].node_type, DagNodeType::Sleep { .. }));
     assert!(matches!(
-        dag.nodes[8].node_type,
+        dag.nodes[9].node_type,
         DagNodeType::InlineStep { .. }
     )); // timestamp
-    assert!(matches!(dag.nodes[9].node_type, DagNodeType::Step { .. })); // store
-    assert!(matches!(dag.nodes[10].node_type, DagNodeType::Return));
+    assert!(matches!(dag.nodes[10].node_type, DagNodeType::Step { .. })); // store
+    assert!(matches!(dag.nodes[11].node_type, DagNodeType::Return));
 }

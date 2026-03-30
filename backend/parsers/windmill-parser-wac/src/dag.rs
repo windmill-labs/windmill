@@ -35,6 +35,7 @@ pub enum DagNodeType {
     ParallelEnd,
     LoopStart { iter_source: String },
     LoopEnd,
+    Merge,
     Return,
 }
 

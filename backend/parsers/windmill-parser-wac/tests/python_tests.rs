@@ -167,12 +167,13 @@ async def my_etl():
 "#;
 
     let dag = parse_python_workflow(code).expect("should parse try/except");
-    // Branch(try/except), extract_data, handle_error = 3
-    assert_eq!(dag.nodes.len(), 3);
+    // Branch(try/except), extract_data, handle_error, merge = 4
+    assert_eq!(dag.nodes.len(), 4);
     assert!(matches!(dag.nodes[0].node_type, DagNodeType::Branch { .. }));
     assert_eq!(dag.nodes[0].label, "try");
     assert!(matches!(dag.nodes[1].node_type, DagNodeType::Step { .. }));
     assert!(matches!(dag.nodes[2].node_type, DagNodeType::Step { .. }));
+    assert!(matches!(dag.nodes[3].node_type, DagNodeType::Merge));
 }
 
 #[test]

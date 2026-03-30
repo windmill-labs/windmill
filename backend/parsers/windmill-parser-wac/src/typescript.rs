@@ -522,7 +522,16 @@ impl TsWacWalker {
             Some((branch_node_id, last_ids.into_iter().next().unwrap()))
         } else {
             let merge_id = format!("{branch_id}_merge");
-            Some((branch_node_id, merge_id))
+            let merge_node_id = self.add_node(DagNode {
+                id: merge_id,
+                node_type: DagNodeType::Merge,
+                label: "merge".to_string(),
+                line,
+            });
+            for last in last_ids {
+                self.add_edge(&last, &merge_node_id, None);
+            }
+            Some((branch_node_id, merge_node_id))
         }
     }
 
@@ -645,7 +654,17 @@ impl TsWacWalker {
         let merge_last = if last_ids.len() == 1 {
             last_ids.into_iter().next().unwrap()
         } else {
-            format!("{branch_id}_merge")
+            let merge_id = format!("{branch_id}_merge");
+            let merge_node_id = self.add_node(DagNode {
+                id: merge_id,
+                node_type: DagNodeType::Merge,
+                label: "merge".to_string(),
+                line,
+            });
+            for last in last_ids {
+                self.add_edge(&last, &merge_node_id, None);
+            }
+            merge_node_id
         };
 
         if let Some(finalizer) = &try_stmt.finalizer {

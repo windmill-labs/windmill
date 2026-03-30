@@ -130,6 +130,7 @@ function getXyflowNodeType(node: WacDagNode): string {
 		case 'ParallelEnd':
 		case 'LoopStart':
 		case 'LoopEnd':
+		case 'Merge':
 		case 'Return':
 			return 'wacControl'
 		default:

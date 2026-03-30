@@ -124,6 +124,7 @@ export type WacDagNode = {
 		| { type: 'ParallelEnd' }
 		| { type: 'LoopStart'; iter_source: string }
 		| { type: 'LoopEnd' }
+		| { type: 'Merge' }
 		| { type: 'Return' }
 	label: string
 	line: number
