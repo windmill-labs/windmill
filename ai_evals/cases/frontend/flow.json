@@ -1,0 +1,47 @@
+[
+  {
+    "id": "flow-test1-user-role-actions",
+    "title": "test1: user role-based actions with loop and branches",
+    "userPrompt": "THIS IS A TEST, CODE SHOULD BE MINIMAL FUNCTIONING CODE, IF WE NEED RETURN VALUES RETURN EXAMPLE VALUES\n\nSTEP 1: Fetch mock users from api\nSTEP 2: Filter only active users:\nSTEP 3: Loop on all users\nSTEP 4: Do branches based on user's role, do different action based on that. Roles are admin, user, moderator\nSTEP 5: Return action taken for each user",
+    "expectedFlowPath": "frontend/src/lib/components/copilot/chat/__tests__/flow/expected/test1.json"
+  },
+  {
+    "id": "flow-test2-order-processing",
+    "title": "test2: e-commerce order processing with inventory check and branching",
+    "userPrompt": "THIS IS A TEST, CODE SHOULD BE MINIMAL FUNCTIONING CODE, IF WE NEED RETURN VALUES RETURN EXAMPLE VALUES\n\nSTEP 1: Receive order data from input (order has items array with name/price/quantity, customer_email, shipping_address)\nSTEP 2: Validate order - check all items have valid price > 0 and quantity > 0, return validation result\nSTEP 3: Calculate order total with 8% tax rate\nSTEP 4: Check inventory for each item (loop through items, return mock availability)\nSTEP 5: Branch based on inventory - if all items available, create shipment record; otherwise create backorder record\nSTEP 6: Send confirmation (mock email to customer_email)\nSTEP 7: Return final order summary with status",
+    "expectedFlowPath": "frontend/src/lib/components/copilot/chat/__tests__/flow/expected/test2.json"
+  },
+  {
+    "id": "flow-test3-data-pipeline",
+    "title": "test3: data pipeline with parallel processing and quality-based routing",
+    "userPrompt": "THIS IS A TEST, CODE SHOULD BE MINIMAL FUNCTIONING CODE, IF WE NEED RETURN VALUES RETURN EXAMPLE VALUES\n\nSTEP 1: Fetch list of data sources from configuration (return mock array of 3 source objects with id and url)\nSTEP 2: For each data source in parallel:\n  - Fetch raw data from the source (mock fetch returning sample records)\n  - Transform/clean the data (filter out invalid entries)\n  - Validate the transformed data (return validation score 0-100)\nSTEP 3: Aggregate all validated data into single dataset with combined records\nSTEP 4: Calculate overall data quality score (average of all validation scores)\nSTEP 5: Branch based on quality score:\n  - If score >= 90: Store in primary database and return success\n  - If score >= 70 and < 90: Store in secondary database with warning flag\n  - If score < 70: Store in quarantine and send alert\nSTEP 6: Return processing report with statistics (total records, quality score, destination)",
+    "expectedFlowPath": "frontend/src/lib/components/copilot/chat/__tests__/flow/expected/test3.json"
+  },
+  {
+    "id": "flow-test4-ai-agent-tools",
+    "title": "test4: AI agent with tools for customer support",
+    "userPrompt": "THIS IS A TEST, CODE SHOULD BE MINIMAL FUNCTIONING CODE, IF WE NEED RETURN VALUES RETURN EXAMPLE VALUES\n\nCreate a customer support flow with an AI agent:\n\nSTEP 1: Receive customer query from input (customer_id string, query_text string)\nSTEP 2: Fetch customer profile and order history (mock data based on customer_id)\nSTEP 3: Use an AI agent to handle the customer query. The agent should have access to these tools:\n  - lookup_order: Takes order_id, returns order details (mock data)\n  - check_refund_eligibility: Takes order_id, returns eligibility status and reason\n  - create_support_ticket: Takes description and priority (low/medium/high), returns ticket_id\n  - search_faq: Takes search_query, returns relevant FAQ answers\n  The agent should use the customer profile context and respond helpfully.\nSTEP 4: Log the interaction to audit trail (customer_id, query, response summary)\nSTEP 5: Return the agent's response and any actions taken",
+    "expectedFlowPath": "frontend/src/lib/components/copilot/chat/__tests__/flow/expected/test4.json"
+  },
+  {
+    "id": "flow-test5-simple-modification",
+    "title": "test5: simple modification - add validation step to existing flow",
+    "userPrompt": "THIS IS A TEST, CODE SHOULD BE MINIMAL FUNCTIONING CODE, IF WE NEED RETURN VALUES RETURN EXAMPLE VALUES\n\nModify this existing flow to add error handling:\n- Add a new step after process_data called \"validate_data\" to validate the processed data\n- The validation step should check if the data array is not empty\n- If validation fails (empty array), it should return an error object with message \"No data to save\"\n- If validation passes, return the data for the next step\n- Update save_results to handle the validation result appropriately",
+    "expectedFlowPath": "frontend/src/lib/components/copilot/chat/__tests__/flow/expected/test5_modify_simple.json",
+    "initialFlowPath": "frontend/src/lib/components/copilot/chat/__tests__/flow/initial/test5_initial.json"
+  },
+  {
+    "id": "flow-test6-branching-in-loop",
+    "title": "test6: medium modification - add branching inside existing loop",
+    "userPrompt": "THIS IS A TEST, CODE SHOULD BE MINIMAL FUNCTIONING CODE, IF WE NEED RETURN VALUES RETURN EXAMPLE VALUES\n\nModify the order processing loop to handle different order types:\n- Inside the loop_orders, replace the simple process_order step with branching based on order.type\n- For type \"express\": add a step called handle_express that marks as priority and calculates express shipping cost ($15.99)\n- For type \"standard\": add a step called handle_standard that calculates standard shipping cost ($5.99)\n- For type \"pickup\": add a step called handle_pickup that marks as no shipping required (cost $0)\n- Move the original process_order step to the default branch for unknown order types\n- Each branch step should return the orderId, shipping cost, and shipping type",
+    "expectedFlowPath": "frontend/src/lib/components/copilot/chat/__tests__/flow/expected/test6_modify_medium.json",
+    "initialFlowPath": "frontend/src/lib/components/copilot/chat/__tests__/flow/initial/test6_initial.json"
+  },
+  {
+    "id": "flow-test7-parallel-refactor",
+    "title": "test7: complex modification - refactor sequential to parallel execution",
+    "userPrompt": "THIS IS A TEST, CODE SHOULD BE MINIMAL FUNCTIONING CODE, IF WE NEED RETURN VALUES RETURN EXAMPLE VALUES\n\nRefactor this flow for better performance by parallelizing the enrichment steps:\n- The three enrichment steps (enrich_price, enrich_inventory, enrich_reviews) currently run sequentially\n- Wrap them in a parallel branch (branchall) called \"parallel_enrichment\" so they run concurrently\n- Each enrichment step should include basic error handling with try/catch that returns a fallback value if it fails\n- Update the combine_data step to receive results from the parallel branch (results.parallel_enrichment returns an array of branch results)\n- The combine_data step should check if any enrichment used a fallback value and set a hasFallbacks flag\n- Keep get_item as the first step and return_result as the last step unchanged",
+    "expectedFlowPath": "frontend/src/lib/components/copilot/chat/__tests__/flow/expected/test7_modify_complex.json",
+    "initialFlowPath": "frontend/src/lib/components/copilot/chat/__tests__/flow/initial/test7_initial.json"
+  }
+]
