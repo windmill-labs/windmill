@@ -366,7 +366,7 @@ export async function tryResolveBranchWorkspace(
     selectedProfile.name = `${selectedProfile.name}/${workspaceIdIfForked}`;
     selectedProfile.workspaceId = workspaceIdIfForked;
     log.info(
-      `Inferred workspace id \`${workspaceId}\` from branch name because this is a workspace fork branch (\`${rawBranch}\`). `
+      `Using fork workspace \`${workspaceIdIfForked}\` (parent: \`${workspaceId}\`) from branch \`${rawBranch}\``
     );
   }
 
@@ -550,7 +550,7 @@ export async function resolveWorkspace(
   }
 
   // If everything failed, show error
-  log.info(colors.red.bold("No workspace given and no default set."));
+  log.info(colors.red.bold("No workspace given and no default set. Run 'wmill workspace add' to configure one."));
   return process.exit(-1);
 }
 

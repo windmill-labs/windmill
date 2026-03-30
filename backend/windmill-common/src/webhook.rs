@@ -233,6 +233,9 @@ impl WebhookShared {
     }
 
     pub fn send_message(&self, workspace_id: String, message: WebhookMessage) {
+        if *crate::worker::CLOUD_HOSTED {
+            return;
+        }
         let _ = self.channel.send(WebhookPayload::WorkspaceEvent(
             workspace_id.clone(),
             message,

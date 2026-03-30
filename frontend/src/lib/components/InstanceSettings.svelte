@@ -21,6 +21,7 @@
 	import SettingsFooter from './workspaceSettings/SettingsFooter.svelte'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 	import WorkspaceRegistries from './instanceSettings/WorkspaceRegistries.svelte'
+	import DbHealth from './instanceSettings/DbHealth.svelte'
 
 	interface Props {
 		tab?: string
@@ -1052,6 +1053,12 @@
 				title="GitHub Enterprise App"
 				description="Configure a self-managed GitHub App for GitHub Enterprise Server git sync."
 			/>
+		{:else if category == 'DB Health'}
+			<SettingsPageHeader
+				title="DB Health"
+				description="On-demand database diagnostics. Analyze table sizes, job retention, connection pool health, vacuum status, and more."
+			/>
+			<DbHealth />
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings
 				bind:oauths

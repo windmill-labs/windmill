@@ -422,7 +422,7 @@ async function whoami(_opts: GlobalOptions) {
     const { resolveWorkspace } = await import("../../core/context.ts");
     try {
       const ws = await resolveWorkspace(_opts);
-      log.info("Active: " + colors.green.bold(`${activeName || "none"}`) + ` (fork workspace: ${ws.workspaceId})`);
+      log.info("Active: " + colors.green.bold(ws.workspaceId) + ` (fork of ${activeName || "unknown"})`);
     } catch {
       log.info("Active: " + colors.green.bold(activeName || "none") + " (fork branch)");
     }

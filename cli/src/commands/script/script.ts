@@ -23,10 +23,13 @@ import {
 
 import { Workspace } from "../workspace/workspace.ts";
 import {
+  checkifMetadataUptodate,
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   parseMetadataFile,
+  readLockfile,
 } from "../../utils/metadata.ts";
+import { generateHash, validateRequiredArgs } from "../../utils/utils.ts";
 import {
   WorkspaceDependenciesLanguage,
   ScriptLanguage,
@@ -101,7 +104,7 @@ export function isFlowInlineScriptPath(filePath: string): boolean {
   return isFlowInlineScriptPathInternal(filePath);
 }
 
-type PushOptions = GlobalOptions;
+type PushOptions = GlobalOptions & { message?: string };
 async function push(opts: PushOptions, filePath: string) {
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
@@ -122,13 +125,35 @@ async function push(opts: PushOptions, filePath: string) {
   }
 
   await requireLogin(opts);
+
+  // Warn about metadata state before pushing
+  try {
+    const content = await readFile(filePath, "utf-8");
+    const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
+    const contentHash = await generateHash(content + remotePath);
+    const conf = await readLockfile();
+    const hasLockEntry = conf.locks && (conf.locks[remotePath] !== undefined || conf.locks[`${remotePath}.ts`] !== undefined);
+    if (!hasLockEntry) {
+      log.warn(colors.yellow(
+        `No metadata generated yet for ${filePath}. Run 'wmill generate-metadata' to generate schema and lock.`
+      ));
+    } else if (!(await checkifMetadataUptodate(remotePath, contentHash, conf))) {
+      log.warn(colors.yellow(
+        `Metadata for ${filePath} appears stale (content changed since last 'wmill generate-metadata').\n` +
+        `The schema and lock may not match the current code. Consider running 'wmill generate-metadata' first.`
+      ));
+    }
+  } catch {
+    // Don't block push if check fails
+  }
+
   const codebases = await listSyncCodebases(opts as SyncOptions);
 
   await handleFile(
     filePath,
     workspace,
     [],
-    undefined,
+    opts.message,
     opts,
     await getRawWorkspaceDependencies(true),
     codebases
@@ -928,6 +953,21 @@ async function run(
   await requireLogin(opts);
 
   const input = opts.data ? await resolve(opts.data) : {};
+
+  // Validate required args against schema when no data provided
+  if (!opts.data) {
+    try {
+      const script = await wmill.getScriptByPath({
+        workspace: workspace.workspaceId,
+        path,
+      });
+      validateRequiredArgs(script.schema as Record<string, unknown>);
+    } catch (e: any) {
+      if (e.message?.startsWith("Missing required")) throw e;
+      log.warn(`Could not fetch schema to validate args: ${e.message}`);
+    }
+  }
+
   let id: string;
   try {
     id = await wmill.runScriptByPath({
@@ -964,16 +1004,20 @@ async function run(
     await track_job(workspace.workspaceId, id);
   }
 
-  while (true) {
+  const MAX_RETRIES = 600; // ~60 seconds at 100ms intervals
+  let retries = 0;
+  while (retries < MAX_RETRIES) {
     try {
-      const result =
-        (
-          await wmill.getCompletedJob({
-            workspace: workspace.workspaceId,
-            id,
-          })
-        ).result ?? {};
+      const completedJob = await wmill.getCompletedJob({
+        workspace: workspace.workspaceId,
+        id,
+      });
 
+      if (completedJob.success === false) {
+        process.exitCode = 1;
+      }
+
+      const result = completedJob.result ?? {};
       if (opts.silent) {
         console.log(JSON.stringify(result));
       } else {
@@ -982,8 +1026,12 @@ async function run(
 
       break;
     } catch {
+      retries++;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+  }
+  if (retries >= MAX_RETRIES) {
+    throw new Error(`Timed out waiting for job ${id} to complete`);
   }
 }
 
@@ -1081,6 +1129,7 @@ async function show(opts: GlobalOptions, path: string) {
 }
 
 async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const s = await wmill.getScriptByPath({
@@ -1501,13 +1550,50 @@ async function preview(
   }
 }
 
+async function history(
+  opts: GlobalOptions & { json?: boolean },
+  scriptPath: string
+) {
+  if (opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const versions = await wmill.getScriptHistoryByPath({
+    workspace: workspace.workspaceId,
+    path: scriptPath,
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(versions));
+  } else {
+    if (versions.length === 0) {
+      log.info("No version history found for " + scriptPath);
+      return;
+    }
+    new Table()
+      .header(["#", "Hash", "Created At", "Deployment Message"])
+      .padding(2)
+      .border(true)
+      .body(
+        versions.map((v, i) => [
+          String(versions.length - i),
+          v.script_hash,
+          v.created_at ? new Date(v.created_at).toLocaleString() : "-",
+          v.deployment_msg ?? "-",
+        ])
+      )
+      .render();
+  }
+}
+
 const command = new Command()
   .description("script related commands")
-  .option("--show-archived", "Enable archived scripts in output")
+  .option("--show-archived", "Show archived scripts instead of active ones")
   .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
   .command("list", "list all scripts")
-  .option("--show-archived", "Enable archived scripts in output")
+  .option("--show-archived", "Show archived scripts instead of active ones")
   .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
   .command(
@@ -1515,6 +1601,7 @@ const command = new Command()
     "push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh)"
   )
   .arguments("<path:file>")
+  .option("--message <message:string>", "Deployment message")
   .action(push as any)
   .command("get", "get a script's details")
   .arguments("<path:file>")
@@ -1575,6 +1662,13 @@ const command = new Command()
     "-e --excludes <patterns:file[]>",
     "Comma separated patterns to specify which file to NOT take into account."
   )
-  .action(generateMetadata as any);
+  .action(generateMetadata as any)
+  .command(
+    "history",
+    "show version history for a script"
+  )
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(history as any);
 
 export default command;

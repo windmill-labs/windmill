@@ -442,9 +442,22 @@ pub fn check_route_access(
     // Find the domain and kind for this route
     let (required_domain, required_kind, route_suffix) = extract_domain_from_route(route_path)?;
 
-    // Backward compatibility: MCP handlers expect unusual scope actions: all, favorites, hub.
+    // MCP scopes (mcp:all, mcp:favorites, mcp:hub:*, etc.) use a custom format
+    // that doesn't fit the standard domain:action model. Verify the token has at
+    // least one mcp: scope; MCP handlers do their own fine-grained checking.
     if required_domain == ScopeDomain::Mcp {
-        return Ok(());
+        let is_scoped_token = token_scopes
+            .iter()
+            .any(|s| !s.starts_with("if_jobs:filter_tags:"));
+        if !is_scoped_token {
+            return Ok(());
+        }
+        if token_scopes.iter().any(|s| s.starts_with("mcp:")) {
+            return Ok(());
+        }
+        return Err(Error::NotAuthorized(
+            "Access denied. Required scope: mcp:*".to_string(),
+        ));
     }
 
     // tracing::error!("Checking route access {:?} {:?} {:?} {:?}", required_action, required_domain, required_kind, route_suffix);
@@ -930,5 +943,51 @@ mod tests {
         let required_broad =
             ScopeDefinition::new("scripts", "read", None, Some(vec!["u/*".to_string()]));
         assert!(scope_specific_path.includes(&required_broad));
+    }
+
+    #[test]
+    fn test_mcp_scope_bypass_blocked_without_mcp_scope() {
+        // A token with only jobs:read should NOT be able to access MCP endpoints
+        let scopes = vec!["jobs:read".to_string()];
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "GET").is_err());
+        assert!(
+            check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "POST").is_err()
+        );
+    }
+
+    #[test]
+    fn test_mcp_scope_allowed_with_mcp_scope() {
+        // A token with mcp:all should access MCP endpoints
+        let scopes = vec!["mcp:all".to_string()];
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "GET").is_ok());
+
+        // mcp:favorites should also work
+        let scopes = vec!["mcp:favorites".to_string()];
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "POST").is_ok());
+
+        // mcp:scripts:path should also work
+        let scopes = vec!["mcp:scripts:u/admin/script1".to_string()];
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "GET").is_ok());
+    }
+
+    #[test]
+    fn test_mcp_scope_filter_tags_only_treated_as_unrestricted() {
+        // Token with only filter_tags is not considered scoped — should be allowed
+        let scopes = vec!["if_jobs:filter_tags:tag1".to_string()];
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "GET").is_ok());
+    }
+
+    #[test]
+    fn test_mcp_scope_mixed_scopes_without_mcp() {
+        // Token with multiple non-MCP scopes should be denied
+        let scopes = vec!["jobs:read".to_string(), "scripts:write".to_string()];
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "GET").is_err());
+    }
+
+    #[test]
+    fn test_mcp_scope_mixed_scopes_with_mcp() {
+        // Token with MCP scope + other scopes should be allowed for MCP
+        let scopes = vec!["jobs:read".to_string(), "mcp:all".to_string()];
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "GET").is_ok());
     }
 }

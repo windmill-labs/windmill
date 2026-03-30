@@ -48,11 +48,10 @@
 						<div class="text-secondary text-sm mb-2">Key</div>
 						<input type="text" bind:value={v.key} {disabled} />
 					</label>
-					<!-- svelte-ignore a11y_label_has_associated_control -->
-					<label class="flex flex-col w-full">
+					<div class="flex flex-col w-full">
 						<div class="text-secondary text-sm mb-2">Value</div>
 						<JsonEditor bind:value={v.value} code={JSON.stringify(v.value)} {disabled} />
-					</label>
+					</div>
 					{#if v.key}
 						{@const isObject = v.value !== null && typeof v.value === 'object'}
 						<div class="text-xs text-tertiary font-mono mt-2 p-2 bg-surface-secondary rounded">

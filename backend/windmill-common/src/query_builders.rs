@@ -2369,7 +2369,7 @@ fn make_load_table_metadata_query(
     COLUMN_DEFAULT as DefaultValue,
     false as IsPrimaryKey,
     false as IsIdentity,
-    IS_NULLABLE as IsNullable,
+    CASE WHEN IS_NULLABLE = true THEN 'YES' ELSE 'NO' END as IsNullable,
     false as IsEnum,
     TABLE_NAME as table_name
 FROM information_schema.columns c
