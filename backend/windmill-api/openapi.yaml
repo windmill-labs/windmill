@@ -21814,6 +21814,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         initial_messages:
           type: array
           nullable: true
@@ -21875,6 +21882,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         initial_messages:
           type: array
           nullable: true
@@ -21943,6 +21957,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         initial_messages:
           type: array
           nullable: true
@@ -22819,6 +22840,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         auto_offset_reset:
           type: string
           enum:
@@ -22890,6 +22918,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         auto_offset_reset:
           type: string
           enum:
@@ -22953,6 +22988,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         auto_offset_reset:
           type: string
           enum:

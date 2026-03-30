@@ -30,11 +30,11 @@ impl TriggerJobArgs for WebsocketTrigger {
     }
 }
 
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 fn default_filter_logic() -> String {
     "and".to_string()
 }
 
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct WebsocketConfig {
     pub url: String,
     #[serde(default)]
