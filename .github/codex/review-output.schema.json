@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CodexPullRequestReview",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "reproduction_instructions",
+    "findings"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "reproduction_instructions": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "body",
+          "path",
+          "line",
+          "severity",
+          "reason"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "line": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "bug",
+              "security",
+              "claude_md"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
