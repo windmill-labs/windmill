@@ -168,6 +168,7 @@ pub async fn composer_install(
     )
     .await?;
 
+    let had_no_lock = lock.is_none();
     let resolved_lock = match lock {
         Some(l) => l,
         None => {
@@ -195,7 +196,7 @@ pub async fn composer_install(
 
         // Also save under a requirements-only key so previews (which lack a
         // lock file) can reuse the vendor dir on subsequent runs.
-        if lock.is_none() {
+        if had_no_lock {
             let req_hash = calculate_hash(&requirements);
             let req_vendor_cache_path = format!("{}/vendor/{req_hash}", *COMPOSER_CACHE_DIR);
             if let Err(e) = crate::global_cache::save_cache(
