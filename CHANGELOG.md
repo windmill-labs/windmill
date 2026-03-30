@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.669.1](https://github.com/windmill-labs/windmill/compare/v1.669.0...v1.669.1) (2026-03-30)
+
+
+### Bug Fixes
+
+* avoid doubled /oauth2 path in Okta custom authorization server URLs ([#8620](https://github.com/windmill-labs/windmill/issues/8620)) ([4817913](https://github.com/windmill-labs/windmill/commit/4817913f0cab49980bfeb442089631d7953955ff))
+* improve db health UI text and prevent label wrapping ([d532c1d](https://github.com/windmill-labs/windmill/commit/d532c1d470fcb0ef02ebc5342ad1cf22e58b1f4d))
+
 ## [1.669.0](https://github.com/windmill-labs/windmill/compare/v1.668.5...v1.669.0) (2026-03-30)
 
 
