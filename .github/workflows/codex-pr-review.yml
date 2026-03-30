@@ -14,9 +14,7 @@ jobs:
     if: (github.event.pull_request.draft == false || github.event.pull_request.ready_for_review == true) && github.event.pull_request.head.repo.fork == false
     permissions:
       contents: read
-      pull-requests: write
-    outputs:
-      review_json: ${{ steps.run_codex.outputs.final-message }}
+      issues: write
     steps:
       - name: Check Codex configuration
         id: codex_config
@@ -91,162 +89,22 @@ jobs:
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: .github/codex/pr-review.prompt.md
-          output-schema-file: .github/codex/review-output.schema.json
           model: gpt-5.4
           effort: xhigh
           sandbox: read-only
           safety-strategy: drop-sudo
 
-  post-review:
-    runs-on: ubuntu-latest
-    needs: codex-review
-    if: needs.codex-review.outputs.review_json != ''
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Post Codex review
+      - name: Post Codex review comment
+        if: steps.codex_config.outputs.enabled == 'true' && steps.run_codex.outputs.final-message != ''
         uses: actions/github-script@v7
         env:
-          CODEX_REVIEW_JSON: ${{ needs.codex-review.outputs.review_json }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CODEX_FINAL_MESSAGE: ${{ steps.run_codex.outputs.final-message }}
         with:
           github-token: ${{ github.token }}
           script: |
-            const raw = process.env.CODEX_REVIEW_JSON?.trim();
-            if (!raw) {
-              core.info('No Codex review payload found.');
-              return;
-            }
-
-            let payload;
-            try {
-              payload = JSON.parse(raw);
-            } catch (error) {
-              core.setFailed(`Codex review payload was not valid JSON: ${error.message}`);
-              return;
-            }
-
-            const summary = typeof payload.summary === 'string' && payload.summary.trim()
-              ? payload.summary.trim()
-              : 'No high-signal issues found.';
-            const reproduction = typeof payload.reproduction_instructions === 'string' && payload.reproduction_instructions.trim()
-              ? payload.reproduction_instructions.trim()
-              : 'Not enough UI context in the diff to provide reproduction instructions.';
-            const findings = Array.isArray(payload.findings) ? payload.findings : [];
-
-            const parseChangedLines = (patch) => {
-              const changedLines = new Set();
-              if (!patch) {
-                return changedLines;
-              }
-
-              let nextNewLine = null;
-              for (const line of patch.split('\n')) {
-                const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
-                if (hunk) {
-                  nextNewLine = Number.parseInt(hunk[1], 10);
-                  continue;
-                }
-                if (nextNewLine === null || !line) {
-                  continue;
-                }
-                if (line.startsWith('+') && !line.startsWith('+++')) {
-                  changedLines.add(nextNewLine);
-                  nextNewLine += 1;
-                  continue;
-                }
-                if (line.startsWith('-') && !line.startsWith('---')) {
-                  continue;
-                }
-                if (!line.startsWith('\\')) {
-                  nextNewLine += 1;
-                }
-              }
-
-              return changedLines;
-            };
-
-            const files = await github.paginate(github.rest.pulls.listFiles, {
+            await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: context.payload.pull_request.number,
-              per_page: 100
+              issue_number: context.payload.pull_request.number,
+              body: process.env.CODEX_FINAL_MESSAGE,
             });
-
-            const changedLinesByPath = new Map(
-              files.map((file) => [file.filename, parseChangedLines(file.patch)])
-            );
-
-            const reviewComments = [];
-            const summaryOnlyFindings = [];
-
-            for (const finding of findings) {
-              const title = typeof finding.title === 'string' ? finding.title.trim() : '';
-              const body = typeof finding.body === 'string' ? finding.body.trim() : '';
-              const path = typeof finding.path === 'string' ? finding.path.trim() : '';
-              const severity = typeof finding.severity === 'string' ? finding.severity.trim() : 'medium';
-              const reason = typeof finding.reason === 'string' ? finding.reason.trim() : 'bug';
-              const line = Number.isInteger(finding.line) ? finding.line : null;
-
-              if (!title || !body) {
-                continue;
-              }
-
-              const formattedBody = `[${severity}][${reason}] ${title}\n\n${body}`;
-              const changedLines = changedLinesByPath.get(path);
-              if (path && line !== null && changedLines?.has(line)) {
-                reviewComments.push({
-                  path,
-                  line,
-                  side: 'RIGHT',
-                  body: formattedBody
-                });
-              } else {
-                summaryOnlyFindings.push({
-                  path,
-                  line,
-                  severity,
-                  reason,
-                  title,
-                  body
-                });
-              }
-            }
-
-            const bodyLines = [
-              '## Codex Review',
-              '',
-              summary
-            ];
-
-            if (summaryOnlyFindings.length > 0) {
-              bodyLines.push('', '### Additional findings');
-              summaryOnlyFindings.forEach((finding, index) => {
-                const location = finding.path
-                  ? `${finding.path}${finding.line ? `:${finding.line}` : ''}`
-                  : 'general';
-                bodyLines.push(
-                  '',
-                  `${index + 1}. [${finding.severity}][${finding.reason}] ${location} - ${finding.title}`,
-                  '',
-                  finding.body
-                );
-              });
-            }
-
-            bodyLines.push('', '### Reproduction instructions', '', reproduction);
-
-            const reviewPayload = {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.payload.pull_request.number,
-              commit_id: process.env.PR_HEAD_SHA,
-              event: 'COMMENT',
-              body: bodyLines.join('\n')
-            };
-
-            if (reviewComments.length > 0) {
-              reviewPayload.comments = reviewComments;
-            }
-
-            await github.rest.pulls.createReview(reviewPayload);

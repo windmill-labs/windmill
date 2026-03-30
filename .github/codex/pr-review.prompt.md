@@ -14,14 +14,10 @@ Repository context:
 - Do not modify any files.
 
 Output requirements:
-- Return JSON that matches the provided schema exactly.
-- `summary` must be a short overall review summary.
-- `reproduction_instructions` must be a short descriptive paragraph for a tester explaining how to navigate the app to observe the change. Do not make it a numbered list. If the diff is not enough to infer this safely, say that plainly.
-- `findings` must contain only high-signal issues. Use an empty array if there are no such issues.
-
-Finding requirements:
-- Use a changed file path from this PR.
-- Set `line` to the exact right-side line number on the PR head when you are confident it is part of the diff.
-- If you cannot map a finding to a changed line with confidence, leave `line` as `null`.
-- Keep each finding concise and specific.
+- Return a GitHub PR comment in markdown, not JSON.
+- Start with `## Codex Review`.
+- Give a short overall summary first.
+- If you found high-signal issues, list them in a short numbered list with file paths and line numbers when you know them confidently.
+- If you found no high-signal issues, say that explicitly.
+- End with a `### Reproduction instructions` section containing a short descriptive paragraph for a tester explaining how to navigate the app to observe the change. Do not make it a numbered list. If the diff is not enough to infer this safely, say that plainly.
 - Prefer at most 10 findings.
