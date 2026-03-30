@@ -475,17 +475,14 @@ pub async fn run_server(
             let (mcp_router, mcp_cancellation_token) =
                 setup_mcp_server(db.clone(), user_db, _base_internal_url.clone()).await?;
             // Workspace-scoped MCP router
-            // Use `layer` instead of `route_layer` because the MCP router only has
-            // a fallback_service (no explicit routes), and axum 0.8 panics on
-            // route_layer with no routes.
             let workspaced_mcp_router = mcp_router
                 .clone()
-                .layer(from_extractor::<ApiAuthed>())
+                .route_layer(from_extractor::<ApiAuthed>())
                 .layer(axum::middleware::from_fn(add_www_authenticate_header))
                 .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
             // Gateway MCP router — resolves workspace from token
             let gateway_mcp_router = mcp_router
-                .layer(from_extractor::<ApiAuthed>())
+                .route_layer(from_extractor::<ApiAuthed>())
                 .layer(axum::middleware::from_fn(
                     add_www_authenticate_header_gateway,
                 ))
