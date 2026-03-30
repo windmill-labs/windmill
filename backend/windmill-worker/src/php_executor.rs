@@ -190,6 +190,9 @@ pub async fn composer_install(
     )
     .await?;
 
+    // lock was `None` means composer resolved deps from scratch (no lock from
+    // caller or DB). This is the only case where we should update the DB cache.
+    let freshly_resolved = lock.is_none();
     let resolved_lock = match lock {
         Some(l) => l,
         None => {
@@ -218,17 +221,21 @@ pub async fn composer_install(
         // Cache the resolved lockfile in the DB so future previews (which lack a
         // lock file) can look it up by requirements hash and hit the same vendor
         // cache. TTL of 7 days keeps previews reasonably fresh.
-        let req_hash = format!("composer-{}", calculate_hash(&requirements));
-        if let Some(db) = conn.as_sql() {
-            if let Err(e) = sqlx::query!(
-                "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('7 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = EXCLUDED.lockfile, expiration = EXCLUDED.expiration",
-                req_hash,
-                &resolved_lock
-            )
-            .execute(db)
-            .await
-            {
-                tracing::warn!("Could not cache composer lockfile resolution: {e:?}");
+        // Only write when composer resolved from scratch (no lock from caller or
+        // DB) to avoid endlessly refreshing the TTL on stale resolutions.
+        if freshly_resolved {
+            let req_hash = format!("composer-{}", calculate_hash(&requirements));
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = sqlx::query!(
+                    "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('7 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = EXCLUDED.lockfile, expiration = EXCLUDED.expiration",
+                    req_hash,
+                    &resolved_lock
+                )
+                .execute(db)
+                .await
+                {
+                    tracing::warn!("Could not cache composer lockfile resolution: {e:?}");
+                }
             }
         }
     }
