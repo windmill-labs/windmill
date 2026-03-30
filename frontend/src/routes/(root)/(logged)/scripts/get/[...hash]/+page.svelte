@@ -893,7 +893,7 @@
 					</div>
 					{#if isWac && script.content}
 						<div class="grow min-h-0" style="min-height: 400px;">
-							<WacDiagram code={script.content} language={script.language} />
+							<WacDiagram code={script.content} language={script.language ?? ''} />
 						</div>
 					{/if}
 				</div>

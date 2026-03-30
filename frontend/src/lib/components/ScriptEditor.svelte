@@ -1477,7 +1477,7 @@
 
 				{#if selectedTab === 'diagram'}
 					<div class="flex-1 min-h-0">
-						<WacDiagram {code} language={lang} />
+						<WacDiagram {code} language={lang ?? ''} />
 					</div>
 				{:else}
 					<div class="flex justify-center pt-1 relative">
