@@ -14,9 +14,11 @@
 
 	let {
 		filters = $bindable([]),
-		filterLogic = $bindable('and'),
+		filterLogic = $bindable(),
 		disabled = false
 	}: Props = $props()
+
+	let effectiveFilterLogic = $derived(filterLogic ?? 'and')
 
 	const filterLogicItems = [
 		{ label: 'all criteria (AND)', value: 'and' as const },
@@ -24,7 +26,7 @@
 	]
 
 	let description = $derived(
-		filterLogic === 'or'
+		effectiveFilterLogic === 'or'
 			? 'Filters will limit the execution of the trigger to only messages that match any criterion.'
 			: 'Filters will limit the execution of the trigger to only messages that match all criteria.'
 	)
