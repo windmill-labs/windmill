@@ -109,7 +109,7 @@
 		>
 			{loading ? 'Running...' : 'Run Diagnostics'}
 		</Button>
-		<label class="text-tertiary flex items-center gap-1 text-xs">
+		<label class="text-tertiary flex items-center gap-1 whitespace-nowrap text-xs">
 			Scan last
 			<select
 				class="border-surface-secondary text-secondary rounded border bg-transparent px-1 py-0.5 text-xs"
@@ -249,7 +249,9 @@
 			{#if expandedSections.large_results}
 				<div class="border-surface-secondary border-t p-3">
 					{#if data.large_results.top_large_results.length === 0}
-						<p class="text-tertiary text-xs">No job results found in the last 30 days.</p>
+						<p class="text-tertiary text-xs"
+							>No job results larger than 1 KB found in the scanned jobs.</p
+						>
 					{:else}
 						<div class="overflow-x-auto">
 							<table class="w-full text-left text-xs">
