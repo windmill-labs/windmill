@@ -11,7 +11,8 @@ concurrency:
 jobs:
   codex-review:
     runs-on: ubicloud-standard-2
-    if: (github.event.pull_request.draft == false || github.event.pull_request.ready_for_review == true) && github.event.pull_request.head.repo.fork == false
+    timeout-minutes: 30
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.fork == false
     permissions:
       contents: read
       issues: write
