@@ -26,6 +26,7 @@ use windmill_common::{
     jobs::JobKind,
     scripts::to_i64,
     utils::{not_found_if_none, paginate, Pagination},
+    worker::CLOUD_HOSTED,
 };
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -134,6 +135,11 @@ async fn get_input_history(
     Query(g): Query<GetInputHistory>,
 ) -> JsonResult<Vec<Input>> {
     let (per_page, offset) = paginate(pagination);
+    let per_page = if *CLOUD_HOSTED {
+        per_page.min(100)
+    } else {
+        per_page
+    };
 
     let mut tx = user_db.begin(&authed).await?;
 
