@@ -5059,7 +5059,7 @@ flow related commands
   - \`--json\` - Output as JSON (for piping to jq)
 - \`flow push <file_path:string> <remote_path:string>\` - push a local flow spec. This overrides any remote versions.
   - \`--message <message:string>\` - Deployment message
-- \`flow run <path:string>\` - run a flow by path. Streams logs per step with labels. Exits with code 1 on failure.
+- \`flow run <path:string>\` - run a flow by path.
   - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - \`-s --silent\` - Do not ouput anything other then the final output. Useful for scripting.
 - \`flow preview <flow_path:string>\` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default.
@@ -5222,15 +5222,15 @@ sync local with a remote instance or the opposite (push or pull)
 
 ### job
 
-Manage jobs (list, inspect, cancel). For flow jobs, \`get\` shows a step tree and \`logs\` aggregates all step logs.
+Manage jobs (list, inspect, cancel)
 
 **Subcommands:**
 
-- \`job list\` - List recent jobs. Key options: \`--json\`, \`--script-path\`, \`--created-by\`, \`--running\`, \`--failed\`, \`--limit\`, \`--all\` (include sub-jobs), \`--parent <id>\` (sub-jobs of a flow), \`--is-flow-step\`
-- \`job get <id:string>\` - Get job details (for flows: hierarchical step tree with sub-job IDs)
+- \`job list\` - List recent jobs
+- \`job get <id:string>\` - Get job details. For flows: shows step tree with sub-job IDs
   - \`--json\` - Output as JSON (for piping to jq)
-- \`job result <id:string>\` - Get the result of a completed job (machine-friendly)
-- \`job logs <id:string>\` - Get job logs (for flows: aggregated step logs with headers)
+- \`job result <id:string>\` - Get the result of a completed job (machine-friendly
+- \`job logs <id:string>\` - Get job logs. For flows: aggregates all step logs
 - \`job cancel <id:string>\` - Cancel a running or queued job
   - \`--reason <reason:string>\` - Reason for cancellation
 
