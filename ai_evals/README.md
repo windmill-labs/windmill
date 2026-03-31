@@ -12,6 +12,8 @@ internal implementation details of the frontend or CLI.
 
 - `cases/`: benchmark case manifests
 - `fixtures/`: shared reusable starting states and assets
+- `history/`: git-tracked benchmark summaries and chart rollups
+- `scripts/`: benchmark-history and reporting utilities
 - `variants/`: prompt or skill-bundle candidates
 - `results/`: run outputs and reports (intended to stay untracked)
 
@@ -26,3 +28,4 @@ Later phases should add:
 - CLI artifact-evaluation cases
 - shared result schemas
 - repeated-run reliability reporting
+- official benchmark history snapshots and rollups

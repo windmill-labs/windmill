@@ -53,11 +53,20 @@ The main score is based on the produced artifact, not on intermediate transcript
 
 A prompt is not "good" because it passed once. Reliability means pass rate across repeated runs and across a representative case set.
 
-### 6. Shared corpus, separate adapters
+### 6. Track benchmark history over time
+
+The suite must not only evaluate the current output. It must also produce a
+git-tracked benchmark history so the team can see whether the system is
+improving over time.
+
+This history should focus on official benchmark snapshots, not on every local
+experiment.
+
+### 7. Shared corpus, separate adapters
 
 Frontend and CLI should share the same evaluation corpus format when possible, but each surface should have its own execution adapter.
 
-### 7. UI comes last
+### 8. UI comes last
 
 The testing suite must exist and be trustworthy before building a studio UI on top of it.
 
@@ -500,6 +509,38 @@ The judge should answer:
 
 The judge score is valuable, but it should not be the only oracle.
 
+## Benchmark History
+
+The suite should persist official benchmark summaries in a git-tracked history
+layer so improvements and regressions can be reviewed over time.
+
+## What Should Be Git-Tracked
+
+Only official benchmark outputs should be committed:
+
+- post-merge benchmark snapshots on `main`
+- scheduled nightly benchmark snapshots
+- manually promoted benchmark snapshots when the team wants to record a result
+
+Each official snapshot should produce:
+
+- one detailed run JSON
+- one entry in an append-only summary file
+- regenerated rollups for trend views
+
+## What Should Not Be Git-Tracked
+
+The following should remain local or external by default:
+
+- raw transcripts
+- full model messages
+- large generated artifact bundles
+- ad hoc local experiments
+- temporary comparison runs
+
+This keeps git history focused on stable benchmark signals instead of noisy
+debug output.
+
 ## Reliability Metrics
 
 Every prompt or skill candidate should be reported with:
@@ -521,9 +562,74 @@ This is the minimum needed to compare:
 - provider vs provider
 - frontend vs CLI
 
+## Benchmark Metrics
+
+The history layer should track metrics in four groups.
+
+## Quality Metrics
+
+- `pass_rate`
+- `deterministic_pass_rate`
+- `judge_score_mean`
+- `judge_score_median`
+- `judge_score_p10`
+- `category_pass_rate`
+
+## Reliability Metrics
+
+- `runs_per_case`
+- `flake_rate`
+- `path_consistency`
+
+## Efficiency Metrics
+
+- `latency_ms_mean`
+- `latency_ms_median`
+- `tokens_prompt_mean`
+- `tokens_completion_mean`
+- `tokens_total_mean`
+- `tool_calls_mean`
+- `iterations_mean`
+- `estimated_cost_mean`
+- `cost_per_success`
+- `latency_per_success`
+
+## Provenance Metrics
+
+- `timestamp`
+- `git_sha`
+- `suite_version`
+- `scoring_version`
+- `surface`
+- `variant_name`
+- `provider`
+- `model`
+- `judge_model`
+
+The provenance metrics are essential. Without them, a trend line can mix prompt
+changes with upstream model drift and become hard to interpret.
+
+## Efficiency Score
+
+The suite should not collapse everything into one number.
+
+It should track at least three top-level composite scores:
+
+- `quality_score`
+- `efficiency_score`
+- `value_score`
+
+Recommended interpretation:
+
+- `quality_score`: how good the artifact is
+- `efficiency_score`: how fast and cheap the system is relative to peers
+- `value_score`: quality-adjusted efficiency
+
+These composite scores should sit on top of the raw metrics, not replace them.
+
 ## Proposed Suite Architecture
 
-The suite should be built in four layers.
+The suite should be built in five layers.
 
 ## Layer 1: Benchmark Data
 
@@ -573,7 +679,21 @@ Responsibilities:
 - result serialization
 - comparison reports
 
-## Layer 4: UI Studio
+## Layer 4: Benchmark History
+
+Purpose:
+
+- preserve official benchmark summaries over time
+- support trend analysis and regression review
+
+Responsibilities:
+
+- store official run snapshots
+- append benchmark summary entries
+- generate rollups for charts and dashboards
+- keep provenance metadata for every tracked run
+
+## Layer 5: UI Studio
 
 Purpose:
 
@@ -622,15 +742,25 @@ Deliverables:
 - worst-failure reports
 - stored run history
 
-### Phase 5: Add CI tiers
+### Phase 5: Add benchmark history
+
+Deliverables:
+
+- official run schema
+- git-tracked benchmark summary file
+- history snapshot writer
+- rollup generation for trend charts
+
+### Phase 6: Add CI tiers
 
 Deliverables:
 
 - fast PR smoke benchmark
 - fuller nightly benchmark
+- official history updates on `main` and scheduled runs
 - manual benchmark mode for prompt authors
 
-### Phase 6: Build the UI studio
+### Phase 7: Build the UI studio
 
 Deliverables:
 
@@ -639,6 +769,7 @@ Deliverables:
 - per-case comparison view
 - artifact diff view
 - reliability dashboard
+- trend dashboard backed by git-tracked benchmark history
 
 This phase comes last because the UI is only valuable once the underlying suite is stable and trusted.
 
@@ -666,6 +797,9 @@ A reasonable repo structure would be:
 ai_evals/
   cases/
   fixtures/
+  history/
+    runs/
+    rollups/
   variants/
     frontend/
       script/
@@ -673,6 +807,7 @@ ai_evals/
       app/
     cli/
   results/        # gitignored
+  scripts/
   adapters/
   scoring/
   reports/

@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://windmill.dev/schemas/ai-evals/benchmark-run.schema.json",
+  "title": "Official AI Eval Benchmark Run",
+  "type": "object",
+  "required": [
+    "timestamp",
+    "git_sha",
+    "suite_version",
+    "scoring_version",
+    "surface",
+    "variant_name",
+    "provider",
+    "model",
+    "runs_per_case",
+    "case_count",
+    "metrics",
+    "cases"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "git_sha": {
+      "type": "string",
+      "minLength": 7
+    },
+    "suite_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scoring_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "surface": {
+      "type": "string",
+      "minLength": 1
+    },
+    "variant_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "judge_model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "runs_per_case": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "case_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "quality",
+        "reliability",
+        "efficiency"
+      ],
+      "properties": {
+        "quality": {
+          "type": "object",
+          "required": [
+            "pass_rate",
+            "deterministic_pass_rate",
+            "judge_score_mean",
+            "judge_score_median",
+            "judge_score_p10",
+            "quality_score"
+          ],
+          "properties": {
+            "pass_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "deterministic_pass_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "judge_score_mean": {
+              "type": "number"
+            },
+            "judge_score_median": {
+              "type": "number"
+            },
+            "judge_score_p10": {
+              "type": "number"
+            },
+            "quality_score": {
+              "type": "number"
+            },
+            "category_pass_rate": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "reliability": {
+          "type": "object",
+          "required": [
+            "runs_per_case",
+            "flake_rate",
+            "path_consistency"
+          ],
+          "properties": {
+            "runs_per_case": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "flake_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "path_consistency": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": true
+        },
+        "efficiency": {
+          "type": "object",
+          "required": [
+            "latency_ms_mean",
+            "latency_ms_median",
+            "tokens_total_mean",
+            "tool_calls_mean",
+            "iterations_mean",
+            "estimated_cost_mean",
+            "cost_per_success",
+            "latency_per_success",
+            "efficiency_score",
+            "value_score"
+          ],
+          "properties": {
+            "latency_ms_mean": {
+              "type": "number",
+              "minimum": 0
+            },
+            "latency_ms_median": {
+              "type": "number",
+              "minimum": 0
+            },
+            "tokens_prompt_mean": {
+              "type": "number",
+              "minimum": 0
+            },
+            "tokens_completion_mean": {
+              "type": "number",
+              "minimum": 0
+            },
+            "tokens_total_mean": {
+              "type": "number",
+              "minimum": 0
+            },
+            "tool_calls_mean": {
+              "type": "number",
+              "minimum": 0
+            },
+            "iterations_mean": {
+              "type": "number",
+              "minimum": 0
+            },
+            "estimated_cost_mean": {
+              "type": "number",
+              "minimum": 0
+            },
+            "cost_per_success": {
+              "type": "number",
+              "minimum": 0
+            },
+            "latency_per_success": {
+              "type": "number",
+              "minimum": 0
+            },
+            "efficiency_score": {
+              "type": "number"
+            },
+            "value_score": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "pass_rate"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pass_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
