@@ -6,8 +6,4 @@ ENV HOST 0.0.0.0
 
 RUN npm install -g y-websocket
 
-# R
-RUN apt-get update && apt-get install -y r-base-dev \
-    && Rscript -e 'install.packages("renv", lib="/usr/lib/R/library", repos="https://cloud.r-project.org")'
-
 CMD ["npx", "y-websocket"]
