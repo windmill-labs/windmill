@@ -12,3 +12,5 @@ ALTER TABLE postgres_trigger DROP COLUMN IF EXISTS labels;
 ALTER TABLE sqs_trigger DROP COLUMN IF EXISTS labels;
 ALTER TABLE gcp_trigger DROP COLUMN IF EXISTS labels;
 ALTER TABLE email_trigger DROP COLUMN IF EXISTS labels;
+ALTER TABLE resource DROP COLUMN IF EXISTS labels;
+ALTER TABLE variable DROP COLUMN IF EXISTS labels;

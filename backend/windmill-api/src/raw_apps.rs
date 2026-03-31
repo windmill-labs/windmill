@@ -39,8 +39,8 @@ pub struct ListableApp {
     pub extra_perms: serde_json::Value,
     pub starred: bool,
     pub version: i32,
-    #[serde(default)]
-    pub labels: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 async fn list_apps(

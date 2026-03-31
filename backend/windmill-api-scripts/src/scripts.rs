@@ -978,7 +978,7 @@ async fn create_script_internal<'c>(
         ns.cache_ignore_s3_path,
         runnable_settings_handle,
         ns.modules.as_ref().and_then(|m| serde_json::to_value(m).ok()),
-        ns.labels.as_deref().unwrap_or(&[]) as &[String]
+        ns.labels.as_deref() as Option<&[String]>
     )
     .execute(&mut *tx)
     .await?;

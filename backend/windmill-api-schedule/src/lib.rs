@@ -328,7 +328,7 @@ async fn create_schedule(
         ns.cron_version.clone().unwrap_or_else(|| "v2".to_string()),
         ns.description,
         ns.dynamic_skip,
-        ns.labels.as_deref().unwrap_or(&[]) as &[String]
+        ns.labels.as_deref() as Option<&[String]>
     )
     .fetch_one(&mut *tx)
     .await
@@ -539,7 +539,7 @@ async fn edit_schedule(
         resolved_email,
         resolved_edited_by,
         resolved_permissioned_as,
-        es.labels.as_deref().unwrap_or(&[]) as &[String]
+        es.labels.as_deref() as Option<&[String]>
     )
     .fetch_one(&mut *tx)
     .await
@@ -631,8 +631,8 @@ pub struct ScheduleLight {
     pub is_flow: bool,
     pub summary: Option<String>,
     pub extra_perms: serde_json::Value,
-    #[serde(default)]
-    pub labels: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 async fn list_schedule(
     authed: ApiAuthed,

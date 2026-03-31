@@ -125,6 +125,8 @@ pub struct Resource {
     pub extra_perms: serde_json::Value,
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -143,6 +145,8 @@ pub struct ListableResource {
     pub is_expired: Option<bool>,
     pub refresh_error: Option<String>,
     pub account: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -151,12 +155,15 @@ pub struct CreateResource {
     pub value: Option<Box<RawValue>>,
     pub description: Option<String>,
     pub resource_type: String,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 #[derive(Deserialize)]
 struct EditResource {
     path: Option<String>,
     description: Option<String>,
     value: Option<Box<RawValue>>,
+    labels: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -169,6 +176,7 @@ pub struct ListResourceQuery {
     // filter by matching a subset of the value using base64 encoded json subset
     pub value: Option<String>,
     pub broad_filter: Option<String>,
+    pub label: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -252,6 +260,7 @@ async fn list_resources(
             "account.refresh_error",
             "resource.created_by",
             "resource.edited_at",
+            "resource.labels",
         ])
         .left()
         .join("variable")
@@ -311,6 +320,10 @@ async fn list_resources(
             "(resource.path ILIKE ? OR resource.description ILIKE ? OR resource_type ILIKE ? OR resource.value::text ILIKE ?)"
                 .bind(&pat).bind(&pat).bind(&pat).bind(&pat)
         );
+    }
+
+    if let Some(label) = &lq.label {
+        sqlb.and_where("resource.labels @> ARRAY[?]".bind(label));
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
@@ -811,15 +824,16 @@ async fn create_resource(
     }
     sqlx::query!(
         "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type, created_by, edited_at)
-            VALUES ($1, $2, $3, $4, $5, $6, now()) ON CONFLICT (workspace_id, path)
-            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now()",
+            (workspace_id, path, value, description, resource_type, created_by, edited_at, labels)
+            VALUES ($1, $2, $3, $4, $5, $6, now(), $7) ON CONFLICT (workspace_id, path)
+            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now(), labels = EXCLUDED.labels",
         w_id,
         resource.path,
         raw_json as sqlx::types::Json<&RawValue>,
         resource.description,
         resource.resource_type,
-        authed.username
+        authed.username,
+        resource.labels.as_deref() as Option<&[String]>
     )
     .execute(&mut *tx)
     .await?;
@@ -1185,6 +1199,19 @@ async fn update_resource(
     }
     if let Some(ndesc) = ns.description {
         sqlb.set_str("description", ndesc);
+    }
+    if let Some(nlabels) = &ns.labels {
+        sqlb.set(
+            "labels",
+            &format!(
+                "ARRAY[{}]::text[]",
+                nlabels
+                    .iter()
+                    .map(|l| format!("'{}'", l.replace('\'', "''")))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+        );
     }
 
     sqlb.set_str("edited_at", "now()");

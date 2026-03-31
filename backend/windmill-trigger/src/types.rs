@@ -40,8 +40,8 @@ pub struct BaseTrigger {
     pub permissioned_as: String,
     pub edited_at: DateTime<Utc>,
     pub extra_perms: Option<serde_json::Value>,
-    #[serde(default)]
-    pub labels: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]

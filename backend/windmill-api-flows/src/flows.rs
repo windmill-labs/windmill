@@ -518,7 +518,7 @@ async fn create_flow(
         sqlx::types::Json(&nf.value) as _,
         schema_str,
         &authed.username,
-        nf.labels.as_deref().unwrap_or(&[]) as &[String],
+        nf.labels.as_deref() as Option<&[String]>,
     )
     .execute(&mut *tx)
     .await?;
@@ -987,7 +987,7 @@ async fn update_flow(
         authed.username,
         flow_path,
         w_id,
-        nf.labels.as_deref().unwrap_or(&[]) as &[String],
+        nf.labels.as_deref() as Option<&[String]>,
     )
     .execute(&mut *tx)
     .await

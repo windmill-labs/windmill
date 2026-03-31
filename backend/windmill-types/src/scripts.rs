@@ -374,8 +374,8 @@ pub struct Script<SR> {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(json(nullable))]
     pub modules: Option<HashMap<String, ScriptModule>>,
-    #[serde(default)]
-    pub labels: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
     #[serde(flatten)]
     #[sqlx(flatten)]
     pub runnable_settings: SR,
@@ -441,8 +441,8 @@ pub struct ListableScript {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
     pub kind: ScriptKind,
-    #[serde(default)]
-    pub labels: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 fn is_false(x: &bool) -> bool {

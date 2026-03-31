@@ -42,6 +42,11 @@
         "ordinal": 7,
         "name": "created_by",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "labels",
+        "type_info": "TextArray"
       }
     ],
     "parameters": {
@@ -56,6 +61,7 @@
       true,
       false,
       false,
+      true,
       true,
       true
     ]

@@ -152,8 +152,8 @@ pub struct ListableApp {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub raw_app: bool,
-    #[serde(default)]
-    pub labels: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -186,8 +186,8 @@ pub struct AppWithLastVersion {
     #[sqlx(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bundle_secret: Option<String>,
-    #[serde(default)]
-    pub labels: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -1287,7 +1287,7 @@ async fn create_app_internal<'a>(
             .as_ref()
             .map(|s| if s.is_empty() { None } else { Some(s) })
             .flatten(),
-        app.labels.as_deref().unwrap_or(&[]) as &[String]
+        app.labels.as_deref() as Option<&[String]>
     )
     .fetch_one(&mut *tx)
     .await?;
