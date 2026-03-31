@@ -95,6 +95,15 @@
 				autocomplete: 'new-password',
 				onblur: (e) => onBlur?.(e),
 				onkeydown: (e) => {
+					if (e.key === 'Enter') {
+						e.preventDefault()
+						const input = e.currentTarget as HTMLInputElement
+						const start = input.selectionStart ?? 0
+						const end = input.selectionEnd ?? 0
+						password = (password ?? '').substring(0, start) + '\n' + (password ?? '').substring(end)
+						forceMultiline = true
+						return
+					}
 					onKeyDown?.(e)
 					bubble('keydown')(e)
 				},
