@@ -3302,13 +3302,12 @@ pub async fn pull(
                 };
 
                 if let Some(job) = job.as_ref() {
-                    if job.is_flow() || job.is_dependency() {
+                    if (job.is_flow() || job.is_dependency())
+                        && !(job.kind.is_preview()
+                            && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed))
+                    {
                         let per_workspace = per_workspace_tag(&job.workspace_id).await;
-                        let base_tag = if job.kind.is_preview()
-                            && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed)
-                        {
-                            "preview".to_string()
-                        } else if job.is_flow() {
+                        let base_tag = if job.is_flow() {
                             "flow".to_string()
                         } else {
                             "dependency".to_string()
