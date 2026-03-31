@@ -82,6 +82,7 @@
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { onMount, setContext, untrack } from 'svelte'
 	import Summary from './Summary.svelte'
+	import LabelsInput from './LabelsInput.svelte'
 
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
@@ -1195,6 +1196,7 @@
 													}}
 												/>
 											</Label>
+											<LabelsInput bind:labels={script.labels} />
 											<Label label="Path">
 												{#snippet header()}
 													<Tooltip
