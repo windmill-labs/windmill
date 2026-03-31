@@ -17,10 +17,19 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Ban, CheckCircle2, ExternalLink, Pencil, UserMinus, UserPlus } from 'lucide-svelte'
+	import {
+		ArrowRightLeft,
+		Ban,
+		CheckCircle2,
+		ExternalLink,
+		Pencil,
+		UserMinus,
+		UserPlus
+	} from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
+	import GlobalUserOffboardingModal from '$lib/components/GlobalUserOffboardingModal.svelte'
 	import ChangeInstanceUsername from './ChangeInstanceUsername.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import InstanceNameEditor from './InstanceNameEditor.svelte'
@@ -65,8 +74,8 @@
 
 	let users: GlobalUserInfo[] = $state([])
 	let filteredUsers: GlobalUserInfo[] = $state([])
-	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
-	let deleteUserEmail: string = $state('')
+	let offboardingEmail: string | undefined = $state(undefined)
+	let offboardingReassignOnly = $state(false)
 	let disableConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let disableUserEmail: string = $state('')
 	let editWrappers: Record<string, HTMLDivElement> = $state({})
@@ -562,18 +571,20 @@
 																		}
 																	},
 																	{
+																		displayName: 'Reassign',
+																		icon: ArrowRightLeft,
+																		action: () => {
+																			offboardingEmail = email
+																			offboardingReassignOnly = true
+																		}
+																	},
+																	{
 																		displayName: 'Remove',
 																		icon: UserMinus,
 																		type: 'delete',
 																		action: () => {
-																			deleteUserEmail = email
-																			deleteConfirmedCallback = async () => {
-																				await UserService.globalUserDelete({
-																					email
-																				})
-																				sendUserToast(`User ${email} removed`)
-																				listUsers(activeOnly)
-																			}
+																			offboardingEmail = email
+																			offboardingReassignOnly = false
 																		}
 																	}
 																]}
@@ -610,28 +621,20 @@
 		</div>
 	</div>
 </div>
-<ConfirmationModal
-	open={Boolean(deleteConfirmedCallback)}
-	title="Remove user"
-	confirmationText="Remove"
-	on:canceled={() => {
-		deleteConfirmedCallback = undefined
-	}}
-	on:confirmed={() => {
-		if (deleteConfirmedCallback) {
-			deleteConfirmedCallback()
-		}
-		deleteConfirmedCallback = undefined
-	}}
->
-	<div class="flex flex-col w-full space-y-4">
-		<span
-			>Are you sure you want to remove <b>{deleteUserEmail}</b>? They will be removed from all
-			workspaces and instance groups, and all their sessions and tokens will be revoked. This action
-			is irreversible. Their workspace content (scripts, flows, apps) will not be deleted.</span
-		>
-	</div>
-</ConfirmationModal>
+{#if offboardingEmail}
+	<GlobalUserOffboardingModal
+		open={offboardingEmail != null}
+		email={offboardingEmail}
+		reassignOnly={offboardingReassignOnly}
+		onClose={() => {
+			offboardingEmail = undefined
+		}}
+		onComplete={() => {
+			offboardingEmail = undefined
+			listUsers(activeOnly)
+		}}
+	/>
+{/if}
 <ConfirmationModal
 	open={Boolean(disableConfirmedCallback)}
 	title="Disable user"
