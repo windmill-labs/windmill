@@ -114,7 +114,7 @@
 			bind:this={editableSchemaForm}
 			bind:schema
 			isFlowInput
-			showSensitiveToggle
+			{showSensitiveToggle}
 			on:delete={(e) => {
 				addPropertyComponent?.handleDeleteArgument([e.detail])
 			}}
