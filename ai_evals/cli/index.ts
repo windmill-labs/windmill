@@ -5,9 +5,20 @@ import {
   loadCliArtifactEvalCases,
   runCliArtifactEvalCase
 } from "../adapters/cli/artifact-eval";
-import { loadCliVariantById, loadCliVariants, type CliVariant } from "../adapters/cli/variants";
+import {
+  loadCliVariantById,
+  loadCliVariants,
+  snapshotCliVariant,
+  type CliVariant
+} from "../adapters/cli/variants";
 
-type CommandName = "run" | "list-cases" | "list-variants" | "compare" | "history";
+type CommandName =
+  | "run"
+  | "list-cases"
+  | "list-variants"
+  | "snapshot-variant"
+  | "compare"
+  | "history";
 type SurfaceName = "cli";
 
 interface ParsedArgs {
@@ -15,6 +26,7 @@ interface ParsedArgs {
   surface?: string;
   caseIds: string[];
   variantIds: string[];
+  description?: string;
   json: boolean;
   keepWorkspace: boolean;
 }
@@ -28,6 +40,9 @@ async function main() {
       return;
     case "list-variants":
       await handleListVariants(args);
+      return;
+    case "snapshot-variant":
+      await handleSnapshotVariant(args);
       return;
     case "run":
       await handleRun(args);
@@ -161,6 +176,40 @@ async function handleRun(args: ParsedArgs) {
   }
 }
 
+async function handleSnapshotVariant(args: ParsedArgs) {
+  const surface = requireSurface(args.surface);
+  const variantId = requireSingleVariantId(args.variantIds, "");
+
+  switch (surface) {
+    case "cli": {
+      const result = await snapshotCliVariant({
+        variantId,
+        description: args.description
+      });
+
+      const payload = {
+        command: "snapshot-variant",
+        surface,
+        variant: result.variantId,
+        description: result.description,
+        manifestPath: result.manifestPath,
+        snapshotDir: result.snapshotDir,
+        usedOverrides: result.usedOverrides
+      };
+
+      if (args.json) {
+        process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+      } else {
+        printSnapshotSummary(payload);
+      }
+
+      return;
+    }
+    default:
+      assertNever(surface);
+  }
+}
+
 async function handleCompare(args: ParsedArgs) {
   const surface = requireSurface(args.surface);
 
@@ -254,6 +303,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     command: commandArg,
     caseIds: [],
     variantIds: [],
+    description: undefined,
     json: false,
     keepWorkspace: false
   };
@@ -275,6 +325,12 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     if (arg === "--variant") {
       parsed.variantIds.push(rest[index + 1]);
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--description") {
+      parsed.description = rest[index + 1];
       index += 1;
       continue;
     }
@@ -305,6 +361,7 @@ function isCommandName(value: string): value is CommandName {
     value === "run" ||
     value === "list-cases" ||
     value === "list-variants" ||
+    value === "snapshot-variant" ||
     value === "compare" ||
     value === "history"
   );
@@ -332,10 +389,13 @@ function requireSingleCaseId(caseIds: string[]): string {
 
 function requireSingleVariantId(variantIds: string[], fallback: string): string {
   if (variantIds.length === 0) {
+    if (!fallback) {
+      throw new Error("Missing required --variant argument");
+    }
     return fallback;
   }
   if (variantIds.length > 1) {
-    throw new Error("run accepts only one --variant value");
+    throw new Error("this command accepts only one --variant value");
   }
   return variantIds[0];
 }
@@ -402,6 +462,35 @@ function printCompareSummary(payload: {
   }
 }
 
+function printSnapshotSummary(payload: {
+  surface: SurfaceName;
+  variant: string;
+  description: string;
+  manifestPath: string;
+  snapshotDir: string;
+  usedOverrides: {
+    skillsSourcePath?: string;
+    agentsSourcePath?: string;
+    claudeSourcePath?: string;
+  };
+}) {
+  process.stdout.write(`Surface: ${payload.surface}\n`);
+  process.stdout.write(`Variant: ${payload.variant}\n`);
+  process.stdout.write(`Description: ${payload.description}\n`);
+  process.stdout.write(`Manifest: ${payload.manifestPath}\n`);
+  process.stdout.write(`Snapshot: ${payload.snapshotDir}\n`);
+  process.stdout.write("Overrides:\n");
+  process.stdout.write(
+    `- skills: ${payload.usedOverrides.skillsSourcePath ?? "(generated default)"}\n`
+  );
+  process.stdout.write(
+    `- agents: ${payload.usedOverrides.agentsSourcePath ?? "(generated default)"}\n`
+  );
+  process.stdout.write(
+    `- claude: ${payload.usedOverrides.claudeSourcePath ?? "(generated default)"}\n`
+  );
+}
+
 function labelVariantSelections(
   variants: CliVariant[]
 ): Array<{ label: string; variant: CliVariant }> {
@@ -424,6 +513,7 @@ function printHelp() {
       "Usage:",
       "  cd ai_evals && bun run cli -- list-cases --surface cli [--json]",
       "  cd ai_evals && bun run cli -- list-variants --surface cli [--json]",
+      "  cd ai_evals && bun run cli -- snapshot-variant --surface cli --variant <id> [--description <text>] [--json]",
       "  cd ai_evals && bun run cli -- run --surface cli --case <id> [--variant <id>] [--json] [--keep-workspace]",
       "  cd ai_evals && bun run cli -- compare --surface cli [--case <id> ...] [--variant <id> ...] [--json]",
       "  cd ai_evals && bun run cli -- history",

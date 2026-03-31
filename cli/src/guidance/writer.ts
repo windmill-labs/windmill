@@ -25,6 +25,10 @@ export interface WriteAiGuidanceResult {
   skillCount: number;
 }
 
+export const WMILL_INIT_AI_SKILLS_SOURCE_ENV = "WMILL_INIT_AI_SKILLS_SOURCE";
+export const WMILL_INIT_AI_AGENTS_SOURCE_ENV = "WMILL_INIT_AI_AGENTS_SOURCE";
+export const WMILL_INIT_AI_CLAUDE_SOURCE_ENV = "WMILL_INIT_AI_CLAUDE_SOURCE";
+
 const CLAUDE_MD_DEFAULT = "Instructions are in @AGENTS.md\n";
 
 export async function writeAiGuidanceFiles(

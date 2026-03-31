@@ -41,6 +41,13 @@ cd ai_evals
 bun run cli -- list-variants --surface cli
 ```
 
+Snapshot the current guidance bundle into a named CLI variant:
+
+```bash
+cd ai_evals
+bun run cli -- snapshot-variant --surface cli --variant candidate --description "Candidate CLI guidance bundle"
+```
+
 Run one CLI case:
 
 ```bash
@@ -76,52 +83,21 @@ change improved the system, do not compare against the moving `baseline`
 variant alone.
 
 `baseline` points at the repo's current generated skills, so it changes when
-the repo changes. To make a real before-vs-after comparison, freeze both sides
-as path-based variants.
+the repo changes. To make a real before-vs-after comparison, snapshot both
+sides as named variants.
 
-Create a snapshot directory:
-
-```bash
-mkdir -p ai_evals/variants/cli/snapshots
-```
-
-Before changing the skill, snapshot the current generated skills:
+Before changing the skills, freeze the current bundle:
 
 ```bash
-cp -R system_prompts/auto-generated/skills ai_evals/variants/cli/snapshots/baseline-skills
+cd ai_evals
+bun run cli -- snapshot-variant --surface cli --variant baseline-frozen --description "Frozen CLI skills before the change"
 ```
 
-Create a frozen baseline variant manifest in
-`ai_evals/variants/cli/baseline-frozen.json`:
-
-```json
-{
-  "id": "baseline-frozen",
-  "description": "Frozen CLI skills before the change",
-  "skillsSource": {
-    "type": "path",
-    "path": "./snapshots/baseline-skills"
-  }
-}
-```
-
-After changing and regenerating the skills, snapshot the candidate:
+After changing and regenerating the guidance, snapshot the candidate:
 
 ```bash
-cp -R system_prompts/auto-generated/skills ai_evals/variants/cli/snapshots/candidate-skills
-```
-
-Create `ai_evals/variants/cli/candidate.json`:
-
-```json
-{
-  "id": "candidate",
-  "description": "CLI skills after the change",
-  "skillsSource": {
-    "type": "path",
-    "path": "./snapshots/candidate-skills"
-  }
-}
+cd ai_evals
+bun run cli -- snapshot-variant --surface cli --variant candidate --description "CLI skills after the change"
 ```
 
 Then compare them on one or more cases:
@@ -167,6 +143,10 @@ WMILL_INIT_AI_SKILLS_SOURCE=./ai_evals/variants/cli/snapshots/candidate-skills w
 WMILL_INIT_AI_SKILLS_SOURCE=./ai_evals/variants/cli/snapshots/candidate-skills WMILL_INIT_AI_AGENTS_SOURCE=./my-candidate-AGENTS.md wmill init --use-default
 ```
 
+The `snapshot-variant` command also honors those same env vars. If they are
+set when you run the snapshot command, it will freeze that overridden bundle
+instead of the generated default.
+
 ## Next Steps
 
 Later iterations should add:
@@ -174,6 +154,6 @@ Later iterations should add:
 - `history` command
 - frontend adapters
 - repeated-run reliability mode
-- frozen-variant helper commands
+- variant cleanup and diff helpers
 - latency, token, and cost metrics in compare output
 - shared result/history writing from this entrypoint

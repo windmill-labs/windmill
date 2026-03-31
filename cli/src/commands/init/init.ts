@@ -8,7 +8,12 @@ import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
-import { writeAiGuidanceFiles } from "../../guidance/writer.ts";
+import {
+  WMILL_INIT_AI_AGENTS_SOURCE_ENV,
+  WMILL_INIT_AI_CLAUDE_SOURCE_ENV,
+  WMILL_INIT_AI_SKILLS_SOURCE_ENV,
+  writeAiGuidanceFiles,
+} from "../../guidance/writer.ts";
 import { generateCommentedTemplate } from "./template.ts";
 
 export interface InitOptions {
@@ -23,10 +28,6 @@ export interface InitOptions {
   configDir?: string;
   bindProfile?: boolean;
 }
-
-const WMILL_INIT_AI_SKILLS_SOURCE = "WMILL_INIT_AI_SKILLS_SOURCE";
-const WMILL_INIT_AI_AGENTS_SOURCE = "WMILL_INIT_AI_AGENTS_SOURCE";
-const WMILL_INIT_AI_CLAUDE_SOURCE = "WMILL_INIT_AI_CLAUDE_SOURCE";
 
 /**
  * Bootstrap a windmill project with a wmill.yaml file
@@ -229,9 +230,9 @@ async function initAction(opts: InitOptions) {
       targetDir: ".",
       nonDottedPaths,
       overwriteProjectGuidance: false,
-      skillsSourcePath: process.env[WMILL_INIT_AI_SKILLS_SOURCE],
-      agentsSourcePath: process.env[WMILL_INIT_AI_AGENTS_SOURCE],
-      claudeSourcePath: process.env[WMILL_INIT_AI_CLAUDE_SOURCE],
+      skillsSourcePath: process.env[WMILL_INIT_AI_SKILLS_SOURCE_ENV],
+      agentsSourcePath: process.env[WMILL_INIT_AI_AGENTS_SOURCE_ENV],
+      claudeSourcePath: process.env[WMILL_INIT_AI_CLAUDE_SOURCE_ENV],
     });
 
     if (guidanceResult.agentsWritten) {
