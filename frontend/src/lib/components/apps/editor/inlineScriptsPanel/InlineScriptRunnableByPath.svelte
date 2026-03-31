@@ -219,11 +219,16 @@
 		}}
 	>
 		{#if drawerHubFlowPreview}
-			<div class="flex flex-col flex-1 h-full overflow-auto">
-				<FlowGraphViewer triggerNode provideTriggerContext flow={drawerHubFlowPreview} />
+			<div class="flex flex-col flex-1 h-full min-h-0 overflow-auto">
+				<FlowGraphViewer
+					triggerNode
+					provideTriggerContext
+					fillAvailableHeight
+					flow={drawerHubFlowPreview}
+				/>
 			</div>
 		{:else}
-			<FlowPathViewer path={flowPath ?? ''} />
+			<FlowPathViewer path={flowPath ?? ''} fillAvailableHeight />
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -399,7 +404,7 @@
 			class="!text-xs !rounded-xs"
 		/>
 	</div>
-	<div class="w-full grow overflow-y-auto">
+	<div class="w-full grow min-h-0 overflow-y-auto">
 		{#key `${viewerContext?.stateId ? get(viewerContext.stateId) : 0}-${refreshKey}`}
 			{#if notFound}
 				<div class="text-red-400">
@@ -416,10 +421,11 @@
 			{:else if runnable.runType == 'flow'}
 				{#if isHubFlowPath(runnable.path)}
 					{#if hubFlowPreview}
-						<div class="flex flex-col flex-1 h-full overflow-auto">
+						<div class="flex flex-col flex-1 h-full min-h-0 overflow-auto">
 							<FlowGraphViewer
 								triggerNode
 								provideTriggerContext
+								fillAvailableHeight
 								flow={{ ...hubFlowPreview, path: runnable.path }}
 							/>
 						</div>
@@ -427,7 +433,7 @@
 						<Skeleton layout={[[40]]} />
 					{/if}
 				{:else}
-					<FlowPathViewer path={runnable.path} />
+					<FlowPathViewer path={runnable.path} fillAvailableHeight />
 				{/if}
 			{:else}
 				Unrecognized runType {runnable.runType}
