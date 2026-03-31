@@ -273,15 +273,15 @@
 			<RunButton {isLoading} {onRun} {onCancel} />
 		{/if}
 
-			<Button
-				variant="default"
-				size="xs"
-				startIcon={{ icon: RefreshCw }}
-				on:click={async () => {
-					sendUserToast('Getting latest runnable version at that path')
-					// Increment refreshKey to force re-mounting of viewer components (bypasses cache)
-					refreshKey++
-					lastRunnable = undefined
+		<Button
+			variant="default"
+			size="xs"
+			startIcon={{ icon: RefreshCw }}
+			on:click={async () => {
+				sendUserToast('Getting latest runnable version at that path')
+				// Increment refreshKey to force re-mounting of viewer components (bypasses cache)
+				refreshKey++
+				lastRunnable = undefined
 				refresh(runnable)
 				if (viewerContext) {
 					viewerContext.stateId.update((x) => x + 1)
@@ -297,79 +297,79 @@
 				dispatch('delete')
 			}}
 		>
-				Clear
+			Clear
+		</Button>
+		{#if runnable.runType == 'flow'}
+			<Button
+				variant="default"
+				size="xs"
+				startIcon={{ icon: Eye }}
+				on:click={() => {
+					flowPath = runnable.path
+					drawerShowsHubFlow = isHubFlowPath(runnable.path)
+					drawerFlowViewer?.openDrawer()
+				}}
+			>
+				Expand
 			</Button>
-			{#if runnable.runType == 'flow'}
+			{#if hubFlowId}
 				<Button
 					variant="default"
 					size="xs"
-					startIcon={{ icon: Eye }}
-					on:click={() => {
-						flowPath = runnable.path
-						drawerShowsHubFlow = isHubFlowPath(runnable.path)
-						drawerFlowViewer?.openDrawer()
-					}}
+					startIcon={{ icon: GitFork }}
+					endIcon={{ icon: ExternalLink }}
+					target="_blank"
+					href="{base}/flows/add?hub={hubFlowId}"
 				>
-					Expand
+					Fork
 				</Button>
-				{#if hubFlowId}
-					<Button
-						variant="default"
-						size="xs"
-						startIcon={{ icon: GitFork }}
-						endIcon={{ icon: ExternalLink }}
-						target="_blank"
-						href="{base}/flows/add?hub={hubFlowId}"
-					>
-						Fork
-					</Button>
-				{:else}
-					<Button
-						variant="default"
-						size="xs"
-						startIcon={{ icon: Pen }}
-						on:click={() => {
-							openFlowEditor(runnable.path)
-						}}
-					>
-						Edit
-					</Button>
-					<Button
-						variant="default"
-						size="xs"
-						startIcon={{ icon: Eye }}
-						endIcon={{ icon: ExternalLink }}
-						target="_blank"
-						href="{base}/flows/get/{runnable.path}?workspace={$workspaceStore}"
-					>
-						Details
-					</Button>
-				{/if}
 			{:else}
 				<Button
-					size="xs"
 					variant="default"
+					size="xs"
 					startIcon={{ icon: Pen }}
 					on:click={() => {
-						openScriptEditor(runnable.path)
+						openFlowEditor(runnable.path)
 					}}
 				>
 					Edit
 				</Button>
 				<Button
-					size="xs"
 					variant="default"
-					startIcon={{ icon: GitFork }}
-					on:click={() => {
-						fork(runnable.path)
-					}}
+					size="xs"
+					startIcon={{ icon: Eye }}
+					endIcon={{ icon: ExternalLink }}
+					target="_blank"
+					href="{base}/flows/get/{runnable.path}?workspace={$workspaceStore}"
 				>
-					Fork
+					Details
 				</Button>
 			{/if}
-			<Popover
-				floatingConfig={{
-					middleware: [
+		{:else}
+			<Button
+				size="xs"
+				variant="default"
+				startIcon={{ icon: Pen }}
+				on:click={() => {
+					openScriptEditor(runnable.path)
+				}}
+			>
+				Edit
+			</Button>
+			<Button
+				size="xs"
+				variant="default"
+				startIcon={{ icon: GitFork }}
+				on:click={() => {
+					fork(runnable.path)
+				}}
+			>
+				Fork
+			</Button>
+		{/if}
+		<Popover
+			floatingConfig={{
+				middleware: [
 					autoPlacement({
 						allowedPlacements: [
 							'bottom-start',
@@ -385,25 +385,27 @@
 			closeButton
 			contentClasses="block text-primary text-xs p-4 w-[20vh]"
 		>
-				{#snippet trigger()}
-					<Button
-						nonCaptureEvent={true}
-						btnClasses={'bg-surface text-primay hover:bg-hover'}
-						variant="default"
-						size="xs">Cache</Button
-					>
-				{/snippet}
-				{#snippet content()}
-					{#if runnable.runType == 'flow' && isHubFlowPath(runnable.path)}
-						Since this is a reference to a hub flow, cache settings are managed from the flow after
-						you fork it into your workspace.
-					{:else}
-						Since this is a reference to a workspace {runnable.runType}, set the cache in the
-						{runnable.runType} settings directly by editing it. The cache will be shared by any app
-						or flow that uses this {runnable.runType}.
-					{/if}
-				{/snippet}
-			</Popover>
+			{#snippet trigger()}
+				<Button
+					nonCaptureEvent={true}
+					btnClasses={'bg-surface text-primay hover:bg-hover'}
+					variant="default"
+					size="xs"
+				>
+					Cache
+				</Button>
+			{/snippet}
+			{#snippet content()}
+				{#if runnable.runType == 'flow' && isHubFlowPath(runnable.path)}
+					Since this is a reference to a hub flow, cache settings are managed from the flow after
+					you fork it into your workspace.
+				{:else}
+					Since this is a reference to a workspace {runnable.runType}, set the cache in the
+					{runnable.runType} settings directly by editing it. The cache will be shared by any app or
+					flow that uses this {runnable.runType}.
+				{/if}
+			{/snippet}
+		</Popover>
 
 		<input
 			onkeydown={stopPropagation(bubble('keydown'))}
