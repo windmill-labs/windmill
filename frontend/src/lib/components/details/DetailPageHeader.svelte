@@ -7,6 +7,7 @@
 	import { userStore } from '$lib/stores'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
+	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import type { TriggerContext } from '../triggers'
 	import { Calendar } from 'lucide-svelte'
 
@@ -35,6 +36,7 @@
 		errorHandlerKind: 'flow' | 'script'
 		scriptOrFlowPath: string
 		errorHandlerMuted: boolean | undefined
+		labels?: string[] | undefined
 		onSaved?: (newPath: string) => void
 		children?: import('svelte').Snippet
 		trigger_badges?: import('svelte').Snippet
@@ -49,6 +51,7 @@
 		errorHandlerKind,
 		scriptOrFlowPath,
 		errorHandlerMuted = $bindable(),
+		labels = $bindable(),
 		onSaved,
 		children,
 		trigger_badges
@@ -64,10 +67,15 @@
 		>
 			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
 				<div class={twMerge('min-w-0', $userStore?.operator ? 'pl-10' : '')}>
-					<SummaryPathDisplay {summary} {path} {onSaved} kind={errorHandlerKind} />
+					<SummaryPathDisplay {summary} {path} bind:labels {onSaved} kind={errorHandlerKind} />
 				</div>
 				{#if tag}
 					<Badge>tag: {tag}</Badge>
+				{/if}
+				{#if labels?.length}
+					{#each labels as label}
+						<Badge color="blue" small>{label}</Badge>
+					{/each}
 				{/if}
 				{@render children?.()}
 				{#if triggersState?.triggers?.some((t) => t.isPrimary && !t.isDraft)}

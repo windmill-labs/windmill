@@ -8,10 +8,12 @@
 	import { sendUserToast } from '$lib/toast'
 	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
 	import Label from './Label.svelte'
+	import LabelsInput from './LabelsInput.svelte'
 
 	interface Props {
 		summary?: string
 		path?: string
+		labels?: string[] | undefined
 		editable?: boolean
 		onSaved?: (newPath: string) => void
 		kind?: 'flow' | 'script'
@@ -20,6 +22,7 @@
 	let {
 		summary = $bindable(''),
 		path = $bindable(''),
+		labels = $bindable(),
 		editable = false,
 		onSaved,
 		kind = 'flow'
@@ -58,7 +61,8 @@
 				kind,
 				initialPath,
 				newPath,
-				newSummary: editSummary
+				newSummary: editSummary,
+				labels
 			})
 			sendUserToast(`${kind === 'flow' ? 'Flow' : 'Script'} updated`)
 			close()
@@ -117,6 +121,7 @@
 							bind:value={editSummary}
 						/>
 					</Label>
+					<LabelsInput bind:labels />
 					<Label label="Path">
 						{#if own}
 							<Path

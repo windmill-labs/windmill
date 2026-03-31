@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Badge from './common/badge/Badge.svelte'
-	import { Plus, X } from 'lucide-svelte'
+	import { Plus, Tag, X } from 'lucide-svelte'
 
 	interface Props {
 		labels: string[] | undefined
@@ -73,7 +73,7 @@
 			class="text-tertiary hover:text-secondary text-2xs flex items-center gap-0.5"
 			onclick={startAdding}
 		>
-			<Plus size={10} />Label
+			<Tag size={10} /><Plus size={8} />Label
 		</button>
 	{/if}
 </div>

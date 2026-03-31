@@ -655,6 +655,7 @@
 				errorHandlerKind="script"
 				scriptOrFlowPath={script?.path ?? ''}
 				tag={script?.tag ?? ''}
+				labels={script?.labels}
 				on:seeTriggers={() => {
 					rightPaneSelected = 'triggers'
 				}}
