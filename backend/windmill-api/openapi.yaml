@@ -10598,6 +10598,7 @@ paths:
     get:
       summary: get job
       operationId: getJob
+      x-mcp-tool: true
       tags:
         - job
       parameters:
@@ -10639,7 +10640,8 @@ paths:
   /w/{workspace}/jobs_u/get_logs/{id}:
     get:
       summary: get job logs
-      operationId: getJob logs
+      operationId: getJobLogs
+      x-mcp-tool: true
       tags:
         - job
       parameters:
