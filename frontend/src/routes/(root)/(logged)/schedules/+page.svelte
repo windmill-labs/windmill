@@ -93,6 +93,9 @@
 		if (currentFilters._default_) {
 			apiParams.broadFilter = currentFilters._default_
 		}
+		if (currentFilters.label) {
+			apiParams.label = currentFilters.label
+		}
 
 		const result = (await ScheduleService.listSchedules(apiParams)).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
@@ -101,6 +104,7 @@
 		// Extract unique values for autocomplete
 		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
 		allScriptPaths = Array.from(new Set(result.map((x) => x.script_path))).sort()
+		allLabels = Array.from(new Set(result.flatMap((x) => x.labels ?? []))).sort()
 
 		schedules = result
 		loading = false
@@ -161,6 +165,7 @@
 	// Collect unique values for filter autocomplete
 	let allPaths: string[] = $state([])
 	let allScriptPaths: string[] = $state([])
+	let allLabels: string[] = $state([])
 
 	// FilterSearchbar setup
 	let userFoldersFilterType = $derived(
@@ -174,6 +179,7 @@
 		buildSchedulesFilterSchema({
 			paths: allPaths,
 			scriptPaths: allScriptPaths,
+			labels: allLabels,
 			showUserFoldersFilter: userFoldersFilterType !== undefined,
 			userFoldersLabel:
 				userFoldersFilterType === 'only f/*' ? 'Only f/*' : `Only u/${$userStore?.username} and f/*`

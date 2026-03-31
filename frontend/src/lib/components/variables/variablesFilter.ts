@@ -1,14 +1,16 @@
-import { FileCode, FileText, FolderIcon, Key, Users } from 'lucide-svelte'
+import { FileCode, FileText, FolderIcon, Key, Tag, Users } from 'lucide-svelte'
 import type { FilterSchemaRec } from '../FilterSearchbar.svelte'
 
 export function buildVariablesFilterSchema({
 	paths,
 	owners,
+	labels,
 	showUserFoldersFilter,
 	userFoldersLabel
 }: {
 	paths: string[]
 	owners: string[]
+	labels?: string[]
 	showUserFoldersFilter?: boolean
 	userFoldersLabel?: string
 }) {
@@ -52,6 +54,15 @@ export function buildVariablesFilterSchema({
 			label: 'Value',
 			icon: Key,
 			description: 'Search in non-secret variable values'
+		},
+		label: {
+			type: 'oneof' as const,
+			options: (labels ?? []).map((s) => ({ label: s, value: s })),
+			allowNegative: false,
+			allowMultiple: false,
+			label: 'Label',
+			icon: Tag,
+			description: 'Filter by label'
 		},
 		...(showUserFoldersFilter
 			? {

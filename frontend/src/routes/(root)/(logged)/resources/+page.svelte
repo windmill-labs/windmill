@@ -88,6 +88,7 @@
 	let allPaths: string[] = $state([])
 	let allResourceTypes: string[] = $state([])
 	let allOwners: string[] = $state([])
+	let allLabels: string[] = $state([])
 
 	let resourceTypeViewer: Drawer | undefined = $state(undefined)
 	let resourceTypeViewerObj = $state({
@@ -144,6 +145,7 @@
 			paths: allPaths,
 			resourceTypes: allResourceTypes,
 			owners: allOwners,
+			labels: allLabels,
 			showUserFoldersFilter: userFoldersFilterType !== undefined,
 			userFoldersLabel:
 				userFoldersFilterType === 'only f/*' ? 'Only f/*' : `Only u/${$userStore?.username} and f/*`
@@ -214,6 +216,9 @@
 		if (currentFilters._default_) {
 			apiParams.broadFilter = currentFilters._default_
 		}
+		if (currentFilters.label) {
+			apiParams.label = currentFilters.label
+		}
 
 		const result = (await ResourceService.listResource(apiParams)).map((x) => {
 			return {
@@ -229,6 +234,7 @@
 		allOwners = Array.from(
 			new Set(result.map((x) => x.path.split('/').slice(0, 2).join('/')))
 		).sort()
+		allLabels = Array.from(new Set(result.flatMap((x) => x.labels ?? []))).sort()
 
 		return result
 	}
