@@ -1723,6 +1723,11 @@ async fn import_pg_database(
         return Ok("No action needed for KeepOriginal behavior".to_string());
     }
 
+    // $res: sources reference scoped resources — require admin to access them
+    if req.source.starts_with("$res:") || req.target.starts_with("$res:") {
+        require_admin(is_admin, &username)?;
+    }
+
     if req.fork_behavior == DataTableForkBehavior::SchemaAndData {
         require_admin(is_admin, &username)?;
         if *CLOUD_HOSTED {
