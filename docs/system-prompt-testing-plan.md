@@ -66,7 +66,19 @@ experiment.
 
 Frontend and CLI should share the same evaluation corpus format when possible, but each surface should have its own execution adapter.
 
-### 8. UI comes last
+### 8. CLI first, UI last
+
+The CLI should be the first surface brought to a high-confidence benchmark
+state.
+
+It is the cleanest foundation for the suite because it produces direct files in
+an isolated workspace, has less ambiguity than the frontend, and is easier to
+score deterministically.
+
+Frontend should reuse the benchmark model proven on the CLI rather than define
+a parallel testing philosophy.
+
+### 9. UI comes last
 
 The testing suite must exist and be trustworthy before building a studio UI on top of it.
 
@@ -81,6 +93,19 @@ The repo already has the right content split:
 - CLI materializes guidance and skill content from generated outputs
 
 This is a strong foundation for a shared eval suite.
+
+## Execution Priority
+
+Even though the repo already has useful frontend eval scaffolding, the
+implementation priority should be:
+
+1. make the CLI artifact-evaluation path excellent
+2. stabilize shared scoring, reporting, and benchmark history around that path
+3. bring frontend onto the same benchmark model
+4. build the UI only after the underlying suite is trustworthy
+
+This keeps the hardest product question focused on artifact quality rather than
+on UI workflow.
 
 ## Frontend: What Exists Today
 
@@ -138,6 +163,11 @@ That is the correct direction.
 ## Frontend: Perfect Testing Logic
 
 The perfect frontend testing logic is:
+
+Frontend should not be the place where the benchmark philosophy is invented.
+
+It should consume the shared case format, validator model, reporting format,
+and history format already proven through the CLI path.
 
 ### 1. Stay fully headless
 
@@ -340,6 +370,8 @@ The current CLI setup also depends on manual preparation of a `.claude/skills` f
 ## CLI: Perfect Testing Logic
 
 The perfect CLI testing logic is:
+
+This should be the reference implementation for the suite.
 
 ### 1. Evaluate the final artifact, not the skill invocation
 
@@ -715,16 +747,7 @@ Deliverables:
 - shared result schema
 - initial core benchmark set
 
-### Phase 2: Finish the frontend black-box harness
-
-Deliverables:
-
-- convert current flow and app evals into proper scored reliability tests
-- add script eval support
-- add repeated-run support
-- add prompt-variant loading from files
-
-### Phase 3: Replace the CLI smoke suite with real artifact evaluation
+### Phase 2: Replace the CLI smoke suite with real artifact evaluation
 
 Deliverables:
 
@@ -732,26 +755,31 @@ Deliverables:
 - automatic skill-bundle materialization
 - artifact scoring
 - repeated-run support
+- baseline vs candidate skill-bundle comparison
 
-### Phase 4: Add shared reporting
+### Phase 3: Add shared reporting and benchmark history around the CLI path
 
 Deliverables:
 
 - baseline vs candidate reports
 - pass-rate summaries
 - worst-failure reports
-- stored run history
-
-### Phase 5: Add benchmark history
-
-Deliverables:
-
 - official run schema
 - git-tracked benchmark summary file
 - history snapshot writer
 - rollup generation for trend charts
 
-### Phase 6: Add CI tiers
+### Phase 4: Finish the frontend black-box harness on top of the shared model
+
+Deliverables:
+
+- convert current flow and app evals into proper scored reliability tests
+- add script eval support
+- add repeated-run support
+- add prompt-variant loading from files
+- align frontend outputs with the shared result and history format
+
+### Phase 5: Add CI tiers
 
 Deliverables:
 
@@ -760,7 +788,7 @@ Deliverables:
 - official history updates on `main` and scheduled runs
 - manual benchmark mode for prompt authors
 
-### Phase 7: Build the UI studio
+### Phase 6: Build the UI studio
 
 Deliverables:
 
@@ -835,7 +863,9 @@ They already prove that the repo can test AI behavior without coupling to the br
 
 The main work now is:
 
-- make frontend evals complete and reliability-oriented
 - replace CLI invocation checks with artifact evaluation
-- unify both under one benchmark model
+- make the CLI path the reference benchmark implementation
+- unify frontend under that same benchmark model
+- make frontend evals complete and reliability-oriented only after the shared
+  scoring model is stable
 - build the UI only after the suite is strong enough to stand on its own

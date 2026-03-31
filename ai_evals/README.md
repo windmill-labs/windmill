@@ -22,10 +22,15 @@ internal implementation details of the frontend or CLI.
 The first implementation step is to move the existing frontend flow and app
 benchmark prompts out of inline test code and into shared case manifests.
 
+That scaffolding exists now, but the next implementation priority should be the
+CLI artifact-evaluation runner and the shared benchmark history/reporting layer
+around it.
+
 Later phases should add:
 
-- frontend `script` cases
 - CLI artifact-evaluation cases
 - shared result schemas
 - repeated-run reliability reporting
 - official benchmark history snapshots and rollups
+- frontend `script` cases
+- frontend adapters aligned to the shared CLI-proven scoring model
