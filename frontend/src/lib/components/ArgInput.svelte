@@ -495,6 +495,8 @@
 
 	let { debounced, clearDebounce } = debounce(() => compareValues(value), 50)
 	let inputCat = $derived(computeInputCat(type, format, itemsType?.type, enum_, contentEncoding))
+	let isNonStringSecret = $derived((password || extra?.['password'] == true) && type === 'object')
+
 	let displayJsonToggleHeader = $derived(
 		displayHeader &&
 			inputCat === 'list' &&
@@ -557,6 +559,12 @@
 				Linked to variable <button
 					class="text-accent underline font-normal"
 					onclick={() => variableEditor?.editVariable?.(value.slice(5))}>{value.slice(5)}</button
+				>
+			{:else if value && typeof value == 'string' && value?.startsWith('$jsonvar:')}
+				Linked to variable <button
+					class="text-accent underline font-normal"
+					onclick={() => variableEditor?.editVariable?.(value.slice('$jsonvar:'.length))}
+					>{value.slice('$jsonvar:'.length)}</button
 				>
 			{/if}
 		</div>
@@ -1487,6 +1495,18 @@
 		{/if}
 		{@render actions?.()}
 	</div>
+
+	{#if isNonStringSecret}
+		{#if typeof value === 'string' && value.startsWith('$jsonvar:')}
+			<div class="text-2xs text-tertiary">
+				Sensitive — stored as secret: <code class="text-2xs">{value.slice('$jsonvar:'.length)}</code
+				>
+			</div>
+		{:else}
+			<div class="text-2xs text-tertiary italic">Sensitive — will be stored as secret on submit</div
+			>
+		{/if}
+	{/if}
 
 	{#if !compact || (error && error != '')}
 		<div class="text-right text-xs leading-3 text-red-600 dark:text-red-400 mb-2">
