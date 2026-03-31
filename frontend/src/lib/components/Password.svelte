@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createBubbler } from 'svelte/legacy'
+	import { tick } from 'svelte'
 	import Button from './common/button/Button.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import { Eye, EyeClosed } from 'lucide-svelte'
@@ -37,6 +38,14 @@
 		forceMultiline || (minRows != null && minRows > 1) || (password?.includes('\n') ?? false)
 	)
 
+	let textareaRef: TextInput<'textarea'> | undefined = $state()
+
+	async function switchToMultiline() {
+		forceMultiline = true
+		await tick()
+		textareaRef?.focus()
+	}
+
 	function onPasteIntoInput(e: ClipboardEvent) {
 		const text = e.clipboardData?.getData('text')
 		if (text?.includes('\n')) {
@@ -45,7 +54,7 @@
 			const start = input.selectionStart ?? 0
 			const end = input.selectionEnd ?? 0
 			password = (password ?? '').substring(0, start) + text + (password ?? '').substring(end)
-			forceMultiline = true
+			switchToMultiline()
 		}
 	}
 </script>
@@ -63,6 +72,7 @@
 	</div>
 	{#if isMultiline}
 		<TextInput
+			bind:this={textareaRef}
 			size="md"
 			error={red}
 			bind:value={password}
@@ -101,7 +111,7 @@
 						const start = input.selectionStart ?? 0
 						const end = input.selectionEnd ?? 0
 						password = (password ?? '').substring(0, start) + '\n' + (password ?? '').substring(end)
-						forceMultiline = true
+						switchToMultiline()
 						return
 					}
 					onKeyDown?.(e)
