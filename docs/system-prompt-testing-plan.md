@@ -156,18 +156,14 @@ The exact binary name can change, but the architecture should not:
 
 ## Temporary Bootstrap Code
 
-Existing test files under `frontend/.../__tests__/...` and `cli/test-skills/`
-are acceptable as bootstrap code while the benchmark CLI is being built.
+Existing frontend test files under `frontend/.../__tests__/...` are acceptable
+as bootstrap code while the benchmark CLI is being built.
 
 They should not be treated as the final user-facing interface for prompt
 evaluation.
 
-In particular:
-
-- `cli/test-skills/` is currently a prototype adapter and proving ground
-- it should eventually be migrated behind the repo-level benchmark CLI
-- benchmark authors should not have to know about `cli/test-skills/` to run the
-  long-term suite
+Benchmark authors should only need the repo-level benchmark CLI to run the
+long-term suite.
 
 ## Frontend: What Exists Today
 
@@ -946,9 +942,6 @@ This project is successful when all of the following are true:
 ## Final Recommendation
 
 The current frontend evals should be treated as a useful starting point, not the finished solution.
-
-The current `cli/test-skills` work should also be treated as a useful prototype,
-not the final benchmark interface.
 
 They already prove that the repo can test AI behavior without coupling to the browser UI.
 

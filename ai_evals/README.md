@@ -11,9 +11,6 @@ internal implementation details of the frontend or CLI.
 The intended end state is a new repo-level benchmark CLI for running the shared
 eval suite across both the Windmill CLI and the frontend.
 
-Current code under `cli/test-skills/` should be treated as bootstrap/prototype
-implementation work, not the final entrypoint.
-
 ## Layout
 
 - `cli/`: repo-level benchmark CLI entrypoint and orchestration
@@ -57,9 +54,10 @@ bun install
 Current usage:
 
 ```bash
-bun ai_evals/cli/index.ts list-cases --surface cli
-bun ai_evals/cli/index.ts run --surface cli --case bun-hello-script
+cd ai_evals
+bun run cli -- list-cases --surface cli
+bun run cli -- run --surface cli --case bun-hello-script
 ```
 
-At the moment this is intentionally thin and delegates to the bootstrap CLI
-adapter code under `cli/test-skills/`.
+At the moment this is still intentionally small, but it is the only benchmark
+entrypoint.

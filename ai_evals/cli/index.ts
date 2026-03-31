@@ -237,10 +237,10 @@ function printHelp() {
   process.stdout.write(
     [
       "Usage:",
-      "  bun ai_evals/cli/index.ts list-cases --surface cli [--json]",
-      "  bun ai_evals/cli/index.ts run --surface cli --case <id> [--json] [--keep-workspace]",
-      "  bun ai_evals/cli/index.ts compare",
-      "  bun ai_evals/cli/index.ts history",
+      "  cd ai_evals && bun run cli -- list-cases --surface cli [--json]",
+      "  cd ai_evals && bun run cli -- run --surface cli --case <id> [--json] [--keep-workspace]",
+      "  cd ai_evals && bun run cli -- compare",
+      "  cd ai_evals && bun run cli -- history",
       "",
       "Current support:",
       "  surfaces: cli"

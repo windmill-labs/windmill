@@ -9,10 +9,8 @@ The current implementation is intentionally small:
 
 - `run` command
 - `cli` surface only
-- runs the existing CLI artifact-eval adapter from `cli/test-skills/`
 
-This is a migration step away from using `cli/test-skills/` as the primary
-entrypoint.
+This is the benchmark entrypoint for prompt and artifact evaluation.
 
 ## Usage
 
@@ -26,25 +24,29 @@ bun install
 List available CLI cases:
 
 ```bash
-bun ai_evals/cli/index.ts list-cases --surface cli
+cd ai_evals
+bun run cli -- list-cases --surface cli
 ```
 
 Run one CLI case:
 
 ```bash
-bun ai_evals/cli/index.ts run --surface cli --case bun-hello-script
+cd ai_evals
+bun run cli -- run --surface cli --case bun-hello-script
 ```
 
 Keep the temp workspace for inspection:
 
 ```bash
-bun ai_evals/cli/index.ts run --surface cli --case bun-hello-script --keep-workspace
+cd ai_evals
+bun run cli -- run --surface cli --case bun-hello-script --keep-workspace
 ```
 
 Print machine-readable output:
 
 ```bash
-bun ai_evals/cli/index.ts run --surface cli --case bun-hello-script --json
+cd ai_evals
+bun run cli -- run --surface cli --case bun-hello-script --json
 ```
 
 ## Next Steps

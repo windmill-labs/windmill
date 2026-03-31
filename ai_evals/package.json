@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "cli": "bun cli/index.ts",
     "list-cases": "bun cli/index.ts list-cases --surface cli"
   },
   "dependencies": {
