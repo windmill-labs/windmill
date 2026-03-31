@@ -20525,6 +20525,10 @@ components:
           type: string
           description: The expiration date of the variable
           format: date-time
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - value
@@ -20546,6 +20550,10 @@ components:
         description:
           type: string
           description: The new description of the variable
+        labels:
+          type: array
+          items:
+            type: string
 
     AuditLog:
       type: object
@@ -20937,6 +20945,10 @@ components:
         resource_type:
           type: string
           description: The resource_type associated with the resource
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - value
@@ -20955,6 +20967,10 @@ components:
         resource_type:
           type: string
           description: The new resource_type to be associated with the resource
+        labels:
+          type: array
+          items:
+            type: string
 
     Resource:
       type: object
