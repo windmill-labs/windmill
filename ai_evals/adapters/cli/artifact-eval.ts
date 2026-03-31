@@ -3,6 +3,8 @@ import { cp, mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "fs/promise
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
+import { generateAgentsMdContent } from "../../../cli/src/guidance/core.ts";
+import { SKILLS } from "../../../cli/src/guidance/skills.ts";
 import {
   runPromptAndCapture,
   type PromptRunResult,
@@ -50,6 +52,12 @@ export interface CliArtifactEvalResult {
 }
 
 const CASES_DIR = fileURLToPath(new URL("../../cases/cli", import.meta.url));
+const CLAUDE_PROJECT_PREAMBLE = [
+  "Follow the project instructions from AGENTS.md exactly.",
+  "Before creating or modifying any Windmill entity, you MUST invoke the relevant Skill tool and follow it.",
+  "Use the skill guidance for file layout, implementation details, and the exact next commands to tell the user.",
+  "Do not skip the Skill step."
+].join(" ");
 
 export async function loadCliArtifactEvalCases(): Promise<CliArtifactEvalCase[]> {
   const filenames = (await readdir(CASES_DIR))
@@ -81,7 +89,7 @@ export async function runCliArtifactEvalCase(
   const workspaceDir = await createIsolatedWorkspace(evalCase.id, options.variant.skillsSourcePath);
 
   try {
-    const renderedPrompt = renderPrompt(evalCase.prompt, workspaceDir);
+    const renderedPrompt = await renderPrompt(evalCase.prompt, workspaceDir);
     const run = await runPromptAndCapture(
       renderedPrompt,
       workspaceDir,
@@ -124,13 +132,40 @@ async function createIsolatedWorkspace(
 
   await mkdir(dirname(skillsDir), { recursive: true });
   await cp(skillsSourcePath, skillsDir, { recursive: true });
+  await writeProjectGuidance(workspaceDir);
   await writeFile(join(workspaceDir, "rt.d.ts"), "export namespace RT {}\n", "utf8");
 
   return workspaceDir;
 }
 
-function renderPrompt(prompt: string, workspaceDir: string): string {
-  return prompt.replaceAll("{{workspace_root}}", workspaceDir);
+async function writeProjectGuidance(workspaceDir: string): Promise<void> {
+  const skillsBaseDir = ".claude/skills";
+  const skillsReference = SKILLS.map(
+    (skill) => `- \`${skillsBaseDir}/${skill.name}/SKILL.md\` - ${skill.description}`
+  ).join("\n");
+
+  await writeFile(
+    join(workspaceDir, "AGENTS.md"),
+    generateAgentsMdContent(skillsReference),
+    "utf8"
+  );
+  await writeFile(join(workspaceDir, "CLAUDE.md"), "Instructions are in @AGENTS.md\n", "utf8");
+}
+
+async function renderPrompt(prompt: string, workspaceDir: string): Promise<string> {
+  const renderedUserPrompt = prompt.replaceAll("{{workspace_root}}", workspaceDir);
+  const agentsInstructions = await readFile(join(workspaceDir, "AGENTS.md"), "utf8");
+
+  return [
+    "# Project Instructions",
+    agentsInstructions.trim(),
+    "",
+    "# Benchmark Harness",
+    CLAUDE_PROJECT_PREAMBLE,
+    "",
+    "# User Request",
+    renderedUserPrompt
+  ].join("\n");
 }
 
 async function collectExpectedFiles(
@@ -168,7 +203,7 @@ function buildChecks(
     checks.push({
       name: `invokes ${evalCase.expectedSkill}`,
       passed: wasSkillInvoked(run, evalCase.expectedSkill),
-      required: false,
+      required: true,
       details: `skills invoked: ${run.skillsInvoked.join(", ")}`
     });
   }
@@ -177,7 +212,7 @@ function buildChecks(
     checks.push({
       name: `mentions '${expectedOutput}' in assistant output`,
       passed: run.output.includes(expectedOutput),
-      required: false
+      required: true
     });
   }
 

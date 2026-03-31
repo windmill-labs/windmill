@@ -13,7 +13,8 @@
       {
         "path": "f/evals/hello__flow/flow.yaml",
         "mustContain": [
-          "steps:",
+          "value:",
+          "modules:",
           "name:"
         ]
       },
