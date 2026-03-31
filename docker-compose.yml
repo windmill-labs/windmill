@@ -131,7 +131,6 @@ services:
       - MODE=worker
       - WORKER_GROUP=native
       - NATIVE_MODE=true
-      - NUM_WORKERS=8
       - SLEEP_QUEUE=200
     depends_on:
       db:
