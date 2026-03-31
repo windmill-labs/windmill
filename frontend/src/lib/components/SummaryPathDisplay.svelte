@@ -9,6 +9,7 @@
 	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
 	import Label from './Label.svelte'
 	import LabelsInput from './LabelsInput.svelte'
+	import Badge from './common/badge/Badge.svelte'
 
 	interface Props {
 		summary?: string
@@ -101,6 +102,13 @@
 				>
 					{emptyString(summary) ? 'Add a summary...' : summary}
 				</span>
+				{#if labels?.length}
+					<div class="flex items-center gap-px mt-0.5">
+						{#each labels as label}
+							<Badge color="blue" verySmall>{label}</Badge>
+						{/each}
+					</div>
+				{/if}
 			</div>
 		{/snippet}
 		{#snippet content({ close })}

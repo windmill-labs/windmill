@@ -72,11 +72,6 @@
 				{#if tag}
 					<Badge>tag: {tag}</Badge>
 				{/if}
-				{#if labels?.length}
-					{#each labels as label}
-						<Badge color="blue" small>{label}</Badge>
-					{/each}
-				{/if}
 				{@render children?.()}
 				{#if triggersState?.triggers?.some((t) => t.isPrimary && !t.isDraft)}
 					{@const primarySchedule = triggersState.triggers.findIndex(
