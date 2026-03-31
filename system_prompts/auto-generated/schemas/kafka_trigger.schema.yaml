@@ -32,6 +32,13 @@ properties:
         key:
           type: string
         value: {}
+  filter_logic:
+    type: string
+    enum:
+    - and
+    - or
+    description: Logic to apply when evaluating filters. 'and' requires all filters
+      to match, 'or' requires any filter to match.
   auto_offset_reset:
     type: string
     enum:

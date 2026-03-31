@@ -79,7 +79,7 @@ use windmill_common::{jwt, oauth2::HmacSha256, variables::get_workspace_key};
 #[cfg(feature = "parquet")]
 use windmill_types::s3::{S3Object, S3Permission};
 
-pub fn workspaced_service() -> Router {
+pub fn workspaced_service(raw_app_body_limit: usize) -> Router {
     Router::new()
         .route("/list", get(list_apps))
         .route("/list_search", get(list_search_apps))
@@ -95,10 +95,16 @@ pub fn workspaced_service() -> Router {
         .route("/get_data/v/{*id}", get(get_raw_app_data))
         .route("/exists/{*path}", get(exists_app))
         .route("/update/{*path}", post(update_app))
-        .route("/update_raw/{*path}", post(update_app_raw))
+        .route(
+            "/update_raw/{*path}",
+            post(update_app_raw).layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
+        )
         .route("/delete/{*path}", delete(delete_app))
         .route("/create", post(create_app))
-        .route("/create_raw", post(create_app_raw))
+        .route(
+            "/create_raw",
+            post(create_app_raw).layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
+        )
         .route("/history/p/{*path}", get(get_app_history))
         .route("/get_latest_version/{*path}", get(get_latest_version))
         .route(
@@ -1024,18 +1030,20 @@ macro_rules! process_app_multipart {
             let mut saved_app = None;
             let mut uploaded_js = false;
 
+            let request_size_limit_mb = *crate::REQUEST_SIZE_LIMIT.read().await / (1024 * 1024);
+            let raw_app_limit_mb = request_size_limit_mb * 5;
             let mut multipart = $multipart;
             while let Some(field) = multipart
                 .next_field()
                 .await
-                .map_err(|e| Error::BadRequest(format!("failed to read multipart field: {e}")))?
+                .map_err(|e| Error::BadRequest(format!("failed to read multipart field: {e}. Could be due to the request size limit for raw app bundles which is {raw_app_limit_mb}MB (adjustable in instance settings)")))?
             {
                 let name = field
                     .name()
                     .ok_or_else(|| Error::BadRequest("multipart field missing name".to_string()))?
                     .to_string();
                 let data = field.bytes().await.map_err(|e| {
-                    Error::BadRequest(format!("failed to read multipart stream: {e}"))
+                    Error::BadRequest(format!("failed to read multipart stream: {e}. Could be due to the request size limit for raw app bundles which is {raw_app_limit_mb}MB (adjustable in instance settings)"))
                 })?;
                 if name == "app" {
                     let app = serde_json::from_slice(&data).map_err(to_anyhow)?;

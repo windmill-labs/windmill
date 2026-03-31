@@ -91,6 +91,7 @@
 	})
 
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let deleteIsLinked = $state(false)
 	let open = $derived(Boolean(deleteConfirmedCallback))
 
 	// Filter variables client-side for user folder filtering (admin feature)
@@ -468,6 +469,7 @@
 															if (event['shiftKey']) {
 																deleteVariable(path, account)
 															} else {
+																deleteIsLinked = is_linked ?? false
 																deleteConfirmedCallback = () => {
 																	deleteVariable(path, account)
 																}
@@ -594,6 +596,12 @@
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to remove this variable?</span>
+		{#if deleteIsLinked}
+			<Alert type="warning" title="Linked resource">
+				This variable is linked with a resource of the same path. The linked resource will also be
+				deleted.
+			</Alert>
+		{/if}
 		<Alert type="info" title="Bypass confirmation">
 			<div>
 				You can press

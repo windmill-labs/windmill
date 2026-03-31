@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.668.5
+  version: 1.669.1
   title: Windmill API
 
   contact:
@@ -10638,6 +10638,7 @@ paths:
     get:
       summary: get job
       operationId: getJob
+      x-mcp-tool: true
       tags:
         - job
       parameters:
@@ -10679,7 +10680,8 @@ paths:
   /w/{workspace}/jobs_u/get_logs/{id}:
     get:
       summary: get job logs
-      operationId: getJob logs
+      operationId: getJobLogs
+      x-mcp-tool: true
       tags:
         - job
       parameters:
@@ -21958,6 +21960,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         initial_messages:
           type: array
           nullable: true
@@ -22019,6 +22028,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         initial_messages:
           type: array
           nullable: true
@@ -22091,6 +22107,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         initial_messages:
           type: array
           nullable: true
@@ -22999,6 +23022,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         auto_offset_reset:
           type: string
           enum:
@@ -23070,6 +23100,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         auto_offset_reset:
           type: string
           enum:
@@ -23137,6 +23174,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         auto_offset_reset:
           type: string
           enum:

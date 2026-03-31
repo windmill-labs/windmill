@@ -5832,6 +5832,13 @@ properties:
         key:
           type: string
         value: {}
+  filter_logic:
+    type: string
+    enum:
+    - and
+    - or
+    description: Logic to apply when evaluating filters. 'and' requires all filters
+      to match, 'or' requires any filter to match.
   auto_offset_reset:
     type: string
     enum:
@@ -6383,6 +6390,13 @@ properties:
         value: {}
     description: Array of key-value filters to match incoming messages (only matching
       messages trigger the script)
+  filter_logic:
+    type: string
+    enum:
+    - and
+    - or
+    description: Logic to apply when evaluating filters. 'and' requires all filters
+      to match, 'or' requires any filter to match.
   initial_messages:
     type: array
     items:

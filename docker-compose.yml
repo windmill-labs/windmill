@@ -75,7 +75,6 @@ services:
       replicas: 3
       resources:
         limits:
-          cpus: "1"
           memory: 2048M
           # for GB, use syntax '2Gi'
     restart: unless-stopped
@@ -119,7 +118,6 @@ services:
       replicas: 1
       resources:
         limits:
-          cpus: "1"
           memory: 2048M
           # for GB, use syntax '2Gi'
     restart: unless-stopped
@@ -131,7 +129,6 @@ services:
       - MODE=worker
       - WORKER_GROUP=native
       - NATIVE_MODE=true
-      - NUM_WORKERS=8
       - SLEEP_QUEUE=200
     depends_on:
       db:
@@ -147,7 +144,6 @@ services:
   #     replicas: 1
   #     resources:
   #       limits:
-  #         cpus: "1"
   #         memory: 2048M
   #         # for GB, use syntax '2Gi'
   #   restart: unless-stopped
