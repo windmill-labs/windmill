@@ -64,7 +64,7 @@
 
 	let drawerFlowViewer: Drawer | undefined = $state(undefined)
 	let flowPath: string = $state('')
-	let drawerHubFlowPreview: (OpenFlow & { path?: string }) | undefined = $state(undefined)
+	let drawerShowsHubFlow = $state(false)
 	let notFound = $state(false)
 
 	// Key to force re-mounting of viewer components (bypasses FlowModuleScript cache)
@@ -214,21 +214,30 @@
 	<DrawerContent
 		title="Flow {flowPath}"
 		on:close={() => {
-			drawerHubFlowPreview = undefined
+			flowPath = ''
+			drawerShowsHubFlow = false
 			drawerFlowViewer?.closeDrawer()
 		}}
 	>
-		{#if drawerHubFlowPreview}
+		{#if drawerShowsHubFlow}
 			<div class="flex flex-col flex-1 h-full min-h-0 overflow-auto">
-				<FlowGraphViewer
-					triggerNode
-					provideTriggerContext
-					fillAvailableHeight
-					flow={drawerHubFlowPreview}
-				/>
+				{#if hubFlowPreview}
+					<FlowGraphViewer
+						triggerNode
+						provideTriggerContext
+						fillAvailableHeight
+						flow={{ ...hubFlowPreview, path: flowPath }}
+					/>
+				{:else if notFound}
+					<div class="p-4 text-red-400">Hub flow not found at {flowPath}</div>
+				{:else}
+					<div class="p-4">
+						<Skeleton layout={[[40]]} />
+					</div>
+				{/if}
 			</div>
-		{:else}
-			<FlowPathViewer path={flowPath ?? ''} fillAvailableHeight />
+		{:else if flowPath}
+			<FlowPathViewer path={flowPath} fillAvailableHeight />
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -296,9 +305,7 @@
 					startIcon={{ icon: Eye }}
 					on:click={() => {
 						flowPath = runnable.path
-						drawerHubFlowPreview = isHubFlowPath(runnable.path) && hubFlowPreview
-							? { ...hubFlowPreview, path: runnable.path }
-							: undefined
+						drawerShowsHubFlow = isHubFlowPath(runnable.path)
 						drawerFlowViewer?.openDrawer()
 					}}
 				>
