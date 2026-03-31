@@ -662,10 +662,7 @@ pub(crate) struct DeleteWorkspaceQuery {
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct DeleteWorkspaceBody {
-    #[serde(default)]
-    pub(crate) drop_datatable_databases: Option<Vec<String>>,
-}
+pub(crate) struct DeleteWorkspaceBody {}
 
 pub(crate) async fn delete_workspace(
     Extension(db): Extension<DB>,
@@ -693,15 +690,6 @@ pub(crate) async fn delete_workspace(
     let mut tx = db.begin().await?;
     if !(w_id.starts_with(WM_FORK_PREFIX) && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
         require_super_admin(&db, &authed.email).await?;
-    }
-
-    // Drop forked datatable databases if requested
-    let drop_dbs = body
-        .and_then(|b| b.0.drop_datatable_databases)
-        .unwrap_or_default();
-
-    if !drop_dbs.is_empty() {
-        drop_forked_datatable_databases(&db, &mut tx, &w_id, &drop_dbs).await;
     }
 
     sqlx::query!("DELETE FROM ai_agent_memory WHERE workspace_id = $1", &w_id)
@@ -863,80 +851,78 @@ pub(crate) async fn delete_workspace(
     Ok(format!("Deleted workspace {}", &w_id))
 }
 
-/// Drop forked datatable databases. Non-fatal: errors are logged but don't block deletion.
-async fn drop_forked_datatable_databases(
-    db: &DB,
-    tx: &mut Transaction<'_, Postgres>,
-    w_id: &str,
-    datatable_names: &[String],
-) {
-    // Get parent workspace ID
-    let parent_w_id = match sqlx::query_scalar!(
-        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
-        w_id
-    )
-    .fetch_optional(&mut **tx)
-    .await
-    {
-        Ok(Some(Some(parent))) => parent,
-        _ => {
-            tracing::error!(
-                "Cannot drop forked databases: no parent workspace for '{}'",
-                w_id
-            );
-            return;
-        }
-    };
+#[derive(Deserialize)]
+struct DropForkedDatatableDatabasesRequest {
+    datatable_names: Vec<String>,
+}
 
-    let datatable_config = match sqlx::query_scalar!(
-        "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = $1",
-        w_id
+/// Drop forked datatable databases. Returns errors per datatable that failed.
+pub async fn drop_forked_datatable_databases(
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<DropForkedDatatableDatabasesRequest>,
+) -> Result<Json<Vec<String>>> {
+    require_admin(is_admin, &username)?;
+
+    let parent_w_id = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+        &w_id
     )
-    .fetch_optional(&mut **tx)
-    .await
-    {
-        Ok(Some(Some(config))) => config,
-        _ => return,
-    };
+    .fetch_optional(&db)
+    .await?
+    .flatten()
+    .ok_or_else(|| Error::BadRequest("No parent workspace found".to_string()))?;
+
+    let datatable_config = sqlx::query_scalar!(
+        "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten()
+    .unwrap_or(serde_json::json!({}));
 
     let datatables: HashMap<String, DataTable> =
         serde_json::from_value(datatable_config).unwrap_or_default();
 
-    for dt_name in datatable_names {
+    let mut errors: Vec<String> = Vec::new();
+
+    for dt_name in &req.datatable_names {
         let dt = match datatables.get(dt_name) {
             Some(dt) if dt.forked_from.is_some() => dt,
             _ => continue,
         };
-        let db_to_drop = &dt.database.resource_path;
 
         if dt.database.resource_type
             == windmill_common::workspaces::DataTableCatalogResourceType::Instance
         {
-            if let Err(e) = windmill_common::drop_custom_instance_database(db, db_to_drop).await {
-                tracing::error!("Failed to drop instance database '{}': {}", db_to_drop, e);
+            let db_to_drop = &dt.database.resource_path;
+            if let Err(e) = windmill_common::drop_custom_instance_database(&db, db_to_drop).await {
+                errors.push(format!(
+                    "Could not drop instance database '{}' for datatable://{}: {}",
+                    db_to_drop, dt_name, e
+                ));
             }
         } else {
-            // Resource DB: resolve from fork to get the forked dbname,
-            // resolve from parent to get connection credentials
             let fork_pg = match crate::workspaces::resolve_pg_source(
-                db,
-                w_id,
+                &db,
+                &w_id,
                 &format!("datatable://{}", dt_name),
             )
             .await
             {
                 Ok(pg) => pg,
                 Err(e) => {
-                    tracing::error!(
-                        "Failed to resolve fork resource for datatable '{}': {}",
-                        dt_name,
-                        e
-                    );
+                    errors.push(format!(
+                        "Could not resolve fork resource for datatable://{}: {}",
+                        dt_name, e
+                    ));
                     continue;
                 }
             };
             let parent_pg = match crate::workspaces::resolve_pg_source(
-                db,
+                &db,
                 &parent_w_id,
                 &format!("datatable://{}", dt_name),
             )
@@ -944,47 +930,49 @@ async fn drop_forked_datatable_databases(
             {
                 Ok(pg) => pg,
                 Err(e) => {
-                    tracing::error!(
-                        "Failed to resolve parent resource for datatable '{}': {}",
-                        dt_name,
-                        e
-                    );
+                    errors.push(format!(
+                        "Could not resolve parent resource for datatable://{}: {}",
+                        dt_name, e
+                    ));
                     continue;
                 }
             };
+
             let db_to_drop = &fork_pg.dbname;
             if let Err(e) = windmill_common::validate_dbname(db_to_drop) {
-                tracing::error!("Invalid database name '{}': {}", db_to_drop, e);
+                errors.push(format!(
+                    "Invalid database name '{}' for datatable://{}: {}",
+                    db_to_drop, dt_name, e
+                ));
                 continue;
             }
-            // Connect to the parent's database and DROP the forked one
+
             match parent_pg.connect().await {
                 Ok((client, connection)) => {
                     let join_handle = tokio::spawn(async move { connection.await });
-                    match client
+                    if let Err(e) = client
                         .execute(&format!("DROP DATABASE \"{}\"", db_to_drop), &[])
                         .await
                     {
-                        Ok(_) => tracing::info!("Dropped resource database '{}'", db_to_drop),
-                        Err(e) => tracing::error!(
-                            "Failed to drop resource database '{}': {}",
-                            db_to_drop,
-                            e
-                        ),
+                        errors.push(format!(
+                            "Could not drop database '{}' for datatable://{}: {}",
+                            db_to_drop, dt_name, e
+                        ));
                     }
                     drop(client);
                     let _ = join_handle.await;
                 }
                 Err(e) => {
-                    tracing::error!(
-                        "Failed to connect to drop resource database '{}': {}",
-                        db_to_drop,
-                        e
-                    );
+                    errors.push(format!(
+                        "Could not connect to drop database for datatable://{}: {}",
+                        dt_name, e
+                    ));
                 }
             }
         }
     }
+
+    Ok(Json(errors))
 }
 
 async fn is_workspace_owner(

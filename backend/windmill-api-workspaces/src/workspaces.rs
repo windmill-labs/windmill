@@ -161,6 +161,10 @@ pub fn workspaced_service() -> Router {
         .route("/import_pg_database", post(import_pg_database))
         .route("/export_pg_schema", post(export_pg_schema))
         .route(
+            "/drop_forked_datatable_databases",
+            post(crate::workspaces_extra::drop_forked_datatable_databases),
+        )
+        .route(
             "/get_datatable_full_schema",
             post(get_datatable_full_schema),
         )

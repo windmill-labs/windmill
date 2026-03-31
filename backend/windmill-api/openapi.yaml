@@ -2306,18 +2306,6 @@ paths:
           required: false
           schema:
             type: boolean
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                drop_datatable_databases:
-                  type: array
-                  items:
-                    type: string
-                  description: "List of datatable names whose forked databases should be dropped"
       responses:
         "200":
           description: status
@@ -3609,6 +3597,36 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/drop_forked_datatable_databases:
+    post:
+      summary: drop forked datatable databases
+      operationId: dropForkedDatatableDatabases
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [datatable_names]
+              properties:
+                datatable_names:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: list of errors (empty if all succeeded)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/workspaces/import_pg_database:
     post:

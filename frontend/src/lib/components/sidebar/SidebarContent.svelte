@@ -109,12 +109,20 @@
 	}
 
 	async function deleteFork() {
+		const workspace = $workspaceStore ?? ''
 		const dbsToDrop = forkedDatatables.filter((dt) => dt.dropOnDelete).map((dt) => dt.name)
 
-		await WorkspaceService.deleteWorkspace({
-			workspace: $workspaceStore ?? '',
-			requestBody: dbsToDrop.length > 0 ? { drop_datatable_databases: dbsToDrop } : undefined
-		})
+		if (dbsToDrop.length > 0) {
+			const errors = await WorkspaceService.dropForkedDatatableDatabases({
+				workspace,
+				requestBody: { datatable_names: dbsToDrop }
+			})
+			for (const err of errors) {
+				sendUserToast(err, true)
+			}
+		}
+
+		await WorkspaceService.deleteWorkspace({ workspace })
 		sendUserToast('You deleted the workspace')
 		clearStores()
 		goto('/user/workspaces')
