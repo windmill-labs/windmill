@@ -6,6 +6,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 	import { AppService, HelpersService } from '$lib/gen'
+	import { OpenAPI } from '$lib/gen/core/OpenAPI'
 	import { writable, type Writable } from 'svelte/store'
 	import { Ban, CheckCheck, FileWarning, Files, RefreshCcw, Trash, XIcon } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -334,6 +335,9 @@
 					true
 				)
 				xhr?.setRequestHeader('Content-Type', 'application/octet-stream')
+				if (OpenAPI.TOKEN) {
+					xhr?.setRequestHeader('Authorization', `Bearer ${OpenAPI.TOKEN}`)
+				}
 				xhr?.send(fileToUpload)
 			})) as any
 

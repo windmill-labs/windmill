@@ -39,7 +39,14 @@ fn deserialize_string_from_null<'de, D>(deserializer: D) -> Result<String, D::Er
 where
     D: Deserializer<'de>,
 {
-    Option::<String>::deserialize(deserializer).map(|v| v.unwrap_or_default())
+    // DuckDB may return booleans for fields that other databases return as strings
+    let v = serde_json::Value::deserialize(deserializer)?;
+    match v {
+        serde_json::Value::Null => Ok(String::new()),
+        serde_json::Value::String(s) => Ok(s),
+        serde_json::Value::Bool(b) => Ok(b.to_string()),
+        other => Ok(other.to_string()),
+    }
 }
 
 fn deserialize_column_identity_from_null<'de, D>(
@@ -49,15 +56,21 @@ where
     D: Deserializer<'de>,
 {
     // MySQL returns uppercase "YES"/"NO" while the enum expects title case.
-    let v = Option::<String>::deserialize(deserializer)?;
-    match v.as_deref() {
-        None => Ok(ColumnIdentity::default()),
-        Some(s) => match s.to_lowercase().as_str() {
+    // DuckDB returns a boolean false instead of a string.
+    let v = serde_json::Value::deserialize(deserializer)?;
+    match v {
+        serde_json::Value::Null => Ok(ColumnIdentity::default()),
+        serde_json::Value::Bool(_) => Ok(ColumnIdentity::No),
+        serde_json::Value::String(s) => match s.to_lowercase().as_str() {
             "no" => Ok(ColumnIdentity::No),
             "yes" | "always" => Ok(ColumnIdentity::Always),
             "by default" => Ok(ColumnIdentity::ByDefault),
             _ => Ok(ColumnIdentity::No),
         },
+        _ => Err(serde::de::Error::custom(format!(
+            "expected string, bool, or null for isidentity, got {}",
+            v
+        ))),
     }
 }
 
@@ -2369,7 +2382,7 @@ fn make_load_table_metadata_query(
     COLUMN_DEFAULT as DefaultValue,
     false as IsPrimaryKey,
     false as IsIdentity,
-    IS_NULLABLE as IsNullable,
+    CASE WHEN IS_NULLABLE = true THEN 'YES' ELSE 'NO' END as IsNullable,
     false as IsEnum,
     TABLE_NAME as table_name
 FROM information_schema.columns c

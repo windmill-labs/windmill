@@ -67,6 +67,7 @@ export interface SyncOptions {
       variables?: string[];
       resources?: string[];
       triggers?: string[];
+      schedules?: string[];
       folders?: string[];
       settings?: boolean;
     };
@@ -80,6 +81,7 @@ export interface SyncOptions {
         variables?: string[];
         resources?: string[];
         triggers?: string[];
+        schedules?: string[];
         folders?: string[];
         settings?: boolean;
       };
@@ -93,6 +95,7 @@ export interface SyncOptions {
       variables?: string[];
       resources?: string[];
       triggers?: string[];
+      schedules?: string[];
       folders?: string[];
       settings?: boolean;
     };
@@ -106,6 +109,7 @@ export interface SyncOptions {
         variables?: string[];
         resources?: string[];
         triggers?: string[];
+        schedules?: string[];
         folders?: string[];
         settings?: boolean;
       };
@@ -203,15 +207,18 @@ export function getWmillYamlPath(): string | null {
   return findWmillYaml();
 }
 
-export async function readConfigFile(): Promise<SyncOptions> {
+export async function readConfigFile(opts?: { warnIfMissing?: boolean }): Promise<SyncOptions> {
+  const warnIfMissing = opts?.warnIfMissing ?? true;
   try {
     // First, try to find wmill.yaml recursively
     const wmillYamlPath = findWmillYaml();
 
     if (!wmillYamlPath) {
-      log.warn(
-        "No wmill.yaml found. Use 'wmill init' to bootstrap it."
-      );
+      if (warnIfMissing) {
+        log.warn(
+          "No wmill.yaml found. Use 'wmill init' to bootstrap it."
+        );
+      }
       return {};
     }
 

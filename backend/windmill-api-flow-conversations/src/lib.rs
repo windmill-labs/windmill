@@ -21,8 +21,8 @@ use windmill_common::{
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_conversations))
-        .route("/delete/:conversation_id", delete(delete_conversation))
-        .route("/:conversation_id/messages", get(list_messages))
+        .route("/delete/{conversation_id}", delete(delete_conversation))
+        .route("/{conversation_id}/messages", get(list_messages))
 }
 
 #[derive(Serialize, FromRow, Debug)]

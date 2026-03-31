@@ -1,14 +1,22 @@
 /**
  * Global test setup — preloaded before all test files.
  *
+ * When UNIT_ONLY=1, skips all backend setup (cargo build, database, etc.)
+ * so that unit tests can run instantly without any external dependencies.
+ *
+ * Otherwise:
  * 1. Builds the backend binary so `cargo run` starts instantly.
  * 2. Starts a shared backend instance so integration tests don't
  *    bear the startup cost inside their per-test timeout window.
  */
 
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { statSync } from "node:fs";
+if (process.env["UNIT_ONLY"]) {
+  // Nothing to do — unit tests don't need backend setup
+} else {
+
+const { resolve } = await import("node:path");
+const { fileURLToPath } = await import("node:url");
+const { statSync } = await import("node:fs");
 
 const __dirname = resolve(fileURLToPath(import.meta.url), "..");
 
@@ -69,10 +77,22 @@ console.log("Backend build complete.");
 // This avoids the first integration test timing out while the backend
 // creates its database, starts the process, and waits for the health check.
 if (process.env["DATABASE_URL"]) {
-  const { getTestBackend } = await import("./test_backend.ts");
+  // Clean up any stale databases/processes from previous crashed test runs
+  const { cleanupStaleTestResources } = await import("./cargo_backend.ts");
+  await cleanupStaleTestResources();
+
+  const { getTestBackend, cleanupTestBackend } = await import("./test_backend.ts");
   console.log("Pre-starting test backend...");
   await getTestBackend();
   console.log("Test backend is ready for all tests.");
+
+  // Register afterAll to do full async cleanup (kill processes + drop DB)
+  // when all tests complete. The synchronous "exit" handler alone can't
+  // drop databases or scan /proc for orphaned child processes.
+  const { afterAll } = await import("bun:test");
+  afterAll(async () => {
+    await cleanupTestBackend();
+  });
 }
 
 // When TEST_CLI_RUNTIME=node, also build the npm package so tests
@@ -91,4 +111,6 @@ if (process.env["TEST_CLI_RUNTIME"] === "node") {
     throw new Error(`npm build failed with exit code ${npmExit}`);
   }
   console.log("npm package built — tests will use Node runtime.");
+}
+
 }

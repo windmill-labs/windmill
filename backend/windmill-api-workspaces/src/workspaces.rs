@@ -75,10 +75,12 @@ pub fn workspaced_service() -> Router {
         .route("/archive", post(archive_workspace))
         .route("/invite_user", post(invite_user))
         .route("/add_user", post(add_user))
+        .route("/create_service_account", post(create_service_account))
         .route("/delete_invite", post(delete_invite))
         .route("/rebuild_dependency_map", post(rebuild_dependency_map))
         .route("/get_dependency_map", get(get_dependency_map))
-        .route("/get_dependents/*imported_path", get(get_dependents))
+        .route("/get_dependents/{*imported_path}", get(get_dependents))
+        .route("/get_imports/{*importer_path}", get(get_imports))
         .route("/get_dependents_amounts", post(get_dependents_amounts))
         .route("/get_settings", get(get_settings))
         .route(
@@ -151,14 +153,14 @@ pub fn workspaced_service() -> Router {
             post(create_workspace_fork_branch),
         )
         .route(
-            "/reset_diff_tally/:fork_workspace_id",
+            "/reset_diff_tally/{fork_workspace_id}",
             post(reset_workspace_diffs),
         )
-        .route("/compare/:target_workspace_id", get(compare_workspaces))
+        .route("/compare/{target_workspace_id}", get(compare_workspaces))
         .route("/protection_rules", get(list_protection_rules))
         .route("/protection_rules", post(create_protection_rule))
         .route(
-            "/protection_rules/:rule_name",
+            "/protection_rules/{rule_name}",
             post(update_protection_rule).delete(delete_protection_rule),
         )
         .route("/log_chat", post(log_ai_chat))
@@ -175,9 +177,9 @@ pub fn global_service() -> Router {
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
-        .route("/unarchive/:workspace", post(unarchive_workspace))
+        .route("/unarchive/{workspace}", post(unarchive_workspace))
         .route(
-            "/delete/:workspace",
+            "/delete/{workspace}",
             delete(crate::workspaces_extra::delete_workspace),
         )
         .route(
@@ -651,25 +653,23 @@ async fn get_settings(
 }
 
 async fn get_copilot_settings_state(
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Path(w_id): Path<String>,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
 ) -> JsonResult<CopilotSettingsState> {
-    let mut tx = user_db.begin(&authed).await?;
     let workspace_ai_config = sqlx::query_scalar!(
         "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&db)
     .await
     .map_err(|e| Error::internal_err(format!("getting workspace ai settings: {e:#}")))?;
     let workspace_ai_config = not_found_if_none(workspace_ai_config, "workspace settings", &w_id)?;
     let instance_ai_config: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT value FROM global_settings WHERE name = 'ai_config'")
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&db)
             .await
             .map_err(|e| Error::internal_err(format!("getting instance ai settings: {e:#}")))?;
-    tx.commit().await?;
 
     Ok(Json(build_copilot_settings_state(
         has_ai_providers(workspace_ai_config.as_ref()),
@@ -1133,6 +1133,12 @@ async fn edit_webhook(
     Json(ew): Json<EditWebhook>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
+
+    if *CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "Workspace webhooks are not available on cloud-hosted instances".to_string(),
+        ));
+    }
 
     let mut tx = db.begin().await?;
 
@@ -1688,6 +1694,18 @@ const CE_GIT_SYNC_MAX_USERS: i64 = 2;
 #[cfg(feature = "enterprise")]
 async fn check_git_sync_access(_db: &DB, _w_id: &str) -> Result<()> {
     Ok(())
+}
+
+// Anchor the CE-only query for `cargo sqlx prepare` (which runs with --features enterprise)
+#[cfg(feature = "enterprise")]
+#[allow(dead_code)]
+async fn _sqlx_anchor_ce_user_count(db: &DB, w_id: &str) {
+    let _ = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM usr WHERE workspace_id = $1 AND disabled = false",
+        w_id
+    )
+    .fetch_one(db)
+    .await;
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -4221,6 +4239,20 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
     ))
 }
 
+#[derive(Deserialize)]
+pub struct NewServiceAccount {
+    pub username: String,
+}
+
+async fn create_service_account(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(nu): Json<NewServiceAccount>,
+) -> Result<(StatusCode, String)> {
+    crate::workspaces_oss::create_service_account(authed, db, w_id, nu).await
+}
+
 async fn delete_invite(
     ApiAuthed { username, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -4344,6 +4376,30 @@ async fn get_dependents(
     );
 
     Ok(Json(dependents))
+}
+
+async fn get_imports(
+    Extension(db): Extension<DB>,
+    Path((w_id, importer_path)): Path<(String, String)>,
+    _authed: ApiAuthed,
+) -> JsonResult<Vec<String>> {
+    tracing::debug!(
+        workspace_id = %w_id,
+        importer_path = %importer_path,
+        "API: Getting imports for importer path"
+    );
+
+    let imports = ScopedDependencyMap::get_imports(&importer_path, &w_id, &db).await?;
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        importer_path = %importer_path,
+        imports_count = imports.len(),
+        "API: Found imports: {:?}",
+        imports
+    );
+
+    Ok(Json(imports))
 }
 
 #[derive(Serialize, Debug)]

@@ -190,18 +190,18 @@ impl ScriptWDraft<ScriptRunnableSettingsHandle> {
 pub fn global_service() -> Router {
     Router::new()
         .route("/hub/top", get(get_top_hub_scripts))
-        .route("/hub/get/*path", get(get_hub_script_by_path))
-        .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
-        .route("/hub/pick/*path", get(pick_hub_script_by_path))
+        .route("/hub/get/{*path}", get(get_hub_script_by_path))
+        .route("/hub/get_full/{*path}", get(get_full_hub_script_by_path))
+        .route("/hub/pick/{*path}", get(pick_hub_script_by_path))
 }
 
 pub fn global_unauthed_service() -> Router {
     Router::new()
         .route(
-            "/tokened_raw/:workspace/:token/*path",
+            "/tokened_raw/{workspace}/{token}/{*path}",
             get(get_tokened_raw_script_by_path),
         )
-        .route("/empty_ts/*path", get(get_empty_ts_script_by_path))
+        .route("/empty_ts/{*path}", get(get_empty_ts_script_by_path))
 }
 
 pub fn workspaced_service() -> Router {
@@ -210,33 +210,33 @@ pub fn workspaced_service() -> Router {
         .route("/list_search", get(list_search_scripts))
         .route("/create", post(create_script))
         .route("/create_snapshot", post(create_snapshot_script))
-        .route("/archive/p/*path", post(archive_script_by_path))
-        .route("/get/draft/*path", get(get_script_by_path_w_draft))
-        .route("/get/p/*path", get(get_script_by_path))
-        .route("/list_tokens/*path", get(list_tokens))
-        .route("/raw/p/*path", get(raw_script_by_path))
-        .route("/raw_unpinned/p/*path", get(raw_script_by_path_unpinned))
-        .route("/exists/p/*path", get(exists_script_by_path))
-        .route("/archive/h/:hash", post(archive_script_by_hash))
-        .route("/delete/h/:hash", post(delete_script_by_hash))
-        .route("/delete/p/*path", post(delete_script_by_path))
+        .route("/archive/p/{*path}", post(archive_script_by_path))
+        .route("/get/draft/{*path}", get(get_script_by_path_w_draft))
+        .route("/get/p/{*path}", get(get_script_by_path))
+        .route("/list_tokens/{*path}", get(list_tokens))
+        .route("/raw/p/{*path}", get(raw_script_by_path))
+        .route("/raw_unpinned/p/{*path}", get(raw_script_by_path_unpinned))
+        .route("/exists/p/{*path}", get(exists_script_by_path))
+        .route("/archive/h/{hash}", post(archive_script_by_hash))
+        .route("/delete/h/{hash}", post(delete_script_by_hash))
+        .route("/delete/p/{*path}", post(delete_script_by_path))
         .route("/delete_bulk", delete(delete_scripts_bulk))
-        .route("/get/h/:hash", get(get_script_by_hash))
-        .route("/raw/h/:hash", get(raw_script_by_hash))
-        .route("/deployment_status/h/:hash", get(get_deployment_status))
+        .route("/get/h/{hash}", get(get_script_by_hash))
+        .route("/raw/h/{hash}", get(raw_script_by_hash))
+        .route("/deployment_status/h/{hash}", get(get_deployment_status))
         .route("/list_paths", get(list_paths))
         .route(
-            "/toggle_workspace_error_handler/p/*path",
+            "/toggle_workspace_error_handler/p/{*path}",
             post(toggle_workspace_error_handler),
         )
-        .route("/history/p/*path", get(get_script_history))
-        .route("/get_latest_version/*path", get(get_latest_version))
+        .route("/history/p/{*path}", get(get_script_history))
+        .route("/get_latest_version/{*path}", get(get_latest_version))
         .route(
-            "/list_paths_from_workspace_runnable/*path",
+            "/list_paths_from_workspace_runnable/{*path}",
             get(list_paths_from_workspace_runnable),
         )
         .route(
-            "/history_update/h/:hash/p/*path",
+            "/history_update/h/{hash}/p/{*path}",
             post(update_script_history),
         )
         .route("/list_dedicated_with_deps", get(list_dedicated_with_deps))
@@ -605,7 +605,7 @@ impl HandleDeploymentMetadata {
 }
 
 async fn create_script_internal<'c>(
-    ns: NewScript,
+    mut ns: NewScript,
     w_id: String,
     authed: ApiAuthed,
     db: sqlx::Pool<Postgres>,
@@ -675,6 +675,17 @@ async fn create_script_internal<'c>(
                 .to_owned(),
         ));
     };
+    // When auto_parent is set, serialize concurrent creates for the same (workspace, path)
+    // so the clashing_script query always sees the latest committed head.
+    if ns.auto_parent.unwrap_or(false) {
+        sqlx::query_scalar!(
+            "SELECT pg_advisory_xact_lock(hashtext($1 || '/' || $2))",
+            &w_id,
+            &ns.path
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+    }
     let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
         "SELECT * FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
     )
@@ -687,6 +698,15 @@ async fn create_script_internal<'c>(
         perms: serde_json::Value,
         p_path: String,
     }
+    // When auto_parent is set, resolve parent_hash to the current head for this path
+    // within the transaction. The advisory lock above ensures the second concurrent
+    // request waits until the first commits, so this query sees the updated head.
+    if ns.auto_parent.unwrap_or(false) {
+        if let Some(ref cs) = clashing_script {
+            ns.parent_hash = Some(cs.hash.clone());
+        }
+    }
+
     let parent_hashes_and_perms: Option<ParentInfo> = match (&ns.parent_hash, clashing_script) {
         (None, None) => Ok(None),
         (None, Some(s)) if !s.draft_only.unwrap_or(false) => Err(Error::BadRequest(format!(
@@ -1427,7 +1447,7 @@ async fn get_script_history(
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
     let query_result = sqlx::query!(
-        "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
+        "SELECT s.hash as hash, dm.deployment_msg as deployment_msg, s.created_at as created_at
         FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
         WHERE s.workspace_id = $1 AND s.path = $2
         ORDER by s.created_at DESC",
@@ -1443,6 +1463,7 @@ async fn get_script_history(
         .map(|row| ScriptHistory {
             script_hash: ScriptHash(row.hash),
             deployment_msg: row.deployment_msg,
+            created_at: Some(row.created_at),
         })
         .collect();
     return Ok(Json(result));
@@ -1457,7 +1478,7 @@ async fn get_latest_version(
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
     let row_o = sqlx::query!(
-        "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
+        "SELECT s.hash as hash, dm.deployment_msg as deployment_msg, s.created_at as created_at
         FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
         WHERE s.workspace_id = $1 AND s.path = $2
         ORDER by s.created_at DESC LIMIT 1",
@@ -1471,7 +1492,8 @@ async fn get_latest_version(
     if let Some(row) = row_o {
         let result = ScriptHistory {
             script_hash: ScriptHash(row.hash),
-            deployment_msg: row.deployment_msg, //
+            deployment_msg: row.deployment_msg,
+            created_at: Some(row.created_at),
         };
         return Ok(Json(Some(result)));
     } else {

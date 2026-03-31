@@ -27,7 +27,7 @@ use windmill_common::{
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_apps))
-        .route("/get_data/:version/*path", get(get_data))
+        .route("/get_data/{version}/{*path}", get(get_data))
 }
 
 #[derive(FromRow, Deserialize, Serialize)]

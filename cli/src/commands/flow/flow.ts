@@ -7,9 +7,11 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
+import { validateRequiredArgs } from "../../utils/utils.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { readFile } from "node:fs/promises";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { buildFolderPath, getMetadataFileName, loadNonDottedPathsSetting } from "../../utils/resource_folders.ts";
 
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
@@ -157,18 +159,27 @@ export async function pushFlow(
   const localFlow = (await yamlParseFile(localPath + "flow.yaml")) as FlowFile;
 
   const fileReader = async (path: string) => await readFile(localPath + path, "utf-8");
+  const missingFiles: string[] = [];
   await replaceInlineScripts(
     localFlow.value.modules,
     fileReader,
     log,
     localPath,
-    SEP
+    SEP,
+    undefined,
+    missingFiles
   );
   if (localFlow.value.failure_module) {
-    await replaceInlineScripts([localFlow.value.failure_module], fileReader, log, localPath, SEP);
+    await replaceInlineScripts([localFlow.value.failure_module], fileReader, log, localPath, SEP, undefined, missingFiles);
   }
   if (localFlow.value.preprocessor_module) {
-    await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, localPath, SEP);
+    await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, localPath, SEP, undefined, missingFiles);
+  }
+  if (missingFiles.length > 0) {
+    log.warn(colors.yellow(
+      `Warning: missing inline script file(s): ${missingFiles.join(", ")}. ` +
+      `The flow will be pushed with unresolved !inline references.`
+    ));
   }
 
   // Extract CLI-only field before sending to API
@@ -238,20 +249,21 @@ export async function pushFlow(
 
 type Options = GlobalOptions;
 
-async function push(opts: Options, filePath: string, remotePath: string) {
+async function push(opts: Options & { message?: string }, filePath: string, remotePath: string) {
   if (!validatePath(remotePath)) {
     return;
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  await pushFlow(workspace.workspaceId, remotePath, filePath);
+  await pushFlow(workspace.workspaceId, remotePath, filePath, opts.message);
   log.info(colors.bold.underline.green("Flow pushed"));
 }
 
 async function list(
   opts: GlobalOptions & { showArchived?: boolean; includeDraftOnly?: boolean; json?: boolean }
 ) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -285,6 +297,7 @@ async function list(
   }
 }
 async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const f = await wmill.getFlowByPath({
@@ -299,6 +312,31 @@ async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
     console.log(colors.bold("Description:") + " " + (f.description ?? ""));
     console.log(colors.bold("Edited by:") + " " + (f.edited_by ?? ""));
     console.log(colors.bold("Edited at:") + " " + (f.edited_at ?? ""));
+    // API response type doesn't include flow value/modules — cast needed to access them
+    const modules = (f as any).value?.modules;
+    if (modules && Array.isArray(modules) && modules.length > 0) {
+      console.log(colors.bold("Steps:"));
+      function printModules(mods: any[], indent: string = "  ") {
+        for (const mod of mods) {
+          const type = mod.value?.type ?? "unknown";
+          const detail = mod.value?.language ?? mod.value?.path ?? "";
+          console.log(`${indent}${mod.id}: ${type}${detail ? " (" + detail + ")" : ""}`);
+          if (type === "branchall" || type === "branchone") {
+            for (const branch of mod.value?.branches ?? []) {
+              console.log(`${indent}  Branch: ${branch.summary || "(default)"}`);
+              if (branch.modules) printModules(branch.modules, indent + "    ");
+            }
+            if (type === "branchone" && mod.value?.default) {
+              console.log(`${indent}  Default:`);
+              printModules(mod.value.default, indent + "    ");
+            }
+          } else if (type === "forloopflow" || type === "whileloopflow") {
+            if (mod.value?.modules) printModules(mod.value.modules, indent + "  ");
+          }
+        }
+      }
+      printModules(modules);
+    }
   }
 }
 
@@ -309,10 +347,27 @@ async function run(
   },
   path: string
 ) {
+  if (opts.silent) {
+    log.setSilent(true);
+  }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
   const input = opts.data ? await resolve(opts.data) : {};
+
+  // Validate required args against schema when no data provided
+  if (!opts.data) {
+    try {
+      const flow = await wmill.getFlowByPath({
+        workspace: workspace.workspaceId,
+        path,
+      });
+      validateRequiredArgs(flow.schema as Record<string, unknown>);
+    } catch (e: any) {
+      if (e.message?.startsWith("Missing required")) throw e;
+      log.warn(`Could not fetch schema to validate args: ${e.message}`);
+    }
+  }
 
   const id = await wmill.runFlowByPath({
     workspace: workspace.workspaceId,
@@ -348,15 +403,40 @@ async function run(
     i++;
   }
 
-  if (!opts.silent) {
-    log.info(colors.green.underline.bold("Flow ran to completion"));
-    log.info("\n");
+  // Wait for flow completion with retry (handles race when --silent skips module tracking)
+  const MAX_RETRIES = 600; // ~60 seconds at 100ms intervals
+  let retries = 0;
+  while (retries < MAX_RETRIES) {
+    try {
+      const jobInfo = await wmill.getCompletedJob({
+        workspace: workspace.workspaceId,
+        id,
+      });
+
+      if (!opts.silent) {
+        log.info(colors.green.underline.bold("Flow ran to completion"));
+        log.info("\n");
+      }
+
+      if (jobInfo.success === false) {
+        process.exitCode = 1;
+      }
+
+      if (opts.silent) {
+        console.log(JSON.stringify(jobInfo.result ?? {}));
+      } else {
+        log.info(JSON.stringify(jobInfo.result ?? {}, null, 2));
+      }
+
+      break;
+    } catch {
+      retries++;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   }
-  const jobInfo = await wmill.getCompletedJob({
-    workspace: workspace.workspaceId,
-    id,
-  });
-  log.info(JSON.stringify(jobInfo.result ?? {}, null, 2));
+  if (retries >= MAX_RETRIES) {
+    throw new Error(`Timed out waiting for flow ${id} to complete`);
+  }
 }
 
 async function preview(
@@ -367,6 +447,9 @@ async function preview(
   } & SyncOptions,
   flowPath: string
 ) {
+  if (opts.silent) {
+    log.setSilent(true);
+  }
   const useLocalPathScripts = !opts.remote;
   if (useLocalPathScripts) {
     opts = await mergeConfigWithConfigFile(opts);
@@ -375,14 +458,16 @@ async function preview(
   await requireLogin(opts);
   const codebases = useLocalPathScripts ? listSyncCodebases(opts) : [];
 
-  // Normalize path - ensure it's a directory path to a .flow folder
-  if (!flowPath.endsWith(".flow") && !flowPath.endsWith(".flow" + SEP)) {
+  // Normalize path - ensure it's a directory path to a .flow or __flow folder
+  const isFlowDir = flowPath.endsWith(".flow") || flowPath.endsWith(".flow" + SEP)
+    || flowPath.endsWith("__flow") || flowPath.endsWith("__flow" + SEP);
+  if (!isFlowDir) {
     // Check if it's a flow.yaml file
     if (flowPath.endsWith("flow.yaml") || flowPath.endsWith("flow.json")) {
       flowPath = flowPath.substring(0, flowPath.lastIndexOf(SEP));
     } else {
       throw new Error(
-        "Flow path must be a .flow directory or a flow.yaml file"
+        "Flow path must be a .flow/__flow directory or a flow.yaml file"
       );
     }
   }
@@ -456,13 +541,23 @@ async function preview(
     });
   } catch (e: any) {
     if (e.body) {
-      log.error(`Flow preview failed: ${JSON.stringify(e.body)}`);
+      // If a failure_module ran, the body contains its result — not an error
+      if (e.body.result !== undefined) {
+        if (opts.silent) {
+          console.log(JSON.stringify(e.body.result));
+        } else {
+          log.info(colors.yellow.bold("Flow failed, error handler result:"));
+          log.info(JSON.stringify(e.body.result, null, 2));
+        }
+        process.exitCode = 1;
+        return;
+      }
     }
     throw e;
   }
 
   if (opts.silent) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(result));
   } else {
     log.info(colors.bold.underline.green("Flow preview completed"));
     log.info(JSON.stringify(result, null, 2));
@@ -551,7 +646,7 @@ export async function generateLocks(
   }
 }
 
-export function bootstrap(
+export async function bootstrap(
   opts: GlobalOptions & { summary: string; description: string },
   flowPath: string
 ) {
@@ -559,8 +654,10 @@ export function bootstrap(
     return;
   }
 
-  const flowDirFullPath = `${flowPath}.flow`;
-  mkdirSync(flowDirFullPath, { recursive: false });
+  await loadNonDottedPathsSetting();
+
+  const flowDirFullPath = buildFolderPath(flowPath, "flow");
+  mkdirSync(flowDirFullPath, { recursive: true });
 
   const newFlowDefinition = defaultFlowDefinition();
   if (opts.summary !== undefined) {
@@ -574,7 +671,8 @@ export function bootstrap(
     newFlowDefinition as Record<string, any>
   );
 
-  const flowYamlPath = `${flowDirFullPath}/flow.yaml`;
+  const metadataFile = getMetadataFileName("flow", "yaml");
+  const flowYamlPath = `${flowDirFullPath}/${metadataFile}`;
   writeFileSync(flowYamlPath, newFlowDefinitionYaml, { flag: "wx", encoding: "utf-8" });
 }
 
@@ -602,6 +700,71 @@ async function setPermissionedAs(
   );
 }
 
+async function history(
+  opts: GlobalOptions & { json?: boolean },
+  flowPath: string
+) {
+  if (opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const versions = await wmill.getFlowHistory({
+    workspace: workspace.workspaceId,
+    path: flowPath,
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(versions));
+  } else {
+    if (versions.length === 0) {
+      log.info("No version history found for " + flowPath);
+      return;
+    }
+    new Table()
+      .header(["Version", "Created At", "Deployment Message"])
+      .padding(2)
+      .border(true)
+      .body(
+        versions.map((v) => [
+          String(v.id),
+          new Date(v.created_at).toISOString().replace("T", " ").substring(0, 19),
+          v.deployment_msg ?? "-",
+        ])
+      )
+      .render();
+  }
+}
+
+async function showVersion(
+  opts: GlobalOptions & { json?: boolean },
+  flowPath: string,
+  version: string
+) {
+  if (opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const flow = await wmill.getFlowVersion({
+    workspace: workspace.workspaceId,
+    path: flowPath,
+    version: parseInt(version, 10),
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(flow));
+  } else {
+    console.log(colors.bold("Path:") + " " + flow.path);
+    console.log(colors.bold("Summary:") + " " + (flow.summary ?? "-"));
+    console.log(colors.bold("Description:") + " " + (flow.description ?? "-"));
+    console.log(colors.bold("Schema:"));
+    console.log(JSON.stringify(flow.schema, null, 2));
+    console.log(colors.bold("Value:"));
+    console.log(JSON.stringify(flow.value, null, 2));
+  }
+}
+
 const command = new Command()
   .description("flow related commands")
   .option("--show-archived", "Enable archived flows in output")
@@ -620,6 +783,7 @@ const command = new Command()
     "push a local flow spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string>")
+  .option("--message <message:string>", "Deployment message")
   .action(push as any)
   .command("run", "run a flow by path.")
   .arguments("<path:string>")
@@ -681,6 +845,14 @@ const command = new Command()
     "Set the on_behalf_of_email for a flow (requires admin or wm_deployers group)"
   )
   .arguments("<path:string> <email:string>")
-  .action(setPermissionedAs as any);
+  .action(setPermissionedAs as any)
+  .command("history", "Show version history for a flow")
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(history as any)
+  .command("show-version", "Show a specific version of a flow")
+  .arguments("<path:string> <version:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(showVersion as any);
 
 export default command;

@@ -36,7 +36,7 @@
 </script>
 
 <script lang="ts">
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { Skeleton } from '$lib/components/common'
 	import { classNames, createCache, sendUserToast } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
@@ -48,6 +48,9 @@
 	import { get } from 'svelte/store'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Alert } from '$lib/components/common'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+
+	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
 	let hubNotAvailable = $state(false)
 
@@ -184,7 +187,8 @@
 {:else if hubNotAvailable}
 	<div class="px-3 py-2 mt-2">
 		<Alert type="warning" title="Hub not available" size="xs">
-			Could not connect to the Windmill Hub. If you are in a closed environment, you can disable the Hub in the <a href="/#superadmin-settings?tab=private_hub">instance settings</a>.
+			Could not connect to the Windmill Hub. If you are in a closed environment, you can disable the
+			Hub in the <a href="/#superadmin-settings?tab=private_hub">instance settings</a>.
 		</Alert>
 	</div>
 {:else if loading}
@@ -246,7 +250,7 @@
 		<div class="text-2xs text-tercary font-extralight text-center py-2 px-3 items-center">
 			There are more items than being displayed. Refine your search.
 		</div>
-	{:else}
+	{:else if customUi?.suggestScript != false}
 		<div class="px-2 py-1">
 			<a
 				href={`${$hubBaseUrlStore}?suggest_script=true`}

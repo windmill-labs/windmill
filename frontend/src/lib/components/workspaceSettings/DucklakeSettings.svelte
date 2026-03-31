@@ -234,7 +234,7 @@
 		{/if}
 		{#each ducklakeSettings.ducklakes as ducklake, ducklakeIndex}
 			<Row>
-				<Cell first class="w-48 relative">
+				<Cell first class="w-44 relative">
 					{#if ducklake.name === 'main'}
 						<Tooltip wrapperClass="absolute mt-[0.6rem] right-4" placement="bottom-start">
 							The <i>main</i> ducklake can be accessed with the
@@ -249,7 +249,7 @@
 					/>
 				</Cell>
 				<Cell>
-					<div class="flex gap-2">
+					<div class="flex gap-1">
 						<div class="relative">
 							{#if ducklake.catalog.resource_type === 'instance'}
 								<Tooltip wrapperClass="absolute mt-[0.6rem] right-2 z-20" placement="bottom-start">
@@ -276,19 +276,19 @@
 										}
 									}
 								}
-								class="w-28"
+								class="w-24"
 							/>
 						</div>
 						<div class="flex flex-1">
 							{#if ducklake.catalog.resource_type !== 'instance'}
 								<ResourcePicker
-									class="flex-1"
+									class="flex-1 min-w-32"
 									bind:value={ducklake.catalog.resource_path}
 									resourceType={ducklake.catalog.resource_type}
 								/>
 							{:else}
 								<CustomInstanceDbSelect
-									class="flex-1"
+									class="flex-1 min-w-32"
 									bind:value={ducklake.catalog.resource_path}
 									{customInstanceDbs}
 									{confirmationModal}
@@ -305,7 +305,7 @@
 					</div>
 				</Cell>
 				<Cell>
-					<div class="flex gap-2">
+					<div class="flex gap-1">
 						<Select
 							placeholder="Default storage"
 							items={[
@@ -330,35 +330,31 @@
 					</div>
 				</Cell>
 				<Cell class="w-12">
-					<div class="flex gap-2">
+					<div class="flex gap-1">
 						<Popover contentClasses="p-4" enableFlyTransition closeOnOtherPopoverOpen>
 							{#snippet trigger()}
-													
-									<div class="relative">
-										<Button variant="default" iconOnly size="sm" endIcon={{ icon: SettingsIcon }} />
-										{#if ducklake.extra_args}
-											<div
-												class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent rounded-full border border-surface"
-											></div>
-										{/if}
-									</div>
-								
-													{/snippet}
+								<div class="relative">
+									<Button variant="default" iconOnly size="sm" endIcon={{ icon: SettingsIcon }} />
+									{#if ducklake.extra_args}
+										<div
+											class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent rounded-full border border-surface"
+										></div>
+									{/if}
+								</div>
+							{/snippet}
 							{#snippet content()}
-													
-									<Label
-										label="Extra args"
-										tooltip="Additional arguments to pass in the ATTACH command. The argument list is substituted as-is. Separate them with commas."
-									>
-										<TextInput
-											bind:value={ducklake.extra_args}
-											class="min-w-96"
-											underlyingInputEl="textarea"
-											inputProps={{ placeholder: "METADATA_SCHEMA 'schema', ENCRYPTED true" }}
-										/>
-									</Label>
-								
-													{/snippet}
+								<Label
+									label="Extra args"
+									tooltip="Additional arguments to pass in the ATTACH command. The argument list is substituted as-is. Separate them with commas."
+								>
+									<TextInput
+										bind:value={ducklake.extra_args}
+										class="min-w-96"
+										underlyingInputEl="textarea"
+										inputProps={{ placeholder: "METADATA_SCHEMA 'schema', ENCRYPTED true" }}
+									/>
+								</Label>
+							{/snippet}
 						</Popover>
 						{#if ducklakeIsDirty[ducklake.name]}
 							<Popover
@@ -367,18 +363,14 @@
 								class="cursor-not-allowed"
 							>
 								{#snippet trigger()}
-															
-										<ExploreAssetButton asset={{ kind: 'ducklake', path: '' }} disabled />
-									
-															{/snippet}
+									<ExploreAssetButton asset={{ kind: 'ducklake', path: '' }} disabled />
+								{/snippet}
 								{#snippet content()}
-																Please save settings first
-															{/snippet}
+									Please save settings first
+								{/snippet}
 							</Popover>
 						{:else}
-							<ExploreAssetButton
-								asset={{ kind: 'ducklake', path: ducklake.name }}
-							/>
+							<ExploreAssetButton asset={{ kind: 'ducklake', path: ducklake.name }} />
 						{/if}
 					</div>
 				</Cell>

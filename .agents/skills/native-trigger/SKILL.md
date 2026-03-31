@@ -1,3 +1,8 @@
+---
+name: native-trigger
+description: Guidance for adding native trigger services to Windmill. Use when implementing or modifying native trigger integrations across the backend and frontend.
+---
+
 # Skill: Adding Native Trigger Services
 
 This skill provides comprehensive guidance for adding new native trigger services to Windmill. Native triggers allow external services (like Nextcloud, Google Drive, etc.) to trigger Windmill scripts/flows via webhooks or push notifications.

@@ -1,4 +1,5 @@
-import { stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 
 import { Command } from "@cliffy/command";
@@ -8,6 +9,7 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
 import {
@@ -34,6 +36,7 @@ export interface ScheduleFile {
 }
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -65,7 +68,7 @@ async function newSchedule(opts: GlobalOptions, path: string) {
     if (e.message?.startsWith("File already exists")) throw e;
   }
   const template: ScheduleFile = {
-    schedule: "0 */6 * * *",
+    schedule: "0 0 */6 * * *",
     on_failure: "",
     script_path: "",
     args: {},
@@ -73,6 +76,7 @@ async function newSchedule(opts: GlobalOptions, path: string) {
     is_flow: false,
     enabled: false,
   };
+  await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, yamlStringify(template as Record<string, any>), {
     flag: "wx",
     encoding: "utf-8",
@@ -81,6 +85,7 @@ async function newSchedule(opts: GlobalOptions, path: string) {
 }
 
 async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const s = await wmill.getSchedule({
@@ -199,6 +204,34 @@ export async function pushSchedule(
   }
 }
 
+async function enable(opts: GlobalOptions, path: string) {
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  await wmill.setScheduleEnabled({
+    workspace: workspace.workspaceId,
+    path,
+    requestBody: { enabled: true },
+  });
+
+  log.info(colors.green(`Schedule ${path} enabled.`));
+}
+
+async function disable(opts: GlobalOptions, path: string) {
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  await wmill.setScheduleEnabled({
+    workspace: workspace.workspaceId,
+    path,
+    requestBody: { enabled: false },
+  });
+
+  log.info(colors.yellow(`Schedule ${path} disabled.`));
+}
+
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -278,6 +311,12 @@ const command = new Command()
     "Set the email (run-as user) for a schedule (requires admin or wm_deployers group)"
   )
   .arguments("<path:string> <email:string>")
-  .action(setPermissionedAs as any);
+  .action(setPermissionedAs as any)
+  .command("enable", "Enable a schedule")
+  .arguments("<path:string>")
+  .action(enable as any)
+  .command("disable", "Disable a schedule")
+  .arguments("<path:string>")
+  .action(disable as any);
 
 export default command;

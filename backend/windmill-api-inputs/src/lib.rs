@@ -26,6 +26,7 @@ use windmill_common::{
     jobs::JobKind,
     scripts::to_i64,
     utils::{not_found_if_none, paginate, Pagination},
+    worker::CLOUD_HOSTED,
 };
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -33,9 +34,9 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_saved_inputs))
         .route("/create", post(create_input))
         .route("/update", post(update_input))
-        .route("/delete/:id", post(delete_input))
+        .route("/delete/{id}", post(delete_input))
         .route(
-            "/:job_or_input_id/args",
+            "/{job_or_input_id}/args",
             get(get_args_from_history_or_saved_input),
         )
 }
@@ -134,11 +135,20 @@ async fn get_input_history(
     Query(g): Query<GetInputHistory>,
 ) -> JsonResult<Vec<Input>> {
     let (per_page, offset) = paginate(pagination);
+    let per_page = if *CLOUD_HOSTED {
+        per_page.min(100)
+    } else {
+        per_page
+    };
 
     let mut tx = user_db.begin(&authed).await?;
 
     let args_query = if let Some(args) = &g.args {
-        sql_builder::bind::Bind::bind(&"and v2_job.args @> ?", &args.replace("'", "''"))
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            sql_builder::bind::Bind::bind(&"and v2_job.args @> ?", &v.to_string())
+        } else {
+            "AND FALSE".to_string()
+        }
     } else {
         "".to_string()
     };

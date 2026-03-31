@@ -61,12 +61,13 @@ Generated with [Claude Code](https://claude.com/claude-code)
 1. Run `git status` to check for uncommitted changes
 2. Run `git log main..HEAD --oneline` to see all commits in this branch
 3. Run `git diff main...HEAD` to see the full diff against main
-4. Check if remote branch exists and is up to date:
+4. **Run `/local-review`** before creating the PR. If issues are found, fix them and commit before proceeding. Do not skip this step.
+5. Check if remote branch exists and is up to date:
    ```bash
    git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "no upstream"
    ```
-5. Push to remote if needed: `git push -u origin HEAD`
-6. Create draft PR using gh CLI:
+6. Push to remote if needed: `git push -u origin HEAD`
+7. Create draft PR using gh CLI:
    ```bash
    gh pr create --draft --title "<type>: <description>" --body "$(cat <<'EOF'
    ## Summary
@@ -85,7 +86,7 @@ Generated with [Claude Code](https://claude.com/claude-code)
    EOF
    )"
    ```
-7. Return the PR URL to the user
+8. Return the PR URL to the user
 
 ## EE Companion PR (when `*_ee.rs` files were modified)
 

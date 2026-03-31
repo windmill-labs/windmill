@@ -4999,6 +4999,23 @@ app related commands
   - \`--dry-run\` - Perform a dry run without making changes
   - \`--default-ts <runtime:string>\` - Default TypeScript runtime (bun or deno)
 
+### audit
+
+View audit logs (requires admin)
+
+**Subcommands:**
+
+- \`audit list\` - List audit log entries
+- \`audit get <id:string>\` - Get a specific audit log entry
+  - \`--json\` - Output as JSON (for piping to jq)
+
+### config
+
+Show all available wmill.yaml configuration options
+
+**Options:**
+- \`--json\` - Output as JSON for programmatic consumption
+
 ### dependencies
 
 workspace dependencies related commands
@@ -5011,14 +5028,14 @@ workspace dependencies related commands
 
 ### dev
 
-Launch a dev server that will spawn a webserver with HMR
+Launch a dev server that watches for local file changes and auto-pushes them to the remote workspace. Provides live reload for scripts and flows during development.
 
 **Options:**
 - \`--includes <pattern...:string>\` - Filter paths givena glob pattern or path
 
 ### docs
 
-Search Windmill documentation. Requires Enterprise Edition.
+Search Windmill documentation.
 
 **Arguments:** \`<query:string>\`
 
@@ -5041,6 +5058,7 @@ flow related commands
 - \`flow get <path:string>\` - get a flow's details
   - \`--json\` - Output as JSON (for piping to jq)
 - \`flow push <file_path:string> <remote_path:string>\` - push a local flow spec. This overrides any remote versions.
+  - \`--message <message:string>\` - Deployment message
 - \`flow run <path:string>\` - run a flow by path.
   - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - \`-s --silent\` - Do not ouput anything other then the final output. Useful for scripting.
@@ -5059,6 +5077,10 @@ flow related commands
 - \`flow bootstrap <flow_path:string>\` - create a new empty flow (alias for new
   - \`--summary <summary:string>\` - flow summary
   - \`--description <description:string>\` - flow description
+- \`flow history <path:string>\` - Show version history for a flow
+  - \`--json\` - Output as JSON (for piping to jq)
+- \`flow show-version <path:string> <version:string>\` - Show a specific version of a flow
+  - \`--json\` - Output as JSON (for piping to jq)
 
 ### folder
 
@@ -5121,6 +5143,25 @@ Manage git-sync settings between local wmill.yaml and Windmill backend
   - \`--yes\` - Skip interactive prompts and use default behavior
   - \`--promotion <branch:string>\` - Use promotionOverrides from the specified branch instead of regular overrides
 
+### group
+
+Manage workspace groups
+
+**Options:**
+- \`--json\` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- \`group list\` - List all groups in the workspace
+  - \`--json\` - Output as JSON (for piping to jq)
+- \`group get <name:string>\` - Get group details and members
+  - \`--json\` - Output as JSON (for piping to jq)
+- \`group create <name:string>\` - Create a new group
+  - \`--summary <summary:string>\` - Group summary/description
+- \`group delete <name:string>\` - Delete a group
+- \`group add-user <name:string> <username:string>\` - Add a user to a group
+- \`group remove-user <name:string> <username:string>\` - Remove a user from a group
+
 ### hub
 
 Hub related commands. EXPERIMENTAL. INTERNAL USE ONLY.
@@ -5176,7 +5217,22 @@ sync local with a remote instance or the opposite (push or pull)
 - \`instance whoami\` - Display information about the currently logged-in user
 - \`instance get-config\` - Dump the current instance config (global settings + worker configs) as YAML
   - \`-o, --output-file <file:string>\` - Write YAML to a file instead of stdout
+  - \`--show-secrets\` - Include sensitive fields (license key, JWT secret) without prompting
   - \`--instance <instance:string>\` - Name of the instance, override the active instance
+
+### job
+
+Manage jobs (list, inspect, cancel)
+
+**Subcommands:**
+
+- \`job list\` - List recent jobs
+- \`job get <id:string>\` - Get job details and result
+  - \`--json\` - Output as JSON (for piping to jq)
+- \`job result <id:string>\` - Get the result of a completed job (machine-friendly
+- \`job logs <id:string>\` - Get job logs
+- \`job cancel <id:string>\` - Cancel a running or queued job
+  - \`--reason <reason:string>\` - Reason for cancellation
 
 ### jobs
 
@@ -5204,6 +5260,7 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 - \`--json\` - Output results in JSON format
 - \`--fail-on-warn\` - Exit with code 1 when warnings are emitted
 - \`--locks-required\` - Fail if scripts or flow inline scripts that need locks have no locks
+- \`-w, --watch\` - Watch for file changes and re-lint automatically
 
 ### queues
 
@@ -5264,21 +5321,24 @@ schedule related commands
   - \`--json\` - Output as JSON (for piping to jq)
 - \`schedule new <path:string>\` - create a new schedule locally
 - \`schedule push <file_path:string> <remote_path:string>\` - push a local schedule spec. This overrides any remote versions.
+- \`schedule enable <path:string>\` - Enable a schedule
+- \`schedule disable <path:string>\` - Disable a schedule
 
 ### script
 
 script related commands
 
 **Options:**
-- \`--show-archived\` - Enable archived scripts in output
+- \`--show-archived\` - Show archived scripts instead of active ones
 - \`--json\` - Output as JSON (for piping to jq)
 
 **Subcommands:**
 
 - \`script list\` - list all scripts
-  - \`--show-archived\` - Enable archived scripts in output
+  - \`--show-archived\` - Show archived scripts instead of active ones
   - \`--json\` - Output as JSON (for piping to jq)
 - \`script push <path:file>\` - push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh
+  - \`--message <message:string>\` - Deployment message
 - \`script get <path:file>\` - get a script's details
   - \`--json\` - Output as JSON (for piping to jq)
 - \`script show <path:file>\` - show a script's content (alias for get
@@ -5301,6 +5361,8 @@ script related commands
   - \`--schema-only\` - re-generate only script schema
   - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
   - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which file to NOT take into account.
+- \`script history <path:string>\` - show version history for a script
+  - \`--json\` - Output as JSON (for piping to jq)
 
 ### sync
 
@@ -5315,6 +5377,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - \`--json\` - Use JSON instead of YAML
   - \`--skip-variables\` - Skip syncing variables (including secrets)
   - \`--skip-secrets\` - Skip syncing only secrets variables
+  - \`--include-secrets\` - Include secrets in sync (overrides skipSecrets in wmill.yaml)
   - \`--skip-resources\` - Skip syncing  resources
   - \`--skip-resource-types\` - Skip syncing  resource types
   - \`--skip-scripts\` - Skip syncing scripts
@@ -5344,6 +5407,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - \`--json\` - Use JSON instead of YAML
   - \`--skip-variables\` - Skip syncing variables (including secrets)
   - \`--skip-secrets\` - Skip syncing only secrets variables
+  - \`--include-secrets\` - Include secrets in sync (overrides skipSecrets in wmill.yaml)
   - \`--skip-resources\` - Skip syncing  resources
   - \`--skip-resource-types\` - Skip syncing  resource types
   - \`--skip-scripts\` - Skip syncing scripts
@@ -5369,6 +5433,23 @@ sync local with a remote workspaces or the opposite (push or pull)
   - \`--branch, --env <branch:string>\` - Override the current git branch/environment (works even outside a git repository)
   - \`--lint\` - Run lint validation before pushing
   - \`--locks-required\` - Fail if scripts or flow inline scripts that need locks have no locks
+  - \`--auto-metadata\` - Automatically regenerate stale metadata (locks and schemas) before pushing
+
+### token
+
+Manage API tokens
+
+**Options:**
+- \`--json\` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- \`token list\` - List API tokens
+  - \`--json\` - Output as JSON (for piping to jq)
+- \`token create\` - Create a new API token
+  - \`--label <label:string>\` - Token label
+  - \`--expiration <expiration:string>\` - Token expiration (ISO 8601 timestamp)
+- \`token delete <token_prefix:string>\` - Delete a token by its prefix
 
 ### trigger
 
@@ -5399,7 +5480,7 @@ user related commands
   - \`--company <company:string>\` - Specify to set the company of the new user.
   - \`--name <name:string>\` - Specify to set the name of the new user.
 - \`user remove <email:string>\` - Delete a user
-- \`user create-token\`
+- \`user create-token\` - Create a new API token for the authenticated user
   - \`--email <email:string>\` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
   - \`--password <password:string>\` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
 
@@ -5467,7 +5548,8 @@ workspace related commands
 - \`workspace whoami\` - Show the currently active user
 - \`workspace list\` - List local workspace profiles
 - \`workspace list-remote\` - List workspaces on the remote server that you have access to
-- \`workspace bind\` - Bind the current Git branch to the active workspace
+- \`workspace list-forks\` - List forked workspaces on the remote server
+- \`workspace bind\` - Bind the current Git branch to the active workspace. This adds the branch to gitBranches in wmill.yaml so sync operations use the correct workspace for each branch.
   - \`--branch, --env <branch:string>\` - Specify branch/environment (defaults to current)
 - \`workspace unbind\` - Remove workspace binding from the current Git branch
   - \`--branch, --env <branch:string>\` - Specify branch/environment (defaults to current)
@@ -5738,6 +5820,13 @@ properties:
         key:
           type: string
         value: {}
+  filter_logic:
+    type: string
+    enum:
+    - and
+    - or
+    description: Logic to apply when evaluating filters. 'and' requires all filters
+      to match, 'or' requires any filter to match.
   auto_offset_reset:
     type: string
     enum:
@@ -6265,6 +6354,13 @@ properties:
         value: {}
     description: Array of key-value filters to match incoming messages (only matching
       messages trigger the script)
+  filter_logic:
+    type: string
+    enum:
+    - and
+    - or
+    description: Logic to apply when evaluating filters. 'and' requires all filters
+      to match, 'or' requires any filter to match.
   initial_messages:
     type: array
     items:

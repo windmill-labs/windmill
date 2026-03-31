@@ -134,14 +134,14 @@ pub fn workspaced_service() -> Router {
 
     Router::new()
         .route(
-            "/run/f/*script_path",
+            "/run/f/{*script_path}",
             post(run_flow_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run/fv/:version",
+            "/run/fv/{version}",
             post(run_flow_by_version)
                 .head(|| async { "" })
                 .layer(cors.clone())
@@ -155,25 +155,25 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run/workflow_as_code/:job_id/:entrypoint",
+            "/run/workflow_as_code/{job_id}/{entrypoint}",
             post(run_workflow_as_code)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/restart/f/:job_id",
+            "/restart/f/{job_id}",
             post(restart_flow).head(|| async { "" }).layer(cors.clone()),
         )
         .route(
-            "/run/p/*script_path",
+            "/run/p/{*script_path}",
             post(run_script_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_wait_result/p/*script_path",
+            "/run_wait_result/p/{*script_path}",
             post(run_wait_result_script_by_path)
                 .get(run_wait_result_job_by_path_get)
                 .head(|| async { "" })
@@ -181,14 +181,14 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_wait_result/h/:hash",
+            "/run_wait_result/h/{hash}",
             post(run_wait_result_script_by_hash)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_wait_result/f/*script_path",
+            "/run_wait_result/f/{*script_path}",
             post(run_wait_result_flow_by_path)
                 .get(run_wait_result_flow_by_path_get)
                 .head(|| async { "" })
@@ -196,7 +196,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_wait_result/fv/:version",
+            "/run_wait_result/fv/{version}",
             post(run_wait_result_flow_by_version)
                 .get(run_wait_result_flow_by_version_get)
                 .head(|| async { "" })
@@ -204,7 +204,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_and_stream/f/*script_path",
+            "/run_and_stream/f/{*script_path}",
             get(stream_flow_by_path)
                 .post(stream_flow_by_path)
                 .head(|| async { "" })
@@ -212,7 +212,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_and_stream/fv/:version",
+            "/run_and_stream/fv/{version}",
             get(stream_flow_by_version)
                 .post(stream_flow_by_version)
                 .head(|| async { "" })
@@ -220,7 +220,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_and_stream/p/*script_path",
+            "/run_and_stream/p/{*script_path}",
             get(stream_script_by_path)
                 .post(stream_script_by_path)
                 .head(|| async { "" })
@@ -228,7 +228,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run_and_stream/h/:hash",
+            "/run_and_stream/h/{hash}",
             get(stream_script_by_hash)
                 .post(stream_script_by_hash)
                 .head(|| async { "" })
@@ -236,7 +236,7 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
-            "/run/h/:hash",
+            "/run/h/{hash}",
             post(run_job_by_hash)
                 .head(|| async { "" })
                 .layer(cors.clone())
@@ -245,10 +245,10 @@ pub fn workspaced_service() -> Router {
         .route("/run/preview", post(run_preview_script))
         .route("/run_inline/preview", post(run_inline_preview_script))
         .route(
-            "/run_inline/p/*script_path",
+            "/run_inline/p/{*script_path}",
             post(run_inline_script_by_path),
         )
-        .route("/run_inline/h/:hash", post(run_inline_script_by_hash))
+        .route("/run_inline/h/{hash}", post(run_inline_script_by_hash))
         .route(
             "/run_wait_result/preview",
             post(run_wait_result_preview_script),
@@ -257,7 +257,7 @@ pub fn workspaced_service() -> Router {
             "/run/preview_bundle",
             post(run_bundle_preview_script).layer(axum::extract::DefaultBodyLimit::disable()),
         )
-        .route("/add_batch_jobs/:n", post(add_batch_jobs))
+        .route("/add_batch_jobs/{n}", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route(
             "/run_wait_result/preview_flow",
@@ -280,8 +280,8 @@ pub fn workspaced_service() -> Router {
         )
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
-        .route("/queue/position/:timestamp", get(get_queue_position))
-        .route("/queue/scheduled_for/:id", get(get_scheduled_for))
+        .route("/queue/position/{timestamp}", get(get_queue_position))
+        .route("/queue/scheduled_for/{id}", get(get_scheduled_for))
         .route("/queue/cancel_selection", post(cancel_selection))
         .route("/completed/count", get(count_completed_jobs))
         .route("/completed/count_jobs", get(count_completed_jobs_detail))
@@ -299,49 +299,49 @@ pub fn workspaced_service() -> Router {
         )
         .route("/delete", post(crate::jobs_export::delete_jobs))
         .route(
-            "/completed/get/:id",
+            "/completed/get/{id}",
             get(get_completed_job).layer(cors.clone()),
         )
         .route(
-            "/completed/get_result/:id",
+            "/completed/get_result/{id}",
             get(get_completed_job_result).layer(cors.clone()),
         )
         .route(
-            "/completed/get_result_maybe/:id",
+            "/completed/get_result_maybe/{id}",
             get(get_completed_job_result_maybe).layer(cors.clone()),
         )
         .route(
-            "/completed/get_timing/:id",
+            "/completed/get_timing/{id}",
             get(get_completed_job_timing).layer(cors.clone()),
         )
         .route(
-            "/completed/delete/:id",
+            "/completed/delete/{id}",
             post(delete_completed_job).layer(cors.clone()),
         )
         .route(
-            "/flow/resume/:id",
+            "/flow/resume/{id}",
             post(resume_suspended_flow_as_owner).layer(cors.clone()),
         )
         .route(
-            "/job_signature/:job_id/:resume_id",
+            "/job_signature/{job_id}/{resume_id}",
             get(create_job_signature).layer(cors.clone()),
         )
         .route(
-            "/flow/user_states/:job_id/:key",
+            "/flow/user_states/{job_id}/{key}",
             get(get_flow_user_state)
                 .post(set_flow_user_state)
                 .layer(cors.clone()),
         )
         .route(
-            "/resume_urls/:job_id/:resume_id",
+            "/resume_urls/{job_id}/{resume_id}",
             get(get_resume_urls).layer(cors.clone()),
         )
         .route(
-            "/result_by_id/:job_id/:node_id",
+            "/result_by_id/{job_id}/{node_id}",
             get(get_result_by_id).layer(cors.clone()),
         )
         .route(
-            "/flow_env_by_flow_job_id/:flow_job_id/:var_name",
+            "/flow_env_by_flow_job_id/{flow_job_id}/{var_name}",
             get(get_flow_env_by_flow_job_id).layer(cors.clone()),
         )
         .route("/run/dependencies", post(run_dependencies_job))
@@ -350,59 +350,59 @@ pub fn workspaced_service() -> Router {
             "/send_email_with_instance_smtp",
             post(send_email_with_instance_smtp),
         )
-        .route("/get_otel_traces/:id", get(get_otel_traces))
+        .route("/get_otel_traces/{id}", get(get_otel_traces))
 }
 
 pub fn workspace_unauthed_service() -> Router {
     Router::new()
         .route(
-            "/resume/:job_id/:resume_id/:secret",
+            "/resume/{job_id}/{resume_id}/{secret}",
             get(resume_suspended_job),
         )
         .route(
-            "/resume/:job_id/:resume_id/:secret",
+            "/resume/{job_id}/{resume_id}/{secret}",
             post(resume_suspended_job),
         )
         .route(
-            "/cancel/:job_id/:resume_id/:secret",
+            "/cancel/{job_id}/{resume_id}/{secret}",
             get(cancel_suspended_job),
         )
         .route(
-            "/cancel/:job_id/:resume_id/:secret",
+            "/cancel/{job_id}/{resume_id}/{secret}",
             post(cancel_suspended_job),
         )
         .route(
-            "/get_flow/:job_id/:resume_id/:secret",
+            "/get_flow/{job_id}/{resume_id}/{secret}",
             get(get_suspended_job_flow),
         )
-        .route("/get_root_job_id/:id", get(get_root_job))
-        .route("/get/:id", get(get_job))
-        .route("/get_logs/:id", get(get_job_logs))
+        .route("/get_root_job_id/{id}", get(get_root_job))
+        .route("/get/{id}", get(get_job))
+        .route("/get_logs/{id}", get(get_job_logs))
         .route(
-            "/get_completed_logs_tail/:id",
+            "/get_completed_logs_tail/{id}",
             get(get_completed_job_logs_tail),
         )
-        .route("/get_args/:id", get(get_args))
+        .route("/get_args/{id}", get(get_args))
         .route("/queue/get_started_at_by_ids", post(get_started_at_by_ids))
-        .route("/get_flow_debug_info/:id", get(get_flow_job_debug_info))
-        .route("/completed/get/:id", get(get_completed_job))
-        .route("/completed/get_result/:id", get(get_completed_job_result))
+        .route("/get_flow_debug_info/{id}", get(get_flow_job_debug_info))
+        .route("/completed/get/{id}", get(get_completed_job))
+        .route("/completed/get_result/{id}", get(get_completed_job_result))
         .route(
-            "/completed/get_result_maybe/:id",
+            "/completed/get_result_maybe/{id}",
             get(get_completed_job_result_maybe),
         )
-        .route("/completed/get_timing/:id", get(get_completed_job_timing))
-        .route("/getupdate/:id", get(get_job_update))
-        .route("/getupdate_sse/:id", get(get_job_update_sse))
-        .route("/get_log_file/*file_path", get(get_log_file))
-        .route("/queue/cancel/:id", post(cancel_job_api))
+        .route("/completed/get_timing/{id}", get(get_completed_job_timing))
+        .route("/getupdate/{id}", get(get_job_update))
+        .route("/getupdate_sse/{id}", get(get_job_update_sse))
+        .route("/get_log_file/{*file_path}", get(get_log_file))
+        .route("/queue/cancel/{id}", post(cancel_job_api))
         .route(
-            "/queue/cancel_persistent/*script_path",
+            "/queue/cancel_persistent/{*script_path}",
             post(cancel_persistent_script_api),
         )
-        .route("/queue/force_cancel/:id", post(force_cancel))
-        .route("/flow/resume_suspended/:job_id", post(resume_suspended))
-        .route("/flow/approval_info/:job_id", get(get_approval_info))
+        .route("/queue/force_cancel/{id}", post(force_cancel))
+        .route("/flow/resume_suspended/{job_id}", post(resume_suspended))
+        .route("/flow/approval_info/{job_id}", get(get_approval_info))
 }
 
 pub fn global_root_service() -> Router {
@@ -2179,12 +2179,24 @@ async fn list_jobs(
 pub async fn resume_suspended_flow_as_owner(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Path((_w_id, flow_id)): Path<(String, Uuid)>,
+    Path((w_id, flow_id)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
     let mut tx = db.begin().await?;
 
     let (flow, job_id, is_wac) = get_suspended_flow_info(flow_id, &mut tx).await?;
+
+    // Verify the job belongs to this workspace
+    let job_workspace: Option<String> =
+        sqlx::query_scalar("SELECT workspace_id FROM v2_job WHERE id = $1")
+            .bind(&flow.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if job_workspace.as_deref() != Some(w_id.as_str()) {
+        return Err(Error::NotFound(
+            "Job not found in this workspace".to_string(),
+        ));
+    }
 
     let flow_path = flow.script_path.as_deref().unwrap_or_else(|| "");
     require_owner_of_path(&authed, flow_path)?;
@@ -2516,7 +2528,8 @@ async fn get_approval_info(
         let approval_step = fs.as_ref().map(|s| (s.step as usize).saturating_sub(1));
 
         // Fetch flow definition to get suspend settings (form schema, hide_cancel).
-        // Try raw_flow on the job first, fall back to flow_version for deployed flows.
+        // Try raw_flow on the job first, fall back to flow_version for deployed flows,
+        // then flow_node for graph-based branch/loop sub-flows.
         let raw_flow: Option<FlowValue> = {
             let from_job: Option<serde_json::Value> = sqlx::query_scalar(
                 "SELECT raw_flow FROM v2_job WHERE id = $1 AND workspace_id = $2",
@@ -2540,7 +2553,23 @@ async fn get_approval_info(
                 .fetch_optional(&db)
                 .await?
                 .flatten();
-                from_version.and_then(|v| serde_json::from_value(v).ok())
+                if let Some(v) = from_version {
+                    serde_json::from_value(v).ok()
+                } else {
+                    // FlowNode sub-flow (graph-based branch/loop): raw_flow is not stored
+                    // in v2_job for newer versions, fetch from flow_node table
+                    let from_node: Option<serde_json::Value> = sqlx::query_scalar(
+                        "SELECT fn.flow FROM v2_job j \
+                         JOIN flow_node fn ON fn.id = j.runnable_id \
+                         WHERE j.id = $1 AND j.workspace_id = $2",
+                    )
+                    .bind(&job_id)
+                    .bind(&w_id)
+                    .fetch_optional(&db)
+                    .await?
+                    .flatten();
+                    from_node.and_then(|v| serde_json::from_value(v).ok())
+                }
             }
         };
 

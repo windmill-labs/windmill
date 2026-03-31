@@ -450,6 +450,8 @@ pub struct ScriptHistory {
     pub script_hash: ScriptHash,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Deserialize)]
@@ -510,6 +512,8 @@ pub struct NewScript {
     pub assets: Option<Vec<AssetWithAltAccessType>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modules: Option<HashMap<String, ScriptModule>>,
+    #[serde(default)]
+    pub auto_parent: Option<bool>,
 }
 
 // IMPORTANT: update this Hash impl when adding fields to NewScript

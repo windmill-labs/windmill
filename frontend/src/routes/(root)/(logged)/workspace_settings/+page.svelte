@@ -1113,7 +1113,7 @@
 					label: 'Webhook',
 					aiId: 'workspace-settings-webhook',
 					aiDescription: 'Webhook workspace settings',
-					showIf: WORKSPACE_SHOW_WEBHOOK_CLI_SYNC
+					showIf: WORKSPACE_SHOW_WEBHOOK_CLI_SYNC && !isCloudHosted()
 				},
 				{
 					id: 'native_triggers',
