@@ -28,6 +28,7 @@
 	import DateInput from './DateInput.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
 	import PasswordArgInput from './PasswordArgInput.svelte'
+	import SecretArgInput from './SecretArgInput.svelte'
 	import Password from './Password.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
@@ -495,6 +496,10 @@
 
 	let { debounced, clearDebounce } = debounce(() => compareValues(value), 50)
 	let inputCat = $derived(computeInputCat(type, format, itemsType?.type, enum_, contentEncoding))
+	let isNonStringSecret = $derived(
+		(password || extra?.['password'] == true) && inputCat !== 'string'
+	)
+
 	let displayJsonToggleHeader = $derived(
 		displayHeader &&
 			inputCat === 'list' &&
@@ -557,6 +562,12 @@
 				Linked to variable <button
 					class="text-accent underline font-normal"
 					onclick={() => variableEditor?.editVariable?.(value.slice(5))}>{value.slice(5)}</button
+				>
+			{:else if value && typeof value == 'string' && value?.startsWith('$jsonvar:')}
+				Linked to variable <button
+					class="text-accent underline font-normal"
+					onclick={() => variableEditor?.editVariable?.(value.slice('$jsonvar:'.length))}
+					>{value.slice('$jsonvar:'.length)}</button
 				>
 			{/if}
 		</div>
@@ -1486,6 +1497,10 @@
 		{/if}
 		{@render actions?.()}
 	</div>
+
+	{#if isNonStringSecret}
+		<SecretArgInput bind:value />
+	{/if}
 
 	{#if !compact || (error && error != '')}
 		<div class="text-right text-xs leading-3 text-red-600 dark:text-red-400 mb-2">

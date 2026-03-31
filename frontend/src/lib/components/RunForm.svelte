@@ -21,6 +21,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { untrack } from 'svelte'
+	import { processSecretArgs } from './secretArgUtils'
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -33,8 +34,9 @@
 		reloadArgs++
 	}
 
-	export function run() {
-		runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)
+	export async function run() {
+		const processedArgs = await processSecretArgs(args ?? {}, runnable?.schema)
+		runAction(scheduledForStr, processedArgs, invisible_to_owner, overrideTag)
 	}
 
 	interface Props {
@@ -276,7 +278,7 @@
 					unifiedSize="md"
 					btnClasses="!inline-flex"
 					disabled={!isValid && !jsonView}
-					on:click={() => runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)}
+					on:click={() => run()}
 					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 				>
 					{scheduledForStr ? 'Schedule to run later' : buttonText}
@@ -315,7 +317,7 @@
 			btnClasses="!px-6 !py-1 w-full"
 			variant="accent"
 			disabled={!isValid && !jsonView}
-			on:click={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
+			on:click={() => run()}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>
 			{buttonText}

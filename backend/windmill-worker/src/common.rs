@@ -145,7 +145,7 @@ pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::
 }
 
 lazy_static::lazy_static! {
-    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res|encrypted)\:"#).unwrap();
+    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|jsonvar|res|encrypted)\:"#).unwrap();
 }
 
 pub async fn transform_json<'a>(
@@ -251,6 +251,19 @@ pub async fn transform_json_value(
                 .get_variable_value(path)
                 .await
                 .map(|x| json!(x))
+                .map_err(|e| {
+                    Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
+                })
+        }
+        Value::String(y) if y.starts_with("$jsonvar:") => {
+            let path = y.strip_prefix("$jsonvar:").unwrap();
+            client
+                .get_variable_value(path)
+                .await
+                .and_then(|x| {
+                    serde_json::from_str::<serde_json::Value>(&x)
+                        .map_err(|e| anyhow::anyhow!("Failed to parse $jsonvar value as JSON: {e}"))
+                })
                 .map_err(|e| {
                     Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
                 })
