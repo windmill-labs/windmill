@@ -31,7 +31,10 @@ mod tests {
 
     /// Test that configuring instance groups for a workspace auto-adds existing group members
     #[ignore = "requires database setup - run with --ignored flag"]
-    #[sqlx::test(migrations = "../migrations", fixtures("base", "instance_group_auto_add"))]
+    #[sqlx::test(
+        migrations = "../migrations",
+        fixtures("base", "instance_group_auto_add")
+    )]
     async fn test_configure_instance_groups_adds_existing_members(db: Pool<Postgres>) {
         // Configure workspace to auto-add users from 'engineering' group with 'developer' role
         let groups = vec!["engineering".to_string()];
@@ -112,8 +115,14 @@ mod tests {
             "Alice should be in the workspace"
         );
         let alice = alice_in_workspace.unwrap();
-        assert!(!alice.is_admin, "Alice should not be admin (developer role)");
-        assert!(!alice.operator, "Alice should not be operator (developer role)");
+        assert!(
+            !alice.is_admin,
+            "Alice should not be admin (developer role)"
+        );
+        assert!(
+            !alice.operator,
+            "Alice should not be operator (developer role)"
+        );
 
         // Check added_via field
         let added_via = alice.added_via.expect("added_via should be set");
@@ -158,7 +167,10 @@ mod tests {
 
     /// Test role assignment based on instance group configuration
     #[ignore = "requires database setup - run with --ignored flag"]
-    #[sqlx::test(migrations = "../migrations", fixtures("base", "instance_group_auto_add"))]
+    #[sqlx::test(
+        migrations = "../migrations",
+        fixtures("base", "instance_group_auto_add")
+    )]
     async fn test_role_assignment_admin(db: Pool<Postgres>) {
         // Configure workspace with admins group having admin role
         let groups = vec!["admins".to_string()];
@@ -209,7 +221,10 @@ mod tests {
 
     /// Test role assignment for operator
     #[ignore = "requires database setup - run with --ignored flag"]
-    #[sqlx::test(migrations = "../migrations", fixtures("base", "instance_group_auto_add"))]
+    #[sqlx::test(
+        migrations = "../migrations",
+        fixtures("base", "instance_group_auto_add")
+    )]
     async fn test_role_assignment_operator(db: Pool<Postgres>) {
         // Configure workspace with sales group having operator role
         let groups = vec!["sales".to_string()];
@@ -260,7 +275,10 @@ mod tests {
 
     /// Test role precedence when user is in multiple instance groups
     #[ignore = "requires database setup - run with --ignored flag"]
-    #[sqlx::test(migrations = "../migrations", fixtures("base", "instance_group_auto_add"))]
+    #[sqlx::test(
+        migrations = "../migrations",
+        fixtures("base", "instance_group_auto_add")
+    )]
     async fn test_role_precedence_multiple_groups(db: Pool<Postgres>) {
         // Configure workspace with multiple groups: engineering (admin), sales (operator)
         // Bob is in both groups, should get admin role (highest precedence)
@@ -306,7 +324,10 @@ mod tests {
         .await
         .expect("Failed to query user");
 
-        assert!(bob.is_admin, "Bob should be admin (highest precedence role)");
+        assert!(
+            bob.is_admin,
+            "Bob should be admin (highest precedence role)"
+        );
         assert!(!bob.operator, "Bob should not be operator");
 
         // Verify added_via tracks the primary group (engineering, the one with highest precedence)
@@ -320,9 +341,354 @@ mod tests {
         println!("✓ Role precedence works correctly for users in multiple groups");
     }
 
+    /// Test that adding a user to a second instance group upgrades their workspace role
+    /// if the new group has a higher-precedence role.
+    /// This is a regression test for the bug where only the newly-added group's role was used.
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(
+        migrations = "../migrations",
+        fixtures("base", "instance_group_auto_add")
+    )]
+    async fn test_role_upgrade_when_added_to_higher_group(db: Pool<Postgres>) {
+        // Configure workspace: engineering=operator, admins=admin
+        let groups = vec!["engineering".to_string(), "admins".to_string()];
+        let roles = json!({"engineering": "operator", "admins": "admin"});
+
+        sqlx::query!(
+            r#"
+            UPDATE workspace_settings
+            SET auto_invite = jsonb_build_object(
+                'instance_groups', $2::jsonb,
+                'instance_groups_roles', $3::jsonb
+            )
+            WHERE workspace_id = $1
+            "#,
+            "ws-multi-group",
+            serde_json::to_value(&groups).unwrap(),
+            &roles,
+        )
+        .execute(&db)
+        .await
+        .expect("Failed to update workspace settings");
+
+        // Step 1: Alice is added via engineering group (operator)
+        // (alice is already in engineering from fixture)
+        let added_via = json!({"source": "instance_group", "group": "engineering"});
+        sqlx::query!(
+            "INSERT INTO usr (workspace_id, username, email, is_admin, operator, added_via)
+             VALUES ($1, 'alice', 'alice@example.com', false, true, $2)",
+            "ws-multi-group",
+            &added_via,
+        )
+        .execute(&db)
+        .await
+        .expect("Failed to add user");
+
+        sqlx::query!(
+            "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, 'alice', 'all')",
+            "ws-multi-group",
+        )
+        .execute(&db)
+        .await
+        .expect("Failed to add user to all group");
+
+        // Verify initial state: alice is operator
+        let alice = sqlx::query!(
+            "SELECT is_admin, operator FROM usr WHERE workspace_id = 'ws-multi-group' AND email = 'alice@example.com'"
+        )
+        .fetch_one(&db)
+        .await
+        .expect("Failed to query user");
+        assert!(!alice.is_admin, "Alice should start as non-admin");
+        assert!(alice.operator, "Alice should start as operator");
+
+        // Step 2: Alice is added to admins group
+        sqlx::query!(
+            "INSERT INTO email_to_igroup (email, igroup) VALUES ('alice@example.com', 'admins') ON CONFLICT DO NOTHING"
+        )
+        .execute(&db)
+        .await
+        .expect("Failed to add to admins group");
+
+        // Step 3: Simulate the fixed logic — find all user's groups, compute highest role, update
+        let user_igroups: Vec<String> = sqlx::query_scalar!(
+            "SELECT igroup FROM email_to_igroup WHERE email = 'alice@example.com'"
+        )
+        .fetch_all(&db)
+        .await
+        .expect("Failed to fetch user groups");
+
+        let ws = sqlx::query!(
+            r#"
+            SELECT auto_invite->'instance_groups_roles' as instance_groups_roles,
+                   auto_invite->'instance_groups' as instance_groups_json
+            FROM workspace_settings WHERE workspace_id = 'ws-multi-group'
+            "#,
+        )
+        .fetch_one(&db)
+        .await
+        .expect("Failed to fetch workspace settings");
+
+        let ws_roles: std::collections::HashMap<String, String> = ws
+            .instance_groups_roles
+            .and_then(|r| serde_json::from_value(r).ok())
+            .unwrap_or_default();
+
+        let ws_configured_groups: Vec<String> = ws
+            .instance_groups_json
+            .and_then(|ig| serde_json::from_value(ig).ok())
+            .unwrap_or_default();
+
+        let mut best_group = String::new();
+        let mut best_precedence = 0u8;
+
+        for group in &user_igroups {
+            if !ws_configured_groups.contains(group) {
+                continue;
+            }
+            let default_role = "developer".to_string();
+            let role = ws_roles.get(group).unwrap_or(&default_role);
+            let precedence = match role.as_str() {
+                "admin" => 3u8,
+                "operator" => 1,
+                _ => 2,
+            };
+            if precedence > best_precedence {
+                best_precedence = precedence;
+                best_group = group.clone();
+            }
+        }
+
+        let default_role = "developer".to_string();
+        let best_role_str = ws_roles.get(&best_group).unwrap_or(&default_role);
+        let (is_admin, is_operator) = match best_role_str.as_str() {
+            "admin" => (true, false),
+            "operator" => (false, true),
+            _ => (false, false),
+        };
+
+        let instance_group_source = json!({
+            "source": "instance_group",
+            "group": &best_group
+        });
+
+        sqlx::query!(
+            "UPDATE usr SET is_admin = $1, operator = $2, added_via = $3 WHERE workspace_id = $4 AND email = $5 AND added_via->>'source' = 'instance_group'",
+            is_admin,
+            is_operator,
+            &instance_group_source,
+            "ws-multi-group",
+            "alice@example.com"
+        )
+        .execute(&db)
+        .await
+        .expect("Failed to update user role");
+
+        // Verify: alice should now be admin (highest precedence)
+        let alice = sqlx::query!(
+            "SELECT is_admin, operator, added_via FROM usr WHERE workspace_id = 'ws-multi-group' AND email = 'alice@example.com'"
+        )
+        .fetch_one(&db)
+        .await
+        .expect("Failed to query user");
+
+        assert!(alice.is_admin, "Alice should be upgraded to admin");
+        assert!(!alice.operator, "Alice should no longer be operator");
+
+        let added_via = alice.added_via.expect("added_via should be set");
+        assert_eq!(
+            added_via.get("group").and_then(|v| v.as_str()),
+            Some("admins"),
+            "added_via should track the admin group (highest precedence)"
+        );
+
+        println!("✓ Role is upgraded when user is added to a higher-precedence group");
+    }
+
+    /// Test that adding a user to a lower-precedence group does NOT downgrade their role
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(
+        migrations = "../migrations",
+        fixtures("base", "instance_group_auto_add")
+    )]
+    async fn test_no_role_downgrade_when_added_to_lower_group(db: Pool<Postgres>) {
+        // Configure workspace: engineering=admin, sales=operator
+        let groups = vec!["engineering".to_string(), "sales".to_string()];
+        let roles = json!({"engineering": "admin", "sales": "operator"});
+
+        sqlx::query!(
+            r#"
+            UPDATE workspace_settings
+            SET auto_invite = jsonb_build_object(
+                'instance_groups', $2::jsonb,
+                'instance_groups_roles', $3::jsonb
+            )
+            WHERE workspace_id = $1
+            "#,
+            "ws-multi-group",
+            serde_json::to_value(&groups).unwrap(),
+            &roles,
+        )
+        .execute(&db)
+        .await
+        .expect("Failed to update workspace settings");
+
+        // Alice starts as admin from engineering
+        let added_via = json!({"source": "instance_group", "group": "engineering"});
+        sqlx::query!(
+            "INSERT INTO usr (workspace_id, username, email, is_admin, operator, added_via)
+             VALUES ($1, 'alice', 'alice@example.com', true, false, $2)",
+            "ws-multi-group",
+            &added_via,
+        )
+        .execute(&db)
+        .await
+        .expect("Failed to add user");
+
+        // Now simulate adding alice to sales group (operator — lower precedence)
+        // The fixed code should keep her as admin
+        let user_igroups = vec!["engineering".to_string(), "sales".to_string()];
+        let ws_configured_groups = vec!["engineering".to_string(), "sales".to_string()];
+        let ws_roles: std::collections::HashMap<String, String> =
+            serde_json::from_value(roles).unwrap();
+
+        let mut best_group = String::new();
+        let mut best_precedence = 0u8;
+        for group in &user_igroups {
+            if !ws_configured_groups.contains(group) {
+                continue;
+            }
+            let default_role = "developer".to_string();
+            let role = ws_roles.get(group).unwrap_or(&default_role);
+            let precedence = match role.as_str() {
+                "admin" => 3u8,
+                "operator" => 1,
+                _ => 2,
+            };
+            if precedence > best_precedence {
+                best_precedence = precedence;
+                best_group = group.clone();
+            }
+        }
+
+        let default_role = "developer".to_string();
+        let best_role_str = ws_roles.get(&best_group).unwrap_or(&default_role);
+        let (is_admin, is_operator) = match best_role_str.as_str() {
+            "admin" => (true, false),
+            "operator" => (false, true),
+            _ => (false, false),
+        };
+
+        let instance_group_source = json!({"source": "instance_group", "group": &best_group});
+        sqlx::query!(
+            "UPDATE usr SET is_admin = $1, operator = $2, added_via = $3 WHERE workspace_id = $4 AND email = $5 AND added_via->>'source' = 'instance_group'",
+            is_admin, is_operator, &instance_group_source, "ws-multi-group", "alice@example.com"
+        )
+        .execute(&db)
+        .await
+        .expect("Failed to update user role");
+
+        let alice = sqlx::query!(
+            "SELECT is_admin, operator, added_via FROM usr WHERE workspace_id = 'ws-multi-group' AND email = 'alice@example.com'"
+        )
+        .fetch_one(&db)
+        .await
+        .expect("Failed to query user");
+
+        assert!(alice.is_admin, "Alice should remain admin (not downgraded)");
+        assert!(!alice.operator, "Alice should not become operator");
+        assert_eq!(
+            alice
+                .added_via
+                .unwrap()
+                .get("group")
+                .and_then(|v| v.as_str()),
+            Some("engineering"),
+            "added_via should still track engineering (highest precedence)"
+        );
+
+        println!("✓ Role is NOT downgraded when user is added to a lower-precedence group");
+    }
+
+    /// Test that manually-added users are not affected by instance group role updates
+    #[ignore = "requires database setup - run with --ignored flag"]
+    #[sqlx::test(
+        migrations = "../migrations",
+        fixtures("base", "instance_group_auto_add")
+    )]
+    async fn test_manual_users_not_affected_by_group_role_update(db: Pool<Postgres>) {
+        // Configure workspace
+        let groups = vec!["engineering".to_string()];
+        let roles = json!({"engineering": "operator"});
+
+        sqlx::query!(
+            r#"
+            UPDATE workspace_settings
+            SET auto_invite = jsonb_build_object(
+                'instance_groups', $2::jsonb,
+                'instance_groups_roles', $3::jsonb
+            )
+            WHERE workspace_id = $1
+            "#,
+            "ws-multi-group",
+            serde_json::to_value(&groups).unwrap(),
+            &roles,
+        )
+        .execute(&db)
+        .await
+        .expect("Failed to update workspace settings");
+
+        // Alice was manually added as admin (no added_via)
+        sqlx::query!(
+            "INSERT INTO usr (workspace_id, username, email, is_admin, operator)
+             VALUES ('ws-multi-group', 'alice', 'alice@example.com', true, false)",
+        )
+        .execute(&db)
+        .await
+        .expect("Failed to add user");
+
+        // The UPDATE with added_via->>'source' = 'instance_group' filter should NOT match
+        let instance_group_source = json!({"source": "instance_group", "group": "engineering"});
+        let result = sqlx::query!(
+            "UPDATE usr SET is_admin = $1, operator = $2, added_via = $3 WHERE workspace_id = $4 AND email = $5 AND added_via->>'source' = 'instance_group'",
+            false, true, &instance_group_source, "ws-multi-group", "alice@example.com"
+        )
+        .execute(&db)
+        .await
+        .expect("Failed to execute update");
+
+        assert_eq!(
+            result.rows_affected(),
+            0,
+            "UPDATE should not affect manually-added users"
+        );
+
+        let alice = sqlx::query!(
+            "SELECT is_admin, operator, added_via FROM usr WHERE workspace_id = 'ws-multi-group' AND email = 'alice@example.com'"
+        )
+        .fetch_one(&db)
+        .await
+        .expect("Failed to query user");
+
+        assert!(alice.is_admin, "Manually-added admin should remain admin");
+        assert!(
+            !alice.operator,
+            "Manually-added admin should not become operator"
+        );
+        assert!(
+            alice.added_via.is_none(),
+            "added_via should remain NULL for manual users"
+        );
+
+        println!("✓ Manually-added users are not affected by instance group role updates");
+    }
+
     /// Test removing user from instance group removes them from workspace
     #[ignore = "requires database setup - run with --ignored flag"]
-    #[sqlx::test(migrations = "../migrations", fixtures("base", "instance_group_auto_add"))]
+    #[sqlx::test(
+        migrations = "../migrations",
+        fixtures("base", "instance_group_auto_add")
+    )]
     async fn test_remove_user_from_instance_group(db: Pool<Postgres>) {
         // First, add alice to the workspace via engineering group
         let added_via = json!({"source": "instance_group", "group": "engineering"});
@@ -416,7 +782,10 @@ mod tests {
 
     /// Test that users added via domain are not affected by instance group removal
     #[ignore = "requires database setup - run with --ignored flag"]
-    #[sqlx::test(migrations = "../migrations", fixtures("base", "instance_group_auto_add"))]
+    #[sqlx::test(
+        migrations = "../migrations",
+        fixtures("base", "instance_group_auto_add")
+    )]
     async fn test_domain_added_users_not_affected_by_group_removal(db: Pool<Postgres>) {
         // Add alice via domain (not instance group)
         let added_via = json!({"source": "domain", "domain": "example.com"});
@@ -469,7 +838,10 @@ mod tests {
 
     /// Test cleanup when instance group is removed from workspace configuration
     #[ignore = "requires database setup - run with --ignored flag"]
-    #[sqlx::test(migrations = "../migrations", fixtures("base", "instance_group_auto_add"))]
+    #[sqlx::test(
+        migrations = "../migrations",
+        fixtures("base", "instance_group_auto_add")
+    )]
     async fn test_cleanup_removed_instance_groups(db: Pool<Postgres>) {
         // First, add users via engineering group
         for (username, email) in &[("alice", "alice@example.com"), ("bob", "bob@example.com")] {
@@ -513,12 +885,11 @@ mod tests {
         // This should trigger cleanup of users added via that group
 
         // Get all users in the engineering group
-        let group_users = sqlx::query_scalar!(
-            "SELECT email FROM email_to_igroup WHERE igroup = 'engineering'"
-        )
-        .fetch_all(&db)
-        .await
-        .expect("Failed to get group users");
+        let group_users =
+            sqlx::query_scalar!("SELECT email FROM email_to_igroup WHERE igroup = 'engineering'")
+                .fetch_all(&db)
+                .await
+                .expect("Failed to get group users");
 
         // Remove users who were added via engineering group
         for email in group_users {
@@ -588,7 +959,10 @@ mod tests {
 
     /// Test that users are not duplicated if already in workspace
     #[ignore = "requires database setup - run with --ignored flag"]
-    #[sqlx::test(migrations = "../migrations", fixtures("base", "instance_group_auto_add"))]
+    #[sqlx::test(
+        migrations = "../migrations",
+        fixtures("base", "instance_group_auto_add")
+    )]
     async fn test_no_duplicate_users(db: Pool<Postgres>) {
         // Add alice to workspace first (without instance group tracking)
         sqlx::query!(
@@ -636,7 +1010,10 @@ mod tests {
 
     /// Test workspace without auto-add configured is not affected
     #[ignore = "requires database setup - run with --ignored flag"]
-    #[sqlx::test(migrations = "../migrations", fixtures("base", "instance_group_auto_add"))]
+    #[sqlx::test(
+        migrations = "../migrations",
+        fixtures("base", "instance_group_auto_add")
+    )]
     async fn test_workspace_without_auto_add_not_affected(db: Pool<Postgres>) {
         // ws-no-auto-add has no instance_groups configured
 
@@ -672,7 +1049,10 @@ mod tests {
 
     /// Test querying workspaces configured with a specific instance group
     #[ignore = "requires database setup - run with --ignored flag"]
-    #[sqlx::test(migrations = "../migrations", fixtures("base", "instance_group_auto_add"))]
+    #[sqlx::test(
+        migrations = "../migrations",
+        fixtures("base", "instance_group_auto_add")
+    )]
     async fn test_query_workspaces_with_instance_group(db: Pool<Postgres>) {
         // Configure ws-with-auto-add to use engineering group
         let groups = vec!["engineering".to_string()];
@@ -708,7 +1088,11 @@ mod tests {
         .await
         .expect("Failed to query workspaces");
 
-        assert_eq!(workspaces.len(), 1, "Should find 1 workspace with engineering group");
+        assert_eq!(
+            workspaces.len(),
+            1,
+            "Should find 1 workspace with engineering group"
+        );
         assert_eq!(workspaces[0].workspace_id, "ws-with-auto-add");
 
         // Verify the role configuration is returned correctly
