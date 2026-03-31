@@ -66,6 +66,7 @@
 	let flowPath: string = $state('')
 	let drawerShowsHubFlow = $state(false)
 	let notFound = $state(false)
+	let hubFlowId = $derived(getHubFlowIdFromPath(runnable.path))
 
 	// Key to force re-mounting of viewer components (bypasses FlowModuleScript cache)
 	let refreshKey = $state(0)
@@ -311,14 +312,14 @@
 				>
 					Expand
 				</Button>
-				{#if getHubFlowIdFromPath(runnable.path)}
+				{#if hubFlowId}
 					<Button
 						variant="default"
 						size="xs"
 						startIcon={{ icon: GitFork }}
 						endIcon={{ icon: ExternalLink }}
 						target="_blank"
-						href="{base}/flows/add?hub={getHubFlowIdFromPath(runnable.path)}"
+						href="{base}/flows/add?hub={hubFlowId}"
 					>
 						Fork
 					</Button>

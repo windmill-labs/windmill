@@ -33,7 +33,7 @@ struct HubFlowResponse {
     flow: HubFlow,
 }
 
-fn extract_hub_flow_id_from_path(path: &str) -> Result<i64, Error> {
+fn extract_hub_flow_id_from_path(path: &str) -> Result<i32, Error> {
     let hub_flow_path = path.strip_prefix("hub/flows/").ok_or_else(|| {
         Error::BadRequest(format!(
             "expected hub flow path to start with hub/flows/ (got {path})"
@@ -50,11 +50,19 @@ fn extract_hub_flow_id_from_path(path: &str) -> Result<i64, Error> {
             ))
         })?;
 
-    flow_id.parse::<i64>().map_err(|_| {
+    let flow_id = flow_id.parse::<i32>().map_err(|_| {
         Error::BadRequest(format!(
             "expected hub flow path to include a numeric id after hub/flows/ (got {path})"
         ))
-    })
+    })?;
+
+    if flow_id <= 0 {
+        return Err(Error::BadRequest(format!(
+            "expected hub flow path to include a positive numeric id after hub/flows/ (got {path})"
+        )));
+    }
+
+    Ok(flow_id)
 }
 
 pub async fn get_full_hub_flow_by_path(
@@ -73,8 +81,7 @@ pub async fn get_full_hub_flow_by_path(
         .map_err(to_anyhow)
     {
         Ok(response) => response,
-        Err(_)
-            if hub_base_url != DEFAULT_HUB_BASE_URL && flow_id < PRIVATE_HUB_MIN_VERSION as i64 =>
+        Err(_) if hub_base_url != DEFAULT_HUB_BASE_URL && flow_id < PRIVATE_HUB_MIN_VERSION =>
         {
             tracing::info!("Not found on private hub, fallback to default hub for hub flow {path}");
             let fallback_url = format!("{DEFAULT_HUB_BASE_URL}/flows/{flow_id}/json");
@@ -320,6 +327,18 @@ mod tests {
     #[test]
     fn extract_hub_flow_id_rejects_non_numeric_ids() {
         let err = extract_hub_flow_id_from_path("hub/flows/send_message").unwrap_err();
+        assert!(matches!(err, Error::BadRequest(_)));
+    }
+
+    #[test]
+    fn extract_hub_flow_id_rejects_missing_ids() {
+        let err = extract_hub_flow_id_from_path("hub/flows/").unwrap_err();
+        assert!(matches!(err, Error::BadRequest(_)));
+    }
+
+    #[test]
+    fn extract_hub_flow_id_rejects_zero_ids() {
+        let err = extract_hub_flow_id_from_path("hub/flows/0").unwrap_err();
         assert!(matches!(err, Error::BadRequest(_)));
     }
 }
