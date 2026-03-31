@@ -75,7 +75,6 @@ services:
       replicas: 3
       resources:
         limits:
-          cpus: "1"
           memory: 2048M
           # for GB, use syntax '2Gi'
     restart: unless-stopped
@@ -119,7 +118,6 @@ services:
       replicas: 1
       resources:
         limits:
-          cpus: "1"
           memory: 2048M
           # for GB, use syntax '2Gi'
     restart: unless-stopped
@@ -146,7 +144,6 @@ services:
   #     replicas: 1
   #     resources:
   #       limits:
-  #         cpus: "1"
   #         memory: 2048M
   #         # for GB, use syntax '2Gi'
   #   restart: unless-stopped
