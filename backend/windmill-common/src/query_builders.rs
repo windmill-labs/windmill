@@ -4476,3 +4476,221 @@ mod tests {
         assert_eq!(sql, "SHOW PRIMARY KEYS IN ACCOUNT");
     }
 }
+
+// ============================================================================
+// Full schema introspection types and logic (used by get_datatable_full_schema)
+// ============================================================================
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FullSchemaColumn {
+    pub name: String,
+    pub datatype: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub primary_key: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nullable: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FullSchemaForeignKeyColumn {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_column: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_column: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FullSchemaForeignKey {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_table: Option<String>,
+    pub columns: Vec<FullSchemaForeignKeyColumn>,
+    pub on_delete: String,
+    pub on_update: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fk_constraint_name: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FullSchemaTable {
+    pub name: String,
+    pub columns: Vec<FullSchemaColumn>,
+    pub foreign_keys: Vec<FullSchemaForeignKey>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pk_constraint_name: Option<String>,
+}
+
+/// Full database schema: { schema_name: { table_name: FullSchemaTable } }
+pub type FullDatabaseSchema =
+    std::collections::HashMap<String, std::collections::HashMap<String, FullSchemaTable>>;
+
+fn pg_action_to_string(action: &str) -> String {
+    match action {
+        "a" => "NO ACTION".to_string(),
+        "r" => "RESTRICT".to_string(),
+        "c" => "CASCADE".to_string(),
+        "n" => "SET NULL".to_string(),
+        "d" => "SET DEFAULT".to_string(),
+        _ => "NO ACTION".to_string(),
+    }
+}
+
+/// Introspect a PostgreSQL database and return the full schema.
+/// Takes a connected tokio_postgres Client.
+pub async fn pg_get_full_schema(
+    client: &tokio_postgres::Client,
+) -> Result<FullDatabaseSchema, String> {
+    let column_rows = client
+        .query(
+            "SELECT
+                ns.nspname AS schema_name,
+                c.relname AS table_name,
+                a.attname AS column_name,
+                pg_catalog.format_type(a.atttypid, a.atttypmod) AS datatype,
+                (SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
+                 FROM pg_catalog.pg_attrdef d
+                 WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) AS default_value,
+                CASE a.attnotnull WHEN false THEN true ELSE false END AS nullable,
+                EXISTS (
+                    SELECT 1 FROM pg_catalog.pg_index i
+                    WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)
+                ) AS is_primary_key,
+                (SELECT con.conname FROM pg_catalog.pg_constraint con
+                 WHERE con.conrelid = c.oid AND con.contype = 'p' LIMIT 1) AS pk_constraint_name
+            FROM pg_catalog.pg_attribute a
+            JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
+            JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid
+            WHERE c.relkind = 'r'
+                AND a.attnum > 0
+                AND NOT a.attisdropped
+                AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY ns.nspname, c.relname, a.attnum",
+            &[],
+        )
+        .await
+        .map_err(|e| format!("Failed to query columns: {}", e))?;
+
+    let fk_rows = client
+        .query(
+            "SELECT
+                ns.nspname AS schema_name,
+                c.relname AS table_name,
+                con.conname AS fk_constraint_name,
+                att_src.attname AS source_column,
+                ns_ref.nspname AS ref_schema,
+                c_ref.relname AS ref_table,
+                att_ref.attname AS ref_column,
+                con.confdeltype::text AS on_delete,
+                con.confupdtype::text AS on_update
+            FROM pg_catalog.pg_constraint con
+            JOIN pg_catalog.pg_class c ON con.conrelid = c.oid
+            JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid
+            JOIN pg_catalog.pg_class c_ref ON con.confrelid = c_ref.oid
+            JOIN pg_catalog.pg_namespace ns_ref ON c_ref.relnamespace = ns_ref.oid
+            CROSS JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS u(src_attnum, ref_attnum, ord)
+            JOIN pg_catalog.pg_attribute att_src ON att_src.attrelid = c.oid AND att_src.attnum = u.src_attnum
+            JOIN pg_catalog.pg_attribute att_ref ON att_ref.attrelid = c_ref.oid AND att_ref.attnum = u.ref_attnum
+            WHERE con.contype = 'f'
+                AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY ns.nspname, c.relname, con.conname, u.ord",
+            &[],
+        )
+        .await
+        .map_err(|e| format!("Failed to query foreign keys: {}", e))?;
+
+    let mut result: FullDatabaseSchema = std::collections::HashMap::new();
+
+    for row in &column_rows {
+        let schema_name: &str = row.get("schema_name");
+        let table_name: &str = row.get("table_name");
+        let column_name: &str = row.get("column_name");
+        let datatype: &str = row.get("datatype");
+        let default_value: Option<&str> = row.get("default_value");
+        let nullable: bool = row.get("nullable");
+        let is_primary_key: bool = row.get("is_primary_key");
+        let pk_constraint_name: Option<&str> = row.get("pk_constraint_name");
+
+        let schema_tables = result.entry(schema_name.to_string()).or_default();
+        let table = schema_tables
+            .entry(table_name.to_string())
+            .or_insert_with(|| FullSchemaTable {
+                name: table_name.to_string(),
+                columns: vec![],
+                foreign_keys: vec![],
+                pk_constraint_name: pk_constraint_name.map(|s| s.to_string()),
+            });
+
+        table.columns.push(FullSchemaColumn {
+            name: column_name.to_string(),
+            datatype: datatype.to_string(),
+            primary_key: if is_primary_key { Some(true) } else { None },
+            default_value: default_value.map(|s| s.to_string()),
+            nullable: Some(nullable),
+        });
+    }
+
+    let mut fk_map: std::collections::HashMap<
+        (String, String, String),
+        (
+            Option<String>,
+            Vec<FullSchemaForeignKeyColumn>,
+            String,
+            String,
+        ),
+    > = std::collections::HashMap::new();
+
+    for row in &fk_rows {
+        let schema_name: &str = row.get("schema_name");
+        let table_name: &str = row.get("table_name");
+        let fk_name: &str = row.get("fk_constraint_name");
+        let source_column: &str = row.get("source_column");
+        let ref_schema: &str = row.get("ref_schema");
+        let ref_table: &str = row.get("ref_table");
+        let ref_column: &str = row.get("ref_column");
+        let on_delete: &str = row.get("on_delete");
+        let on_update: &str = row.get("on_update");
+
+        let target_table = if ref_schema == schema_name {
+            ref_table.to_string()
+        } else {
+            format!("{}.{}", ref_schema, ref_table)
+        };
+
+        let key = (
+            schema_name.to_string(),
+            table_name.to_string(),
+            fk_name.to_string(),
+        );
+        let entry = fk_map.entry(key).or_insert_with(|| {
+            (
+                Some(target_table.clone()),
+                vec![],
+                pg_action_to_string(on_delete),
+                pg_action_to_string(on_update),
+            )
+        });
+        entry.1.push(FullSchemaForeignKeyColumn {
+            source_column: Some(source_column.to_string()),
+            target_column: Some(ref_column.to_string()),
+        });
+    }
+
+    for ((schema_name, table_name, fk_name), (target_table, columns, on_delete, on_update)) in
+        fk_map
+    {
+        if let Some(schema_tables) = result.get_mut(&schema_name) {
+            if let Some(table) = schema_tables.get_mut(&table_name) {
+                table.foreign_keys.push(FullSchemaForeignKey {
+                    target_table,
+                    columns,
+                    on_delete,
+                    on_update,
+                    fk_constraint_name: Some(fk_name),
+                });
+            }
+        }
+    }
+
+    Ok(result)
+}
