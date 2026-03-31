@@ -95,7 +95,7 @@
 				<span class="text-2xs leading-tight text-tertiary font-mono font-normal truncate max-w-full"
 					>{path}</span
 				>
-				<div class="flex items-center gap-1.5 max-w-full">
+				<div class="flex items-center gap-3 max-w-full">
 					<span
 						class="text-sm font-semibold truncate {emptyString(summary)
 							? 'text-tertiary italic font-normal'
