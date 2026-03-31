@@ -4,11 +4,11 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import {
-  getGeneratedSkillsSource,
   runPromptAndCapture,
   type PromptRunResult,
   wasSkillInvoked
 } from "./runtime";
+import type { CliVariant } from "./variants";
 
 export interface ExpectedFile {
   path: string;
@@ -46,6 +46,7 @@ export interface CliArtifactEvalResult {
   checks: ArtifactCheck[];
   expectedFiles: FileArtifactResult[];
   passed: boolean;
+  variantId: string;
 }
 
 const CASES_DIR = fileURLToPath(new URL("../../cases/cli", import.meta.url));
@@ -72,9 +73,12 @@ export async function loadCliArtifactEvalCases(): Promise<CliArtifactEvalCase[]>
 }
 
 export async function runCliArtifactEvalCase(
-  evalCase: CliArtifactEvalCase
+  evalCase: CliArtifactEvalCase,
+  options: {
+    variant: CliVariant;
+  }
 ): Promise<CliArtifactEvalResult> {
-  const workspaceDir = await createIsolatedWorkspace(evalCase.id);
+  const workspaceDir = await createIsolatedWorkspace(evalCase.id, options.variant.skillsSourcePath);
 
   try {
     const renderedPrompt = renderPrompt(evalCase.prompt, workspaceDir);
@@ -92,7 +96,8 @@ export async function runCliArtifactEvalCase(
       run,
       checks,
       expectedFiles: fileResults,
-      passed: checks.every((check) => check.required === false || check.passed)
+      passed: checks.every((check) => check.required === false || check.passed),
+      variantId: options.variant.id
     };
   } catch (error) {
     if (!shouldKeepWorkspace()) {
@@ -110,13 +115,15 @@ export function shouldKeepWorkspace(): boolean {
   return process.env.WMILL_CLI_EVAL_KEEP_WORKSPACE === "1";
 }
 
-async function createIsolatedWorkspace(caseId: string): Promise<string> {
+async function createIsolatedWorkspace(
+  caseId: string,
+  skillsSourcePath: string
+): Promise<string> {
   const workspaceDir = await mkdtemp(join(tmpdir(), `wmill-cli-artifact-${caseId}-`));
   const skillsDir = join(workspaceDir, ".claude", "skills");
-  const generatedSkillsSource = getGeneratedSkillsSource();
 
   await mkdir(dirname(skillsDir), { recursive: true });
-  await cp(generatedSkillsSource, skillsDir, { recursive: true });
+  await cp(skillsSourcePath, skillsDir, { recursive: true });
   await writeFile(join(workspaceDir, "rt.d.ts"), "export namespace RT {}\n", "utf8");
 
   return workspaceDir;

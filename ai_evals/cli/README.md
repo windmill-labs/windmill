@@ -28,25 +28,39 @@ cd ai_evals
 bun run cli -- list-cases --surface cli
 ```
 
+List available CLI variants:
+
+```bash
+cd ai_evals
+bun run cli -- list-variants --surface cli
+```
+
 Run one CLI case:
 
 ```bash
 cd ai_evals
-bun run cli -- run --surface cli --case bun-hello-script
+bun run cli -- run --surface cli --case bun-hello-script --variant baseline
 ```
 
 Keep the temp workspace for inspection:
 
 ```bash
 cd ai_evals
-bun run cli -- run --surface cli --case bun-hello-script --keep-workspace
+bun run cli -- run --surface cli --case bun-hello-script --variant baseline --keep-workspace
 ```
 
 Print machine-readable output:
 
 ```bash
 cd ai_evals
-bun run cli -- run --surface cli --case bun-hello-script --json
+bun run cli -- run --surface cli --case bun-hello-script --variant baseline --json
+```
+
+Compare two variant selections on one or more cases:
+
+```bash
+cd ai_evals
+bun run cli -- compare --surface cli --case bun-hello-script --variant baseline --variant baseline --json
 ```
 
 ## Next Steps

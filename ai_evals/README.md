@@ -55,8 +55,10 @@ Current usage:
 
 ```bash
 cd ai_evals
+bun run cli -- list-variants --surface cli
 bun run cli -- list-cases --surface cli
-bun run cli -- run --surface cli --case bun-hello-script
+bun run cli -- run --surface cli --case bun-hello-script --variant baseline
+bun run cli -- compare --surface cli --case bun-hello-script --variant baseline --variant baseline
 ```
 
 At the moment this is still intentionally small, but it is the only benchmark
