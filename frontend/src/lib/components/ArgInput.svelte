@@ -496,9 +496,7 @@
 
 	let { debounced, clearDebounce } = debounce(() => compareValues(value), 50)
 	let inputCat = $derived(computeInputCat(type, format, itemsType?.type, enum_, contentEncoding))
-	let isNonStringSecret = $derived(
-		(password || extra?.['password'] == true) && inputCat !== 'string'
-	)
+	let isNonStringSecret = $derived((password || extra?.['password'] == true) && type === 'object')
 
 	let displayJsonToggleHeader = $derived(
 		displayHeader &&

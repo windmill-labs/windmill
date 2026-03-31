@@ -26,7 +26,7 @@ export async function processSecretArgs(
 
 	for (const [key, prop] of Object.entries(schema.properties)) {
 		if (!prop.password) continue
-		if (prop.type === 'string') continue // handled by PasswordArgInput
+		if (prop.type !== 'object') continue // only object types; strings handled by PasswordArgInput
 		if (result[key] == null || result[key] === undefined) continue
 		if (typeof result[key] === 'string' && result[key].startsWith('$jsonvar:')) continue // already processed
 
