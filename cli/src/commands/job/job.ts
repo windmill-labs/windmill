@@ -118,6 +118,77 @@ async function list(
   }
 }
 
+function getModuleStatusIcon(type: string, success?: boolean): string {
+  switch (type) {
+    case "Success": return colors.green("✓");
+    case "Failure": return colors.red("✗");
+    case "InProgress": return colors.blue("▶");
+    case "WaitingForPriorSteps": return colors.dim("○");
+    case "WaitingForEvents": return colors.yellow("⏳");
+    default: return colors.dim("·");
+  }
+}
+
+function formatFlowSteps(
+  flowStatus: any,
+  rawFlow: any,
+) {
+  const modules = flowStatus?.modules ?? [];
+  const rawModules = rawFlow?.modules ?? [];
+
+  // Build summary map from raw_flow
+  const summaryMap = new Map<string, string>();
+  for (const mod of rawModules) {
+    if (mod.id && mod.summary) {
+      summaryMap.set(mod.id, mod.summary);
+    }
+  }
+
+  console.log(colors.bold("\nSteps:"));
+  for (const mod of modules) {
+    const icon = getModuleStatusIcon(mod.type);
+    const summary = summaryMap.get(mod.id) ?? "";
+    const label = summary ? `${mod.id}: ${summary}` : mod.id;
+    const jobId = mod.job ? colors.dim(mod.job) : "";
+    const flowJobsDuration = mod.flow_jobs_duration;
+
+    // For-loop modules: show parent line + iteration sub-lines
+    const flowJobs = mod.flow_jobs as string[] | undefined;
+    if (flowJobs && flowJobs.length > 0) {
+      // Total duration for the for-loop
+      const totalMs = flowJobsDuration?.duration_ms
+        ? (flowJobsDuration.duration_ms as number[]).reduce((a: number, b: number) => a + b, 0)
+        : undefined;
+      const durationStr = totalMs != null ? colors.dim(formatDuration(totalMs)) : "";
+      console.log(`  ${icon} ${label}  ${durationStr}`);
+
+      const flowJobsSuccess = (mod.flow_jobs_success ?? []) as boolean[];
+      const durationMs = (flowJobsDuration?.duration_ms ?? []) as number[];
+      for (let iter = 0; iter < flowJobs.length; iter++) {
+        const iterSuccess = flowJobsSuccess[iter];
+        const iterIcon = iterSuccess === true ? colors.green("✓")
+          : iterSuccess === false ? colors.red("✗")
+          : colors.dim("·");
+        const iterDur = durationMs[iter] != null ? colors.dim(formatDuration(durationMs[iter])) : "";
+        const iterJobId = colors.dim(flowJobs[iter]);
+        console.log(`    ${iterIcon} iteration ${iter}  ${iterJobId}  ${iterDur}`);
+      }
+    } else {
+      // Regular step
+      const durationStr = mod.duration_ms != null
+        ? colors.dim(formatDuration(mod.duration_ms))
+        : "";
+      console.log(`  ${icon} ${label}  ${jobId}  ${durationStr}`);
+    }
+  }
+
+  // Show hint for diving into step logs
+  const hasJobs = modules.some((m: any) => m.job);
+  if (hasJobs) {
+    console.log(colors.dim("\nUse 'wmill job logs <job-id>' for step logs"));
+  }
+}
+
 async function get(
   opts: GlobalOptions & { json?: boolean },
   id: string
@@ -151,8 +222,15 @@ async function get(
     if (j.schedule_path) {
       console.log(colors.bold("Schedule:") + " " + j.schedule_path);
     }
+
+    // Flow: show hierarchical step status
+    const isFlow = j.job_kind === "flow" || j.job_kind === "flowpreview";
+    if (isFlow && j.flow_status) {
+      formatFlowSteps(j.flow_status, j.raw_flow);
+    }
+
     if (j.result !== undefined) {
-      console.log(colors.bold("Result:"));
+      console.log(colors.bold("\nResult:"));
       console.log(JSON.stringify(j.result, null, 2));
     }
   }
@@ -183,18 +261,66 @@ async function logs(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  // Check if this is a flow job (flows don't have top-level logs)
+  // Check if this is a flow job — if so, aggregate all step logs
   try {
     const job = await wmill.getJob({
       workspace: workspace.workspaceId,
       id,
     });
-    const jobKind = (job as any).job_kind; // job_kind not in generated types yet
-    if (jobKind === "flow" || jobKind === "flowpreview") {
-      log.info(colors.yellow(
-        "Flow jobs don't have direct logs. Each step runs as a separate job.\n" +
-        `Use 'wmill job list --parent ${id}' to see sub-jobs, then 'wmill job logs <sub-job-id>' for individual step logs.`
-      ));
+    const j = job as any;
+    const jobKind = j.job_kind;
+    if ((jobKind === "flow" || jobKind === "flowpreview") && j.flow_status?.modules) {
+      const modules = j.flow_status.modules;
+      const rawModules = j.raw_flow?.modules ?? [];
+      const summaryMap = new Map<string, string>();
+      for (const mod of rawModules) {
+        if (mod.id && mod.summary) summaryMap.set(mod.id, mod.summary);
+      }
+
+      // Strip the "to remove ansi colors" hint that appears in each step's logs
+      const stripHint = (text: string) =>
+        text.replace(/^to remove ansi colors.*\n?/gm, "");
+
+      let hasLogs = false;
+      for (const mod of modules) {
+        const summary = summaryMap.get(mod.id) ?? "";
+        const label = summary ? `${mod.id}: ${summary}` : mod.id;
+
+        // For-loop modules: get logs for each iteration
+        const flowJobs = mod.flow_jobs as string[] | undefined;
+        if (flowJobs && flowJobs.length > 0) {
+          for (let iter = 0; iter < flowJobs.length; iter++) {
+            try {
+              const stepLogs = await wmill.getJobLogs({
+                workspace: workspace.workspaceId,
+                id: flowJobs[iter],
+              });
+              if (stepLogs) {
+                console.log(colors.bold.cyan(`\n====== ${label} (iteration ${iter}) ======`));
+                console.log(stripHint(stepLogs));
+                hasLogs = true;
+              }
+            } catch { /* step may not exist yet */ }
+          }
+        } else if (mod.job) {
+          // Regular step
+          try {
+            const stepLogs = await wmill.getJobLogs({
+              workspace: workspace.workspaceId,
+              id: mod.job,
+            });
+            if (stepLogs) {
+              console.log(colors.bold.cyan(`\n====== ${label} ======`));
+              console.log(stripHint(stepLogs));
+              hasLogs = true;
+            }
+          } catch { /* step may not exist yet */ }
+        }
+      }
+
+      if (!hasLogs) {
+        log.info("No logs available for this flow's steps.");
+      }
       return;
     }
   } catch {
