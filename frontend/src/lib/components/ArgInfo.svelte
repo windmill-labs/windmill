@@ -74,7 +74,15 @@
 	<button
 		class="text-xs text-accent"
 		onclick={async () => {
-			await getVariable(value.substring('$res:'.length))
+			await getVariable(value.substring('$var:'.length))
+			jsonViewer?.toggleDrawer()
+		}}>{value}</button
+	>
+{:else if isString(value) && value.startsWith('$jsonvar:')}
+	<button
+		class="text-xs text-accent"
+		onclick={async () => {
+			await getVariable(value.substring('$jsonvar:'.length))
 			jsonViewer?.toggleDrawer()
 		}}>{value}</button
 	>
