@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT COUNT(*) as cnt FROM pg_stat_activity WHERE state = 'active'",
+  "query": "SELECT setting::bigint as \"max!\" FROM pg_settings WHERE name = 'max_connections'",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "cnt",
+        "name": "max!",
         "type_info": "Int8"
       }
     ],
@@ -16,5 +16,5 @@
       null
     ]
   },
-  "hash": "87d07998fe8373f5b89eccf6f0528c02e389bf827d935d867430ad3459104dd9"
+  "hash": "07770a002a49428c4f956cfc7262d6b6792ae5b97ed90b0ee07d17480b2dffe2"
 }
