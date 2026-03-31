@@ -166,6 +166,14 @@
 			($userStore.is_admin || $userStore.is_super_admin)
 	)
 
+	let defaultArgsApplied = false
+	$effect(() => {
+		if (approvalInfo && !defaultArgsApplied) {
+			defaultArgsApplied = true
+			default_payload = approvalInfo.default_args ?? {}
+		}
+	})
+
 	$effect(() => {
 		if (approvalInfo?.user_auth_required && !$userStore) {
 			untrack(() => loadUser())
@@ -265,7 +273,7 @@
 						onlyMaskPassword
 						noVariablePicker
 						bind:isValid={valid}
-						schema={mergeSchema(schema, {})}
+						schema={mergeSchema(schema, approvalInfo?.enums ?? {})}
 						bind:args={default_payload}
 					/>
 				{/if}
