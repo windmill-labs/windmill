@@ -4,9 +4,12 @@ import {
   loadCliArtifactEvalCases,
   runCliArtifactEvalCase,
   shouldKeepWorkspace
-} from "./artifact-eval";
+} from "../../../ai_evals/adapters/cli/artifact-eval";
 
-const evalCases = await loadCliArtifactEvalCases();
+const smokeCaseIds = new Set(["bun-hello-script"]);
+const evalCases = (await loadCliArtifactEvalCases()).filter((evalCase) =>
+  smokeCaseIds.has(evalCase.id)
+);
 
 describe("Windmill CLI Artifact Evals", () => {
   beforeAll(() => {

@@ -16,6 +16,13 @@ entrypoint.
 
 ## Usage
 
+Install dependencies once:
+
+```bash
+cd ai_evals
+bun install
+```
+
 List available CLI cases:
 
 ```bash

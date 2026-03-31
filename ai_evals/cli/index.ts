@@ -4,7 +4,7 @@ import {
   cleanupWorkspace,
   loadCliArtifactEvalCases,
   runCliArtifactEvalCase
-} from "../../cli/test-skills/src/artifact-eval";
+} from "../adapters/cli/artifact-eval";
 
 type CommandName = "run" | "list-cases" | "compare" | "history";
 type SurfaceName = "cli";
@@ -206,7 +206,7 @@ function printRunSummary(payload: {
   passed: boolean;
   workspaceKept: boolean;
   workspaceDir: string | null;
-  checks: Array<{ name: string; passed: boolean }>;
+  checks: Array<{ name: string; passed: boolean; required?: boolean }>;
   skillsInvoked: string[];
   toolsUsed: string[];
   expectedFiles: Array<{ path: string; exists: boolean }>;
@@ -223,7 +223,8 @@ function printRunSummary(payload: {
 
   process.stdout.write("Checks:\n");
   for (const check of payload.checks) {
-    process.stdout.write(`- [${check.passed ? "x" : " "}] ${check.name}\n`);
+    const marker = check.required === false ? "~" : check.passed ? "x" : " ";
+    process.stdout.write(`- [${marker}] ${check.name}\n`);
   }
 
   process.stdout.write("Files:\n");

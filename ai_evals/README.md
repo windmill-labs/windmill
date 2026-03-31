@@ -47,6 +47,13 @@ Later phases should add:
 
 The benchmark CLI shell now lives under `ai_evals/cli/`.
 
+Install the benchmark CLI dependencies once with:
+
+```bash
+cd ai_evals
+bun install
+```
+
 Current usage:
 
 ```bash

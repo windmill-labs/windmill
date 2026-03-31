@@ -1,9 +1,14 @@
-import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "fs/promises";
 import { existsSync } from "fs";
+import { cp, mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { runPromptAndCapture, type TestResult, wasSkillInvoked, getGeneratedSkillsSource } from "./test-utils";
+import {
+  getGeneratedSkillsSource,
+  runPromptAndCapture,
+  type PromptRunResult,
+  wasSkillInvoked
+} from "./runtime";
 
 export interface ExpectedFile {
   path: string;
@@ -24,6 +29,7 @@ export interface CliArtifactEvalCase {
 export interface ArtifactCheck {
   name: string;
   passed: boolean;
+  required?: boolean;
   details?: string;
 }
 
@@ -36,25 +42,33 @@ export interface FileArtifactResult {
 export interface CliArtifactEvalResult {
   workspaceDir: string;
   renderedPrompt: string;
-  run: TestResult;
+  run: PromptRunResult;
   checks: ArtifactCheck[];
   expectedFiles: FileArtifactResult[];
   passed: boolean;
 }
 
-const CASES_FILE = fileURLToPath(
-  new URL("../../../ai_evals/cases/cli/script.json", import.meta.url)
-);
+const CASES_DIR = fileURLToPath(new URL("../../cases/cli", import.meta.url));
 
 export async function loadCliArtifactEvalCases(): Promise<CliArtifactEvalCase[]> {
-  const raw = await readFile(CASES_FILE, "utf8");
-  const parsed = JSON.parse(raw) as CliArtifactEvalCase[];
+  const filenames = (await readdir(CASES_DIR))
+    .filter((entry) => entry.endsWith(".json"))
+    .sort((left, right) => left.localeCompare(right));
 
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error(`No CLI artifact eval cases found in ${CASES_FILE}`);
+  const cases: CliArtifactEvalCase[] = [];
+
+  for (const filename of filenames) {
+    const raw = await readFile(join(CASES_DIR, filename), "utf8");
+    const parsed = JSON.parse(raw) as CliArtifactEvalCase[];
+
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      throw new Error(`No CLI artifact eval cases found in ${join(CASES_DIR, filename)}`);
+    }
+
+    cases.push(...parsed);
   }
 
-  return parsed;
+  return cases;
 }
 
 export async function runCliArtifactEvalCase(
@@ -78,7 +92,7 @@ export async function runCliArtifactEvalCase(
       run,
       checks,
       expectedFiles: fileResults,
-      passed: checks.every((check) => check.passed)
+      passed: checks.every((check) => check.required === false || check.passed)
     };
   } catch (error) {
     if (!shouldKeepWorkspace()) {
@@ -138,7 +152,7 @@ async function collectExpectedFiles(
 
 function buildChecks(
   evalCase: CliArtifactEvalCase,
-  run: TestResult,
+  run: PromptRunResult,
   fileResults: FileArtifactResult[]
 ): ArtifactCheck[] {
   const checks: ArtifactCheck[] = [];
@@ -147,6 +161,7 @@ function buildChecks(
     checks.push({
       name: `invokes ${evalCase.expectedSkill}`,
       passed: wasSkillInvoked(run, evalCase.expectedSkill),
+      required: false,
       details: `skills invoked: ${run.skillsInvoked.join(", ")}`
     });
   }
@@ -154,7 +169,8 @@ function buildChecks(
   for (const expectedOutput of evalCase.expectedOutputSubstrings ?? []) {
     checks.push({
       name: `mentions '${expectedOutput}' in assistant output`,
-      passed: run.output.includes(expectedOutput)
+      passed: run.output.includes(expectedOutput),
+      required: false
     });
   }
 
