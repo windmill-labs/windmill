@@ -42,3 +42,17 @@ Later phases should add:
 - official benchmark history snapshots and rollups
 - frontend `script` cases
 - frontend adapters aligned to the shared CLI-proven scoring model
+
+## Current Entry Point
+
+The benchmark CLI shell now lives under `ai_evals/cli/`.
+
+Current usage:
+
+```bash
+bun ai_evals/cli/index.ts list-cases --surface cli
+bun ai_evals/cli/index.ts run --surface cli --case bun-hello-script
+```
+
+At the moment this is intentionally thin and delegates to the bootstrap CLI
+adapter code under `cli/test-skills/`.
