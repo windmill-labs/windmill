@@ -1022,14 +1022,14 @@ macro_rules! process_app_multipart {
             while let Some(field) = multipart
                 .next_field()
                 .await
-                .map_err(|e| Error::BadRequest(format!("failed to read multipart field (request size limit for raw app bundles is {raw_app_limit_mb}MB, adjustable in instance settings): {e}")))?
+                .map_err(|e| Error::BadRequest(format!("failed to read multipart field: {e}. Could be due to the request size limit for raw app bundles which is {raw_app_limit_mb}MB (adjustable in instance settings)")))?
             {
                 let name = field
                     .name()
                     .ok_or_else(|| Error::BadRequest("multipart field missing name".to_string()))?
                     .to_string();
                 let data = field.bytes().await.map_err(|e| {
-                    Error::BadRequest(format!("failed to read multipart stream (request size limit for raw app bundles is {raw_app_limit_mb}MB, adjustable in instance settings): {e}"))
+                    Error::BadRequest(format!("failed to read multipart stream: {e}. Could be due to the request size limit for raw app bundles which is {raw_app_limit_mb}MB (adjustable in instance settings)"))
                 })?;
                 if name == "app" {
                     let app = serde_json::from_slice(&data).map_err(to_anyhow)?;
