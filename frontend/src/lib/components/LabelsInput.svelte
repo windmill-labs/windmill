@@ -50,7 +50,7 @@
 	}
 </script>
 
-<div class="flex items-center gap-1 flex-wrap">
+<div class="flex items-center gap-1 flex-wrap -mt-4">
 	{#each labels ?? [] as label (label)}
 		<Badge color="blue" small>
 			{label}
