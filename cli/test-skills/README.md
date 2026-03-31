@@ -1,10 +1,18 @@
-# Windmill Skill Invocation Tests
+# Windmill CLI Prompt Tests
 
-Test suite for verifying that Claude Code correctly invokes Windmill auto-generated skills based on user prompts.
+Test suite for verifying how Claude Code behaves with Windmill auto-generated
+skills. It currently contains both skill-invocation smoke tests and the first
+artifact-evaluation benchmark.
 
 ## Overview
 
-This framework tests skill invocation behavior by sending prompts through the Claude Agent SDK and verifying that the expected skills are invoked. The suite mirrors the repo's generated Windmill skills into its test workspace before each run.
+This framework sends prompts through the Claude Agent SDK using the repo's
+generated Windmill skills.
+
+It currently supports:
+
+- skill-invocation smoke tests
+- CLI artifact evaluation in an isolated temp workspace
 
 ## Prerequisites
 
@@ -71,6 +79,11 @@ Run only skill invocation tests:
 bun test:skills
 ```
 
+Run the first artifact-evaluation benchmark:
+```bash
+bun test:artifact
+```
+
 ## Test Utilities
 
 The `src/test-utils.ts` module provides:
@@ -81,10 +94,17 @@ The `src/test-utils.ts` module provides:
 - `getToolInputs(result, toolName)` - Gets all inputs for a specific tool
 - `getTestSkillsDir()` - Returns the test-skills directory path
 
+The `src/artifact-eval.ts` module provides:
+
+- temp-workspace creation with generated skills
+- prompt rendering with workspace-root placeholders
+- file-based artifact scoring for benchmark cases
+
 ## Notes
 
 - Tests have extended timeouts (120 seconds) due to API latency
 - Tests run against the actual Claude API, so they consume API credits
-- Tests verify skill invocation, not skill execution
-- The working directory for tests is `test-folder/`
-- The suite refreshes `test-folder/.claude/skills/` from `system_prompts/auto-generated/skills/` before running
+- Skill-invocation smoke tests still use `test-folder/`
+- Artifact evals use isolated temp workspaces under `/tmp`
+- The first artifact benchmark uses an explicit absolute target path so file
+  outputs are scoreable even when Claude executes inside a skill context

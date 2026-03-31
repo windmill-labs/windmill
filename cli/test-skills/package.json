@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "bun test",
-    "test:skills": "bun test src/skill-invocation.test.ts"
+    "test:skills": "bun test src/skill-invocation.test.ts",
+    "test:artifact": "bun test src/artifact-eval.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.25"
