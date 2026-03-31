@@ -95,20 +95,20 @@
 				<span class="text-2xs leading-tight text-tertiary font-mono font-normal truncate max-w-full"
 					>{path}</span
 				>
-				<span
-					class="text-sm font-semibold truncate max-w-full {emptyString(summary)
-						? 'text-tertiary italic font-normal'
-						: 'text-emphasis'}"
-				>
-					{emptyString(summary) ? 'Add a summary...' : summary}
-				</span>
-				{#if labels?.length}
-					<div class="flex items-center gap-px mt-0.5">
+				<div class="flex items-center gap-1.5 max-w-full">
+					<span
+						class="text-sm font-semibold truncate {emptyString(summary)
+							? 'text-tertiary italic font-normal'
+							: 'text-emphasis'}"
+					>
+						{emptyString(summary) ? 'Add a summary...' : summary}
+					</span>
+					{#if labels?.length}
 						{#each labels as label}
 							<Badge color="blue" verySmall>{label}</Badge>
 						{/each}
-					</div>
-				{/if}
+					{/if}
+				</div>
 			</div>
 		{/snippet}
 		{#snippet content({ close })}
