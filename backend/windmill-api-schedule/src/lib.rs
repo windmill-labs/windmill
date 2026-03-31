@@ -472,7 +472,7 @@ async fn edit_schedule(
             email                   = $24,
             edited_by               = $25,
             permissioned_as         = $26,
-            labels                  = $27
+            labels                  = COALESCE($27, labels)
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,

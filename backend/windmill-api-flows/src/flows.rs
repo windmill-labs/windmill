@@ -967,7 +967,7 @@ async fn update_flow(
             schema = $10::text::json,
             edited_by = $11,
             edited_at = now(),
-            labels = $14
+            labels = COALESCE($14, labels)
         WHERE
             path = $12 AND workspace_id = $13",
         if is_new_path { flow_path } else { &nf.path },
