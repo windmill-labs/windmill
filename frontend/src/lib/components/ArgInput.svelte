@@ -1436,14 +1436,13 @@
 							{:else}
 								<Password
 									{disabled}
-									multiline
 									minRows={extra?.['minRows']}
 									bind:password={value}
 									placeholder={placeholder ?? defaultValue ?? ''}
 								/>
 							{/if}
 						{:else}
-							<PasswordArgInput {disabled} multiline minRows={extra?.['minRows']} bind:value />
+							<PasswordArgInput {disabled} minRows={extra?.['minRows']} bind:value />
 						{/if}
 					{:else}
 						{#key extra?.['minRows']}

@@ -11,7 +11,6 @@
 		disabled?: boolean
 		required?: boolean
 		small?: boolean
-		multiline?: boolean
 		minRows?: number
 		id?: string
 		onKeyDown?: (event: KeyboardEvent) => void
@@ -24,7 +23,6 @@
 		disabled = false,
 		required = false,
 		small = false,
-		multiline = false,
 		minRows,
 		id,
 		onKeyDown,
@@ -34,10 +32,26 @@
 	let red = $derived(required && (password == '' || password == undefined))
 
 	let hideValue = $state(true)
+	let forceMultiline = $state(false)
+	let isMultiline = $derived(
+		forceMultiline || (minRows != null && minRows > 1) || (password?.includes('\n') ?? false)
+	)
+
+	function onPasteIntoInput(e: ClipboardEvent) {
+		const text = e.clipboardData?.getData('text')
+		if (text?.includes('\n')) {
+			e.preventDefault()
+			const input = e.currentTarget as HTMLInputElement
+			const start = input.selectionStart ?? 0
+			const end = input.selectionEnd ?? 0
+			password = (password ?? '').substring(0, start) + text + (password ?? '').substring(end)
+			forceMultiline = true
+		}
+	}
 </script>
 
 <div class="relative w-full {small ? 'max-w-lg' : ''}">
-	<div class="absolute {multiline ? 'top-1' : 'inset-y-0'} right-1 flex items-center z-10">
+	<div class="absolute {isMultiline ? 'top-1' : 'inset-y-0'} right-1 flex items-center z-10">
 		<Button
 			unifiedSize="sm"
 			onClick={() => (hideValue = !hideValue)}
@@ -47,7 +61,7 @@
 			wrapperClasses="bg-surface-input"
 		/>
 	</div>
-	{#if multiline}
+	{#if isMultiline}
 		<TextInput
 			size="md"
 			error={red}
@@ -84,6 +98,7 @@
 					onKeyDown?.(e)
 					bubble('keydown')(e)
 				},
+				onpaste: onPasteIntoInput,
 				type: hideValue ? 'password' : 'text'
 			}}
 			class="pr-8"
