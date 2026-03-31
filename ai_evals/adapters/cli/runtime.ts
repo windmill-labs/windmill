@@ -12,6 +12,8 @@ export interface PromptRunResult {
   toolsUsed: ToolInvocation[];
   skillsInvoked: string[];
   output: string;
+  durationMs: number;
+  assistantMessageCount: number;
 }
 
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
@@ -28,6 +30,8 @@ export async function runPromptAndCapture(
   const toolsUsed: ToolInvocation[] = [];
   const skillsInvoked: string[] = [];
   let output = "";
+  let assistantMessageCount = 0;
+  const startedAt = Date.now();
 
   const options: Options = {
     cwd,
@@ -39,6 +43,7 @@ export async function runPromptAndCapture(
 
   for await (const message of query({ prompt, options })) {
     if (message.type === "assistant") {
+      assistantMessageCount += 1;
       const content = message.message?.content;
       if (Array.isArray(content)) {
         for (const block of content) {
@@ -71,7 +76,9 @@ export async function runPromptAndCapture(
   return {
     toolsUsed,
     skillsInvoked,
-    output
+    output,
+    durationMs: Date.now() - startedAt,
+    assistantMessageCount
   };
 }
 

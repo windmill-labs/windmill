@@ -69,6 +69,13 @@ cd ai_evals
 bun run cli -- run --surface cli --case bun-hello-script --variant baseline --json
 ```
 
+Run the same case multiple times to measure reliability:
+
+```bash
+cd ai_evals
+bun run cli -- run --surface cli --case bun-hello-script --variant baseline --runs 5 --json
+```
+
 Compare two variant selections on one or more cases:
 
 ```bash
@@ -104,7 +111,7 @@ Then compare them on one or more cases:
 
 ```bash
 cd ai_evals
-bun run cli -- compare --surface cli --case bun-hello-script --case bun-hello-flow --variant baseline-frozen --variant candidate --json
+bun run cli -- compare --surface cli --case bun-hello-script --case bun-hello-flow --variant baseline-frozen --variant candidate --runs 5 --json
 ```
 
 Today, the most meaningful improvement signal is still output quality:
@@ -112,6 +119,16 @@ Today, the most meaningful improvement signal is still output quality:
 - required artifact checks passing more often
 - more cases passing
 - fewer required failures across repeated runs
+
+The benchmark CLI now reports basic reliability and efficiency-adjacent metrics
+for repeated runs:
+
+- pass rate
+- average duration
+- average assistant message count
+- average tool-call count
+- average skill-invocation count
+- aggregated required-check failures
 
 The compare output also includes tool usage and invoked skills as diagnostics.
 
@@ -153,7 +170,6 @@ Later iterations should add:
 
 - `history` command
 - frontend adapters
-- repeated-run reliability mode
 - variant cleanup and diff helpers
-- latency, token, and cost metrics in compare output
+- token and cost metrics in compare output
 - shared result/history writing from this entrypoint

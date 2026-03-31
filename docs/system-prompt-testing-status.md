@@ -21,13 +21,14 @@ What is true today:
 - CLI cases are now skill-sensitive rather than only artifact-sensitive
 - the benchmark harness and `wmill init` now share the same AI-guidance writer
 - variants can be frozen as named snapshots through the benchmark CLI
+- repeated-run CLI benchmarking exists through `--runs`
+- basic CLI reliability metrics now exist
 - benchmark history scaffolding exists in `ai_evals/history`
 
 What is not true yet:
 
 - frontend is not yet exposed through the benchmark CLI
-- repeated-run reliability is not implemented
-- efficiency metrics are not implemented
+- token and cost metrics are not implemented
 - official history writing is not yet wired into normal benchmark commands
 - no UI studio exists yet
 
@@ -60,7 +61,7 @@ Still missing:
 
 - a formally versioned shared result schema for all surfaces
 - a bigger representative benchmark set
-- repeated-run result aggregation
+- richer shared aggregation/reporting conventions across surfaces
 
 ### Phase 2: Build the benchmark CLI shell
 
@@ -114,6 +115,14 @@ Implemented:
 - required “next commands” guidance checks for CLI cases
 - baseline vs candidate comparison through `compare`
 - named variant snapshotting through `snapshot-variant`
+- repeated-run support through `--runs`
+- aggregate CLI reliability reporting:
+  - pass rate
+  - average duration
+  - average assistant messages
+  - average tool calls
+  - average skill invocations
+  - aggregated required-check failures
 
 Most important proof point:
 
@@ -123,9 +132,8 @@ Most important proof point:
 
 Still missing:
 
-- repeated runs
-- aggregate reliability reporting
 - richer case coverage beyond the current initial script and flow cases
+- richer efficiency metrics such as token and cost reporting
 
 ### Phase 4: Add shared reporting and benchmark history around the CLI path
 
@@ -239,6 +247,7 @@ The most important implemented changes so far are:
   - `bun-hello-script`
   - `bun-hello-flow`
 - Made CLI evals skill-sensitive instead of allowing silent skill bypass
+- Added repeated-run CLI benchmarking with aggregate reporting
 - Shared AI-guidance generation between:
   - benchmark temp workspaces
   - `wmill init`
@@ -250,30 +259,29 @@ The most important implemented changes so far are:
 
 The highest-priority remaining work is:
 
-1. Add repeated-run support to CLI benchmarks.
-2. Add aggregate metrics:
+1. Add richer aggregate metrics:
    - pass rate
    - flake rate
    - latency
    - tool-call count
    - token and cost metrics if available
-3. Implement official history writing from the benchmark CLI.
-4. Expand the CLI case corpus to cover more real skill behavior.
-5. Bring frontend behind the same benchmark CLI.
-6. Add CI tiers.
-7. Build the UI last.
+2. Implement official history writing from the benchmark CLI.
+3. Expand the CLI case corpus to cover more real skill behavior.
+4. Bring frontend behind the same benchmark CLI.
+5. Add CI tiers.
+6. Build the UI last.
 
 ## Recommended Next Step
 
 The best next implementation step is:
 
-- repeated-run CLI benchmarking with aggregate reporting
+- official history writing from repeated CLI benchmark runs
 
 Reason:
 
-- the current CLI harness can now detect meaningful skill regressions
-- the next missing layer is reliability, not basic capability
-- repeated runs are also the foundation for useful history metrics and later UI reporting
+- the current CLI harness can now detect meaningful skill regressions and basic flakiness
+- the next missing layer is persisted benchmark history, not basic run aggregation
+- history wiring is needed before CI and before any useful trend dashboard
 
 ## Relevant Files
 
