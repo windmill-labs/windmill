@@ -73,10 +73,6 @@ RUN uv pip install --system --break-system-packages pipenv tornado python-lsp-js
 # Install Node-based language servers
 RUN npm install -g diagnostic-languageserver pyright
 
-# R
-RUN apt-get update && apt-get install -y r-base-dev \
-    && Rscript -e 'install.packages("renv", lib="/usr/lib/R/library", repos="https://cloud.r-project.org")'
-
 # Setup LSP working directory
 WORKDIR /pyls
 COPY lsp/Pipfile .

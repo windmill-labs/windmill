@@ -169,7 +169,7 @@ ruby = ["windmill-worker/ruby"]
 rlang = ["windmill-worker/rlang"]
 all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-kerberos", "bigquery", "csharp", "nu", "php", "java", "ruby", "rlang"]
 # For windows we have another set of languages enabled
-all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-winauth", "bigquery", "csharp", "nu", "php", "java", "rlang"]
+all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-winauth", "bigquery", "csharp", "nu", "php", "java"]
 # Edition meta-features: shared groups
 run_inline = ["windmill-api/run_inline"]
 oss_core = [
