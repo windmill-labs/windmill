@@ -37,6 +37,7 @@ use axum::body::Body;
 use axum::extract::DefaultBodyLimit;
 use axum::http::HeaderValue;
 use axum::response::Response;
+use axum::serve::ListenerExt;
 use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Json, Router};
 use db::DB;
 use tokio::task::JoinHandle;
@@ -45,8 +46,8 @@ use windmill_common::global_settings::EMAIL_DOMAIN_SETTING;
 use windmill_common::worker::HUB_CACHE_DIR;
 
 use std::fs::DirBuilder;
+use std::sync::Arc;
 use std::time::Duration;
-use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
@@ -76,6 +77,7 @@ mod bedrock;
 mod capture;
 mod concurrency_groups;
 mod db;
+mod db_health;
 mod google;
 
 mod drafts;
@@ -165,6 +167,7 @@ pub mod teams_ee;
 mod teams_oss;
 mod token;
 mod tracing_init;
+mod trash;
 pub mod triggers;
 mod users;
 #[cfg(feature = "private")]
@@ -325,7 +328,7 @@ pub async fn run_server(
     db: DB,
     job_index_reader: Option<IndexReader>,
     log_index_reader: Option<ServiceLogIndexReader>,
-    addr: SocketAddr,
+    listener: tokio::net::TcpListener,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
@@ -376,6 +379,8 @@ pub async fn run_server(
             REQUEST_SIZE_LIMIT.read().await.clone(),
         ));
 
+    let request_size_limit = REQUEST_SIZE_LIMIT.read().await.clone();
+
     let cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST, http::Method::DELETE])
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
@@ -411,6 +416,9 @@ pub async fn run_server(
                     auth_cache: auth_cache.clone(),
                     base_internal_url: _base_internal_url.clone(),
                 });
+                let addr = listener
+                    .local_addr()
+                    .unwrap_or_else(|_| std::net::SocketAddr::from(([127, 0, 0, 1], 0)));
                 if let Err(err) = smtp_server.start_listener_thread(addr).await {
                     tracing::error!("Error starting SMTP server: {err:#}");
                 }
@@ -451,9 +459,6 @@ pub async fn run_server(
         health::start_health_check_loop(db.clone(), killpill_rx.resubscribe());
     }
 
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .context("binding main windmill server")?;
     let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
     let ip = listener
         .local_addr()
@@ -526,11 +531,11 @@ pub async fn run_server(
             "/api",
             Router::new()
                 .nest(
-                    "/w/:workspace_id",
+                    "/w/{workspace_id}",
                     Router::new()
                         // Reordered alphabetically
                         .nest("/acls", granular_acls::workspaced_service())
-                        .nest("/apps", apps::workspaced_service())
+                        .nest("/apps", apps::workspaced_service(request_size_limit * 5))
                         .nest("/assets", windmill_api_assets::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
@@ -597,6 +602,7 @@ pub async fn run_server(
                         .nest("/resources", resources::workspaced_service())
                         .nest("/schedules", windmill_api_schedule::workspaced_service())
                         .nest("/scripts", scripts::workspaced_service())
+                        .nest("/trash", trash::workspaced_service())
                         .nest(
                             "/users",
                             users::workspaced_service().layer(Extension(argon2.clone())),
@@ -638,7 +644,8 @@ pub async fn run_server(
                 .nest("/ai", ai::global_service())
                 .nest("/inkeep", inkeep_oss::global_service())
                 .nest("/indexer", indexer_oss::management_service())
-                .nest("/mcp/w/:workspace_id/list_tools", mcp_list_tools_service)
+                .nest("/mcp/w/{workspace_id}/list_tools", mcp_list_tools_service)
+                .nest("/db_health", db_health::global_service())
                 .nest("/health/detailed", health::detailed_service())
                 .nest(
                     "/saml",
@@ -657,7 +664,7 @@ pub async fn run_server(
                 .route_layer(from_extractor::<users::Tokened>())
                 // Workspace-scoped OAuth endpoints that don't require authentication
                 // (authorize and token are called by MCP client before user is authenticated)
-                .nest("/w/:workspace_id/mcp/oauth/server", {
+                .nest("/w/{workspace_id}/mcp/oauth/server", {
                     #[cfg(feature = "mcp")]
                     {
                         mcp::oauth_server::workspaced_unauthed_service()
@@ -678,7 +685,7 @@ pub async fn run_server(
                 })
                 .nest("/jobs", jobs::global_root_service())
                 .nest(
-                    "/srch/w/:workspace_id/index",
+                    "/srch/w/{workspace_id}/index",
                     indexer_oss::workspaced_service(),
                 )
                 .nest("/srch/index", indexer_oss::global_service())
@@ -708,19 +715,19 @@ pub async fn run_server(
                     }
                 })
                 .nest(
-                    "/w/:workspace_id/apps_u",
+                    "/w/{workspace_id}/apps_u",
                     apps::unauthed_service()
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
                 .layer(from_extractor::<OptAuthed>())
-                // Deprecated, here for backwards compatibility: user should use /mcp/w/:workspace_id/mcp instead
+                // Deprecated, here for backwards compatibility: user should use /mcp/w/{workspace_id}/mcp instead
                 .nest(
-                    "/mcp/w/:workspace_id/sse",
+                    "/mcp/w/{workspace_id}/sse",
                     mcp_router.clone().layer(cors.clone()),
                 )
                 .nest(
-                    "/mcp/w/:workspace_id/mcp",
+                    "/mcp/w/{workspace_id}/mcp",
                     mcp_router.clone().layer(cors.clone()),
                 )
                 .nest("/mcp/gateway", gateway_mcp_router.layer(cors.clone()))
@@ -743,7 +750,7 @@ pub async fn run_server(
                         Router::new()
                     }
                 })
-                .nest("/w/:workspace_id/agent_workers", {
+                .nest("/w/{workspace_id}/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
                         agent_workers_router
@@ -760,7 +767,7 @@ pub async fn run_server(
                     }
                 })
                 .nest(
-                    "/w/:workspace_id/jobs_u",
+                    "/w/{workspace_id}/jobs_u",
                     jobs::workspace_unauthed_service().layer(cors.clone()),
                 )
                 .route("/slack", post(slack_approvals::slack_app_callback_handler))
@@ -776,14 +783,14 @@ pub async fn run_server(
                     }
                 })
                 .route(
-                    "/w/:workspace_id/jobs/slack_approval/:job_id",
+                    "/w/{workspace_id}/jobs/slack_approval/{job_id}",
                     get(slack_approvals::request_slack_approval),
                 )
                 .route(
-                    "/w/:workspace_id/jobs/teams_approval/:job_id",
+                    "/w/{workspace_id}/jobs/teams_approval/{job_id}",
                     get(teams_approvals_oss::request_teams_approval),
                 )
-                .nest("/w/:workspace_id/github_app", {
+                .nest("/w/{workspace_id}/github_app", {
                     #[cfg(feature = "enterprise")]
                     {
                         git_sync_oss::workspaced_service()
@@ -802,14 +809,14 @@ pub async fn run_server(
                     Router::new()
                 })
                 .nest(
-                    "/w/:workspace_id/resources_u",
+                    "/w/{workspace_id}/resources_u",
                     public_service().layer(cors.clone()),
                 )
                 .nest(
-                    "/w/:workspace_id/capture_u",
+                    "/w/{workspace_id}/capture_u",
                     capture::workspaced_unauthed_service().layer(cors.clone()),
                 )
-                .nest("/w/:workspace_id/s3_proxy", {
+                .nest("/w/{workspace_id}/s3_proxy", {
                     s3_proxy_oss::workspaced_unauthed_service()
                 })
                 .nest(
@@ -854,7 +861,7 @@ pub async fn run_server(
                         Router::new()
                     }
                 })
-                .nest("/gcp/w/:workspace_id", {
+                .nest("/gcp/w/{workspace_id}", {
                     #[cfg(all(
                         feature = "enterprise",
                         feature = "gcp_trigger",
@@ -881,10 +888,10 @@ pub async fn run_server(
                 .route("/openapi.json", get(openapi_json)),
         )
         // Clients must use workspace-scoped OAuth metadata at:
-        // /.well-known/oauth-authorization-server/api/w/:workspace_id/mcp/oauth/server
+        // /.well-known/oauth-authorization-server/api/w/{workspace_id}/mcp/oauth/server
         // This is discovered via /.well-known/oauth-protected-resource?workspace_id=...
         .route(
-            "/.well-known/oauth-authorization-server/api/w/:workspace_id/mcp/oauth/server",
+            "/.well-known/oauth-authorization-server/api/w/{workspace_id}/mcp/oauth/server",
             {
                 #[cfg(feature = "mcp")]
                 {
@@ -896,9 +903,9 @@ pub async fn run_server(
                 }
             },
         )
-        // RFC 9728 path-based discovery: /.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/mcp
+        // RFC 9728 path-based discovery: /.well-known/oauth-protected-resource/api/mcp/w/{workspace_id}/mcp
         .route(
-            "/.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/mcp",
+            "/.well-known/oauth-protected-resource/api/mcp/w/{workspace_id}/mcp",
             {
                 #[cfg(feature = "mcp")]
                 {
@@ -974,7 +981,10 @@ pub async fn run_server(
     if let Some(name) = name.as_ref() {
         tracing::info!("server starting for name={name}");
     }
-    let server = axum::serve(listener, app.into_make_service()).tcp_nodelay(!server_mode);
+    let listener = listener.tap_io(move |tcp_stream| {
+        let _ = tcp_stream.set_nodelay(!server_mode);
+    });
+    let server = axum::serve(listener, app.into_make_service());
 
     tracing::info!(
         instance = %*INSTANCE_NAME,

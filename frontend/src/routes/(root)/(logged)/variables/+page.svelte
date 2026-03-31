@@ -74,7 +74,12 @@
 	let folderPresets = $derived([
 		...folders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
 		...(variablesFilterSchema.user_folders_only
-			? [{ name: variablesFilterSchema.user_folders_only.label ?? '?', value: 'user_folders_only:\\ true' }]
+			? [
+					{
+						name: variablesFilterSchema.user_folders_only.label ?? '?',
+						value: 'user_folders_only:\\ true'
+					}
+				]
 			: [])
 	])
 	let contextualVariables: ContextualVariable[] = $state([])
@@ -86,6 +91,7 @@
 	})
 
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let deleteIsLinked = $state(false)
 	let open = $derived(Boolean(deleteConfirmedCallback))
 
 	// Filter variables client-side for user folder filtering (admin feature)
@@ -463,6 +469,7 @@
 															if (event['shiftKey']) {
 																deleteVariable(path, account)
 															} else {
+																deleteIsLinked = is_linked ?? false
 																deleteConfirmedCallback = () => {
 																	deleteVariable(path, account)
 																}
@@ -576,6 +583,7 @@
 	{open}
 	title="Remove variable"
 	confirmationText="Remove"
+	trashbin
 	on:canceled={() => {
 		deleteConfirmedCallback = undefined
 	}}
@@ -588,6 +596,12 @@
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to remove this variable?</span>
+		{#if deleteIsLinked}
+			<Alert type="warning" title="Linked resource">
+				This variable is linked with a resource of the same path. The linked resource will also be
+				deleted.
+			</Alert>
+		{/if}
 		<Alert type="info" title="Bypass confirmation">
 			<div>
 				You can press

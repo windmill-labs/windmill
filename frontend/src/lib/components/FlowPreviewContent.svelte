@@ -11,6 +11,7 @@
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils.svelte'
+	import { processSecretArgs } from './secretArgUtils'
 	import SchemaForm from './SchemaForm.svelte'
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
@@ -171,6 +172,7 @@
 			lastPreviewFlow = JSON.stringify(flowStore.val)
 			flowProgressBar?.reset()
 			const newFlow = extractFlow(previewMode)
+			args = await processSecretArgs(args, flowStore.val.schema as any)
 			newJobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom, conversationId)
 			jobId = newJobId
 			isRunning = true
@@ -437,7 +439,8 @@
 							startIcon={{ icon: isRunning ? RefreshCw : Play }}
 							size="sm"
 							btnClasses="w-full max-w-lg"
-							on:click={() => recordingMode ? recordAndTest() : runPreview(previewArgs.val, undefined)}
+							on:click={() =>
+								recordingMode ? recordAndTest() : runPreview(previewArgs.val, undefined)}
 							id="flow-editor-test-flow-drawer"
 							shortCut={{ Icon: CornerDownLeft }}
 						>
@@ -675,6 +678,8 @@
 					{render}
 					{customUi}
 					showLogsWithResult
+					notes={flowStore.val.value.notes}
+					groups={flowStore.val.value.groups}
 				/>
 			{:else if loadingHistory}
 				<div class="italic text-primary h-full grow mx-auto flex flex-row items-center gap-2">

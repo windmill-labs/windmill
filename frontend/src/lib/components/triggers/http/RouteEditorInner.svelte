@@ -46,6 +46,7 @@
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { getHandlerType, handleConfigChange } from '../utils'
 	import autosize from '$lib/autosize'
 	import { untrack } from 'svelte'
@@ -122,6 +123,9 @@
 	let drawer = $state<Drawer | undefined>(undefined)
 	let initialConfig: NewHttpTrigger | undefined = undefined
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
 	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 
@@ -315,6 +319,9 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		permissionedAs = cfg?.permissioned_as
+		selectedPermissionedAs = undefined
+		preservePermissionedAs = false
 	}
 
 	async function loadTrigger(defaultConfig?: Partial<HttpTrigger>): Promise<void> {
@@ -388,7 +395,9 @@
 			description: routeDescription,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 
 		return nCfg
@@ -481,6 +490,15 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-8">
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
@@ -697,11 +715,15 @@
 			{#if !is_static_website}
 				<Section label="Advanced" collapsable>
 					{#snippet header()}
-						<TriggerAdvancedBadges {error_handler_path} {retry} extraBadges={[
-							{ name: 'Async', active: request_type === 'async' },
-							{ name: 'SSE', active: request_type === 'sync_sse' },
-							{ name: 'Authentication', active: authentication_method !== 'none' }
-						]} />
+						<TriggerAdvancedBadges
+							{error_handler_path}
+							{retry}
+							extraBadges={[
+								{ name: 'Async', active: request_type === 'async' },
+								{ name: 'SSE', active: request_type === 'sync_sse' },
+								{ name: 'Authentication', active: authentication_method !== 'none' }
+							]}
+						/>
 					{/snippet}
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>

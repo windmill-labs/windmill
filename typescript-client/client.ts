@@ -1577,6 +1577,7 @@ export class WorkflowCtx {
   _waitForApproval(options?: {
     timeout?: number;
     form?: object;
+    selfApproval?: boolean;
   }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
     const key = this._allocKey("approval");
 
@@ -1597,6 +1598,7 @@ export class WorkflowCtx {
       key,
       timeout: options?.timeout ?? 1800,
       form: options?.form,
+      self_approval_disabled: !(options?.selfApproval ?? true),
       steps: [],
     });
   }
@@ -1842,6 +1844,7 @@ export function workflow<T>(fn: (...args: any[]) => Promise<T>) {
 export function waitForApproval(options?: {
   timeout?: number;
   form?: object;
+  selfApproval?: boolean;
 }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
   const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
   if (!ctx) {

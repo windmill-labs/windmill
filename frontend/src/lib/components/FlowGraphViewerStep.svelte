@@ -23,9 +23,10 @@
 		schema?: any | undefined
 		stepDetail?: FlowModule | string | undefined
 		jobScriptHash?: string | undefined
+		hideDefaultInputs?: boolean
 	}
 
-	let { schema = undefined, stepDetail = undefined, jobScriptHash = undefined }: Props = $props()
+	let { schema = undefined, stepDetail = undefined, jobScriptHash = undefined, hideDefaultInputs = false }: Props = $props()
 	let codeViewer: Drawer | undefined = $state()
 </script>
 
@@ -50,17 +51,10 @@
 
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
-				{#if stepDetail.value.path.startsWith('hub/')}
-					<div class="mt-6">
-						<h3 class="mb-1 mt-6 text-xs font-semibold text-emphasis">Code</h3>
-						<iframe
-							class="w-full h-full text-sm"
-							title="embedded script from hub"
-							frameborder="0"
-							src="{$hubBaseUrlStore}/embed/script/{stepDetail.value?.path?.substring(4)}"
-						></iframe>
-					</div>
-				{/if}
+				<div class="mt-6">
+					<h3 class="mb-1 mt-6 text-xs font-semibold text-emphasis">Code</h3>
+					<FlowModuleScript path={stepDetail.value.path} hash={jobScriptHash} />
+				</div>
 			{:else if stepDetail.value.type == 'rawscript'}
 				<div class="text-2xs mb-4 mt-2">
 					<h3 class="mb-1 text-xs font-semibold text-emphasis">Step inputs</h3>
@@ -92,10 +86,10 @@
 <div class={twMerge('p-2 overflow-y-scroll')}>
 	{#if stepDetail == undefined}
 		<div>
-			<p class="font-medium text-secondary text-center pt-4 pb-8">
+			<p class="text-secondary text-xs italic px-2 pt-2">
 				Click on a step to see its details
 			</p>
-			{#if schema}
+			{#if schema && !hideDefaultInputs}
 				<h3 class="mb-2 font-semibold">Flow Inputs</h3>
 				<SchemaViewer {schema} />
 			{/if}
@@ -217,27 +211,16 @@
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 			{/if}
-			{#if stepDetail.value.path.startsWith('hub/')}
-				<div class="flex flex-col grow">
-					<div class="mb-1 mt-6 flex justify-between items-center">
-						<h3 class="font-semibold text-xs text-emphasis">Code</h3>
-						<Button
-							unifiedSize="sm"
-							variant="subtle"
-							onClick={codeViewer?.openDrawer}
-							startIcon={{ icon: Expand }}>Expand</Button
-						>
-					</div>
-					<iframe
-						class="w-full grow text-sm h-full"
-						title="embedded script from hub"
-						frameborder="0"
-						src="{$hubBaseUrlStore}/embed/script/{stepDetail.value?.path?.substring(4)}"
-					></iframe>
-				</div>
-			{:else}
-				<FlowModuleScript path={stepDetail.value.path} hash={jobScriptHash} />
-			{/if}
+			<div class="mb-1 mt-6 flex justify-between items-center">
+				<h3 class="font-semibold text-xs text-emphasis">Code</h3>
+				<Button
+					unifiedSize="sm"
+					variant="subtle"
+					onClick={codeViewer?.openDrawer}
+					startIcon={{ icon: Expand }}>Expand</Button
+				>
+			</div>
+			<FlowModuleScript path={stepDetail.value.path} hash={jobScriptHash} />
 		{:else if stepDetail.value.type == 'aiagent'}
 			<div class="text-xs">
 				<h3 class="mb-1 font-semibold mt-2 text-xs text-emphasis">Step inputs</h3>

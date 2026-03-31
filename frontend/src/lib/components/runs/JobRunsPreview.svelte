@@ -163,6 +163,7 @@
 						stepResults={getStepResults(job.workflow_as_code_status)}
 						result={(job as any).result}
 						success={(job as any).success !== false}
+						jobId={job.id}
 					/>
 				</div>
 			{/if}
@@ -196,6 +197,7 @@
 						workspaceId={job.workspace_id}
 						initialJob={job}
 						bind:isOwner
+						bind:suspendStatus
 						wideResults
 					/>
 				{:else if job?.type === 'CompletedJob'}

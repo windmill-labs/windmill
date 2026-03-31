@@ -219,6 +219,22 @@ export async function pickInstance(
       prefix: opts.prefix ?? "custom",
     };
   }
+  // Try to use the active workspace profile's remote as a fallback
+  if (instances.length < 1) {
+    try {
+      const ws = await getActiveWorkspace({});
+      if (ws?.remote && ws?.token) {
+        const remote = ws.remote.endsWith("/") ? ws.remote.slice(0, -1) : ws.remote;
+        setClient(ws.token, remote);
+        return {
+          name: ws.name,
+          remote: ws.remote,
+          token: ws.token,
+          prefix: ws.name,
+        };
+      }
+    } catch { /* ignore */ }
+  }
   if (!allowNew && instances.length < 1) {
     throw new Error("No instance found, please add one first");
   }
@@ -648,9 +664,27 @@ export async function getActiveInstance(opts: {
   }
 }
 
-async function getConfig(opts: InstanceSyncOptions & { outputFile?: string }) {
+async function getConfig(opts: InstanceSyncOptions & { outputFile?: string; showSecrets?: boolean }) {
   await pickInstance(opts, false);
-  const config = await wmill.getInstanceConfig();
+  const config = await wmill.getInstanceConfig() as any;
+
+  // In interactive mode, mask secrets by default and prompt
+  const hasSecrets = config?.global_settings?.license_key || config?.global_settings?.jwt_secret;
+  let showSecrets = opts.showSecrets ?? false;
+  if (!showSecrets && hasSecrets && process.stdout.isTTY && !opts.outputFile) {
+    log.warn("Config contains sensitive fields (license_key, jwt_secret). They are masked by default.");
+    log.warn("Use --show-secrets to include them, or press Y to show them now.");
+    showSecrets = await Confirm.prompt({ message: "Show secrets?", default: false });
+  } else if (!process.stdout.isTTY || opts.outputFile) {
+    // Non-interactive or writing to file: always include secrets
+    showSecrets = true;
+  }
+
+  if (!showSecrets && config?.global_settings) {
+    if (config.global_settings.license_key) config.global_settings.license_key = "***";
+    if (config.global_settings.jwt_secret) config.global_settings.jwt_secret = "***";
+  }
+
   const yaml = yamlStringify(config as Record<string, unknown>);
   if (opts.outputFile) {
     await writeFile(opts.outputFile, yaml, "utf-8");
@@ -786,6 +820,7 @@ const command = new Command()
   .command("get-config")
   .description("Dump the current instance config (global settings + worker configs) as YAML")
   .option("-o, --output-file <file:string>", "Write YAML to a file instead of stdout")
+  .option("--show-secrets", "Include sensitive fields (license key, JWT secret) without prompting")
   .option(
     "--instance <instance:string>",
     "Name of the instance, override the active instance",

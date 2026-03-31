@@ -374,11 +374,11 @@ pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
     let mut router = Router::new()
         .route("/create", post(create_trigger::<T>))
         .route("/list", get(list_triggers::<T>))
-        .route("/get/*path", get(get_trigger::<T>))
-        .route("/update/*path", post(update_trigger::<T>))
-        .route("/delete/*path", delete(delete_trigger::<T>))
-        .route("/exists/*path", get(exists_trigger::<T>))
-        .route("/setmode/*path", post(set_trigger_mode::<T>));
+        .route("/get/{*path}", get(get_trigger::<T>))
+        .route("/update/{*path}", post(update_trigger::<T>))
+        .route("/delete/{*path}", delete(delete_trigger::<T>))
+        .route("/exists/{*path}", get(exists_trigger::<T>))
+        .route("/setmode/{*path}", post(set_trigger_mode::<T>));
 
     if T::SUPPORTS_TEST_CONNECTION {
         router = router.route("/test", post(test_connection::<T>));
@@ -610,6 +610,17 @@ async fn delete_trigger<T: TriggerCrud>(
     })?;
 
     let mut tx = user_db.begin(&authed).await?;
+
+    // Capture trigger data for trashbin before deleting
+    let trash_data: Option<serde_json::Value> = sqlx::query_scalar(&format!(
+        "SELECT jsonb_build_object('row', to_jsonb(t), 'table_name', '{table}') FROM {table} t WHERE path = $1 AND workspace_id = $2",
+        table = T::TABLE_NAME
+    ))
+    .bind(path)
+    .bind(&workspace_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
     let deleted = handler
         .delete_by_path(&mut *tx, &workspace_id, path)
         .await?;
@@ -619,6 +630,19 @@ async fn delete_trigger<T: TriggerCrud>(
             "Trigger not found at path: {}",
             path
         )));
+    }
+
+    if let Some(data) = trash_data {
+        let item_kind = format!("{}_trigger", T::TRIGGER_TYPE);
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &workspace_id,
+            &item_kind,
+            path,
+            data,
+            &authed.username,
+        )
+        .await?;
     }
 
     audit_log(

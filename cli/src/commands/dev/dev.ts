@@ -236,7 +236,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
 }
 
 const command = new Command()
-  .description("Launch a dev server that will spawn a webserver with HMR")
+  .description("Launch a dev server that watches for local file changes and auto-pushes them to the remote workspace. Provides live reload for scripts and flows during development.")
   .option(
     "--includes <pattern...:string>",
     "Filter paths givena glob pattern or path"

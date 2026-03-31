@@ -8,6 +8,7 @@
 
 //! Query builders for filtering job lists (queue and completed).
 
+use serde_json;
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use windmill_common::utils::{escape_ilike_pattern, paginate_without_limits, Pagination};
@@ -50,11 +51,11 @@ pub fn filter_list_queue_query(
                 .values
                 .iter()
                 .map(|v| {
-                    let p = v.replace("*", "%").replace("'", "''");
+                    let p = v.replace("*", "%");
                     if w.negated {
-                        format!("v2_job_queue.worker NOT LIKE '{p}'")
+                        format!("v2_job_queue.worker NOT LIKE {}", quote(&p))
                     } else {
-                        format!("v2_job_queue.worker LIKE '{p}'")
+                        format!("v2_job_queue.worker LIKE {}", quote(&p))
                     }
                 })
                 .collect();
@@ -77,11 +78,11 @@ pub fn filter_list_queue_query(
             .values
             .iter()
             .map(|v| {
-                let e = v.replace("'", "''");
+                let p = format!("{}%", v);
                 if ps.negated {
-                    format!("runnable_path NOT LIKE '{e}%'")
+                    format!("runnable_path NOT LIKE {}", quote(&p))
                 } else {
-                    format!("runnable_path LIKE '{e}%'")
+                    format!("runnable_path LIKE {}", quote(&p))
                 }
             })
             .collect();
@@ -123,11 +124,11 @@ pub fn filter_list_queue_query(
                 .values
                 .iter()
                 .map(|v| {
-                    let p = v.replace("*", "%").replace("'", "''");
+                    let p = v.replace("*", "%");
                     if t.negated {
-                        format!("v2_job.tag NOT LIKE '{p}'")
+                        format!("v2_job.tag NOT LIKE {}", quote(&p))
                     } else {
-                        format!("v2_job.tag LIKE '{p}'")
+                        format!("v2_job.tag LIKE {}", quote(&p))
                     }
                 })
                 .collect();
@@ -200,7 +201,11 @@ pub fn filter_list_queue_query(
     }
 
     if let Some(args) = &lq.args {
-        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            sqlb.and_where("args @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
 
     if lq.scheduled_for_before_now.is_some_and(|x| x) {
@@ -287,14 +292,14 @@ pub fn filter_list_completed_query(
                 .values
                 .iter()
                 .map(|v| {
-                    let p = v.replace("*", "%").replace("'", "''");
+                    let p = v.replace("*", "%");
                     if label.negated {
                         format!(
-                            "NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl LIKE '{p}')"
+                            "NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl LIKE {})", quote(&p)
                         )
                     } else {
                         format!(
-                            "EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl LIKE '{p}')"
+                            "EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl LIKE {})", quote(&p)
                         )
                     }
                 })
@@ -308,14 +313,14 @@ pub fn filter_list_completed_query(
             let clauses: Vec<_> = label
                 .values
                 .iter()
-                .map(|v| format!("NOT (result->'wm_labels' ? '{}')", v.replace("'", "''")))
+                .map(|v| format!("NOT (result->'wm_labels' ? {})", quote(v)))
                 .collect();
             sqlb.and_where(format!("({})", clauses.join(" AND ")));
         } else {
             let clauses: Vec<_> = label
                 .values
                 .iter()
-                .map(|v| format!("result->'wm_labels' ? '{}'", v.replace("'", "''")))
+                .map(|v| format!("result->'wm_labels' ? {}", quote(v)))
                 .collect();
             sqlb.and_where("result ? 'wm_labels'");
             sqlb.and_where(format!("({})", clauses.join(" OR ")));
@@ -329,11 +334,11 @@ pub fn filter_list_completed_query(
                 .values
                 .iter()
                 .map(|v| {
-                    let p = v.replace("*", "%").replace("'", "''");
+                    let p = v.replace("*", "%");
                     if worker.negated {
-                        format!("v2_job_completed.worker NOT LIKE '{p}'")
+                        format!("v2_job_completed.worker NOT LIKE {}", quote(&p))
                     } else {
-                        format!("v2_job_completed.worker LIKE '{p}'")
+                        format!("v2_job_completed.worker LIKE {}", quote(&p))
                     }
                 })
                 .collect();
@@ -366,11 +371,11 @@ pub fn filter_list_completed_query(
             .values
             .iter()
             .map(|v| {
-                let e = v.replace("'", "''");
+                let p = format!("{}%", v);
                 if ps.negated {
-                    format!("runnable_path NOT LIKE '{e}%'")
+                    format!("runnable_path NOT LIKE {}", quote(&p))
                 } else {
-                    format!("runnable_path LIKE '{e}%'")
+                    format!("runnable_path LIKE {}", quote(&p))
                 }
             })
             .collect();
@@ -400,11 +405,11 @@ pub fn filter_list_completed_query(
                 .values
                 .iter()
                 .map(|v| {
-                    let p = v.replace("*", "%").replace("'", "''");
+                    let p = v.replace("*", "%");
                     if t.negated {
-                        format!("v2_job.tag NOT LIKE '{p}'")
+                        format!("v2_job.tag NOT LIKE {}", quote(&p))
                     } else {
-                        format!("v2_job.tag LIKE '{p}'")
+                        format!("v2_job.tag LIKE {}", quote(&p))
                     }
                 })
                 .collect();
@@ -449,11 +454,7 @@ pub fn filter_list_completed_query(
     }
     if let Some(dt) = &lq.created_or_started_after {
         let ts = dt.to_rfc3339();
-        sqlb.and_where(format!(
-            "(created_at >= '{}' OR started_at >= '{}')",
-            ts.replace("'", "''"),
-            ts.replace("'", "''")
-        ));
+        sqlb.and_where("(created_at >= ? OR started_at >= ?)".bind(&ts).bind(&ts));
     }
 
     if let Some(dt) = &lq.created_before {
@@ -503,11 +504,19 @@ pub fn filter_list_completed_query(
     }
 
     if let Some(args) = &lq.args {
-        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            sqlb.and_where("args @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
 
     if let Some(result) = &lq.result {
-        sqlb.and_where("result @> ?".bind(&result.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(result) {
+            sqlb.and_where("result @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
 
     if lq.is_not_schedule.unwrap_or(false) {

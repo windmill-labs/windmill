@@ -2,6 +2,7 @@
 	import { type Job } from '$lib/gen'
 	import { base } from '$lib/base'
 	import JobStatus from '$lib/components/JobStatus.svelte'
+	import { flowPathToHref } from '$lib/scripts'
 	import { displayDate, truncateRev } from '$lib/utils'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import TimeAgo from './TimeAgo.svelte'
@@ -94,7 +95,9 @@
 		{#if (job && job.job_kind == 'flow') || job?.job_kind == 'script'}
 			{@const stem = `${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
-			{@const viewHref = `${base}/${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+			{@const viewHref = isScript
+				? `${base}/${stem}/get/${job?.script_hash}`
+				: flowPathToHref(job?.script_path ?? '')}
 			<div class="flex flex-row gap-2 items-center">
 				{#if isScript}
 					<Code2 size={SMALL_ICON_SIZE} class="min-w-3.5" />

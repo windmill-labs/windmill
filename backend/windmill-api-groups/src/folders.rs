@@ -18,13 +18,17 @@ use regex::Regex;
 use windmill_api_auth::{check_scopes, ApiAuthed, AuthCache, Tokened};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
-use windmill_common::{error::Error, webhook::{WebhookMessage, WebhookShared}, workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult}};
 use windmill_common::DB;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, JsonResult, Result},
     users::username_to_permissioned_as,
     utils::{not_found_if_none, paginate, Pagination},
+};
+use windmill_common::{
+    error::Error,
+    webhook::{WebhookMessage, WebhookShared},
+    workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult},
 };
 
 use serde::{Deserialize, Serialize};
@@ -36,14 +40,14 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_folders))
         .route("/listnames", get(list_foldernames))
         .route("/create", post(create_folder))
-        .route("/get/:name", get(get_folder))
-        .route("/exists/:name", get(exists_folder))
-        .route("/update/:name", post(update_folder))
-        .route("/getusage/:name", get(get_folder_usage))
-        .route("/delete/:name", delete(delete_folder))
-        .route("/addowner/:name", post(add_owner))
-        .route("/removeowner/:name", post(remove_owner))
-        .route("/is_owner/*path", get(is_owner_api))
+        .route("/get/{name}", get(get_folder))
+        .route("/exists/{name}", get(exists_folder))
+        .route("/update/{name}", post(update_folder))
+        .route("/getusage/{name}", get(get_folder_usage))
+        .route("/delete/{name}", delete(delete_folder))
+        .route("/addowner/{name}", post(add_owner))
+        .route("/removeowner/{name}", post(remove_owner))
+        .route("/is_owner/{*path}", get(is_owner_api))
 }
 
 #[derive(FromRow, Serialize, Deserialize, Clone)]
@@ -716,13 +720,14 @@ async fn add_owner(
     .await?;
 
     validate_owner(&owner)?;
-    sqlx::query(&format!(
-        "UPDATE folder SET extra_perms = jsonb_set(extra_perms, '{{\"{owner}\"}}', to_jsonb($1), \
-         true) WHERE name = $2 AND workspace_id = $3 RETURNING extra_perms"
-    ))
+    sqlx::query(
+        "UPDATE folder SET extra_perms = jsonb_set(extra_perms, array[$4]::text[], to_jsonb($1), \
+         true) WHERE name = $2 AND workspace_id = $3 RETURNING extra_perms",
+    )
     .bind(true)
     .bind(&name)
     .bind(&w_id)
+    .bind(&owner)
     .fetch_optional(&mut *tx)
     .await?;
 
@@ -787,14 +792,15 @@ async fn remove_owner(
     }
 
     if let Some(write) = write {
-        let old_write = sqlx::query_scalar::<_, Option<bool>>(&format!(
-            "UPDATE folder SET extra_perms = jsonb_set(extra_perms, '{{\"{owner}\"}}', to_jsonb($1), \
-             true) FROM (SELECT (extra_perms->>'{owner}')::boolean as old_val FROM folder WHERE name = $2 AND workspace_id = $3) old \
+        let old_write = sqlx::query_scalar::<_, Option<bool>>(
+            "UPDATE folder SET extra_perms = jsonb_set(extra_perms, array[$4]::text[], to_jsonb($1), \
+             true) FROM (SELECT (extra_perms->>$4)::boolean as old_val FROM folder WHERE name = $2 AND workspace_id = $3) old \
              WHERE name = $2 AND workspace_id = $3 RETURNING old.old_val"
-        ))
+        )
         .bind(write)
         .bind(&name)
         .bind(&w_id)
+        .bind(&owner)
         .fetch_optional(&mut *tx)
         .await?
         .flatten();

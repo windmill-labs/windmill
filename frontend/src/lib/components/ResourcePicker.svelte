@@ -29,6 +29,8 @@
 		onClear?: () => void
 		excludedValues?: string[]
 		datatableAsPgResource?: boolean
+		workspace?: string | undefined
+		disableChatOffset?: boolean
 	}
 
 	let {
@@ -47,8 +49,12 @@
 		class: className = '',
 		onClear = undefined,
 		excludedValues = undefined,
-		datatableAsPgResource = false
+		datatableAsPgResource = false,
+		workspace = undefined,
+		disableChatOffset = false
 	}: Props = $props()
+
+	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 
 	if (initialValue && value == undefined) {
 		value = initialValue
@@ -104,7 +110,7 @@
 			const resources = await Promise.all(
 				resourceTypesToQuery.map((rt) =>
 					ResourceService.listResource({
-						workspace: $workspaceStore!,
+						workspace: effectiveWorkspace,
 						resourceType: rt
 					})
 				)
@@ -121,9 +127,11 @@
 
 			if (datatableAsPgResource && resourceType === 'postgresql') {
 				try {
-					const datatables = (await WorkspaceService.listDataTables({
-						workspace: $workspaceStore!
-					})).map(d => d.name)
+					const datatables = (
+						await WorkspaceService.listDataTables({
+							workspace: effectiveWorkspace
+						})
+					).map((d) => d.name)
 					for (const dt of datatables) {
 						nc.push({
 							value: `datatable://${dt}`,
@@ -155,7 +163,7 @@
 	let previousResourceType = untrack(() => resourceType)
 
 	$effect(() => {
-		$workspaceStore && resourceType
+		effectiveWorkspace && resourceType
 		untrack(() => {
 			if (previousResourceType != resourceType) {
 				previousResourceType = resourceType
@@ -167,7 +175,7 @@
 
 	$effect(() => {
 		excludedValues
-		if ($workspaceStore && resourceType && !disabled) {
+		if (effectiveWorkspace && resourceType && !disabled) {
 			untrack(() => loadResources(resourceType))
 		}
 	})
@@ -186,9 +194,13 @@
 	}}
 	bind:this={appConnect}
 	{expressOAuthSetup}
+	{workspace}
+	{disableChatOffset}
 />
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
+	{workspace}
+	{disableChatOffset}
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
 		if (e.detail) {

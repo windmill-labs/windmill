@@ -31,6 +31,7 @@
 	import { untrack, type Snippet } from 'svelte'
 
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveWebsocketTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -95,6 +96,7 @@
 		key: string
 		value: any
 	}[] = $state([])
+	let filterLogic = $state<'and' | 'or'>('and')
 	let initial_messages: WebsocketTriggerInitialMessage[] = $state([])
 	let url_runnable_args: Record<string, any> | undefined = $state({})
 	let can_return_message = $state(false)
@@ -105,6 +107,9 @@
 	let showLoading = $state(false)
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
+	let permissionedAs = $state<string | undefined>(undefined)
+	let selectedPermissionedAs = $state<string | undefined>(undefined)
+	let preservePermissionedAs = $state(false)
 	let isValid = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
@@ -199,6 +204,7 @@
 			path = defaultValues?.path ?? ''
 			initialPath = ''
 			filters = []
+			filterLogic = 'and'
 			initial_messages = []
 			url_runnable_args = defaultValues?.url_runnable_args ?? {}
 			dirtyPath = false
@@ -224,6 +230,7 @@
 		path = cfg?.path
 		url = cfg?.url
 		filters = cfg?.filters
+		filterLogic = cfg?.filter_logic ?? 'and'
 		initial_messages = cfg?.initial_messages ?? []
 		url_runnable_args = cfg?.url_runnable_args
 		can_return_message = cfg?.can_return_message
@@ -234,6 +241,9 @@
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		mode = cfg?.mode ?? 'enabled'
+		permissionedAs = cfg?.permissioned_as
+		selectedPermissionedAs = undefined
+		preservePermissionedAs = false
 	}
 
 	function getSaveCfg() {
@@ -243,6 +253,7 @@
 			path,
 			url,
 			filters,
+			filter_logic: filterLogic,
 			initial_messages,
 			url_runnable_args,
 			can_return_message,
@@ -250,7 +261,9 @@
 			error_handler_path,
 			error_handler_args,
 			retry,
-			mode
+			mode,
+			permissioned_as: selectedPermissionedAs,
+			preserve_permissioned_as: preservePermissionedAs || undefined
 		}
 	}
 
@@ -438,6 +451,15 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
+		{#if edit}
+			<PermissionedAsLine
+				{permissionedAs}
+				onPermissionedAsChange={(pa, preserve) => {
+					selectedPermissionedAs = pa
+					preservePermissionedAs = preserve
+				}}
+			/>
+		{/if}
 		<div class="flex flex-col gap-4">
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
@@ -688,12 +710,14 @@
 
 			<Section label="Advanced" collapsable>
 				{#snippet header()}
-					<TriggerAdvancedBadges {error_handler_path} {retry} extraBadges={[
-						{ name: 'Filters', active: filters.length > 0 }
-					]} />
+					<TriggerAdvancedBadges
+						{error_handler_path}
+						{retry}
+						extraBadges={[{ name: 'Filters', active: filters.length > 0 }]}
+					/>
 				{/snippet}
 				<div class="flex flex-col gap-6">
-					<TriggerFilters bind:filters disabled={!can_write} />
+					<TriggerFilters bind:filters bind:filterLogic disabled={!can_write} />
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
 							<Tab value="error_handler" label="Error Handler" />

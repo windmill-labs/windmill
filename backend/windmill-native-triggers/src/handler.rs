@@ -181,6 +181,7 @@ async fn create_native_trigger<T: External>(
         &external_id,
         &config,
         service_config,
+        data.summary.as_deref(),
     )
     .await?;
 
@@ -304,6 +305,7 @@ async fn update_native_trigger_handler<T: External>(
         &external_id,
         &config,
         service_config,
+        data.summary.as_deref(),
     )
     .await?;
 
@@ -511,13 +513,13 @@ pub fn service_routes<T: External + 'static>(handler: T) -> Router {
     let standard_routes = Router::new()
         .route("/create", post(create_native_trigger::<T>))
         .route("/list", get(list_native_triggers_handler::<T>))
-        .route("/get/:external_id", get(get_native_trigger_handler::<T>))
+        .route("/get/{external_id}", get(get_native_trigger_handler::<T>))
         .route(
-            "/update/:external_id",
+            "/update/{external_id}",
             post(update_native_trigger_handler::<T>),
         )
         .route(
-            "/delete/:external_id",
+            "/delete/{external_id}",
             delete(delete_native_trigger_handler::<T>),
         );
 

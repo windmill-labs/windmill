@@ -49,16 +49,16 @@ use windmill_common::users::truncate_token;
 use windmill_common::users::COOKIE_NAME;
 use windmill_common::utils::paginate;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::BASE_URL;
 use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user},
     db::UserDB,
     error::{self, Error, JsonResult, Result},
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
+use windmill_common::{BASE_URL, HUB_BASE_URL};
 use windmill_git_sync::handle_deployment_metadata;
 
-const COOKIE_PATH: &str = "/";
+pub const COOKIE_PATH: &str = "/";
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -66,32 +66,37 @@ pub fn workspaced_service() -> Router {
         .route("/list_usage", get(list_user_usage))
         .route("/list_usernames", get(list_usernames))
         .route("/exists", post(exists_username))
-        .route("/get/:user", get(get_workspace_user))
-        .route("/update/:user", post(update_workspace_user))
-        .route("/delete/:user", delete(delete_workspace_user))
-        .route("/convert_to_group/:user", post(convert_user_to_group))
-        .route("/is_owner/*path", get(is_owner_of_path))
-        .route("/whois/:username", get(whois))
+        .route("/get/{user}", get(get_workspace_user))
+        .route("/update/{user}", post(update_workspace_user))
+        .route("/delete/{user}", delete(delete_workspace_user))
+        .route("/convert_to_group/{user}", post(convert_user_to_group))
+        .route("/is_owner/{*path}", get(is_owner_of_path))
+        .route("/whois/{username}", get(whois))
         .route("/whoami", get(whoami))
         .route("/leave", post(leave_workspace))
-        .route("/username_to_email/:username", get(username_to_email))
+        .route("/username_to_email/{username}", get(username_to_email))
+        .route(
+            "/impersonate_service_account",
+            post(impersonate_service_account),
+        )
+        .route("/exit_impersonation", post(exit_impersonation))
 }
 
 pub fn global_service() -> Router {
     Router::new()
-        .route("/exists/:email", get(exists_email))
+        .route("/exists/{email}", get(exists_email))
         .route("/email", get(get_email))
         .route("/whoami", get(global_whoami))
         .route("/list_invites", get(list_invites))
         .route("/decline_invite", post(decline_invite))
         .route("/accept_invite", post(accept_invite))
         .route("/list_as_super_admin", get(list_users_as_super_admin))
-        .route("/set_login_type/:user", post(set_login_type))
-        .route("/update/:user", post(update_user))
-        .route("/delete/:user", delete(delete_user))
-        .route("/username_info/:user", get(get_instance_username_info))
+        .route("/set_login_type/{user}", post(set_login_type))
+        .route("/update/{user}", post(update_user))
+        .route("/delete/{user}", delete(delete_user))
+        .route("/username_info/{user}", get(get_instance_username_info))
         .route("/tokens/create", post(create_token))
-        .route("/tokens/delete/:token_prefix", delete(delete_token))
+        .route("/tokens/delete/{token_prefix}", delete(delete_token))
         .route("/tokens/list", get(list_tokens))
         .route("/tokens/impersonate", post(impersonate))
         .route("/usage", get(get_usage))
@@ -135,6 +140,7 @@ pub struct User {
     pub role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub added_via: Option<serde_json::Value>,
+    pub is_service_account: bool,
 }
 
 #[derive(Serialize)]
@@ -157,6 +163,7 @@ pub struct GlobalUserInfo {
     operator_only: Option<bool>,
     first_time_user: bool,
     role_source: String,
+    disabled: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -175,6 +182,7 @@ pub struct UserInfo {
     pub folders: Vec<String>,
     pub folders_owners: Vec<String>,
     pub name: Option<String>,
+    pub is_service_account: bool,
 }
 
 #[derive(FromRow, Serialize)]
@@ -213,6 +221,7 @@ pub struct EditUser {
     pub is_super_admin: Option<bool>,
     pub is_devops: Option<bool>,
     pub name: Option<String>,
+    pub disabled: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -396,7 +405,7 @@ async fn list_users_as_super_admin(
             GlobalUserInfo,
             "WITH active_users AS (SELECT distinct username as email FROM (SELECT username, timestamp, operation FROM audit_partitioned UNION ALL SELECT username, timestamp, operation FROM audit) AS a WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
-            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username, first_time_user, role_source
+            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username, first_time_user, role_source, disabled
             FROM password
             WHERE email IN (SELECT email FROM active_users)
             ORDER BY super_admin DESC, devops DESC
@@ -409,7 +418,7 @@ async fn list_users_as_super_admin(
     } else {
         sqlx::query_as!(
             GlobalUserInfo,
-            "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only, first_time_user, role_source FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT \
+            "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only, first_time_user, role_source, disabled FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT \
             $1 OFFSET $2",
             per_page as i32,
             offset as i32
@@ -577,17 +586,50 @@ async fn logout(
     }
     tx.commit().await?;
     if let Some(rd) = rd {
-        Ok((StatusCode::TEMPORARY_REDIRECT, [(LOCATION, rd)]).into_response())
+        if is_valid_logout_redirect(&rd).await {
+            Ok((StatusCode::TEMPORARY_REDIRECT, [(LOCATION, rd)]).into_response())
+        } else {
+            tracing::warn!("Blocked logout redirect to non-whitelisted URL: {}", rd);
+            Ok((StatusCode::OK, "logged out successfully".to_string()).into_response())
+        }
     } else {
         Ok((StatusCode::OK, "logged out successfully".to_string()).into_response())
     }
 }
 
+async fn is_valid_logout_redirect(rd: &str) -> bool {
+    // Allow relative paths (same-origin redirects)
+    if rd.starts_with('/') && !rd.starts_with("//") {
+        return true;
+    }
+    let parsed = match url::Url::parse(rd) {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+    let host: &str = match parsed.host_str() {
+        Some(h) => h,
+        None => return false,
+    };
+    if host == "windmill.dev" || host.ends_with(".windmill.dev") {
+        return true;
+    }
+    let hub_url = HUB_BASE_URL.read().await.clone();
+    if let Ok(hub_parsed) = url::Url::parse(&hub_url) {
+        if let Some(hub_host) = hub_parsed.host_str() {
+            if host == hub_host {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 async fn whoami(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { username, email, is_admin, groups, folders, .. }: ApiAuthed,
+    authed: ApiAuthed,
 ) -> JsonResult<UserInfo> {
+    let ApiAuthed { username, email, is_admin, groups, folders, .. } = authed;
     let user = get_user(&w_id, &username, &db).await?;
     if let Some(user) = user {
         Ok(Json(user))
@@ -614,6 +656,7 @@ async fn whoami(
                 .into_iter()
                 .filter_map(|x| if x.2 { Some(x.0) } else { None })
                 .collect(),
+            is_service_account: false,
         }))
     }
 }
@@ -625,15 +668,15 @@ async fn global_whoami(
 ) -> JsonResult<GlobalUserInfo> {
     let user = sqlx::query_as!(
         GlobalUserInfo,
-        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only, first_time_user, role_source FROM password WHERE \
+        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only, first_time_user, role_source, disabled FROM password WHERE \
          email = $1",
         email
     )
-    .fetch_one(&db)
+    .fetch_optional(&db)
     .await
-    .map_err(|e| Error::internal_err(format!("fetching global identity: {e:#}")));
+    .map_err(|e| Error::internal_err(format!("fetching global identity: {e:#}")))?;
 
-    if let Ok(user) = user {
+    if let Some(user) = user {
         Ok(Json(user))
     } else if std::env::var("SUPERADMIN_SECRET").ok() == Some(token) {
         Ok(Json(GlobalUserInfo {
@@ -648,9 +691,24 @@ async fn global_whoami(
             operator_only: None,
             first_time_user: false,
             role_source: "manual".to_string(),
+            disabled: false,
         }))
     } else {
-        Err(user.unwrap_err())
+        // Service accounts don't have a password row
+        Ok(Json(GlobalUserInfo {
+            email: email.clone(),
+            login_type: Some("service_account".to_string()),
+            super_admin: false,
+            devops: false,
+            verified: true,
+            name: None,
+            company: None,
+            username: None,
+            operator_only: Some(true),
+            first_time_user: false,
+            role_source: "service_account".to_string(),
+            disabled: false,
+        }))
     }
 }
 
@@ -701,12 +759,13 @@ pub struct User2 {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub added_via: Option<serde_json::Value>,
+    pub is_service_account: bool,
 }
 
 async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo>> {
     let user = sqlx::query_as!(
         User2,
-        "SELECT usr.*, password.super_admin, password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2
+        "SELECT usr.*, COALESCE(password.super_admin, false) as \"super_admin!\", password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2
         ",
         username,
         w_id
@@ -747,6 +806,7 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
             .into_iter()
             .filter_map(|x| if x.2 { Some(x.0) } else { None })
             .collect(),
+        is_service_account: usr.is_service_account,
     }))
 }
 
@@ -1407,6 +1467,22 @@ async fn update_user(
         .await?;
     }
 
+    if let Some(d) = eu.disabled {
+        sqlx::query_scalar!(
+            "UPDATE password SET disabled = $1 WHERE email = $2",
+            d,
+            &email_to_update
+        )
+        .execute(&mut *tx)
+        .await?;
+        if d {
+            // Delete all tokens for immediate session revocation
+            sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_update)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1429,6 +1505,9 @@ async fn delete_user(
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
+    sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_delete)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
         .execute(&mut *tx)
         .await?;
@@ -1667,6 +1746,7 @@ async fn set_login_type(
 
 #[allow(unreachable_code, unused_variables)]
 async fn login(
+    headers: axum::http::HeaderMap,
     cookies: Cookies,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
@@ -1677,8 +1757,10 @@ async fn login(
         return Ok("no_auth".to_string());
     }
 
-    let mut tx = db.begin().await?;
     let email = email.to_lowercase();
+    windmill_common::login_rate_limit::check_and_increment_login_attempt(&headers, &email)?;
+
+    let mut tx = db.begin().await?;
     let audit_author = AuditAuthor {
         email: email.clone(),
         username: email.clone(),
@@ -1687,7 +1769,7 @@ async fn login(
     };
     let email_w_h: Option<(String, String, bool)> = sqlx::query_as(
         "SELECT email, password_hash, super_admin FROM password WHERE email = $1 AND login_type = \
-         'password'",
+         'password' AND disabled = false",
     )
     .bind(&email)
     .fetch_optional(&mut *tx)
@@ -1710,6 +1792,7 @@ async fn login(
                 None,
             )
             .await?;
+            windmill_common::login_rate_limit::record_login_failure(&email);
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
             let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
@@ -1746,6 +1829,7 @@ async fn login(
             None,
         )
         .await?;
+        windmill_common::login_rate_limit::record_login_failure(&email);
         Err(Error::BadRequest("Invalid login".to_string()))
     }
 }
@@ -1776,7 +1860,7 @@ async fn refresh_token(
     }
 
     let super_admin = sqlx::query_scalar!(
-        "SELECT super_admin FROM password WHERE email = $1",
+        "SELECT super_admin FROM password WHERE email = $1 AND disabled = false",
         &authed.email
     )
     .fetch_optional(&mut *tx)
@@ -1969,6 +2053,44 @@ async fn impersonate(
     .await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, token))
+}
+
+#[derive(Deserialize)]
+pub struct ImpersonateServiceAccountRequest {
+    pub username: String,
+}
+
+async fn impersonate_service_account(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    cookies: Cookies,
+    Tokened { token: current_token }: Tokened,
+    Path(w_id): Path<String>,
+    Json(req): Json<ImpersonateServiceAccountRequest>,
+) -> Result<(StatusCode, String)> {
+    crate::users_oss::impersonate_service_account(db, authed, cookies, current_token, w_id, req)
+        .await
+}
+
+#[derive(Deserialize)]
+struct ExitImpersonationRequest {
+    token: String,
+}
+
+async fn exit_impersonation(
+    cookies: Cookies,
+    Json(req): Json<ExitImpersonationRequest>,
+) -> Result<String> {
+    let mut cookie = tower_cookies::Cookie::new(COOKIE_NAME, req.token);
+    cookie.set_secure(IS_SECURE.read().await.clone());
+    cookie.set_same_site(Some(tower_cookies::cookie::SameSite::Lax));
+    cookie.set_http_only(true);
+    cookie.set_path(COOKIE_PATH);
+    if COOKIE_DOMAIN.is_some() {
+        cookie.set_domain(COOKIE_DOMAIN.clone().unwrap());
+    }
+    cookies.add(cookie);
+    Ok("exited impersonation".to_string())
 }
 
 #[derive(Deserialize)]

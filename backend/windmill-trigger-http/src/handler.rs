@@ -2,12 +2,14 @@ use super::{
     validate_authentication_method, HttpConfig, HttpConfigRequest, HttpMethod, HttpTrigger,
     RouteExists, ROUTE_PATH_KEY_RE, VALID_ROUTE_PATH_RE,
 };
-use axum::{async_trait, extract::Path, routing::post, Extension, Json, Router};
+use async_trait::async_trait;
+use axum::{extract::Path, routing::post, Extension, Json, Router};
 use http::StatusCode;
 use sqlx::PgConnection;
 use std::collections::HashSet;
 use windmill_api_auth::ApiAuthed;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
@@ -61,11 +63,12 @@ pub async fn route_path_key_exists(
         .await?
         .unwrap_or(false)
     } else {
-        let route_path_key = match workspaced_route {
-            Some(true) => {
-                std::borrow::Cow::Owned(format!("{}/{}", w_id, route_path_key.trim_matches('/')))
-            }
-            _ => std::borrow::Cow::Borrowed(route_path_key),
+        let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
+        let effective_workspaced = workspaced_route.unwrap_or(false) || http_route_workspaced;
+        let route_path_key = if effective_workspaced {
+            std::borrow::Cow::Owned(format!("{}/{}", w_id, route_path_key.trim_matches('/')))
+        } else {
+            std::borrow::Cow::Borrowed(route_path_key)
         };
 
         sqlx::query_scalar!(
@@ -146,6 +149,10 @@ pub async fn insert_new_trigger_into_db(
 ) -> Result<()> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
+    let effective_workspaced =
+        trigger.config.workspaced_route.unwrap_or(false) || http_route_workspaced;
+
     let request_type = trigger.config.request_type;
     let resolved_edited_by = trigger.base.resolve_edited_by(authed);
     let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
@@ -186,7 +193,7 @@ pub async fn insert_new_trigger_into_db(
             trigger.base.path,
             trigger.config.route_path,
             route_path_key,
-            trigger.config.workspaced_route.unwrap_or(false),
+            effective_workspaced,
             trigger.config.authentication_resource_path,
             trigger.config.wrap_body.unwrap_or(false),
             trigger.config.raw_string.unwrap_or(false),
@@ -445,6 +452,10 @@ impl TriggerCrud for HttpTrigger {
             let route_path_key =
                 check_if_route_exist(db, &trigger.config, workspace_id, Some(path)).await?;
 
+            let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
+            let effective_workspaced =
+                trigger.config.workspaced_route.unwrap_or(false) || http_route_workspaced;
+
             let request_type = trigger.config.request_type;
 
             sqlx::query!(
@@ -481,7 +492,7 @@ impl TriggerCrud for HttpTrigger {
             "#,
                 route_path,
                 &route_path_key,
-                trigger.config.workspaced_route,
+                Some(effective_workspaced),
                 trigger.config.wrap_body,
                 trigger.config.raw_string,
                 trigger.config.authentication_resource_path,

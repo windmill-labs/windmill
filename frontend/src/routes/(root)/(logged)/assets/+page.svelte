@@ -267,7 +267,7 @@
 					title: 'Ducklake',
 					data: allDucklakes,
 					assetKind: 'ducklake',
-					settingsHref: '/workspace_settings?tab=windmill_lfs',
+					settingsHref: '/workspace_settings?tab=ducklake',
 					docsHref: 'https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake',
 					favorites: extractFavorites('ducklake')
 				})}

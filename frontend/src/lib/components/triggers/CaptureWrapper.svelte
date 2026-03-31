@@ -260,7 +260,7 @@
 				{hasPreprocessor}
 				{isFlow}
 				{captureLoading}
-				{triggerDeployed}
+				groupId={args?.group_id}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor

@@ -4,7 +4,7 @@
  */
 
 import { expect, test, describe } from "bun:test";
-import { deepEqual, isFileResource, isFilesetResource, toCamel, capitalize } from "../src/utils/utils.ts";
+import { deepEqual, isFileResource, isFilesetResource, toCamel, capitalize, validateRequiredArgs } from "../src/utils/utils.ts";
 import {
   getTypeStrFromPath,
   removeType,
@@ -203,12 +203,12 @@ describe("removeType", () => {
     expect(removeType("f/test/my_var.variable.json", "variable")).toBe("f/test/my_var");
   });
 
-  test("throws for wrong type suffix", () => {
-    expect(() => removeType("f/test/my_var.variable.yaml", "resource")).toThrow();
+  test("passes through path with wrong type suffix as clean path", () => {
+    expect(removeType("f/test/my_var.variable.yaml", "resource")).toBe("f/test/my_var.variable.yaml");
   });
 
-  test("throws for no type suffix", () => {
-    expect(() => removeType("f/test/my_script.ts", "variable")).toThrow();
+  test("passes through path with no type suffix as clean path", () => {
+    expect(removeType("f/test/my_script.ts", "variable")).toBe("f/test/my_script.ts");
   });
 });
 
@@ -594,5 +594,105 @@ describe("removeExtensionToPath", () => {
   test("prioritizes longer extensions (fetch.ts over .ts)", () => {
     // fetch.ts should be recognized as nativets, not as bun .ts
     expect(removeExtensionToPath("f/test/api.fetch.ts")).toBe("f/test/api");
+  });
+});
+
+// =============================================================================
+// validateRequiredArgs
+// =============================================================================
+
+describe("validateRequiredArgs", () => {
+  test("throws when required args are missing", () => {
+    expect(() =>
+      validateRequiredArgs({ required: ["name", "count"] })
+    ).toThrow("Missing required arguments: name, count");
+  });
+
+  test("does not throw when no required args", () => {
+    expect(() => validateRequiredArgs({ required: [] })).not.toThrow();
+  });
+
+  test("does not throw for undefined schema", () => {
+    expect(() => validateRequiredArgs(undefined)).not.toThrow();
+    expect(() => validateRequiredArgs(null)).not.toThrow();
+  });
+
+  test("does not throw for schema without required field", () => {
+    expect(() => validateRequiredArgs({ type: "object", properties: {} })).not.toThrow();
+  });
+
+  test("error message includes usage hint", () => {
+    try {
+      validateRequiredArgs({ required: ["name"] });
+    } catch (e: any) {
+      expect(e.message).toContain('-d \'{"name":');
+    }
+  });
+});
+
+// =============================================================================
+// TarAsZip adapter
+// =============================================================================
+
+describe("TarAsZip adapter", () => {
+  // Import the adapter — it's not exported but we can test via tar creation + parsing
+  const { extract } = require("tar-stream");
+  const { Readable } = require("node:stream");
+
+  // Helper: build a TarAsZip from entries via the actual class
+  async function buildTarAsZip(entries: Map<string, { content: string; isDir: boolean }>) {
+    // Dynamically import to get the class
+    const pullModule = await import("../src/commands/sync/pull.ts");
+    // TarAsZip is not exported, so we test indirectly via parseTarResponse
+    // Instead, test the tar creation → extraction round-trip
+    const { createTarBlob } = await import("../src/utils/tar.ts");
+
+    const tarEntries = Array.from(entries).map(([name, { content }]) => ({
+      name,
+      content,
+    }));
+    const blob = await createTarBlob(tarEntries);
+
+    // Parse via the same extract pattern used by TarAsZip
+    const buffer = Buffer.from(await blob.arrayBuffer());
+    const result = new Map<string, { content: string; isDir: boolean }>();
+    const ex = extract();
+
+    return new Promise<Map<string, string>>((resolve, reject) => {
+      ex.on("entry", (header: any, stream: any, next: () => void) => {
+        const chunks: Buffer[] = [];
+        stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+        stream.on("end", () => {
+          result.set(header.name, {
+            content: Buffer.concat(chunks).toString("utf-8"),
+            isDir: header.type === "directory",
+          });
+          next();
+        });
+        stream.on("error", reject);
+        stream.resume();
+      });
+      ex.on("finish", () => {
+        // Convert to simple map for assertions
+        const simpleMap = new Map<string, string>();
+        for (const [name, { content }] of result) {
+          simpleMap.set(name, content);
+        }
+        resolve(simpleMap);
+      });
+      ex.on("error", reject);
+      Readable.from(buffer).pipe(ex);
+    });
+  }
+
+  test("tar round-trip preserves content", async () => {
+    const entries = new Map([
+      ["f/scripts/hello.ts", { content: 'export async function main() { return "hello"; }', isDir: false }],
+      ["f/scripts/hello.script.yaml", { content: "summary: Hello\nkind: script\n", isDir: false }],
+    ]);
+
+    const result = await buildTarAsZip(entries);
+    expect(result.get("f/scripts/hello.ts")).toBe('export async function main() { return "hello"; }');
+    expect(result.get("f/scripts/hello.script.yaml")).toContain("summary: Hello");
   });
 });

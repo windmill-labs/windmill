@@ -49,6 +49,25 @@ services:
 
     logging: *default-logging
 
+  # Docker-in-Docker sidecar: provides an isolated Docker daemon so user scripts
+  # can run containers without accessing the host Docker socket.
+  dind:
+    image: docker:dind
+    privileged: true
+    restart: unless-stopped
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    volumes:
+      - dind-data:/var/lib/docker
+    expose:
+      - 2375
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
   windmill_worker:
     image: ${WM_IMAGE}
     pull_policy: always
@@ -56,7 +75,6 @@ services:
       replicas: 3
       resources:
         limits:
-          cpus: "1"
           memory: 2048M
           # for GB, use syntax '2Gi'
     restart: unless-stopped
@@ -71,15 +89,23 @@ services:
       # If running with non-root/non-windmill UID (e.g., user: "1001:1001"),
       # add: - HOME=/tmp
       - FAVOR_UNSHARE_PID=true
+      # Connect to the dind sidecar instead of the host Docker socket
+      - DOCKER_HOST=tcp://dind:2375
     depends_on:
       db:
         condition: service_healthy
+      dind:
+        condition: service_healthy
     # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
     volumes:
-      # mount the docker socket to allow to run docker containers from within the workers
-      - /var/run/docker.sock:/var/run/docker.sock
       - worker_dependency_cache:/tmp/windmill/cache
       - worker_logs:/tmp/windmill/logs
+      ## WARNING: mounting the host Docker socket grants user scripts full access to
+      ## the host Docker daemon, enabling host filesystem access and privilege escalation.
+      ## Only use this if you fully trust all users who can run scripts.
+      ## To use it, remove the DOCKER_HOST env var and dind depends_on above,
+      ## and uncomment the line below:
+      # - /var/run/docker.sock:/var/run/docker.sock
 
     logging: *default-logging
 
@@ -92,7 +118,6 @@ services:
       replicas: 1
       resources:
         limits:
-          cpus: "1"
           memory: 2048M
           # for GB, use syntax '2Gi'
     restart: unless-stopped
@@ -104,7 +129,6 @@ services:
       - MODE=worker
       - WORKER_GROUP=native
       - NATIVE_MODE=true
-      - NUM_WORKERS=8
       - SLEEP_QUEUE=200
     depends_on:
       db:
@@ -120,7 +144,6 @@ services:
   #     replicas: 1
   #     resources:
   #       limits:
-  #         cpus: "1"
   #         memory: 2048M
   #         # for GB, use syntax '2Gi'
   #   restart: unless-stopped
@@ -138,8 +161,6 @@ services:
   #       condition: service_healthy
   #   # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
   #   volumes:
-  #     # mount the docker socket to allow to run docker containers from within the workers
-  #     - /var/run/docker.sock:/var/run/docker.sock
   #     - worker_dependency_cache:/tmp/windmill/cache
   #     - worker_logs:/tmp/windmill/logs
 
@@ -216,3 +237,4 @@ volumes:
   windmill_index: null
   lsp_cache: null
   caddy_data: null
+  dind-data: null

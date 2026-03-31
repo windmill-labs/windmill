@@ -234,7 +234,7 @@
 		{/if}
 		{#each ducklakeSettings.ducklakes as ducklake, ducklakeIndex}
 			<Row>
-				<Cell first class="w-48 relative">
+				<Cell first class="w-44 relative">
 					{#if ducklake.name === 'main'}
 						<Tooltip wrapperClass="absolute mt-[0.6rem] right-4" placement="bottom-start">
 							The <i>main</i> ducklake can be accessed with the
@@ -249,7 +249,7 @@
 					/>
 				</Cell>
 				<Cell>
-					<div class="flex gap-2">
+					<div class="flex gap-1">
 						<div class="relative">
 							{#if ducklake.catalog.resource_type === 'instance'}
 								<Tooltip wrapperClass="absolute mt-[0.6rem] right-2 z-20" placement="bottom-start">
@@ -276,19 +276,19 @@
 										}
 									}
 								}
-								class="w-28"
+								class="w-24"
 							/>
 						</div>
 						<div class="flex flex-1">
 							{#if ducklake.catalog.resource_type !== 'instance'}
 								<ResourcePicker
-									class="flex-1"
+									class="flex-1 min-w-32"
 									bind:value={ducklake.catalog.resource_path}
 									resourceType={ducklake.catalog.resource_type}
 								/>
 							{:else}
 								<CustomInstanceDbSelect
-									class="flex-1"
+									class="flex-1 min-w-32"
 									bind:value={ducklake.catalog.resource_path}
 									{customInstanceDbs}
 									{confirmationModal}
@@ -305,7 +305,7 @@
 					</div>
 				</Cell>
 				<Cell>
-					<div class="flex gap-2">
+					<div class="flex gap-1">
 						<Select
 							placeholder="Default storage"
 							items={[
@@ -330,7 +330,7 @@
 					</div>
 				</Cell>
 				<Cell class="w-12">
-					<div class="flex gap-2">
+					<div class="flex gap-1">
 						<Popover contentClasses="p-4" enableFlyTransition closeOnOtherPopoverOpen>
 							{#snippet trigger()}
 								<div class="relative">

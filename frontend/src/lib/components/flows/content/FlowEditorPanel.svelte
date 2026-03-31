@@ -112,6 +112,7 @@
 		onDeleteSelected={() => flowModuleSchemaMap?.deleteMultiple(resolvedModuleIds)}
 		onDuplicateSelected={() => flowModuleSchemaMap?.duplicateMultiple(resolvedModuleIds)}
 		onMoveSelected={() => flowModuleSchemaMap?.moveMultiple(resolvedModuleIds)}
+		onCreateGroup={() => flowModuleSchemaMap?.createGroup(selectionManager.selectedIds)}
 		{canMoveSelected}
 		resolvedCount={resolvedModuleIds.length}
 	/>

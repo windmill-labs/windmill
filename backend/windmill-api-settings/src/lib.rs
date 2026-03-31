@@ -38,14 +38,15 @@ use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalEr
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use windmill_common::secret_backend::{SecretMigrationReport, VaultSettings};
 use windmill_common::{
+    ai_cache::bump_instance_ai_config_revision,
     email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
     get_database_url,
     global_settings::{
-        APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
+        AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
-        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
-        WS_BASE_URL_SETTING,
+        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
@@ -57,7 +58,7 @@ pub fn global_service() -> Router {
     let r = Router::new()
         .route("/envs", get(get_local_settings))
         .route(
-            "/global/:key",
+            "/global/{key}",
             post(set_global_setting).get(get_global_setting),
         )
         .route("/list_global", get(list_global_settings))
@@ -79,7 +80,7 @@ pub fn global_service() -> Router {
         .route("/test_critical_channels", post(test_critical_channels))
         .route("/critical_alerts", get(get_critical_alerts))
         .route(
-            "/critical_alerts/:id/acknowledge",
+            "/critical_alerts/{id}/acknowledge",
             post(acknowledge_critical_alert),
         )
         .route(
@@ -91,7 +92,7 @@ pub fn global_service() -> Router {
             post(refresh_custom_instance_user_pwd),
         )
         .route(
-            "/setup_custom_instance_pg_database/:name",
+            "/setup_custom_instance_pg_database/{name}",
             post(setup_custom_instance_pg_database),
         )
         .route(
@@ -288,6 +289,7 @@ pub async fn set_global_setting_internal(
     key: String,
     value: serde_json::Value,
 ) -> error::Result<()> {
+    let should_bump_instance_ai_revision = key == AI_CONFIG_SETTING;
     let value = if key == "retention_period_secs" {
         instance_config::clamp_retention_period(value)
     } else {
@@ -328,6 +330,10 @@ pub async fn set_global_setting_internal(
             );
         }
     };
+
+    if should_bump_instance_ai_revision {
+        bump_instance_ai_config_revision();
+    }
 
     Ok(())
 }
@@ -422,6 +428,74 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING => {
+            let serde_json::Value::Bool(workspaced_route) = value else {
+                return Err(error::Error::BadRequest(format!(
+                    "{} setting expected to be boolean",
+                    HTTP_ROUTE_WORKSPACED_ROUTE_SETTING
+                )));
+            };
+
+            if !*workspaced_route {
+                #[derive(Debug, Deserialize, Serialize)]
+                #[allow(unused)]
+                struct DuplicateRoute {
+                    route_path: String,
+                    workspace_id: String,
+                    http_method: String,
+                }
+                let duplicate_routes = sqlx::query_as!(
+                    DuplicateRoute,
+                    r#"
+                        SELECT
+                            route_path,
+                            workspace_id,
+                            http_method::TEXT AS "http_method!"
+                        FROM
+                            http_trigger
+                        WHERE
+                            workspaced_route IS FALSE
+                            AND route_path_key IN (
+                                SELECT
+                                    route_path_key
+                                FROM
+                                    http_trigger
+                                WHERE
+                                    workspaced_route IS FALSE
+                                GROUP BY
+                                    route_path_key, http_method
+                                HAVING COUNT(*) > 1
+                            )
+                        ORDER BY route_path_key
+                    "#
+                )
+                .fetch_all(db)
+                .await?;
+
+                if !duplicate_routes.is_empty() {
+                    tracing::error!(
+                        "Cannot disable {} setting as duplicate http routes were found: {:?}",
+                        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+                        &duplicate_routes
+                    );
+
+                    #[derive(Serialize)]
+                    struct ErrorResponse {
+                        error: String,
+                        details: Vec<DuplicateRoute>,
+                    }
+
+                    let error_response = ErrorResponse {
+                        error: "Duplicate HTTP route paths detected".to_string(),
+                        details: duplicate_routes,
+                    };
+
+                    return Err(error::Error::JsonErr(
+                        serde_json::to_value(error_response).unwrap(),
+                    ));
+                }
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -475,6 +549,10 @@ async fn set_instance_config(
         let current_map = current.global_settings.to_settings_map();
         let settings_diff =
             instance_config::diff_global_settings(&current_map, &desired_map, ApplyMode::Merge);
+        let ai_config_changed = settings_diff
+            .upserts
+            .iter()
+            .any(|(key, _)| key == AI_CONFIG_SETTING);
 
         for (key, value) in &settings_diff.upserts {
             run_setting_pre_write_hook(&db, key, value).await?;
@@ -483,6 +561,10 @@ async fn set_instance_config(
         instance_config::apply_settings_diff(&db, &settings_diff)
             .await
             .map_err(|e| error::Error::internal_err(e.to_string()))?;
+
+        if ai_config_changed {
+            bump_instance_ai_config_revision();
+        }
     }
 
     if !desired.worker_configs.is_empty() {
@@ -531,6 +613,7 @@ pub async fn get_global_setting(
         && key != DISABLE_HUB_SETTING
         && key != EMAIL_DOMAIN_SETTING
         && key != APP_WORKSPACED_ROUTE_SETTING
+        && key != HTTP_ROUTE_WORKSPACED_ROUTE_SETTING
         && key != WS_BASE_URL_SETTING
     {
         require_super_admin(&db, &authed.email).await?;
@@ -1126,6 +1209,59 @@ struct CachedResourceType {
     description: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+struct HubResourceTypeRaw {
+    id: i64,
+    name: String,
+    schema: Option<String>,
+    app: String,
+    description: Option<String>,
+}
+
+async fn fetch_resource_types_from_hub() -> error::Result<Vec<CachedResourceType>> {
+    let response = HTTP_CLIENT
+        .get(format!(
+            "{}/resource_types/list",
+            windmill_common::DEFAULT_HUB_BASE_URL
+        ))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| error::Error::InternalErr(format!("Failed to fetch from hub: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(error::Error::InternalErr(format!(
+            "Hub returned status {}",
+            response.status()
+        )));
+    }
+
+    let raw_types: Vec<HubResourceTypeRaw> = response
+        .json()
+        .await
+        .map_err(|e| error::Error::InternalErr(format!("Failed to parse hub response: {}", e)))?;
+
+    Ok(raw_types
+        .into_iter()
+        .filter_map(|rt| {
+            let schema = match rt.schema {
+                Some(s) => match serde_json::from_str(&s) {
+                    Ok(v) => Some(v),
+                    Err(_) => return None,
+                },
+                None => None,
+            };
+            Some(CachedResourceType {
+                id: rt.id,
+                name: rt.name,
+                schema,
+                app: rt.app,
+                description: rt.description,
+            })
+        })
+        .collect())
+}
+
 async fn sync_cached_resource_types(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -1135,16 +1271,12 @@ async fn sync_cached_resource_types(
     use windmill_common::worker::HUB_RT_CACHE_DIR;
     let cache_path = format!("{}/resource_types.json", *HUB_RT_CACHE_DIR);
 
-    let content = tokio::fs::read_to_string(&cache_path).await.map_err(|e| {
-        error::Error::NotFound(format!(
-            "No cached resource types found at {}: {}",
-            cache_path, e
-        ))
-    })?;
-
-    let cached_types: Vec<CachedResourceType> = serde_json::from_str(&content).map_err(|e| {
-        error::Error::InternalErr(format!("Failed to parse cached resource types: {}", e))
-    })?;
+    let cached_types = match tokio::fs::read_to_string(&cache_path).await {
+        Ok(content) => serde_json::from_str::<Vec<CachedResourceType>>(&content).map_err(|e| {
+            error::Error::InternalErr(format!("Failed to parse cached resource types: {}", e))
+        })?,
+        Err(_) => fetch_resource_types_from_hub().await?,
+    };
 
     let mut synced_count = 0;
 

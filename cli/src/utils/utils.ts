@@ -107,6 +107,7 @@ export function getHeaders(): Record<string, string> | undefined {
 export async function digestDir(path: string, conf: string) {
   const hashes: string = [];
   const entries = await readdir(path, { withFileTypes: true });
+  entries.sort((a, b) => a.name.localeCompare(b.name));
   for (const e of entries) {
     const npath = path + "/" + e.name;
     if (e.isFile()) {
@@ -286,4 +287,25 @@ export function toCamel(s: string) {
 
 export function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+export function formatTimestamp(ts: string): string {
+  return new Date(ts).toISOString().replace("T", " ").substring(0, 19);
+}
+
+/**
+ * Validate that required arguments are present when no -d data was provided.
+ * Fetches the schema from the API and checks required fields.
+ * @param schema - The JSON schema object from the script/flow definition
+ * @throws Error if required arguments are missing
+ */
+export function validateRequiredArgs(
+  schema: Record<string, unknown> | undefined | null,
+): void {
+  const required = (schema as { required?: string[] })?.required ?? [];
+  if (required.length > 0) {
+    throw new Error(
+      `Missing required arguments: ${required.join(", ")}.\nUse -d '{"${required[0]}": ...}' to provide input data.`
+    );
+  }
 }

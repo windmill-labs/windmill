@@ -56,12 +56,12 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_schedule))
         .route("/list_with_jobs", get(list_schedule_with_jobs))
-        .route("/get/*path", get(get_schedule))
-        .route("/exists/*path", get(exists_schedule))
+        .route("/get/{*path}", get(get_schedule))
+        .route("/exists/{*path}", get(exists_schedule))
         .route("/create", post(create_schedule))
-        .route("/update/*path", post(edit_schedule))
-        .route("/delete/*path", delete(delete_schedule))
-        .route("/setenabled/*path", post(set_enabled))
+        .route("/update/{*path}", post(edit_schedule))
+        .route("/delete/{*path}", delete(delete_schedule))
+        .route("/setenabled/{*path}", post(set_enabled))
         .route("/setdefaulthandler", post(set_default_error_handler))
     // .route("/catchup/*path", post(do_catchup).get(list_catchup))
 }
@@ -658,7 +658,11 @@ async fn list_schedule(
         sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
     }
     if let Some(args) = &lsq.args {
-        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            sqlb.and_where("args @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
     if let Some(path_start) = &lsq.path_start {
         sqlb.and_where_like_left("path", path_start);
@@ -963,6 +967,15 @@ async fn delete_schedule(
         )));
     }
 
+    // Capture row for trashbin before deleting
+    let trash_data: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT jsonb_build_object('row', to_jsonb(t)) FROM schedule t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
     let del = sqlx::query_scalar!(
         "DELETE FROM schedule WHERE path = $1 AND workspace_id = $2 RETURNING 1",
         path,
@@ -977,6 +990,18 @@ async fn delete_schedule(
             "Not authorized to delete schedule {}",
             path
         )));
+    }
+
+    if let Some(data) = trash_data {
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "schedule",
+            path,
+            data,
+            &authed.username,
+        )
+        .await?;
     }
 
     audit_log(

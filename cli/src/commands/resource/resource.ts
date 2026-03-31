@@ -1,4 +1,4 @@
-import { stat, writeFile, readdir, readFile } from "node:fs/promises";
+import { mkdir, stat, writeFile, readdir, readFile } from "node:fs/promises";
 import { stringify as yamlStringify } from "yaml";
 import nodePath from "node:path";
 
@@ -156,6 +156,7 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
 }
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   let page = 0;
@@ -203,6 +204,7 @@ async function newResource(opts: GlobalOptions, path: string) {
     resource_type: "",
     description: "",
   };
+  await mkdir(nodePath.dirname(filePath), { recursive: true });
   await writeFile(filePath, yamlStringify(template as Record<string, any>), {
     flag: "wx",
     encoding: "utf-8",
@@ -211,6 +213,7 @@ async function newResource(opts: GlobalOptions, path: string) {
 }
 
 async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const r = await wmill.getResource({

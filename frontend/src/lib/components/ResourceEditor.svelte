@@ -25,6 +25,7 @@
 	import Button from './common/button/Button.svelte'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceGen from './copilot/ResourceGen.svelte'
+	import SyncResourceTypes from './SyncResourceTypes.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -33,6 +34,7 @@
 		hidePath?: boolean
 		onChange?: (args: { path: string; args: Record<string, any>; description: string }) => void
 		defaultValues?: Record<string, any> | undefined
+		workspace?: string | undefined
 	}
 
 	let {
@@ -41,8 +43,11 @@
 		path = $bindable(''),
 		hidePath = false,
 		onChange,
-		defaultValues = undefined
+		defaultValues = undefined,
+		workspace = undefined
 	}: Props = $props()
+
+	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 
 	let isValid = $state(true)
 	let jsonError = $state('')
@@ -68,13 +73,13 @@
 	let rawCode: string | undefined = $state(undefined)
 
 	async function initEdit() {
-		resourceToEdit = await ResourceService.getResource({ workspace: $workspaceStore!, path })
+		resourceToEdit = await ResourceService.getResource({ workspace: effectiveWorkspace, path })
 		description = resourceToEdit!.description ?? ''
 		resource_type = resourceToEdit!.resource_type
 		args = resourceToEdit?.value ?? ({} as any)
 		loadResourceType()
 		can_write =
-			resourceToEdit.workspace_id == $workspaceStore &&
+			resourceToEdit.workspace_id == effectiveWorkspace &&
 			canWrite(path, resourceToEdit.extra_perms ?? {}, $userStore)
 		linkedVars = Object.entries(args)
 			.filter(([_, v]) => typeof v == 'string' && v == `$var:${initialPath}`)
@@ -92,12 +97,12 @@
 	export async function editResource(): Promise<void> {
 		if (resourceToEdit) {
 			await ResourceService.updateResource({
-				workspace: $workspaceStore!,
+				workspace: effectiveWorkspace,
 				path: resourceToEdit.path,
 				requestBody: { path, value: args, description }
 			})
 			if (resourceToEdit.resource_type === 'json_schema') {
-				clearJsonSchemaResourceCache(resourceToEdit.path, $workspaceStore!)
+				clearJsonSchemaResourceCache(resourceToEdit.path, effectiveWorkspace)
 			}
 			sendUserToast(`Updated resource at ${path}`)
 			dispatch('refresh', path)
@@ -108,7 +113,7 @@
 
 	export async function createResource(): Promise<void> {
 		await ResourceService.createResource({
-			workspace: $workspaceStore!,
+			workspace: effectiveWorkspace,
 			requestBody: { path, value: args, description, resource_type: resource_type! }
 		})
 		sendUserToast(`Updated resource at ${path}`)
@@ -119,7 +124,7 @@
 		if (resource_type) {
 			try {
 				const resourceType = await ResourceService.getResourceType({
-					workspace: $workspaceStore!,
+					workspace: effectiveWorkspace,
 					path: resource_type
 				})
 
@@ -343,10 +348,13 @@
 					<input type="text" disabled value={rawCode} />
 				{:else}
 					{#if !viewJsonSchema}
-						<p class="italic text-secondary text-xs mb-4">
-							No corresponding resource type found in your workspace for {resource_type}. Define the
-							value in JSON directly
-						</p>
+						<div class="flex flex-col gap-2 mb-4">
+							<p class="text-red-500 dark:text-red-400 text-xs">
+								Resource type '{resource_type}' not found in your workspace
+							</p>
+							<SyncResourceTypes onSynced={loadResourceType} />
+							<p class="italic text-secondary text-xs"> Define the value in JSON directly </p>
+						</div>
 					{/if}
 
 					{#if !emptyString(jsonError)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"

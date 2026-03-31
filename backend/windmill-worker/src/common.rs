@@ -145,7 +145,7 @@ pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::
 }
 
 lazy_static::lazy_static! {
-    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res|encrypted)\:"#).unwrap();
+    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|jsonvar|res|encrypted)\:"#).unwrap();
 }
 
 pub async fn transform_json<'a>(
@@ -255,6 +255,15 @@ pub async fn transform_json_value(
                     Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
                 })
         }
+        Value::String(y) if y.starts_with("$jsonvar:") => {
+            let path = y.strip_prefix("$jsonvar:").unwrap();
+            let v = client.get_variable_value(path).await.map_err(|e| {
+                Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
+            })?;
+            serde_json::from_str::<serde_json::Value>(&v).map_err(|e| {
+                Error::internal_err(format!("Failed to parse $jsonvar value as JSON: {e}"))
+            })
+        }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
 
@@ -286,6 +295,18 @@ pub async fn transform_json_value(
                     )
                     .await?;
                     decrypt(&mc, encrypted.to_string()).and_then(|x| {
+                        // Register the raw decrypted string for log masking.
+                        // This covers both string values and their JSON representations
+                        // (numbers, objects, etc.) that could appear in logs.
+                        windmill_common::sensitive_log_masks::register_secret_for_job(job.id, &x);
+                        if let serde_json::Value::String(ref s) =
+                            serde_json::from_str::<serde_json::Value>(&x).unwrap_or_default()
+                        {
+                            // Also register the inner string value (without JSON quotes)
+                            windmill_common::sensitive_log_masks::register_secret_for_job(
+                                job.id, s,
+                            );
+                        }
                         serde_json::from_str(&x).map_err(|e| {
                             Error::internal_err(format!(
                                 "Failed to decrypt '$encrypted:' value: {e}"

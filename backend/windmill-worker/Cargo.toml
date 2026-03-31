@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-worker-volumes/private", "windmill-queue/private"]
+private = ["windmill-worker-volumes/private", "windmill-queue/private", "windmill-common/private"]
 mcp = ["dep:windmill-mcp"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
 enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker-volumes/enterprise", "dep:pem", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
@@ -110,6 +110,7 @@ gcp_auth = { workspace = true, optional = true }
 rust_decimal.workspace = true
 jsonwebtoken.workspace = true
 sha2.workspace = true
+hmac.workspace = true
 pem = { workspace = true, optional = true }
 urlencoding.workspace = true
 nix.workspace = true
@@ -145,6 +146,7 @@ rcgen = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true
+x509-parser.workspace = true
 
 [build-dependencies]
 libffi-sys = { workspace = true, optional = true }

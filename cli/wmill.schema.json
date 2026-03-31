@@ -1,0 +1,439 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "wmill.yaml",
+  "description": "Windmill CLI configuration file. Full reference: wmill config",
+  "type": "object",
+  "properties": {
+    "defaultTs": {
+      "type": "string",
+      "enum": [
+        "bun",
+        "deno"
+      ],
+      "description": "Default TypeScript runtime for new scripts"
+    },
+    "includes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Glob patterns for files to include in sync"
+    },
+    "extraIncludes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Additional glob patterns merged with includes (useful in branch overrides)"
+    },
+    "excludes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Glob patterns for files to exclude from sync"
+    },
+    "skipVariables": {
+      "type": "boolean",
+      "description": "Skip syncing variables"
+    },
+    "skipResources": {
+      "type": "boolean",
+      "description": "Skip syncing resources"
+    },
+    "skipResourceTypes": {
+      "type": "boolean",
+      "description": "Skip syncing resource types"
+    },
+    "skipSecrets": {
+      "type": "boolean",
+      "description": "Skip syncing secrets (true by default for security)"
+    },
+    "skipScripts": {
+      "type": "boolean",
+      "description": "Skip syncing scripts"
+    },
+    "skipFlows": {
+      "type": "boolean",
+      "description": "Skip syncing flows"
+    },
+    "skipApps": {
+      "type": "boolean",
+      "description": "Skip syncing apps"
+    },
+    "skipFolders": {
+      "type": "boolean",
+      "description": "Skip syncing folders"
+    },
+    "skipWorkspaceDependencies": {
+      "type": "boolean",
+      "description": "Skip syncing workspace dependencies"
+    },
+    "includeSchedules": {
+      "type": "boolean",
+      "description": "Include schedules in sync"
+    },
+    "includeTriggers": {
+      "type": "boolean",
+      "description": "Include triggers (http, websocket, kafka, etc.) in sync"
+    },
+    "includeUsers": {
+      "type": "boolean",
+      "description": "Include workspace users in sync"
+    },
+    "includeGroups": {
+      "type": "boolean",
+      "description": "Include workspace groups in sync"
+    },
+    "includeSettings": {
+      "type": "boolean",
+      "description": "Include workspace settings in sync"
+    },
+    "includeKey": {
+      "type": "boolean",
+      "description": "Include encryption key in sync"
+    },
+    "parallel": {
+      "type": "integer",
+      "description": "Number of parallel operations during sync"
+    },
+    "locksRequired": {
+      "type": "boolean",
+      "description": "Require lock files for all scripts"
+    },
+    "lint": {
+      "type": "boolean",
+      "description": "Run linting before push"
+    },
+    "plainSecrets": {
+      "type": "boolean",
+      "description": "Handle secrets as plain text (not recommended)"
+    },
+    "message": {
+      "type": "string",
+      "description": "Default commit message for sync operations"
+    },
+    "promotion": {
+      "type": "string",
+      "description": "Branch name to use promotion overrides from during sync"
+    },
+    "skipBranchValidation": {
+      "type": "boolean",
+      "description": "Skip validation that current git branch matches a configured branch"
+    },
+    "nonDottedPaths": {
+      "type": "boolean",
+      "description": "Use __flow/__app/__raw_app suffixes instead of .flow/.app/.raw_app"
+    },
+    "codebases": {
+      "type": "array",
+      "description": "Codebase bundling configurations for shared libraries",
+      "items": {
+        "type": "object",
+        "properties": {
+          "relative_path": {
+            "type": "string",
+            "description": "Path to the codebase directory"
+          },
+          "includes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Glob patterns for files to include in bundle"
+          },
+          "excludes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Glob patterns for files to exclude from bundle"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "cjs",
+              "esm"
+            ],
+            "description": "Bundle output format"
+          },
+          "external": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Dependencies to leave unbundled (externals)"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "to"
+              ]
+            },
+            "description": "Static files to copy into the bundle"
+          },
+          "customBundler": {
+            "type": "string",
+            "description": "Path to a custom bundler script (replaces esbuild)"
+          },
+          "inject": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Files to inject into every entry point"
+          },
+          "define": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Compile-time constant definitions"
+          },
+          "banner": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Text to prepend to output files by type"
+          },
+          "loader": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "esbuild loader overrides by extension"
+          }
+        },
+        "required": [
+          "relative_path"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "gitBranches": {
+      "type": "object",
+      "description": "Map git branches to workspaces and per-branch sync overrides",
+      "properties": {
+        "commonSpecificItems": {
+          "type": "object",
+          "description": "Sync only specific items",
+          "properties": {
+            "variables": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Specific variable paths to sync"
+            },
+            "resources": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Specific resource paths to sync"
+            },
+            "triggers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Specific trigger paths to sync"
+            },
+            "folders": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Specific folder paths to sync"
+            },
+            "settings": {
+              "type": "boolean",
+              "description": "Whether to sync settings"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "description": "Windmill instance URL for this branch"
+          },
+          "workspaceId": {
+            "type": "string",
+            "description": "Workspace ID to sync with for this branch"
+          },
+          "overrides": {
+            "type": "object",
+            "description": "Override any top-level sync option for this branch"
+          },
+          "promotionOverrides": {
+            "type": "object",
+            "description": "Overrides applied when using --promotion flag"
+          },
+          "specificItems": {
+            "type": "object",
+            "description": "Sync only specific items",
+            "properties": {
+              "variables": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Specific variable paths to sync"
+              },
+              "resources": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Specific resource paths to sync"
+              },
+              "triggers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Specific trigger paths to sync"
+              },
+              "folders": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Specific folder paths to sync"
+              },
+              "settings": {
+                "type": "boolean",
+                "description": "Whether to sync settings"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "environments": {
+      "type": "object",
+      "description": "Alias for gitBranches — use if you prefer environment-based terminology",
+      "properties": {
+        "commonSpecificItems": {
+          "type": "object",
+          "description": "Sync only specific items",
+          "properties": {
+            "variables": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Specific variable paths to sync"
+            },
+            "resources": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Specific resource paths to sync"
+            },
+            "triggers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Specific trigger paths to sync"
+            },
+            "folders": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Specific folder paths to sync"
+            },
+            "settings": {
+              "type": "boolean",
+              "description": "Whether to sync settings"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "description": "Windmill instance URL for this branch"
+          },
+          "workspaceId": {
+            "type": "string",
+            "description": "Workspace ID to sync with for this branch"
+          },
+          "overrides": {
+            "type": "object",
+            "description": "Override any top-level sync option for this branch"
+          },
+          "promotionOverrides": {
+            "type": "object",
+            "description": "Overrides applied when using --promotion flag"
+          },
+          "specificItems": {
+            "type": "object",
+            "description": "Sync only specific items",
+            "properties": {
+              "variables": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Specific variable paths to sync"
+              },
+              "resources": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Specific resource paths to sync"
+              },
+              "triggers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Specific trigger paths to sync"
+              },
+              "folders": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Specific folder paths to sync"
+              },
+              "settings": {
+                "type": "boolean",
+                "description": "Whether to sync settings"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,4 +1,5 @@
-import { stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 
 import * as wmill from "../../../gen/services.gen.ts";
@@ -231,6 +232,7 @@ export async function pushNativeTrigger(
       is_flow: result.is_flow,
       service_config: result.service_config,
       error: result.error,
+      summary: result.summary,
     };
     log.debug(`Native trigger ${serviceName}/${externalId} exists on remote`);
   } catch {
@@ -243,6 +245,7 @@ export async function pushNativeTrigger(
     script_path: localTrigger.script_path,
     is_flow: localTrigger.is_flow,
     service_config: localTrigger.service_config,
+    summary: localTrigger.summary,
   };
 
   if (remoteTrigger) {
@@ -251,11 +254,13 @@ export async function pushNativeTrigger(
       script_path: localTrigger.script_path,
       is_flow: localTrigger.is_flow,
       service_config: localTrigger.service_config,
+      summary: localTrigger.summary,
     };
     const remoteCompare = {
       script_path: remoteTrigger.script_path,
       is_flow: remoteTrigger.is_flow,
       service_config: remoteTrigger.service_config,
+      summary: remoteTrigger.summary,
     };
 
     if (isSuperset(localCompare, remoteCompare)) {
@@ -304,11 +309,20 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     http_method: "get",
     is_async: false,
     requires_auth: true,
+    request_type: "sync",
+    authentication_method: "none",
+    is_static_website: false,
+    workspaced_route: false,
+    wrap_body: false,
+    raw_string: false,
   },
   websocket: {
     script_path: "",
     is_flow: false,
     url: "",
+    filters: [],
+    can_return_message: false,
+    can_return_error_result: false,
     enabled: false,
   },
   kafka: {
@@ -317,6 +331,7 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     kafka_resource_path: "",
     group_id: "",
     topics: [],
+    filters: [],
     enabled: false,
   },
   nats: {
@@ -324,6 +339,7 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     is_flow: false,
     nats_resource_path: "",
     subjects: [],
+    use_jetstream: false,
     enabled: false,
   },
   postgres: {
@@ -338,28 +354,31 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     script_path: "",
     is_flow: false,
     mqtt_resource_path: "",
-    topics: [],
-    subscribe_qos: 0,
+    subscribe_topics: [],
     enabled: false,
   },
   sqs: {
     script_path: "",
     is_flow: false,
-    sqs_resource_path: "",
     queue_url: "",
+    aws_resource_path: "",
+    aws_auth_resource_type: "credentials",
     enabled: false,
   },
   gcp: {
     script_path: "",
     is_flow: false,
     gcp_resource_path: "",
-    subscription_id: "",
     topic_id: "",
+    subscription_id: "",
+    delivery_type: "pull",
+    subscription_mode: "create_update",
     enabled: false,
   },
   email: {
     script_path: "",
     is_flow: false,
+    local_part: "",
     enabled: false,
   },
 };
@@ -383,6 +402,7 @@ async function newTrigger(opts: GlobalOptions & { kind: string }, path: string) 
     if (e.message?.startsWith("File already exists")) throw e;
   }
   const template = triggerTemplates[kind];
+  await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, yamlStringify(template), {
     flag: "wx",
     encoding: "utf-8",
@@ -390,7 +410,29 @@ async function newTrigger(opts: GlobalOptions & { kind: string }, path: string) 
   log.info(colors.green(`Created ${filePath}`));
 }
 
+const TRIGGER_SKIP_FIELDS = new Set(["workspace_id", "extra_perms", "edited_by", "edited_at"]);
+
+function printTriggerDetails(trigger: any, kind: string) {
+  console.log(colors.bold("Path:") + " " + trigger.path);
+  console.log(colors.bold("Kind:") + " " + kind);
+  console.log(colors.bold("Enabled:") + " " + (trigger.enabled ?? trigger.mode ?? "-"));
+  console.log(colors.bold("Script Path:") + " " + (trigger.script_path ?? ""));
+  console.log(colors.bold("Is Flow:") + " " + (trigger.is_flow ? "true" : "false"));
+  // Show all other non-internal fields
+  for (const [key, value] of Object.entries(trigger)) {
+    if (["path", "enabled", "mode", "script_path", "is_flow"].includes(key)) continue;
+    if (TRIGGER_SKIP_FIELDS.has(key)) continue;
+    if (value === undefined || value === null || value === "") continue;
+    const display = Array.isArray(value) ? (value.length > 0 ? JSON.stringify(value) : "[]") :
+                    typeof value === "object" ? JSON.stringify(value) : String(value);
+    if (display === "[]" || display === "{}") continue;
+    const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    console.log(colors.bold(label + ":") + " " + display);
+  }
+}
+
 async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -402,11 +444,7 @@ async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path
     if (opts.json) {
       console.log(JSON.stringify(trigger));
     } else {
-      console.log(colors.bold("Path:") + " " + (trigger as any).path);
-      console.log(colors.bold("Kind:") + " " + opts.kind);
-      console.log(colors.bold("Enabled:") + " " + ((trigger as any).enabled ?? "-"));
-      console.log(colors.bold("Script Path:") + " " + ((trigger as any).script_path ?? ""));
-      console.log(colors.bold("Is Flow:") + " " + ((trigger as any).is_flow ? "true" : "false"));
+      printTriggerDetails(trigger as any, opts.kind);
     }
     return;
   }
@@ -431,11 +469,7 @@ async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path
     if (opts.json) {
       console.log(JSON.stringify(trigger));
     } else {
-      console.log(colors.bold("Path:") + " " + trigger.path);
-      console.log(colors.bold("Kind:") + " " + kind);
-      console.log(colors.bold("Enabled:") + " " + (trigger.enabled ?? "-"));
-      console.log(colors.bold("Script Path:") + " " + (trigger.script_path ?? ""));
-      console.log(colors.bold("Is Flow:") + " " + (trigger.is_flow ? "true" : "false"));
+      printTriggerDetails(trigger, kind);
     }
     return;
   }
@@ -457,6 +491,7 @@ async function listOrEmpty<T>(fn: () => Promise<T[]>): Promise<T[]> {
 }
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 

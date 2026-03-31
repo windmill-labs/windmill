@@ -30,13 +30,14 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
-	import { FolderService, OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
 	import {
-		enterpriseLicense,
-		userStore,
-		workspaceStore,
-		userWorkspaces
-	} from '$lib/stores'
+		FolderService,
+		OauthService,
+		ResourceService,
+		WorkspaceService,
+		type ListableResource
+	} from '$lib/gen'
+	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		canWrite,
@@ -121,6 +122,7 @@
 	let appConnect: AppConnect | undefined = $state(undefined)
 	let supabaseConnect: SupabaseConnect | undefined = $state(undefined)
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let deleteIsLinked = $state(false)
 	let loading = $state({
 		resources: true,
 		types: true
@@ -151,7 +153,12 @@
 	let folderPresets = $derived([
 		...folders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
 		...(resourcesFilterSchema.user_folders_only
-			? [{ name: resourcesFilterSchema.user_folders_only.label ?? '?', value: 'user_folders_only:\\ true' }]
+			? [
+					{
+						name: resourcesFilterSchema.user_folders_only.label ?? '?',
+						value: 'user_folders_only:\\ true'
+					}
+				]
 			: [])
 	])
 
@@ -577,6 +584,7 @@
 	open={Boolean(deleteConfirmedCallback)}
 	title="Remove resource"
 	confirmationText="Remove"
+	trashbin
 	on:canceled={() => {
 		deleteConfirmedCallback = undefined
 	}}
@@ -589,6 +597,12 @@
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to remove this resource?</span>
+		{#if deleteIsLinked}
+			<Alert type="warning" title="Linked variable">
+				This resource is linked with a variable of the same path. The linked variable will also be
+				deleted.
+			</Alert>
+		{/if}
 		<Alert type="info" title="Bypass confirmation">
 			<div>
 				You can press
@@ -1112,6 +1126,7 @@
 															if (event?.shiftKey) {
 																deleteResource(path, account)
 															} else {
+																deleteIsLinked = is_linked ?? false
 																deleteConfirmedCallback = () => {
 																	deleteResource(path, account)
 																}

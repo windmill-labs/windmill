@@ -427,13 +427,13 @@ pub async fn handle_flow_dependency_job(
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
     // - Preview raw flow in the `queue` or `job` table.
-    let (mut flow, notes) = match job.runnable_id {
+    let (mut flow, extras) = match job.runnable_id {
         Some(ScriptHash(id)) => {
             let flow = cache::flow::fetch_version(db, id).await?;
-            (flow.value().clone(), flow.notes())
+            (flow.value().clone(), flow.extras())
         }
         _ => match preview_data {
-            Some(RawData::Flow(data)) => (data.value().clone(), data.notes()),
+            Some(RawData::Flow(data)) => (data.value().clone(), data.extras()),
             _ => return Err(Error::internal_err("expected script hash")),
         },
     };
@@ -528,18 +528,22 @@ pub async fn handle_flow_dependency_job(
     }
 
     #[derive(Debug, Clone, Serialize)]
-    struct FlowValueWithNotes<'a> {
+    struct FlowValueWithExtras<'a> {
         #[serde(flatten)]
         value: &'a FlowValue,
 
         #[serde(skip_serializing_if = "Option::is_none")]
-        notes: Option<Box<RawValue>>, // TODO: Make this a Vec<FlowNote>
+        notes: Option<Box<RawValue>>,
+
+        #[serde(skip_serializing_if = "Option::is_none")]
+        groups: Option<Box<RawValue>>,
     }
 
     let new_flow_value = Json(
-        serde_json::value::to_raw_value(&FlowValueWithNotes {
+        serde_json::value::to_raw_value(&FlowValueWithExtras {
             value: &flow,
-            notes: notes.and_then(|n| n.notes).map(|n| n.into()),
+            notes: extras.as_ref().and_then(|e| e.notes.clone()),
+            groups: extras.as_ref().and_then(|e| e.groups.clone()),
         })
         .map_err(to_anyhow)?,
     );
@@ -598,11 +602,19 @@ pub async fn handle_flow_dependency_job(
         )
         .await?;
 
+        let value_lite_with_extras = Json(
+            serde_json::value::to_raw_value(&FlowValueWithExtras {
+                value: &value_lite,
+                notes: extras.as_ref().and_then(|e| e.notes.clone()),
+                groups: extras.as_ref().and_then(|e| e.groups.clone()),
+            })
+            .map_err(to_anyhow)?,
+        );
         sqlx::query!(
             "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
              ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
             version,
-            Json(value_lite) as Json<FlowValue>,
+            &value_lite_with_extras as &Json<Box<RawValue>>,
         )
         .execute(&mut *tx)
         .await?;

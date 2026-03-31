@@ -149,7 +149,7 @@ pub enum ObjectType {
     WorkspaceDependencies,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28160/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28186/sync-script-to-git-repo-windmill";
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GitRepositorySettings {

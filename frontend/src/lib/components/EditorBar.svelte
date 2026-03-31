@@ -87,6 +87,8 @@
 			| 'powershell'
 			| 'bunnative'
 			| 'claudesandbox'
+			| 'wac_python'
+			| 'wac_typescript'
 		collabMode?: boolean
 		collabLive?: boolean
 		collabUsers?: { name: string }[]
@@ -746,7 +748,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Settings }}
 					target="_blank"
 					variant="accent"
-					href="{base}/workspace_settings?tab=windmill_lfs"
+					href="{base}/workspace_settings?tab=ducklake"
 				>
 					Go to settings
 				</Button>

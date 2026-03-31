@@ -679,7 +679,7 @@
 					</div>
 				{/if}
 			{:else}
-				<div class="absolute top-2 left-2 z5000">
+				<div class="absolute top-1 left-1 z5000">
 					<OperatorMenu favoriteLinks={favoriteManager.current} />
 				</div>
 			{/if}
@@ -778,6 +778,39 @@
 			</div>
 		{/if}
 		<div class="flex flex-col h-full w-full">
+			{#if $userStore?.is_service_account}
+				<div
+					class="bg-yellow-100 dark:bg-yellow-900/50 border-b border-yellow-300 dark:border-yellow-700 px-4 py-2 text-sm text-yellow-800 dark:text-yellow-200 flex items-center justify-center gap-4 shrink-0"
+				>
+					<span>
+						Viewing workspace on behalf of <strong>{$userStore.username}</strong>
+						<span class="text-yellow-600 dark:text-yellow-400"
+							>(impersonated by {$userStore.impersonating_email})</span
+						>
+					</span>
+					<button
+						class="px-3 py-1 text-xs font-medium bg-yellow-200 dark:bg-yellow-800 hover:bg-yellow-300 dark:hover:bg-yellow-700 rounded transition-colors"
+						onclick={async () => {
+							const savedToken = sessionStorage.getItem('pre_impersonation_token')
+							if (savedToken && $workspaceStore) {
+								try {
+									await UserService.exitImpersonation({
+										workspace: $workspaceStore,
+										requestBody: { token: savedToken }
+									})
+								} catch (e) {
+									console.error('Failed to exit impersonation', e)
+								}
+								sessionStorage.removeItem('pre_impersonation_token')
+								sessionStorage.removeItem('pre_impersonation_email')
+							}
+							window.location.href = '/workspace_settings?tab=users'
+						}}
+					>
+						Exit impersonation
+					</button>
+				</div>
+			{/if}
 			<AiChatLayout
 				{children}
 				noPadding={devOnly}

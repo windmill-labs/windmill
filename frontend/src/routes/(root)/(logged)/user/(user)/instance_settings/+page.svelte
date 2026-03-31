@@ -25,13 +25,20 @@
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import InstanceAISettings from '$lib/components/instanceSettings/InstanceAISettings.svelte'
 
 	const settingsSteps = [
 		{ id: 'Core', label: 'Core' },
 		{ id: 'Auth/OAuth/SAML', label: 'Authentication' }
 	] as const
 
-	const wizardStepLabels = [...settingsSteps.map((s) => s.label), 'Root login & Resource Types']
+	const AI_STEP_INDEX = settingsSteps.length
+
+	const wizardStepLabels = [
+		...settingsSteps.map((s) => s.label),
+		'AI',
+		'Root login & Resource Types'
+	]
 
 	const fullStepLabels = ['Settings', 'Root login & Resource Types']
 
@@ -67,6 +74,7 @@
 	})
 
 	let instanceSettings: InstanceSettings | undefined = $state()
+	let instanceAiSettings: InstanceAISettings | undefined = $state()
 
 	function isSettingsStep(step: number): boolean {
 		return step < settingsSteps.length
@@ -143,10 +151,13 @@
 		}
 	}
 
-	const emailPattern = /^[\w-.]+@([\w-]+\.)+[\w-]{2,4}$/
+	const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 	let emailValid = $derived(emailPattern.test(newEmail))
 	let passwordValid = $derived(newPassword.length >= 2)
 	let accountFormValid = $derived(emailValid && passwordValid)
+
+	// --- AI step state ---
+	let aiHasUnsavedChanges = $state(false)
 
 	// --- EE license key warning ---
 	let showLicenseKeyWarning = $state(false)
@@ -168,9 +179,20 @@
 	let authSubTab: 'sso' | 'oauth' | 'scim' = $derived(tabToAuthSubTab[fullTab] ?? 'sso')
 	let yamlMode = $state(false)
 
-	function handleNavigate(newTab: string) {
-		if (newTab === fullTab) return
+	function isAiStepActive(): boolean {
+		return (
+			(mode === 'wizard' && wizardStep === AI_STEP_INDEX) ||
+			(mode === 'full' && fullStep === 0 && fullTab === 'ai' && !yamlMode)
+		)
+	}
+
+	async function handleNavigate(newTab: string): Promise<boolean> {
+		if (newTab === fullTab) return true
+		if (isAiStepActive() && !((await instanceAiSettings?.persistBeforeExit()) ?? true)) {
+			return false
+		}
 		fullTab = newTab
+		return true
 	}
 
 	// --- Settings search (full mode) ---
@@ -180,7 +202,10 @@
 	let highlightTimeout: ReturnType<typeof setTimeout> | undefined
 
 	async function handleSearchSelect(item: SearchableSettingItem) {
-		handleNavigate(item.tabId)
+		const didNavigate = await handleNavigate(item.tabId)
+		if (!didNavigate) {
+			return
+		}
 		if (item.settingKey) {
 			clearTimeout(scrollTimeout)
 			clearTimeout(highlightTimeout)
@@ -202,7 +227,7 @@
 	})
 
 	/** Check if we need to warn about missing EE license key before proceeding */
-	function proceedFromCore(callback: () => void) {
+	async function proceedFromCore(callback: () => void) {
 		const leavingSettings =
 			(mode === 'wizard' && wizardStep === 0) || (mode === 'full' && fullStep === 0)
 		if (leavingSettings && isEeImage() && isLicenseKeyEmpty()) {
@@ -210,12 +235,16 @@
 			showLicenseKeyWarning = true
 			return
 		}
-		saveAndProceed(callback)
+		await saveAndProceed(callback)
 	}
 
 	/** Auto-save dirty settings, then run the callback */
 	async function saveAndProceed(callback: () => void) {
-		if (yamlMode) {
+		if (isAiStepActive()) {
+			if (!((await instanceAiSettings?.persistBeforeExit()) ?? true)) {
+				return
+			}
+		} else if (yamlMode) {
 			// In YAML mode, sync editor → form, then bulk-save everything
 			if (!instanceSettings?.syncBeforeDiff()) return
 			await instanceSettings.saveSettings()
@@ -231,11 +260,14 @@
 		callback()
 	}
 
-	function switchToFullMode() {
+	async function switchToFullMode() {
 		mode = 'full'
 	}
 
-	function switchToWizardMode() {
+	async function switchToWizardMode() {
+		if (isAiStepActive() && !((await instanceAiSettings?.persistBeforeExit()) ?? true)) {
+			return
+		}
 		yamlMode = false
 		fullStep = 0
 		mode = 'wizard'
@@ -461,6 +493,13 @@
 							tab={settingsSteps[wizardStep].id}
 						/>
 					{/key}
+				{:else if wizardStep === AI_STEP_INDEX}
+					<InstanceAISettings
+						bind:this={instanceAiSettings}
+						bind:hasUnsavedChanges={aiHasUnsavedChanges}
+						disableChatOffset
+						showHubSync
+					/>
 				{:else}
 					{@render accountSetupContent()}
 				{/if}
@@ -505,19 +544,28 @@
 					{/if}
 
 					<div class="flex-1 min-w-0 h-full overflow-auto px-4">
-						<InstanceSettings
-							bind:this={instanceSettings}
-							hideTabs
-							tab={instanceSettingsCategory}
-							{authSubTab}
-							bind:yamlMode
-							onNavigateToTab={(category) => {
-								const targetTab = categoryToTabMap[category]
-								if (targetTab) {
-									handleNavigate(targetTab)
-								}
-							}}
-						/>
+						{#if fullTab === 'ai' && !yamlMode}
+							<InstanceAISettings
+								bind:this={instanceAiSettings}
+								bind:hasUnsavedChanges={aiHasUnsavedChanges}
+								disableChatOffset
+								showHubSync
+							/>
+						{:else}
+							<InstanceSettings
+								bind:this={instanceSettings}
+								hideTabs
+								tab={instanceSettingsCategory}
+								{authSubTab}
+								bind:yamlMode
+								onNavigateToTab={(category) => {
+									const targetTab = categoryToTabMap[category]
+									if (targetTab) {
+										handleNavigate(targetTab)
+									}
+								}}
+							/>
+						{/if}
 					</div>
 				</div>
 			{:else}
