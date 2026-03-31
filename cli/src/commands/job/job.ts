@@ -335,8 +335,10 @@ async function logs(
   if (jobLogs == null || jobLogs === "") {
     log.info("No logs available for this job.");
   } else {
+    // Strip the hint if the API already includes it, then print it once to stderr
+    const stripped = jobLogs.replace(/^to remove ansi colors.*\n?/gm, "");
     console.error("to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{1,\\}[A-Za-z]//g'");
-    console.log(jobLogs);
+    console.log(stripped);
   }
 }
 
