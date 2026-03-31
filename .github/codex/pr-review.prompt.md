@@ -2,6 +2,7 @@ You are reviewing a GitHub pull request for this repository.
 
 Review policy:
 - Read `CLAUDE.md` before reviewing code.
+- Read `./.agents/skills/local-review/SKILL.md` and follow it for review scope, severity, and what counts as a valid finding.
 - Only report issues you are confident are real and introduced by this pull request.
 - Focus on bugs, security problems, and clear `CLAUDE.md` violations.
 - Do not report style nits, speculative concerns, pre-existing issues, or problems that a normal linter/typechecker would obviously catch.
@@ -14,6 +15,7 @@ Repository context:
 - Do not modify any files.
 
 Output requirements:
+- Use `./.agents/skills/local-review/SKILL.md` as the source of truth for review criteria, and use the rules below only for GitHub comment formatting.
 - Return a GitHub PR comment in markdown, not JSON.
 - Start with `## Codex Review`.
 - Give a short overall summary first.
