@@ -1906,6 +1906,21 @@ async fn process_notify_event(
                 RESTART_COORDINATION_SETTING => {
                     // Internal coordination key for staggered restarts, no action needed
                 }
+                "plain_emails_telemetry" => {
+                    let enabled = sqlx::query_scalar!(
+                        "SELECT value FROM global_settings WHERE name = 'plain_emails_telemetry'"
+                    )
+                    .fetch_optional(db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                    tracing::info!(
+                        "Plain emails telemetry setting changed: enabled={}",
+                        enabled
+                    );
+                }
                 _ => {
                     tracing::info!("Unrecognized Global Setting Change Payload: {:?}", payload);
                 }

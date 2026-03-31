@@ -1627,6 +1627,7 @@ flow related commands
 - \`flow get <path:string>\` - get a flow's details
   - \`--json\` - Output as JSON (for piping to jq)
 - \`flow push <file_path:string> <remote_path:string>\` - push a local flow spec. This overrides any remote versions.
+  - \`--message <message:string>\` - Deployment message
 - \`flow run <path:string>\` - run a flow by path.
   - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - \`-s --silent\` - Do not ouput anything other then the final output. Useful for scripting.
@@ -1828,6 +1829,7 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 - \`--json\` - Output results in JSON format
 - \`--fail-on-warn\` - Exit with code 1 when warnings are emitted
 - \`--locks-required\` - Fail if scripts or flow inline scripts that need locks have no locks
+- \`-w, --watch\` - Watch for file changes and re-lint automatically
 
 ### queues
 
@@ -1896,15 +1898,16 @@ schedule related commands
 script related commands
 
 **Options:**
-- \`--show-archived\` - Enable archived scripts in output
+- \`--show-archived\` - Show archived scripts instead of active ones
 - \`--json\` - Output as JSON (for piping to jq)
 
 **Subcommands:**
 
 - \`script list\` - list all scripts
-  - \`--show-archived\` - Enable archived scripts in output
+  - \`--show-archived\` - Show archived scripts instead of active ones
   - \`--json\` - Output as JSON (for piping to jq)
 - \`script push <path:file>\` - push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh
+  - \`--message <message:string>\` - Deployment message
 - \`script get <path:file>\` - get a script's details
   - \`--json\` - Output as JSON (for piping to jq)
 - \`script show <path:file>\` - show a script's content (alias for get

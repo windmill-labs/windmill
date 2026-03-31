@@ -78,7 +78,7 @@ export {
   token,
 };
 
-export const VERSION = "1.668.1";
+export const VERSION = "1.670.0";
 
 // Re-exported from constants.ts to maintain backwards compatibility
 export { WM_FORK_PREFIX } from "./core/constants.ts";
@@ -231,7 +231,9 @@ async function main() {
   } catch (e) {
     if (e && typeof e === "object" && "name" in e && e.name === "ApiError") {
       const body = (e as any).body;
-      const bodyStr = typeof body === "object" && body !== null ? JSON.stringify(body) : body;
+      let bodyStr = typeof body === "object" && body !== null ? JSON.stringify(body) : String(body ?? "");
+      // Strip backend source file references like (flows.rs:1400) or @scripts.rs:123:45
+      bodyStr = bodyStr.replace(/\s*[@(]\w+\.rs:\d+[:\d]*\)?/g, "");
       log.error(
         "Server failed. " + (e as any).statusText + ": " + bodyStr
       );

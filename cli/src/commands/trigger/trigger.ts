@@ -378,6 +378,7 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
   email: {
     script_path: "",
     is_flow: false,
+    local_part: "",
     enabled: false,
   },
 };
@@ -409,6 +410,27 @@ async function newTrigger(opts: GlobalOptions & { kind: string }, path: string) 
   log.info(colors.green(`Created ${filePath}`));
 }
 
+const TRIGGER_SKIP_FIELDS = new Set(["workspace_id", "extra_perms", "edited_by", "edited_at"]);
+
+function printTriggerDetails(trigger: any, kind: string) {
+  console.log(colors.bold("Path:") + " " + trigger.path);
+  console.log(colors.bold("Kind:") + " " + kind);
+  console.log(colors.bold("Enabled:") + " " + (trigger.enabled ?? trigger.mode ?? "-"));
+  console.log(colors.bold("Script Path:") + " " + (trigger.script_path ?? ""));
+  console.log(colors.bold("Is Flow:") + " " + (trigger.is_flow ? "true" : "false"));
+  // Show all other non-internal fields
+  for (const [key, value] of Object.entries(trigger)) {
+    if (["path", "enabled", "mode", "script_path", "is_flow"].includes(key)) continue;
+    if (TRIGGER_SKIP_FIELDS.has(key)) continue;
+    if (value === undefined || value === null || value === "") continue;
+    const display = Array.isArray(value) ? (value.length > 0 ? JSON.stringify(value) : "[]") :
+                    typeof value === "object" ? JSON.stringify(value) : String(value);
+    if (display === "[]" || display === "{}") continue;
+    const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    console.log(colors.bold(label + ":") + " " + display);
+  }
+}
+
 async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path: string) {
   if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
@@ -422,11 +444,7 @@ async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path
     if (opts.json) {
       console.log(JSON.stringify(trigger));
     } else {
-      console.log(colors.bold("Path:") + " " + (trigger as any).path);
-      console.log(colors.bold("Kind:") + " " + opts.kind);
-      console.log(colors.bold("Enabled:") + " " + ((trigger as any).enabled ?? "-"));
-      console.log(colors.bold("Script Path:") + " " + ((trigger as any).script_path ?? ""));
-      console.log(colors.bold("Is Flow:") + " " + ((trigger as any).is_flow ? "true" : "false"));
+      printTriggerDetails(trigger as any, opts.kind);
     }
     return;
   }
@@ -451,11 +469,7 @@ async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path
     if (opts.json) {
       console.log(JSON.stringify(trigger));
     } else {
-      console.log(colors.bold("Path:") + " " + trigger.path);
-      console.log(colors.bold("Kind:") + " " + kind);
-      console.log(colors.bold("Enabled:") + " " + (trigger.enabled ?? (trigger as any).mode ?? "-"));
-      console.log(colors.bold("Script Path:") + " " + (trigger.script_path ?? ""));
-      console.log(colors.bold("Is Flow:") + " " + (trigger.is_flow ? "true" : "false"));
+      printTriggerDetails(trigger, kind);
     }
     return;
   }

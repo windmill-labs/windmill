@@ -1134,6 +1134,12 @@ async fn edit_webhook(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
+    if *CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "Workspace webhooks are not available on cloud-hosted instances".to_string(),
+        ));
+    }
+
     let mut tx = db.begin().await?;
 
     if let Some(webhook) = &ew.webhook {

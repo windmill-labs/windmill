@@ -80,6 +80,27 @@ where
     deserializer.deserialize_map(SupersetVisitor { key, value_to_check })
 }
 
+pub fn check_filters(text: &str, filters: &[Filter], use_or_logic: bool) -> bool {
+    if filters.is_empty() {
+        return true;
+    }
+
+    let check = |filter: &Filter| -> bool {
+        match filter {
+            Filter::JsonFilter(JsonFilter { key, value }) => {
+                let mut deserializer = serde_json::Deserializer::from_str(text);
+                is_value_superset(&mut deserializer, key, value).unwrap_or(false)
+            }
+        }
+    };
+
+    if use_or_logic {
+        filters.iter().any(check)
+    } else {
+        filters.iter().all(check)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

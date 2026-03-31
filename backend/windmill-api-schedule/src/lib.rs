@@ -658,7 +658,11 @@ async fn list_schedule(
         sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
     }
     if let Some(args) = &lsq.args {
-        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            sqlb.and_where("args @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
     if let Some(path_start) = &lsq.path_start {
         sqlb.and_where_like_left("path", path_start);

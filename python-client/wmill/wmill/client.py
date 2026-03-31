@@ -94,6 +94,7 @@ class Windmill:
             base_url=self.base_url,
             headers=self.headers,
             verify=self.verify,
+            timeout=httpx.Timeout(900.0),
         )
 
     def get(self, endpoint, raise_for_status=True, **kwargs) -> httpx.Response:

@@ -379,6 +379,8 @@ pub async fn run_server(
             REQUEST_SIZE_LIMIT.read().await.clone(),
         ));
 
+    let request_size_limit = REQUEST_SIZE_LIMIT.read().await.clone();
+
     let cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST, http::Method::DELETE])
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
@@ -475,17 +477,14 @@ pub async fn run_server(
             let (mcp_router, mcp_cancellation_token) =
                 setup_mcp_server(db.clone(), user_db, _base_internal_url.clone()).await?;
             // Workspace-scoped MCP router
-            // Use `layer` instead of `route_layer` because the MCP router only has
-            // a fallback_service (no explicit routes), and axum 0.8 panics on
-            // route_layer with no routes.
             let workspaced_mcp_router = mcp_router
                 .clone()
-                .layer(from_extractor::<ApiAuthed>())
+                .route_layer(from_extractor::<ApiAuthed>())
                 .layer(axum::middleware::from_fn(add_www_authenticate_header))
                 .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
             // Gateway MCP router — resolves workspace from token
             let gateway_mcp_router = mcp_router
-                .layer(from_extractor::<ApiAuthed>())
+                .route_layer(from_extractor::<ApiAuthed>())
                 .layer(axum::middleware::from_fn(
                     add_www_authenticate_header_gateway,
                 ))
@@ -536,7 +535,7 @@ pub async fn run_server(
                     Router::new()
                         // Reordered alphabetically
                         .nest("/acls", granular_acls::workspaced_service())
-                        .nest("/apps", apps::workspaced_service())
+                        .nest("/apps", apps::workspaced_service(request_size_limit * 5))
                         .nest("/assets", windmill_api_assets::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
                         .nest("/capture", capture::workspaced_service())

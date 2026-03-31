@@ -453,6 +453,8 @@ pub struct ScriptHistory {
     pub script_hash: ScriptHash,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Deserialize)]

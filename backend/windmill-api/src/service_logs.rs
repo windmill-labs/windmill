@@ -97,6 +97,9 @@ async fn get_log_file(
 
     require_devops_role(&db, &email).await?;
     let path = path.to_path();
+    if path.contains("..") {
+        return Err(Error::BadRequest("Invalid path".to_string()));
+    }
     #[cfg(feature = "parquet")]
     let s3_client = windmill_object_store::get_object_store().await;
     #[cfg(feature = "parquet")]

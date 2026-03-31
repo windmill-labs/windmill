@@ -67,17 +67,20 @@ async function list(
   let successFilter = opts.success;
   if (opts.failed) successFilter = false;
 
-  const jobs = await wmill.listJobs({
+  const limit = Math.min(opts.limit ?? 30, 100);
+  const allJobs = await wmill.listJobs({
     workspace: workspace.workspaceId,
     scriptPathExact: opts.scriptPath,
     createdBy: opts.createdBy,
     running: opts.running,
     success: successFilter,
-    perPage: Math.min(opts.limit ?? 30, 100),
+    perPage: limit,
     jobKinds: opts.jobKinds ?? "script,flow,singlestepflow",
     label: opts.label,
     hasNullParent: opts.all ? undefined : true,
   });
+  // API may return more than perPage — enforce limit client-side
+  const jobs = allJobs.slice(0, limit);
 
   if (opts.json) {
     console.log(JSON.stringify(jobs));

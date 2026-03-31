@@ -305,6 +305,79 @@ describe("script run command", () => {
       expect(result.stdout).toContain(`run_result_${uniqueId}`);
     });
   });
+
+  test("exits with code 1 when script fails", { timeout: 60000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/fail_script_${uniqueId}`;
+      const scriptContent = `export async function main() { throw new Error("intentional failure"); }`;
+
+      await createRemoteScript(backend, scriptPath, scriptContent);
+
+      const result = await backend.runCLICommand(
+        ["script", "run", scriptPath, "--silent"],
+        tempDir
+      );
+
+      expect(result.code).toEqual(1);
+    });
+  });
+
+  test("errors when required args are missing", { timeout: 60000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/args_script_${uniqueId}`;
+      const scriptContent = `export async function main(name: string) { return name; }`;
+
+      // Create script with an explicit schema that has required args
+      // (createRemoteScript defaults to empty schema, so we call the API directly)
+      const parts = scriptPath.split("/");
+      if (parts[0] === "f" && parts.length > 2) {
+        await backend.apiRequest!(
+          `/api/w/${backend.workspace}/folders/create`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: parts[1] }),
+          }
+        ).catch(() => {});
+      }
+      const resp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/scripts/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: scriptPath,
+            content: scriptContent,
+            language: "bun",
+            summary: "Test script with required args",
+            schema: {
+              $schema: "https://json-schema.org/draft/2020-12/schema",
+              type: "object",
+              properties: { name: { type: "string" } },
+              required: ["name"],
+            },
+          }),
+        }
+      );
+      expect(resp.status).toBeLessThan(300);
+      await resp.text();
+
+      const result = await backend.runCLICommand(
+        ["script", "run", scriptPath],
+        tempDir
+      );
+
+      expect(result.code).not.toEqual(0);
+      const output = result.stdout + result.stderr;
+      expect(output).toContain("Missing required arguments");
+    });
+  });
 });
 
 // =============================================================================
@@ -568,6 +641,85 @@ describe("user commands", () => {
 
       // Clean up
       await backend.runCLICommand(["user", "remove", email], tempDir);
+    });
+  });
+});
+
+// =============================================================================
+// Script Push --message
+// =============================================================================
+
+describe("script push --message", () => {
+  test("push with --message flag succeeds", { timeout: 60000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const scriptPath = `f/test/msg_script_${uniqueId}`;
+      const scriptFile = join(tempDir, scriptPath + ".ts");
+      const metaFile = join(tempDir, scriptPath + ".script.yaml");
+      const deployMsg = `deploy_msg_${uniqueId}`;
+
+      await mkdir(join(tempDir, "f", "test"), { recursive: true });
+      await writeFile(scriptFile, 'export async function main() { return "v1"; }');
+      await writeFile(metaFile, [
+        "summary: test",
+        "description: ''",
+        "lock: ''",
+        "kind: script",
+        "schema:",
+        "  $schema: https://json-schema.org/draft/2020-12/schema",
+        "  type: object",
+        "  properties: {}",
+        "  required: []",
+      ].join("\n"));
+
+      // Verify push with --message flag succeeds (doesn't error on unknown flag)
+      const pushResult = await backend.runCLICommand(
+        ["script", "push", scriptPath + ".ts", "--message", deployMsg],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+      expect(pushResult.stdout).toContain("pushed");
+
+      // Verify history returns at least one version
+      const histResult = await backend.runCLICommand(
+        ["script", "history", scriptPath, "--json"],
+        tempDir
+      );
+      expect(histResult.code).toEqual(0);
+      const versions = JSON.parse(histResult.stdout);
+      expect(versions.length).toBeGreaterThan(0);
+    });
+  });
+});
+
+// =============================================================================
+// Variable Add + Get (encryption roundtrip)
+// =============================================================================
+
+describe("variable add encryption", () => {
+  test("variable add creates a retrievable secret variable", { timeout: 30000 }, async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const varPath = `f/test/secret_${uniqueId}`;
+      const secretValue = `secret_value_${uniqueId}`;
+
+      const addResult = await backend.runCLICommand(
+        ["variable", "add", secretValue, varPath],
+        tempDir
+      );
+      expect(addResult.code).toEqual(0);
+
+      const getResult = await backend.runCLICommand(
+        ["variable", "get", varPath],
+        tempDir
+      );
+      expect(getResult.code).toEqual(0);
+      expect(getResult.stdout).toContain(secretValue);
+      expect(getResult.stdout).toContain("true"); // is_secret
     });
   });
 });

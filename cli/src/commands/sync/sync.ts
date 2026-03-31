@@ -76,7 +76,7 @@ import {
   newRawAppPathAssigner,
   PathAssigner,
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
-import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { extractInlineScripts as extractInlineScriptsForFlows, extractCurrentMapping } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
 import { isExecutionModeAnonymous } from "../app/app.ts";
 import {
@@ -638,9 +638,16 @@ function ZipFSElement(
             let inlineScripts;
             try {
               const assigner = newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() });
-              inlineScripts = extractInlineScriptsForFlows(
+              // Preserve original !inline filenames from the flow to avoid phantom renames
+              const inlineMapping = extractCurrentMapping(
                 flow.value.modules as any,
                 {},
+                flow.value.failure_module,
+                flow.value.preprocessor_module,
+              );
+              inlineScripts = extractInlineScriptsForFlows(
+                flow.value.modules as any,
+                inlineMapping,
                 SEP,
                 defaultTs,
                 assigner,
@@ -649,7 +656,7 @@ function ZipFSElement(
               if (flow.value.failure_module) {
                 inlineScripts.push(...extractInlineScriptsForFlows(
                   [flow.value.failure_module],
-                  {},
+                  inlineMapping,
                   SEP,
                   defaultTs,
                   assigner,
@@ -659,7 +666,7 @@ function ZipFSElement(
               if (flow.value.preprocessor_module) {
                 inlineScripts.push(...extractInlineScriptsForFlows(
                   [flow.value.preprocessor_module],
-                  {},
+                  inlineMapping,
                   SEP,
                   defaultTs,
                   assigner,
@@ -1519,6 +1526,10 @@ async function compareDynFSElement(
         continue;
       }
       if (k.startsWith("dependencies/")) {
+        if (!workspaceDependenciesPathToLanguageAndFilename(k)) {
+          log.warn(`Skipping unrecognized workspace dependencies file: ${k}`);
+          continue;
+        }
         log.info(`Adding workspace dependencies file: ${k}`);
       }
       changes.push({ name: "added", path: k, content: v });
