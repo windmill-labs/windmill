@@ -2528,7 +2528,8 @@ async fn get_approval_info(
         let approval_step = fs.as_ref().map(|s| (s.step as usize).saturating_sub(1));
 
         // Fetch flow definition to get suspend settings (form schema, hide_cancel).
-        // Try raw_flow on the job first, fall back to flow_version for deployed flows.
+        // Try raw_flow on the job first, fall back to flow_version for deployed flows,
+        // then flow_node for graph-based branch/loop sub-flows.
         let raw_flow: Option<FlowValue> = {
             let from_job: Option<serde_json::Value> = sqlx::query_scalar(
                 "SELECT raw_flow FROM v2_job WHERE id = $1 AND workspace_id = $2",
@@ -2552,7 +2553,23 @@ async fn get_approval_info(
                 .fetch_optional(&db)
                 .await?
                 .flatten();
-                from_version.and_then(|v| serde_json::from_value(v).ok())
+                if let Some(v) = from_version {
+                    serde_json::from_value(v).ok()
+                } else {
+                    // FlowNode sub-flow (graph-based branch/loop): raw_flow is not stored
+                    // in v2_job for newer versions, fetch from flow_node table
+                    let from_node: Option<serde_json::Value> = sqlx::query_scalar(
+                        "SELECT fn.flow FROM v2_job j \
+                         JOIN flow_node fn ON fn.id = j.runnable_id \
+                         WHERE j.id = $1 AND j.workspace_id = $2",
+                    )
+                    .bind(&job_id)
+                    .bind(&w_id)
+                    .fetch_optional(&db)
+                    .await?
+                    .flatten();
+                    from_node.and_then(|v| serde_json::from_value(v).ok())
+                }
             }
         };
 
