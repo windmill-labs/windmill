@@ -7,6 +7,7 @@
 	import NumberTypeNarrowing from '../NumberTypeNarrowing.svelte'
 	import StringTypeNarrowing from '../StringTypeNarrowing.svelte'
 	import Tooltip from '../Tooltip.svelte'
+	import Toggle from '../Toggle.svelte'
 
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -290,5 +291,25 @@
 		{/if}
 
 		{@render children?.()}
+
+		{#if type == 'object'}
+			<Toggle
+				size="xs"
+				options={{
+					right: 'Is sensitive',
+					rightTooltip:
+						'The value will be stored as an ephemeral secret variable in the user space of the caller of the job, only viewable by him.'
+				}}
+				checked={extra['password'] ?? false}
+				on:change={(e) => {
+					if (e.detail) {
+						extra['password'] = true
+					} else {
+						extra['password'] = undefined
+					}
+					dispatch('change')
+				}}
+			/>
+		{/if}
 	</div>
 </div>

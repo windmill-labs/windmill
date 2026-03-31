@@ -468,21 +468,3 @@
 		</div>
 	{/if}
 </div>
-{#if type == 'object'}
-	<Toggle
-		size="xs"
-		options={{
-			right: 'Is sensitive',
-			rightTooltip:
-				'The value will be stored as an ephemeral secret variable in the user space of the caller of the job, only viewable by him.'
-		}}
-		checked={extra['password'] ?? false}
-		on:change={(e) => {
-			if (e.detail) {
-				extra['password'] = true
-			} else {
-				extra['password'] = undefined
-			}
-		}}
-	/>
-{/if}
