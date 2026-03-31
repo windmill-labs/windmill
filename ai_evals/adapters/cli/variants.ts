@@ -16,12 +16,16 @@ interface CliVariantManifest {
   id: string;
   description?: string;
   skillsSource: CliVariantSource;
+  agentsSourcePath?: string;
+  claudeSourcePath?: string;
 }
 
 export interface CliVariant {
   id: string;
   description?: string;
   skillsSourcePath: string;
+  agentsSourcePath?: string;
+  claudeSourcePath?: string;
 }
 
 const VARIANTS_DIR = fileURLToPath(new URL("../../variants/cli", import.meta.url));
@@ -45,7 +49,9 @@ export async function loadCliVariants(): Promise<CliVariant[]> {
     variants.push({
       id: parsed.id,
       description: parsed.description,
-      skillsSourcePath: resolveVariantSkillsSource(parsed.skillsSource, manifestPath)
+      skillsSourcePath: resolveVariantSkillsSource(parsed.skillsSource, manifestPath),
+      agentsSourcePath: resolveOptionalManifestPath(parsed.agentsSourcePath, manifestPath),
+      claudeSourcePath: resolveOptionalManifestPath(parsed.claudeSourcePath, manifestPath)
     });
   }
 
@@ -70,4 +76,15 @@ function resolveVariantSkillsSource(
   }
 
   return resolve(join(manifestPath, ".."), skillsSource.path);
+}
+
+function resolveOptionalManifestPath(
+  inputPath: string | undefined,
+  manifestPath: string
+): string | undefined {
+  if (!inputPath) {
+    return undefined;
+  }
+
+  return resolve(join(manifestPath, ".."), inputPath);
 }

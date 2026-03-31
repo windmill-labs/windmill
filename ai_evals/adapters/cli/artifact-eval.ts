@@ -1,10 +1,9 @@
 import { existsSync } from "fs";
-import { cp, mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { generateAgentsMdContent } from "../../../cli/src/guidance/core.ts";
-import { SKILLS } from "../../../cli/src/guidance/skills.ts";
+import { writeAiGuidanceFiles } from "../../../cli/src/guidance/writer.ts";
 import {
   runPromptAndCapture,
   type PromptRunResult,
@@ -86,7 +85,7 @@ export async function runCliArtifactEvalCase(
     variant: CliVariant;
   }
 ): Promise<CliArtifactEvalResult> {
-  const workspaceDir = await createIsolatedWorkspace(evalCase.id, options.variant.skillsSourcePath);
+  const workspaceDir = await createIsolatedWorkspace(evalCase.id, options.variant);
 
   try {
     const renderedPrompt = await renderPrompt(evalCase.prompt, workspaceDir);
@@ -125,31 +124,21 @@ export function shouldKeepWorkspace(): boolean {
 
 async function createIsolatedWorkspace(
   caseId: string,
-  skillsSourcePath: string
+  variant: CliVariant
 ): Promise<string> {
   const workspaceDir = await mkdtemp(join(tmpdir(), `wmill-cli-artifact-${caseId}-`));
-  const skillsDir = join(workspaceDir, ".claude", "skills");
-
-  await mkdir(dirname(skillsDir), { recursive: true });
-  await cp(skillsSourcePath, skillsDir, { recursive: true });
-  await writeProjectGuidance(workspaceDir);
+  await mkdir(dirname(join(workspaceDir, ".claude", "skills")), { recursive: true });
+  await writeAiGuidanceFiles({
+    targetDir: workspaceDir,
+    nonDottedPaths: true,
+    overwriteProjectGuidance: true,
+    skillsSourcePath: variant.skillsSourcePath,
+    agentsSourcePath: variant.agentsSourcePath,
+    claudeSourcePath: variant.claudeSourcePath,
+  });
   await writeFile(join(workspaceDir, "rt.d.ts"), "export namespace RT {}\n", "utf8");
 
   return workspaceDir;
-}
-
-async function writeProjectGuidance(workspaceDir: string): Promise<void> {
-  const skillsBaseDir = ".claude/skills";
-  const skillsReference = SKILLS.map(
-    (skill) => `- \`${skillsBaseDir}/${skill.name}/SKILL.md\` - ${skill.description}`
-  ).join("\n");
-
-  await writeFile(
-    join(workspaceDir, "AGENTS.md"),
-    generateAgentsMdContent(skillsReference),
-    "utf8"
-  );
-  await writeFile(join(workspaceDir, "CLAUDE.md"), "Instructions are in @AGENTS.md\n", "utf8");
 }
 
 async function renderPrompt(prompt: string, workspaceDir: string): Promise<string> {

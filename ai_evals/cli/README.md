@@ -14,6 +14,10 @@ The current implementation is intentionally small:
 
 This is the benchmark entrypoint for prompt and artifact evaluation.
 
+The CLI benchmark workspace now uses the same shared AI-guidance writer as
+`wmill init`, so benchmark runs and local CLI bootstraps go through the same
+project-guidance generation path.
+
 ## Usage
 
 Install dependencies once:
@@ -139,6 +143,29 @@ True efficiency metrics such as latency, token usage, and cost are planned, but
 the current CLI does not emit them yet. Until that lands, use `compare`
 primarily to answer "did this skill bundle produce better artifacts on the same
 cases?"
+
+Variant manifests can also override the top-level project instructions in
+addition to the skills bundle:
+
+```json
+{
+  "id": "candidate",
+  "description": "Candidate guidance bundle",
+  "skillsSource": {
+    "type": "path",
+    "path": "./snapshots/candidate-skills"
+  },
+  "agentsSourcePath": "./snapshots/candidate-AGENTS.md",
+  "claudeSourcePath": "./snapshots/candidate-CLAUDE.md"
+}
+```
+
+That matches the new `wmill init` overrides:
+
+```bash
+wmill init --use-default --ai-skills-source ./ai_evals/variants/cli/snapshots/candidate-skills
+wmill init --use-default --ai-skills-source ./ai_evals/variants/cli/snapshots/candidate-skills --ai-agents-source ./my-candidate-AGENTS.md
+```
 
 ## Next Steps
 

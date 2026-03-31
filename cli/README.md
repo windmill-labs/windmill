@@ -110,6 +110,27 @@ source <(wmill completions zsh)
 
 ## Development
 
+### AI Guidance Variants
+
+`wmill init` can now materialize alternate AI guidance bundles without changing
+the generated defaults in the repo.
+
+Examples:
+
+```bash
+wmill init --use-default --ai-skills-source /path/to/custom/skills
+wmill init --use-default --ai-skills-source /path/to/custom/skills --ai-agents-source /path/to/AGENTS.md
+wmill init --use-default --ai-skills-source /path/to/custom/skills --ai-claude-source /path/to/CLAUDE.md
+```
+
+This is the same guidance-writing path used by the benchmark CLI under
+`ai_evals/`, so the benchmark harness and `wmill init` now generate the same
+project guidance shape:
+
+- `AGENTS.md`
+- `CLAUDE.md`
+- `.claude/skills/*`
+
 ### Testing with a local `windmill-yaml-validator`
 
 To test local changes to the validator before publishing, use `npm link`:
