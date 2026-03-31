@@ -113,6 +113,7 @@
 			bind:this={editableSchemaForm}
 			bind:schema
 			isFlowInput
+			showSensitiveToggle
 			on:delete={(e) => {
 				addPropertyComponent?.handleDeleteArgument([e.detail])
 			}}
@@ -162,9 +163,9 @@
 		</Alert>
 	{:else if formatExtension && formatExtension !== ''}
 		<Alert title={`Example: my_file.${formatExtension}`} type="info">
-			The <span class="font-bold font-mono"> .{formatExtension} </span> extension will be used to
-			infer the format when displaying the content and this is also how the resource will appear
-			when pulling via the CLI.
+			The <span class="font-bold font-mono"> .{formatExtension} </span> extension will be used to infer
+			the format when displaying the content and this is also how the resource will appear when pulling
+			via the CLI.
 		</Alert>
 		<div></div>
 	{/if}
@@ -175,10 +176,7 @@
 		path and contains text content. In the CLI, filesets are stored as directories.
 	</Alert>
 {/if}
-<ToggleButtonGroup
-	selected={resourceMode}
-	onSelected={(mode) => switchResourceMode(mode)}
->
+<ToggleButtonGroup selected={resourceMode} onSelected={(mode) => switchResourceMode(mode)}>
 	{#snippet children({ item })}
 		<ToggleButton value="schema" label="JSON" {item} size="sm" />
 		<ToggleButton value="file" label="File" {item} size="sm" />

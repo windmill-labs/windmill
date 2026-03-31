@@ -36,6 +36,7 @@
 		nonEmpty?: boolean | undefined
 		isFlowInput?: boolean
 		isAppInput?: boolean
+		showSensitiveToggle?: boolean
 		order?: string[] | undefined
 		itemsType?:
 			| {
@@ -67,6 +68,7 @@
 		properties = $bindable(),
 		isFlowInput = false,
 		isAppInput = false,
+		showSensitiveToggle = false,
 		order = $bindable(),
 		itemsType = $bindable(undefined),
 		typeeditor,
@@ -292,7 +294,7 @@
 
 		{@render children?.()}
 
-		{#if type == 'object'}
+		{#if type == 'object' && showSensitiveToggle}
 			<Toggle
 				size="xs"
 				options={{

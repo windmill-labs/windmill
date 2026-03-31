@@ -51,6 +51,7 @@
 		noPreview?: boolean
 		jsonEnabled?: boolean
 		isAppInput?: boolean
+		showSensitiveToggle?: boolean
 		displayWebhookWarning?: boolean
 		onlyMaskPassword?: boolean
 		editTab:
@@ -95,6 +96,7 @@
 		noPreview = false,
 		jsonEnabled = true,
 		isAppInput = false,
+		showSensitiveToggle = false,
 		displayWebhookWarning = false,
 		onlyMaskPassword = false,
 		editTab,
@@ -297,7 +299,9 @@
 	}
 
 	const editTabDefaultSize = untrack(() => noPreview) ? 100 : 50
-	editPanelSize = untrack(() => editTab) ? (untrack(() => editPanelInitialSize) ?? editTabDefaultSize) : 0
+	editPanelSize = untrack(() => editTab)
+		? (untrack(() => editPanelInitialSize) ?? editTabDefaultSize)
+		: 0
 	let inputPanelSize = $state(100 - editPanelSize)
 	let editPanelSizeSmooth = tweened(editPanelSize, {
 		duration: 150
@@ -677,6 +681,7 @@
 															bind:order={schema.properties[argName].order}
 															{isFlowInput}
 															{isAppInput}
+															{showSensitiveToggle}
 														>
 															{#snippet typeeditor()}
 																{#if isFlowInput || isAppInput}
