@@ -267,7 +267,13 @@
 								<tbody>
 									{#each data.large_results.top_large_results as r}
 										<tr class="border-surface-secondary border-b last:border-0">
-											<td class="text-primary py-1 pr-4 font-mono">{r.id.substring(0, 8)}...</td>
+											<td class="text-primary py-1 pr-4 font-mono"
+												><a
+													href="/run/{r.id}?workspace={r.workspace_id}"
+													class="text-blue-600 hover:underline dark:text-blue-400"
+													>{r.id.substring(0, 8)}...</a
+												></td
+											>
 											<td class="text-secondary py-1 pr-4">{r.workspace_id}</td>
 											<td class="text-secondary py-1 pr-4 font-mono">{r.runnable_path ?? '-'}</td>
 											<td class="text-secondary py-1 pr-4 text-right"
@@ -292,7 +298,7 @@
 				class="flex w-full items-center justify-between p-3 text-left hover:bg-surface-secondary/50"
 				onclick={() => toggleSection('connection_pool')}
 			>
-				<h3 class="text-primary text-sm font-semibold">Connection Pool</h3>
+				<h3 class="text-primary text-sm font-semibold">Database Connections</h3>
 				<div class="flex items-center gap-2">
 					<span
 						class="rounded px-1.5 py-0.5 text-xs font-medium {statusBadge(
@@ -311,12 +317,12 @@
 			{#if expandedSections.connection_pool}
 				<div class="border-surface-secondary flex flex-col gap-1 border-t p-3 text-xs">
 					<p class="text-secondary">
-						Pool size: <strong>{data.connection_pool.pool.size}</strong> / Max:
-						<strong>{data.connection_pool.pool.max_connections}</strong>
-						/ Idle: <strong>{data.connection_pool.pool.idle}</strong>
+						Total connections: <strong>{data.connection_pool.pg_total_connections}</strong> / Max:
+						<strong>{data.connection_pool.pg_max_connections}</strong>
 					</p>
 					<p class="text-secondary">
-						Active PG connections: <strong>{data.connection_pool.pg_active_connections}</strong>
+						Active: <strong>{data.connection_pool.pg_active_connections}</strong>
+						/ Idle: <strong>{data.connection_pool.pg_idle_connections}</strong>
 					</p>
 					<p class="{statusColor(data.connection_pool.status)} mt-1 font-medium">
 						{data.connection_pool.message}
