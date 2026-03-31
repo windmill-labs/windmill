@@ -65,7 +65,7 @@
 			bind:value={inputValue}
 			onkeydown={onKeydown}
 			onblur={addLabel}
-			class="text-xs border border-blue-300 rounded px-1.5 py-0.5 w-24 outline-none focus:ring-1 focus:ring-blue-400"
+			class="text-xs border border-blue-300 rounded px-1.5 py-0.5 w-32 outline-none focus:ring-1 focus:ring-blue-400"
 			placeholder="label"
 		/>
 	{:else}
