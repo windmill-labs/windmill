@@ -189,7 +189,7 @@ describe("job command", () => {
       expect(result.code).toEqual(0);
       // Should show labeled step headers instead of "no direct logs"
       expect(result.stdout).toContain("======");
-      expect(result.stdout).toContain("a");
+      expect(result.stdout).toContain("a: Generate data");
     });
   });
 

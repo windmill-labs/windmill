@@ -388,34 +388,39 @@ async function run(
     }
 
     if (module.job) {
-      if (!opts.silent) {
-        const label = stepLabels.get(module.id!) ?? `Step ${i + 1}`;
-        const isForLoop = (module as any).flow_jobs !== undefined;
+      const label = stepLabels.get(module.id!) ?? `Step ${i + 1}`;
+      const isForLoop = (module as any).flow_jobs !== undefined;
 
-        if (isForLoop) {
-          // For-loop: track iterations as they appear, re-polling until module completes
-          let trackedIterations = 0;
-          while (true) {
-            const refreshed = await wmill.getJob({
-              workspace: workspace.workspaceId,
-              id,
-            });
-            const refreshedModule = refreshed.flow_status!.modules[i];
-            const flowJobs = ((refreshedModule as any).flow_jobs as string[] | undefined) ?? [];
+      if (isForLoop) {
+        // For-loop: track iterations as they appear, re-polling until module completes
+        let trackedIterations = 0;
+        let forLoopFailed = false;
+        while (true) {
+          const refreshed = await wmill.getJob({
+            workspace: workspace.workspaceId,
+            id,
+          });
+          const refreshedModule = refreshed.flow_status!.modules[i];
+          const flowJobs = ((refreshedModule as any).flow_jobs as string[] | undefined) ?? [];
 
-            // Track any new iterations
-            while (trackedIterations < flowJobs.length) {
+          // Track any new iterations
+          while (trackedIterations < flowJobs.length) {
+            if (!opts.silent) {
               log.info(`====== ${label} (iteration ${trackedIterations}) ======`);
               await track_job(workspace.workspaceId, flowJobs[trackedIterations]);
-              trackedIterations++;
             }
-
-            if (refreshedModule.type === "Success" || refreshedModule.type === "Failure") {
-              break;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 200));
+            trackedIterations++;
           }
-        } else {
+
+          if (refreshedModule.type === "Success" || refreshedModule.type === "Failure") {
+            forLoopFailed = refreshedModule.type === "Failure";
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        if (forLoopFailed) break;
+      } else {
+        if (!opts.silent) {
           log.info("====== " + label + " ======");
           await track_job(workspace.workspaceId, module.job);
         }
