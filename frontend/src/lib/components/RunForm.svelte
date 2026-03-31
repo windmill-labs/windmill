@@ -36,17 +36,19 @@
 	}
 
 	export async function run(overrideScheduledForStr?: string | undefined | null) {
+		let processedArgs: Record<string, any>
 		try {
-			const processedArgs = await processSecretArgs(args ?? {}, runnable?.schema)
-			runAction(
-				overrideScheduledForStr === null ? undefined : (overrideScheduledForStr ?? scheduledForStr),
-				processedArgs,
-				invisible_to_owner,
-				overrideTag
-			)
+			processedArgs = await processSecretArgs(args ?? {}, runnable?.schema)
 		} catch (e) {
-			sendUserToast('Failed to process sensitive args', true)
+			sendUserToast('Failed to process sensitive args: ' + e, true)
+			return
 		}
+		runAction(
+			overrideScheduledForStr === null ? undefined : (overrideScheduledForStr ?? scheduledForStr),
+			processedArgs,
+			invisible_to_owner,
+			overrideTag
+		)
 	}
 
 	interface Props {
