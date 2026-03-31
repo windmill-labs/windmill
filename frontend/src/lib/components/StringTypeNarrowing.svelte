@@ -346,7 +346,7 @@
 			<div class="mt-2"></div>
 			<Label label="Min textarea rows">
 				<TextInput
-					inputProps={{ type: 'number', disabled: password === true }}
+					inputProps={{ type: 'number' }}
 					bind:value={() => minRows?.toString(), (v) => (minRows = v ? parseInt(v) : undefined)}
 				/>
 			</Label>

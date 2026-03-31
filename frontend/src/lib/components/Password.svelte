@@ -12,6 +12,7 @@
 		required?: boolean
 		small?: boolean
 		multiline?: boolean
+		minRows?: number
 		id?: string
 		onKeyDown?: (event: KeyboardEvent) => void
 		onBlur?: (event: FocusEvent) => void
@@ -24,6 +25,7 @@
 		required = false,
 		small = false,
 		multiline = false,
+		minRows,
 		id,
 		onKeyDown,
 		onBlur
@@ -55,7 +57,7 @@
 				id,
 				disabled,
 				placeholder,
-				rows: 3,
+				rows: minRows ?? 3,
 				autocomplete: 'new-password',
 				onblur: (e) => onBlur?.(e),
 				onkeydown: (e) => {
