@@ -12,8 +12,6 @@ use serde::{Deserialize, Serialize};
 use windmill_common::error::JsonResult;
 
 use crate::db::{ApiAuthed, DB};
-use crate::health::get_pool_stats;
-use crate::health::PoolStats;
 use crate::utils::require_super_admin;
 
 pub fn global_service() -> Router {
@@ -81,8 +79,10 @@ pub struct LargeResultRow {
 
 #[derive(Serialize)]
 pub struct ConnectionPoolInfo {
-    pub pool: PoolStats,
+    pub pg_max_connections: i64,
+    pub pg_total_connections: i64,
     pub pg_active_connections: i64,
+    pub pg_idle_connections: i64,
     pub status: HealthLevel,
     pub message: String,
 }
@@ -307,16 +307,30 @@ async fn fetch_large_results(
 }
 
 async fn fetch_connection_pool(db: &DB) -> windmill_common::error::Result<ConnectionPoolInfo> {
-    let pool = get_pool_stats(db);
+    let max_row = sqlx::query_scalar!(
+        r#"SELECT setting::bigint as "max!" FROM pg_settings WHERE name = 'max_connections'"#
+    )
+    .fetch_one(db)
+    .await?;
 
-    let active_row =
-        sqlx::query!("SELECT COUNT(*) as cnt FROM pg_stat_activity WHERE state = 'active'")
-            .fetch_one(db)
-            .await?;
+    let stats_row = sqlx::query!(
+        r#"SELECT
+            COUNT(*) as "total!",
+            COUNT(*) FILTER (WHERE state = 'active') as "active!",
+            COUNT(*) FILTER (WHERE state = 'idle') as "idle!"
+        FROM pg_stat_activity
+        WHERE backend_type = 'client backend'"#
+    )
+    .fetch_one(db)
+    .await?;
 
-    let pg_active = active_row.cnt.unwrap_or(0);
-    let utilization = if pool.max_connections > 0 {
-        pool.size as f64 / pool.max_connections as f64
+    let pg_max = max_row;
+    let pg_total = stats_row.total;
+    let pg_active = stats_row.active;
+    let pg_idle = stats_row.idle;
+
+    let utilization = if pg_max > 0 {
+        pg_total as f64 / pg_max as f64
     } else {
         0.0
     };
@@ -325,50 +339,75 @@ async fn fetch_connection_pool(db: &DB) -> windmill_common::error::Result<Connec
         (
             HealthLevel::Green,
             format!(
-                "Pool utilization: {:.0}% ({}/{})",
+                "Connection utilization: {:.0}% ({}/{})",
                 utilization * 100.0,
-                pool.size,
-                pool.max_connections
+                pg_total,
+                pg_max
             ),
         )
     } else if utilization < 0.95 {
         (
             HealthLevel::Yellow,
             format!(
-                "Pool utilization is high: {:.0}% ({}/{}). Consider increasing max_connections.",
+                "Connection utilization is high: {:.0}% ({}/{}). Consider increasing max_connections.",
                 utilization * 100.0,
-                pool.size,
-                pool.max_connections
+                pg_total,
+                pg_max
             ),
         )
     } else {
         (
             HealthLevel::Red,
             format!(
-                "Pool near exhaustion: {:.0}% ({}/{}). Increase max_connections urgently.",
+                "Connections near exhaustion: {:.0}% ({}/{}). Increase max_connections urgently.",
                 utilization * 100.0,
-                pool.size,
-                pool.max_connections
+                pg_total,
+                pg_max
             ),
         )
     };
 
-    Ok(ConnectionPoolInfo { pool, pg_active_connections: pg_active, status, message })
+    Ok(ConnectionPoolInfo {
+        pg_max_connections: pg_max,
+        pg_total_connections: pg_total,
+        pg_active_connections: pg_active,
+        pg_idle_connections: pg_idle,
+        status,
+        message,
+    })
 }
 
 async fn fetch_table_maintenance(
     db: &DB,
 ) -> windmill_common::error::Result<Vec<TableMaintenanceInfo>> {
+    // Aggregate partitioned tables (e.g. audit_YYYYMMDD -> audit_partitioned)
+    // while keeping non-partitioned tables as-is
     let rows = sqlx::query!(
         r#"SELECT
-            schemaname || '.' || relname as "table_name!",
-            COALESCE(n_live_tup, 0) as "live_tuples!",
-            COALESCE(n_dead_tup, 0) as "dead_tuples!",
-            last_autovacuum as "last_autovacuum",
-            last_autoanalyze as "last_autoanalyze"
-        FROM pg_stat_user_tables
-        ORDER BY n_dead_tup DESC
-        LIMIT 15"#
+            table_name as "table_name!",
+            SUM(live_tuples)::bigint as "live_tuples!",
+            SUM(dead_tuples)::bigint as "dead_tuples!",
+            MAX(last_autovacuum) as "last_autovacuum",
+            MAX(last_autoanalyze) as "last_autoanalyze"
+        FROM (
+            SELECT
+                CASE
+                    WHEN i.inhparent IS NOT NULL THEN schemaname || '.' || p.relname
+                    ELSE schemaname || '.' || s.relname
+                END as table_name,
+                COALESCE(n_live_tup, 0) as live_tuples,
+                COALESCE(n_dead_tup, 0) as dead_tuples,
+                last_autovacuum,
+                last_autoanalyze
+            FROM pg_stat_user_tables s
+            LEFT JOIN pg_class c ON c.relname = s.relname AND c.relnamespace = (
+                SELECT oid FROM pg_namespace WHERE nspname = s.schemaname
+            )
+            LEFT JOIN pg_inherits i ON i.inhrelid = c.oid
+            LEFT JOIN pg_class p ON p.oid = i.inhparent
+        ) sub
+        GROUP BY table_name
+        ORDER BY SUM(dead_tuples) DESC"#
     )
     .fetch_all(db)
     .await?;

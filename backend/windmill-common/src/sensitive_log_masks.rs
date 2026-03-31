@@ -88,8 +88,16 @@ pub fn snapshot(job_id: &Uuid) -> Option<MaskSnapshot> {
     let replacements: Vec<String> = sorted
         .iter()
         .map(|s| {
-            let prefix: String = s.chars().take(3).collect();
-            format!("{}*****", prefix)
+            let char_count = s.chars().count();
+            if char_count > 20 {
+                let prefix: String = s.chars().take(3).collect();
+                let suffix: String = s.chars().skip(char_count - 3).collect();
+                format!("{}*****{}", prefix, suffix)
+            } else {
+                let first: String = s.chars().take(1).collect();
+                let last: String = s.chars().skip(char_count - 1).collect();
+                format!("{}*****{}", first, last)
+            }
         })
         .collect();
 
