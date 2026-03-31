@@ -7,6 +7,7 @@
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { Alert, Skeleton } from './common'
 	import Path from './Path.svelte'
+	import LabelsInput from './LabelsInput.svelte'
 	import Required from './Required.svelte'
 
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -58,6 +59,7 @@
 	let resourceToEdit: Resource | undefined = $state(undefined)
 
 	let description: string = $state('')
+	let labels: string[] | undefined = $state(undefined)
 	let DESCRIPTION_PLACEHOLDER = `Describe what this resource is for`
 	let resourceSchema: Schema | undefined = $state(undefined)
 	let args: Record<string, any> = $state({})
@@ -75,6 +77,7 @@
 	async function initEdit() {
 		resourceToEdit = await ResourceService.getResource({ workspace: effectiveWorkspace, path })
 		description = resourceToEdit!.description ?? ''
+		labels = resourceToEdit!.labels ?? undefined
 		resource_type = resourceToEdit!.resource_type
 		args = resourceToEdit?.value ?? ({} as any)
 		loadResourceType()
@@ -99,7 +102,7 @@
 			await ResourceService.updateResource({
 				workspace: effectiveWorkspace,
 				path: resourceToEdit.path,
-				requestBody: { path, value: args, description }
+				requestBody: { path, value: args, description, labels }
 			})
 			if (resourceToEdit.resource_type === 'json_schema') {
 				clearJsonSchemaResourceCache(resourceToEdit.path, effectiveWorkspace)
@@ -114,7 +117,7 @@
 	export async function createResource(): Promise<void> {
 		await ResourceService.createResource({
 			workspace: effectiveWorkspace,
-			requestBody: { path, value: args, description, resource_type: resource_type! }
+			requestBody: { path, value: args, description, resource_type: resource_type!, labels }
 		})
 		sendUserToast(`Updated resource at ${path}`)
 		dispatch('refresh', path)
@@ -222,6 +225,7 @@
 					namePlaceholder="resource"
 					kind="resource"
 				/>
+				<LabelsInput bind:labels />
 			</div>
 		{/if}
 

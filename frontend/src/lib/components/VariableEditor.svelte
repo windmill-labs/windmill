@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { VariableService } from '$lib/gen'
 	import Path from './Path.svelte'
+	import LabelsInput from './LabelsInput.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
@@ -30,6 +31,7 @@
 		description: ''
 	})
 	let valid = $state(true)
+	let labels: string[] | undefined = $state(undefined)
 
 	let drawer: Drawer | undefined = $state()
 	let edit = $state(false)
@@ -46,6 +48,7 @@
 		edit = false
 		initialPath = ''
 		path = ''
+		labels = undefined
 		can_write = true
 		drawer?.openDrawer()
 	}
@@ -66,6 +69,7 @@
 			is_secret: getV.is_secret,
 			description: getV.description ?? ''
 		}
+		labels = (getV as any).labels ?? undefined
 		initialPath = edit_path
 		path = edit_path
 		drawer?.openDrawer()
@@ -94,7 +98,8 @@
 				path,
 				value: variable.value,
 				is_secret: variable.is_secret,
-				description: variable.description
+				description: variable.description,
+				labels
 			}
 		})
 		sendUserToast(`Created variable ${path}`)
@@ -117,7 +122,8 @@
 					path: getV.path != path ? path : undefined,
 					value: variable.value == '' ? undefined : variable.value,
 					is_secret: getV.is_secret != variable.is_secret ? variable.is_secret : undefined,
-					description: getV.description != variable.description ? variable.description : undefined
+					description: getV.description != variable.description ? variable.description : undefined,
+					labels
 				}
 			})
 			sendUserToast(`Updated variable ${initialPath}`)
@@ -153,6 +159,7 @@
 					namePlaceholder="variable"
 					kind="variable"
 				/>
+				<LabelsInput bind:labels />
 			</div>
 			<label class="flex flex-col gap-1">
 				<span class="text-xs font-semibold text-emphasis">Secret</span>
