@@ -327,7 +327,8 @@
 						draft_only: true,
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
-						on_behalf_of_email: flow.on_behalf_of_email
+						on_behalf_of_email: flow.on_behalf_of_email,
+						labels: flow.labels
 					}
 				})
 			}
@@ -499,7 +500,8 @@
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
-						deployment_message: deploymentMsg || undefined
+						deployment_message: deploymentMsg || undefined,
+						labels: flow.labels
 					}
 				})
 				await CaptureService.moveCapturesAndConfigs({
@@ -552,7 +554,8 @@
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
-						deployment_message: deploymentMsg || undefined
+						deployment_message: deploymentMsg || undefined,
+						labels: flow.labels
 					}
 				})
 			}

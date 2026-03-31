@@ -59,7 +59,8 @@ export async function updateItemPathAndSummary(opts: {
 				description: script.description ?? '',
 				lock: script.lock,
 				parent_hash: script.hash,
-				path: newPath
+				path: newPath,
+				labels
 			}
 		})
 	} else if (kind === 'app') {
