@@ -22,10 +22,11 @@ export interface InitOptions {
   baseUrl?: string;
   configDir?: string;
   bindProfile?: boolean;
-  aiSkillsSource?: string;
-  aiAgentsSource?: string;
-  aiClaudeSource?: string;
 }
+
+const WMILL_INIT_AI_SKILLS_SOURCE = "WMILL_INIT_AI_SKILLS_SOURCE";
+const WMILL_INIT_AI_AGENTS_SOURCE = "WMILL_INIT_AI_AGENTS_SOURCE";
+const WMILL_INIT_AI_CLAUDE_SOURCE = "WMILL_INIT_AI_CLAUDE_SOURCE";
 
 /**
  * Bootstrap a windmill project with a wmill.yaml file
@@ -228,9 +229,9 @@ async function initAction(opts: InitOptions) {
       targetDir: ".",
       nonDottedPaths,
       overwriteProjectGuidance: false,
-      skillsSourcePath: opts.aiSkillsSource,
-      agentsSourcePath: opts.aiAgentsSource,
-      claudeSourcePath: opts.aiClaudeSource,
+      skillsSourcePath: process.env[WMILL_INIT_AI_SKILLS_SOURCE],
+      agentsSourcePath: process.env[WMILL_INIT_AI_AGENTS_SOURCE],
+      claudeSourcePath: process.env[WMILL_INIT_AI_CLAUDE_SOURCE],
     });
 
     if (guidanceResult.agentsWritten) {
@@ -266,18 +267,6 @@ const command = new Command()
   .description("Bootstrap a windmill project with a wmill.yaml file")
   .option("--use-default", "Use default settings without checking backend")
   .option("--use-backend", "Use backend git-sync settings if available")
-  .option(
-    "--ai-skills-source <path:string>",
-    "Use a custom skills directory instead of the generated .claude/skills bundle"
-  )
-  .option(
-    "--ai-agents-source <path:string>",
-    "Use a custom AGENTS.md file for AI guidance"
-  )
-  .option(
-    "--ai-claude-source <path:string>",
-    "Use a custom CLAUDE.md file for AI guidance"
-  )
   .option(
     "--repository <repo:string>",
     "Specify repository path (e.g., u/user/repo) when using backend settings"

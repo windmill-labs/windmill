@@ -160,11 +160,11 @@ addition to the skills bundle:
 }
 ```
 
-That matches the new `wmill init` overrides:
+That matches the internal `wmill init` override env vars:
 
 ```bash
-wmill init --use-default --ai-skills-source ./ai_evals/variants/cli/snapshots/candidate-skills
-wmill init --use-default --ai-skills-source ./ai_evals/variants/cli/snapshots/candidate-skills --ai-agents-source ./my-candidate-AGENTS.md
+WMILL_INIT_AI_SKILLS_SOURCE=./ai_evals/variants/cli/snapshots/candidate-skills wmill init --use-default
+WMILL_INIT_AI_SKILLS_SOURCE=./ai_evals/variants/cli/snapshots/candidate-skills WMILL_INIT_AI_AGENTS_SOURCE=./my-candidate-AGENTS.md wmill init --use-default
 ```
 
 ## Next Steps

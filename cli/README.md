@@ -113,14 +113,15 @@ source <(wmill completions zsh)
 ### AI Guidance Variants
 
 `wmill init` can now materialize alternate AI guidance bundles without changing
-the generated defaults in the repo.
+the generated defaults in the repo, but this is exposed as internal env-var
+overrides rather than public CLI flags.
 
 Examples:
 
 ```bash
-wmill init --use-default --ai-skills-source /path/to/custom/skills
-wmill init --use-default --ai-skills-source /path/to/custom/skills --ai-agents-source /path/to/AGENTS.md
-wmill init --use-default --ai-skills-source /path/to/custom/skills --ai-claude-source /path/to/CLAUDE.md
+WMILL_INIT_AI_SKILLS_SOURCE=/path/to/custom/skills wmill init --use-default
+WMILL_INIT_AI_SKILLS_SOURCE=/path/to/custom/skills WMILL_INIT_AI_AGENTS_SOURCE=/path/to/AGENTS.md wmill init --use-default
+WMILL_INIT_AI_SKILLS_SOURCE=/path/to/custom/skills WMILL_INIT_AI_CLAUDE_SOURCE=/path/to/CLAUDE.md wmill init --use-default
 ```
 
 This is the same guidance-writing path used by the benchmark CLI under
