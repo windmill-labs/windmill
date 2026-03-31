@@ -63,3 +63,6 @@ bun run cli -- compare --surface cli --case bun-hello-script --variant baseline 
 
 At the moment this is still intentionally small, but it is the only benchmark
 entrypoint.
+
+For the concrete workflow to benchmark a CLI skill change with frozen
+before/after variants, see [cli/README.md](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/cli/README.md).
