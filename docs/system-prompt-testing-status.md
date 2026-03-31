@@ -23,13 +23,12 @@ What is true today:
 - variants can be frozen as named snapshots through the benchmark CLI
 - repeated-run CLI benchmarking exists through `--runs`
 - basic CLI reliability metrics now exist
-- benchmark history scaffolding exists in `ai_evals/history`
+- benchmark history writing and reading now exist in the benchmark CLI
 
 What is not true yet:
 
 - frontend is not yet exposed through the benchmark CLI
 - token and cost metrics are not implemented
-- official history writing is not yet wired into normal benchmark commands
 - no UI studio exists yet
 
 ## Comparison To The Plan
@@ -84,11 +83,11 @@ Implemented:
 - `run`
 - `compare`
 - `snapshot-variant`
+- `history`
 - CLI adapter selection through `--surface cli`
 
 Still missing:
 
-- `history` command implementation
 - frontend adapter selection
 
 ### Phase 3: Replace the CLI smoke suite with real artifact evaluation
@@ -149,7 +148,7 @@ Planned:
 
 Status:
 
-- partially done
+- mostly done
 
 Implemented:
 
@@ -157,14 +156,18 @@ Implemented:
 - official run schema scaffold in `benchmark-run.schema.json`
 - `summary.jsonl`
 - rollup placeholders
+- shared history writer under `ai_evals/history/writer.mjs`
 - snapshot writer script under `ai_evals/scripts/append-official-run.mjs`
+- benchmark CLI wiring for `compare --write-history`
+- benchmark CLI `history --view latest|summary|surface|variant|model`
+- official run snapshots generated from repeated CLI benchmark results
+- history rollups rebuilt from real benchmark writes
 
 Still missing:
 
-- benchmark CLI wiring to emit official history snapshots
 - pass-rate summaries across repeated runs
 - worst-failure reporting
-- chart-ready data generated from real benchmark runs instead of placeholders
+- richer history filtering and reporting around those snapshots
 
 ### Phase 5: Finish the frontend black-box harness on top of the shared model
 
@@ -253,7 +256,7 @@ The most important implemented changes so far are:
   - `wmill init`
 - Moved `wmill init` testing overrides to internal env vars instead of public flags
 - Added docs for variant workflows and benchmark usage
-- Added benchmark history scaffolding
+- Added official benchmark history writing and reading
 
 ## What Is Left To Do
 
@@ -265,8 +268,11 @@ The highest-priority remaining work is:
    - latency
    - tool-call count
    - token and cost metrics if available
-2. Implement official history writing from the benchmark CLI.
-3. Expand the CLI case corpus to cover more real skill behavior.
+2. Expand the CLI case corpus to cover more real skill behavior.
+3. Add stronger official history summaries:
+   - worst-failure views
+   - better pass-rate rollups
+   - more filtering
 4. Bring frontend behind the same benchmark CLI.
 5. Add CI tiers.
 6. Build the UI last.
@@ -275,13 +281,13 @@ The highest-priority remaining work is:
 
 The best next implementation step is:
 
-- official history writing from repeated CLI benchmark runs
+- expand CLI coverage and enrich the official history metrics
 
 Reason:
 
-- the current CLI harness can now detect meaningful skill regressions and basic flakiness
-- the next missing layer is persisted benchmark history, not basic run aggregation
-- history wiring is needed before CI and before any useful trend dashboard
+- the current CLI harness can now detect meaningful skill regressions, write official snapshots, and read them back
+- the next missing layer is better coverage and stronger metrics inside that tracked history
+- CI and the future trend dashboard should build on the existing history path instead of inventing a second one
 
 ## Relevant Files
 

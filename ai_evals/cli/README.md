@@ -9,6 +9,7 @@ The current implementation is intentionally small:
 
 - `run` command
 - `compare` command
+- `history` command
 - `list-cases` and `list-variants` discovery commands
 - `cli` surface only
 
@@ -83,6 +84,21 @@ cd ai_evals
 bun run cli -- compare --surface cli --case bun-hello-script --variant baseline --variant baseline --json
 ```
 
+Write official benchmark snapshots while comparing distinct variants:
+
+```bash
+cd ai_evals
+bun run cli -- compare --surface cli --case bun-hello-script --variant baseline-frozen --variant candidate --runs 5 --write-history
+```
+
+Inspect the tracked history:
+
+```bash
+cd ai_evals
+bun run cli -- history --view latest
+bun run cli -- history --view summary --limit 10
+```
+
 ## Benchmarking A CLI Skill Change
 
 If you change one of the generated CLI skills and want to know whether the
@@ -130,6 +146,15 @@ for repeated runs:
 - average skill-invocation count
 - aggregated required-check failures
 
+When `--write-history` is used on `compare`, the benchmark CLI also writes one
+official snapshot per compared variant into `ai_evals/history/` and rebuilds:
+
+- `summary.jsonl`
+- `rollups/latest.json`
+- `rollups/by_surface.json`
+- `rollups/by_variant.json`
+- `rollups/by_model.json`
+
 The compare output also includes tool usage and invoked skills as diagnostics.
 
 True efficiency metrics such as latency, token usage, and cost are planned, but
@@ -168,8 +193,7 @@ instead of the generated default.
 
 Later iterations should add:
 
-- `history` command
 - frontend adapters
 - variant cleanup and diff helpers
 - token and cost metrics in compare output
-- shared result/history writing from this entrypoint
+- richer history views and filtering

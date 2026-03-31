@@ -1,16 +1,29 @@
 #!/usr/bin/env bun
 
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   cleanupWorkspace,
   loadCliArtifactEvalCases,
   runCliArtifactEvalCase
 } from "../adapters/cli/artifact-eval";
 import {
+  CLI_BENCHMARK_MODEL,
+  CLI_BENCHMARK_PROVIDER,
+} from "../adapters/cli/runtime";
+import {
   loadCliVariantById,
   loadCliVariants,
   snapshotCliVariant,
   type CliVariant
 } from "../adapters/cli/variants";
+import {
+  appendOfficialRun,
+  DEFAULT_HISTORY_DIR,
+  loadHistoryRollup,
+  loadLatestHistoryRollup,
+  loadSummaryHistory
+} from "../history/writer.mjs";
 
 type CommandName =
   | "run"
@@ -30,6 +43,10 @@ interface ParsedArgs {
   runs: number;
   json: boolean;
   keepWorkspace: boolean;
+  writeHistory: boolean;
+  historyDir?: string;
+  historyView: "latest" | "summary" | "surface" | "variant" | "model";
+  limit: number;
 }
 
 interface AttemptSummary {
@@ -44,6 +61,7 @@ interface AttemptSummary {
   checks: Array<{ name: string; passed: boolean; required?: boolean }>;
   requiredFailedChecks: string[];
   expectedFiles: Array<{ path: string; exists: boolean }>;
+  pathSignature: string;
 }
 
 interface AggregateMetrics {
@@ -51,12 +69,51 @@ interface AggregateMetrics {
   passedRuns: number;
   passRate: number;
   averageDurationMs: number;
+  medianDurationMs: number;
+  latencyPerSuccessMs: number;
   averageAssistantMessages: number;
   averageToolCalls: number;
   averageSkillInvocations: number;
   distinctSkillsInvoked: string[];
   distinctToolsUsed: string[];
   requiredFailureCounts: Array<{ name: string; count: number }>;
+}
+
+interface CompareCaseResult {
+  caseId: string;
+  totalRuns: number;
+  passedRuns: number;
+  passRate: number;
+  averageDurationMs: number;
+  medianDurationMs: number;
+  latencyPerSuccessMs: number;
+  averageAssistantMessages: number;
+  averageToolCalls: number;
+  averageSkillInvocations: number;
+  pathConsistency: number;
+  distinctSkillsInvoked: string[];
+  distinctToolsUsed: string[];
+  requiredFailureCounts: Array<{ name: string; count: number }>;
+}
+
+interface CompareVariantResult {
+  label: string;
+  variant: string;
+  totalCases: number;
+  fullyPassedCases: number;
+  totalRuns: number;
+  passedRuns: number;
+  passRate: number;
+  averageDurationMs: number;
+  medianDurationMs: number;
+  latencyPerSuccessMs: number;
+  averageAssistantMessages: number;
+  averageToolCalls: number;
+  averageSkillInvocations: number;
+  distinctSkillsInvoked: string[];
+  distinctToolsUsed: string[];
+  requiredFailureCounts: Array<{ name: string; count: number }>;
+  caseResults: CompareCaseResult[];
 }
 
 async function main() {
@@ -79,9 +136,8 @@ async function main() {
       await handleCompare(args);
       return;
     case "history":
-      throw new Error(
-        `'${args.command}' is not implemented yet in the repo-level benchmark CLI`
-      );
+      await handleHistory(args);
+      return;
     default:
       printHelp();
       throw new Error(`Unknown command: ${String(args.command)}`);
@@ -156,6 +212,9 @@ async function handleRun(args: ParsedArgs) {
   const caseId = requireSingleCaseId(args.caseIds);
   if (args.keepWorkspace && args.runs !== 1) {
     throw new Error("--keep-workspace is only supported when --runs is 1");
+  }
+  if (args.writeHistory) {
+    throw new Error("--write-history is currently supported on compare only");
   }
 
   switch (surface) {
@@ -265,11 +324,16 @@ async function handleCompare(args: ParsedArgs) {
       const variants = await Promise.all(
         args.variantIds.map((variantId) => loadCliVariantById(variantId))
       );
+      if (args.writeHistory && new Set(variants.map((variant) => variant.id)).size !== variants.length) {
+        throw new Error(
+          "--write-history requires distinct variant ids so official snapshots stay unambiguous"
+        );
+      }
       const labeledVariants = labelVariantSelections(variants);
-      const variantResults = [];
+      const internalVariantResults: Array<CompareVariantResult & { allAttempts: AttemptSummary[] }> = [];
 
       for (const labeledVariant of labeledVariants) {
-        const caseResults = [];
+        const caseResults: CompareCaseResult[] = [];
         const allAttempts: AttemptSummary[] = [];
 
         for (const evalCase of selectedCases) {
@@ -286,9 +350,12 @@ async function handleCompare(args: ParsedArgs) {
             passedRuns: execution.aggregate.passedRuns,
             passRate: execution.aggregate.passRate,
             averageDurationMs: execution.aggregate.averageDurationMs,
+            medianDurationMs: execution.aggregate.medianDurationMs,
+            latencyPerSuccessMs: execution.aggregate.latencyPerSuccessMs,
             averageAssistantMessages: execution.aggregate.averageAssistantMessages,
             averageToolCalls: execution.aggregate.averageToolCalls,
             averageSkillInvocations: execution.aggregate.averageSkillInvocations,
+            pathConsistency: computePathConsistency(execution.attempts),
             distinctSkillsInvoked: execution.aggregate.distinctSkillsInvoked,
             distinctToolsUsed: execution.aggregate.distinctToolsUsed,
             requiredFailureCounts: execution.aggregate.requiredFailureCounts
@@ -297,7 +364,7 @@ async function handleCompare(args: ParsedArgs) {
 
         const aggregate = aggregateAttempts(allAttempts);
 
-        variantResults.push({
+        internalVariantResults.push({
           label: labeledVariant.label,
           variant: labeledVariant.variant.id,
           totalCases: caseResults.length,
@@ -308,22 +375,35 @@ async function handleCompare(args: ParsedArgs) {
           passedRuns: aggregate.passedRuns,
           passRate: aggregate.passRate,
           averageDurationMs: aggregate.averageDurationMs,
+          medianDurationMs: aggregate.medianDurationMs,
+          latencyPerSuccessMs: aggregate.latencyPerSuccessMs,
           averageAssistantMessages: aggregate.averageAssistantMessages,
           averageToolCalls: aggregate.averageToolCalls,
           averageSkillInvocations: aggregate.averageSkillInvocations,
           distinctSkillsInvoked: aggregate.distinctSkillsInvoked,
           distinctToolsUsed: aggregate.distinctToolsUsed,
           requiredFailureCounts: aggregate.requiredFailureCounts,
-          caseResults
+          caseResults,
+          allAttempts
         });
       }
+
+      const historyWrites = args.writeHistory
+        ? await writeCompareHistorySnapshots({
+            surface,
+            runs: args.runs,
+            variants: internalVariantResults,
+            historyDir: args.historyDir
+          })
+        : [];
 
       const payload = {
         command: "compare",
         surface,
         caseIds: selectedCases.map((entry) => entry.id),
         runs: args.runs,
-        variants: variantResults
+        variants: internalVariantResults.map(({ allAttempts: _allAttempts, ...variant }) => variant),
+        historyWrites
       };
 
       if (args.json) {
@@ -336,6 +416,62 @@ async function handleCompare(args: ParsedArgs) {
     }
     default:
       assertNever(surface);
+  }
+}
+
+async function handleHistory(args: ParsedArgs) {
+  const historyDir = args.historyDir ?? DEFAULT_HISTORY_DIR;
+
+  switch (args.historyView) {
+    case "latest": {
+      const payload = await loadLatestHistoryRollup(historyDir);
+      if (args.json) {
+        process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+      } else {
+        printHistoryLatestSummary(payload);
+      }
+      return;
+    }
+    case "summary": {
+      const summaries = await loadSummaryHistory(historyDir);
+      const payload = {
+        view: "summary",
+        historyDir,
+        totalEntries: summaries.length,
+        entries: summaries.slice(-args.limit).reverse()
+      };
+      if (args.json) {
+        process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+      } else {
+        printHistorySummary(payload);
+      }
+      return;
+    }
+    case "surface":
+    case "variant":
+    case "model": {
+      const filename =
+        args.historyView === "surface"
+          ? "by_surface.json"
+          : args.historyView === "variant"
+            ? "by_variant.json"
+            : "by_model.json";
+      const rollup = await loadHistoryRollup(filename, historyDir);
+      const payload = {
+        view: args.historyView,
+        historyDir,
+        generatedAt: rollup.generatedAt,
+        groups: rollup.groups
+      };
+      if (args.json) {
+        process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+      } else {
+        printHistoryGroupSummary(payload, args.limit);
+      }
+      return;
+    }
+    default:
+      assertNever(args.historyView);
   }
 }
 
@@ -374,6 +510,9 @@ function summarizeAttempt(
   result: Awaited<ReturnType<typeof runCliArtifactEvalCase>>,
   attempt: number
 ): AttemptSummary {
+  const skillsInvoked = uniqueStrings(result.run.skillsInvoked);
+  const toolsUsed = uniqueStrings(result.run.toolsUsed.map((tool) => tool.tool));
+
   return {
     attempt,
     passed: result.passed,
@@ -381,8 +520,8 @@ function summarizeAttempt(
     assistantMessageCount: result.run.assistantMessageCount,
     toolCallCount: result.run.toolsUsed.length,
     skillInvocationCount: result.run.skillsInvoked.length,
-    skillsInvoked: uniqueStrings(result.run.skillsInvoked),
-    toolsUsed: uniqueStrings(result.run.toolsUsed.map((tool) => tool.tool)),
+    skillsInvoked,
+    toolsUsed,
     checks: result.checks.map((check) => ({
       name: check.name,
       passed: check.passed,
@@ -394,12 +533,14 @@ function summarizeAttempt(
     expectedFiles: result.expectedFiles.map((file) => ({
       path: file.path,
       exists: file.exists
-    }))
+    })),
+    pathSignature: buildPathSignature(skillsInvoked, toolsUsed)
   };
 }
 
 function aggregateAttempts(attempts: AttemptSummary[]): AggregateMetrics {
   const requiredFailureCounts = new Map<string, number>();
+  const successfulAttempts = attempts.filter((attempt) => attempt.passed);
 
   for (const attempt of attempts) {
     for (const failure of attempt.requiredFailedChecks) {
@@ -412,6 +553,8 @@ function aggregateAttempts(attempts: AttemptSummary[]): AggregateMetrics {
     passedRuns: attempts.filter((attempt) => attempt.passed).length,
     passRate: attempts.length === 0 ? 0 : attempts.filter((attempt) => attempt.passed).length / attempts.length,
     averageDurationMs: average(attempts.map((attempt) => attempt.durationMs)),
+    medianDurationMs: median(attempts.map((attempt) => attempt.durationMs)),
+    latencyPerSuccessMs: average(successfulAttempts.map((attempt) => attempt.durationMs)),
     averageAssistantMessages: average(attempts.map((attempt) => attempt.assistantMessageCount)),
     averageToolCalls: average(attempts.map((attempt) => attempt.toolCallCount)),
     averageSkillInvocations: average(attempts.map((attempt) => attempt.skillInvocationCount)),
@@ -442,7 +585,11 @@ function parseArgs(argv: string[]): ParsedArgs {
     description: undefined,
     runs: 1,
     json: false,
-    keepWorkspace: false
+    keepWorkspace: false,
+    writeHistory: false,
+    historyDir: undefined,
+    historyView: "latest",
+    limit: 10
   };
 
   for (let index = 0; index < rest.length; index += 1) {
@@ -474,6 +621,29 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     if (arg === "--runs") {
       parsed.runs = parsePositiveInteger(rest[index + 1], "--runs");
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--write-history") {
+      parsed.writeHistory = true;
+      continue;
+    }
+
+    if (arg === "--history-dir") {
+      parsed.historyDir = rest[index + 1];
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--view") {
+      parsed.historyView = parseHistoryView(rest[index + 1]);
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--limit") {
+      parsed.limit = parsePositiveInteger(rest[index + 1], "--limit");
       index += 1;
       continue;
     }
@@ -556,6 +726,22 @@ function parsePositiveInteger(value: string | undefined, flagName: string): numb
   return parsed;
 }
 
+function parseHistoryView(
+  value: string | undefined
+): ParsedArgs["historyView"] {
+  if (
+    value === "latest" ||
+    value === "summary" ||
+    value === "surface" ||
+    value === "variant" ||
+    value === "model"
+  ) {
+    return value;
+  }
+
+  throw new Error("--view must be one of: latest, summary, surface, variant, model");
+}
+
 function printRunSummary(payload: {
   surface: SurfaceName;
   variant: string;
@@ -626,30 +812,8 @@ function printCompareSummary(payload: {
   surface: SurfaceName;
   caseIds: string[];
   runs: number;
-  variants: Array<{
-    label: string;
-    variant: string;
-    totalCases: number;
-    fullyPassedCases: number;
-    totalRuns: number;
-    passedRuns: number;
-    passRate: number;
-    averageDurationMs: number;
-    averageAssistantMessages: number;
-    averageToolCalls: number;
-    averageSkillInvocations: number;
-    caseResults: Array<{
-      caseId: string;
-      totalRuns: number;
-      passedRuns: number;
-      passRate: number;
-      averageDurationMs: number;
-      averageAssistantMessages: number;
-      averageToolCalls: number;
-      averageSkillInvocations: number;
-      requiredFailureCounts: Array<{ name: string; count: number }>;
-    }>;
-  }>;
+  variants: CompareVariantResult[];
+  historyWrites: Array<{ variant: string; runId: string; runPath: string }>;
 }) {
   process.stdout.write(`Surface: ${payload.surface}\n`);
   process.stdout.write(`Cases: ${payload.caseIds.join(", ")}\n`);
@@ -667,6 +831,13 @@ function printCompareSummary(payload: {
       for (const failure of caseResult.requiredFailureCounts.slice(0, 3)) {
         process.stdout.write(`    fail ${failure.name}: ${failure.count}\n`);
       }
+    }
+  }
+
+  if (payload.historyWrites.length > 0) {
+    process.stdout.write("History writes:\n");
+    for (const write of payload.historyWrites) {
+      process.stdout.write(`- ${write.variant}: ${write.runPath} (${write.runId})\n`);
     }
   }
 }
@@ -716,6 +887,241 @@ function labelVariantSelections(
   });
 }
 
+async function writeCompareHistorySnapshots(input: {
+  surface: SurfaceName;
+  runs: number;
+  variants: Array<CompareVariantResult & { allAttempts: AttemptSummary[] }>;
+  historyDir?: string;
+}) {
+  const timestamp = new Date().toISOString();
+  const gitSha = getGitSha();
+  const writes = [];
+
+  for (const variant of input.variants) {
+    const result = await appendOfficialRun(
+      buildOfficialRun({
+        timestamp,
+        gitSha,
+        surface: input.surface,
+        runs: input.runs,
+        variant
+      }),
+      {
+        historyDir: input.historyDir
+      }
+    );
+
+    writes.push({
+      variant: variant.variant,
+      runId: result.runId,
+      runPath: result.runPath
+    });
+  }
+
+  return writes;
+}
+
+function buildOfficialRun(input: {
+  timestamp: string;
+  gitSha: string;
+  surface: SurfaceName;
+  runs: number;
+  variant: CompareVariantResult & { allAttempts: AttemptSummary[] };
+}) {
+  const flakeRate =
+    input.variant.caseResults.length === 0
+      ? 0
+      : input.variant.caseResults.filter(
+          (entry) => entry.passRate > 0 && entry.passRate < 1
+        ).length / input.variant.caseResults.length;
+  const pathConsistency = average(
+    input.variant.caseResults.map((entry) => entry.pathConsistency)
+  );
+  const qualityScore = input.variant.passRate * 100;
+  const efficiencyScore = computeEfficiencyScore(input.variant);
+
+  return {
+    timestamp: input.timestamp,
+    git_sha: input.gitSha,
+    suite_version: "cli-benchmark-v1",
+    scoring_version: "cli-deterministic-v1",
+    surface: input.surface,
+    variant_name: input.variant.variant,
+    provider: CLI_BENCHMARK_PROVIDER,
+    model: CLI_BENCHMARK_MODEL,
+    judge_model: null,
+    runs_per_case: input.runs,
+    case_count: input.variant.caseResults.length,
+    metrics: {
+      quality: {
+        pass_rate: input.variant.passRate,
+        deterministic_pass_rate: input.variant.passRate,
+        judge_score_mean: 0,
+        judge_score_median: 0,
+        judge_score_p10: 0,
+        quality_score: qualityScore
+      },
+      reliability: {
+        runs_per_case: input.runs,
+        flake_rate: flakeRate,
+        path_consistency: pathConsistency
+      },
+      efficiency: {
+        latency_ms_mean: input.variant.averageDurationMs,
+        latency_ms_median: input.variant.medianDurationMs,
+        tokens_total_mean: 0,
+        tool_calls_mean: input.variant.averageToolCalls,
+        iterations_mean: input.variant.averageAssistantMessages,
+        estimated_cost_mean: 0,
+        cost_per_success: 0,
+        latency_per_success: input.variant.latencyPerSuccessMs,
+        efficiency_score: efficiencyScore,
+        value_score: (qualityScore * efficiencyScore) / 100
+      }
+    },
+    cases: input.variant.caseResults.map((entry) => ({
+      id: entry.caseId,
+      pass_rate: entry.passRate,
+      average_duration_ms: entry.averageDurationMs,
+      median_duration_ms: entry.medianDurationMs,
+      latency_per_success_ms: entry.latencyPerSuccessMs,
+      average_assistant_messages: entry.averageAssistantMessages,
+      average_tool_calls: entry.averageToolCalls,
+      average_skill_invocations: entry.averageSkillInvocations,
+      path_consistency: entry.pathConsistency,
+      distinct_skills_invoked: entry.distinctSkillsInvoked,
+      distinct_tools_used: entry.distinctToolsUsed,
+      required_failure_counts: entry.requiredFailureCounts
+    }))
+  };
+}
+
+function computeEfficiencyScore(variant: CompareVariantResult): number {
+  const latencyFactor = 1 / (1 + variant.averageDurationMs / 20000);
+  const toolFactor = 1 / (1 + variant.averageToolCalls / 10);
+  const iterationFactor = 1 / (1 + variant.averageAssistantMessages / 10);
+
+  return ((latencyFactor + toolFactor + iterationFactor) / 3) * 100;
+}
+
+function getGitSha(): string {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: fileURLToPath(new URL("../..", import.meta.url)),
+      encoding: "utf8"
+    }).trim();
+  } catch {
+    return "0000000";
+  }
+}
+
+function buildPathSignature(skillsInvoked: string[], toolsUsed: string[]): string {
+  return `skills:${skillsInvoked.join(",") || "(none)"}|tools:${toolsUsed.join(",") || "(none)"}`;
+}
+
+function computePathConsistency(attempts: AttemptSummary[]): number {
+  if (attempts.length === 0) {
+    return 0;
+  }
+
+  const counts = new Map<string, number>();
+  for (const attempt of attempts) {
+    counts.set(attempt.pathSignature, (counts.get(attempt.pathSignature) ?? 0) + 1);
+  }
+
+  return Math.max(...counts.values()) / attempts.length;
+}
+
+function printHistoryLatestSummary(payload: {
+  generatedAt: string;
+  latestRun: null | {
+    timestamp: string;
+    surface: string;
+    variant_name: string;
+    provider: string;
+    model: string;
+    metrics: {
+      quality: { pass_rate: number };
+      efficiency: { latency_ms_mean: number };
+    };
+  };
+  latestBySurface: Record<string, { variant_name: string; metrics: { quality: { pass_rate: number } } }>;
+}) {
+  process.stdout.write(`Generated: ${payload.generatedAt}\n`);
+  if (!payload.latestRun) {
+    process.stdout.write("Latest run: none\n");
+    return;
+  }
+
+  process.stdout.write(
+    `Latest run: ${payload.latestRun.timestamp} | ${payload.latestRun.surface} | ${payload.latestRun.variant_name} | ${formatPercent(payload.latestRun.metrics.quality.pass_rate)} | avg ${formatNumber(payload.latestRun.metrics.efficiency.latency_ms_mean)} ms\n`
+  );
+  process.stdout.write("Latest by surface:\n");
+  for (const [surface, summary] of Object.entries(payload.latestBySurface)) {
+    process.stdout.write(
+      `- ${surface}: ${summary.variant_name} (${formatPercent(summary.metrics.quality.pass_rate)})\n`
+    );
+  }
+}
+
+function printHistorySummary(payload: {
+  view: "summary";
+  historyDir: string;
+  totalEntries: number;
+  entries: Array<{
+    timestamp: string;
+    surface: string;
+    variant_name: string;
+    provider: string;
+    model: string;
+    runs_per_case: number;
+    case_count: number;
+    metrics: {
+      quality: { pass_rate: number };
+      reliability: { flake_rate: number };
+      efficiency: { latency_ms_mean: number };
+    };
+  }>;
+}) {
+  process.stdout.write(`History: ${payload.historyDir}\n`);
+  process.stdout.write(`Entries: ${payload.totalEntries}\n`);
+  for (const entry of payload.entries) {
+    process.stdout.write(
+      `- ${entry.timestamp} | ${entry.surface} | ${entry.variant_name} | ${formatPercent(entry.metrics.quality.pass_rate)} | flake ${formatPercent(entry.metrics.reliability.flake_rate)} | avg ${formatNumber(entry.metrics.efficiency.latency_ms_mean)} ms | ${entry.case_count} cases x ${entry.runs_per_case} runs\n`
+    );
+  }
+}
+
+function printHistoryGroupSummary(
+  payload: {
+    view: "surface" | "variant" | "model";
+    historyDir: string;
+    generatedAt: string;
+    groups: Record<string, Array<{
+      timestamp: string;
+      variant_name: string;
+      surface: string;
+      metrics: {
+        quality: { pass_rate: number };
+        efficiency: { latency_ms_mean: number };
+      };
+    }>>;
+  },
+  limit: number
+) {
+  process.stdout.write(`History: ${payload.historyDir}\n`);
+  process.stdout.write(`View: ${payload.view}\n`);
+  process.stdout.write(`Generated: ${payload.generatedAt}\n`);
+  for (const [group, entries] of Object.entries(payload.groups)
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .slice(0, limit)) {
+    const latest = entries[entries.length - 1];
+    process.stdout.write(
+      `- ${group}: ${entries.length} runs | latest ${latest.timestamp} | ${latest.variant_name} | ${formatPercent(latest.metrics.quality.pass_rate)} | avg ${formatNumber(latest.metrics.efficiency.latency_ms_mean)} ms\n`
+    );
+  }
+}
+
 function printHelp() {
   process.stdout.write(
     [
@@ -724,8 +1130,8 @@ function printHelp() {
       "  cd ai_evals && bun run cli -- list-variants --surface cli [--json]",
       "  cd ai_evals && bun run cli -- snapshot-variant --surface cli --variant <id> [--description <text>] [--json]",
       "  cd ai_evals && bun run cli -- run --surface cli --case <id> [--variant <id>] [--runs <n>] [--json] [--keep-workspace]",
-      "  cd ai_evals && bun run cli -- compare --surface cli [--case <id> ...] [--variant <id> ...] [--runs <n>] [--json]",
-      "  cd ai_evals && bun run cli -- history",
+      "  cd ai_evals && bun run cli -- compare --surface cli [--case <id> ...] [--variant <id> ...] [--runs <n>] [--write-history] [--history-dir <path>] [--json]",
+      "  cd ai_evals && bun run cli -- history [--view latest|summary|surface|variant|model] [--limit <n>] [--history-dir <path>] [--json]",
       "",
       "Current support:",
       "  surfaces: cli"
@@ -742,6 +1148,21 @@ function average(values: number[]): number {
     return 0;
   }
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+
+  return sorted[middle];
 }
 
 function uniqueStrings(values: string[]): string[] {

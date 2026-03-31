@@ -17,6 +17,8 @@ export interface PromptRunResult {
 }
 
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
+export const CLI_BENCHMARK_PROVIDER = "anthropic";
+export const CLI_BENCHMARK_MODEL = "haiku";
 
 export function getGeneratedSkillsSource(): string {
   return join(REPO_ROOT, "system_prompts", "auto-generated", "skills");
@@ -35,7 +37,7 @@ export async function runPromptAndCapture(
 
   const options: Options = {
     cwd,
-    model: "haiku",
+    model: CLI_BENCHMARK_MODEL,
     maxTurns,
     settingSources: ["project"],
     allowedTools: ["Skill", "Read", "Glob", "Grep", "Bash", "Write", "Edit"]
