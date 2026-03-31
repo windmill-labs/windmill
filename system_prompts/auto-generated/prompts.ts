@@ -1643,7 +1643,7 @@ flow related commands
 - \`flow new <flow_path:string>\` - create a new empty flow
   - \`--summary <summary:string>\` - flow summary
   - \`--description <description:string>\` - flow description
-- \`flow bootstrap <flow_path:string>\` - create a new empty flow (alias for new
+- \`flow bootstrap <flow_path:string>\` - create a new empty flow (alias for new)
   - \`--summary <summary:string>\` - flow summary
   - \`--description <description:string>\` - flow description
 - \`flow history <path:string>\` - Show version history for a flow
@@ -1798,7 +1798,7 @@ Manage jobs (list, inspect, cancel)
 - \`job list\` - List recent jobs
 - \`job get <id:string>\` - Get job details. For flows: shows step tree with sub-job IDs
   - \`--json\` - Output as JSON (for piping to jq)
-- \`job result <id:string>\` - Get the result of a completed job (machine-friendly
+- \`job result <id:string>\` - Get the result of a completed job (machine-friendly)
 - \`job logs <id:string>\` - Get job logs. For flows: aggregates all step logs
 - \`job cancel <id:string>\` - Cancel a running or queued job
   - \`--reason <reason:string>\` - Reason for cancellation
@@ -1906,11 +1906,11 @@ script related commands
 - \`script list\` - list all scripts
   - \`--show-archived\` - Show archived scripts instead of active ones
   - \`--json\` - Output as JSON (for piping to jq)
-- \`script push <path:file>\` - push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh
+- \`script push <path:file>\` - push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh)
   - \`--message <message:string>\` - Deployment message
 - \`script get <path:file>\` - get a script's details
   - \`--json\` - Output as JSON (for piping to jq)
-- \`script show <path:file>\` - show a script's content (alias for get
+- \`script show <path:file>\` - show a script's content (alias for get)
 - \`script run <path:file>\` - run a script by path
   - \`-d --data <data:file>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - \`-s --silent\` - Do not output anything other then the final output. Useful for scripting.
@@ -1920,10 +1920,10 @@ script related commands
 - \`script new <path:file> <language:string>\` - create a new script
   - \`--summary <summary:string>\` - script summary
   - \`--description <description:string>\` - script description
-- \`script bootstrap <path:file> <language:string>\` - create a new script (alias for new
+- \`script bootstrap <path:file> <language:string>\` - create a new script (alias for new)
   - \`--summary <summary:string>\` - script summary
   - \`--description <description:string>\` - script description
-- \`script generate-metadata [script:file]\` - re-generate the metadata file updating the lock and the script schema (for flows, use \`wmill flow generate-locks\`
+- \`script generate-metadata [script:file]\` - re-generate the metadata file updating the lock and the script schema (for flows, use \`wmill flow generate-locks\`)
   - \`--yes\` - Skip confirmation prompt
   - \`--dry-run\` - Perform a dry run without making changes
   - \`--lock-only\` - re-generate only the lock
