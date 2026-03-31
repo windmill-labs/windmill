@@ -257,16 +257,12 @@ pub async fn transform_json_value(
         }
         Value::String(y) if y.starts_with("$jsonvar:") => {
             let path = y.strip_prefix("$jsonvar:").unwrap();
-            client
-                .get_variable_value(path)
-                .await
-                .and_then(|x| {
-                    serde_json::from_str::<serde_json::Value>(&x)
-                        .map_err(|e| anyhow::anyhow!("Failed to parse $jsonvar value as JSON: {e}"))
-                })
-                .map_err(|e| {
-                    Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
-                })
+            let v = client.get_variable_value(path).await.map_err(|e| {
+                Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
+            })?;
+            serde_json::from_str::<serde_json::Value>(&v).map_err(|e| {
+                Error::internal_err(format!("Failed to parse $jsonvar value as JSON: {e}"))
+            })
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();

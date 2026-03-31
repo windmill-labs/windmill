@@ -3,7 +3,8 @@
 		computeSharableHash as computeSharableHash,
 		defaultIfEmptyString,
 		emptyString,
-		truncateHash
+		truncateHash,
+		sendUserToast
 	} from '$lib/utils'
 
 	import type { Schema } from '$lib/common'
@@ -34,9 +35,18 @@
 		reloadArgs++
 	}
 
-	export async function run() {
-		const processedArgs = await processSecretArgs(args ?? {}, runnable?.schema)
-		runAction(scheduledForStr, processedArgs, invisible_to_owner, overrideTag)
+	export async function run(overrideScheduledForStr?: string | undefined | null) {
+		try {
+			const processedArgs = await processSecretArgs(args ?? {}, runnable?.schema)
+			runAction(
+				overrideScheduledForStr === null ? undefined : (overrideScheduledForStr ?? scheduledForStr),
+				processedArgs,
+				invisible_to_owner,
+				overrideTag
+			)
+		} catch (e) {
+			sendUserToast('Failed to process sensitive args', true)
+		}
 	}
 
 	interface Props {
@@ -317,7 +327,7 @@
 			btnClasses="!px-6 !py-1 w-full"
 			variant="accent"
 			disabled={!isValid && !jsonView}
-			on:click={() => run()}
+			on:click={() => run(null)}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>
 			{buttonText}

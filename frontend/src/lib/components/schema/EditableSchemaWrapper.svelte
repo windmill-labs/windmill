@@ -20,6 +20,7 @@
 		fullHeight = true,
 		formatExtension = $bindable(undefined),
 		isFileset = $bindable(undefined),
+		showSensitiveToggle = false,
 		customUi
 	}: EditableSchemaWrapperProps = $props()
 

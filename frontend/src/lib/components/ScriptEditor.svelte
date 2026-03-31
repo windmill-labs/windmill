@@ -652,7 +652,8 @@
 				: selectedTab === 'preprocessor' || kind === 'preprocessor'
 					? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
 					: (args ?? {})
-		const testArgs = await processSecretArgs(rawTestArgs, schema)
+		const testSchema = activeModuleTab !== null ? testPanelSchema : schema
+		const testArgs = await processSecretArgs(rawTestArgs, testSchema)
 
 		//@ts-ignore
 		let job = await jobLoader.runPreview(

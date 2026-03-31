@@ -20,6 +20,7 @@ export async function processSecretArgs(
 	if (!workspace || !user) return args
 
 	const username = (user.username ?? user.email)?.split('@')[0]
+	if (!username) return args
 	const userPrefix = `u/${username}/secret_arg/`
 
 	const result = { ...args }
