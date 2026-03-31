@@ -3547,11 +3547,6 @@ pub async fn start_worker(
 
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
-    //TODO: remove this when bun dedicated workers work without issues
-    if !annotation.native {
-        annotation.nodejs = true;
-    }
-
     let context = variables::get_reserved_variables(
         &Connection::from(db.clone()),
         w_id,
