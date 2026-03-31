@@ -8,6 +8,19 @@ Build a single testing strategy that answers one question reliably:
 
 This plan is intentionally focused on **black-box output evaluation**, not on unit testing frontend or CLI internals.
 
+The intended end state is a **new repo-level benchmark CLI** that runs a shared
+eval suite across multiple surfaces.
+
+That benchmark CLI should be the main entrypoint for:
+
+- running one case
+- running a benchmark set
+- comparing baseline vs candidate variants
+- writing benchmark history snapshots
+
+Frontend and Windmill CLI are not meant to become separate testing products.
+They should be implemented as adapters behind this shared benchmark CLI.
+
 The system under test is:
 
 - Frontend AI Chat in `script`, `flow`, and `app` modes
@@ -36,6 +49,9 @@ Those may still need lightweight tests, but they are not the core of prompt reli
 ### 1. Black-box evaluation only
 
 The runner should provide an input task to the real system setup, let it run, collect the final artifact, and score the result.
+
+In practice, this runner should be exposed through the new repo-level benchmark
+CLI rather than through separate ad hoc test commands for each surface.
 
 ### 2. Headless execution
 
@@ -99,13 +115,59 @@ This is a strong foundation for a shared eval suite.
 Even though the repo already has useful frontend eval scaffolding, the
 implementation priority should be:
 
-1. make the CLI artifact-evaluation path excellent
-2. stabilize shared scoring, reporting, and benchmark history around that path
-3. bring frontend onto the same benchmark model
-4. build the UI only after the underlying suite is trustworthy
+1. build the repo-level benchmark CLI and use the Windmill CLI adapter as the
+   first implementation behind it
+2. make the CLI artifact-evaluation path excellent
+3. stabilize shared scoring, reporting, and benchmark history around that path
+4. bring frontend onto the same benchmark model through the same benchmark CLI
+5. build the UI only after the underlying suite is trustworthy
 
 This keeps the hardest product question focused on artifact quality rather than
 on UI workflow.
+
+## Benchmark CLI As The Main Product
+
+The testing suite should have one primary interface:
+
+- a new repo-level benchmark CLI
+
+The benchmark CLI should be able to run:
+
+- Windmill CLI evals
+- frontend evals
+- shared reporting and comparison commands
+
+Illustrative command shape:
+
+```bash
+ai-evals run --surface cli --case bun-hello-script
+ai-evals run --surface frontend-flow --case support-flow
+ai-evals compare --surface cli --variant baseline --variant candidate-a
+ai-evals history latest
+```
+
+The exact binary name can change, but the architecture should not:
+
+- one benchmark CLI
+- shared case loader
+- shared scoring
+- shared history writer
+- separate surface adapters underneath
+
+## Temporary Bootstrap Code
+
+Existing test files under `frontend/.../__tests__/...` and `cli/test-skills/`
+are acceptable as bootstrap code while the benchmark CLI is being built.
+
+They should not be treated as the final user-facing interface for prompt
+evaluation.
+
+In particular:
+
+- `cli/test-skills/` is currently a prototype adapter and proving ground
+- it should eventually be migrated behind the repo-level benchmark CLI
+- benchmark authors should not have to know about `cli/test-skills/` to run the
+  long-term suite
 
 ## Frontend: What Exists Today
 
@@ -661,7 +723,7 @@ These composite scores should sit on top of the raw metrics, not replace them.
 
 ## Proposed Suite Architecture
 
-The suite should be built in five layers.
+The suite should be built in six layers.
 
 ## Layer 1: Benchmark Data
 
@@ -675,7 +737,21 @@ Contents:
 - reusable initial fixtures
 - evaluation metadata
 
-## Layer 2: Surface Adapters
+## Layer 2: Benchmark CLI
+
+Purpose:
+
+- provide one shared entrypoint for the suite
+
+Responsibilities:
+
+- load cases and variants
+- select a surface adapter
+- run one case or a benchmark set
+- invoke shared scoring and history writing
+- expose comparison and history commands
+
+## Layer 3: Surface Adapters
 
 Purpose:
 
@@ -695,7 +771,7 @@ Responsibilities:
 - run the real model loop
 - return the final artifact plus diagnostics
 
-## Layer 3: Scoring And Reporting
+## Layer 4: Scoring And Reporting
 
 Purpose:
 
@@ -711,7 +787,7 @@ Responsibilities:
 - result serialization
 - comparison reports
 
-## Layer 4: Benchmark History
+## Layer 5: Benchmark History
 
 Purpose:
 
@@ -725,11 +801,11 @@ Responsibilities:
 - generate rollups for charts and dashboards
 - keep provenance metadata for every tracked run
 
-## Layer 5: UI Studio
+## Layer 6: UI Studio
 
 Purpose:
 
-- provide a user interface for the exact same runner
+- provide a user interface for the exact same benchmark CLI and runner stack
 
 Important rule:
 
@@ -747,7 +823,16 @@ Deliverables:
 - shared result schema
 - initial core benchmark set
 
-### Phase 2: Replace the CLI smoke suite with real artifact evaluation
+### Phase 2: Build the benchmark CLI shell
+
+Deliverables:
+
+- repo-level benchmark CLI entrypoint
+- `run`, `compare`, and `history` command skeletons
+- adapter selection layer
+- temporary wiring to the first CLI adapter
+
+### Phase 3: Replace the CLI smoke suite with real artifact evaluation
 
 Deliverables:
 
@@ -757,7 +842,7 @@ Deliverables:
 - repeated-run support
 - baseline vs candidate skill-bundle comparison
 
-### Phase 3: Add shared reporting and benchmark history around the CLI path
+### Phase 4: Add shared reporting and benchmark history around the CLI path
 
 Deliverables:
 
@@ -769,7 +854,7 @@ Deliverables:
 - history snapshot writer
 - rollup generation for trend charts
 
-### Phase 4: Finish the frontend black-box harness on top of the shared model
+### Phase 5: Finish the frontend black-box harness on top of the shared model
 
 Deliverables:
 
@@ -778,8 +863,9 @@ Deliverables:
 - add repeated-run support
 - add prompt-variant loading from files
 - align frontend outputs with the shared result and history format
+- expose frontend runs through the same benchmark CLI
 
-### Phase 5: Add CI tiers
+### Phase 6: Add CI tiers
 
 Deliverables:
 
@@ -788,7 +874,7 @@ Deliverables:
 - official history updates on `main` and scheduled runs
 - manual benchmark mode for prompt authors
 
-### Phase 6: Build the UI studio
+### Phase 7: Build the UI studio
 
 Deliverables:
 
@@ -823,6 +909,7 @@ A reasonable repo structure would be:
 
 ```text
 ai_evals/
+  cli/
   cases/
   fixtures/
   history/
@@ -847,6 +934,7 @@ The exact folder names can change, but the architectural split should remain.
 
 This project is successful when all of the following are true:
 
+- one repo-level benchmark CLI is the primary way to run prompt evals
 - frontend prompt behavior is tested headlessly and independently from the UI
 - CLI local-dev behavior is tested by evaluating the final files it produces
 - benchmark cases are shared where possible between frontend and CLI
@@ -859,10 +947,14 @@ This project is successful when all of the following are true:
 
 The current frontend evals should be treated as a useful starting point, not the finished solution.
 
+The current `cli/test-skills` work should also be treated as a useful prototype,
+not the final benchmark interface.
+
 They already prove that the repo can test AI behavior without coupling to the browser UI.
 
 The main work now is:
 
+- build the repo-level benchmark CLI as the durable entrypoint
 - replace CLI invocation checks with artifact evaluation
 - make the CLI path the reference benchmark implementation
 - unify frontend under that same benchmark model

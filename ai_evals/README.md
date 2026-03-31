@@ -8,8 +8,15 @@ black-box AI output evaluation across frontend chat modes and the CLI.
 The goal is to evaluate the final artifact produced by the AI system, not the
 internal implementation details of the frontend or CLI.
 
+The intended end state is a new repo-level benchmark CLI for running the shared
+eval suite across both the Windmill CLI and the frontend.
+
+Current code under `cli/test-skills/` should be treated as bootstrap/prototype
+implementation work, not the final entrypoint.
+
 ## Layout
 
+- `cli/`: repo-level benchmark CLI entrypoint and orchestration
 - `cases/`: benchmark case manifests
 - `fixtures/`: shared reusable starting states and assets
 - `history/`: git-tracked benchmark summaries and chart rollups
@@ -23,11 +30,12 @@ The first implementation step is to move the existing frontend flow and app
 benchmark prompts out of inline test code and into shared case manifests.
 
 That scaffolding exists now, but the next implementation priority should be the
-CLI artifact-evaluation runner and the shared benchmark history/reporting layer
-around it.
+repo-level benchmark CLI shell, with the Windmill CLI adapter as the first real
+surface behind it.
 
 Later phases should add:
 
+- repo-level benchmark commands (`run`, `compare`, `history`)
 - CLI artifact-evaluation cases
 - shared result schemas
 - repeated-run reliability reporting
