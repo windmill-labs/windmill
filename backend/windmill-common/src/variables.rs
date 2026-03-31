@@ -63,6 +63,8 @@ pub struct ExportableListableVariable {
     pub is_oauth: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<chrono::DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 fn is_none_or_false(b: &Option<bool>) -> bool {

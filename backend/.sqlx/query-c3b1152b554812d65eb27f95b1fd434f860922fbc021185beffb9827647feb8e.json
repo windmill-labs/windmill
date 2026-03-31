@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                        UPDATE\n                            capture_config\n                        SET\n                            server_id = $1,\n                            last_server_ping = now(),\n                            error = 'Connecting...'\n                        WHERE\n                            last_client_ping > NOW() - INTERVAL '10 seconds' AND\n                            workspace_id = $2 AND\n                            path = $3 AND\n                            is_flow = $4 AND\n                            trigger_kind = $5 AND\n                            (last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')\n                        RETURNING true\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text",
+        "Bool",
+        {
+          "Custom": {
+            "name": "trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "postgres",
+                "sqs",
+                "mqtt",
+                "gcp",
+                "default_email",
+                "nextcloud",
+                "google"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c3b1152b554812d65eb27f95b1fd434f860922fbc021185beffb9827647feb8e"
+}

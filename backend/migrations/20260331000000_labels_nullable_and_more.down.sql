@@ -1,0 +1,2 @@
+ALTER TABLE resource DROP COLUMN IF EXISTS labels;
+ALTER TABLE variable DROP COLUMN IF EXISTS labels;

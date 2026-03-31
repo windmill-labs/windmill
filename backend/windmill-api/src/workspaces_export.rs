@@ -107,6 +107,8 @@ struct ScriptMetadata {
     pub concurrency_settings: ConcurrencySettings,
     #[serde(flatten)]
     pub debouncing_settings: DebouncingSettings,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 pub fn is_none_or_false(val: &Option<bool>) -> bool {
@@ -513,6 +515,7 @@ pub(crate) async fn tarball_workspace(
                 has_preprocessor: script.has_preprocessor,
                 on_behalf_of_email: script.on_behalf_of_email,
                 modules: script.modules,
+                labels: script.labels,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive
@@ -610,7 +613,7 @@ pub(crate) async fn tarball_workspace(
         let apps = sqlx::query_as::<_, AppWithLastVersion>(
              "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
              app.extra_perms, app_version.value,
-             app_version.created_at, app_version.created_by, app_version.raw_app from app, app_version
+             app_version.created_at, app_version.created_by, app_version.raw_app, app.labels from app, app_version
              WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]
              AND (app.draft_only IS NULL OR app.draft_only = false)",
          )

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value->>'user_pwd' FROM global_settings WHERE name = 'custom_instance_pg_databases';",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0b5103497ab09affbdf3793d7d7857807d20645561c178d822ecad779c4f7bf4"
+}
