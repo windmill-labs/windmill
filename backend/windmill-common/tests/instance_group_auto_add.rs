@@ -28,6 +28,7 @@
 mod tests {
     use serde_json::json;
     use sqlx::{Pool, Postgres};
+    use windmill_common::users::compute_highest_workspace_role;
 
     /// Test that configuring instance groups for a workspace auto-adds existing group members
     #[ignore = "requires database setup - run with --ignored flag"]
@@ -439,33 +440,8 @@ mod tests {
             .and_then(|ig| serde_json::from_value(ig).ok())
             .unwrap_or_default();
 
-        let mut best_group = String::new();
-        let mut best_precedence = 0u8;
-
-        for group in &user_igroups {
-            if !ws_configured_groups.contains(group) {
-                continue;
-            }
-            let default_role = "developer".to_string();
-            let role = ws_roles.get(group).unwrap_or(&default_role);
-            let precedence = match role.as_str() {
-                "admin" => 3u8,
-                "operator" => 1,
-                _ => 2,
-            };
-            if precedence > best_precedence {
-                best_precedence = precedence;
-                best_group = group.clone();
-            }
-        }
-
-        let default_role = "developer".to_string();
-        let best_role_str = ws_roles.get(&best_group).unwrap_or(&default_role);
-        let (is_admin, is_operator) = match best_role_str.as_str() {
-            "admin" => (true, false),
-            "operator" => (false, true),
-            _ => (false, false),
-        };
+        let (best_group, is_admin, is_operator) =
+            compute_highest_workspace_role(&user_igroups, &ws_configured_groups, &ws_roles);
 
         let instance_group_source = json!({
             "source": "instance_group",
@@ -552,32 +528,8 @@ mod tests {
         let ws_roles: std::collections::HashMap<String, String> =
             serde_json::from_value(roles).unwrap();
 
-        let mut best_group = String::new();
-        let mut best_precedence = 0u8;
-        for group in &user_igroups {
-            if !ws_configured_groups.contains(group) {
-                continue;
-            }
-            let default_role = "developer".to_string();
-            let role = ws_roles.get(group).unwrap_or(&default_role);
-            let precedence = match role.as_str() {
-                "admin" => 3u8,
-                "operator" => 1,
-                _ => 2,
-            };
-            if precedence > best_precedence {
-                best_precedence = precedence;
-                best_group = group.clone();
-            }
-        }
-
-        let default_role = "developer".to_string();
-        let best_role_str = ws_roles.get(&best_group).unwrap_or(&default_role);
-        let (is_admin, is_operator) = match best_role_str.as_str() {
-            "admin" => (true, false),
-            "operator" => (false, true),
-            _ => (false, false),
-        };
+        let (best_group, is_admin, is_operator) =
+            compute_highest_workspace_role(&user_igroups, &ws_configured_groups, &ws_roles);
 
         let instance_group_source = json!({"source": "instance_group", "group": &best_group});
         sqlx::query!(

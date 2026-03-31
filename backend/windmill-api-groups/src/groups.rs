@@ -851,6 +851,7 @@ async fn add_user_igroup(
     #[cfg(all(feature = "private", feature = "enterprise"))]
     {
         use windmill_api_workspaces::workspaces_ee::auto_add_user;
+        use windmill_common::users::compute_highest_workspace_role;
 
         // Find all instance groups this user belongs to (includes the newly added group)
         let user_igroups: Vec<String> = sqlx::query_scalar!(
@@ -884,52 +885,31 @@ async fn add_user_igroup(
                 .and_then(|ig| serde_json::from_value(ig).ok())
                 .unwrap_or_default();
 
-            // Compute highest-precedence role across all user's groups configured for this workspace
-            let mut best_group = name.clone();
-            let mut best_precedence = 0u8;
-
-            for group in &user_igroups {
-                if !ws_configured_groups.contains(group) {
-                    continue;
-                }
-                let default_role = "developer".to_string();
-                let role = roles.get(group).unwrap_or(&default_role);
-                let precedence = match role.as_str() {
-                    "admin" => 3u8,
-                    "operator" => 1,
-                    _ => 2,
-                };
-                if precedence > best_precedence {
-                    best_precedence = precedence;
-                    best_group = group.clone();
-                }
-            }
-
-            let default_role = "developer".to_string();
-            let best_role_str = roles.get(&best_group).unwrap_or(&default_role);
-            let (is_admin, is_operator) = match best_role_str.as_str() {
-                "admin" => (true, false),
-                "operator" => (false, true),
-                _ => (false, false),
-            };
+            let (best_group, is_admin, is_operator) =
+                compute_highest_workspace_role(&user_igroups, &ws_configured_groups, &roles);
 
             let instance_group_source = serde_json::json!({
                 "source": "instance_group",
                 "group": &best_group
             });
 
+            // auto_add_user creates the user if they don't exist (ON CONFLICT DO NOTHING).
+            // The operator flag here doesn't matter for the final state — the UPDATE below
+            // always sets the correct is_admin/operator based on the highest-precedence role.
             auto_add_user(
                 &email,
                 &ws.workspace_id,
-                &is_operator,
+                &false,
                 &mut tx,
                 &authed,
                 Some(instance_group_source.clone()),
             )
             .await?;
 
-            // Update role to reflect highest precedence across all groups
-            // (handles both new users needing admin and existing users whose role needs upgrading)
+            // Set the correct role based on highest precedence across all groups.
+            // For new users, auto_add_user already stored added_via with source=instance_group,
+            // so this UPDATE will match. For existing instance_group users, it upgrades/corrects
+            // the role. Manually-added users (added_via is NULL or non-instance_group) are not affected.
             sqlx::query!(
                 "UPDATE usr SET is_admin = $1, operator = $2, added_via = $3 WHERE workspace_id = $4 AND email = $5 AND added_via->>'source' = 'instance_group'",
                 is_admin,
