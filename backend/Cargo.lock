@@ -15932,7 +15932,7 @@ dependencies = [
 
 [[package]]
 name = "windmill"
-version = "1.669.1"
+version = "1.670.0"
 dependencies = [
  "anyhow",
  "async-nats",
