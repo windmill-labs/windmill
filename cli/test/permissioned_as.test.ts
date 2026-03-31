@@ -3,10 +3,13 @@
  */
 
 import { expect, test, describe } from "bun:test";
+import { mock } from "bun:test";
 import {
   validatePermissionedAsRules,
   resolvePermissionedAsRule,
+  preCheckPermissionedAs,
   type PermissionedAsRule,
+  type Change,
 } from "../src/core/permissioned_as.ts";
 
 // =============================================================================
@@ -267,5 +270,154 @@ describe("resolvePermissionedAsRule", () => {
     expect(
       resolvePermissionedAsRule("f/team_a/nested/scripts", wildcardRules)
     ).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// preCheckPermissionedAs — has_on_behalf_of gating
+// =============================================================================
+
+describe("preCheckPermissionedAs", () => {
+  const userEmail = "user@example.com";
+
+  // Helper to check if preCheck would exit (flag items)
+  async function expectFlagged(fn: () => Promise<void>) {
+    const originalExit = process.exit;
+    let exitCalled = false;
+    process.exit = ((code?: number) => { exitCalled = true; }) as any;
+    try {
+      await fn();
+      expect(exitCalled).toBe(true);
+    } finally {
+      process.exit = originalExit;
+    }
+  }
+
+  // Helper: make a script edit change
+  function scriptEdit(before: string): Change {
+    return {
+      name: "edited",
+      path: "f/my_script.script.yaml",
+      before,
+      after: "summary: updated\n",
+    };
+  }
+
+  // Helper: make a script added change
+  function scriptAdded(content: string, path = "f/my_script.script.yaml"): Change {
+    return { name: "added", path, content };
+  }
+
+  // Helper: make a flow edit change
+  function flowEdit(before: string): Change {
+    return {
+      name: "edited",
+      path: "f/my_flow.flow/flow.yaml",
+      before,
+      after: "summary: updated\n",
+    };
+  }
+
+  // Helper: make a flow added change
+  function flowAdded(content: string, path = "f/my_flow.flow/flow.yaml"): Change {
+    return { name: "added", path, content };
+  }
+
+  // --- Non-admin, edited changes ---
+
+  test("non-admin: edited script with has_on_behalf_of: true is flagged", async () => {
+    await expectFlagged(() =>
+      preCheckPermissionedAs([scriptEdit("summary: test\nhas_on_behalf_of: true\n")], userEmail, false, false, false)
+    );
+  });
+
+  test("non-admin: edited script with has_on_behalf_of: false is not flagged", async () => {
+    await preCheckPermissionedAs([scriptEdit("summary: test\nhas_on_behalf_of: false\n")], userEmail, false, false, false);
+  });
+
+  test("non-admin: edited flow with has_on_behalf_of: true is flagged", async () => {
+    await expectFlagged(() =>
+      preCheckPermissionedAs([flowEdit("summary: test\nhas_on_behalf_of: true\n")], userEmail, false, false, false)
+    );
+  });
+
+  test("non-admin: edited flow with has_on_behalf_of: false is not flagged", async () => {
+    await preCheckPermissionedAs([flowEdit("summary: test\nhas_on_behalf_of: false\n")], userEmail, false, false, false);
+  });
+
+  test("non-admin: legacy script with on_behalf_of_email is still flagged", async () => {
+    await expectFlagged(() =>
+      preCheckPermissionedAs([scriptEdit("summary: test\non_behalf_of_email: foo@bar.com\n")], userEmail, false, false, false)
+    );
+  });
+
+  test("non-admin: script without obo fields is not flagged", async () => {
+    await preCheckPermissionedAs([scriptEdit("summary: test\n")], userEmail, false, false, false);
+  });
+
+  // --- Non-admin, added changes ---
+
+  test("non-admin: added script with has_on_behalf_of: true is flagged", async () => {
+    await expectFlagged(() =>
+      preCheckPermissionedAs([scriptAdded("summary: test\nhas_on_behalf_of: true\n")], userEmail, false, false, false)
+    );
+  });
+
+  test("non-admin: added flow with has_on_behalf_of: true is flagged", async () => {
+    await expectFlagged(() =>
+      preCheckPermissionedAs([flowAdded("summary: test\nhas_on_behalf_of: true\n")], userEmail, false, false, false)
+    );
+  });
+
+  test("non-admin: added script with has_on_behalf_of: false is not flagged", async () => {
+    await preCheckPermissionedAs([scriptAdded("summary: test\nhas_on_behalf_of: false\n")], userEmail, false, false, false);
+  });
+
+  // --- Admin, edited changes (preserve handles these — not flagged) ---
+
+  test("admin: edited script with has_on_behalf_of: true is not flagged (preserve handles)", async () => {
+    await preCheckPermissionedAs([scriptEdit("summary: test\nhas_on_behalf_of: true\n")], userEmail, true, false, false);
+  });
+
+  test("admin: edited flow with has_on_behalf_of: true is not flagged (preserve handles)", async () => {
+    await preCheckPermissionedAs([flowEdit("summary: test\nhas_on_behalf_of: true\n")], userEmail, true, false, false);
+  });
+
+  // --- Admin, added changes (no remote to preserve — rule check) ---
+
+  test("admin: added script with has_on_behalf_of: true and no rule is flagged", async () => {
+    await expectFlagged(() =>
+      preCheckPermissionedAs([scriptAdded("summary: test\nhas_on_behalf_of: true\n")], userEmail, true, false, false, [])
+    );
+  });
+
+  test("admin: added flow with has_on_behalf_of: true and no rule is flagged", async () => {
+    await expectFlagged(() =>
+      preCheckPermissionedAs([flowAdded("summary: test\nhas_on_behalf_of: true\n")], userEmail, true, false, false, [])
+    );
+  });
+
+  test("admin: added script with has_on_behalf_of: true and matching rule is not flagged", async () => {
+    const rules = [{ email: "admin@co.com", path_pattern: "f/**" }];
+    await preCheckPermissionedAs([scriptAdded("summary: test\nhas_on_behalf_of: true\n")], userEmail, true, false, false, rules);
+  });
+
+  test("admin: added flow with has_on_behalf_of: true and matching rule is not flagged", async () => {
+    const rules = [{ email: "admin@co.com", path_pattern: "f/**" }];
+    await preCheckPermissionedAs([flowAdded("summary: test\nhas_on_behalf_of: true\n")], userEmail, true, false, false, rules);
+  });
+
+  test("admin: added script with has_on_behalf_of: false is not flagged (no obo)", async () => {
+    await preCheckPermissionedAs([scriptAdded("summary: test\nhas_on_behalf_of: false\n")], userEmail, true, false, false, []);
+  });
+
+  // --- acceptOverride flag ---
+
+  test("flagged items with acceptOverride: true logs warning but does not exit", async () => {
+    // Should return normally (warning logged but no exit)
+    await preCheckPermissionedAs(
+      [scriptAdded("summary: test\nhas_on_behalf_of: true\n")],
+      userEmail, true, true, false, []
+    );
   });
 });

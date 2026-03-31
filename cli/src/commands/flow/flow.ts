@@ -40,6 +40,7 @@ export interface FlowFile {
   value: any;
   schema?: any;
   on_behalf_of_email?: string;
+  has_on_behalf_of?: boolean;
 }
 
 function normalizeOptionalString(value: string | null | undefined): string | undefined {
@@ -170,9 +171,13 @@ export async function pushFlow(
     await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, localPath, SEP);
   }
 
+  // Extract CLI-only field before sending to API
+  const hasOnBehalfOf = localFlow.has_on_behalf_of ?? !!localFlow.on_behalf_of_email;
+  delete (localFlow as any).has_on_behalf_of;
+
   // Build preserve flags for permissioned_as
   const preserveFields: Partial<OpenFlowWPath> = {};
-  if (permissionedAsContext?.userIsAdminOrDeployer) {
+  if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
     if (flow) {
       // Updating: preserve the remote's on_behalf_of_email (only if it has one)
       if (flow.on_behalf_of_email) {

@@ -449,8 +449,11 @@ export async function handleFile(
       modules: modules,
     };
 
+    // Compute whether original remote had on_behalf_of set
+    const hasOnBehalfOf = typed?.has_on_behalf_of ?? !!typed?.on_behalf_of_email;
+
     // Add preserve flags for permissioned_as
-    if (permissionedAsContext?.userIsAdminOrDeployer) {
+    if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
       if (remote) {
         // Updating: preserve the remote's on_behalf_of_email (only if it has one)
         if (remote.on_behalf_of_email) {
@@ -506,7 +509,7 @@ export async function handleFile(
             typed.debounce_key == remote["debounce_key"] &&
             typed.debounce_delay_s == remote["debounce_delay_s"] &&
             typed.codebase == remote.codebase &&
-            typed.on_behalf_of_email == remote.on_behalf_of_email &&
+            (typed.has_on_behalf_of !== undefined ? true : typed.on_behalf_of_email == remote.on_behalf_of_email) &&
             deepEqual(typed.envs, remote.envs) &&
             deepEqual(modules ?? null, remote.modules ?? null))
         ) {

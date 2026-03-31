@@ -139,10 +139,40 @@ export interface Change {
 }
 
 /**
- * Pre-checks whether items being pushed will have their permissioned_as/email changed
- * because the deploying user is not an admin or deployer.
+ * Extract the remote path (used for rule matching) from a local file path.
+ */
+function extractRemotePathForRuleCheck(filePath: string, typeStr: string): string | undefined {
+  if (typeStr === "script") {
+    const match = filePath.match(/^(.+)\.script\.(yaml|json)$/);
+    return match ? match[1] : undefined;
+  }
+  if (typeStr === "flow") {
+    // Handle both .flow/ and __flow/ suffixes
+    const match = filePath.match(/^(.+?)(?:\.flow|__flow)\//);
+    return match ? match[1] : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Check if content has on_behalf_of set (new has_on_behalf_of boolean or legacy email).
+ */
+function contentHasOnBehalfOf(content: string, typeStr: string): boolean {
+  if (typeStr === "script") {
+    return !!content.match(/has_on_behalf_of:\s*(true)/) ||
+           !!content.match(/on_behalf_of_email:\s*["']?([^\s"']+)["']?/);
+  }
+  if (typeStr === "flow") {
+    return !!content.match(/has_on_behalf_of:\s*(true)/);
+  }
+  return false;
+}
+
+/**
+ * Pre-checks whether items being pushed will have their permissioned_as/email changed.
  *
- * For admins/deployers, preserve flags will be sent with the API calls, so no warning is needed.
+ * For admins/deployers editing existing items, preserve flags handle ownership — no warning needed.
+ * For admins/deployers creating items with has_on_behalf_of but no matching rule, warn/prompt.
  * For non-admin/non-deployer users, the API will silently overwrite the owner to the deploying user.
  */
 export async function preCheckPermissionedAs(
@@ -150,23 +180,54 @@ export async function preCheckPermissionedAs(
   userEmail: string,
   userIsAdminOrDeployer: boolean,
   acceptOverride: boolean,
-  isInteractive: boolean
+  isInteractive: boolean,
+  rules: PermissionedAsRule[] = []
 ): Promise<void> {
-  if (userIsAdminOrDeployer) {
-    return;
-  }
-
   const wouldChangeItems: { path: string; currentOwner: string }[] = [];
 
   for (const change of changes) {
-    if (change.name !== "edited") {
-      continue;
-    }
-
     let typeStr: string;
     try {
       typeStr = getTypeStrFromPath(change.path);
     } catch {
+      continue;
+    }
+
+    // --- "added" changes: new items being created ---
+    if (change.name === "added") {
+      const content = change.content;
+      if (!content) continue;
+
+      const isScriptMeta = typeStr === "script" &&
+        (change.path.endsWith(".script.yaml") || change.path.endsWith(".script.json"));
+      const isFlowMeta = typeStr === "flow" &&
+        (change.path.endsWith("flow.yaml") || change.path.endsWith("flow.json"));
+
+      if ((isScriptMeta || isFlowMeta) && contentHasOnBehalfOf(content, typeStr)) {
+        if (userIsAdminOrDeployer) {
+          // Admins can apply rules — only flag if no rule matches this path
+          const remotePath = extractRemotePathForRuleCheck(change.path, typeStr);
+          if (!remotePath || !resolvePermissionedAsRule(remotePath, rules)) {
+            const label = typeStr === "script" ? "(script owner)" : "(flow owner)";
+            wouldChangeItems.push({ path: change.path, currentOwner: label });
+          }
+        } else {
+          const label = typeStr === "script" ? "(script owner)" : "(flow owner)";
+          wouldChangeItems.push({ path: change.path, currentOwner: label });
+        }
+      } else if (typeStr === "app" && !userIsAdminOrDeployer) {
+        wouldChangeItems.push({ path: change.path, currentOwner: "(app policy owner)" });
+      }
+      continue;
+    }
+
+    // --- "edited" changes ---
+    if (change.name !== "edited") {
+      continue;
+    }
+
+    // For edits, admins preserve from remote — no warning needed
+    if (userIsAdminOrDeployer) {
       continue;
     }
 
@@ -181,20 +242,31 @@ export async function preCheckPermissionedAs(
         change.path.endsWith(".script.yaml") ||
         change.path.endsWith(".script.json")
       ) {
-        const match = beforeContent.match(
-          /on_behalf_of_email:\s*["']?([^\s"']+)["']?/
-        );
-        if (match) {
-          currentOwner = match[1];
+        // New format: has_on_behalf_of boolean
+        const hasOboMatch = beforeContent.match(/has_on_behalf_of:\s*(true)/);
+        if (hasOboMatch) {
+          currentOwner = "(script owner)";
+        } else {
+          // Legacy format: on_behalf_of_email directly in file
+          const emailMatch = beforeContent.match(
+            /on_behalf_of_email:\s*["']?([^\s"']+)["']?/
+          );
+          if (emailMatch) {
+            currentOwner = emailMatch[1];
+          }
         }
       }
     } else if (typeStr === "flow") {
-      // Flow on_behalf_of_email is stripped during sync pull, so we can't
-      // reliably detect the current owner from local files. Always flag it.
-      wouldChangeItems.push({
-        path: change.path,
-        currentOwner: "(flow owner)",
-      });
+      // Only flag when has_on_behalf_of: true is present
+      if (change.path.endsWith("flow.yaml") || change.path.endsWith("flow.json")) {
+        const hasOboMatch = beforeContent.match(/has_on_behalf_of:\s*(true)/);
+        if (hasOboMatch) {
+          wouldChangeItems.push({
+            path: change.path,
+            currentOwner: "(flow owner)",
+          });
+        }
+      }
       continue;
     } else if (typeStr === "app") {
       // Apps always have on_behalf_of set - any edited app will change owner
@@ -233,9 +305,11 @@ export async function preCheckPermissionedAs(
     .map((item) => `  - ${item.path} (current owner: ${item.currentOwner})`)
     .join("\n");
 
-  const message =
-    `You are not an admin or member of 'wm_deployers'. The following ${wouldChangeItems.length} item(s) ` +
-    `will have their permissioned_as/email changed to your user (${userEmail}):\n${itemList}`;
+  const message = userIsAdminOrDeployer
+    ? `The following ${wouldChangeItems.length} item(s) have on_behalf_of set but no matching defaultPermissionedAs rule in wmill.yaml. ` +
+      `They will be created with your user (${userEmail}) as permissioned_as:\n${itemList}`
+    : `You are not an admin or member of 'wm_deployers'. The following ${wouldChangeItems.length} item(s) ` +
+      `will have their permissioned_as/email changed to your user (${userEmail}):\n${itemList}`;
 
   if (acceptOverride) {
     log.warn(colors.yellow(`Warning: ${message}`));

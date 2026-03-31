@@ -692,6 +692,7 @@ function ZipFSElement(
             }
 
             if (stripOnBehalfOf) {
+              (flow as any).has_on_behalf_of = !!(flow as any).on_behalf_of_email;
               delete (flow as any).on_behalf_of_email;
             }
 
@@ -976,6 +977,7 @@ function ZipFSElement(
               parsed["codebase"] = undefined;
             }
             if (stripOnBehalfOf) {
+              parsed["has_on_behalf_of"] = !!parsed["on_behalf_of_email"];
               delete parsed["on_behalf_of_email"];
             }
             // Modules are stored as files in __mod/ folder, not in metadata
@@ -2829,13 +2831,14 @@ export async function push(
         userIsAdminOrDeployer,
       };
 
-      // Pre-check: warn non-admin/non-deployer users about permissioned_as changes
+      // Pre-check: warn about permissioned_as changes
       await preCheckPermissionedAs(
         changes,
         user.email,
         userIsAdminOrDeployer,
         opts.acceptOverridingPermissionedAsWithSelf ?? false,
-        !!process.stdin.isTTY
+        !!process.stdin.isTTY,
+        validatedRules
       );
     }
 
