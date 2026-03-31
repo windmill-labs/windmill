@@ -17,6 +17,7 @@
 		copyToClipboard,
 		emptyString,
 		encodeState,
+		getHubFlowIdFromPath,
 		isHubFlowPath,
 		isFlowPreview,
 		isNotFlow,
@@ -296,6 +297,17 @@
 
 	function forkPreview() {
 		if (isFlowPreview(job?.job_kind)) {
+			if (isHubFlowPath(job?.script_path)) {
+				const hubFlowId = getHubFlowIdFromPath(job?.script_path)
+				if (hubFlowId === undefined) {
+					sendUserToast('Could not determine the hub flow to fork', true)
+					return
+				}
+				$initialArgsStore = job?.args
+				window.open(`/flows/add?hub=${hubFlowId}`)
+				return
+			}
+
 			const state = {
 				flow: { value: job?.raw_flow },
 				path: job?.script_path + '_fork',
