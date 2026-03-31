@@ -16382,6 +16382,7 @@ dependencies = [
  "rand 0.9.0",
  "rdkafka",
  "reqwest 0.13.1",
+ "rmcp",
  "rumqttc",
  "serde",
  "serde_json",
