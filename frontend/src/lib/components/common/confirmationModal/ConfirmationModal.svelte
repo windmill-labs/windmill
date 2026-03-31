@@ -15,6 +15,7 @@
 		type?: 'danger' | 'reload'
 		showIcon?: boolean
 		id?: string
+		trashbin?: boolean
 		children?: Snippet
 		onConfirmed?: () => void | Promise<void>
 		onCanceled?: () => void
@@ -29,6 +30,7 @@
 		type: _type,
 		showIcon = true,
 		id,
+		trashbin = false,
 		children,
 		onConfirmed,
 		onCanceled
@@ -120,6 +122,12 @@
 							<div class="mt-2 text-sm text-secondary">
 								{@render children?.()}
 							</div>
+							{#if trashbin}
+								<p class="mt-3 text-xs text-tertiary"
+									>This item will be moved to the trashbin and can be restored by a workspace admin
+									within 3 days.</p
+								>
+							{/if}
 						</div>
 					</div>
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">

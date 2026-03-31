@@ -84,13 +84,13 @@ impl GoogleAIQueryBuilder {
                 );
             }
 
-            if let Some(images) = args.images {
-                for image in images.iter() {
-                    if !image.s3.is_empty() {
-                        let (mime_type, image_bytes) =
-                            download_and_encode_s3_image(image, client, workspace_id).await?;
+            if let Some(attachments) = args.attachments {
+                for attachment in attachments.iter() {
+                    if !attachment.s3.is_empty() {
+                        let (mime_type, file_bytes) =
+                            download_and_encode_s3_image(attachment, client, workspace_id).await?;
                         parts.push(GeminiPart::InlineData {
-                            inline_data: GeminiInlineData { mime_type, data: image_bytes },
+                            inline_data: GeminiInlineData { mime_type, data: file_bytes },
                         });
                     }
                 }

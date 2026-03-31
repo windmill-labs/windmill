@@ -45,8 +45,8 @@ use windmill_common::global_settings::EMAIL_DOMAIN_SETTING;
 use windmill_common::worker::HUB_CACHE_DIR;
 
 use std::fs::DirBuilder;
+use std::sync::Arc;
 use std::time::Duration;
-use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
@@ -165,6 +165,7 @@ pub mod teams_ee;
 mod teams_oss;
 mod token;
 mod tracing_init;
+mod trash;
 pub mod triggers;
 mod users;
 #[cfg(feature = "private")]
@@ -325,7 +326,7 @@ pub async fn run_server(
     db: DB,
     job_index_reader: Option<IndexReader>,
     log_index_reader: Option<ServiceLogIndexReader>,
-    addr: SocketAddr,
+    listener: tokio::net::TcpListener,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
@@ -411,6 +412,9 @@ pub async fn run_server(
                     auth_cache: auth_cache.clone(),
                     base_internal_url: _base_internal_url.clone(),
                 });
+                let addr = listener
+                    .local_addr()
+                    .unwrap_or_else(|_| std::net::SocketAddr::from(([127, 0, 0, 1], 0)));
                 if let Err(err) = smtp_server.start_listener_thread(addr).await {
                     tracing::error!("Error starting SMTP server: {err:#}");
                 }
@@ -451,9 +455,6 @@ pub async fn run_server(
         health::start_health_check_loop(db.clone(), killpill_rx.resubscribe());
     }
 
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .context("binding main windmill server")?;
     let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
     let ip = listener
         .local_addr()
@@ -597,6 +598,7 @@ pub async fn run_server(
                         .nest("/resources", resources::workspaced_service())
                         .nest("/schedules", windmill_api_schedule::workspaced_service())
                         .nest("/scripts", scripts::workspaced_service())
+                        .nest("/trash", trash::workspaced_service())
                         .nest(
                             "/users",
                             users::workspaced_service().layer(Extension(argon2.clone())),

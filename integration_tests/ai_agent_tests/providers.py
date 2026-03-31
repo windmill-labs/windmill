@@ -136,11 +136,13 @@ ALL_PROVIDERS = [
     OPENROUTER,
 ]
 
-# Vision-capable providers for user_images tests
+# Vision-capable providers for user_images/user_attachments tests
 VISION_PROVIDERS = [
-    OPENAI,      # gpt-4o-mini supports vision
-    ANTHROPIC,   # claude-3 supports vision
-    GOOGLE_AI,   # gemini supports vision
+    OPENAI,       # gpt-4o-mini supports vision
+    ANTHROPIC,    # claude-3 supports vision
+    GOOGLE_AI,    # gemini supports vision
+    OPENROUTER,   # openai-compatible, vision depends on model
+    BEDROCK,      # bedrock converse API supports vision and documents
 ]
 
 

@@ -963,6 +963,15 @@ async fn delete_schedule(
         )));
     }
 
+    // Capture row for trashbin before deleting
+    let trash_data: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT jsonb_build_object('row', to_jsonb(t)) FROM schedule t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
     let del = sqlx::query_scalar!(
         "DELETE FROM schedule WHERE path = $1 AND workspace_id = $2 RETURNING 1",
         path,
@@ -977,6 +986,18 @@ async fn delete_schedule(
             "Not authorized to delete schedule {}",
             path
         )));
+    }
+
+    if let Some(data) = trash_data {
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "schedule",
+            path,
+            data,
+            &authed.username,
+        )
+        .await?;
     }
 
     audit_log(

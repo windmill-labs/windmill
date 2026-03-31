@@ -86,6 +86,7 @@ pub mod schedule;
 pub mod schema;
 pub mod scripts;
 pub mod secret_backend;
+pub mod sensitive_log_masks;
 pub mod server;
 pub mod ssrf;
 #[cfg(feature = "private")]
@@ -96,6 +97,7 @@ pub mod stream;
 pub mod teams_ee;
 pub mod teams_oss;
 pub mod tracing_init;
+pub mod trashbin;
 pub mod triggers;
 pub mod usernames;
 pub mod users;

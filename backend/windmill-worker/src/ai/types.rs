@@ -26,7 +26,8 @@ use windmill_types::s3::S3Object;
 // Re-export shared types from windmill_common
 pub use windmill_common::ai_providers::AIPlatform;
 pub use windmill_common::ai_types::{
-    ContentPart, ImageUrlData, OpenAIContent, OpenAIMessage, ToolDef, ToolDefFunction, UrlCitation,
+    ContentPart, FileData, ImageUrlData, OpenAIContent, OpenAIMessage, ToolDef, ToolDefFunction,
+    UrlCitation,
 };
 
 /// same as OpenAIMessage but with agent_action field included in the serialization
@@ -96,7 +97,8 @@ struct AIAgentArgsRaw {
     max_completion_tokens: Option<u32>,
     output_schema: Option<OpenAPISchema>,
     output_type: Option<OutputType>,
-    user_images: Option<Vec<S3Object>>,
+    #[serde(alias = "user_images")]
+    user_attachments: Option<Vec<S3Object>>,
     streaming: Option<bool>,
     max_iterations: Option<usize>,
     memory: Option<Memory>,
@@ -116,7 +118,7 @@ pub struct AIAgentArgs {
     pub max_completion_tokens: Option<u32>,
     pub output_schema: Option<OpenAPISchema>,
     pub output_type: Option<OutputType>,
-    pub user_images: Option<Vec<S3Object>>,
+    pub user_attachments: Option<Vec<S3Object>>,
     pub streaming: Option<bool>,
     pub max_iterations: Option<usize>,
     pub memory: Option<Memory>,
@@ -148,7 +150,7 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
             max_completion_tokens: raw.max_completion_tokens,
             output_schema: raw.output_schema,
             output_type: raw.output_type,
-            user_images: raw.user_images,
+            user_attachments: raw.user_attachments,
             streaming: raw.streaming,
             max_iterations: raw.max_iterations,
             memory,
