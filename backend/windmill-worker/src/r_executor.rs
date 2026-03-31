@@ -98,7 +98,15 @@ pub async fn handle_r_job<'a>(
     .await?;
     // --- Install ---
     let lib_path = if !lockfile.is_empty() {
-        Some(install(&mut args, &lockfile, annotation.renv_verbose, annotation.renv_install_verbose).await?)
+        Some(
+            install(
+                &mut args,
+                &lockfile,
+                annotation.renv_verbose,
+                annotation.renv_install_verbose,
+            )
+            .await?,
+        )
     } else {
         None
     };
@@ -213,7 +221,8 @@ pub async fn resolve<'a>(
     repos = c(CRAN = "https://cloud.r-project.org"),
     renv.verbose = {verbose_r},
     renv.config.cache.enabled = FALSE,
-    renv.config.restart.enabled = FALSE
+    renv.config.restart.enabled = FALSE,
+    renv.config.synchronized.check = FALSE
 )
 renv::consent(provided = TRUE)
 suppressMessages(renv::init(bare = TRUE, restart = FALSE))
@@ -279,7 +288,13 @@ suppressMessages(renv::snapshot(type = "implicit", prompt = FALSE))
         .ok()
         .and_then(|v| v.get("Packages")?.as_object().map(|o| o.len()))
         .unwrap_or(0);
-    append_logs(job_id, w_id, format!("resolved {} packages\n", pkg_count), conn).await;
+    append_logs(
+        job_id,
+        w_id,
+        format!("resolved {} packages\n", pkg_count),
+        conn,
+    )
+    .await;
     Ok(lock)
 }
 
@@ -298,7 +313,10 @@ fn parse_renv_lock(lockfile: &str) -> Result<Vec<RenvPackage>, Error> {
 
     // Build repo name -> URL map from R.Repositories
     let mut repo_urls: HashMap<String, String> = HashMap::new();
-    if let Some(repos) = lock.get("R").and_then(|r| r.get("Repositories")).and_then(|r| r.as_array())
+    if let Some(repos) = lock
+        .get("R")
+        .and_then(|r| r.get("Repositories"))
+        .and_then(|r| r.as_array())
     {
         for repo in repos {
             if let (Some(name), Some(url)) = (
@@ -358,7 +376,12 @@ fn parse_renv_lock(lockfile: &str) -> Result<Vec<RenvPackage>, Error> {
     Ok(result)
 }
 
-async fn install<'a>(args: &mut JobHandlerInput<'a>, lockfile: &str, verbose: bool, install_verbose: bool) -> Result<String, Error> {
+async fn install<'a>(
+    args: &mut JobHandlerInput<'a>,
+    lockfile: &str,
+    verbose: bool,
+    install_verbose: bool,
+) -> Result<String, Error> {
     let lib_path = format!("{}/r_site_library", *R_CACHE_DIR);
     fs::create_dir_all(&lib_path).await?;
 
@@ -450,7 +473,7 @@ async fn install<'a>(args: &mut JobHandlerInput<'a>, lockfile: &str, verbose: bo
 
             let verbose_r = if verbose { "TRUE" } else { "FALSE" };
             let install_verbose_r = if install_verbose { "TRUE" } else { "FALSE" };
-            let install_lib = if jailed { "/install".to_string() } else { lib_path_c };
+            let install_lib = if jailed { "/install".to_string() } else { pkg_outer.clone() };
             cmd.env_clear()
                 .current_dir(&job_dir)
                 .env("PATH", PATH_ENV.as_str())
@@ -560,7 +583,10 @@ async fn run<'a>(
             .envs(envs)
             .envs(reserved_variables)
             .envs(R_PROXY_ENVS.clone())
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Rlang, &job.id, &job.workspace_id, conn).await?);
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Rlang, &job.id, &job.workspace_id, conn)
+                    .await?,
+            );
         if let Some(lp) = lib_path {
             cmd.env("R_LIBS_USER", r_libs_user(lp));
         }
@@ -598,7 +624,10 @@ async fn run<'a>(
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(reserved_variables)
             .envs(R_PROXY_ENVS.clone())
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Rlang, &job.id, &job.workspace_id, conn).await?)
+            .envs(
+                get_proxy_envs_for_lang(&ScriptLang::Rlang, &job.id, &job.workspace_id, conn)
+                    .await?,
+            )
             .envs(envs);
         if let Some(lp) = lib_path {
             cmd.env("R_LIBS_USER", r_libs_user(lp));

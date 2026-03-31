@@ -1268,7 +1268,7 @@
 															} as ButtonType.Icon}
 														>
 															<span class="truncate">{label}</span>
-															{#if lang === 'ruby' || lang === 'rlang'}
+															{#if lang === 'rlang'}
 																<span class="text-primary !text-xs"> BETA </span>
 															{/if}
 														</Button>
