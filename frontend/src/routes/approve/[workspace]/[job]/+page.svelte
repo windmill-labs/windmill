@@ -33,6 +33,7 @@
 	let default_payload: any = $state({})
 	let loading = $state(false)
 	let valid = $state(true)
+	let actionTaken: 'approved' | 'denied' | undefined = $state(undefined)
 
 	let pollInterval: number | undefined = undefined
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
@@ -81,6 +82,9 @@
 				id: page.params.job ?? ''
 			})) as Job
 			completed = job?.type === 'CompletedJob'
+			if (completed) {
+				pollInterval && clearInterval(pollInterval)
+			}
 		} catch {
 			// Job details are optional — page works with just approvalInfo
 		}
@@ -103,7 +107,7 @@
 				}
 			})
 			sendUserToast('Flow approved')
-			pollInterval && clearInterval(pollInterval)
+			actionTaken = 'approved'
 			loadData()
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? 'Failed to approve', true)
@@ -125,7 +129,7 @@
 				}
 			})
 			sendUserToast('Flow denied!')
-			pollInterval && clearInterval(pollInterval)
+			actionTaken = 'denied'
 			loadData()
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? 'Failed to cancel', true)
@@ -259,6 +263,12 @@
 				<Alert type="info" title="Flow completed">
 					The flow is not running anymore. You cannot cancel or resume it.
 				</Alert>
+			{:else if actionTaken}
+				<Alert type="info" title={actionTaken === 'approved' ? 'Flow approved' : 'Flow denied'}>
+					{actionTaken === 'approved'
+						? 'You have approved this flow. Waiting for it to complete...'
+						: 'You have denied this flow. Waiting for it to complete...'}
+				</Alert>
 			{/if}
 
 			{#if approvalInfo.description != undefined}
@@ -279,31 +289,20 @@
 				{/if}
 			{/if}
 
-			{#if !completed && approvalInfo.can_approve}
+			{#if !completed && !actionTaken && approvalInfo.can_approve}
 				<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap">
 					{#if approvalInfo.hide_cancel !== true}
-						<Button
-							variant="accent"
-							destructive
-							onclick={cancel}
-							size="lg"
-							disabled={completed || loading}
-						>
+						<Button variant="accent" destructive onclick={cancel} size="lg" disabled={loading}>
 							Deny
 						</Button>
 					{:else}
 						<div></div>
 					{/if}
-					<Button
-						variant="accent"
-						onclick={resume}
-						size="lg"
-						disabled={completed || !valid || loading}
-					>
+					<Button variant="accent" onclick={resume} size="lg" disabled={!valid || loading}>
 						Approve
 					</Button>
 				</div>
-			{:else if !completed && !approvalInfo.can_approve}
+			{:else if !completed && !actionTaken && !approvalInfo.can_approve}
 				{#if approvalInfo.user_auth_required && !$userStore}
 					<Login {rd} />
 				{:else}
