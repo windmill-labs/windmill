@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { buildWsUrl } from '$lib/wsUrl'
+	import { processSecretArgs } from './secretArgUtils'
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import {
 		type CompletedJob,
@@ -645,12 +646,13 @@
 
 		const testCode = activeModuleTab !== null ? editorCode : code
 		const testLang = activeModuleTab !== null ? effectiveLang : lang
-		const testArgs =
+		const rawTestArgs =
 			activeModuleTab !== null
 				? testPanelArgs
 				: selectedTab === 'preprocessor' || kind === 'preprocessor'
 					? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
 					: (args ?? {})
+		const testArgs = await processSecretArgs(rawTestArgs, schema)
 
 		//@ts-ignore
 		let job = await jobLoader.runPreview(
