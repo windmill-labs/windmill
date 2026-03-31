@@ -28,7 +28,6 @@
 	import DateInput from './DateInput.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
 	import PasswordArgInput from './PasswordArgInput.svelte'
-	import SecretArgInput from './SecretArgInput.svelte'
 	import Password from './Password.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
@@ -1497,7 +1496,15 @@
 	</div>
 
 	{#if isNonStringSecret}
-		<SecretArgInput bind:value />
+		{#if typeof value === 'string' && value.startsWith('$jsonvar:')}
+			<div class="text-2xs text-tertiary">
+				Sensitive — stored as secret: <code class="text-2xs">{value.slice('$jsonvar:'.length)}</code
+				>
+			</div>
+		{:else}
+			<div class="text-2xs text-tertiary italic">Sensitive — will be stored as secret on submit</div
+			>
+		{/if}
 	{/if}
 
 	{#if !compact || (error && error != '')}
