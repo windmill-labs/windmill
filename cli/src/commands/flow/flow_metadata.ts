@@ -23,7 +23,7 @@ import { newPathAssigner } from "../../../windmill-utils-internal/src/path-utils
 
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
 import { exts } from "../script/script.ts";
-import { FSFSElement } from "../sync/sync.ts";
+import { FSFSElement, yamlOptions } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { FlowFile } from "./flow.ts";
 import { FlowValue } from "../../../gen/types.gen.ts";
@@ -226,6 +226,12 @@ export async function generateFlowLockInternal(
 
     //removeChangedLocks
     const tempScriptRefs = tree?.getTempScriptRefs(folderNormalized);
+
+    // Preserve notes and groups — the backend round-trips through FlowValue
+    // which doesn't include these fields, so they'd be lost (#8641).
+    const savedNotes = flowValue.value.notes;
+    const savedGroups = flowValue.value.groups;
+
     flowValue.value = await updateFlow(
       workspace,
       flowValue.value,
@@ -233,6 +239,10 @@ export async function generateFlowLockInternal(
       filteredDeps,
       tempScriptRefs
     );
+
+    // Restore notes and groups that the backend stripped
+    if (savedNotes !== undefined) flowValue.value.notes = savedNotes;
+    if (savedGroups !== undefined) flowValue.value.groups = savedGroups;
 
     const lockAssigner = newPathAssigner(opts.defaultTs ?? "bun", {
       skipInlineScriptSuffix: getNonDottedPaths(),
@@ -257,7 +267,7 @@ export async function generateFlowLockInternal(
     // Overwrite `flow.yaml` with the new lockfile references
     writeIfChanged(
       process.cwd() + SEP + folder + SEP + "flow.yaml",
-      yamlStringify(flowValue as Record<string, any>)
+      yamlStringify(flowValue as Record<string, any>, yamlOptions)
     );
   }
 
