@@ -71,6 +71,13 @@ pub async fn handle_r_job<'a>(
 ) -> Result<Box<sqlx::types::JsonRawValue>, Error> {
     let annotation = RlangAnnotations::parse(args.inner_content);
 
+    if !std::path::Path::new(RSCRIPT_PATH.as_str()).exists() {
+        return Err(Error::ExecutionErr(format!(
+            "Rscript binary not found at '{}'. R is only available in the windmill-full (CE) or windmill-ee-full (EE) Docker images.",
+            *RSCRIPT_PATH
+        )));
+    }
+
     if annotation.sandbox && NSJAIL_AVAILABLE.is_none() {
         return Err(Error::ExecutionErr(
             "Script has #sandbox annotation but nsjail is not available on this worker. \
