@@ -5059,7 +5059,7 @@ flow related commands
   - \`--json\` - Output as JSON (for piping to jq)
 - \`flow push <file_path:string> <remote_path:string>\` - push a local flow spec. This overrides any remote versions.
   - \`--message <message:string>\` - Deployment message
-- \`flow run <path:string>\` - run a flow by path.
+- \`flow run <path:string>\` - run a flow by path. Streams step-by-step logs with labeled headers (e.g. "Step a: Generate data"). For-loop iterations are tracked individually. Exits with code 1 on failure.
   - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - \`-s --silent\` - Do not ouput anything other then the final output. Useful for scripting.
 - \`flow preview <flow_path:string>\` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default.
@@ -5222,17 +5222,38 @@ sync local with a remote instance or the opposite (push or pull)
 
 ### job
 
-Manage jobs (list, inspect, cancel)
+Manage jobs (list, inspect, cancel). By default lists top-level jobs only. For flow jobs, \`job get\` shows a hierarchical step tree and \`job logs\` aggregates all step logs.
+
+**Options:**
+- \`--json\` - Output as JSON (for piping to jq)
+- \`--script-path <scriptPath:string>\` - Filter by exact script/flow path
+- \`--created-by <createdBy:string>\` - Filter by creator username
+- \`--running\` - Show only running jobs
+- \`--failed\` - Show only failed jobs
+- \`--success <success:boolean>\` - Filter by success status (true/false)
+- \`--limit <limit:number>\` - Number of jobs to return (default 30, max 100)
+- \`--job-kinds <jobKinds:string>\` - Filter by job kinds (default: script,flow,singlestepflow)
+- \`--label <label:string>\` - Filter by job label
+- \`--all\` - Include sub-jobs (flow steps). By default only top-level jobs are shown
+- \`--parent <parent:string>\` - Filter by parent job ID (show sub-jobs of a specific flow)
+- \`--is-flow-step\` - Show only flow step jobs
 
 **Subcommands:**
 
-- \`job list\` - List recent jobs
-- \`job get <id:string>\` - Get job details and result
+- \`job list\` - List recent jobs (same options as above)
+- \`job get <id:string>\` - Get job details. For flow jobs, shows a hierarchical step tree with status icons, step labels, durations, and sub-job IDs. Use \`job logs <sub-job-id>\` to dive into step logs.
   - \`--json\` - Output as JSON (for piping to jq)
-- \`job result <id:string>\` - Get the result of a completed job (machine-friendly
-- \`job logs <id:string>\` - Get job logs
+- \`job result <id:string>\` - Get the result of a completed job (machine-friendly)
+- \`job logs <id:string>\` - Get job logs. For flow jobs, aggregates logs from all steps with labeled headers. For-loop iterations are shown individually.
 - \`job cancel <id:string>\` - Cancel a running or queued job
   - \`--reason <reason:string>\` - Reason for cancellation
+
+**Flow debugging workflow:**
+1. \`wmill job list --script-path f/folder/my_flow\` — find the flow job ID
+2. \`wmill job get <flow-id>\` — see step tree with status and sub-job IDs
+3. \`wmill job logs <flow-id>\` — see all step logs aggregated
+4. \`wmill job logs <step-job-id>\` — dive into a specific step's logs
+5. \`wmill job list --parent <flow-id>\` — list all sub-jobs of a flow
 
 ### jobs
 
