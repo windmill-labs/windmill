@@ -851,9 +851,20 @@ async fn add_user_igroup(
     #[cfg(all(feature = "private", feature = "enterprise"))]
     {
         use windmill_api_workspaces::workspaces_ee::auto_add_user;
+
+        // Find all instance groups this user belongs to (includes the newly added group)
+        let user_igroups: Vec<String> = sqlx::query_scalar!(
+            "SELECT igroup FROM email_to_igroup WHERE email = $1",
+            &email
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
         let workspaces = sqlx::query!(
             r#"
-            SELECT workspace_id, auto_invite->'instance_groups_roles' as instance_groups_roles
+            SELECT workspace_id,
+                   auto_invite->'instance_groups_roles' as instance_groups_roles,
+                   auto_invite->'instance_groups' as instance_groups_json
             FROM workspace_settings
             WHERE auto_invite->'instance_groups' ? $1
             "#,
@@ -861,34 +872,74 @@ async fn add_user_igroup(
         )
         .fetch_all(&mut *tx)
         .await?;
+
         for ws in workspaces {
-            let role = ws
+            let roles: std::collections::HashMap<String, String> = ws
                 .instance_groups_roles
-                .and_then(|r| r.get(&name).and_then(|v| v.as_str().map(String::from)))
-                .unwrap_or_else(|| "developer".to_string());
-            let (is_admin, is_operator) = match role.as_str() {
+                .and_then(|r| serde_json::from_value(r).ok())
+                .unwrap_or_default();
+
+            let ws_configured_groups: Vec<String> = ws
+                .instance_groups_json
+                .and_then(|ig| serde_json::from_value(ig).ok())
+                .unwrap_or_default();
+
+            // Compute highest-precedence role across all user's groups configured for this workspace
+            let mut best_group = name.clone();
+            let mut best_precedence = 0u8;
+
+            for group in &user_igroups {
+                if !ws_configured_groups.contains(group) {
+                    continue;
+                }
+                let default_role = "developer".to_string();
+                let role = roles.get(group).unwrap_or(&default_role);
+                let precedence = match role.as_str() {
+                    "admin" => 3u8,
+                    "operator" => 1,
+                    _ => 2,
+                };
+                if precedence > best_precedence {
+                    best_precedence = precedence;
+                    best_group = group.clone();
+                }
+            }
+
+            let default_role = "developer".to_string();
+            let best_role_str = roles.get(&best_group).unwrap_or(&default_role);
+            let (is_admin, is_operator) = match best_role_str.as_str() {
                 "admin" => (true, false),
                 "operator" => (false, true),
                 _ => (false, false),
             };
+
+            let instance_group_source = serde_json::json!({
+                "source": "instance_group",
+                "group": &best_group
+            });
+
             auto_add_user(
                 &email,
                 &ws.workspace_id,
                 &is_operator,
                 &mut tx,
                 &authed,
-                Some(serde_json::json!({"source": "instance_group", "group": &name})),
+                Some(instance_group_source.clone()),
             )
             .await?;
-            if is_admin {
-                sqlx::query!(
-                    "UPDATE usr SET is_admin = true WHERE workspace_id = $1 AND email = $2",
-                    &ws.workspace_id,
-                    &email
-                )
-                .execute(&mut *tx)
-                .await?;
-            }
+
+            // Update role to reflect highest precedence across all groups
+            // (handles both new users needing admin and existing users whose role needs upgrading)
+            sqlx::query!(
+                "UPDATE usr SET is_admin = $1, operator = $2, added_via = $3 WHERE workspace_id = $4 AND email = $5 AND added_via->>'source' = 'instance_group'",
+                is_admin,
+                is_operator,
+                &instance_group_source,
+                &ws.workspace_id,
+                &email
+            )
+            .execute(&mut *tx)
+            .await?;
         }
     }
 
