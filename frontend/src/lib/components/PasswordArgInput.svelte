@@ -9,9 +9,10 @@
 	interface Props {
 		value?: string | undefined
 		disabled: boolean
+		multiline?: boolean
 	}
 
-	let { value = $bindable(undefined), disabled }: Props = $props()
+	let { value = $bindable(undefined), disabled, multiline = false }: Props = $props()
 
 	let path = $state('')
 	let password = $state(
@@ -95,5 +96,5 @@
 		</Button>
 	</div>
 {:else}
-	<Password {disabled} bind:password />
+	<Password {disabled} {multiline} bind:password />
 {/if}

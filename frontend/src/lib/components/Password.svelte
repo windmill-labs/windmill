@@ -11,6 +11,7 @@
 		disabled?: boolean
 		required?: boolean
 		small?: boolean
+		multiline?: boolean
 		id?: string
 		onKeyDown?: (event: KeyboardEvent) => void
 		onBlur?: (event: FocusEvent) => void
@@ -22,6 +23,7 @@
 		disabled = false,
 		required = false,
 		small = false,
+		multiline = false,
 		id,
 		onKeyDown,
 		onBlur
@@ -33,7 +35,7 @@
 </script>
 
 <div class="relative w-full {small ? 'max-w-lg' : ''}">
-	<div class="absolute inset-y-0 right-1 flex items-center">
+	<div class="absolute {multiline ? 'top-1' : 'inset-y-0'} right-1 flex items-center z-10">
 		<Button
 			unifiedSize="sm"
 			onClick={() => (hideValue = !hideValue)}
@@ -43,24 +45,48 @@
 			wrapperClasses="bg-surface-input"
 		/>
 	</div>
-	<TextInput
-		size="md"
-		error={red}
-		bind:value={password}
-		inputProps={{
-			id,
-			disabled,
-			placeholder,
-			autocomplete: 'new-password',
-			onblur: (e) => onBlur?.(e),
-			onkeydown: (e) => {
-				onKeyDown?.(e)
-				bubble('keydown')(e)
-			},
-			type: hideValue ? 'password' : 'text'
-		}}
-		class="pr-8"
-	/>
+	{#if multiline}
+		<TextInput
+			size="md"
+			error={red}
+			bind:value={password}
+			underlyingInputEl="textarea"
+			inputProps={{
+				id,
+				disabled,
+				placeholder,
+				rows: 3,
+				autocomplete: 'new-password',
+				onblur: (e) => onBlur?.(e),
+				onkeydown: (e) => {
+					onKeyDown?.(e)
+					bubble('keydown')(e)
+				},
+				style: hideValue ? '-webkit-text-security: disc' : ''
+			}}
+			class="pr-8"
+			unifiedHeight={false}
+		/>
+	{:else}
+		<TextInput
+			size="md"
+			error={red}
+			bind:value={password}
+			inputProps={{
+				id,
+				disabled,
+				placeholder,
+				autocomplete: 'new-password',
+				onblur: (e) => onBlur?.(e),
+				onkeydown: (e) => {
+					onKeyDown?.(e)
+					bubble('keydown')(e)
+				},
+				type: hideValue ? 'password' : 'text'
+			}}
+			class="pr-8"
+		/>
+	{/if}
 </div>
 {#if red}
 	<div class="text-red-600 text-2xs grow">This field is required</div>

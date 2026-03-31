@@ -52,7 +52,8 @@
 		computeKind(enum_, contentEncoding, pattern, format)
 	)
 
-	const allowKindChange = untrack(() => overrideAllowKindChange) || untrack(() => originalType) === 'string'
+	const allowKindChange =
+		untrack(() => overrideAllowKindChange) || untrack(() => originalType) === 'string'
 
 	let patternStr: string = $state(pattern ?? '')
 	let resource: string | undefined = $state()
@@ -345,7 +346,7 @@
 			<div class="mt-2"></div>
 			<Label label="Min textarea rows">
 				<TextInput
-					inputProps={{ type: 'number' }}
+					inputProps={{ type: 'number', disabled: password === true }}
 					bind:value={() => minRows?.toString(), (v) => (minRows = v ? parseInt(v) : undefined)}
 				/>
 			</Label>
@@ -383,7 +384,7 @@
 			options={{
 				right: 'Is Password/Sensitive',
 				rightTooltip:
-					'The value will be stored as an ephemeral secret variable in the user space of the caller of the job, only viewable by him.'
+					'The value will be stored as an ephemeral secret variable in the user space of the caller of the job, only viewable by that user.'
 			}}
 			checked={password}
 			on:change={(e) => {
