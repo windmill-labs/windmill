@@ -269,10 +269,10 @@ Manage jobs (list, inspect, cancel)
 **Subcommands:**
 
 - `job list` - List recent jobs
-- `job get <id:string>` - Get job details and result
+- `job get <id:string>` - Get job details. For flows: shows step tree with sub-job IDs
   - `--json` - Output as JSON (for piping to jq)
 - `job result <id:string>` - Get the result of a completed job (machine-friendly
-- `job logs <id:string>` - Get job logs
+- `job logs <id:string>` - Get job logs. For flows: aggregates all step logs
 - `job cancel <id:string>` - Cancel a running or queued job
   - `--reason <reason:string>` - Reason for cancellation
 
