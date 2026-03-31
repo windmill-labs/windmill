@@ -77,8 +77,8 @@ use windmill_common::{
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
-        to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS, WORKER_PULL_QUERIES,
-        WORKER_SUSPENDED_PULL_QUERY,
+        to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS, PREVIEW_TAGS_OVERRIDE,
+        WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
 };
@@ -3304,7 +3304,11 @@ pub async fn pull(
                 if let Some(job) = job.as_ref() {
                     if job.is_flow() || job.is_dependency() {
                         let per_workspace = per_workspace_tag(&job.workspace_id).await;
-                        let base_tag = if job.is_flow() {
+                        let base_tag = if job.kind.is_preview()
+                            && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed)
+                        {
+                            "preview".to_string()
+                        } else if job.is_flow() {
                             "flow".to_string()
                         } else {
                             "dependency".to_string()
@@ -5493,25 +5497,35 @@ async fn push_inner<'c, 'd>(
         };
 
         interpolated_tag.unwrap_or_else(|| {
-            language
-                .as_ref()
-                .map(|x| {
-                    let tag_lang = if x == &ScriptLang::Bunnative {
-                        if job_kind == JobKind::Dependencies {
-                            ScriptLang::Bun.as_str()
+            if job_kind.is_preview()
+                && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed)
+            {
+                if per_workspace {
+                    format!("preview-{}", workspace_id)
+                } else {
+                    "preview".to_string()
+                }
+            } else {
+                language
+                    .as_ref()
+                    .map(|x| {
+                        let tag_lang = if x == &ScriptLang::Bunnative {
+                            if job_kind == JobKind::Dependencies {
+                                ScriptLang::Bun.as_str()
+                            } else {
+                                ScriptLang::Nativets.as_str()
+                            }
                         } else {
-                            ScriptLang::Nativets.as_str()
+                            x.as_str()
+                        };
+                        if per_workspace {
+                            format!("{}-{}", tag_lang, workspace_id)
+                        } else {
+                            tag_lang.to_string()
                         }
-                    } else {
-                        x.as_str()
-                    };
-                    if per_workspace {
-                        format!("{}-{}", tag_lang, workspace_id)
-                    } else {
-                        tag_lang.to_string()
-                    }
-                })
-                .unwrap_or_else(default)
+                    })
+                    .unwrap_or_else(default)
+            }
         })
     };
 
