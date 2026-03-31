@@ -518,3 +518,46 @@ async fn test_mcp_tools(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[cfg(feature = "mcp")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_mcp_endpoint_tools_list(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/mcp/w/test-workspace/list_tools"
+    )))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200);
+
+    let tools: Vec<serde_json::Value> = resp.json().await?;
+
+    let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+
+    assert!(
+        tool_names.contains(&"getJob"),
+        "getJob not found in MCP endpoint tools: {tool_names:?}"
+    );
+    assert!(
+        tool_names.contains(&"getJobLogs"),
+        "getJobLogs not found in MCP endpoint tools: {tool_names:?}"
+    );
+
+    // Verify getJob has the expected path and method
+    let get_job_tool = tools.iter().find(|t| t["name"] == "getJob").unwrap();
+    assert_eq!(get_job_tool["path"], "/w/{workspace}/jobs_u/get/{id}");
+    assert_eq!(get_job_tool["method"], "GET");
+
+    // Verify getJobLogs has the expected path and method
+    let get_job_logs_tool = tools.iter().find(|t| t["name"] == "getJobLogs").unwrap();
+    assert_eq!(
+        get_job_logs_tool["path"],
+        "/w/{workspace}/jobs_u/get_logs/{id}"
+    );
+    assert_eq!(get_job_logs_tool["method"], "GET");
+
+    Ok(())
+}
