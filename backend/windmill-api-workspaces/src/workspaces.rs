@@ -1647,10 +1647,7 @@ async fn import_pg_database(
         target_pg.dbname = override_dbname.clone();
     }
 
-    // Validate the target dbname before using it in SQL
-    if req.create_target_db {
-        windmill_common::validate_dbname(&target_pg.dbname)?;
-    }
+    windmill_common::validate_dbname(&target_pg.dbname)?;
 
     if req.create_target_db {
         // Determine if this is an instance or resource-backed datatable
