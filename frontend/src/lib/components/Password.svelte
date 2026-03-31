@@ -31,7 +31,6 @@
 	}: Props = $props()
 
 	let red = $derived(required && (password == '' || password == undefined))
-
 	let hideValue = $state(true)
 	let forceMultiline = $state(false)
 	let isMultiline = $derived(
@@ -40,22 +39,17 @@
 
 	let textareaRef: TextInput<'textarea'> | undefined = $state()
 
-	async function switchToMultiline() {
-		forceMultiline = true
-		await tick()
-		textareaRef?.focus()
-	}
-
-	function onPasteIntoInput(e: ClipboardEvent) {
-		const text = e.clipboardData?.getData('text')
-		if (text?.includes('\n')) {
-			e.preventDefault()
-			const input = e.currentTarget as HTMLInputElement
-			const start = input.selectionStart ?? 0
-			const end = input.selectionEnd ?? 0
+	function insertAndSwitchToMultiline(input: HTMLInputElement, text: string) {
+		const start = input.selectionStart
+		const end = input.selectionEnd
+		if (start != null && end != null) {
 			password = (password ?? '').substring(0, start) + text + (password ?? '').substring(end)
-			switchToMultiline()
+		} else {
+			// selectionStart/End are null for type="password" inputs
+			password = (password ?? '') + text
 		}
+		forceMultiline = true
+		tick().then(() => textareaRef?.focus())
 	}
 </script>
 
@@ -107,17 +101,19 @@
 				onkeydown: (e) => {
 					if (e.key === 'Enter') {
 						e.preventDefault()
-						const input = e.currentTarget as HTMLInputElement
-						const start = input.selectionStart ?? 0
-						const end = input.selectionEnd ?? 0
-						password = (password ?? '').substring(0, start) + '\n' + (password ?? '').substring(end)
-						switchToMultiline()
+						insertAndSwitchToMultiline(e.currentTarget as HTMLInputElement, '\n')
 						return
 					}
 					onKeyDown?.(e)
 					bubble('keydown')(e)
 				},
-				onpaste: onPasteIntoInput,
+				onpaste: (e) => {
+					const text = e.clipboardData?.getData('text')
+					if (text?.includes('\n')) {
+						e.preventDefault()
+						insertAndSwitchToMultiline(e.currentTarget as HTMLInputElement, text)
+					}
+				},
 				type: hideValue ? 'password' : 'text'
 			}}
 			class="pr-8"
