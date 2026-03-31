@@ -56,6 +56,8 @@ async function list(
     jobKinds?: string;
     label?: string;
     all?: boolean;
+    parent?: string;
+    isFlowStep?: boolean;
   }
 ) {
   if (opts.json) log.setSilent(true);
@@ -67,6 +69,12 @@ async function list(
   let successFilter = opts.success;
   if (opts.failed) successFilter = false;
 
+  // When --all or --parent is used, include flow sub-job kinds too
+  const showSubJobs = opts.all || opts.parent;
+  const defaultJobKinds = showSubJobs
+    ? "script,flow,singlestepflow,flowscript,flowdependencies"
+    : "script,flow,singlestepflow";
+
   const limit = Math.min(opts.limit ?? 30, 100);
   const allJobs = await wmill.listJobs({
     workspace: workspace.workspaceId,
@@ -75,9 +83,11 @@ async function list(
     running: opts.running,
     success: successFilter,
     perPage: limit,
-    jobKinds: opts.jobKinds ?? "script,flow,singlestepflow",
+    jobKinds: opts.jobKinds ?? defaultJobKinds,
     label: opts.label,
-    hasNullParent: opts.all ? undefined : true,
+    hasNullParent: showSubJobs ? undefined : true,
+    parentJob: opts.parent,
+    isFlowStep: opts.isFlowStep,
   });
   // API may return more than perPage — enforce limit client-side
   const jobs = allJobs.slice(0, limit);
@@ -183,7 +193,7 @@ async function logs(
     if (jobKind === "flow" || jobKind === "flowpreview") {
       log.info(colors.yellow(
         "Flow jobs don't have direct logs. Each step runs as a separate job.\n" +
-        "Use 'wmill job list --all' to see sub-jobs, then 'wmill job logs <sub-job-id>' for individual step logs."
+        `Use 'wmill job list --parent ${id}' to see sub-jobs, then 'wmill job logs <sub-job-id>' for individual step logs.`
       ));
       return;
     }
@@ -235,7 +245,9 @@ const listOptions = (cmd: Command) =>
     .option("--limit <limit:number>", "Number of jobs to return (default 30, max 100)")
     .option("--job-kinds <jobKinds:string>", "Filter by job kinds (default: script,flow,singlestepflow)")
     .option("--label <label:string>", "Filter by job label")
-    .option("--all", "Include sub-jobs (flow steps). By default only top-level jobs are shown");
+    .option("--all", "Include sub-jobs (flow steps). By default only top-level jobs are shown")
+    .option("--parent <parent:string>", "Filter by parent job ID (show sub-jobs of a specific flow)")
+    .option("--is-flow-step", "Show only flow step jobs");
 
 const command = listOptions(new Command()
   .description("Manage jobs (list, inspect, cancel)"))
